@@ -63,4 +63,25 @@ type Journal interface {
 	MergeHook(ctx context.Context, event lanes.HookEvent) error
 	// HookEvents lists one lane's merged events.
 	HookEvents(ctx context.Context, lane string) ([]lanes.HookRecord, error)
+	// BeginEffect records an effect as started, before it happens. A key that exists
+	// changes nothing and reports false, so an effect has one record for good.
+	BeginEffect(ctx context.Context, effect lanes.Effect) (bool, error)
+	// Effect returns one effect, or ErrNotFound.
+	Effect(ctx context.Context, key string) (lanes.Effect, error)
+	// Effects lists every effect, in the order they began.
+	Effects(ctx context.Context) ([]lanes.Effect, error)
+	// FinishEffect records how an effect ended. It settles a started or an unknown
+	// effect, and a settled one stays as it is.
+	FinishEffect(ctx context.Context, key string, state lanes.EffectState, detail string) error
+	// RetryEffect moves an unknown effect back to started and counts the attempt. It
+	// reports false for any other state, so only an observed absence leads to a retry.
+	RetryEffect(ctx context.Context, key string) (bool, error)
+	// MarkUnknown turns every started effect into unknown_after_crash, and returns how
+	// many. It runs once at a start, before this process begins an effect.
+	MarkUnknown(ctx context.Context) (int, error)
+	// BindGeneration records a lane's session and its event together, once, and reports
+	// whether this was the first time.
+	BindGeneration(ctx context.Context, lane, sessionID string, event ledger.UploadEvent) (bool, error)
+	// SaveProgress replaces how far this worker read a lane's session.
+	SaveProgress(ctx context.Context, lane string, progress lanes.Progress) error
 }

@@ -204,6 +204,44 @@ func TestNoVendorFileReadsCanFail(t *testing.T) {
 	}
 }
 
+// agentsListing finds a command line that runs the CLI's own listing.
+var agentsListing = []string{`"agents"`}
+
+// listingFile is the one file that may run the listing. It reads as `idle` for a hung
+// process and drops a killed one with no record, so it is a read at adoption and never
+// a state source.
+const listingFile = "internal/adapters/claudecode/adoption.go"
+
+// TestAgentsListingOnlyInAdoption finds `claude agents` nowhere but adoption.
+func TestAgentsListingOnlyInAdoption(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, agentsListing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := false
+	for _, hit := range found {
+		if strings.HasPrefix(hit, listingFile) {
+			listed = true
+			continue
+		}
+		t.Error(hit)
+	}
+	if !listed {
+		t.Errorf("the listing is not in %s, so this rule is checking the wrong file", listingFile)
+	}
+}
+
+// TestAgentsListingRuleCanFail runs the same rule on a tree that polls the listing.
+func TestAgentsListingRuleCanFail(t *testing.T) {
+	found, err := FindSource(filepath.Join("testdata", "agentslisting"), []string{"internal"}, agentsListing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) == 0 {
+		t.Error("the rule found nothing in a tree that polls the listing")
+	}
+}
+
 // TestCanaryIsFirstAndFails proves the canary can fail a run: a copy of it, executed,
 // exits with an error and leaves its mark.
 func TestCanaryIsFirstAndFails(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"sync"
@@ -47,11 +46,12 @@ type LaneRuntime struct {
 
 // laneRun is one lane this process is running.
 type laneRun struct {
-	w      *Worker
-	rt     *LaneRuntime
-	lease  ledger.DesiredLease
-	handle ports.SessionHandle
-	model  string
+	w          *Worker
+	rt         *LaneRuntime
+	lease      ledger.DesiredLease
+	generation int64
+	handle     ports.SessionHandle
+	model      string
 
 	profileDigest string
 	version       string
@@ -59,61 +59,38 @@ type laneRun struct {
 
 	bound    bool
 	nudged   bool
+	cursor   int64
 	decided  *workorders.Report
 	cost     lanes.CostMeter
 	usage    lanes.Usage
 	fenced   atomic.Bool
 	stopping sync.Once
+	stopped  sync.WaitGroup
 }
 
-// reconcile starts the lanes desired state names and this worker has not started. A
-// lane in the journal was started here, so a restart never starts it twice, because
-// spawning is not idempotent.
-func (w *Worker) reconcile(ctx context.Context) {
-	if w.config.Lanes == nil {
-		return
-	}
-	state, err := w.journal.Desired(ctx)
-	if errors.Is(err, ports.ErrNotFound) {
-		return
-	}
-	if err != nil {
-		w.config.Report(err)
-		return
-	}
-	for _, lease := range state.Leases {
-		if lease.Lane == "" || lease.State != string(workorders.Claimed) {
-			continue
-		}
-		_, err := w.journal.Lane(ctx, lease.Lane)
-		if err == nil {
-			continue
-		}
-		if !errors.Is(err, ports.ErrNotFound) {
-			w.config.Report(err)
-			continue
-		}
-		w.startRun(ctx, lease)
-	}
+// newRun is a lane's run at its first generation.
+func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
+	return &laneRun{w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration}
 }
 
-func (w *Worker) startRun(ctx context.Context, lease ledger.DesiredLease) {
-	run := &laneRun{w: w, rt: w.config.Lanes, lease: lease}
+// startRun runs one lane apart, so one stuck lane stops no other.
+func (w *Worker) startRun(ctx context.Context, run *laneRun, body func(*laneRun, context.Context) error) {
+	lane := run.lease.Lane
 	w.mu.Lock()
-	if _, started := w.running[lease.Lane]; started {
+	if _, started := w.running[lane]; started {
 		w.mu.Unlock()
 		return
 	}
-	w.running[lease.Lane] = run
+	w.running[lane] = run
 	w.mu.Unlock()
 	w.laneGroup.Go(func() {
 		defer func() {
 			w.mu.Lock()
-			delete(w.running, lease.Lane)
+			delete(w.running, lane)
 			w.mu.Unlock()
 		}()
-		if err := run.run(ctx); err != nil && ctx.Err() == nil {
-			w.config.Report(fmt.Errorf("lane %s: %w", lease.Lane, err))
+		if err := body(run, ctx); err != nil && ctx.Err() == nil {
+			w.config.Report(fmt.Errorf("lane %s: %w", lane, err))
 		}
 	})
 }
@@ -131,37 +108,6 @@ func (w *Worker) stopFenced(ctx context.Context, workOrder string) {
 	}
 }
 
-// recoverLanes accounts for lanes a crash left behind. A headless session dies with its
-// worker until the shim holds its pipes, so a lane still marked running ended without
-// an outcome of its own. A report it made before the crash stands.
-func (w *Worker) recoverLanes(ctx context.Context) error {
-	records, err := w.journal.Lanes(ctx)
-	if err != nil {
-		return err
-	}
-	for _, record := range records {
-		if record.State != lanes.StateRunning {
-			continue
-		}
-		w.mu.Lock()
-		_, live := w.running[record.ID]
-		w.mu.Unlock()
-		if live {
-			continue
-		}
-		result := workorders.LaneResult{Report: workorders.Report{
-			Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonWorkerRestarted,
-		}}
-		if report, ok := decodeReport(record.Report); ok {
-			result.Report = report
-		}
-		if err := w.endLane(ctx, record, result); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func decodeReport(raw []byte) (workorders.Report, bool) {
 	var report workorders.Report
 	if len(raw) == 0 || json.Unmarshal(raw, &report) != nil {
@@ -170,16 +116,18 @@ func decodeReport(raw []byte) (workorders.Report, bool) {
 	return report, true
 }
 
-// Converge makes one pass with no loop: it accounts for what a crash left, reads
-// desired state, runs what it names to the end, and uploads.
+// Converge makes one pass with no loop: it marks what a crash left, reads desired
+// state, reconciles, runs what that started to the end, and uploads.
 func (w *Worker) Converge(ctx context.Context) error {
-	if err := w.recoverLanes(ctx); err != nil {
+	if err := w.markUnknown(ctx); err != nil {
 		return err
 	}
 	if err := w.Sync(ctx); err != nil {
 		return err
 	}
-	w.reconcile(ctx)
+	if _, err := w.Reconcile(ctx); err != nil {
+		return err
+	}
 	w.laneGroup.Wait()
 	return w.Upload(ctx)
 }
@@ -210,13 +158,13 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workor
 func (r *laneRun) record() lanes.Record {
 	return lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence,
-		Generation: firstGeneration, State: lanes.StateRunning,
+		Generation: r.generation, State: lanes.StateRunning,
 	}
 }
 
-// run takes one lane from its start to its outcome. The start is journaled first, so
+// begin takes one lane from its start to its outcome. The start is journaled first, so
 // whatever happens next, the lane has an end on record.
-func (r *laneRun) run(ctx context.Context) error {
+func (r *laneRun) begin(ctx context.Context) error {
 	record := r.record()
 	_, err := r.w.journal.BeginLane(ctx, record, r.w.event(ledger.UploadLaneStarted, record, nil))
 	if err != nil {
@@ -226,14 +174,72 @@ func (r *laneRun) run(ctx context.Context) error {
 	if err := r.w.Upload(ctx); err != nil {
 		r.w.config.Report(err)
 	}
-	report := r.session(ctx)
-	if dir := r.tempDir(); dir != "" {
+	return r.proceed(ctx)
+}
+
+// proceed runs a lane's session to the end. A restart comes here for a lane a crash
+// stopped before its session existed, and the effects on record say how far it got.
+func (r *laneRun) proceed(ctx context.Context) error {
+	return r.finish(ctx, r.session(ctx))
+}
+
+// finish records the end only after a stop in flight has its own end on record, so a
+// clean exit leaves no effect open.
+func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
+	r.stopped.Wait()
+	if dir := r.rt.tempDir(r.lease.Lane); dir != "" {
 		_ = os.RemoveAll(dir)
 	}
-	return r.w.endLane(context.WithoutCancel(ctx), record, workorders.LaneResult{
+	return r.w.endLane(context.WithoutCancel(ctx), r.record(), workorders.LaneResult{
 		Report: report, CostUSD: r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
 		UnknownCostTurns: r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
 	})
+}
+
+// adoptedRun rebuilds a lane's run from the journal, because nothing else survived.
+func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located ports.Located) (*laneRun, error) {
+	run := newRun(w, ledger.DesiredLease{
+		WorkOrder: record.WorkOrder, ClaimID: record.ClaimID, Fence: record.Fence, Lane: record.ID,
+	})
+	run.generation, run.handle = record.Generation, located.Handle
+	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
+	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
+	_, err := w.journal.Effect(ctx, run.nudge().Key)
+	switch {
+	case err == nil:
+		run.nudged = true
+	case !errors.Is(err, ports.ErrNotFound):
+		return nil, err
+	}
+	return run, nil
+}
+
+// adopt reads a session this process did not start, from where the journal says the
+// last one stopped. A lane that already reported waits only for its session to end.
+func (r *laneRun) adopt(ctx context.Context) error {
+	err := r.rt.Driver.Adopt(ctx, r.handle, ports.AdoptFrom{Cursor: r.cursor, Cost: r.cost})
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
+		return r.finish(ctx, r.unattended(ctx))
+	}
+	crashpoint.Hit("worker.lane", "adopted")
+	events, err := r.rt.Driver.Events(ctx, r.handle)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: reading its session: %w", r.lease.Lane, err))
+		return r.finish(ctx, r.unattended(ctx))
+	}
+	if _, ok := r.reported(ctx); ok {
+		r.stop(ctx, ports.StopAtRest)
+	}
+	return r.finish(ctx, r.watch(ctx, events))
+}
+
+// unattended is the outcome of a lane whose session cannot be read.
+func (r *laneRun) unattended(ctx context.Context) workorders.Report {
+	if report, ok := r.reported(ctx); ok {
+		return report
+	}
+	return failed(workorders.ReasonWorkerRestarted)
 }
 
 func failed(reason string) workorders.Report {
@@ -243,13 +249,6 @@ func failed(reason string) workorders.Report {
 func (r *laneRun) failStart(reason string, err error) workorders.Report {
 	r.w.config.Report(fmt.Errorf("lane %s: %s: %w", r.lease.Lane, reason, err))
 	return failed(reason)
-}
-
-func (r *laneRun) tempDir() string {
-	if r.rt.RunDir == "" {
-		return ""
-	}
-	return filepath.Join(r.rt.RunDir, "t", r.lease.Lane)
 }
 
 // session provisions and runs the session, and returns the lane's outcome. The token
@@ -266,9 +265,13 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
 		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch,
 		Tags: map[string]string{
-			lanes.EnvLaneID: r.lease.Lane, lanes.EnvGeneration: strconv.Itoa(firstGeneration),
+			lanes.EnvLaneID: r.lease.Lane, lanes.EnvGeneration: strconv.FormatInt(r.generation, 10),
 			lanes.EnvWorkOrder: r.lease.WorkOrder, lanes.EnvLaneToken: token,
 			lanes.EnvWorkerSocket: r.rt.Socket, lanes.EnvSpool: r.rt.Spool,
+		},
+		Bracket: func(target string, perform func() error) (bool, error) {
+			effect := lanes.NewEffect(lanes.EffectWorktree, r.lease.Lane, r.generation, target, "")
+			return r.w.bracket(ctx, effect, perform)
 		},
 	})
 	if err != nil {
@@ -283,9 +286,17 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if err := r.w.journal.SaveLane(ctx, record); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
-	r.handle, err = r.rt.Driver.Start(ctx, spec)
+	spawn := lanes.NewEffect(lanes.EffectSession, r.lease.Lane, r.generation, prepared.Worktree.Path, "")
+	ran, err := r.w.bracket(ctx, spawn, func() error {
+		var err error
+		r.handle, err = r.rt.Driver.Start(ctx, spec)
+		return err
+	})
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
+	if !ran {
+		return failed(workorders.ReasonWorkerRestarted)
 	}
 	crashpoint.Hit("worker.lane", "spawned")
 	events, err := r.rt.Driver.Events(ctx, r.handle)
@@ -313,13 +324,13 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 	r.model, r.profileDigest = prepared.Profile.Agent.Model, prepared.ProfileDigest
 	r.version, r.degraded = capabilities.Version, capabilities.Degraded
 	spec := ports.SessionSpec{
-		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: firstGeneration, Dir: prepared.Worktree.Path,
+		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.generation, Dir: prepared.Worktree.Path,
 		Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
 		Brief: lanes.Brief(lanes.BriefSpec{
 			WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
 		}),
-		ConfigDir: filepath.Join(r.rt.StateDir, "lanes", r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
-		Credential: credential, TempDir: r.tempDir(), Override: r.rt.Override,
+		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
+		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 	}
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
@@ -340,12 +351,16 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 // no person marks anything (FR-LANE-5).
 func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) workorders.Report {
 	for event := range events {
+		if event.Seq != 0 && event.Seq <= r.cursor {
+			continue
+		}
 		switch event.Kind {
 		case ports.EventSessionBound:
 			r.bind(ctx, event)
 		case ports.EventTurnEnded:
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
 			r.afterTurn(ctx, event.Turn)
+			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			return r.verdict(ctx, event.End)
 		}
@@ -353,8 +368,18 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 	return failed(workorders.ReasonCrashed)
 }
 
+// saveProgress keeps how far this run read, so a kill costs at most one redelivered
+// turn, and a redelivered turn is dropped by its position.
+func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
+	r.cursor = cursor
+	progress := lanes.Progress{Cursor: cursor, Cost: r.cost, Usage: r.usage}
+	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
+		r.w.config.Report(err)
+	}
+}
+
 // bind records the generation once, with the resolved model. A session's identity is
-// read on every turn, and a generation's binding is one fact.
+// read on every turn, and a generation's binding is one fact, even across a restart.
 func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	if r.bound {
 		return
@@ -369,8 +394,12 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 		return
 	}
 	bound := r.w.event(ledger.UploadGenerationBound, r.record(), payload)
-	if _, err := r.w.Record(ctx, bound); err != nil {
+	first, err := r.w.journal.BindGeneration(ctx, r.lease.Lane, event.SessionID, bound)
+	if err != nil {
 		r.w.config.Report(err)
+		return
+	}
+	if !first {
 		return
 	}
 	if err := r.w.Upload(ctx); err != nil {
@@ -393,12 +422,21 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 	}
 	if !r.nudged {
 		r.nudged = true
-		if _, err := r.rt.Driver.Send(ctx, r.handle, ports.Input{Text: lanes.Nudge}); err == nil {
+		ran, err := r.w.bracket(ctx, r.nudge(), func() error {
+			_, err := r.rt.Driver.Send(ctx, r.handle, ports.Input{Text: lanes.Nudge})
+			return err
+		})
+		if ran && err == nil {
 			return
 		}
 	}
 	r.decided = &workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome}
 	r.stop(ctx, ports.StopAtRest)
+}
+
+// nudge is the one input a worker sends a lane on its own.
+func (r *laneRun) nudge() lanes.Effect {
+	return lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.generation, "", "nudge")
 }
 
 func (r *laneRun) reported(ctx context.Context) (workorders.Report, bool) {
@@ -432,10 +470,13 @@ func (r *laneRun) verdict(ctx context.Context, end *ports.SessionEnd) workorders
 // the loop must keep reading its stream.
 func (r *laneRun) stop(ctx context.Context, how ports.StopMode) {
 	r.stopping.Do(func() {
-		go func() {
-			if err := r.rt.Driver.Stop(context.WithoutCancel(ctx), r.handle, how); err != nil {
+		r.stopped.Go(func() {
+			ctx := context.WithoutCancel(ctx)
+			effect := lanes.NewEffect(lanes.EffectStop, r.lease.Lane, r.generation, "", "")
+			_, err := r.w.bracket(ctx, effect, func() error { return r.rt.Driver.Stop(ctx, r.handle, how) })
+			if err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: stop: %w", r.lease.Lane, err))
 			}
-		}()
+		})
 	})
 }

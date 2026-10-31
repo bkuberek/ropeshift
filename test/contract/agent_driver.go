@@ -49,6 +49,8 @@ func RunAgentDriver(t *testing.T, fresh func(*testing.T) DriverRig) {
 		{"a session stopped at rest ended cleanly", checkStopAtRest},
 		{"an ended session reads dead and takes no input", checkEndedSession},
 		{"an unknown handle reads unknown, not dead", checkUnknownHandle},
+		{"a session that never started is not found", checkFindNothing},
+		{"an adoption with nothing to take over refuses", checkAdoptNothing},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -56,6 +58,25 @@ func RunAgentDriver(t *testing.T, fresh func(*testing.T) DriverRig) {
 			defer cancel()
 			check.run(t, ctx, fresh(t))
 		})
+	}
+}
+
+func checkFindNothing(t *testing.T, ctx context.Context, rig DriverRig) {
+	spec := rig.Arrange(ScenarioTwoTurns)
+	spec.Lane = "no-such-lane"
+	located, err := rig.Driver.Find(ctx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if located.Found || located.Readable {
+		t.Errorf("located %+v", located)
+	}
+}
+
+func checkAdoptNothing(t *testing.T, ctx context.Context, rig DriverRig) {
+	err := rig.Driver.Adopt(ctx, ports.SessionHandle{ID: "no-such-lane/1"}, ports.AdoptFrom{})
+	if !errors.Is(err, ports.ErrNoSession) {
+		t.Errorf("adopt: %v", err)
 	}
 }
 

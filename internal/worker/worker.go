@@ -59,6 +59,7 @@ type Worker struct {
 
 	uploading sync.Mutex
 	laneGroup sync.WaitGroup
+	marked    sync.Once
 }
 
 // New returns a worker that has not started.
@@ -331,14 +332,14 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		wait(ctx, retryEvery)
 	}
-	if err := w.recoverLanes(ctx); err != nil {
+	if err := w.markUnknown(ctx); err != nil {
 		w.config.Report(err)
 	}
 	hints := make(chan int64, 1)
 	go w.watch(ctx, hints)
 	for {
 		w.cycle(ctx)
-		w.reconcile(ctx)
+		w.tick(ctx)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -346,9 +347,16 @@ func (w *Worker) Run(ctx context.Context) error {
 			if err := w.Sync(ctx); err != nil && ctx.Err() == nil {
 				w.config.Report(err)
 			}
-			w.reconcile(ctx)
+			w.tick(ctx)
 		case <-time.After(w.pause()):
 		}
+	}
+}
+
+// tick is one reconcile pass that outlives its own failure.
+func (w *Worker) tick(ctx context.Context) {
+	if _, err := w.Reconcile(ctx); err != nil && ctx.Err() == nil {
+		w.config.Report(err)
 	}
 }
 

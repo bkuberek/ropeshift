@@ -401,6 +401,11 @@ func allVariants() []variant {
 			crash: func() (crashCase, string) { return workerLaneCase(), laneSplitStep },
 		},
 		{
+			name:  retriesBlind,
+			check: "crash",
+			crash: func() (crashCase, string) { return effectCase("effect.session"), "performed" },
+		},
+		{
 			name:     "lapse trusts the sweep's earlier read",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.lapse", "\n   AND lease_until <= :now", "")},
 			check:    "L9",

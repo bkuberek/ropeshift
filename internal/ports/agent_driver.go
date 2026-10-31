@@ -111,13 +111,13 @@ type ResumeRef struct {
 }
 
 // Liveness has three values, because an incomplete read is not a negative answer.
-type Liveness string
+type Liveness = lanes.Liveness
 
 // The values of Liveness. Dead needs positive evidence.
 const (
-	LivenessAlive   Liveness = "alive"
-	LivenessDead    Liveness = "dead"
-	LivenessUnknown Liveness = "unknown"
+	LivenessAlive   = lanes.LivenessAlive
+	LivenessDead    = lanes.LivenessDead
+	LivenessUnknown = lanes.LivenessUnknown
 )
 
 // Observation is a session's state as the driver sees it.
@@ -128,6 +128,21 @@ type Observation struct {
 	ContextTokens int64
 	// Malformed counts stream lines that did not parse.
 	Malformed int
+}
+
+// Located is what Find learned of a session from an earlier process.
+type Located struct {
+	lanes.Session
+	Handle SessionHandle
+}
+
+// AdoptFrom is where a restarted worker picks a session up.
+type AdoptFrom struct {
+	// Cursor is the last stream position this worker finished with. Anything at or
+	// before it is dropped, because a kill between reading and saving redelivers.
+	Cursor int64
+	// Cost continues a generation's meter.
+	Cost lanes.CostMeter
 }
 
 // EventKind sorts a driver's normalized events.
@@ -198,6 +213,9 @@ type DriverEvent struct {
 	InputID string
 	// Detail is a short reason: a limit's status, or a compaction's trigger.
 	Detail string
+	// Seq is this event's position in a session's stream. Zero means the driver keeps
+	// no stream that outlives its process.
+	Seq int64
 }
 
 // Input is one message to a session. The driver assigns its ID when it is empty.
@@ -252,6 +270,11 @@ type AgentDriver interface {
 	// Observe returns the session's state as the driver sees it. An incomplete read
 	// returns liveness unknown, never dead.
 	Observe(ctx context.Context, h SessionHandle) (Observation, error)
+	// Find looks for a generation's session from an earlier process, and changes
+	// nothing. An incomplete read is an error, never a session that is not there.
+	Find(ctx context.Context, spec SessionSpec) (Located, error)
+	// Adopt takes over a session Find located, so Events reads it from from.Cursor.
+	Adopt(ctx context.Context, h SessionHandle, from AdoptFrom) error
 	// Events streams normalized events. The channel closes after EventSessionEnded.
 	Events(ctx context.Context, h SessionHandle) (<-chan DriverEvent, error)
 	// Send hands input to the session. The receipt states what actually happened.

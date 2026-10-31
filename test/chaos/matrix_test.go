@@ -115,7 +115,7 @@ func runCrashCase(w *world, c crashCase, step string) error {
 }
 
 func crashMatrix() []crashCase {
-	return []crashCase{
+	return append([]crashCase{
 		createCase(),
 		claimCase(),
 		renewCase(),
@@ -139,7 +139,7 @@ func crashMatrix() []crashCase {
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
 		worktreeCase(),
-	}
+	}, reconcileCases()...)
 }
 
 const longTTL = int64(60_000)

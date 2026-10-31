@@ -280,6 +280,13 @@ func TestARestartAccountsForALaneAndDoesNotStartItAgain(t *testing.T) {
 	if _, err := r.journal.BeginLane(t.Context(), record, begun); err != nil {
 		t.Fatal(err)
 	}
+	spawn := lanes.NewEffect(lanes.EffectSession, "lane-1", 1, "", "")
+	if _, err := r.journal.BeginEffect(t.Context(), spawn); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.journal.FinishEffect(t.Context(), spawn.Key, lanes.EffectCompleted, ""); err != nil {
+		t.Fatal(err)
+	}
 	if err := r.subject.Converge(t.Context()); err != nil {
 		t.Fatal(err)
 	}

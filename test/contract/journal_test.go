@@ -10,6 +10,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
@@ -50,6 +51,12 @@ func TestJournalContract(t *testing.T) {
 		{"leases are replaced whole", checkJournalLeases},
 		{"desired state round trips", checkJournalDesired},
 		{"a migration repeats as a no-op", checkJournalMigrate},
+		{"an effect key is recorded once", checkEffectOnce},
+		{"a crash leaves a started effect unknown", checkEffectUnknown},
+		{"only an unknown effect can be retried", checkEffectRetry},
+		{"a settled effect stays settled", checkEffectSettled},
+		{"a generation binds once", checkGenerationBinds},
+		{"progress round trips and survives a save", checkLaneProgress},
 	}
 	for _, backend := range backends {
 		for _, check := range checks {
@@ -62,6 +69,144 @@ func TestJournalContract(t *testing.T) {
 				check.run(t, t.Context(), journal)
 			})
 		}
+	}
+}
+
+func newEffect(label string) lanes.Effect {
+	return lanes.NewEffect(lanes.EffectSession, "lane", 1, "the-target", label)
+}
+
+func effectState(t *testing.T, ctx context.Context, j ports.Journal, key string) lanes.EffectState {
+	t.Helper()
+	effect, err := j.Effect(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return effect.State
+}
+
+func checkEffectOnce(t *testing.T, ctx context.Context, j ports.Journal) {
+	effect := newEffect("")
+	first, err := j.BeginEffect(ctx, effect)
+	if err != nil || !first {
+		t.Fatalf("first begin: %v, %v", first, err)
+	}
+	again, err := j.BeginEffect(ctx, effect)
+	if err != nil || again {
+		t.Fatalf("second begin: %v, %v", again, err)
+	}
+	all, err := j.Effects(ctx)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("effects %+v: %v", all, err)
+	}
+	if got := all[0]; got.Key != effect.Key || got.Target != "the-target" || got.State != lanes.EffectStarted || got.Attempts != 1 {
+		t.Errorf("effect %+v", got)
+	}
+	if _, err := j.Effect(ctx, "no such key"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("missing effect: %v", err)
+	}
+}
+
+func checkEffectUnknown(t *testing.T, ctx context.Context, j ports.Journal) {
+	started, finished := newEffect("started"), newEffect("finished")
+	for _, effect := range []lanes.Effect{started, finished} {
+		if _, err := j.BeginEffect(ctx, effect); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := j.FinishEffect(ctx, finished.Key, lanes.EffectCompleted, ""); err != nil {
+		t.Fatal(err)
+	}
+	marked, err := j.MarkUnknown(ctx)
+	if err != nil || marked != 1 {
+		t.Fatalf("marked %d: %v", marked, err)
+	}
+	if got := effectState(t, ctx, j, started.Key); got != lanes.EffectUnknown {
+		t.Errorf("started effect is %s", got)
+	}
+	if got := effectState(t, ctx, j, finished.Key); got != lanes.EffectCompleted {
+		t.Errorf("finished effect is %s", got)
+	}
+}
+
+func checkEffectRetry(t *testing.T, ctx context.Context, j ports.Journal) {
+	effect := newEffect("")
+	if _, err := j.BeginEffect(ctx, effect); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := j.RetryEffect(ctx, effect.Key); err != nil || moved {
+		t.Fatalf("a started effect moved: %v, %v", moved, err)
+	}
+	if _, err := j.MarkUnknown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := j.RetryEffect(ctx, effect.Key); err != nil || !moved {
+		t.Fatalf("an unknown effect stayed: %v, %v", moved, err)
+	}
+	got, err := j.Effect(ctx, effect.Key)
+	if err != nil || got.State != lanes.EffectStarted || got.Attempts != 2 {
+		t.Errorf("effect %+v: %v", got, err)
+	}
+}
+
+func checkEffectSettled(t *testing.T, ctx context.Context, j ports.Journal) {
+	effect := newEffect("")
+	if _, err := j.BeginEffect(ctx, effect); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.FinishEffect(ctx, effect.Key, lanes.EffectCompleted, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.FinishEffect(ctx, effect.Key, lanes.EffectFailed, "too late"); err != nil {
+		t.Fatal(err)
+	}
+	if got := effectState(t, ctx, j, effect.Key); got != lanes.EffectCompleted {
+		t.Errorf("a settled effect moved to %s", got)
+	}
+}
+
+func journalLane(t *testing.T, ctx context.Context, j ports.Journal) lanes.Record {
+	t.Helper()
+	record := lanes.Record{ID: "lane", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning}
+	if err := j.SaveLane(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func checkGenerationBinds(t *testing.T, ctx context.Context, j ports.Journal) {
+	journalLane(t, ctx, j)
+	event := ledger.UploadEvent{Epoch: 1, Type: ledger.UploadGenerationBound, Lane: "lane", OccurredAt: 1}
+	first, err := j.BindGeneration(ctx, "lane", "session-1", event)
+	if err != nil || !first {
+		t.Fatalf("first bind: %v, %v", first, err)
+	}
+	again, err := j.BindGeneration(ctx, "lane", "session-2", event)
+	if err != nil || again {
+		t.Fatalf("second bind: %v, %v", again, err)
+	}
+	pending, err := j.Pending(ctx, 10)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("%d events: %v", len(pending), err)
+	}
+	record, err := j.Lane(ctx, "lane")
+	if err != nil || record.SessionID != "session-1" {
+		t.Errorf("lane %+v: %v", record, err)
+	}
+}
+
+func checkLaneProgress(t *testing.T, ctx context.Context, j ports.Journal) {
+	record := journalLane(t, ctx, j)
+	want := lanes.Progress{Cursor: 12, Cost: lanes.CostMeter{SessionTotalUSD: 0.5, CostUSD: 0.25, UnknownTurns: 1}, Usage: lanes.Usage{OutputTokens: 9}}
+	if err := j.SaveProgress(ctx, "lane", want); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.SaveLane(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := j.Lane(ctx, "lane")
+	if err != nil || got.Progress != want {
+		t.Errorf("progress %+v: %v", got.Progress, err)
 	}
 }
 

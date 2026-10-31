@@ -26,6 +26,19 @@ type Record struct {
 	Branch      string
 	// Report is the outcome the lane reported, as JSON.
 	Report []byte
+	// SessionID is the session a generation bound to, once it bound.
+	SessionID string
+	// Progress is what a restart reads a session's stream from.
+	Progress Progress
+}
+
+// Progress is how far a worker read a session, and what that reading added up to, so an
+// adoption continues the counts and drops a record it already took.
+type Progress struct {
+	// Cursor is the stream position of the last turn this worker finished with.
+	Cursor int64     `json:"cursor"`
+	Cost   CostMeter `json:"cost"`
+	Usage  Usage     `json:"usage"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

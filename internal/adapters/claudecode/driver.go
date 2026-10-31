@@ -65,6 +65,7 @@ type Driver struct {
 	mu       sync.Mutex
 	env      []string
 	sessions map[string]*session
+	listed   map[string][]listedSession
 }
 
 // New returns a driver.
@@ -73,7 +74,9 @@ func New(runner ports.ProcessRunner, options Options) *Driver {
 	if grace == 0 {
 		grace = defaultStopGrace
 	}
-	return &Driver{runner: runner, grace: grace, env: options.Env, sessions: map[string]*session{}}
+	return &Driver{
+		runner: runner, grace: grace, env: options.Env, sessions: map[string]*session{}, listed: map[string][]listedSession{},
+	}
 }
 
 // UseEnv replaces the environment of a version check.
@@ -271,7 +274,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 		return ports.SessionHandle{}, err
 	}
 	s := &session{
-		handle:  ports.SessionHandle{ID: fmt.Sprintf("%s/%d", spec.Lane, spec.Generation), PID: process.PID()},
+		handle:  ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID()},
 		process: process, stdin: stdinWrite, events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}),
 		meter: meter,
 	}
@@ -291,6 +294,10 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 		}
 	}
 	return s.handle, nil
+}
+
+func sessionHandleID(spec ports.SessionSpec) string {
+	return fmt.Sprintf("%s/%d", spec.Lane, spec.Generation)
 }
 
 // sessionEnv adds the driver's own variables. An undocumented one goes only to a

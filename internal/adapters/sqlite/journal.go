@@ -280,14 +280,21 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
 	var digest sql.NullString
+	var progress []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
-		&digest, &lane.Worktree, &lane.Branch, &lane.Report)
+		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress)
+	if err != nil {
+		return lane, err
+	}
 	lane.TokenDigest = digest.String
+	if len(progress) != 0 {
+		err = json.Unmarshal(progress, &lane.Progress)
+	}
 	return lane, err
 }
 
@@ -302,7 +309,8 @@ func (j *Journal) SaveLane(ctx context.Context, lane lanes.Record) error {
 }
 
 func saveLane(ctx context.Context, db execer, lane lanes.Record) error {
-	_, err := db.ExecContext(ctx, `INSERT INTO lanes (`+laneColumns+`)
+	_, err := db.ExecContext(ctx, `INSERT INTO lanes
+  (id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6,
   token_digest = ?7, worktree = ?8, branch = ?9, report = coalesce(lanes.report, ?10)`,
@@ -433,6 +441,114 @@ func (j *Journal) HookEvents(ctx context.Context, lane string) ([]lanes.HookReco
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+const effectColumns = `key, kind, lane, generation, target, state, attempts, detail`
+
+func scanEffect(row interface{ Scan(...any) error }) (lanes.Effect, error) {
+	var effect lanes.Effect
+	err := row.Scan(&effect.Key, &effect.Kind, &effect.Lane, &effect.Generation, &effect.Target,
+		&effect.State, &effect.Attempts, &effect.Detail)
+	return effect, err
+}
+
+// BeginEffect records an effect before it happens. The primary key is what makes a
+// second attempt at one effect impossible to miss.
+func (j *Journal) BeginEffect(ctx context.Context, effect lanes.Effect) (bool, error) {
+	result, err := j.db.ExecContext(ctx, `INSERT INTO effects (key, kind, lane, generation, target, state)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (key) DO NOTHING`,
+		effect.Key, effect.Kind, effect.Lane, effect.Generation, effect.Target, lanes.EffectStarted)
+	if err != nil {
+		return false, err
+	}
+	inserted, err := result.RowsAffected()
+	return inserted > 0, err
+}
+
+// Effect returns one effect.
+func (j *Journal) Effect(ctx context.Context, key string) (lanes.Effect, error) {
+	effect, err := scanEffect(j.db.QueryRowContext(ctx, `SELECT `+effectColumns+` FROM effects WHERE key = ?1`, key))
+	if errors.Is(err, sql.ErrNoRows) {
+		return lanes.Effect{}, fmt.Errorf("effect: %w", ports.ErrNotFound)
+	}
+	return effect, err
+}
+
+// Effects lists every effect.
+func (j *Journal) Effects(ctx context.Context) ([]lanes.Effect, error) {
+	rows, err := j.db.QueryContext(ctx, `SELECT `+effectColumns+` FROM effects ORDER BY rowid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []lanes.Effect
+	for rows.Next() {
+		effect, err := scanEffect(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, effect)
+	}
+	return out, rows.Err()
+}
+
+// FinishEffect settles an effect that has no end yet.
+func (j *Journal) FinishEffect(ctx context.Context, key string, state lanes.EffectState, detail string) error {
+	_, err := j.db.ExecContext(ctx, `UPDATE effects SET state = ?1, detail = ?2 WHERE key = ?3 AND state IN (?4, ?5)`,
+		state, detail, key, lanes.EffectStarted, lanes.EffectUnknown)
+	return err
+}
+
+// RetryEffect moves an unknown effect back to started.
+func (j *Journal) RetryEffect(ctx context.Context, key string) (bool, error) {
+	result, err := j.db.ExecContext(ctx, `UPDATE effects SET state = ?1, attempts = attempts + 1 WHERE key = ?2 AND state = ?3`,
+		lanes.EffectStarted, key, lanes.EffectUnknown)
+	if err != nil {
+		return false, err
+	}
+	moved, err := result.RowsAffected()
+	return moved > 0, err
+}
+
+// MarkUnknown turns what a crash left started into unknown.
+func (j *Journal) MarkUnknown(ctx context.Context) (int, error) {
+	result, err := j.db.ExecContext(ctx, `UPDATE effects SET state = ?1 WHERE state = ?2`, lanes.EffectUnknown, lanes.EffectStarted)
+	if err != nil {
+		return 0, err
+	}
+	marked, err := result.RowsAffected()
+	return int(marked), err
+}
+
+// BindGeneration records a session and its event once.
+func (j *Journal) BindGeneration(ctx context.Context, lane, sessionID string, event ledger.UploadEvent) (bool, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE lanes SET session_id = ?1 WHERE id = ?2 AND session_id = ''`, sessionID, lane)
+	if err != nil {
+		return false, err
+	}
+	first, err := result.RowsAffected()
+	if err != nil || first == 0 {
+		return false, err
+	}
+	if _, err := insertEvent(ctx, tx, event); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+// SaveProgress replaces how far a lane's session was read.
+func (j *Journal) SaveProgress(ctx context.Context, lane string, progress lanes.Progress) error {
+	raw, err := json.Marshal(progress)
+	if err != nil {
+		return err
+	}
+	_, err = j.db.ExecContext(ctx, `UPDATE lanes SET progress = ?1 WHERE id = ?2`, raw, lane)
+	return err
 }
 
 var _ ports.Journal = (*Journal)(nil)

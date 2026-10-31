@@ -30,6 +30,9 @@ type fixture struct {
 	Version string   `json:"version"`
 	Model   string   `json:"model"`
 	Turns   [][]step `json:"turns"`
+	// Agents is what `claude agents --json` prints, and AgentsExit how it ends.
+	Agents     []map[string]any `json:"agents,omitempty"`
+	AgentsExit int              `json:"agents_exit,omitempty"`
 }
 
 // step is one thing the session does. Exactly one field is set.
@@ -85,6 +88,10 @@ func main() {
 	if err := json.Unmarshal(raw, &script); err != nil {
 		fail("bad fixture: %v", err)
 	}
+	if len(os.Args) > 1 && os.Args[1] == "agents" {
+		listAgents(self, script)
+		return
+	}
 	opts := parse(os.Args[1:])
 	if opts.version {
 		version := script.Version
@@ -105,6 +112,23 @@ func main() {
 		}
 	}
 	s.run()
+}
+
+// listAgents answers `claude agents --json --cwd <dir>`, which starts no session. It
+// names only the directory it was given, because the driver must never list another.
+func listAgents(self string, script fixture) {
+	remember(self, os.Args[1:])
+	if script.AgentsExit != 0 {
+		os.Exit(script.AgentsExit)
+	}
+	raw, err := json.Marshal(script.Agents)
+	if err != nil {
+		fail("%v", err)
+	}
+	if script.Agents == nil {
+		raw = []byte("[]")
+	}
+	writeLine(raw)
 }
 
 func fail(format string, args ...any) {

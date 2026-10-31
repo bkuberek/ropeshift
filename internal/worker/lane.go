@@ -17,6 +17,9 @@ type LaneRequest struct {
 	Base   string
 	// Tags are ropeshift's own variables for this lane.
 	Tags map[string]string
+	// Bracket records the worktree's creation as an external effect. It reports false
+	// when an earlier attempt already made it. Nil creates it with no record.
+	Bracket func(target string, perform func() error) (bool, error)
 }
 
 // PreparedLane is everything a lane starts from, and nothing it inherited.
@@ -63,11 +66,30 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	if err != nil {
 		return PreparedLane{}, err
 	}
-	worktree, err := p.Worktrees.Create(ctx, ports.WorktreeSpec{
-		Repository: request.Repository, Path: place.Path, Branch: place.Branch, Base: request.Base,
-	})
+	worktree, err := p.worktree(ctx, request, place)
 	if err != nil {
 		return PreparedLane{}, err
 	}
 	return PreparedLane{Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest}, nil
+}
+
+func (p Provisioner) worktree(ctx context.Context, request LaneRequest, place lanes.Placement) (ports.Worktree, error) {
+	create := func() (ports.Worktree, error) {
+		return p.Worktrees.Create(ctx, ports.WorktreeSpec{
+			Repository: request.Repository, Path: place.Path, Branch: place.Branch, Base: request.Base,
+		})
+	}
+	if request.Bracket == nil {
+		return create()
+	}
+	var worktree ports.Worktree
+	ran, err := request.Bracket(place.Path, func() error {
+		var err error
+		worktree, err = create()
+		return err
+	})
+	if err != nil || ran {
+		return worktree, err
+	}
+	return p.Worktrees.Inspect(ctx, place.Path)
 }

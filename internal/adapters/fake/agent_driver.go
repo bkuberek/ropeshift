@@ -53,6 +53,9 @@ type AgentDriver struct {
 	sessions map[string]*driverSession
 	specs    []ports.SessionSpec
 	resumed  []ports.ResumeRef
+	left     map[string]ports.Located
+	adopted  []ports.AdoptFrom
+	findErr  error
 }
 
 type driverSession struct {
@@ -70,7 +73,31 @@ type driverSession struct {
 
 // NewAgentDriver returns a driver with an empty script.
 func NewAgentDriver() *AgentDriver {
-	return &AgentDriver{version: "1.0.0", sessions: map[string]*driverSession{}}
+	return &AgentDriver{version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{}}
+}
+
+func sessionID(lane string, generation int64) string { return fmt.Sprintf("%s/%d", lane, generation) }
+
+// Leave places a session as an earlier process left it, for Find to report.
+func (d *AgentDriver) Leave(lane string, generation int64, session lanes.Session) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	id := sessionID(lane, generation)
+	d.left[id] = ports.Located{Session: session, Handle: ports.SessionHandle{ID: id}}
+}
+
+// FailFind makes every Find an incomplete read, until it is given nil.
+func (d *AgentDriver) FailFind(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.findErr = err
+}
+
+// Adopted lists where each adoption picked a session up.
+func (d *AgentDriver) Adopted() []ports.AdoptFrom {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]ports.AdoptFrom{}, d.adopted...)
 }
 
 // Play sets what the next session does.
@@ -142,17 +169,50 @@ func (d *AgentDriver) Resume(ctx context.Context, spec ports.SessionSpec, from p
 func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.SessionHandle, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	session := &driverSession{
-		spec: spec, script: d.next, events: make(chan ports.DriverEvent, 256), inputs: make(chan ports.Input, 16),
-		stops: make(chan ports.StopMode, 1), done: make(chan struct{}),
-		meter: lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD},
-	}
-	handle := ports.SessionHandle{ID: fmt.Sprintf("%s/%d", spec.Lane, spec.Generation), PID: len(d.specs) + 1}
+	session := d.newSession(spec, lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD})
+	handle := ports.SessionHandle{ID: sessionID(spec.Lane, spec.Generation), PID: len(d.specs) + 1}
 	d.specs = append(d.specs, spec)
 	d.sessions[handle.ID] = session
 	session.inputs <- ports.Input{Text: spec.Brief}
 	go session.run()
 	return handle, nil
+}
+
+func (d *AgentDriver) newSession(spec ports.SessionSpec, meter lanes.CostMeter) *driverSession {
+	return &driverSession{
+		spec: spec, script: d.next, events: make(chan ports.DriverEvent, 256), inputs: make(chan ports.Input, 16),
+		stops: make(chan ports.StopMode, 1), done: make(chan struct{}), meter: meter,
+	}
+}
+
+// Find reads the sessions this driver runs, then what an earlier process left.
+func (d *AgentDriver) Find(_ context.Context, spec ports.SessionSpec) (ports.Located, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.findErr != nil {
+		return ports.Located{}, d.findErr
+	}
+	id := sessionID(spec.Lane, spec.Generation)
+	if _, ok := d.sessions[id]; ok {
+		return ports.Located{Session: lanes.Session{Found: true, Liveness: lanes.LivenessAlive}, Handle: ports.SessionHandle{ID: id}}, nil
+	}
+	return d.left[id], nil
+}
+
+// Adopt plays the next script as the rest of a session an earlier process started.
+func (d *AgentDriver) Adopt(_ context.Context, h ports.SessionHandle, from ports.AdoptFrom) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, ok := d.left[h.ID]; !ok {
+		return fmt.Errorf("%s: %w", h.ID, ports.ErrNoSession)
+	}
+	session := d.newSession(ports.SessionSpec{}, from.Cost)
+	delete(d.left, h.ID)
+	d.adopted = append(d.adopted, from)
+	d.sessions[h.ID] = session
+	session.inputs <- ports.Input{}
+	go session.run()
+	return nil
 }
 
 func (d *AgentDriver) session(h ports.SessionHandle) (*driverSession, error) {

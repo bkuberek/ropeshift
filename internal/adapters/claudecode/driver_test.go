@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -242,6 +243,80 @@ func readSettings(t *testing.T, spec ports.SessionSpec) (generatedSettings, stri
 		t.Fatal(err)
 	}
 	return out, string(raw)
+}
+
+func writeFixture(t *testing.T, path string, body map[string]any) {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(doubles.BinDir(path), doubles.FixtureFile), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestListingIsReadOnceForTheWorktree holds the rule on `claude agents`: it runs at
+// adoption, once, and only with --cwd set to the lane's own worktree.
+func TestListingIsReadOnceForTheWorktree(t *testing.T) {
+	driver, path, spec := session(t, "two-turns", nil)
+	for range 3 {
+		if _, err := driver.Find(t.Context(), spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reads := 0
+	for _, seen := range doubles.SeenBy(t, doubles.BinDir(path)) {
+		if len(seen.Args) == 0 || seen.Args[0] != "agents" {
+			continue
+		}
+		reads++
+		if !slices.Equal(seen.Args, []string{"agents", "--json", "--cwd", spec.Dir}) {
+			t.Errorf("args %v", seen.Args)
+		}
+	}
+	if reads != 1 {
+		t.Errorf("%d reads of the listing", reads)
+	}
+}
+
+// A session the listing shows has no shim to read, and a restart must not start a second
+// one beside it, so it reads unknown until it has gone.
+func TestListedSessionReadsUnknown(t *testing.T) {
+	driver, path, spec := session(t, "two-turns", nil)
+	writeFixture(t, path, map[string]any{"agents": []map[string]any{{"pid": os.Getpid()}}})
+	located, err := driver.Find(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !located.Found || located.Liveness != lanes.LivenessUnknown || located.Readable {
+		t.Errorf("located %+v", located)
+	}
+}
+
+func TestListedProcessThatExitedIsNotFound(t *testing.T) {
+	driver, path, spec := session(t, "two-turns", nil)
+	gone := exec.Command("/usr/bin/true")
+	if err := gone.Run(); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, path, map[string]any{"agents": []map[string]any{{"pid": gone.Process.Pid}}})
+	located, err := driver.Find(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if located.Found {
+		t.Errorf("located %+v", located)
+	}
+}
+
+// An incomplete read is an error, and an error is never a session that is not there.
+func TestFailedListingIsAnError(t *testing.T) {
+	driver, path, spec := session(t, "two-turns", nil)
+	writeFixture(t, path, map[string]any{"agents_exit": 1})
+	if located, err := driver.Find(t.Context(), spec); err == nil {
+		t.Errorf("located %+v with no error", located)
+	}
 }
 
 // TestGeneratedMCPNamesTheToken holds both halves: the server is told about the lane
