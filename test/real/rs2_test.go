@@ -175,6 +175,8 @@ func TestRS2(t *testing.T) {
 		t.Fatal("STOP: the session ended with no worker, before anything asked it to")
 	}
 	records := len(bytes.Split(bytes.TrimSpace(s.journalLines()), []byte("\n")))
+	t.Logf("rs2: survived: mid_turn_at_kill=%v gap_ms=%d lines=%d shim_alive=%v session_alive=%v",
+		finishedBefore == 0, gap.Milliseconds(), records, exists(state.ShimPID), exists(state.ChildPID))
 
 	second := s.startDaemon()
 	t.Cleanup(second.stop)
@@ -200,14 +202,13 @@ func TestRS2(t *testing.T) {
 	s.poll(stopBoth, "the shim's end", func() bool { return !exists(state.ShimPID) && !exists(state.ChildPID) })
 	second.stop()
 
+	raw := s.journalLines()
+	t.Logf("rs2: reattached: lines_total=%d results=%d session_ids=%d lane_state=%s",
+		bytes.Count(raw, []byte("\n")), bytes.Count(raw, []byte(`"type":"result"`)), distinctSessions(raw), row.State)
 	if row.State != workorders.Acceptance {
 		t.Fatalf("the lane ended in %s\n%s", row.State, second.stderr.String())
 	}
-	raw := s.journalLines()
 	s.report(id, init, raw)
-	t.Logf("rs2: mid_turn_at_kill=%v gap_ms=%d lines_when_turn_ended=%d lines_total=%d results=%d session_ids=%d",
-		finishedBefore == 0, gap.Milliseconds(), records, bytes.Count(raw, []byte("\n")),
-		bytes.Count(raw, []byte(`"type":"result"`)), distinctSessions(raw))
 }
 
 // distinctSessions counts session IDs and keeps none, because evidence holds no ID.
