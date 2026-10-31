@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
@@ -27,6 +28,8 @@ type variant struct {
 	name string
 	// sabotage breaks the adapter for this process.
 	sabotage sqlstore.Sabotage
+	// gitSabotage breaks the git adapter for this process.
+	gitSabotage gitcli.Sabotage
 	// ops replaces the use cases.
 	ops func(ports.Store) contract.Ops
 	// wrap decorates every Store handle.
@@ -420,6 +423,11 @@ func allVariants() []variant {
 			check: "sleep",
 		},
 		{
+			name:        "a create keeps a dead registration",
+			gitSabotage: gitcli.Sabotage{SkipPrune: true},
+			check:       "worktree",
+		},
+		{
 			name:     "a write retried after a lost answer is not found",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("event.find", "AND id = :id", "AND id = :id AND 1 = 0")},
 			check:    "L23",
@@ -497,6 +505,10 @@ func runVariant(t *testing.T, v variant) error {
 		defer sqlstore.Sabotaged(sqlstore.Sabotage{})
 		c, step := v.crash()
 		return runCrashCase(newWorld(t, ""), c, step)
+	case "worktree":
+		gitcli.Sabotaged(v.gitSabotage)
+		defer gitcli.Sabotaged(gitcli.Sabotage{})
+		return checkDeadRegistration(newWorld(t, ""))
 	case "sleep":
 		sqlstore.Sabotaged(v.sabotage)
 		defer sqlstore.Sabotaged(sqlstore.Sabotage{})

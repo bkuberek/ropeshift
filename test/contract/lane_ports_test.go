@@ -1,0 +1,249 @@
+package contract
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
+	"ropeshift.dev/ropeshift/internal/adapters/osexec"
+	"ropeshift.dev/ropeshift/internal/adapters/profiles"
+	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/worker"
+	"ropeshift.dev/ropeshift/test/gittest"
+)
+
+func TestProcessRunnerContract(t *testing.T) {
+	t.Run("os/exec", func(t *testing.T) {
+		RunProcessRunner(t, func(t *testing.T) ProcessRig {
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			return ProcessRig{
+				Runner: osexec.Runner{}, PrintEnv: "/usr/bin/env", PrintArgs: "/bin/echo", PrintDir: "/bin/pwd",
+				Fail: "/usr/bin/false", Block: "/bin/sleep", BlockArgs: []string{"60"}, Dir: dir,
+			}
+		})
+	})
+	t.Run("fake", func(t *testing.T) {
+		RunProcessRunner(t, func(*testing.T) ProcessRig {
+			runner := fake.NewProcessRunner()
+			runner.Install("/bin/print-env", fake.PrintEnv)
+			runner.Install("/bin/print-args", fake.PrintArgs)
+			runner.Install("/bin/print-dir", fake.PrintDir)
+			runner.Install("/bin/fail", fake.Fail)
+			runner.Install("/bin/block", fake.Block)
+			return ProcessRig{
+				Runner: runner, PrintEnv: "/bin/print-env", PrintArgs: "/bin/print-args", PrintDir: "/bin/print-dir",
+				Fail: "/bin/fail", Block: "/bin/block", Dir: "/work",
+			}
+		})
+	})
+}
+
+func TestWorktreesContract(t *testing.T) {
+	t.Run("git", func(t *testing.T) {
+		RunWorktrees(t, func(t *testing.T) WorktreeRig {
+			repo := gittest.New(t)
+			repo.Commit("README.txt", "seed\n")
+			lanesDir := filepath.Join(filepath.Dir(repo.Dir), "lanes")
+			return WorktreeRig{
+				Worktrees: gitcli.Worktrees{Env: repo.Env()}, Repository: repo.Dir,
+				Path: func(name string) string { return filepath.Join(lanesDir, name) },
+				Dirty: func(path string) {
+					if err := writeFile(filepath.Join(path, "untracked.txt"), "work\n"); err != nil {
+						t.Fatal(err)
+					}
+				},
+			}
+		})
+	})
+	t.Run("fake", func(t *testing.T) {
+		RunWorktrees(t, func(*testing.T) WorktreeRig {
+			worktrees := fake.NewWorktrees()
+			return WorktreeRig{
+				Worktrees: worktrees, Repository: "/work/repository",
+				Path:  func(name string) string { return "/work/lanes/" + name },
+				Dirty: worktrees.Dirty,
+			}
+		})
+	})
+}
+
+func TestProfileSourceContract(t *testing.T) {
+	t.Run("filesystem", func(t *testing.T) {
+		RunProfileSource(t, func(t *testing.T) ProfileRig {
+			repository := t.TempDir()
+			return ProfileRig{
+				Source: profiles.Filesystem{}, Repository: repository,
+				Layer: func(text string) {
+					path := filepath.Join(repository, profiles.RepositoryFile)
+					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := writeFile(path, text); err != nil {
+						t.Fatal(err)
+					}
+				},
+			}
+		})
+	})
+	t.Run("in-memory", func(t *testing.T) {
+		RunProfileSource(t, func(*testing.T) ProfileRig {
+			source := fake.NewProfileSource()
+			return ProfileRig{
+				Source: source, Repository: "/work/repository",
+				Layer: func(text string) { source.Put("/work/repository", text) },
+			}
+		})
+	})
+}
+
+// TestSpawnReadsNoLoginFiles gives a child a home whose login files would write a
+// marker. A direct spawn reads none of them.
+func TestSpawnReadsNoLoginFiles(t *testing.T) {
+	home := t.TempDir()
+	marker := filepath.Join(home, "login-file-ran")
+	for _, name := range []string{".profile", ".bash_profile", ".bashrc", ".zshenv", ".zprofile", ".zshrc"} {
+		if err := writeFile(filepath.Join(home, name), "touch "+marker+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	process, err := osexec.Runner{}.Start(t.Context(), ports.ProcessSpec{Path: "/usr/bin/env", Env: []string{"HOME=" + home}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := process.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a login file ran")
+	}
+}
+
+// TestWorktreeRetryAfterACrash holds what `git worktree add` can leave behind when
+// a process dies around it.
+func TestWorktreeRetryAfterACrash(t *testing.T) {
+	spec := func(repo *gittest.Repo) ports.WorktreeSpec {
+		return ports.WorktreeSpec{
+			Repository: repo.Dir, Path: filepath.Join(filepath.Dir(repo.Dir), "lanes", "one"), Branch: "lane/one",
+		}
+	}
+	tests := []struct {
+		name  string
+		crash func(*testing.T, *gittest.Repo, gitcli.Worktrees, ports.WorktreeSpec)
+	}{
+		{
+			"the directory is gone and git still lists it",
+			func(t *testing.T, _ *gittest.Repo, w gitcli.Worktrees, s ports.WorktreeSpec) {
+				if _, err := w.Create(t.Context(), s); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.RemoveAll(s.Path); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			"the branch exists and no worktree does",
+			func(t *testing.T, repo *gittest.Repo, _ gitcli.Worktrees, s ports.WorktreeSpec) {
+				repo.Git("branch", s.Branch)
+			},
+		},
+		{
+			"an empty directory is left at the path",
+			func(t *testing.T, _ *gittest.Repo, _ gitcli.Worktrees, s ports.WorktreeSpec) {
+				if err := os.MkdirAll(s.Path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := gittest.New(t)
+			repo.Commit("README.txt", "seed\n")
+			worktrees := gitcli.Worktrees{Env: repo.Env()}
+			s := spec(repo)
+			tt.crash(t, repo, worktrees, s)
+			got, err := worktrees.Create(t.Context(), s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Branch != s.Branch || !got.Clean {
+				t.Errorf("worktree %+v", got)
+			}
+		})
+	}
+}
+
+func TestWorktreeLeavesAnOccupiedPathAlone(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("README.txt", "seed\n")
+	s := ports.WorktreeSpec{Repository: repo.Dir, Path: filepath.Join(filepath.Dir(repo.Dir), "occupied"), Branch: "lane/one"}
+	if err := os.MkdirAll(s.Path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(filepath.Join(s.Path, "someone.txt"), "theirs\n"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := gitcli.Worktrees{Env: repo.Env()}.Create(t.Context(), s)
+	if !errors.Is(err, ports.ErrWorktreeConflict) {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestWorktreeStartsAtTheBase(t *testing.T) {
+	repo := gittest.New(t)
+	first := repo.Commit("README.txt", "one\n")
+	repo.Commit("README.txt", "two\n")
+	worktree, err := gitcli.Worktrees{Env: repo.Env()}.Create(t.Context(), ports.WorktreeSpec{
+		Repository: repo.Dir, Path: filepath.Join(filepath.Dir(repo.Dir), "lanes", "one"), Branch: "lane/one", Base: first,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worktree.Head != first {
+		t.Errorf("head %s, want %s", worktree.Head, first)
+	}
+}
+
+// TestALaneGetsItsPlace composes the three ports on real git, a real profile file,
+// and the allowlist.
+func TestALaneGetsItsPlace(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit(profiles.RepositoryFile, "[agent]\nmodel = \"haiku\"\n\n[worktree]\nbranch_prefix = \"work/\"\n")
+	parent := map[string]string{"HOME": "/home/someone", "PATH": "/usr/bin", "CLAUDECODE": "1", "ANTHROPIC_API_KEY": "k"}
+	provisioner := worker.Provisioner{
+		Profiles:  profiles.Filesystem{},
+		Worktrees: gitcli.Worktrees{Env: repo.Env()},
+		Lookup: func(name string) (string, bool) {
+			value, ok := parent[name]
+			return value, ok
+		},
+	}
+	lane, err := provisioner.Prepare(t.Context(), worker.LaneRequest{
+		Lane: "lane-1", Repository: repo.Dir, Tags: map[string]string{lanes.TagPrefix + "LANE": "lane-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lane.Worktree.Branch != "work/lane-1" || lane.Worktree.Path != filepath.Join(filepath.Dir(repo.Dir), "repository-lanes", "lane-1") {
+		t.Errorf("worktree %+v", lane.Worktree)
+	}
+	if lane.Profile.Agent.Model != "haiku" || lane.ProfileDigest == "" {
+		t.Errorf("profile %+v", lane.Profile)
+	}
+	for _, entry := range lane.Environment {
+		if entry == "CLAUDECODE=1" || entry == "ANTHROPIC_API_KEY=k" {
+			t.Errorf("%s reached the lane", entry)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(lane.Worktree.Path, "README.txt")); err == nil {
+		t.Error("the worktree holds a file its branch does not")
+	}
+}

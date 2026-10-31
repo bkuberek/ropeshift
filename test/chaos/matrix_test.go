@@ -135,6 +135,7 @@ func crashMatrix() []crashCase {
 		workerStartCase(),
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
+		worktreeCase(),
 	}
 }
 
@@ -485,7 +486,7 @@ func TestCrashMatrix(t *testing.T) {
 // belongs to every write transaction, and one with a literal op to that operation.
 func namedSteps(t *testing.T) (generic []string, literal []string) {
 	t.Helper()
-	for _, root := range []string{"../../internal/control", "../../internal/adapters/sqlstore", "../../internal/adapters/sqlite", "../../internal/worker"} {
+	for _, root := range []string{"../../internal/control", "../../internal/adapters/sqlstore", "../../internal/adapters/sqlite", "../../internal/adapters/gitcli", "../../internal/worker"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 				return err

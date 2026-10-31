@@ -101,6 +101,7 @@ var pureStandardLibrary = map[string]bool{
 	"iter":            true,
 	"maps":            true,
 	"math":            true,
+	"path":            true,
 	"regexp":          true,
 	"slices":          true,
 	"sort":            true,

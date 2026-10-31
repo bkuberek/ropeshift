@@ -1,0 +1,73 @@
+package worker
+
+import (
+	"context"
+	"os"
+
+	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ports"
+)
+
+// LaneRequest names a lane to prepare.
+type LaneRequest struct {
+	Lane       string
+	Repository string
+	// Branch is what the ledger assigned. Empty names a new branch for this lane.
+	Branch string
+	Base   string
+	// Tags are ropeshift's own variables for this lane.
+	Tags map[string]string
+}
+
+// PreparedLane is everything a lane starts from, and nothing it inherited.
+type PreparedLane struct {
+	Worktree      ports.Worktree
+	Environment   []string
+	Profile       lanes.Profile
+	ProfileDigest string
+}
+
+// Provisioner gives a lane its settings, its worktree, and its environment. It holds
+// no process, so a driver starts the session from what this returns.
+type Provisioner struct {
+	Profiles  ports.ProfileSource
+	Worktrees ports.Worktrees
+	// Lookup reads the worker's environment. Nil reads the process's.
+	Lookup func(string) (string, bool)
+}
+
+// Prepare resolves the profile first, because a bad profile should stop a lane
+// before it leaves anything on disk, and a retry converges on the same worktree.
+func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (PreparedLane, error) {
+	profile, err := p.Profiles.Load(ctx, request.Repository)
+	if err != nil {
+		return PreparedLane{}, err
+	}
+	digest, err := profile.Digest()
+	if err != nil {
+		return PreparedLane{}, err
+	}
+	lookup := p.Lookup
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	var refs []string
+	if ref := profile.Agent.Credentials.SecretRef; ref != "" {
+		refs = append(refs, ref)
+	}
+	environment, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: lookup, SecretRefs: refs, Tags: request.Tags})
+	if err != nil {
+		return PreparedLane{}, err
+	}
+	place, err := lanes.Place(profile.Worktree, request.Repository, request.Lane, request.Branch)
+	if err != nil {
+		return PreparedLane{}, err
+	}
+	worktree, err := p.Worktrees.Create(ctx, ports.WorktreeSpec{
+		Repository: request.Repository, Path: place.Path, Branch: place.Branch, Base: request.Base,
+	})
+	if err != nil {
+		return PreparedLane{}, err
+	}
+	return PreparedLane{Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest}, nil
+}

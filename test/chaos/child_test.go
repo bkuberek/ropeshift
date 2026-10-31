@@ -68,6 +68,11 @@ type childSpec struct {
 	// Socket and Journal are a worker child's control plane and journal.
 	Socket  string `json:"socket,omitempty"`
 	Journal string `json:"journal,omitempty"`
+	// Repository, Path, Branch, and GitEnv are a worktree child's request.
+	Repository string   `json:"repository,omitempty"`
+	Path       string   `json:"path,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
+	GitEnv     []string `json:"git_env,omitempty"`
 }
 
 type child struct {

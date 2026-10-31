@@ -2,6 +2,7 @@ package rules
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -161,6 +162,60 @@ func TestNoTCPListener(t *testing.T) {
 	for _, hit := range found {
 		t.Error(hit)
 	}
+}
+
+// TestNoShellInTheSource backs the runner's refusal: nothing in the module builds a
+// command line for a shell (FR-DRV-10).
+func TestNoShellInTheSource(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, []string{
+		`exec.Command("sh`, `exec.Command("bash`, `exec.Command("zsh`, `"-lc"`, `"-c",`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range found {
+		t.Error(hit)
+	}
+}
+
+// TestCoreTestsPassWithNoGit runs the domain and application tests with a PATH that
+// holds the Go tool and nothing else (NFR-TEST-1).
+func TestCoreTestsPassWithNoGit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs a second test binary")
+	}
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.Symlink(goTool, filepath.Join(bin, "go")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(goTool, "test", "-count=1", "-buildvcs=false",
+		"./internal/ledger/...", "./internal/planning/...", "./internal/workorders/...", "./internal/lanes/...",
+		"./internal/control/...", "./internal/worker/...")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = []string{
+		"PATH=" + bin, "HOME=" + os.Getenv("HOME"), "GOCACHE=" + goEnv(t, "GOCACHE"), "GOMODCACHE=" + goEnv(t, "GOMODCACHE"),
+		"GOROOT=" + goEnv(t, "GOROOT"), "GOFLAGS=-mod=readonly", "CGO_ENABLED=0",
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "internal/worker") {
+		t.Fatalf("the worker's tests did not run:\n%s", out)
+	}
+}
+
+func goEnv(t *testing.T, name string) string {
+	t.Helper()
+	out, err := exec.Command("go", "env", name).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func TestFixturesStayOutOfTheBuild(t *testing.T) {

@@ -1,0 +1,47 @@
+# The built-in layer. Thresholds and timers are proposed values that later units
+# measure. run_mode is absent, because the default follows the sign-in kind.
+name = "default"
+driver = "claude-code"
+
+[agent]
+model = "opus"
+effort = "high"
+permission_mode = "default"
+instructions_file = "AGENTS.md"
+
+[context]
+min_headroom_tokens = 40000
+
+[context.roles.writer]
+warn_tokens = 120000
+compact_tokens = 150000
+handoff_tokens = 180000
+
+[context.roles.orchestrator]
+warn_tokens = 60000
+compact_tokens = 80000
+handoff_tokens = 100000
+
+[lifecycle]
+stall_after = "20m"
+max_restarts = 5
+restart_window = "10m"
+max_generations_per_day = 8
+ask_wait = "5m"
+wake_debounce = "30s"
+wake_min_interval = "2m"
+handoff_timeout = "3m"
+ready_timeout = "60s"
+brief_grace = "2m"
+approval_wait = "5m"
+restart_backoff = "30s"
+human_batch_window = "15m"
+human_batch_max_wait = "1h"
+
+[worktree]
+root = "../{repo}-lanes"
+branch_prefix = "lane/"
+
+[resources]
+ports_per_lane = 10
+compose_project_prefix = "rs"
