@@ -2,7 +2,9 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -350,36 +352,96 @@ func (l *Leases) Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrd
 func (l *Leases) StartLane(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, lane string, actor ledger.Actor) (int64, error) {
 	var generation int64
 	err := l.store.Write(ctx, scope, "lane.start", func(tx ports.WriteTx) error {
-		won, err := tx.Leases().Start(lease)
+		var err error
+		generation, err = startLane(tx, lease, lane, actor, func(*ledger.EventDraft) {})
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return generation, nil
+}
+
+// startLane runs inside a write transaction, because a worker's upload starts a lane
+// in the same transaction that stores the event. stamp gives the event its identity.
+func startLane(tx ports.WriteTx, lease workorders.Lease, lane string, actor ledger.Actor, stamp func(*ledger.EventDraft)) (int64, error) {
+	won, err := tx.Leases().Start(lease)
+	if err != nil {
+		return 0, err
+	}
+	if !won {
+		current, err := tx.WorkOrders().Get(lease.WorkOrder)
+		if err != nil {
+			return 0, err
+		}
+		started, err := tx.Lanes().StartedUnder(lease.WorkOrder, lease.Fence)
+		if err != nil {
+			return 0, err
+		}
+		if current.State == workorders.Running && current.Fence == lease.Fence && started {
+			return tx.Lanes().Generation(lane)
+		}
+		return 0, workorders.Reject(current, lease)
+	}
+	crashpoint.Hit("lane.start", "started")
+	if err := tx.Lanes().Start(lane, lease.WorkOrder, lease.Fence); err != nil {
+		return 0, err
+	}
+	event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerLaneStarted), lease.WorkOrder, workorders.Change{
+		Trigger:    workorders.TriggerLaneStarted,
+		Fence:      lease.Fence,
+		ClaimID:    lease.ClaimID,
+		Lane:       lane,
+		Generation: 1,
+	}, actor)
+	if err != nil {
+		return 0, err
+	}
+	stamp(&event)
+	_, err = tx.Append(event)
+	return 1, err
+}
+
+// Dispatch records a member's or an orchestrator's request to run a lane on a claimed
+// work order (FR-WO-9), which is that lane's desired state. It does not start anything:
+// the worker holding the claim reads it and converges. A retry of the same lane is
+// done, and a claim runs one lane.
+func (l *Leases) Dispatch(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane string, actor ledger.Actor) (workorders.Lease, error) {
+	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+		return workorders.Lease{}, workorders.ErrForbidden
+	}
+	if lane == "" {
+		return workorders.Lease{}, fmt.Errorf("%w: a lane needs an ID", workorders.ErrInvalid)
+	}
+	var lease workorders.Lease
+	err := l.store.Write(ctx, scope, "lane.dispatch", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(workOrder)
 		if err != nil {
 			return err
 		}
-		if !won {
-			current, err := tx.WorkOrders().Get(lease.WorkOrder)
-			if err != nil {
-				return err
-			}
-			started, err := tx.Lanes().StartedUnder(lease.WorkOrder, lease.Fence)
-			if err != nil {
-				return err
-			}
-			if current.State == workorders.Running && current.Fence == lease.Fence && started {
-				generation, err = tx.Lanes().Generation(lane)
-				return err
-			}
-			return workorders.Reject(current, lease)
+		if current.State != workorders.Claimed {
+			return fmt.Errorf("%w: dispatch from %s", workorders.ErrIllegalMove, current.State)
 		}
-		crashpoint.Hit("lane.start", "started")
-		if err := tx.Lanes().Start(lane, lease.WorkOrder, lease.Fence); err != nil {
+		lease = workorders.Lease{WorkOrder: workOrder, ClaimID: current.ClaimID, Fence: current.Fence}
+		claim, err := tx.Claims().Find(current.ClaimID)
+		if err != nil {
 			return err
 		}
-		generation = 1
-		event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerLaneStarted), lease.WorkOrder, workorders.Change{
-			Trigger:    workorders.TriggerLaneStarted,
-			Fence:      lease.Fence,
-			ClaimID:    lease.ClaimID,
-			Lane:       lane,
-			Generation: generation,
+		if claim.Lane == lane {
+			return nil
+		}
+		if claim.Lane != "" {
+			return fmt.Errorf("%w: claim %s runs lane %s", workorders.ErrIllegalMove, claim.ID, claim.Lane)
+		}
+		if _, err := tx.Leases().Guard(workOrder, current.Fence); err != nil {
+			return err
+		}
+		if err := tx.Claims().Dispatch(current.ClaimID, lane); err != nil {
+			return err
+		}
+		crashpoint.Hit("lane.dispatch", "recorded")
+		event, err := workorders.ChangeEvent(workorders.EventLaneDispatched, workOrder, workorders.Change{
+			Guarded: true, Fence: current.Fence, ClaimID: current.ClaimID, Lane: lane,
 		}, actor)
 		if err != nil {
 			return err
@@ -388,9 +450,66 @@ func (l *Leases) StartLane(ctx context.Context, scope ledger.WorkspaceID, lease 
 		return err
 	})
 	if err != nil {
-		return 0, err
+		return workorders.Lease{}, err
 	}
-	return generation, nil
+	return lease, nil
+}
+
+// EndLane records a lane's outcome under its fence and generation.
+func (l *Leases) EndLane(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, result workorders.LaneResult, actor ledger.Actor) error {
+	return l.store.Write(ctx, scope, "lane.end", func(tx ports.WriteTx) error {
+		return endLane(tx, holder, result, actor, func(*ledger.EventDraft) {})
+	})
+}
+
+// endLane closes a lane in the transaction that stores its outcome: the state, the
+// fence, the claim, and the event commit together. Only the current generation can
+// end a lane, and a holder that lapsed returns first.
+func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneResult, actor ledger.Actor, stamp func(*ledger.EventDraft)) error {
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	current, err := tx.WorkOrders().Get(holder.WorkOrder)
+	if err != nil {
+		return err
+	}
+	generation, err := tx.Lanes().Generation(holder.Lane)
+	if err != nil {
+		return err
+	}
+	if generation != holder.Generation {
+		return fenced(tx, holder.WorkOrder)
+	}
+	ending, err := workorders.EndOf(current, result.Outcome)
+	if err != nil {
+		return err
+	}
+	won, err := tx.Leases().End(holder.Lease, ending.To, ending.Attempts)
+	if err != nil {
+		return err
+	}
+	if !won {
+		return workorders.Reject(current, holder.Lease)
+	}
+	crashpoint.Hit("lane.end", "ended")
+	if err := tx.Claims().End(holder.ClaimID, string(result.Outcome)); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	event, err := workorders.ChangeEvent(workorders.EventType(ending.Trigger), holder.WorkOrder, workorders.Change{
+		Trigger: ending.Trigger, Fence: current.Fence + 1, ClaimID: holder.ClaimID, Lane: holder.Lane,
+		Generation: holder.Generation, Outcome: result.Outcome, Reason: result.Reason, Attempts: ending.Attempts,
+		Payload: payload,
+	}, actor)
+	if err != nil {
+		return err
+	}
+	stamp(&event)
+	_, err = tx.Append(event)
+	return err
 }
 
 // Fenced runs a write under the holder's fence and generation. The comparison is a
@@ -499,3 +618,4 @@ func (l *Leases) Handoff(ctx context.Context, scope ledger.WorkspaceID, holder w
 	}
 	return next, nil
 }
+

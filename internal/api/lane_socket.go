@@ -11,16 +11,15 @@ import (
 	"ropeshift.dev/ropeshift/internal/lanes"
 )
 
-// The variables of a lane's process. A hook reads only these, because the CLI strips
-// other tags from what reaches a hook.
+// The variables of a lane's process, for the clients that read them.
 const (
-	EnvLaneID       = "ROPESHIFT_LANE_ID"
-	EnvGeneration   = "ROPESHIFT_GENERATION_ID"
-	EnvWorkOrder    = "ROPESHIFT_WORK_ORDER"
-	EnvLaneToken    = "ROPESHIFT_LANE_TOKEN"
-	EnvWorkerSocket = "ROPESHIFT_WORKER_SOCKET"
-	EnvSpool        = "ROPESHIFT_SPOOL"
-	EnvPolicy       = "ROPESHIFT_POLICY"
+	EnvLaneID       = lanes.EnvLaneID
+	EnvGeneration   = lanes.EnvGeneration
+	EnvWorkOrder    = lanes.EnvWorkOrder
+	EnvLaneToken    = lanes.EnvLaneToken
+	EnvWorkerSocket = lanes.EnvWorkerSocket
+	EnvSpool        = lanes.EnvSpool
+	EnvPolicy       = lanes.EnvPolicy
 )
 
 // The worker's local files.

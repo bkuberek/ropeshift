@@ -43,6 +43,13 @@ var LeaseChecks = []Check{
 	{"L22", "a retry of a lease step changes nothing", checkLeaseRetries},
 	{"L23", "a fenced write retried after a lost answer stores one event", checkWriteRetry},
 	{"L24", "a renewal after the deadline is refused, so a lapse goes on record", checkRenewalAfterDeadline},
+	{"L25", "a lane's outcome moves the work order and ends the claim", checkLaneOutcomes},
+	{"L26", "the old holder cannot write after its lane ended", checkWriteAfterLaneEnd},
+	{"L27", "a lane ends once", checkLaneEndsOnce},
+	{"L28", "only the current generation can end a lane", checkStaleGenerationEnd},
+	{"L29", "a lapsed lane ends after its worker returns", checkLapsedLaneEnd},
+	{"L30", "a failed lane returns to ready while attempts remain", checkAttempts},
+	{"L31", "a dispatch needs a claim and names one lane", checkDispatch},
 }
 
 // Ready creates a work order and walks it to `ready` through the state table.
@@ -604,6 +611,287 @@ func checkRenewalAfterDeadline(r *Rig) error {
 		return Violatedf("%d lapses and %d returns on record", lapses, returns)
 	}
 	return nil
+}
+
+func laneResult(outcome workorders.Outcome, reason string) workorders.LaneResult {
+	return workorders.LaneResult{Report: workorders.Report{Outcome: outcome, Reason: reason}}
+}
+
+func checkLaneOutcomes(r *Rig) error {
+	tests := []struct {
+		outcome workorders.Outcome
+		trigger workorders.Trigger
+		state   workorders.State
+	}{
+		{workorders.OutcomeCompleted, workorders.TriggerLaneCompleted, workorders.Acceptance},
+		{workorders.OutcomeBlocked, workorders.TriggerLaneBlocked, workorders.Blocked},
+		{workorders.OutcomeFailed, workorders.TriggerAttemptsExhausted, workorders.Failed},
+	}
+	s := r.Store()
+	ops := r.NewOps(s)
+	r.MaxAttempts = 1
+	defer func() { r.MaxAttempts = 0 }()
+	for _, tt := range tests {
+		id, err := r.Ready(s)
+		if err != nil {
+			return err
+		}
+		holder, err := r.Running(s, id, "a")
+		if err != nil {
+			return err
+		}
+		if err := ops.EndLane(r.Ctx, r.Scope, holder, laneResult(tt.outcome, "why"), r.worker("a")); err != nil {
+			return fmt.Errorf("%s: %w", tt.outcome, err)
+		}
+		w, err := r.WorkOrder(s, id)
+		if err != nil {
+			return err
+		}
+		if w.State != tt.state || w.Fence <= holder.Fence || w.ClaimID != "" || w.LeaseWorker != "" || w.LeaseUntil != 0 {
+			return Violatedf("after %s: %+v", tt.outcome, w)
+		}
+		count, err := r.countEvents(s, workorders.EventType(tt.trigger), id)
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return Violatedf("%d %s events", count, tt.trigger)
+		}
+		var claim workorders.Claim
+		err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+			var err error
+			claim, err = tx.Claims().Find(holder.ClaimID)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if !claim.Ended() || claim.EndReason != string(tt.outcome) {
+			return Violatedf("the claim after %s: %+v", tt.outcome, claim)
+		}
+	}
+	return r.CheckProjection(s)
+}
+
+func checkWriteAfterLaneEnd(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	holder, err := r.Running(s, id, "a")
+	if err != nil {
+		return err
+	}
+	if err := ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a")); err != nil {
+		return err
+	}
+	var fenced *workorders.FencedError
+	if _, err := ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("late"), r.worker("a")); !errors.As(err, &fenced) {
+		return Violatedf("a write after the lane ended returned %v", err)
+	}
+	if err := ops.Renew(r.Ctx, r.Scope, holder.Lease, TTLMs); !errors.As(err, &fenced) {
+		return Violatedf("a renewal after the lane ended returned %v", err)
+	}
+	return nil
+}
+
+func checkLaneEndsOnce(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	holder, err := r.Running(s, id, "a")
+	if err != nil {
+		return err
+	}
+	if err := ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeBlocked, "first"), r.worker("a")); err != nil {
+		return err
+	}
+	var fenced *workorders.FencedError
+	if err := ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a")); !errors.As(err, &fenced) {
+		return Violatedf("a second outcome returned %v", err)
+	}
+	w, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	if w.State != workorders.Blocked {
+		return Violatedf("a second outcome moved the work order to %s", w.State)
+	}
+	again, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	old, err := r.Running(s, again, "a")
+	if err != nil {
+		return err
+	}
+	if err := ops.EndLane(r.Ctx, r.Scope, old, laneResult(workorders.OutcomeFailed, workorders.ReasonCrashed), r.worker("a")); err != nil {
+		return err
+	}
+	if _, err := r.Running(s, again, "b"); err != nil {
+		return err
+	}
+	if err := ops.EndLane(r.Ctx, r.Scope, old, laneResult(workorders.OutcomeCompleted, ""), r.worker("a")); !errors.As(err, &fenced) {
+		return Violatedf("an old holder's outcome on a rival's lane returned %v", err)
+	}
+	current, err := r.WorkOrder(s, again)
+	if err != nil {
+		return err
+	}
+	if current.State != workorders.Running {
+		return Violatedf("an old holder ended a rival's lane: %s", current.State)
+	}
+	return nil
+}
+
+func checkStaleGenerationEnd(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	holder, err := r.Running(s, id, "a")
+	if err != nil {
+		return err
+	}
+	next, err := ops.Handoff(r.Ctx, r.Scope, holder, r.worker("a"))
+	if err != nil {
+		return err
+	}
+	var fenced *workorders.FencedError
+	if err := ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a")); !errors.As(err, &fenced) {
+		return Violatedf("the previous generation's outcome returned %v", err)
+	}
+	if w, err := r.WorkOrder(s, id); err != nil {
+		return err
+	} else if w.State != workorders.Running {
+		return Violatedf("the previous generation ended the lane: %s", w.State)
+	}
+	holder.Generation = next
+	return ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a"))
+}
+
+func checkLapsedLaneEnd(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	holder, err := r.Running(s, id, "a")
+	if err != nil {
+		return err
+	}
+	if err := r.Expire(s); err != nil {
+		return err
+	}
+	if err := ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a")); !errors.Is(err, workorders.ErrLapsed) {
+		return Violatedf("an outcome on a lapsed lease returned %v", err)
+	}
+	if err := ops.Return(r.Ctx, r.Scope, holder.Lease, TTLMs, r.worker("a")); err != nil {
+		return err
+	}
+	return ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a"))
+}
+
+func checkAttempts(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	r.MaxAttempts = 2
+	defer func() { r.MaxAttempts = 0 }()
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	first, err := r.Running(s, id, "a")
+	if err != nil {
+		return err
+	}
+	if err := ops.EndLane(r.Ctx, r.Scope, first, laneResult(workorders.OutcomeFailed, workorders.ReasonCrashed), r.worker("a")); err != nil {
+		return err
+	}
+	w, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	if w.State != workorders.Ready || w.Attempts != 1 {
+		return Violatedf("after a first failure: state %s, attempts %d", w.State, w.Attempts)
+	}
+	second, err := r.Running(s, id, "b")
+	if err != nil {
+		return err
+	}
+	if second.Fence <= first.Fence {
+		return Violatedf("a retry at fence %d after fence %d", second.Fence, first.Fence)
+	}
+	if err := ops.EndLane(r.Ctx, r.Scope, second, laneResult(workorders.OutcomeFailed, workorders.ReasonCrashed), r.worker("b")); err != nil {
+		return err
+	}
+	if w, err = r.WorkOrder(s, id); err != nil {
+		return err
+	}
+	if w.State != workorders.Failed || w.Attempts != 2 {
+		return Violatedf("after a last failure: state %s, attempts %d", w.State, w.Attempts)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkDispatch(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Dispatch(r.Ctx, r.Scope, id, "lane-a", r.Actor); !errors.Is(err, workorders.ErrIllegalMove) {
+		return Violatedf("a dispatch of unclaimed work returned %v", err)
+	}
+	grant, err := ops.Claim(r.Ctx, r.Scope, r.Request(id, "a"), r.worker("a"))
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Dispatch(r.Ctx, r.Scope, id, "lane-a", r.worker("a")); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a worker dispatched: %v", err)
+	}
+	lease, err := ops.Dispatch(r.Ctx, r.Scope, id, "lane-a", r.Actor)
+	if err != nil {
+		return err
+	}
+	if lease != grant.Lease {
+		return Violatedf("the dispatch names %+v", lease)
+	}
+	if _, err := ops.Dispatch(r.Ctx, r.Scope, id, "lane-a", r.Actor); err != nil {
+		return Violatedf("a retry of a dispatch returned %v", err)
+	}
+	if _, err := ops.Dispatch(r.Ctx, r.Scope, id, "lane-b", r.Actor); !errors.Is(err, workorders.ErrIllegalMove) {
+		return Violatedf("a second lane on one claim returned %v", err)
+	}
+	count, err := r.countEvents(s, workorders.EventLaneDispatched, id)
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return Violatedf("%d dispatch events", count)
+	}
+	var claim workorders.Claim
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		claim, err = tx.Claims().Find(grant.ClaimID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if claim.Lane != "lane-a" {
+		return Violatedf("the claim names %q", claim.Lane)
+	}
+	return r.CheckProjection(s)
 }
 
 func checkLeaseTimeFromDatabase(r *Rig) error {

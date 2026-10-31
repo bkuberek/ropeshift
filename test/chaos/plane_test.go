@@ -4,6 +4,7 @@ package chaos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -25,6 +26,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -101,6 +103,96 @@ func (c *child) newWorker() (*worker.Worker, *sqlite.Journal, func(), error) {
 		client.Close()
 		_ = journal.Close()
 	}, nil
+}
+
+// splitLaneEnd names the variant that stores a lane's end and its last event in two
+// writes, so a kill between them leaves a lane that reads ended with no outcome.
+const (
+	splitLaneEnd  = "a lane's end and its last event in two writes"
+	laneSplitStep = "split"
+)
+
+type splitJournal struct {
+	ports.Journal
+}
+
+func (j splitJournal) EndLane(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	record, err := j.Journal.Lane(ctx, id)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	record.State, record.TokenDigest = lanes.StateEnded, ""
+	if err := j.Journal.SaveLane(ctx, record); err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	crashpoint.Hit("worker.lane", laneSplitStep)
+	return j.Journal.Append(ctx, event)
+}
+
+// laneScript is one session that reports completed and ends its turn.
+func laneScript(journal ports.Journal, ctx context.Context) fake.DriverScript {
+	report := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		raw, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeCompleted})
+		if err == nil {
+			_, err = journal.SaveReport(ctx, spec.Lane, raw)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "report:", err)
+		}
+	}}
+	return fake.DriverScript{SessionID: "session-1", Model: "fixture", Turns: [][]fake.DriverStep{{
+		{Bound: true}, report,
+		{Turn: &fake.DriverTurn{Status: ports.TurnCompleted, TotalUSD: 0.01}},
+	}}}
+}
+
+// roleWorkerLane runs one lane through a real worker on a fake driver. The claim and
+// the dispatch are safe to repeat, so a retry reaches the same lane.
+func roleWorkerLane(c *child) error {
+	var opened ports.Journal
+	journal, err := sqlite.OpenJournal(c.spec.Journal)
+	if err != nil {
+		return err
+	}
+	defer journal.Close()
+	if err := journal.Migrate(c.ctx); err != nil {
+		return err
+	}
+	opened = journal
+	if c.spec.Variant == splitLaneEnd {
+		opened = splitJournal{Journal: journal}
+	}
+	client := api.NewUnixClient(c.spec.Socket)
+	defer client.Close()
+	driver := fake.NewAgentDriver()
+	driver.Play(laneScript(journal, c.ctx))
+	worktrees := fake.NewWorktrees()
+	subject := worker.New(workerlink.New(client), opened, clock.System{}, worker.Config{
+		Name:      "child",
+		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
+		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },
+		Lanes: &worker.LaneRuntime{
+			Driver:      driver,
+			Provisioner: worker.Provisioner{Profiles: fake.NewProfileSource(), Worktrees: worktrees},
+			Secrets:     fake.SecretResolver{},
+			Repository:  func(context.Context, string) (string, error) { return "/repository", nil },
+		},
+	})
+	if err := subject.Start(c.ctx); err != nil {
+		return err
+	}
+	_, err = client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
+		ClaimID: c.spec.ClaimID, WorkerID: subject.Auth().WorkerID, TTLMs: longTTL,
+	})
+	var refused *api.Error
+	if err != nil && !errors.As(err, &refused) {
+		return err
+	}
+	_, err = client.StartLane(c.ctx, c.spec.WorkOrder, api.StartLane{LaneID: c.spec.Lane})
+	if err != nil && !errors.As(err, &refused) {
+		return err
+	}
+	return subject.Converge(c.ctx)
 }
 
 // roleWorkerUpload journals one event once and uploads it. A retry finds the event

@@ -125,6 +125,9 @@ func crashMatrix() []crashCase {
 		releaseCase(),
 		reassignCase(),
 		laneStartCase(),
+		dispatchCase(),
+		laneEndCase(),
+		workerLaneCase(),
 		fencedWriteCase(),
 		handoffCase(),
 		intakeCase("intake", []string{"polled"}),
@@ -347,6 +350,77 @@ func laneStartCase() crashCase {
 
 // fencedWriteCase needs no exact count: a write whose answer was lost can repeat,
 // and U06 removes the duplicate by its sequence number.
+func dispatchCase() crashCase {
+	return crashCase{
+		name:  "dispatch a lane",
+		op:    "lane.dispatch",
+		steps: withSteps("recorded"),
+		prepare: func(w *world) (childSpec, error) {
+			grant, err := w.claimed(longTTL)
+			return childSpec{Role: "dispatch", WorkOrder: grant.WorkOrder, Lane: w.rig.ID("lane")}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			return countEvents(w, workorders.EventLaneDispatched, spec.WorkOrder, 1)
+		},
+	}
+}
+
+func laneEndCase() crashCase {
+	return crashCase{
+		name:  "end a lane",
+		op:    "lane.end",
+		steps: withSteps("ended"),
+		prepare: func(w *world) (childSpec, error) {
+			holder, err := w.running(longTTL)
+			return holderSpec("end-lane", holder), err
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := hasState(w, spec.WorkOrder, workorders.Acceptance); err != nil {
+				return err
+			}
+			return countEvents(w, workorders.EventType(workorders.TriggerLaneCompleted), spec.WorkOrder, 1)
+		},
+	}
+}
+
+// workerLaneCase kills a real worker at each step of a lane's run, with a fake driver.
+// Spawning is not idempotent, so the retry must account for the lane it finds and
+// never start it again, and the ledger must hold one start and one end.
+func workerLaneCase() crashCase {
+	return crashCase{
+		name:  "run a lane",
+		op:    "worker.lane",
+		steps: []string{"begun", "spawned", "ended"},
+		prepare: func(w *world) (childSpec, error) {
+			w.serveOnce()
+			id, err := w.rig.Ready(w.store)
+			if err != nil {
+				return childSpec{}, err
+			}
+			spec, err := w.workerSpec("worker-lane")
+			spec.WorkOrder, spec.ClaimID, spec.Lane = id, w.rig.ID("claim"), w.rig.ID("lane")
+			return spec, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, workorders.EventType(workorders.TriggerLaneStarted), spec.WorkOrder, 1); err != nil {
+				return err
+			}
+			completed, err := countOf(w, workorders.EventType(workorders.TriggerLaneCompleted), spec.WorkOrder)
+			if err != nil {
+				return err
+			}
+			retried, err := countOf(w, workorders.EventType(workorders.TriggerLaneFailedRetry), spec.WorkOrder)
+			if err != nil {
+				return err
+			}
+			if completed+retried != 1 {
+				return contract.Violatedf("%d outcomes on record for one lane", completed+retried)
+			}
+			return nil
+		},
+	}
+}
+
 func fencedWriteCase() crashCase {
 	return crashCase{
 		name:  "fenced write",

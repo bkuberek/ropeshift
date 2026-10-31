@@ -68,6 +68,7 @@ func New(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/work-orders/{id}/claims", h.claim)
 	mux.HandleFunc("POST /v1/work-orders/{id}/claims/{claim}/release", h.release)
 	mux.HandleFunc("POST /v1/work-orders/{id}/reassign", h.reassign)
+	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.startLane)
 	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.write)
 	return mux
 }
@@ -302,6 +303,25 @@ func (h *handler) reassign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// startLane records a member's request to run a lane (FR-WO-9). The worker holding the
+// claim reads it as desired state, so this answers before anything has started.
+func (h *handler) startLane(w http.ResponseWriter, r *http.Request) {
+	var in api.StartLane
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.LaneID == "" {
+		invalid(w, "a lane needs a lane_id")
+		return
+	}
+	lease, err := h.leases.Dispatch(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, localMember)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.LaneDispatched{LaneID: in.LaneID, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence})
 }
 
 func (h *handler) write(w http.ResponseWriter, r *http.Request) {

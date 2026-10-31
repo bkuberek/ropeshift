@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"context"
 	"errors"
 	"strings"
@@ -60,6 +61,10 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"an empty nonce is refused", checkEmptyNonce},
 		{"a lapsed lease returns through a heartbeat", checkLapsedReturns},
 		{"an expired lease waits for the sweep", checkExpiredWaitsForTheSweep},
+		{"a lane's start and end upload once each", checkLaneUploads},
+		{"a lapsed lane's outcome waits for the return", checkLaneEndWaitsForTheReturn},
+		{"a fenced lane's outcome is rejected and answered", checkLaneEndFenced},
+		{"desired state carries a dispatched lane", checkDesiredLane},
 		{"a lost lease comes back as fenced", checkFencedLease},
 		{"desired state names this worker's leases", checkDesired},
 		{"a hint follows a revision", checkHint},
@@ -386,6 +391,147 @@ func checkExpiredWaitsForTheSweep(t *testing.T, ctx context.Context, b LinkBacke
 	}
 	if row := r.order(t, ctx, "wo"); row.State != workorders.Claimed || row.Fence != grant.Fence {
 		t.Errorf("after the return %+v", row)
+	}
+}
+
+func laneEvents(grant workorders.Grant, epoch int64, outcome workorders.Outcome) []ledger.UploadEvent {
+	base := ledger.UploadEvent{
+		Epoch: epoch, WorkOrder: grant.WorkOrder, ClaimID: grant.ClaimID, Fence: grant.Fence, Lane: "lane-1", Generation: 1, OccurredAt: 1,
+	}
+	started, ended := base, base
+	started.Seq, started.Type = 1, ledger.UploadLaneStarted
+	ended.Seq, ended.Type = 2, ledger.UploadLaneEnded
+	ended.Payload, _ = json.Marshal(workorders.LaneResult{Report: workorders.Report{Outcome: outcome}})
+	return []ledger.UploadEvent{started, ended}
+}
+
+func (r *LinkRig) laneEndCount(t *testing.T, ctx context.Context, trigger workorders.Trigger) int {
+	t.Helper()
+	seen := 0
+	for _, e := range r.events(t, ctx) {
+		if e.Type == workorders.EventType(trigger) {
+			seen++
+		}
+	}
+	return seen
+}
+
+func checkLaneUploads(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	grant := r.claim(t, ctx, r.readyOrder(t, ctx, "wo"), "c1", "a")
+	batch := ledger.UploadBatch{Auth: auth, Epoch: session.Epoch, Events: laneEvents(grant, session.Epoch, workorders.OutcomeCompleted)}
+	for range 2 {
+		reply, err := r.Link.Upload(ctx, batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reply.HighWater != 2 || len(reply.Rejected) != 0 {
+			t.Fatalf("reply %+v", reply)
+		}
+	}
+	if row := r.order(t, ctx, "wo"); row.State != workorders.Acceptance || row.Fence <= grant.Fence {
+		t.Errorf("row %+v", row)
+	}
+	if got := r.laneEndCount(t, ctx, workorders.TriggerLaneCompleted); got != 1 {
+		t.Errorf("%d outcomes on record", got)
+	}
+	if got := r.laneEndCount(t, ctx, workorders.TriggerLaneStarted); got != 1 {
+		t.Errorf("%d starts on record", got)
+	}
+}
+
+func checkLaneEndWaitsForTheReturn(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	grant := r.claim(t, ctx, r.readyOrder(t, ctx, "wo"), "c1", "a")
+	events := laneEvents(grant, session.Epoch, workorders.OutcomeCompleted)
+	if _, err := r.Link.Upload(ctx, ledger.UploadBatch{Auth: auth, Epoch: session.Epoch, Events: events[:1]}); err != nil {
+		t.Fatal(err)
+	}
+	r.ShiftClock(linkTTL + 1)
+	if _, err := control.NewLeases(r.Store).Sweep(ctx, r.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "tick"}); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := r.Link.Upload(ctx, ledger.UploadBatch{Auth: auth, Epoch: session.Epoch, Events: events[1:]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.HighWater != 0 || len(reply.Rejected) != 0 {
+		t.Fatalf("a lapsed outcome was answered: %+v", reply)
+	}
+	if row := r.order(t, ctx, "wo"); row.State != workorders.Lapsed {
+		t.Fatalf("row %+v", row)
+	}
+	beat := ledger.Heartbeat{Auth: auth, Epoch: session.Epoch, Nonce: "n", Leases: []ledger.HeldLease{heldLease(grant)}}
+	if _, err := r.Link.Heartbeat(ctx, beat); err != nil {
+		t.Fatal(err)
+	}
+	if reply, err = r.Link.Upload(ctx, ledger.UploadBatch{Auth: auth, Epoch: session.Epoch, Events: events[1:]}); err != nil {
+		t.Fatal(err)
+	}
+	if reply.HighWater != 2 {
+		t.Fatalf("reply %+v", reply)
+	}
+	if row := r.order(t, ctx, "wo"); row.State != workorders.Acceptance {
+		t.Errorf("row %+v", row)
+	}
+}
+
+func checkLaneEndFenced(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	grant := r.claim(t, ctx, r.readyOrder(t, ctx, "wo"), "c1", "a")
+	events := laneEvents(grant, session.Epoch, workorders.OutcomeCompleted)
+	if _, err := r.Link.Upload(ctx, ledger.UploadBatch{Auth: auth, Epoch: session.Epoch, Events: events[:1]}); err != nil {
+		t.Fatal(err)
+	}
+	r.ShiftClock(linkTTL + 1)
+	leases := control.NewLeases(r.Store)
+	if _, err := leases.Sweep(ctx, r.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "tick"}); err != nil {
+		t.Fatal(err)
+	}
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	if err := leases.Reassign(ctx, r.Scope, "wo", "a closed laptop", member); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := r.Link.Upload(ctx, ledger.UploadBatch{Auth: auth, Epoch: session.Epoch, Events: events[1:]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.HighWater != 2 || len(reply.Rejected) != 1 || reply.Rejected[0].Status != ledger.UploadFenced {
+		t.Fatalf("reply %+v", reply)
+	}
+	if row := r.order(t, ctx, "wo"); row.State != workorders.Ready {
+		t.Errorf("row %+v", row)
+	}
+}
+
+func checkDesiredLane(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	r.session(t, ctx, auth)
+	r.claim(t, ctx, r.readyOrder(t, ctx, "wo"), "c1", "a")
+	state, err := r.Link.Desired(ctx, ledger.DesiredRequest{Auth: auth})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Leases) != 1 || state.Leases[0].Lane != "" {
+		t.Fatalf("a claim with no dispatch names a lane: %+v", state.Leases)
+	}
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	if _, err := control.NewLeases(r.Store).Dispatch(ctx, r.Scope, "wo", "lane-1", member); err != nil {
+		t.Fatal(err)
+	}
+	state, err = r.Link.Desired(ctx, ledger.DesiredRequest{Auth: auth})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Leases) != 1 || state.Leases[0].Lane != "lane-1" || state.Leases[0].State != string(workorders.Claimed) {
+		t.Fatalf("leases %+v", state.Leases)
 	}
 }
 

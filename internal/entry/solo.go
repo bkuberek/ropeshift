@@ -15,15 +15,20 @@ import (
 	"syscall"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/clock"
+	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
+	"ropeshift.dev/ropeshift/internal/adapters/profiles"
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
+	"ropeshift.dev/ropeshift/internal/adapters/secrets"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/control"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/worker"
@@ -36,6 +41,10 @@ const lockFileName = "ropeshiftd.lock"
 
 // exitBusy says another daemon holds this installation.
 const exitBusy = 3
+
+// envSessionOverride carries a real-session suite's guard flags. Only the realsession
+// build reads what it holds.
+const envSessionOverride = "ROPESHIFT_SESSION_OVERRIDE"
 
 // tickActor is who a tick's records name.
 func tickActor(name string) ledger.Actor {
@@ -222,7 +231,12 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		_ = journal.Close()
 		return nil, err
 	}
-	lanes, err := server.Listen(paths.WorkerSocket())
+	runtime, err := soloLanes(paths, opts)
+	if err != nil {
+		_ = journal.Close()
+		return nil, err
+	}
+	socket, err := server.Listen(paths.WorkerSocket())
 	if err != nil {
 		_ = journal.Close()
 		return nil, err
@@ -238,6 +252,7 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		},
 		Capabilities: map[string]string{"mode": "solo"},
 		Spool:        paths.Spool(),
+		Lanes:        runtime,
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},
@@ -245,7 +260,7 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 	socketDone := make(chan struct{})
 	go func() {
 		defer close(socketDone)
-		if err := subject.ServeLanes(ctx, lanes); err != nil {
+		if err := subject.ServeLanes(ctx, socket); err != nil {
 			fmt.Fprintf(stderr, "ropeshiftd: worker socket: %v\n", err)
 		}
 	}()
@@ -260,6 +275,48 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		<-socketDone
 	}()
 	return done, nil
+}
+
+// soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this
+// daemon reads work from, and the worker's own paths.
+func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
+	override, err := lanes.ParseOverride(os.Getenv(envSessionOverride))
+	if err != nil {
+		return nil, err
+	}
+	env, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: os.LookupEnv})
+	if err != nil {
+		return nil, err
+	}
+	return &worker.LaneRuntime{
+		Driver:      claudecode.New(osexec.Runner{}, claudecode.Options{Env: env}),
+		Provisioner: worker.Provisioner{Profiles: profiles.Filesystem{}, Worktrees: gitcli.Worktrees{}},
+		Secrets:     secrets.Resolver{},
+		Repository:  checkouts(opts),
+		Socket:      paths.WorkerSocket(),
+		Spool:       paths.Spool(),
+		Binary:      paths.StableBinary(),
+		StateDir:    paths.StateDir,
+		RunDir:      paths.RunDir,
+		Override:    override,
+	}, nil
+}
+
+// checkouts finds a work order's repository among the daemon's sources. A repository
+// is known by its history, so a moved checkout still matches.
+func checkouts(opts soloOptions) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, id string) (string, error) {
+		for _, path := range opts.sources {
+			description, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}).Describe(ctx)
+			if err != nil {
+				return "", err
+			}
+			if description.Instance == id {
+				return filepath.Abs(path)
+			}
+		}
+		return "", fmt.Errorf("no source holds repository %q", id)
+	}
 }
 
 // keepStableBinary points the stable path at this binary, so generated settings and

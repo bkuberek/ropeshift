@@ -2,7 +2,6 @@ package contract
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
@@ -388,21 +387,8 @@ func (r *Rig) finish(s ports.Store, id string) error {
 	if err != nil {
 		return err
 	}
-	err = s.Write(r.Ctx, r.Scope, "finish", func(tx ports.WriteTx) error {
-		won, err := tx.WorkOrders().Move(id, workorders.Running, workorders.Acceptance)
-		if err != nil || !won {
-			return fmt.Errorf("move: %v %v", won, err)
-		}
-		event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerLaneCompleted), id, workorders.Change{
-			Trigger: workorders.TriggerLaneCompleted, Fence: holder.Fence,
-		}, r.Actor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(event)
-		return err
-	})
-	if err != nil {
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}}
+	if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, result, r.Actor); err != nil {
 		return err
 	}
 	return r.NewOps(s).Move(r.Ctx, r.Scope, id, workorders.TriggerAcceptancePassed, r.Actor)

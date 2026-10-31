@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -313,9 +314,11 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			return err
 		}
 		for _, row := range held {
-			state.Leases = append(state.Leases, ledger.DesiredLease{
-				WorkOrder: row.ID, ClaimID: row.ClaimID, Fence: row.Fence, State: string(row.State),
-			})
+			lease, err := desiredLease(tx, row)
+			if err != nil {
+				return err
+			}
+			state.Leases = append(state.Leases, lease)
 		}
 		return nil
 	})
@@ -323,6 +326,34 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 		return ledger.DesiredState{}, err
 	}
 	return state, nil
+}
+
+// desiredLease adds what a dispatched lane starts from.
+func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLease, error) {
+	lease := ledger.DesiredLease{WorkOrder: row.ID, ClaimID: row.ClaimID, Fence: row.Fence, State: string(row.State)}
+	claim, err := tx.Claims().Find(row.ClaimID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return lease, nil
+	}
+	if err != nil {
+		return lease, err
+	}
+	if claim.Lane == "" {
+		return lease, nil
+	}
+	lease.Lane, lease.Repository, lease.Branch, lease.Title = claim.Lane, row.RepositoryID, row.Branch, row.Title
+	if row.ContractVersion == 0 {
+		return lease, nil
+	}
+	pinned, err := tx.Planning().Contract(row.ContractID, row.ContractVersion)
+	if err != nil {
+		return lease, err
+	}
+	lease.Statement = pinned.Statement
+	for _, criterion := range pinned.Criteria {
+		lease.Criteria = append(lease.Criteria, criterion.Text)
+	}
+	return lease, nil
 }
 
 // Watch hints that the revision moved. Every hint it drops is one the next heartbeat
@@ -379,6 +410,9 @@ func (w *Workers) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.
 	var reply ledger.UploadReply
 	for _, event := range batch.Events {
 		rejected, err := w.storeEvent(ctx, batch.Auth.WorkerID, event)
+		if errors.Is(err, workorders.ErrLapsed) {
+			return reply, nil
+		}
 		if err != nil {
 			return reply, err
 		}
@@ -391,7 +425,9 @@ func (w *Workers) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.
 }
 
 // storeEvent stores one event once. The lookup comes before the fence, so a retry
-// after a lost answer finds its first attempt even if the fence moved since.
+// after a lost answer finds its first attempt even if the fence moved since. A lapsed
+// lease holds the batch here: the next heartbeat returns it and the worker sends the
+// event again, so an outcome is never lost to a lapse.
 func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.UploadEvent) (*ledger.UploadResult, error) {
 	id := ledger.UploadedEventID(worker, e.Epoch, e.Seq)
 	err := w.store.Write(ctx, w.scope, opUpload, func(tx ports.WriteTx) error {
@@ -400,12 +436,7 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 		} else if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
-		draft, err := uploadedDraft(tx, worker, id, e)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(draft)
-		return err
+		return applyUpload(tx, worker, id, e)
 	})
 	var fenced *workorders.FencedError
 	switch {
@@ -413,10 +444,35 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 		return nil, nil
 	case errors.As(err, &fenced):
 		return &ledger.UploadResult{Seq: e.Seq, Status: ledger.UploadFenced, CurrentFence: fenced.Current, State: string(fenced.State)}, nil
-	case errors.Is(err, ports.ErrNotFound):
+	case errors.Is(err, ports.ErrNotFound), errors.Is(err, workorders.ErrInvalid):
 		return &ledger.UploadResult{Seq: e.Seq, Status: ledger.UploadInvalid, Detail: err.Error()}, nil
 	}
 	return nil, err
+}
+
+// applyUpload stores one event inside its transaction. A lane's start and end change
+// the work order, so they run the same statements as the use cases.
+func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	stamp := func(draft *ledger.EventDraft) { draft.ID, draft.OccurredAt = id, e.OccurredAt }
+	lease := workorders.Lease{WorkOrder: e.WorkOrder, ClaimID: e.ClaimID, Fence: e.Fence}
+	switch e.Type {
+	case ledger.UploadLaneStarted:
+		_, err := startLane(tx, lease, e.Lane, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
+		return err
+	case ledger.UploadLaneEnded:
+		var result workorders.LaneResult
+		if err := json.Unmarshal(e.Payload, &result); err != nil {
+			return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+		}
+		holder := workorders.Holder{Lease: lease, Lane: e.Lane, Generation: e.Generation}
+		return endLane(tx, holder, result, ledger.Actor{Kind: ledger.ActorLane, ID: e.Lane}, stamp)
+	}
+	draft, err := uploadedDraft(tx, worker, id, e)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(draft)
+	return err
 }
 
 // uploadedDraft checks a work order event's fence and generation, and builds the

@@ -61,6 +61,8 @@ type Check struct {
 
 // Rig is one check's world.
 type Rig struct {
+	// MaxAttempts is what a new work order allows, zero for the default.
+	MaxAttempts int64
 	T     testing.TB
 	Ctx   context.Context
 	DB    Database
@@ -78,6 +80,8 @@ type Rig struct {
 	ready   bool
 }
 
+const defaultMaxAttempts = 3
+
 // Ops are the use cases the checks drive.
 type Ops interface {
 	Create(ctx context.Context, scope ledger.WorkspaceID, draft workorders.WorkOrder, actor ledger.Actor) (workorders.WorkOrder, error)
@@ -92,6 +96,8 @@ type Ops interface {
 	StartLane(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, lane string, actor ledger.Actor) (int64, error)
 	Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, writeID string, payload []byte, actor ledger.Actor) (ledger.Event, error)
 	Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error)
+	Dispatch(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane string, actor ledger.Actor) (workorders.Lease, error)
+	EndLane(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, result workorders.LaneResult, actor ledger.Actor) error
 	Record(ctx context.Context, scope ledger.WorkspaceID, work control.LedgerWork, actor ledger.Actor) (workorders.WorkOrder, error)
 	Poll(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource) (control.IntakeReport, error)
 	Pass(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (control.ReviewResult, error)
@@ -208,6 +214,10 @@ func (r *Rig) noteDraft(id string) ledger.EventDraft {
 
 // NewWorkOrder creates a work order in `intake` through the rig's use cases.
 func (r *Rig) NewWorkOrder(s ports.Store) (workorders.WorkOrder, error) {
+	attempts := r.MaxAttempts
+	if attempts == 0 {
+		attempts = defaultMaxAttempts
+	}
 	return r.NewOps(s).Create(r.Ctx, r.Scope, workorders.WorkOrder{
 		ID:           r.ID("wo"),
 		Kind:         workorders.KindChange,
@@ -216,7 +226,7 @@ func (r *Rig) NewWorkOrder(s ports.Store) (workorders.WorkOrder, error) {
 		Size:         "medium",
 		Requirements: []string{"PAY-12"},
 		Needs:        map[string]string{"driver": "claude-code"},
-		MaxAttempts:  3,
+		MaxAttempts:  attempts,
 	}, r.Actor)
 }
 

@@ -311,6 +311,7 @@ func TestPreflightRefusesWhatCannotStart(t *testing.T) {
 		{"no model", func(s *ports.SessionSpec) { s.Model = "" }, "no model"},
 		{"no agent on PATH", func(s *ports.SessionSpec) { s.Env = []string{"PATH=" + t.TempDir()} }, "not on PATH"},
 		{"a parent session's marker", func(s *ports.SessionSpec) { s.Env = append(s.Env, "CLAUDE_CODE_CHILD_SESSION=1") }, "session variable"},
+		{"a socket past the limit", func(s *ports.SessionSpec) { s.TempDir = "/" + strings.Repeat("d", 90) }, "byte limit"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

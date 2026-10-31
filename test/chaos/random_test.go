@@ -75,6 +75,7 @@ var randomSteps = [][2]string{
 	{"release", "released"}, {"release", "committed"},
 	{"return", "restored"}, {"return", "committed"},
 	{"lease.renew", "before-commit"}, {"lease.renew", "committed"},
+	{"lane.end", "ended"}, {"lane.end", "committed"},
 }
 
 func newRandomRun(w *world, kills int) *randomRun {
@@ -88,7 +89,11 @@ func (r *randomRun) fail(format string, args ...any) {
 	r.stop.Store(true)
 }
 
+// randomAttempts keeps a failed lane's work order coming back for the whole run.
+const randomAttempts = 1 << 40
+
 func (r *randomRun) seedWork(workOrders int) error {
+	r.world.rig.MaxAttempts = randomAttempts
 	for range workOrders {
 		if _, err := r.world.rig.Ready(r.world.store); err != nil {
 			return err

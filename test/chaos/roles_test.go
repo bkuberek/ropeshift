@@ -35,6 +35,9 @@ var childRoles = map[string]func(*child) error{
 	"review-pass":       roleReviewPass,
 	"record-work":       roleRecordWork,
 	"worker-upload":     roleWorkerUpload,
+	"worker-lane":       roleWorkerLane,
+	"dispatch":          roleDispatch,
+	"end-lane":          roleEndLane,
 	"worker-daemon":     roleWorkerDaemon,
 	"plane-server":      rolePlaneServer,
 	"worktree-create":   roleWorktreeCreate,
@@ -109,6 +112,26 @@ func roleSweep(c *child) error {
 
 func roleReturn(c *child) error {
 	return c.ops.Return(c.ctx, c.scope, c.lease(), c.spec.TTLMs, c.actor)
+}
+
+// roleDispatch is safe to repeat, so a retry names the same lane.
+func roleDispatch(c *child) error {
+	_, err := c.ops.Dispatch(c.ctx, c.scope, c.spec.WorkOrder, c.spec.Lane, c.member())
+	return err
+}
+
+// roleEndLane counts a retry that finds its lane already ended.
+func roleEndLane(c *child) error {
+	holder := workorders.Holder{
+		Lease: c.lease(), Lane: c.spec.Lane, Generation: c.spec.Generation,
+	}
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}}
+	err := c.ops.EndLane(c.ctx, c.scope, holder, result, c.actor)
+	var fenced *workorders.FencedError
+	if errors.As(err, &fenced) && fenced.State == workorders.Acceptance {
+		return nil
+	}
+	return err
 }
 
 func roleRelease(c *child) error {
@@ -365,8 +388,15 @@ func (c *child) work(grant workorders.Grant) error {
 			}
 		}
 	}
-	// Walk away. A running work order has no release, so its lease expires and a
-	// member resolves it.
+	// A running work order has no release, so half the time this holder walks away,
+	// and its lease expires and a member resolves it. The other half its lane fails,
+	// which moves the fence and returns the work order to `ready`.
+	if c.rng.IntN(2) == 0 {
+		result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonCrashed}}
+		if err := c.ops.EndLane(c.ctx, c.scope, holder, result, c.actor); err != nil {
+			return c.lostLease(lease, err)
+		}
+	}
 	return c.clearCurrent()
 }
 

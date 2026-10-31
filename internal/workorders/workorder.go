@@ -119,6 +119,8 @@ type Change struct {
 	Lane       string  `json:"lane,omitempty"`
 	Generation int64   `json:"generation,omitempty"`
 	Reason     string  `json:"reason,omitempty"`
+	Outcome    Outcome `json:"outcome,omitempty"`
+	Attempts   int64   `json:"attempts,omitempty"`
 	Payload    []byte  `json:"payload,omitempty"`
 }
 
@@ -132,6 +134,24 @@ const EventFencedWrite = "work_order.fenced_write"
 // EventReviewPassed records a member's passed review, which changes no state. The
 // definition of ready decides the move.
 const EventReviewPassed = "work_order.review_passed"
+
+// EventLaneDispatched records a request to run a lane, which changes no state. The
+// worker reads it as desired state, and the lane's start moves the work order.
+const EventLaneDispatched = "work_order.lane_dispatched"
+
+// EventGenerationBound records what a generation runs on, which changes no state.
+const EventGenerationBound = "work_order.generation_bound"
+
+// GenerationBinding is the payload of EventGenerationBound. It records the resolved
+// model and not only the alias, because aliases drift (FR-DRV-10).
+type GenerationBinding struct {
+	SessionID      string `json:"session_id"`
+	ModelRequested string `json:"model_requested"`
+	ModelResolved  string `json:"model_resolved"`
+	ProfileDigest  string `json:"profile_digest"`
+	DriverVersion  string `json:"driver_version"`
+	DegradedMode   bool   `json:"degraded_mode,omitempty"`
+}
 
 // ChangeEvent is the event of one change to a work order.
 func ChangeEvent(eventType, id string, change Change, actor ledger.Actor) (ledger.EventDraft, error) {
@@ -227,6 +247,12 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 			return w, fmt.Errorf("%w: ownership ended at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
 		}
 		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
+	case TriggerLaneCompleted, TriggerLaneBlocked, TriggerLaneFailedRetry, TriggerAttemptsExhausted:
+		if change.Fence <= w.Fence {
+			return w, fmt.Errorf("%w: a lane ended at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
+		}
+		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
+		w.Attempts = change.Attempts
 	}
 	w.State = edge.To
 	return w, nil

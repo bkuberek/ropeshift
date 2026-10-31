@@ -89,6 +89,8 @@ type Claim struct {
 	GrantedAt int64
 	EndedAt   int64
 	EndReason string
+	// Lane is the lane a member or an orchestrator asked to run under this claim.
+	Lane string
 }
 
 // Ended reports a claim that no longer holds anything.

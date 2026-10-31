@@ -169,7 +169,29 @@ var (
    AND fence = :fence
    AND claim_id = :claim_id
    AND state = 'claimed'`)
+
+	// stmtEndLane closes a lease by its lane's outcome. The fence moves here too, so
+	// the old holder's token is stale at once, whichever state the work order takes.
+	stmtEndLane = define("lease.end",
+		`UPDATE work_orders
+   SET state = :to_state,
+       fence = fence + 1,
+       claim_id = NULL,
+       lease_worker = NULL,
+       lease_until = NULL,
+       attempts = :attempts
+ WHERE workspace_id = :workspace_id
+   AND id = :id
+   AND fence = :fence
+   AND claim_id = :claim_id
+   AND state = 'running'`)
 )
+
+func (t leaseTx) End(lease workorders.Lease, to workorders.State, attempts int64) (bool, error) {
+	p := t.leaseParams(lease)
+	p["to_state"], p["attempts"] = string(to), attempts
+	return t.matched(stmtEndLane, p)
+}
 
 func (t leaseTx) Return(lease workorders.Lease, restored workorders.State, ttlMs int64) (bool, error) {
 	p := t.leaseParams(lease)
@@ -234,12 +256,12 @@ type claimTx struct {
 
 var (
 	stmtFindClaim = define("claim.find",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id
   FROM claims
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtListClaims = define("claim.list",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id
   FROM claims
  WHERE workspace_id = :workspace_id
  ORDER BY work_order_id, fence`)
@@ -251,16 +273,20 @@ VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at)`)
 	stmtEndClaim = define("claim.end",
 		`UPDATE claims SET ended_at = :now, end_reason = :reason
  WHERE workspace_id = :workspace_id AND id = :id AND ended_at IS NULL`)
+
+	stmtDispatchClaim = define("claim.dispatch",
+		`UPDATE claims SET lane_id = :lane
+ WHERE workspace_id = :workspace_id AND id = :id AND ended_at IS NULL`)
 )
 
 func scanClaim(row scanner) (workorders.Claim, error) {
 	var c workorders.Claim
 	var endedAt sql.NullInt64
-	var reason sql.NullString
-	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason); err != nil {
+	var reason, lane sql.NullString
+	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason, &lane); err != nil {
 		return workorders.Claim{}, err
 	}
-	c.EndedAt, c.EndReason = endedAt.Int64, reason.String
+	c.EndedAt, c.EndReason, c.Lane = endedAt.Int64, reason.String, lane.String
 	return c, nil
 }
 
@@ -298,6 +324,11 @@ func (t claimTx) Record(c workorders.Claim) error {
 		"workspace_id": string(t.scope), "id": c.ID, "work_order_id": c.WorkOrder,
 		"worker_id": c.Worker, "fence": c.Fence, "granted_at": c.GrantedAt,
 	})
+	return err
+}
+
+func (t claimTx) Dispatch(id, lane string) error {
+	_, err := t.exec(stmtDispatchClaim, params{"workspace_id": string(t.scope), "id": id, "lane": lane})
 	return err
 }
 

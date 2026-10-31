@@ -368,6 +368,37 @@ func allVariants() []variant {
 		},
 		{name: "renewal revives an expired lease", check: "solo-sleep"},
 		{
+			name:     "a lane's end keeps the fence",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.end", "\n       fence = fence + 1,", "")},
+			check:    "L26",
+		},
+		{
+			name:     "a lane's end without the fence predicate",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.end", leaseGuard, "")},
+			check:    "L27",
+		},
+		{
+			name: "a lane's end without the generation check",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lane.generation",
+				"SELECT current_generation FROM lanes", "SELECT 1 FROM lanes")},
+			check: "L28",
+		},
+		{
+			name:     "a lane's end keeps the claim",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("claim.end", "ended_at IS NULL", "1 = 0")},
+			check:    "L25",
+		},
+		{
+			name:     "a dispatch leaves no record on the claim",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("claim.dispatch", "ended_at IS NULL", "1 = 0")},
+			check:    "L31",
+		},
+		{
+			name:  splitLaneEnd,
+			check: "crash",
+			crash: func() (crashCase, string) { return workerLaneCase(), laneSplitStep },
+		},
+		{
 			name:     "lapse trusts the sweep's earlier read",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.lapse", "\n   AND lease_until <= :now", "")},
 			check:    "L9",

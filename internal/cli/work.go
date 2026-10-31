@@ -242,6 +242,35 @@ func (c *invocation) workReassign(args []string) int {
 	}{id}, func() string { return id + "\treassigned\n" })
 }
 
+// laneStart asks the worker holding a claim to run a lane (FR-WO-9). It returns as soon
+// as the ledger holds the request, and `work show` follows the lane from there.
+func (c *invocation) laneStart(args []string) int {
+	set := c.flags()
+	var request api.StartLane
+	set.StringVar(&request.LaneID, "lane", "", "a client-generated ID, so a retry names the same lane")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	if request.LaneID == "" {
+		generated, err := newID()
+		if err != nil {
+			return c.failure(err)
+		}
+		request.LaneID = generated
+	}
+	client := c.client()
+	defer client.Close()
+	dispatched, err := client.StartLane(c.ctx, id, request)
+	return c.finish(err, dispatched, func() string {
+		return fmt.Sprintf("%s\tlane %s\tfence %d\n", id, dispatched.LaneID, dispatched.Fence)
+	})
+}
+
 func (c *invocation) sourceList(args []string) int {
 	set := c.flags()
 	positional, ok := parse(set, args)

@@ -33,6 +33,13 @@ const (
 	envTempDir      = "CLAUDE_CODE_TMPDIR="
 )
 
+// A session's socket lands at <TempDir>/cc-socks/<pid>.sock, and a sockaddr_un holds 104
+// bytes on macOS with its terminating NUL.
+const (
+	socketTail    = "/cc-socks/9999999.sock"
+	maxSocketPath = 103
+)
+
 const (
 	defaultStopGrace = 5 * time.Second
 	versionTimeout   = 30 * time.Second
@@ -180,6 +187,9 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	}
 	if _, err := findBinary(spec.Env); err != nil {
 		problem("%v", err)
+	}
+	if len(spec.TempDir)+len(socketTail) > maxSocketPath {
+		problem("a session's socket under %s passes the %d-byte limit", spec.TempDir, maxSocketPath)
 	}
 	for _, entry := range spec.Env {
 		name, _, _ := strings.Cut(entry, "=")

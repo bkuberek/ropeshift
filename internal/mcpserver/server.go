@@ -31,13 +31,6 @@ const (
 	answerDeadline = 10 * time.Second
 )
 
-// ToolLaneReport is the tool that ends a lane.
-const ToolLaneReport = "lane_report"
-
-// LaneTools are a lane's tools. Generated settings allow exactly these, so a lane
-// reports its outcome with no prompt (ADR-0014).
-var LaneTools = []string{ToolLaneReport}
-
 type message struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
@@ -131,7 +124,7 @@ func reply(stdout io.Writer, out response) error {
 }
 
 var laneReportTool = map[string]any{
-	"name": ToolLaneReport,
+	"name": lanes.ToolLaneReport,
 	"description": "Report this lane's outcome. Call it once, when the work is done or cannot go on. " +
 		"Use completed when the contract is met, blocked when the lane cannot finish and no answer would change that, " +
 		"and failed when the work ended abnormally.",
@@ -172,7 +165,7 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 	if err := json.Unmarshal(params, &request); err != nil {
 		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
 	}
-	if request.Name != ToolLaneReport {
+	if request.Name != lanes.ToolLaneReport {
 		return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
 	}
 	var report workorders.Report

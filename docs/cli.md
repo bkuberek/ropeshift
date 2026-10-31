@@ -15,6 +15,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work claim <id> --worker W [--claim-id C]` | Claims a work order for a worker. A retry with the same claim ID returns the grant |
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |
+| `ropeshift lane start <work-order> [--lane L]` | Asks the worker holding the claim to run a lane. It returns when the ledger holds the request, and a retry with the same lane ID is the same request |
 | `ropeshift source list` | Lists sources, their health, and the files they cannot read |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |

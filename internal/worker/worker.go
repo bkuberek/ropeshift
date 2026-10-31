@@ -38,6 +38,8 @@ type Config struct {
 	Spool string
 	// Report receives what Run could not do, because Run outlives any one failure.
 	Report func(error)
+	// Lanes runs the lanes a member dispatches. A worker with none only holds leases.
+	Lanes *LaneRuntime
 }
 
 // Worker holds the machine's connection to the control plane. Everything it must
@@ -53,6 +55,10 @@ type Worker struct {
 	session    ledger.Session
 	desiredRev int64
 	deadlines  map[string]time.Time
+	running    map[string]*laneRun
+
+	uploading sync.Mutex
+	laneGroup sync.WaitGroup
 }
 
 // New returns a worker that has not started.
@@ -66,7 +72,10 @@ func New(link ports.WorkerLink, journal ports.Journal, clock ports.Clock, config
 	if config.Report == nil {
 		config.Report = func(error) {}
 	}
-	return &Worker{link: link, journal: journal, clock: clock, config: config, deadlines: map[string]time.Time{}}
+	return &Worker{
+		link: link, journal: journal, clock: clock, config: config,
+		deadlines: map[string]time.Time{}, running: map[string]*laneRun{},
+	}
 }
 
 func newToken(size int) (string, error) {
@@ -214,6 +223,7 @@ func (w *Worker) applyBeat(ctx context.Context, held []ledger.HeldLease, reply l
 	lost := map[string]bool{}
 	for _, fenced := range reply.Fenced {
 		lost[fenced.WorkOrder] = true
+		w.stopFenced(ctx, fenced.WorkOrder)
 	}
 	kept := make([]ledger.HeldLease, 0, len(held))
 	for _, lease := range held {
@@ -276,6 +286,8 @@ func (w *Worker) Record(ctx context.Context, event ledger.UploadEvent) (ledger.U
 // acknowledgement repeats the same (worker, epoch, seq), and the ledger stores it
 // once.
 func (w *Worker) Upload(ctx context.Context) error {
+	w.uploading.Lock()
+	defer w.uploading.Unlock()
 	w.mu.Lock()
 	auth := ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
 	epoch := w.identity.Epoch
@@ -319,10 +331,14 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		wait(ctx, retryEvery)
 	}
+	if err := w.recoverLanes(ctx); err != nil {
+		w.config.Report(err)
+	}
 	hints := make(chan int64, 1)
 	go w.watch(ctx, hints)
 	for {
 		w.cycle(ctx)
+		w.reconcile(ctx)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -330,6 +346,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			if err := w.Sync(ctx); err != nil && ctx.Err() == nil {
 				w.config.Report(err)
 			}
+			w.reconcile(ctx)
 		case <-time.After(w.pause()):
 		}
 	}

@@ -52,7 +52,8 @@ func TestGeneratedEventSequences(t *testing.T) {
 			edge, _ := Next(state, trigger)
 			change := Change{Trigger: trigger, Fence: fence}
 			switch trigger {
-			case TriggerClaimGranted, TriggerClaimReleased, TriggerTakeover:
+			case TriggerClaimGranted, TriggerClaimReleased, TriggerTakeover, TriggerLaneCompleted,
+				TriggerLaneBlocked, TriggerLaneFailedRetry, TriggerAttemptsExhausted:
 				fence++
 				change.Fence = fence
 			}

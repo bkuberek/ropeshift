@@ -148,6 +148,14 @@ type DesiredLease struct {
 	ClaimID   string `json:"claim_id"`
 	Fence     int64  `json:"fence"`
 	State     string `json:"state"`
+	// Lane is the lane to run under this claim. Empty means hold the lease and start
+	// nothing. The fields below come with it, and they are what the lane starts from.
+	Lane       string   `json:"lane,omitempty"`
+	Repository string   `json:"repository,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
+	Title      string   `json:"title,omitempty"`
+	Statement  string   `json:"statement,omitempty"`
+	Criteria   []string `json:"criteria,omitempty"`
 }
 
 // DesiredState is what the control plane wants of one worker. Unchanged says the
@@ -180,6 +188,14 @@ type UploadEvent struct {
 	Payload    []byte `json:"payload,omitempty"`
 	OccurredAt int64  `json:"occurred_at"`
 }
+
+// The upload types the ledger gives a meaning of its own. Any other type is a fenced
+// note on the work order.
+const (
+	UploadLaneStarted     = "lane_started"
+	UploadLaneEnded       = "lane_ended"
+	UploadGenerationBound = "generation_bound"
+)
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index
 // on event IDs then makes upload idempotent.

@@ -4,12 +4,15 @@
 GO ?= go
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
 
+# The PATH as it arrived, for the one layer that runs the real binary.
+REAL_PATH := $(PATH)
+
 # A `claude` that fails the run if anything executes it. The test layers put it first
 # on PATH, and fakeclaude goes in front of it where a test needs an agent.
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check vet lint test licenses cross bench check-postgres chaos canary
+.PHONY: check vet lint test licenses cross bench check-postgres chaos canary real
 
 check: vet lint test licenses canary
 
@@ -19,13 +22,15 @@ canary:
 
 vet:
 	$(GO) vet ./...
-	$(GO) vet -tags 'chaos postgres bench' ./...
+	$(GO) vet -tags 'chaos postgres bench realsession' ./...
 
 lint:
 	golangci-lint run ./...
 
+# Always run: the exit tests build the daemon at run time, so the test cache cannot see
+# a change to it and would repeat an old pass.
 test:
-	$(GO) test -race ./...
+	$(GO) test -race -count=1 ./...
 
 licenses:
 	$(GO) run ./test/rules/licensereport
@@ -54,3 +59,11 @@ KILLS ?= 120
 chaos:
 	KILLS=$(KILLS) $(GO) test -tags chaos -count=1 -timeout 45m ./test/chaos/...
 	@$(MAKE) --no-print-directory canary
+
+# The one layer that starts real sessions, and only when asked by name. The guards'
+# own tests run first, so a broken guard stops the run before it spends anything.
+SUITE ?= RS1
+
+real:
+	$(GO) test -tags realsession -count=1 -run '^Test(Ledger|Refused|Environment|Canary|Stop|Init|Hook)' ./test/real/...
+	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout 8m -v -run '^Test$(SUITE)$$' ./test/real/...

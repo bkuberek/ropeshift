@@ -142,6 +142,13 @@ func (c *Client) Review(ctx context.Context, id string) (ReviewResult, error) {
 	return out, err
 }
 
+// StartLane asks the claim's worker to run a lane.
+func (c *Client) StartLane(ctx context.Context, id string, in StartLane) (LaneDispatched, error) {
+	var out LaneDispatched
+	err := c.Do(ctx, http.MethodPost, workOrderPath(id, "lanes"), in, &out)
+	return out, err
+}
+
 // Claim requests a work order.
 func (c *Client) Claim(ctx context.Context, id string, in ClaimRequest) (Grant, error) {
 	var out Grant

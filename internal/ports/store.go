@@ -141,6 +141,8 @@ type LeaseWriter interface {
 	Revoke(workOrder string, fence int64) (bool, error)
 	// Release gives back a claim before its lane starts, and moves the fence.
 	Release(lease workorders.Lease) (bool, error)
+	// End closes a running lease by a lane's outcome, and moves the fence.
+	End(lease workorders.Lease, to workorders.State, attempts int64) (bool, error)
 }
 
 // ClaimReader reads claims.
@@ -159,6 +161,8 @@ type ClaimWriter interface {
 	Record(workorders.Claim) error
 	// End closes an open claim.
 	End(id, reason string) error
+	// Dispatch names the lane a claim should run.
+	Dispatch(id, lane string) error
 }
 
 // LaneReader reads lanes.

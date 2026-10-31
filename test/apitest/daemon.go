@@ -34,11 +34,16 @@ type Daemon struct {
 	Client *api.Client
 }
 
+// maxShortBase keeps a socket under the 104-byte limit with a directory, a run
+// directory, and a session's private directory on top. A macOS temporary directory
+// is longer than this.
+const maxShortBase = 20
+
 // ShortDir makes a directory whose path leaves room for a socket.
 func ShortDir(t testing.TB) string {
 	t.Helper()
 	base := os.TempDir()
-	if len(base) > 60 {
+	if len(base) > maxShortBase {
 		base = "/tmp"
 	}
 	dir, err := os.MkdirTemp(base, "rs")

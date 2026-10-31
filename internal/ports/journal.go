@@ -41,6 +41,12 @@ type Journal interface {
 	SaveDesired(ctx context.Context, state ledger.DesiredState) error
 	// SaveLane creates or replaces one lane's record.
 	SaveLane(ctx context.Context, lane lanes.Record) error
+	// BeginLane stores a new lane and its first event in one transaction, so a crash
+	// leaves a lane the worker can account for or nothing at all.
+	BeginLane(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// EndLane marks a lane ended, expires its token, and stores its last event in one
+	// transaction, so a lane ends once whatever a crash interrupts.
+	EndLane(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, error)
 	// Lane returns one lane, or ErrNotFound.
 	Lane(ctx context.Context, id string) (lanes.Record, error)
 	// LaneByToken returns the lane a token digest belongs to, or ErrNotFound. A token

@@ -98,6 +98,20 @@ type Grant struct {
 	Replayed     bool         `json:"replayed,omitempty"`
 }
 
+// StartLane asks the worker holding a claim to run a lane. The client generates
+// LaneID, so a retry names the same lane.
+type StartLane struct {
+	LaneID string `json:"lane_id"`
+}
+
+// LaneDispatched says which lease a lane will run under.
+type LaneDispatched struct {
+	LaneID    string `json:"lane_id"`
+	WorkOrder string `json:"work_order"`
+	ClaimID   string `json:"claim_id"`
+	Fence     int64  `json:"fence"`
+}
+
 // ReleaseRequest gives a claim back.
 type ReleaseRequest struct {
 	Fence int64 `json:"fence"`

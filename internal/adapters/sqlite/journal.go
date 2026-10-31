@@ -116,18 +116,29 @@ ON CONFLICT (id) DO UPDATE SET worker_id = ?1, credential = ?2, epoch = ?3`,
 // Append stores one event. The primary key assigns the sequence number, and a
 // rolled-back insert leaves no gap, because the counter rolls back with it.
 func (j *Journal) Append(ctx context.Context, event ledger.UploadEvent) (ledger.UploadEvent, error) {
-	result, err := j.db.ExecContext(ctx, `INSERT INTO events
+	event, err := insertEvent(ctx, j.db, event)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	crashpoint.Hit("journal.append", "appended")
+	return event, nil
+}
+
+// execer is a database or a transaction.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertEvent(ctx context.Context, db execer, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	result, err := db.ExecContext(ctx, `INSERT INTO events
   (epoch, type, work_order, claim_id, fence, lane, generation, payload, occurred_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
 		event.Epoch, event.Type, event.WorkOrder, event.ClaimID, event.Fence, event.Lane, event.Generation, event.Payload, event.OccurredAt)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}
-	if event.Seq, err = result.LastInsertId(); err != nil {
-		return ledger.UploadEvent{}, err
-	}
-	crashpoint.Hit("journal.append", "appended")
-	return event, nil
+	event.Seq, err = result.LastInsertId()
+	return event, err
 }
 
 // Through returns the high-water mark.
@@ -287,13 +298,50 @@ func nullable(value string) sql.NullString {
 // SaveLane creates or replaces a lane. It leaves a report alone, because a report
 // arrives on another goroutine.
 func (j *Journal) SaveLane(ctx context.Context, lane lanes.Record) error {
-	_, err := j.db.ExecContext(ctx, `INSERT INTO lanes (`+laneColumns+`)
+	return saveLane(ctx, j.db, lane)
+}
+
+func saveLane(ctx context.Context, db execer, lane lanes.Record) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO lanes (`+laneColumns+`)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6,
   token_digest = ?7, worktree = ?8, branch = ?9, report = coalesce(lanes.report, ?10)`,
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State,
 		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report)
 	return err
+}
+
+// BeginLane stores a lane and its first event together.
+func (j *Journal) BeginLane(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := saveLane(ctx, tx, lane); err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	if event, err = insertEvent(ctx, tx, event); err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return event, tx.Commit()
+}
+
+// EndLane ends a lane and stores its last event together.
+func (j *Journal) EndLane(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `UPDATE lanes SET state = ?1, token_digest = NULL WHERE id = ?2`, lanes.StateEnded, id)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	if event, err = insertEvent(ctx, tx, event); err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return event, tx.Commit()
 }
 
 func (j *Journal) laneWhere(ctx context.Context, condition, value string) (lanes.Record, error) {
