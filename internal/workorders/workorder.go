@@ -106,8 +106,46 @@ func CreatedEvent(w WorkOrder, actor ledger.Actor) (ledger.EventDraft, error) {
 	}, nil
 }
 
-// Replay rebuilds work orders from events, in revision order. Events about other
-// subjects are skipped, because the log is shared by every record kind.
+// Change is the data of every work order event after the first. It holds what the
+// projection takes from the event, so a replay needs nothing else.
+type Change struct {
+	Trigger    Trigger `json:"trigger,omitempty"`
+	Guarded    bool    `json:"guarded,omitempty"`
+	Fence      int64   `json:"fence,omitempty"`
+	ClaimID    string  `json:"claim_id,omitempty"`
+	Worker     string  `json:"worker,omitempty"`
+	LeaseUntil int64   `json:"lease_until,omitempty"`
+	Lane       string  `json:"lane,omitempty"`
+	Generation int64   `json:"generation,omitempty"`
+	Reason     string  `json:"reason,omitempty"`
+	Payload    []byte  `json:"payload,omitempty"`
+}
+
+// EventType names the event of a transition.
+func EventType(trigger Trigger) string { return "work_order." + string(trigger) }
+
+// EventFencedWrite is a write accepted under the fence guard, which changes no
+// state.
+const EventFencedWrite = "work_order.fenced_write"
+
+// ChangeEvent is the event of one change to a work order.
+func ChangeEvent(eventType, id string, change Change, actor ledger.Actor) (ledger.EventDraft, error) {
+	data, err := json.Marshal(change)
+	if err != nil {
+		return ledger.EventDraft{}, err
+	}
+	return ledger.EventDraft{
+		Type:    eventType,
+		Actor:   actor,
+		Subject: ledger.Subject{Kind: SubjectKind, ID: id},
+		Data:    data,
+	}, nil
+}
+
+// Replay rebuilds work orders from events, in revision order, through the state
+// machine. An event the machine has no edge for is an error, so a log that holds
+// two owners or a stale write cannot replay. Events about other subjects are
+// skipped, because the log is shared by every record kind.
 func Replay(events []ledger.Event) (map[string]WorkOrder, error) {
 	book := map[string]WorkOrder{}
 	for _, e := range events {
@@ -117,7 +155,7 @@ func Replay(events []ledger.Event) (map[string]WorkOrder, error) {
 		current, known := book[e.Subject.ID]
 		next, err := apply(current, known, e)
 		if err != nil {
-			return nil, fmt.Errorf("rev %d: %w", e.Rev, err)
+			return nil, fmt.Errorf("rev %d: %s: %w", e.Rev, e.Subject.ID, err)
 		}
 		book[e.Subject.ID] = next
 	}
@@ -125,17 +163,77 @@ func Replay(events []ledger.Event) (map[string]WorkOrder, error) {
 }
 
 func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
-	if e.Type != EventCreated {
-		return current, fmt.Errorf("%w: unknown event %q", ErrInvalid, e.Type)
+	if e.Type == EventCreated {
+		if known {
+			return current, fmt.Errorf("%w: created twice", ErrInvalid)
+		}
+		var created WorkOrder
+		if err := json.Unmarshal(e.Data, &created); err != nil {
+			return current, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		return created, nil
 	}
-	if known {
-		return current, fmt.Errorf("%w: %s created twice", ErrInvalid, e.Subject.ID)
+	if !known {
+		return current, fmt.Errorf("%w: %s before creation", ErrInvalid, e.Type)
 	}
-	var created WorkOrder
-	if err := json.Unmarshal(e.Data, &created); err != nil {
+	var change Change
+	if err := json.Unmarshal(e.Data, &change); err != nil {
 		return current, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	return created, nil
+	if change.Guarded {
+		if change.Fence != current.Fence {
+			return current, fmt.Errorf("%w: a write with fence %d under fence %d", ErrInvalid, change.Fence, current.Fence)
+		}
+		current.Rev++
+	}
+	if change.Trigger == "" {
+		if !change.Guarded {
+			return current, fmt.Errorf("%w: %s changes nothing", ErrInvalid, e.Type)
+		}
+		return current, nil
+	}
+	edge, ok := Next(current.State, change.Trigger)
+	if !ok {
+		return current, fmt.Errorf("%w: %s from %s", ErrInvalid, change.Trigger, current.State)
+	}
+	return applyEdge(current, edge, change)
+}
+
+func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
+	switch edge.Trigger {
+	case TriggerClaimGranted:
+		if change.Fence <= w.Fence {
+			return w, fmt.Errorf("%w: grant at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
+		}
+		w.Fence, w.ClaimID, w.LeaseWorker = change.Fence, change.ClaimID, change.Worker
+		w.LeaseUntil = change.LeaseUntil
+	case TriggerLaneStarted:
+		if change.Fence != w.Fence {
+			return w, fmt.Errorf("%w: lane started at fence %d under fence %d", ErrInvalid, change.Fence, w.Fence)
+		}
+	case TriggerReturnedStarted, TriggerReturnedUnstarted:
+		w.LeaseUntil = change.LeaseUntil
+	case TriggerClaimReleased, TriggerTakeover:
+		if change.Fence <= w.Fence {
+			return w, fmt.Errorf("%w: ownership ended at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
+		}
+		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
+	}
+	w.State = edge.To
+	return w, nil
+}
+
+// Move returns the record after a table transition. A leased edge belongs to the
+// lease use cases.
+func Move(w WorkOrder, trigger Trigger) (Transition, error) {
+	edge, ok := Next(w.State, trigger)
+	if !ok {
+		return Transition{}, fmt.Errorf("%w: %s from %s", ErrIllegalMove, trigger, w.State)
+	}
+	if edge.Leased {
+		return Transition{}, fmt.Errorf("%w: %s", ErrLeasedEdge, trigger)
+	}
+	return edge, nil
 }
 
 // Diff names the fields where two records disagree. It returns nothing when they

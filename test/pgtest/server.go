@@ -41,7 +41,7 @@ type Server struct {
 	dir     string
 	data    string
 	cmd     *exec.Cmd
-	done    chan error
+	done    chan struct{}
 	counter atomic.Int64
 }
 
@@ -88,7 +88,7 @@ func Start(ctx context.Context) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{dir: dir, data: filepath.Join(dir, "data"), done: make(chan error, 1)}
+	s := &Server{dir: dir, data: filepath.Join(dir, "data"), done: make(chan struct{})}
 	out, err := exec.CommandContext(ctx, initdb, "-D", s.data, "-U", user, "--auth=trust",
 		"-N", "-E", "UTF8", "--locale=C").CombinedOutput()
 	if err != nil {
@@ -119,7 +119,10 @@ func (s *Server) start(ctx context.Context, postgres string) error {
 		return err
 	}
 	s.cmd = cmd
-	go func() { s.done <- cmd.Wait() }()
+	go func() {
+		_ = cmd.Wait()
+		close(s.done)
+	}()
 	s.watch(cmd.Process.Pid)
 	return s.waitReady(ctx)
 }

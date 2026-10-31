@@ -55,7 +55,37 @@ func (w *WorkOrders) Create(ctx context.Context, scope ledger.WorkspaceID, draft
 	return record, nil
 }
 
+// Move takes one unleased edge of the state machine. The compare-and-set repeats
+// the state read, so a racing move loses instead of skipping an edge.
+func (w *WorkOrders) Move(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, actor ledger.Actor) error {
+	return w.store.Write(ctx, scope, "work_order.move", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		edge, err := workorders.Move(current, trigger)
+		if err != nil {
+			return err
+		}
+		won, err := tx.WorkOrders().Move(id, edge.From, edge.To)
+		if err != nil {
+			return err
+		}
+		if !won {
+			return workorders.ErrIllegalMove
+		}
+		event, err := workorders.ChangeEvent(workorders.EventType(trigger), id, workorders.Change{Trigger: trigger}, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+}
+
 // Rebuild replaces the work order projection with what the event log replays to.
+// Renewal appends no event, so a lease deadline is not in the log: a row whose
+// claim still holds keeps the deadline it has.
 func (w *WorkOrders) Rebuild(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) error {
 	return w.store.Write(ctx, scope, "projection.rebuild", func(tx ports.WriteTx) error {
 		events, err := ReadAllEvents(tx.Events)
@@ -65,6 +95,17 @@ func (w *WorkOrders) Rebuild(ctx context.Context, scope ledger.WorkspaceID, acto
 		book, err := workorders.Replay(events)
 		if err != nil {
 			return err
+		}
+		current, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		for _, row := range current {
+			replayed, ok := book[row.ID]
+			if ok && replayed.ClaimID == row.ClaimID && replayed.Fence == row.Fence && row.LeaseUntil > replayed.LeaseUntil {
+				replayed.LeaseUntil = row.LeaseUntil
+				book[row.ID] = replayed
+			}
 		}
 		rows := make([]workorders.WorkOrder, 0, len(book))
 		for _, row := range book {

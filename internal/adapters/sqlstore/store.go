@@ -220,7 +220,9 @@ func (s *Store) CreateWorkspace(ctx context.Context, w ledger.Workspace, actor l
 	if mode == "" {
 		mode = ledger.FleetRun
 	}
-	row, err := t.row(stmtCreateWorkspace, params{"workspace_id": string(w.ID), "name": w.Name, "fleet_mode": string(mode)})
+	row, err := t.row(stmtCreateWorkspace, params{
+		"workspace_id": string(w.ID), "name": w.Name, "fleet_mode": string(mode), "wip_limit": w.WIPLimit,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -309,8 +311,18 @@ func (t *readTx) Events(after int64, limit int) ([]ledger.Event, error) {
 	return listEvents(t.session, t.scope, after, limit)
 }
 
+func (t *readTx) Now() (int64, error) { return t.readClock() }
+
 func (t *readTx) WorkOrders() ports.WorkOrderReader {
 	return workOrderTx{session: t.session, scope: t.scope}
+}
+
+func (t *readTx) Claims() ports.ClaimReader {
+	return claimTx{session: t.session, scope: t.scope}
+}
+
+func (t *readTx) Lanes() ports.LaneReader {
+	return laneTx{session: t.session, scope: t.scope}
 }
 
 // writeTx is one write transaction.
@@ -362,6 +374,18 @@ func (t *writeTx) Events(after int64, limit int) ([]ledger.Event, error) {
 
 func (t *writeTx) WorkOrders() ports.WorkOrderWriter {
 	return workOrderTx{session: t.session, scope: t.scope}
+}
+
+func (t *writeTx) Leases() ports.LeaseWriter {
+	return leaseTx{session: t.session, scope: t.scope, now: t.now}
+}
+
+func (t *writeTx) Claims() ports.ClaimWriter {
+	return claimTx{session: t.session, scope: t.scope, now: t.now}
+}
+
+func (t *writeTx) Lanes() ports.LaneWriter {
+	return laneTx{session: t.session, scope: t.scope}
 }
 
 // Append adds one event. The transaction's first event uses the revision taken at
@@ -432,7 +456,7 @@ func readWorkspace(se *session, scope ledger.WorkspaceID) (ledger.Workspace, err
 	}
 	var w ledger.Workspace
 	var id, mode string
-	switch err := row.Scan(&id, &w.Name, &mode, &w.Rev, &w.PolicyVersion); {
+	switch err := row.Scan(&id, &w.Name, &mode, &w.Rev, &w.PolicyVersion, &w.WIPLimit); {
 	case errors.Is(err, sql.ErrNoRows):
 		return ledger.Workspace{}, fmt.Errorf("%w: %s", ledger.ErrUnknownWorkspace, scope)
 	case err != nil:

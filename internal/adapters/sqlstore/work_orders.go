@@ -40,6 +40,17 @@ VALUES
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
+
+	stmtExpiredLeases = define("work_order.expired",
+		`SELECT id FROM work_orders
+ WHERE workspace_id = :workspace_id
+   AND state IN ('claimed', 'running')
+   AND lease_until <= :now
+ ORDER BY id`)
+
+	stmtMoveWorkOrder = define("work_order.move",
+		`UPDATE work_orders SET state = :to_state
+ WHERE workspace_id = :workspace_id AND id = :id AND state = :from_state`)
 )
 
 // workOrderTx is the work order area of one transaction.
@@ -75,6 +86,30 @@ func (t workOrderTx) List() ([]workorders.WorkOrder, error) {
 		out = append(out, w)
 	}
 	return out, rows.Err()
+}
+
+func (t workOrderTx) Expired(now int64) ([]string, error) {
+	rows, err := t.rows(stmtExpiredLeases, params{"workspace_id": string(t.scope), "now": now})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (t workOrderTx) Move(id string, from, to workorders.State) (bool, error) {
+	n, err := t.exec(stmtMoveWorkOrder, params{
+		"workspace_id": string(t.scope), "id": id, "from_state": string(from), "to_state": string(to),
+	})
+	return n > 0, err
 }
 
 func (t workOrderTx) Insert(w workorders.WorkOrder) error {

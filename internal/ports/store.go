@@ -34,6 +34,11 @@ type Store interface {
 	// leaves no gap in the revisions. op names the transaction in traces and
 	// crash steps.
 	Write(ctx context.Context, scope ledger.WorkspaceID, op string, fn func(WriteTx) error) error
+	// Renew extends a lease. It is the one write that takes no revision and
+	// appends no event: one guarded statement on one row, because every heartbeat
+	// would otherwise wait for the workspace lock. A rejection reads the row in
+	// the same transaction and returns ErrLapsed or a FencedError.
+	Renew(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, ttlMs int64) error
 	// Close releases the database.
 	Close() error
 }
@@ -44,8 +49,14 @@ type ReadTx interface {
 	Workspace() (ledger.Workspace, error)
 	// Events returns up to limit events after the revision, in order.
 	Events(after int64, limit int) ([]ledger.Event, error)
+	// Now reads database time.
+	Now() (int64, error)
 	// WorkOrders reads the work order projection.
 	WorkOrders() WorkOrderReader
+	// Claims reads claims.
+	Claims() ClaimReader
+	// Lanes reads lanes.
+	Lanes() LaneReader
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
@@ -62,6 +73,12 @@ type WriteTx interface {
 	Append(ledger.EventDraft) (ledger.Event, error)
 	// WorkOrders reads and writes the work order projection.
 	WorkOrders() WorkOrderWriter
+	// Leases runs the guarded lease statements.
+	Leases() LeaseWriter
+	// Claims reads and writes claims.
+	Claims() ClaimWriter
+	// Lanes reads and writes lanes.
+	Lanes() LaneWriter
 }
 
 // WorkOrderReader reads the work order projection.
@@ -70,6 +87,9 @@ type WorkOrderReader interface {
 	Get(id string) (workorders.WorkOrder, error)
 	// List returns every work order in the workspace, ordered by ID.
 	List() ([]workorders.WorkOrder, error)
+	// Expired lists the leases past their deadline at a time. A tick reads this
+	// with no lock, so each item must be checked again by a guarded statement.
+	Expired(now int64) ([]string, error)
 }
 
 // WorkOrderWriter writes the work order projection.
@@ -79,4 +99,64 @@ type WorkOrderWriter interface {
 	Insert(workorders.WorkOrder) error
 	// ReplaceAll swaps the whole projection for rows rebuilt from events.
 	ReplaceAll([]workorders.WorkOrder) error
+	// Move is a compare-and-set on the state of an unleased work order. It
+	// reports whether the row matched.
+	Move(id string, from, to workorders.State) (bool, error)
+}
+
+// LeaseWriter runs the statements that decide who holds a work order. Each is one
+// guarded statement and reports whether it matched a row. A row count of 0 is an
+// answer, not an error, and the caller reads the row to learn which answer.
+type LeaseWriter interface {
+	// WorkInProgress counts the work orders a holder occupies.
+	WorkInProgress() (int64, error)
+	// Grant is the claim statement.
+	Grant(request workorders.ClaimRequest) (bool, error)
+	// Start moves a claimed work order to running under its lease.
+	Start(lease workorders.Lease) (bool, error)
+	// Guard is the fenced write statement.
+	Guard(workOrder string, fence int64) (bool, error)
+	// Lapse is the expiry statement, which repeats the expiry predicate.
+	Lapse(workOrder string) (bool, error)
+	// Return restores a lapsed lease to its holder.
+	Return(lease workorders.Lease, restored workorders.State, ttlMs int64) (bool, error)
+	// Revoke ends a lapsed holder's ownership and moves the fence.
+	Revoke(workOrder string, fence int64) (bool, error)
+	// Release gives back a claim before its lane starts, and moves the fence.
+	Release(lease workorders.Lease) (bool, error)
+}
+
+// ClaimReader reads claims.
+type ClaimReader interface {
+	// Find returns one claim, or ErrNotFound.
+	Find(id string) (workorders.Claim, error)
+	// List returns every claim, by work order and then by fence. The fence orders
+	// grants, because two grants can share a millisecond.
+	List() ([]workorders.Claim, error)
+}
+
+// ClaimWriter writes claims.
+type ClaimWriter interface {
+	ClaimReader
+	// Record inserts a new claim.
+	Record(workorders.Claim) error
+	// End closes an open claim.
+	End(id, reason string) error
+}
+
+// LaneReader reads lanes.
+type LaneReader interface {
+	// Generation returns a lane's current generation, or ErrNotFound.
+	Generation(lane string) (int64, error)
+	// StartedUnder reports whether a lane started under this fence.
+	StartedUnder(workOrder string, fence int64) (bool, error)
+}
+
+// LaneWriter writes lanes.
+type LaneWriter interface {
+	LaneReader
+	// Start records a lane's first generation under a fence.
+	Start(lane, workOrder string, fence int64) error
+	// NextGeneration moves a lane to its next generation and returns it.
+	NextGeneration(lane string) (int64, error)
 }

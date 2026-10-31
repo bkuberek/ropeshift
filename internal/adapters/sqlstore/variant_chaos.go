@@ -2,7 +2,10 @@
 
 package sqlstore
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+	"time"
+)
 
 // Sabotage is a broken variant of the adapter, used only to prove that a check
 // can fail. The chaos build holds these seams, and a normal build has none.
@@ -14,6 +17,8 @@ type Sabotage struct {
 	RevisionLast bool
 	// CommitEmpty commits a transaction that appended no event.
 	CommitEmpty bool
+	// ClientClock reads time from the host instead of the database.
+	ClientClock bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -27,7 +32,13 @@ func (t *writeTx) open() error {
 		t.now, err = t.readClock()
 		return err
 	}
-	return t.openRevisionFirst()
+	if err := t.openRevisionFirst(); err != nil {
+		return err
+	}
+	if s := sabotage.Load(); s != nil && s.ClientClock {
+		t.now = time.Now().UnixMilli()
+	}
+	return nil
 }
 
 func rewritten(name, text string) string {

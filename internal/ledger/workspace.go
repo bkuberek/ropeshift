@@ -38,4 +38,6 @@ type Workspace struct {
 	FleetMode     FleetMode
 	Rev           int64
 	PolicyVersion int64
+	// WIPLimit caps the work orders in progress. Zero means no limit.
+	WIPLimit int64
 }

@@ -3,6 +3,7 @@
 package chaos
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -21,6 +23,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
 )
 
@@ -58,6 +61,10 @@ type childSpec struct {
 	Slot  int    `json:"slot,omitempty"`
 	Spawn int    `json:"spawn,omitempty"`
 	Seed  uint64 `json:"seed,omitempty"`
+	// Current is the file a worker keeps its open claim in, standing for the
+	// journal of a later unit. Gate is the file a stopped writer waits for.
+	Current string `json:"current,omitempty"`
+	Gate    string `json:"gate,omitempty"`
 }
 
 type child struct {
@@ -71,11 +78,19 @@ type child struct {
 	actor ledger.Actor
 }
 
+// afterTests stops what a tagged suite started.
+var afterTests = func() error { return nil }
+
 func TestMain(m *testing.M) {
 	if raw := os.Getenv(childEnv); raw != "" {
 		os.Exit(childMain(raw))
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if err := afterTests(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		code = 1
+	}
+	os.Exit(code)
 }
 
 func childMain(raw string) int {
@@ -126,7 +141,9 @@ func runChild(spec childSpec) error {
 	crashpoint.Arm(func(op, step string) {
 		if op == spec.KillOp && step == spec.KillStep {
 			_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL)
-			select {}
+			// The signal can land after this returns. A bare select would trip the
+			// runtime's deadlock check first, and a timer does not.
+			time.Sleep(time.Hour)
 		}
 	})
 	role, ok := childRoles[spec.Role]
@@ -144,6 +161,18 @@ func (c *child) completed(op, workOrder, key string, fence, rev int64) error {
 	return c.log.Append(Record{Kind: Completed, Op: op, WorkOrder: workOrder, Key: key, Fence: fence, Rev: rev, Actor: c.actor.ID})
 }
 
+func (c *child) member() ledger.Actor {
+	return ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+}
+
+func (c *child) lease() workorders.Lease {
+	return workorders.Lease{WorkOrder: c.spec.WorkOrder, ClaimID: c.spec.ClaimID, Fence: c.spec.Fence}
+}
+
+func (c *child) holder() workorders.Holder {
+	return workorders.Holder{Lease: c.lease(), Lane: c.spec.Lane, Generation: c.spec.Generation}
+}
+
 func (c *child) rejected(op, workOrder, key string, fence int64, note string) error {
 	return c.log.Append(Record{Kind: Rejected, Op: op, WorkOrder: workOrder, Key: key, Fence: fence, Note: note, Actor: c.actor.ID})
 }
@@ -151,6 +180,7 @@ func (c *child) rejected(op, workOrder, key string, fence int64, note string) er
 // proc is one running child.
 type proc struct {
 	cmd    *exec.Cmd
+	at     chan string
 	exited chan struct{}
 	stderr *lockedBuffer
 	status error
@@ -180,12 +210,22 @@ func startChild(spec childSpec) (*proc, error) {
 	}
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(), childEnv+"="+string(raw))
-	p := &proc{cmd: cmd, exited: make(chan struct{}), stderr: &lockedBuffer{}}
+	p := &proc{cmd: cmd, at: make(chan string, 1), exited: make(chan struct{}), stderr: &lockedBuffer{}}
 	cmd.Stderr = p.stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			if name, ok := strings.CutPrefix(scanner.Text(), "AT "); ok {
+				p.at <- name
+			}
+		}
 		p.status = cmd.Wait()
 		close(p.exited)
 	}()

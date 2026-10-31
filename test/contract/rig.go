@@ -81,11 +81,28 @@ type Rig struct {
 // Ops are the use cases the checks drive.
 type Ops interface {
 	Create(ctx context.Context, scope ledger.WorkspaceID, draft workorders.WorkOrder, actor ledger.Actor) (workorders.WorkOrder, error)
+	Move(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, actor ledger.Actor) error
 	Rebuild(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) error
+	Claim(ctx context.Context, scope ledger.WorkspaceID, request workorders.ClaimRequest, actor ledger.Actor) (workorders.Grant, error)
+	Renew(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, ttlMs int64) error
+	Sweep(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
+	Return(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, ttlMs int64, actor ledger.Actor) error
+	Release(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, actor ledger.Actor) error
+	Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrder, reason string, actor ledger.Actor) error
+	StartLane(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, lane string, actor ledger.Actor) (int64, error)
+	Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, payload []byte, actor ledger.Actor) (ledger.Event, error)
+	Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error)
+}
+
+type realOps struct {
+	*control.WorkOrders
+	*control.Leases
 }
 
 // RealOps are the production use cases.
-func RealOps(store ports.Store) Ops { return control.NewWorkOrders(store) }
+func RealOps(store ports.Store) Ops {
+	return realOps{control.NewWorkOrders(store), control.NewLeases(store)}
+}
 
 // NewRig prepares a rig on a fresh database.
 func NewRig(t testing.TB, backend Backend) *Rig {
@@ -100,6 +117,14 @@ func NewRig(t testing.TB, backend Backend) *Rig {
 		Actor:  ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"},
 		NewOps: RealOps,
 	}
+}
+
+// StoreWith opens a handle that calls step at each named moment, which is how a
+// check stops a transaction at an exact point with nothing compiled into the
+// adapter.
+func (r *Rig) StoreWith(step func(op, name string)) ports.Store {
+	r.T.Helper()
+	return Stepped(r.Store(), step)
 }
 
 // Store opens a handle. The first handle migrates the database and creates the
