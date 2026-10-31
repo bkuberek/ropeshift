@@ -135,7 +135,7 @@ func drain(t *testing.T, driver ports.AgentDriver, handle ports.SessionHandle) [
 }
 
 func TestAnUnqualifiedVersionIsDegraded(t *testing.T) {
-	driver, path, spec := session(t, "unqualified-version", func(spec *ports.SessionSpec) { spec.TempDir = "/tmp/rs-private" })
+	driver, path, spec := session(t, "unqualified-version", nil)
 	got, err := driver.Capabilities(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +157,7 @@ func TestAnUnqualifiedVersionIsDegraded(t *testing.T) {
 }
 
 func TestAQualifiedVersionGetsItsPrivateDirectory(t *testing.T) {
-	driver, path, spec := session(t, "two-turns", func(spec *ports.SessionSpec) { spec.TempDir = "/tmp/rs-private" })
+	driver, path, spec := session(t, "two-turns", nil)
 	got, err := driver.Capabilities(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestAQualifiedVersionGetsItsPrivateDirectory(t *testing.T) {
 		t.Errorf("capabilities %+v", got)
 	}
 	play(t, driver, spec)
-	if value := doubles.SeenEnv(t, path, "CLAUDE_CODE_TMPDIR"); value != "/tmp/rs-private" {
+	if value := doubles.SeenEnv(t, path, "CLAUDE_CODE_TMPDIR"); value != spec.TempDir {
 		t.Errorf("CLAUDE_CODE_TMPDIR %q", value)
 	}
 	if value := doubles.SeenEnv(t, path, "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"); value != "1" {
