@@ -3,6 +3,8 @@ package claudecode_test
 import (
 	"encoding/json"
 	"flag"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +15,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/secrets"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/test/doubles"
 )
@@ -239,6 +242,51 @@ func readSettings(t *testing.T, spec ports.SessionSpec) (generatedSettings, stri
 		t.Fatal(err)
 	}
 	return out, string(raw)
+}
+
+// TestGeneratedMCPNamesTheToken holds both halves: the server is told about the lane
+// token by name, and the value reaches no file.
+func TestGeneratedMCPNamesTheToken(t *testing.T) {
+	const token = "the-lane-token-value"
+	driver, _, spec := session(t, "two-turns", func(spec *ports.SessionSpec) {
+		spec.Binary = "/state/bin/ropeshift"
+		spec.Env = append(spec.Env, lanes.EnvLaneToken+"="+token, lanes.EnvWorkerSocket+"=/run/worker.sock")
+	})
+	play(t, driver, spec)
+	raw, err := os.ReadFile(filepath.Join(spec.ConfigDir, "mcp-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Servers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		lanes.EnvLaneToken: "${" + lanes.EnvLaneToken + "}", lanes.EnvWorkerSocket: "${" + lanes.EnvWorkerSocket + "}",
+	}
+	if got := config.Servers[claudecode.ServerName].Env; !maps.Equal(got, want) {
+		t.Errorf("server env %v, want %v", got, want)
+	}
+	err = filepath.WalkDir(spec.ConfigDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(body), token) {
+			t.Errorf("%s holds the lane token", entry.Name())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGeneratedSettings(t *testing.T) {

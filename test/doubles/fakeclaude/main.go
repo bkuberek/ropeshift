@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -377,6 +378,42 @@ func readMCPConfig(path string) (mcpConfig, error) {
 	return out, json.Unmarshal(raw, &out)
 }
 
+// serverBaseline is all a stdio server inherits here. This is the CLI with
+// CLAUDE_CODE_MCP_ALLOWLIST_ENV set, the strictest thing the vendor documents, so a
+// server that relied on inheriting the session's environment fails on this double.
+var serverBaseline = []string{"HOME", "PATH"}
+
+// serverEnvironment is a stdio server's whole environment.
+func serverEnvironment(configured map[string]string) []string {
+	var env []string
+	for _, name := range serverBaseline {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		}
+	}
+	for name, value := range configured {
+		env = append(env, name+"="+expandReference(value))
+	}
+	return env
+}
+
+var reference = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}`)
+
+// expandReference follows the vendor's rule: ${VAR}, or ${VAR:-default} when VAR is
+// unset, and a reference with no value and no default stays as written.
+func expandReference(value string) string {
+	return reference.ReplaceAllStringFunc(value, func(match string) string {
+		parts := reference.FindStringSubmatch(match)
+		if found, ok := os.LookupEnv(parts[1]); ok {
+			return found
+		}
+		if fallback, ok := strings.CutPrefix(parts[2], ":-"); ok {
+			return fallback
+		}
+		return match
+	})
+}
+
 // mcpClient speaks newline-delimited JSON-RPC to one stdio server.
 type mcpClient struct {
 	cmd    *exec.Cmd
@@ -395,10 +432,7 @@ func (s *session) connect() *mcpClient {
 	}
 	for _, server := range config.Servers {
 		cmd := exec.Command(server.Command, server.Args...)
-		cmd.Env = os.Environ()
-		for name, value := range server.Env {
-			cmd.Env = append(cmd.Env, name+"="+value)
-		}
+		cmd.Env = serverEnvironment(server.Env)
 		cmd.Stderr = os.Stderr
 		stdin, err := cmd.StdinPipe()
 		if err != nil {

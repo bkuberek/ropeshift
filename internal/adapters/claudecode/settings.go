@@ -75,22 +75,34 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 }
 
 type mcpServer struct {
-	Type    string   `json:"type"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Type    string            `json:"type"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
 }
 
 type mcpFile struct {
 	Servers map[string]mcpServer `json:"mcpServers"`
 }
 
-// generateMCP builds a generation's `--mcp-config`. The server reads the lane token
-// from the environment it inherits, so this file holds none.
+// serverVariables are what `ropeshift mcp` reads. The CLI can start a stdio server with
+// a baseline environment plus the server's own `env`, so these are named here and not
+// left to inheritance.
+var serverVariables = []string{lanes.EnvWorkerSocket, lanes.EnvLaneToken}
+
+// generateMCP builds a generation's `--mcp-config`. Each variable is a reference the CLI
+// expands from the session's environment, so this file holds a name and never the lane
+// token.
 func generateMCP(spec ports.SessionSpec) mcpFile {
 	out := mcpFile{Servers: map[string]mcpServer{}}
-	if spec.Binary != "" {
-		out.Servers[ServerName] = mcpServer{Type: "stdio", Command: spec.Binary, Args: []string{"mcp"}}
+	if spec.Binary == "" {
+		return out
 	}
+	env := make(map[string]string, len(serverVariables))
+	for _, name := range serverVariables {
+		env[name] = "${" + name + "}"
+	}
+	out.Servers[ServerName] = mcpServer{Type: "stdio", Command: spec.Binary, Args: []string{"mcp"}, Env: env}
 	return out
 }
 
