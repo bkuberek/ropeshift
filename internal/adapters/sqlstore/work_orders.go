@@ -14,7 +14,7 @@ import (
 const workOrderColumns = `id, kind, state, title, repository_id, priority, size, requirements, needs,
        contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
        takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts,
-       deadline, rev`
+       deadline, reviewed_by, rev`
 
 var (
 	stmtReadWorkOrder = define("work_order.read",
@@ -32,11 +32,11 @@ var (
 		`INSERT INTO work_orders
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
    contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
-   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, rev)
+   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev)
 VALUES
   (:workspace_id, :id, :kind, :state, :title, :repository_id, :priority, :size, :requirements, :needs,
    :contract_id, :contract_version, :fence, :claim_id, :lease_worker, :lease_until,
-   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :rev)`)
+   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev)`)
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
@@ -51,6 +51,10 @@ VALUES
 	stmtMoveWorkOrder = define("work_order.move",
 		`UPDATE work_orders SET state = :to_state
  WHERE workspace_id = :workspace_id AND id = :id AND state = :from_state`)
+
+	stmtReviewedWorkOrder = define("work_order.reviewed",
+		`UPDATE work_orders SET reviewed_by = :member
+ WHERE workspace_id = :workspace_id AND id = :id`)
 )
 
 // workOrderTx is the work order area of one transaction.
@@ -112,6 +116,13 @@ func (t workOrderTx) Move(id string, from, to workorders.State) (bool, error) {
 	return n > 0, err
 }
 
+func (t workOrderTx) Reviewed(id, member string) error {
+	_, err := t.exec(stmtReviewedWorkOrder, params{
+		"workspace_id": string(t.scope), "id": id, "member": member,
+	})
+	return err
+}
+
 func (t workOrderTx) Insert(w workorders.WorkOrder) error {
 	p, err := workOrderParams(t.scope, w)
 	if err != nil {
@@ -166,6 +177,7 @@ func workOrderParams(scope ledger.WorkspaceID, w workorders.WorkOrder) (params, 
 		"attempts":         w.Attempts,
 		"max_attempts":     w.MaxAttempts,
 		"deadline":         nullInt(w.Deadline),
+		"reviewed_by":      nullText(w.ReviewedBy),
 		"rev":              w.Rev,
 	}, nil
 }
@@ -189,12 +201,12 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	var w workorders.WorkOrder
 	var kind, state string
 	var title, repository, size, requirements, needs, contractID, claimID, leaseWorker sql.NullString
-	var branch, resumeLane, reworkOf sql.NullString
+	var branch, resumeLane, reworkOf, reviewedBy sql.NullString
 	var contractVersion, leaseUntil, takeoverAfter, deadline sql.NullInt64
 	err := row.Scan(&w.ID, &kind, &state, &title, &repository, &w.Priority, &size, &requirements, &needs,
 		&contractID, &contractVersion, &w.Fence, &claimID, &leaseWorker, &leaseUntil,
 		&takeoverAfter, &branch, &resumeLane, &reworkOf, &w.Attempts, &w.MaxAttempts,
-		&deadline, &w.Rev)
+		&deadline, &reviewedBy, &w.Rev)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
@@ -203,7 +215,7 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	w.ContractID, w.ContractVersion = contractID.String, contractVersion.Int64
 	w.ClaimID, w.LeaseWorker, w.LeaseUntil = claimID.String, leaseWorker.String, leaseUntil.Int64
 	w.TakeoverAfter, w.Branch, w.ResumeLaneID = takeoverAfter.Int64, branch.String, resumeLane.String
-	w.ReworkOf, w.Deadline = reworkOf.String, deadline.Int64
+	w.ReworkOf, w.Deadline, w.ReviewedBy = reworkOf.String, deadline.Int64, reviewedBy.String
 	if requirements.Valid {
 		if err := json.Unmarshal([]byte(requirements.String), &w.Requirements); err != nil {
 			return workorders.WorkOrder{}, fmt.Errorf("requirements: %w", err)

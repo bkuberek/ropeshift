@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
 )
@@ -125,6 +127,10 @@ func crashMatrix() []crashCase {
 		laneStartCase(),
 		fencedWriteCase(),
 		handoffCase(),
+		intakeCase("intake", []string{"polled"}),
+		intakeCase("intake.item", withSteps("versioned", "ordered")),
+		intakeCase("intake.settle", withSteps()),
+		reviewCase(),
 	}
 }
 
@@ -364,6 +370,70 @@ func handoffCase() crashCase {
 		},
 		settled: func(w *world, spec childSpec) error {
 			return countEvents(w, "work_order.lane_handoff", spec.WorkOrder, 1)
+		},
+	}
+}
+
+func intakeCase(op string, steps []string) crashCase {
+	return crashCase{
+		name:  op,
+		op:    op,
+		steps: steps,
+		prepare: func(w *world) (childSpec, error) {
+			return childSpec{Role: "intake", Key: w.rig.ID("alpha")}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			return intakeSettled(w, spec.Key)
+		},
+	}
+}
+
+// intakeSettled proves a killed poll finished on its retry: one version, and the
+// work orders that version names.
+func intakeSettled(w *world, id string) error {
+	contracts := 0
+	orders := 0
+	events, err := w.rig.Events(w.store, w.rig.Scope)
+	if err != nil {
+		return err
+	}
+	for _, e := range events {
+		switch e.Type {
+		case planning.EventContractVersion:
+			contracts++
+		case workorders.EventCreated:
+			orders++
+		}
+	}
+	if contracts != 1 || orders != 1 {
+		return contract.Violatedf("%s: %d versions and %d work orders, want one of each", id, contracts, orders)
+	}
+	return nil
+}
+
+func reviewCase() crashCase {
+	return crashCase{
+		name:  "review",
+		op:    "review.pass",
+		steps: withSteps("recorded"),
+		prepare: func(w *world) (childSpec, error) {
+			source := fake.NewWorkSource()
+			source.Write("contract.md", []byte(contract.ContractText(w.rig.ID("alpha"), "Alpha", "One.")))
+			ops := w.rig.NewOps(w.store)
+			if _, err := ops.Poll(w.rig.Ctx, w.rig.Scope, source); err != nil {
+				return childSpec{}, err
+			}
+			rows, err := w.rows()
+			if err != nil || len(rows) != 1 {
+				return childSpec{}, fmt.Errorf("%d rows: %v", len(rows), err)
+			}
+			return childSpec{Role: "review-pass", WorkOrder: rows[0].ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, workorders.EventReviewPassed, spec.WorkOrder, 1); err != nil {
+				return err
+			}
+			return hasState(w, spec.WorkOrder, workorders.Ready)
 		},
 	}
 }

@@ -1,0 +1,154 @@
+package planning
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"slices"
+)
+
+// FileKind is the `kind` key of a repository file.
+type FileKind string
+
+// The kinds of repository file.
+const (
+	FileGoal         FileKind = "goal"
+	FilePlan         FileKind = "plan"
+	FileContract     FileKind = "contract"
+	FileRequirements FileKind = "requirements"
+)
+
+// The sizes a contract can declare (D27).
+const (
+	SizeSmall   = "small"
+	SizeMedium  = "medium"
+	SizeLarge   = "large"
+	SizeUnknown = "unknown"
+)
+
+// CurrentRepository is the `repo` value that names the repository holding the file.
+const CurrentRepository = "."
+
+// File errors. A planning agent writes these files, so each is reported and none
+// stops intake (ADR-0013).
+var (
+	// ErrNotOurs means the file has no front matter, so it is ordinary prose.
+	ErrNotOurs = errors.New("not a ropeshift file")
+	// ErrUnknownKind means the `kind` key names no kind of the format.
+	ErrUnknownKind = errors.New("unknown file kind")
+	// ErrBadFile means the file is ours and cannot be read.
+	ErrBadFile = errors.New("bad repository file")
+)
+
+// Criterion is one acceptance criterion.
+type Criterion struct {
+	ID   string `toml:"id" json:"id"`
+	Text string `toml:"text" json:"text"`
+}
+
+// WorkOrderSpec is one `[[work_orders]]` table.
+type WorkOrderSpec struct {
+	ID        string            `toml:"id" json:"id"`
+	Title     string            `toml:"title" json:"title"`
+	Repo      string            `toml:"repo" json:"repo"`
+	Priority  int64             `toml:"priority" json:"priority"`
+	Size      string            `toml:"size" json:"size"`
+	DependsOn []string          `toml:"depends_on" json:"depends_on,omitempty"`
+	Needs     map[string]string `toml:"needs" json:"needs,omitempty"`
+}
+
+// ContractFile is the front matter of a contract file.
+type ContractFile struct {
+	Kind         FileKind        `toml:"kind" json:"kind"`
+	ID           string          `toml:"id" json:"id"`
+	Title        string          `toml:"title" json:"title"`
+	Plan         string          `toml:"plan" json:"plan,omitempty"`
+	Requirements []string        `toml:"requirements" json:"requirements,omitempty"`
+	Decisions    []string        `toml:"decisions" json:"decisions,omitempty"`
+	Criteria     []Criterion     `toml:"criteria" json:"criteria,omitempty"`
+	WorkOrders   []WorkOrderSpec `toml:"work_orders" json:"work_orders,omitempty"`
+}
+
+// Document is one decoded repository file. Contract is set for a contract, and the
+// other kinds are read from a later unit.
+type Document struct {
+	Kind      FileKind
+	Contract  *ContractFile
+	Statement string
+}
+
+var frontMatterFence = []byte("+++")
+
+// SplitFrontMatter cuts a Markdown file at its `+++` lines. A file whose first line
+// is anything else is ErrNotOurs.
+func SplitFrontMatter(raw []byte) (header, body []byte, err error) {
+	first, rest, found := bytes.Cut(raw, []byte("\n"))
+	if !found || !bytes.Equal(bytes.TrimRight(first, "\r"), frontMatterFence) {
+		return nil, nil, ErrNotOurs
+	}
+	offset := 0
+	for offset <= len(rest) {
+		line, after, more := bytes.Cut(rest[offset:], []byte("\n"))
+		if bytes.Equal(bytes.TrimRight(line, "\r"), frontMatterFence) {
+			return rest[:offset], bytes.TrimLeft(after, "\r\n"), nil
+		}
+		if !more {
+			break
+		}
+		offset += len(line) + 1
+	}
+	return nil, nil, fmt.Errorf("%w: the front matter has no closing line", ErrBadFile)
+}
+
+// CheckKind accepts the kinds of the format.
+func CheckKind(kind FileKind) error {
+	switch kind {
+	case FileGoal, FilePlan, FileContract, FileRequirements:
+		return nil
+	}
+	return fmt.Errorf("%w: %q", ErrUnknownKind, kind)
+}
+
+// Normalize fills the defaults of a contract file and refuses one that cannot
+// become records. A contract with no criteria is valid here, because the
+// definition of ready is what refuses it.
+func (f ContractFile) Normalize() (ContractFile, error) {
+	if f.ID == "" {
+		return f, fmt.Errorf("%w: no id", ErrBadFile)
+	}
+	if f.Title == "" {
+		return f, fmt.Errorf("%w: %s has no title", ErrBadFile, f.ID)
+	}
+	seen := map[string]bool{}
+	for _, c := range f.Criteria {
+		if c.ID == "" || c.Text == "" || seen["c:"+c.ID] {
+			return f, fmt.Errorf("%w: criterion %q needs a unique id and text", ErrBadFile, c.ID)
+		}
+		seen["c:"+c.ID] = true
+	}
+	orders := slices.Clone(f.WorkOrders)
+	for i, order := range orders {
+		if order.ID == "" || order.Title == "" {
+			return f, fmt.Errorf("%w: a work order needs an id and a title", ErrBadFile)
+		}
+		if seen["w:"+order.ID] {
+			return f, fmt.Errorf("%w: work order %q appears twice", ErrBadFile, order.ID)
+		}
+		seen["w:"+order.ID] = true
+		if slices.Contains(order.DependsOn, order.ID) {
+			return f, fmt.Errorf("%w: work order %q depends on itself", ErrBadFile, order.ID)
+		}
+		switch order.Size {
+		case SizeSmall, SizeMedium, SizeLarge:
+		case "":
+			orders[i].Size = SizeUnknown
+		default:
+			return f, fmt.Errorf("%w: work order %q has size %q", ErrBadFile, order.ID, order.Size)
+		}
+		if order.Repo == "" {
+			orders[i].Repo = CurrentRepository
+		}
+	}
+	f.WorkOrders = orders
+	return f, nil
+}

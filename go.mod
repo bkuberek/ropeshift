@@ -3,6 +3,7 @@ module ropeshift.dev/ropeshift
 go 1.27.3
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	modernc.org/sqlite v1.61.0
 )

@@ -1,0 +1,106 @@
+package repofiles
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"ropeshift.dev/ropeshift/internal/planning"
+)
+
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestParseFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		wantErr error
+		check   func(*testing.T, planning.Document)
+	}{
+		{
+			name:    "a contract in the D1 format",
+			fixture: "valid.md",
+			check: func(t *testing.T, doc planning.Document) {
+				c := doc.Contract
+				if doc.Kind != planning.FileContract || c == nil {
+					t.Fatalf("got %+v", doc)
+				}
+				if c.ID != "checkout-retry" || c.Title != "Retry failed checkout calls" {
+					t.Errorf("header %+v", c)
+				}
+				if len(c.Requirements) != 1 || c.Requirements[0] != "PAY-12" {
+					t.Errorf("requirements %v", c.Requirements)
+				}
+				if len(c.Criteria) != 1 || c.Criteria[0].ID != "c1" {
+					t.Errorf("criteria %v", c.Criteria)
+				}
+				if len(c.WorkOrders) != 1 {
+					t.Fatalf("work orders %v", c.WorkOrders)
+				}
+				order := c.WorkOrders[0]
+				if order.ID != "retry-budget" || order.Repo != "." || order.Priority != 2 || order.Size != "medium" {
+					t.Errorf("work order %+v", order)
+				}
+				if order.Needs["driver"] != "claude-code" {
+					t.Errorf("needs %v", order.Needs)
+				}
+				if doc.Statement != "The statement of what this work must deliver.\n" {
+					t.Errorf("statement %q", doc.Statement)
+				}
+			},
+		},
+		{
+			name:    "no criteria parses, and the definition of ready refuses it",
+			fixture: "no-criteria.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if doc.Contract == nil || len(doc.Contract.Criteria) != 0 {
+					t.Fatalf("got %+v", doc)
+				}
+				if got := doc.Contract.WorkOrders[0].Size; got != planning.SizeUnknown {
+					t.Errorf("an absent size reads %q, want %q (D27)", got, planning.SizeUnknown)
+				}
+				if got := doc.Contract.WorkOrders[0].Repo; got != "." {
+					t.Errorf("an absent repo reads %q", got)
+				}
+			},
+		},
+		{name: "an unknown kind", fixture: "unknown-kind.md", wantErr: planning.ErrUnknownKind},
+		{name: "bad TOML", fixture: "bad-toml.md", wantErr: planning.ErrBadFile},
+		{name: "a front matter with no end", fixture: "unclosed.md", wantErr: planning.ErrBadFile},
+		{name: "a size the format does not name", fixture: "bad-size.md", wantErr: planning.ErrBadFile},
+		{name: "one work order twice", fixture: "repeated-order.md", wantErr: planning.ErrBadFile},
+		{name: "a plain document", fixture: "no-front-matter.md", wantErr: planning.ErrNotOurs},
+		{
+			name:    "a kind read from a later unit",
+			fixture: "plan.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if doc.Kind != planning.FilePlan || doc.Contract != nil {
+					t.Errorf("got %+v", doc)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := ParseFile(readFixture(t, tt.fixture))
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("got %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt.check(t, doc)
+		})
+	}
+}

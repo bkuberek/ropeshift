@@ -71,6 +71,7 @@ type WorkOrder struct {
 	Attempts        int64             `json:"attempts,omitempty"`
 	MaxAttempts     int64             `json:"max_attempts,omitempty"`
 	Deadline        int64             `json:"deadline,omitempty"`
+	ReviewedBy      string            `json:"reviewed_by,omitempty"`
 	Rev             int64             `json:"rev,omitempty"`
 }
 
@@ -128,6 +129,10 @@ func EventType(trigger Trigger) string { return "work_order." + string(trigger) 
 // state.
 const EventFencedWrite = "work_order.fenced_write"
 
+// EventReviewPassed records a member's passed review, which changes no state. The
+// definition of ready decides the move.
+const EventReviewPassed = "work_order.review_passed"
+
 // ChangeEvent is the event of one change to a work order.
 func ChangeEvent(eventType, id string, change Change, actor ledger.Actor) (ledger.EventDraft, error) {
 	data, err := json.Marshal(change)
@@ -175,6 +180,10 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 	}
 	if !known {
 		return current, fmt.Errorf("%w: %s before creation", ErrInvalid, e.Type)
+	}
+	if e.Type == EventReviewPassed {
+		current.ReviewedBy = e.Actor.ID
+		return current, nil
 	}
 	var change Change
 	if err := json.Unmarshal(e.Data, &change); err != nil {
@@ -266,6 +275,7 @@ func Diff(a, b WorkOrder) []string {
 	note("attempts", a.Attempts == b.Attempts)
 	note("max_attempts", a.MaxAttempts == b.MaxAttempts)
 	note("deadline", a.Deadline == b.Deadline)
+	note("reviewed_by", a.ReviewedBy == b.ReviewedBy)
 	note("rev", a.Rev == b.Rev)
 	return fields
 }

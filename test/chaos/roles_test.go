@@ -9,9 +9,11 @@ import (
 	"os"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/contract"
 )
 
 var childRoles = map[string]func(*child) error{
@@ -28,6 +30,22 @@ var childRoles = map[string]func(*child) error{
 	"handoff":           roleHandoff,
 	"lease-worker":      roleLeaseWorker,
 	"zombie-writer":     roleZombieWriter,
+	"intake":            roleIntake,
+	"review-pass":       roleReviewPass,
+}
+
+// roleIntake polls one contract file. The source is rebuilt on every start, because
+// a restart holds nothing from an earlier process.
+func roleIntake(c *child) error {
+	source := fake.NewWorkSource()
+	source.Write("contract.md", []byte(contract.ContractText(c.spec.Key, "Alpha", "One.")))
+	_, err := c.ops.Poll(c.ctx, c.scope, source)
+	return err
+}
+
+func roleReviewPass(c *child) error {
+	_, err := c.ops.Pass(c.ctx, c.scope, c.spec.WorkOrder, c.member())
+	return err
 }
 
 func roleNote(c *child) error {

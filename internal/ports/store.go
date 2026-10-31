@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -57,6 +58,8 @@ type ReadTx interface {
 	Claims() ClaimReader
 	// Lanes reads lanes.
 	Lanes() LaneReader
+	// Planning reads plans, contracts, links, dependencies, and bindings.
+	Planning() PlanningReader
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
@@ -79,6 +82,9 @@ type WriteTx interface {
 	Claims() ClaimWriter
 	// Lanes reads and writes lanes.
 	Lanes() LaneWriter
+	// Planning reads and writes plans, contracts, links, dependencies, and
+	// bindings.
+	Planning() PlanningWriter
 }
 
 // WorkOrderReader reads the work order projection.
@@ -102,6 +108,8 @@ type WorkOrderWriter interface {
 	// Move is a compare-and-set on the state of an unleased work order. It
 	// reports whether the row matched.
 	Move(id string, from, to workorders.State) (bool, error)
+	// Reviewed records who passed a work order's review.
+	Reviewed(id, member string) error
 }
 
 // LeaseWriter runs the statements that decide who holds a work order. Each is one
@@ -159,4 +167,41 @@ type LaneWriter interface {
 	Start(lane, workOrder string, fence int64) error
 	// NextGeneration moves a lane to its next generation and returns it.
 	NextGeneration(lane string) (int64, error)
+}
+
+// PlanningReader reads what intake recorded.
+type PlanningReader interface {
+	// Contract returns one contract version, or ErrNotFound.
+	Contract(id string, version int64) (planning.Contract, error)
+	// LatestContract returns a contract's newest version, or ErrNotFound.
+	LatestContract(id string) (planning.Contract, error)
+	// Contracts returns every version, by contract and then by version.
+	Contracts() ([]planning.Contract, error)
+	// Plans returns every plan.
+	Plans() ([]planning.Plan, error)
+	// Link returns the record of one external key, or ErrNotFound.
+	Link(recordKind string, key ledger.ExternalKey) (ledger.ExternalLink, error)
+	// Links returns every link.
+	Links() ([]ledger.ExternalLink, error)
+	// Dependencies returns what one work order depends on.
+	Dependencies(workOrder string) ([]planning.Dependency, error)
+	// AllDependencies returns every dependency.
+	AllDependencies() ([]planning.Dependency, error)
+	// Binding returns one source binding, or ErrNotFound.
+	Binding(id string) (planning.SourceBinding, error)
+}
+
+// PlanningWriter records what intake read.
+type PlanningWriter interface {
+	PlanningReader
+	// InsertPlan adds a plan.
+	InsertPlan(planning.Plan) error
+	// InsertContract adds one contract version.
+	InsertContract(planning.Contract) error
+	// InsertLink adds one external key.
+	InsertLink(ledger.ExternalLink) error
+	// InsertDependency adds one edge.
+	InsertDependency(planning.Dependency) error
+	// SaveBinding creates or replaces a binding.
+	SaveBinding(planning.SourceBinding) error
 }

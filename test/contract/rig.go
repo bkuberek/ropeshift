@@ -92,16 +92,21 @@ type Ops interface {
 	StartLane(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, lane string, actor ledger.Actor) (int64, error)
 	Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, payload []byte, actor ledger.Actor) (ledger.Event, error)
 	Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error)
+	Poll(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource) (control.IntakeReport, error)
+	Pass(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (control.ReviewResult, error)
+	Promote(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 }
 
 type realOps struct {
 	*control.WorkOrders
 	*control.Leases
+	*control.Intake
+	*control.Reviews
 }
 
 // RealOps are the production use cases.
 func RealOps(store ports.Store) Ops {
-	return realOps{control.NewWorkOrders(store), control.NewLeases(store)}
+	return realOps{control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store)}
 }
 
 // NewRig prepares a rig on a fresh database.

@@ -12,8 +12,10 @@ import (
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
@@ -148,6 +150,60 @@ func (s splitClaim) Claim(ctx context.Context, scope ledger.WorkspaceID, request
 		return err
 	})
 	return grant, err
+}
+
+// splitIntake records a contract version in one transaction and its work orders in
+// another, so a kill between them leaves a digest that says the file is done.
+type splitIntake struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitIntake) Poll(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource) (control.IntakeReport, error) {
+	batch, err := source.Poll(ctx, "")
+	if err != nil {
+		return control.IntakeReport{}, err
+	}
+	item := batch.Items[0]
+	version := planning.Contract{
+		ID: item.Key.NativeID, Version: 1, PlanID: "plan", Title: item.Contract.Title, Digest: item.Digest,
+		Criteria: item.Contract.Criteria, Status: planning.StatusActive,
+	}
+	recorded := false
+	err = s.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
+		if _, err := tx.Planning().Contract(version.ID, 1); err == nil {
+			recorded = true
+			return nil
+		}
+		if err := tx.Planning().InsertContract(version); err != nil {
+			return err
+		}
+		event, err := planning.RecordEvent(planning.EventContractVersion, planning.SubjectContract, version.ID, version, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil || recorded {
+		return control.IntakeReport{}, err
+	}
+	crashpoint.Hit("intake.item", "split")
+	return control.IntakeReport{}, s.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
+		order, err := workorders.New(workorders.WorkOrder{ID: item.Contract.WorkOrders[0].ID, Kind: workorders.KindChange})
+		if err != nil {
+			return err
+		}
+		if err := tx.WorkOrders().Insert(order); err != nil {
+			return err
+		}
+		event, err := workorders.CreatedEvent(order, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
 }
 
 // outsideCheck compares the fence before its transaction, so a handover can pass
@@ -339,6 +395,26 @@ func allVariants() []variant {
 			sabotage: sqlstore.Sabotage{Rewrite: replace("lane.generation",
 				"SELECT current_generation FROM lanes", "SELECT 1 FROM lanes")},
 			check: "L16",
+		},
+		{
+			name: "a contract version and its work orders in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitIntake{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return intakeCase("intake.item", withSteps()), "split" },
+		},
+		{
+			name: "intake does not compare the digest",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("contract.latest",
+				"plan_id, title, digest,", "plan_id, title, 'stale',")},
+			check: "I4",
+		},
+		{
+			name: "the definition of ready sees no dependency",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("dependency.of",
+				"work_order_id = :work_order_id", "work_order_id = :work_order_id AND 1 = 0")},
+			check: "I8",
 		},
 		{
 			name: "claim split into two transactions",

@@ -2,7 +2,9 @@ package contract
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -98,4 +100,34 @@ func (b *barrier) wait(limit time.Duration) {
 	case <-b.open:
 	case <-time.After(limit):
 	}
+}
+
+// ErrStopped is what a stopped Store returns.
+var ErrStopped = errors.New("stopped by a check")
+
+type atomicCount struct {
+	writes atomic.Int64
+	off    atomic.Bool
+}
+
+func (c *atomicCount) disarm() { c.off.Store(true) }
+
+// StopAfter wraps a Store so that writes of one operation fail after a count, which
+// stands for a process that stopped between two tick items.
+func StopAfter(store ports.Store, op string, allowed int64, count *atomicCount) ports.Store {
+	return stoppingStore{Store: store, op: op, allowed: allowed, count: count}
+}
+
+type stoppingStore struct {
+	ports.Store
+	op      string
+	allowed int64
+	count   *atomicCount
+}
+
+func (s stoppingStore) Write(ctx context.Context, scope ledger.WorkspaceID, op string, fn func(ports.WriteTx) error) error {
+	if op == s.op && !s.count.off.Load() && s.count.writes.Add(1) > s.allowed {
+		return ErrStopped
+	}
+	return s.Store.Write(ctx, scope, op, fn)
 }
