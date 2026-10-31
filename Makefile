@@ -4,7 +4,7 @@
 GO ?= go
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
 
-.PHONY: check vet lint test licenses cross bench
+.PHONY: check vet lint test licenses cross bench check-postgres chaos
 
 check: vet lint test licenses
 
@@ -29,3 +29,16 @@ cross:
 
 bench:
 	$(GO) test -tags bench -count=1 -v ./test/bench/...
+
+# The contract suite on a private Postgres, which also prepares every statement
+# on a real server (D7). It needs initdb and postgres on PATH or in
+# ROPESHIFT_TEST_PG_BIN.
+check-postgres:
+	$(GO) test -tags postgres -race -count=1 ./test/contract/...
+
+# Crash injection on real processes. KILLS sets the random kills per run, and
+# KILLS=1500 gives the long run. The target refuses a live installation.
+KILLS ?= 120
+
+chaos:
+	KILLS=$(KILLS) $(GO) test -tags chaos -count=1 -timeout 45m ./test/chaos/...

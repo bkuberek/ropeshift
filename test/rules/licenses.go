@@ -30,6 +30,17 @@ type License struct {
 // licenseFile matches the names modules use for a license at their root.
 var licenseFile = regexp.MustCompile(`(?i)^(licen[cs]e|copying|unlicense)([._-].*)?$`)
 
+// notALicense lists files named like a license that cover no code. Anything else
+// with an unknown text fails, so an entry here is a reviewed decision.
+var notALicense = map[string]bool{
+	"LICENSE-LOGO": true, // The attribution of a logo image.
+}
+
+// mplSecondaryClause is the part of the MPL-2.0 text that names the AGPL as a
+// possible secondary license. It grants nothing under the AGPL, so it must not
+// read as an AGPL dependency, and it is the only text the denied scan skips.
+const mplSecondaryClause = "the gnu affero general public license, version 3.0, or any later versions of those licenses"
+
 // A denied license is found first, because a restricted text can quote a
 // permissive one. NFR-LIC-2 asks that every license allow hosted use.
 var deniedLicenses = []struct{ name, phrase string }{
@@ -49,7 +60,7 @@ var allowedLicenses = []struct {
 	phrases []string
 }{
 	{"Apache-2.0", []string{"apache license", "version 2.0"}},
-	{"MPL-2.0", []string{"mozilla public license version 2.0"}},
+	{"MPL-2.0", []string{"mozilla public license", "version 2.0"}},
 	{"MIT", []string{"permission is hereby granted, free of charge", "shall be included in all copies"}},
 	{"ISC", []string{"permission to use, copy, modify, and/or distribute this software for any purpose"}},
 	{"BSD-3-Clause", []string{"redistribution and use in source and binary forms", "neither the name"}},
@@ -57,6 +68,7 @@ var allowedLicenses = []struct {
 	{"BSD-2-Clause", []string{"redistribution and use in source and binary forms"}},
 	{"Public-Domain", []string{"released into the public domain"}},
 	{"Public-Domain", []string{"the author disclaims copyright to this source code"}},
+	{"Public-Domain", []string{"has been dedicated to the public domain"}},
 }
 
 // ClassifyModule reads the license files at a module's root. A module with no
@@ -68,7 +80,7 @@ func ClassifyModule(dir string) (License, error) {
 	}
 	var names []string
 	for _, entry := range entries {
-		if entry.IsDir() || !licenseFile.MatchString(entry.Name()) {
+		if entry.IsDir() || !licenseFile.MatchString(entry.Name()) || notALicense[entry.Name()] {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
@@ -99,8 +111,9 @@ var spaces = regexp.MustCompile(`\s+`)
 
 func classifyText(text string) (string, bool) {
 	normalized := spaces.ReplaceAllString(strings.ToLower(text), " ")
+	scanned := strings.ReplaceAll(normalized, mplSecondaryClause, "")
 	for _, denied := range deniedLicenses {
-		if strings.Contains(normalized, denied.phrase) {
+		if strings.Contains(scanned, denied.phrase) {
 			return denied.name, false
 		}
 	}
