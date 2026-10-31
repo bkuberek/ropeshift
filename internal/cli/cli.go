@@ -38,6 +38,8 @@ const usage = `usage: ropeshift <command>
   work reassign <id> --reason R                      end a lapsed holder's ownership
   lane start <work-order> [--lane L]                 run a lane on a claimed work order
   source list                                        list sources and their health
+  lane list                                          list lanes, each with its freshness
+  lane show <lane>                                   show one lane, with its freshness
   worker list                                        list registered workers
   worker token                                       make a join token
   version                                            print the version
@@ -82,6 +84,8 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"work release":  (*invocation).workRelease,
 		"work reassign": (*invocation).workReassign,
 		"lane start":    (*invocation).laneStart,
+		"lane list":     (*invocation).laneList,
+		"lane show":     (*invocation).laneShow,
 		"source list":   (*invocation).sourceList,
 		"worker list":   (*invocation).workerList,
 		"worker token":  (*invocation).workerToken,

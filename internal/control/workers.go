@@ -459,6 +459,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 	case ledger.UploadLaneStarted:
 		_, err := startLane(tx, lease, e.Lane, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
 		return err
+	case ledger.UploadLaneStatus:
+		return reportLane(tx, worker, id, e)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {
@@ -473,6 +475,134 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 	}
 	_, err = tx.Append(draft)
 	return err
+}
+
+// reportLane stores what a worker says about a lane. It travels as a fenced event, so a
+// worker that lost its lease cannot move the state anyone reads, and it takes the
+// revision like any other write: renewal stays the one write that does not (ADR-0005).
+func reportLane(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	var status ledger.LaneStatus
+	if err := json.Unmarshal(e.Payload, &status); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if err := checkHolder(tx, e); err != nil {
+		return err
+	}
+	err := tx.Lanes().Report(ledger.LaneRow{ID: e.Lane, WorkerID: worker, Status: status, ReportedByEpoch: e.Epoch})
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(ledger.EventDraft{
+		ID: id, Type: ledger.EventLaneStatus, OccurredAt: e.OccurredAt, Data: e.Payload,
+		Actor:   ledger.Actor{Kind: ledger.ActorWorker, ID: worker},
+		Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: e.Lane},
+	})
+	return err
+}
+
+// checkHolder compares a fence and a generation and changes nothing, because a status is
+// about the lane and is no event of the work order's. The transaction already holds the
+// workspace revision, so nothing can change hands before it commits.
+func checkHolder(tx ports.WriteTx, e ledger.UploadEvent) error {
+	current, err := tx.WorkOrders().Get(e.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if current.Fence != e.Fence {
+		return fenced(tx, e.WorkOrder)
+	}
+	generation, err := tx.Lanes().Generation(e.Lane)
+	if err != nil {
+		return err
+	}
+	if generation != e.Generation {
+		return fenced(tx, e.WorkOrder)
+	}
+	return nil
+}
+
+// freshnessBeats is how many heartbeats a value stays observed, so one late beat does
+// not relabel a lane.
+const freshnessBeats = 3
+
+// Lanes reads every lane with its freshness.
+func (w *Workers) Lanes(ctx context.Context) ([]ledger.LaneView, error) {
+	var out []ledger.LaneView
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		rows, err := tx.Lanes().Rows()
+		if err != nil {
+			return err
+		}
+		out = make([]ledger.LaneView, 0, len(rows))
+		for _, row := range rows {
+			view, err := w.view(tx, row)
+			if err != nil {
+				return err
+			}
+			out = append(out, view)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// Lane reads one lane with its freshness.
+func (w *Workers) Lane(ctx context.Context, id string) (ledger.LaneView, error) {
+	var out ledger.LaneView
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		row, err := tx.Lanes().Row(id)
+		if err != nil {
+			return err
+		}
+		out, err = w.view(tx, row)
+		return err
+	})
+	return out, err
+}
+
+// view labels a status. A heartbeat writes nothing about a lane, so what confirms a value
+// is the lease it renews: the one write a heartbeat makes, from the worker that reported
+// this value, in the epoch it reported it. The ledger is the source of a lane's end, so
+// no worker needs to confirm that.
+func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, error) {
+	view := ledger.LaneView{
+		ID: row.ID, WorkOrder: row.WorkOrder, WorkerID: row.WorkerID, Generation: row.Generation,
+		LaneStatus: row.Status, AsOf: row.ReportedAt, Freshness: ledger.FreshnessLastReported,
+		ReportedByEpoch: row.ReportedByEpoch,
+	}
+	now, err := tx.Now()
+	if err != nil {
+		return view, err
+	}
+	if row.Status.ActualState == ledger.StateEnded {
+		view.Freshness = ledger.FreshnessObserved
+		return view, nil
+	}
+	if row.WorkerID == "" {
+		return view, nil
+	}
+	worker, err := tx.Workers().Find(row.WorkerID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return view, nil
+	}
+	if err != nil {
+		return view, err
+	}
+	order, err := tx.WorkOrders().Get(row.WorkOrder)
+	if errors.Is(err, ports.ErrNotFound) {
+		return view, nil
+	}
+	if err != nil {
+		return view, err
+	}
+	if worker.Epoch != row.ReportedByEpoch || order.LeaseWorker != row.WorkerID {
+		return view, nil
+	}
+	view.AsOf = min(max(view.AsOf, order.LeaseUntil-w.options.LeaseTTLMs), now)
+	if now-view.AsOf <= freshnessBeats*w.options.HeartbeatMs {
+		view.Freshness = ledger.FreshnessObserved
+	}
+	return view, nil
 }
 
 // uploadedDraft checks a work order event's fence and generation, and builds the

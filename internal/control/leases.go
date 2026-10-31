@@ -495,6 +495,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if err := tx.Claims().End(holder.ClaimID, string(result.Outcome)); err != nil {
 		return err
 	}
+	if err := tx.Lanes().MarkEnded(holder.Lane); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return err

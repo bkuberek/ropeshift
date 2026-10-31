@@ -52,7 +52,7 @@ func (w *Worker) serveLane(ctx context.Context, conn net.Conn) {
 	if err != nil && len(line) == 0 {
 		return
 	}
-	reply, err := json.Marshal(w.answerLane(ctx, line))
+	reply, err := json.Marshal(w.AnswerLane(ctx, line))
 	if err == nil {
 		_, _ = conn.Write(append(reply, '\n'))
 	}
@@ -62,10 +62,11 @@ func refused(code, message string) lanes.Reply {
 	return lanes.Reply{Code: code, Message: message}
 }
 
-// answerLane checks the token first, so a process that holds no token learns nothing.
-// The token says which lane is calling, and whatever the line claims about its lane or
-// generation is ignored: the worker resolves those on every call (ADR-0016).
-func (w *Worker) answerLane(ctx context.Context, line []byte) lanes.Reply {
+// AnswerLane answers one line of the worker socket. It checks the token first, so a
+// process that holds no token learns nothing. The token says which lane is calling, and
+// whatever the line claims about its lane or generation is ignored: the worker resolves
+// those on every call (ADR-0016).
+func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 	if len(line) > maxLaneLine {
 		return refused(lanes.CodeInvalid, "the line is too long")
 	}
@@ -87,11 +88,33 @@ func (w *Worker) answerLane(ctx context.Context, line []byte) lanes.Reply {
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return refused(lanes.CodeUnavailable, err.Error())
 		}
+		if run := w.runOf(lane.ID); run != nil {
+			run.observeHook(ctx, event)
+		}
 		return lanes.Reply{OK: true}
 	case request.Report != nil:
-		return w.takeReport(ctx, lane, *request.Report)
+		reply := w.takeReport(ctx, lane, *request.Report)
+		if run := w.runOf(lane.ID); run != nil {
+			run.noteLedger(reachOfCall(reply))
+		}
+		return reply
 	}
 	return refused(lanes.CodeInvalid, "this line asks for nothing")
+}
+
+func (w *Worker) runOf(lane string) *laneRun {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.running[lane]
+}
+
+// reachOfCall reads one `ropeshift mcp` call. A refusal of what it said still shows the
+// path works, and only a store that failed under it is impaired.
+func reachOfCall(reply lanes.Reply) lanes.Reachability {
+	if reply.Code == lanes.CodeUnavailable {
+		return lanes.Impaired
+	}
+	return lanes.Reachable
 }
 
 // takeReport keeps a lane's first outcome. A retry of the same report is answered as

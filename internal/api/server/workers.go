@@ -14,6 +14,8 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workers/tokens", h.createJoinToken)
 	mux.HandleFunc("POST /v1/workers/register", h.register)
 	mux.HandleFunc("GET /v1/workers", h.listWorkers)
+	mux.HandleFunc("GET /v1/lanes", h.listLanes)
+	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
 	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
 	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
 	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
@@ -55,6 +57,29 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, credential)
+}
+
+// listLanes and showLane are reads. A lane's state derives from what happened, so the API
+// has no route that writes one (FR-LANE-5).
+func (h *handler) listLanes(w http.ResponseWriter, r *http.Request) {
+	lanes, err := h.workers.Lanes(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if lanes == nil {
+		lanes = []ledger.LaneView{}
+	}
+	reply(w, http.StatusOK, api.LaneList{Lanes: lanes})
+}
+
+func (h *handler) showLane(w http.ResponseWriter, r *http.Request) {
+	lane, err := h.workers.Lane(r.Context(), r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, lane)
 }
 
 func (h *handler) listWorkers(w http.ResponseWriter, r *http.Request) {

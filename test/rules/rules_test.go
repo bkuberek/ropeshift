@@ -4,9 +4,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/lanes"
 )
 
 const module = "ropeshift.dev/ropeshift"
@@ -239,6 +243,72 @@ func TestAgentsListingRuleCanFail(t *testing.T) {
 	}
 	if len(found) == 0 {
 		t.Error("the rule found nothing in a tree that polls the listing")
+	}
+}
+
+// markingFields are the names that would let a caller say what a lane is.
+var markingFields = []string{"ready", "briefed", "actual_state", "liveness", "conditions", "reachability", "model_reach", "ledger_reach"}
+
+// markingField walks a request's fields, by their wire names, for one that could mark a
+// lane. A lane's state derives from what happened (FR-LANE-5).
+func markingField(t reflect.Type, seen map[reflect.Type]bool) (string, bool) {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || seen[t] {
+		return "", false
+	}
+	seen[t] = true
+	for field := range t.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if slices.Contains(markingFields, name) {
+			return t.Name() + "." + name, true
+		}
+		if found, ok := markingField(field.Type, seen); ok {
+			return found, true
+		}
+	}
+	return "", false
+}
+
+// TestNoFieldMarksALane reads every request a person or an agent can send.
+func TestNoFieldMarksALane(t *testing.T) {
+	requests := []reflect.Type{
+		reflect.TypeFor[api.CreateWorkOrder](), reflect.TypeFor[api.ClaimRequest](), reflect.TypeFor[api.StartLane](),
+		reflect.TypeFor[api.ReleaseRequest](), reflect.TypeFor[api.ReassignRequest](), reflect.TypeFor[api.WriteRequest](),
+		reflect.TypeFor[lanes.Request](),
+	}
+	for _, request := range requests {
+		if found, ok := markingField(request, map[reflect.Type]bool{}); ok {
+			t.Errorf("%s can mark a lane", found)
+		}
+	}
+}
+
+// TestNoFieldMarksALaneCanFail runs the same walk on a request that breaks it.
+func TestNoFieldMarksALaneCanFail(t *testing.T) {
+	type marked struct {
+		Inner []struct {
+			Ready bool `json:"ready"`
+		} `json:"inner"`
+	}
+	if _, ok := markingField(reflect.TypeFor[marked](), map[reflect.Type]bool{}); !ok {
+		t.Error("the walk found nothing in a request that marks a lane")
+	}
+}
+
+// laneWrites are the routes that would write a lane's state.
+var laneWrites = []string{`"POST /v1/lanes`, `"PUT /v1/lanes`, `"PATCH /v1/lanes`, `"DELETE /v1/lanes`}
+
+// TestNoRouteWritesALane finds no client write on a lane. A lane starts through its work
+// order, and everything after that derives from what happened.
+func TestNoRouteWritesALane(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"internal"}, laneWrites)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range found {
+		t.Error(hit)
 	}
 }
 

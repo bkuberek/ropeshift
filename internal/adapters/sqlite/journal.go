@@ -280,14 +280,14 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
 	var digest sql.NullString
 	var progress []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
-		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress)
+		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual)
 	if err != nil {
 		return lane, err
 	}
@@ -539,6 +539,12 @@ func (j *Journal) BindGeneration(ctx context.Context, lane, sessionID string, ev
 		return false, err
 	}
 	return true, tx.Commit()
+}
+
+// SaveActual replaces where a lane's state stands.
+func (j *Journal) SaveActual(ctx context.Context, lane string, state lanes.ActualState) error {
+	_, err := j.db.ExecContext(ctx, `UPDATE lanes SET actual = ?1 WHERE id = ?2`, state, lane)
+	return err
 }
 
 // SaveProgress replaces how far a lane's session was read.

@@ -97,6 +97,25 @@ func (c *Client) Upload(ctx context.Context, worker string, in ledger.UploadBatc
 	return out, err
 }
 
+// LaneList is the answer to a list of lanes.
+type LaneList struct {
+	Lanes []ledger.LaneView `json:"lanes"`
+}
+
+// Lanes reads every lane, each with its freshness.
+func (c *Client) Lanes(ctx context.Context) ([]ledger.LaneView, error) {
+	var out LaneList
+	err := c.Do(ctx, http.MethodGet, "/v1/lanes", nil, &out)
+	return out.Lanes, err
+}
+
+// Lane reads one lane, with its freshness.
+func (c *Client) Lane(ctx context.Context, id string) (ledger.LaneView, error) {
+	var out ledger.LaneView
+	err := c.Do(ctx, http.MethodGet, "/v1/lanes/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+
 // WatchEvent is the data of one server-sent event: a hint, which carries no state.
 type WatchEvent struct {
 	Rev int64 `json:"rev"`

@@ -271,6 +271,57 @@ func (c *invocation) laneStart(args []string) int {
 	})
 }
 
+// laneLine states a lane with its freshness, because a value read as `last_reported` and
+// shown as `observed` is the mistake FR-UI-5 exists to stop.
+func laneLine(lane ledger.LaneView) string {
+	conditions := strings.Join(lane.Conditions, ",")
+	if conditions == "" {
+		conditions = "-"
+	}
+	return fmt.Sprintf("%s\t%s\tliveness %s\tmodel %s\tledger %s\t%s\t%s\n", lane.ID, lane.ActualState,
+		lane.Liveness, lane.ModelReach, lane.LedgerReach, conditions, lane.Freshness)
+}
+
+func (c *invocation) laneList(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	client := c.client()
+	defer client.Close()
+	lanes, err := client.Lanes(c.ctx)
+	if lanes == nil {
+		lanes = []ledger.LaneView{}
+	}
+	return c.finish(err, api.LaneList{Lanes: lanes}, func() string {
+		var out strings.Builder
+		for _, lane := range lanes {
+			out.WriteString(laneLine(lane))
+		}
+		return out.String()
+	})
+}
+
+func (c *invocation) laneShow(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	lane, err := client.Lane(c.ctx, id)
+	return c.finish(err, lane, func() string { return laneLine(lane) })
+}
+
 func (c *invocation) sourceList(args []string) int {
 	set := c.flags()
 	positional, ok := parse(set, args)

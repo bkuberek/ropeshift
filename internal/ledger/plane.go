@@ -195,6 +195,7 @@ const (
 	UploadLaneStarted     = "lane_started"
 	UploadLaneEnded       = "lane_ended"
 	UploadGenerationBound = "generation_bound"
+	UploadLaneStatus      = "lane_status"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

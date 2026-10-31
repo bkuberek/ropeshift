@@ -171,6 +171,10 @@ type LaneReader interface {
 	Generation(lane string) (int64, error)
 	// StartedUnder reports whether a lane started under this fence.
 	StartedUnder(workOrder string, fence int64) (bool, error)
+	// Row returns one lane's status, or ErrNotFound.
+	Row(lane string) (ledger.LaneRow, error)
+	// Rows returns every lane's status, by ID.
+	Rows() ([]ledger.LaneRow, error)
 }
 
 // LaneWriter writes lanes.
@@ -180,6 +184,10 @@ type LaneWriter interface {
 	Start(lane, workOrder string, fence int64) error
 	// NextGeneration moves a lane to its next generation and returns it.
 	NextGeneration(lane string) (int64, error)
+	// Report stores what a worker says about a lane. An ended lane stays ended.
+	Report(row ledger.LaneRow) error
+	// MarkEnded records a lane's end, which the ledger knows for itself.
+	MarkEnded(lane string) error
 }
 
 // PlanningReader reads what intake recorded.

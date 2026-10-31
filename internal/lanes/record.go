@@ -30,6 +30,8 @@ type Record struct {
 	SessionID string
 	// Progress is what a restart reads a session's stream from.
 	Progress Progress
+	// Actual is where the lane's state stood, so an adopted run goes on from there.
+	Actual ActualState
 }
 
 // Progress is how far a worker read a session, and what that reading added up to, so an

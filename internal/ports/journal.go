@@ -84,4 +84,6 @@ type Journal interface {
 	BindGeneration(ctx context.Context, lane, sessionID string, event ledger.UploadEvent) (bool, error)
 	// SaveProgress replaces how far this worker read a lane's session.
 	SaveProgress(ctx context.Context, lane string, progress lanes.Progress) error
+	// SaveActual replaces where a lane's state stands.
+	SaveActual(ctx context.Context, lane string, state lanes.ActualState) error
 }

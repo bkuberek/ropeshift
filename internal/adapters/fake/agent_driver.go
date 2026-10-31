@@ -42,6 +42,8 @@ type DriverScript struct {
 	SessionID string
 	Model     string
 	Turns     [][]DriverStep
+	// Silent admits no input, for a path with no acknowledgement of a brief.
+	Silent bool
 }
 
 // AgentDriver runs scripted sessions in memory. No process starts.
@@ -257,7 +259,9 @@ func (s *driverSession) run() {
 	for {
 		select {
 		case input := <-s.inputs:
-			s.events <- ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: input.ID}
+			if !s.script.Silent {
+				s.events <- ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: input.ID}
+			}
 			if turn >= len(s.script.Turns) {
 				continue
 			}

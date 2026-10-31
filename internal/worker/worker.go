@@ -56,6 +56,7 @@ type Worker struct {
 	desiredRev int64
 	deadlines  map[string]time.Time
 	running    map[string]*laneRun
+	published  map[string]ledger.LaneStatus
 
 	uploading sync.Mutex
 	laneGroup sync.WaitGroup
@@ -75,7 +76,7 @@ func New(link ports.WorkerLink, journal ports.Journal, clock ports.Clock, config
 	}
 	return &Worker{
 		link: link, journal: journal, clock: clock, config: config,
-		deadlines: map[string]time.Time{}, running: map[string]*laneRun{},
+		deadlines: map[string]time.Time{}, running: map[string]*laneRun{}, published: map[string]ledger.LaneStatus{},
 	}
 }
 
@@ -373,6 +374,9 @@ func (w *Worker) cycle(ctx context.Context) {
 	_, err := w.Beat(ctx)
 	if errors.Is(err, ledger.ErrStaleEpoch) {
 		err = w.Start(ctx)
+	}
+	if err == nil {
+		err = w.Publish(ctx)
 	}
 	if err == nil {
 		err = w.Upload(ctx)

@@ -1,0 +1,273 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"sync"
+	"time"
+
+	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/ports"
+)
+
+// reachWindow is how long a piece of reachability evidence stays fresh.
+const reachWindow = time.Minute
+
+// roleLane names a lane's thresholds in a profile.
+const roleLane = "lane"
+
+// The hooks that say something about a lane's state.
+const (
+	hookPreCompact  = "PreCompact"
+	hookPostCompact = "PostCompact"
+	hookPreToolUse  = "PreToolUse"
+	hookPostToolUse = "PostToolUse"
+	hookStopFailure = "StopFailure"
+)
+
+// reachSeen is the last thing seen about one target.
+type reachSeen struct {
+	reach lanes.Reachability
+	at    time.Time
+}
+
+// laneState is what a run derives about its lane, from driver events, hooks, and its own
+// acts. A hook arrives on another goroutine, so everything here is behind one lock.
+type laneState struct {
+	mu       sync.Mutex
+	tracker  *lanes.Tracker
+	progress time.Time
+	tools    map[string]bool
+	context  int64
+	since    time.Time
+	model    reachSeen
+	ledger   reachSeen
+
+	unconfirmed bool
+	degraded    bool
+	warnTokens  int64
+	stallAfter  time.Duration
+	briefGrace  time.Duration
+}
+
+func newLaneState(start lanes.ActualState, now time.Time) *laneState {
+	return &laneState{tracker: lanes.NewTracker(start), tools: map[string]bool{}, progress: now, since: now}
+}
+
+// thresholds reads what a profile sets. A duration that does not parse leaves its check
+// off, because a bad profile value must not stop a running lane.
+func (s *laneState) thresholds(profile lanes.Profile) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stallAfter, _ = time.ParseDuration(profile.Lifecycle.StallAfter)
+	s.briefGrace, _ = time.ParseDuration(profile.Lifecycle.BriefGrace)
+	s.warnTokens = profile.Context.Roles[roleLane].WarnTokens
+}
+
+// signal moves the lane and keeps where it stands, so an adopted run goes on from there.
+func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) {
+	s := r.state
+	s.mu.Lock()
+	moved := false
+	for _, signal := range signals {
+		if s.tracker.Apply(signal) {
+			moved = true
+			s.since = r.w.clock.Now()
+		}
+	}
+	state := s.tracker.State()
+	s.mu.Unlock()
+	if !moved {
+		return
+	}
+	if err := r.w.journal.SaveActual(context.WithoutCancel(ctx), r.lease.Lane, state); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	}
+}
+
+func (r *laneRun) progressed() {
+	s := r.state
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.progress = r.w.clock.Now()
+}
+
+func (r *laneRun) noteModel(reach lanes.Reachability) {
+	s := r.state
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = reachSeen{reach: reach, at: r.w.clock.Now()}
+}
+
+func (r *laneRun) noteLedger(reach lanes.Reachability) {
+	s := r.state
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ledger = reachSeen{reach: reach, at: r.w.clock.Now()}
+}
+
+// observeEvent turns one driver event into what it says about the lane. Any evidence of
+// activity moves a lane out of `briefing`, because some paths have no acknowledgement.
+func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
+	s := r.state
+	switch event.Kind {
+	case ports.EventSessionBound, ports.EventInputAdmitted, ports.EventCompaction:
+		r.progressed()
+		r.signal(ctx, lanes.OnActivity)
+	case ports.EventUsage:
+		r.progressed()
+		s.mu.Lock()
+		s.context = event.ContextTokens
+		s.mu.Unlock()
+		r.noteModel(lanes.Reachable)
+		r.signal(ctx, lanes.OnActivity)
+	case ports.EventTurnEnded:
+		r.progressed()
+		if event.Turn.Status == ports.TurnFailed {
+			r.noteModel(lanes.Impaired)
+		} else {
+			r.noteModel(lanes.Reachable)
+		}
+		r.signal(ctx, lanes.OnActivity, lanes.OnTurnFinished)
+	case ports.EventRetry:
+		r.noteModel(lanes.Impaired)
+	case ports.EventLimit:
+		if event.Detail != "" && event.Detail != "allowed" {
+			r.noteModel(lanes.Impaired)
+		}
+	}
+}
+
+// observeHook turns one hook event into what it says about the lane. A tool call that has
+// started and not finished is a wait, not a stall.
+func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
+	s := r.state
+	switch event.Event {
+	case hookPreCompact:
+		r.signal(ctx, lanes.OnCompactionStarted)
+	case hookPostCompact:
+		r.signal(ctx, lanes.OnCompactionFinished)
+	case hookPreToolUse:
+		r.progressed()
+		s.mu.Lock()
+		s.tools[event.Subject] = true
+		s.mu.Unlock()
+		r.signal(ctx, lanes.OnActivity)
+	case hookPostToolUse:
+		r.progressed()
+		s.mu.Lock()
+		delete(s.tools, event.Subject)
+		s.mu.Unlock()
+	case hookStopFailure:
+		r.noteModel(lanes.ReachOfFailure(event.Detail))
+	}
+}
+
+// settleBrief moves a lane whose brief has shown no evidence past its grace.
+func (r *laneRun) settleBrief(ctx context.Context) {
+	s := r.state
+	s.mu.Lock()
+	late := s.tracker.State() == lanes.Briefing && s.briefGrace > 0 && r.w.clock.Now().Sub(s.since) >= s.briefGrace
+	if late {
+		s.unconfirmed = true
+	}
+	s.mu.Unlock()
+	if late {
+		r.signal(ctx, lanes.OnBriefGrace)
+	}
+}
+
+// status reads the lane. Only the driver's answer speaks to liveness, and a failed read
+// is unknown, never dead.
+func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
+	r.settleBrief(ctx)
+	liveness := lanes.LivenessUnknown
+	if r.handle.ID != "" {
+		observation, err := r.rt.Driver.Observe(ctx, r.handle)
+		if err == nil {
+			liveness = observation.Liveness
+		}
+	}
+	s := r.state
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := r.w.clock.Now()
+	state := s.tracker.State()
+	facts := lanes.Facts{
+		State: state, SinceProgress: now.Sub(s.progress), StallAfter: s.stallAfter, ToolInFlight: len(s.tools) != 0,
+		ContextTokens: s.context, WarnTokens: s.warnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
+	}
+	out := ledger.LaneStatus{
+		ActualState: string(state), Liveness: string(liveness),
+		ModelReach:  string(lanes.ReadReach(state, evidenceOf(s.model, now), reachWindow)),
+		LedgerReach: string(lanes.ReadReach(state, evidenceOf(s.ledger, now), reachWindow)),
+	}
+	for _, condition := range lanes.Conditions(facts) {
+		out.Conditions = append(out.Conditions, string(condition))
+	}
+	return out
+}
+
+func evidenceOf(seen reachSeen, now time.Time) lanes.ReachEvidence {
+	return lanes.ReachEvidence{Reach: seen.reach, Age: now.Sub(seen.at), Seen: !seen.at.IsZero()}
+}
+
+func sameStatus(a, b ledger.LaneStatus) bool {
+	return a.ActualState == b.ActualState && a.Liveness == b.Liveness && a.ModelReach == b.ModelReach &&
+		a.LedgerReach == b.LedgerReach && slices.Equal(a.Conditions, b.Conditions)
+}
+
+// Publish journals what changed about each lane, for the next upload. A status travels on
+// change, because the one write a heartbeat makes is the lease, and that lease is what
+// keeps a reported value observed.
+func (w *Worker) Publish(ctx context.Context) error {
+	if w.config.Lanes == nil {
+		return nil
+	}
+	records, err := w.journal.Lanes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if record.State != lanes.StateRunning {
+			continue
+		}
+		status := ledger.LaneStatus{
+			ActualState: string(record.Actual), Liveness: string(lanes.LivenessUnknown),
+			ModelReach: string(lanes.ReachUnknown), LedgerReach: string(lanes.ReachUnknown),
+		}
+		w.mu.Lock()
+		run, held := w.running[record.ID]
+		w.mu.Unlock()
+		if held {
+			status = run.status(ctx)
+		}
+		if err := w.publishOne(ctx, record, status); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Worker) publishOne(ctx context.Context, record lanes.Record, status ledger.LaneStatus) error {
+	w.mu.Lock()
+	last, sent := w.published[record.ID]
+	w.mu.Unlock()
+	if sent && sameStatus(last, status) {
+		return nil
+	}
+	payload, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+	if _, err := w.Record(ctx, w.event(ledger.UploadLaneStatus, record, payload)); err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.published[record.ID] = status
+	return nil
+}

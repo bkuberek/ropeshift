@@ -1,0 +1,330 @@
+package worker_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/workorders"
+)
+
+// gate holds a scripted session at one point, so a test reads a lane in a known state.
+type gate struct {
+	reached chan struct{}
+	release chan struct{}
+}
+
+func newGate() *gate { return &gate{reached: make(chan struct{}), release: make(chan struct{})} }
+
+func (g *gate) step() fake.DriverStep {
+	return fake.DriverStep{Do: func(ports.SessionSpec) {
+		close(g.reached)
+		<-g.release
+	}}
+}
+
+// atGate starts the lane, waits for the session to reach the gate and for the worker to
+// catch up with it, and reads the lane the way a client does.
+func (r *laneRig) atGate(g *gate) ledger.LaneView {
+	r.t.Helper()
+	if _, err := r.subject.Reconcile(r.t.Context()); err != nil {
+		r.t.Fatal(err)
+	}
+	select {
+	case <-g.reached:
+	case <-time.After(20 * time.Second):
+		r.t.Fatal("the session never reached its gate")
+	}
+	return r.eventually("a turn in progress", func(view ledger.LaneView) bool {
+		return view.ActualState == string(lanes.Working)
+	})
+}
+
+func (r *laneRig) read() ledger.LaneView {
+	r.t.Helper()
+	if err := r.subject.Publish(r.t.Context()); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := r.subject.Upload(r.t.Context()); err != nil {
+		r.t.Fatal(err)
+	}
+	view, err := r.plane.Lane(r.t.Context(), "lane-1")
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		r.t.Fatal(err)
+	}
+	return view
+}
+
+// eventually reads until a condition holds. A scripted session runs ahead of the worker
+// that follows it, so one read could land before the worker took an event.
+func (r *laneRig) eventually(what string, done func(ledger.LaneView) bool) ledger.LaneView {
+	r.t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	var view ledger.LaneView
+	for time.Now().Before(deadline) {
+		if view = r.read(); done(view) {
+			return view
+		}
+		time.Sleep(time.Millisecond)
+	}
+	r.t.Fatalf("%s: the lane reads %+v", what, view)
+	return view
+}
+
+func (r *laneRig) dispatched() *laneRig {
+	r.t.Helper()
+	if err := r.subject.Sync(r.t.Context()); err != nil {
+		r.t.Fatal(err)
+	}
+	return r
+}
+
+func (r *laneRig) finishLater(g *gate) {
+	r.t.Cleanup(func() {
+		close(g.release)
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+}
+
+// laneRigWith uses a repository layer, so a test can set a threshold.
+func laneRigWith(t *testing.T, profile string) *laneRig {
+	t.Helper()
+	r := newLaneRig(t)
+	if profile != "" {
+		r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", profile)
+	}
+	return r.dispatched()
+}
+
+func TestStateDerivesFromDriverEvents(t *testing.T) {
+	r := laneRigWith(t, "")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Context: &lanes.Usage{InputTokens: 3}}, g.step()}))
+	r.atGate(g)
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool {
+		return view.ActualState == string(lanes.Working) && view.Liveness == string(lanes.LivenessAlive) &&
+			view.ModelReach == string(lanes.Reachable)
+	})
+}
+
+func TestAnEndedLaneReadsEnded(t *testing.T) {
+	r := laneRigWith(t, "")
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	view, err := r.plane.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ActualState != ledger.StateEnded || view.Freshness != ledger.FreshnessObserved {
+		t.Errorf("view %+v", view)
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Actual != lanes.Ended {
+		t.Errorf("the journal holds %s", record.Actual)
+	}
+}
+
+// An idle session has no fresh evidence, even right after a turn that went well.
+func TestAnIdleSessionReadsReachabilityUnknown(t *testing.T) {
+	r := laneRigWith(t, "")
+	reached, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+	nudged := fake.DriverStep{Do: func(ports.SessionSpec) {
+		close(reached)
+		<-release
+	}}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, completed(0.1)}, []fake.DriverStep{nudged}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	<-reached
+	if view := r.read(); view.ActualState != string(lanes.Working) || view.ModelReach != string(lanes.Reachable) {
+		t.Errorf("a turn in progress reads %+v", view)
+	}
+	if got := lanes.ReadReach(lanes.Idle, lanes.ReachEvidence{Reach: lanes.Reachable, Seen: true}, time.Minute); got != lanes.ReachUnknown {
+		t.Errorf("an idle lane reads %s", got)
+	}
+}
+
+func TestStalledNeedsTheProfilesLimit(t *testing.T) {
+	r := laneRigWith(t, "[lifecycle]\nstall_after = \"20m\"\n")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	if view := r.atGate(g); slices.Contains(view.Conditions, string(lanes.Stalled)) {
+		t.Errorf("a new lane reads %v", view.Conditions)
+	}
+	r.clock.Advance(21 * time.Minute)
+	if view := r.read(); !slices.Contains(view.Conditions, string(lanes.Stalled)) {
+		t.Errorf("a quiet working lane reads %v", view.Conditions)
+	}
+}
+
+func TestAToolInFlightIsAWaitAndNotAStall(t *testing.T) {
+	r := laneRigWith(t, "[lifecycle]\nstall_after = \"20m\"\n")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.hook(t, lanes.HookEvent{Event: "PreToolUse", Subject: "tool-1", Tool: "Bash"})
+	r.clock.Advance(21 * time.Minute)
+	view := r.read()
+	if slices.Contains(view.Conditions, string(lanes.Stalled)) || !slices.Contains(view.Conditions, string(lanes.WaitingExternal)) {
+		t.Errorf("conditions %v", view.Conditions)
+	}
+	r.hook(t, lanes.HookEvent{Event: "PostToolUse", Subject: "tool-1", Tool: "Bash"})
+	r.clock.Advance(21 * time.Minute)
+	if view := r.read(); !slices.Contains(view.Conditions, string(lanes.Stalled)) {
+		t.Errorf("after the tool: %v", view.Conditions)
+	}
+}
+
+// hook reaches the worker the way a session's hook does, with the token the session got.
+func (r *laneRig) hook(t *testing.T, event lanes.HookEvent) {
+	t.Helper()
+	var token string
+	for _, entry := range r.driver.Specs()[0].Env {
+		if value, ok := strings.CutPrefix(entry, lanes.EnvLaneToken+"="); ok {
+			token = value
+		}
+	}
+	line, err := json.Marshal(lanes.Request{Version: lanes.SocketProtocol, Token: token, Hook: &event})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply := r.subject.AnswerLane(context.Background(), line); !reply.OK {
+		t.Fatalf("the hook was refused: %+v", reply)
+	}
+}
+
+func TestCompactionComesFromHooksAndReturns(t *testing.T) {
+	r := laneRigWith(t, "")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "s", Detail: "auto"})
+	if view := r.read(); view.ActualState != string(lanes.Compacting) {
+		t.Errorf("during a compaction: %s", view.ActualState)
+	}
+	r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "s", Detail: "auto"})
+	if view := r.read(); view.ActualState != string(lanes.Working) {
+		t.Errorf("after a compaction: %s", view.ActualState)
+	}
+}
+
+func TestStopFailureSetsReachability(t *testing.T) {
+	r := laneRigWith(t, "")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.hook(t, lanes.HookEvent{Event: "StopFailure", Subject: "s", Detail: "authentication_failed"})
+	if view := r.read(); view.ModelReach != string(lanes.Unreachable) {
+		t.Errorf("reach %s", view.ModelReach)
+	}
+}
+
+func TestContextCrossingTheWarningIsNearBudget(t *testing.T) {
+	r := laneRigWith(t, "[context.roles.lane]\nwarn_tokens = 100\n")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Context: &lanes.Usage{InputTokens: 101}}, g.step()}))
+	r.atGate(g)
+	r.eventually("context past the warning", func(view ledger.LaneView) bool {
+		return slices.Contains(view.Conditions, string(lanes.NearBudget))
+	})
+}
+
+func TestABriefWithNoEvidenceGoesIdleAndIsFlagged(t *testing.T) {
+	r := laneRigWith(t, "[lifecycle]\nbrief_grace = \"2m\"\n")
+	r.driver.Play(fake.DriverScript{SessionID: "session-1", Model: "resolved-model", Silent: true})
+	t.Cleanup(func() {
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.eventually("the brief handed over", func(view ledger.LaneView) bool {
+		return view.ActualState == string(lanes.Briefing)
+	})
+	r.clock.Advance(3 * time.Minute)
+	view := r.read()
+	if view.ActualState != string(lanes.Idle) || !slices.Contains(view.Conditions, string(lanes.BriefUnconfirmed)) {
+		t.Errorf("view %+v", view)
+	}
+}
+
+func TestAnUnqualifiedVersionIsDegradedMode(t *testing.T) {
+	r := laneRigWith(t, "")
+	r.driver.SetVersion("9.9.9", true)
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	if view := r.atGate(g); !slices.Contains(view.Conditions, string(lanes.DegradedMode)) {
+		t.Errorf("conditions %v", view.Conditions)
+	}
+}
+
+// A status travels on change, so a heartbeat alone adds nothing to the ledger.
+func TestAStatusIsPublishedOnlyOnChange(t *testing.T) {
+	r := laneRigWith(t, "")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool {
+		return view.ActualState == string(lanes.Working) && view.Liveness == string(lanes.LivenessAlive)
+	})
+	before, err := r.journal.Through(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.read()
+	r.read()
+	after, err := r.journal.Through(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Errorf("%d events with nothing changed", after-before)
+	}
+}
+
+// TestAdoptionKeepsTheLanesState holds what a restart must not lose.
+func TestAdoptionKeepsTheLanesState(t *testing.T) {
+	w := newWorldRig(t)
+	w.record("lane-1", lanes.StateRunning)
+	if err := w.journal.SaveActual(t.Context(), "lane-1", lanes.Idle); err != nil {
+		t.Fatal(err)
+	}
+	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
+	w.driver.Leave("lane-1", 1, sessionAlive)
+	w.driver.Play(script([]fake.DriverStep{{Hold: true}}))
+	if _, err := w.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.lane("lane-1").Actual; got != lanes.Idle {
+		t.Errorf("adoption moved the lane to %s", got)
+	}
+}

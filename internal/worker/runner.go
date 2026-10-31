@@ -66,11 +66,15 @@ type laneRun struct {
 	fenced   atomic.Bool
 	stopping sync.Once
 	stopped  sync.WaitGroup
+	state    *laneState
 }
 
 // newRun is a lane's run at its first generation.
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
-	return &laneRun{w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration}
+	return &laneRun{
+		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration,
+		state: newLaneState(lanes.Pending, w.clock.Now()),
+	}
 }
 
 // startRun runs one lane apart, so one stuck lane stops no other.
@@ -103,6 +107,7 @@ func (w *Worker) stopFenced(ctx context.Context, workOrder string) {
 	for _, run := range w.running {
 		if run.lease.WorkOrder == workOrder {
 			run.fenced.Store(true)
+			run.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
 			run.stop(ctx, ports.StopInterrupt)
 		}
 	}
@@ -174,6 +179,7 @@ func (r *laneRun) begin(ctx context.Context) error {
 	if err := r.w.Upload(ctx); err != nil {
 		r.w.config.Report(err)
 	}
+	r.signal(ctx, lanes.OnClaimGranted)
 	return r.proceed(ctx)
 }
 
@@ -187,6 +193,7 @@ func (r *laneRun) proceed(ctx context.Context) error {
 // clean exit leaves no effect open.
 func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 	r.stopped.Wait()
+	r.signal(ctx, lanes.OnLaneEnding, lanes.OnSessionStopped)
 	if dir := r.rt.tempDir(r.lease.Lane); dir != "" {
 		_ = os.RemoveAll(dir)
 	}
@@ -204,6 +211,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.generation, run.handle = record.Generation, located.Handle
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
 	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
+	run.state = newLaneState(record.Actual, w.clock.Now())
 	_, err := w.journal.Effect(ctx, run.nudge().Key)
 	switch {
 	case err == nil:
@@ -279,6 +287,8 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
+	r.signal(ctx, lanes.OnResourcesReady)
+	r.state.thresholds(prepared.Profile)
 	spec, err := r.spec(ctx, prepared)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
@@ -301,6 +311,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return failed(workorders.ReasonWorkerRestarted)
 	}
 	crashpoint.Hit("worker.lane", "spawned")
+	r.signal(ctx, lanes.OnDriverReady)
 	events, err := r.rt.Driver.Events(ctx, r.handle)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
@@ -325,6 +336,9 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 	}
 	r.model, r.profileDigest = prepared.Profile.Agent.Model, prepared.ProfileDigest
 	r.version, r.degraded = capabilities.Version, capabilities.Degraded
+	r.state.mu.Lock()
+	r.state.degraded = capabilities.Degraded
+	r.state.mu.Unlock()
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.generation, Dir: prepared.Worktree.Path,
 		Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
@@ -356,6 +370,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		if event.Seq != 0 && event.Seq <= r.cursor {
 			continue
 		}
+		r.observeEvent(ctx, event)
 		switch event.Kind {
 		case ports.EventSessionBound:
 			r.bind(ctx, event)
@@ -364,6 +379,9 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.afterTurn(ctx, event.Turn)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
+			if event.End != nil && event.End.Crashed {
+				r.signal(ctx, lanes.OnSessionGone)
+			}
 			return r.verdict(ctx, event.End)
 		}
 	}
@@ -413,12 +431,14 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 // it did not (FR-LANE-2). A turn that failed has nothing to nudge.
 func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 	if _, ok := r.reported(ctx); ok {
+		r.signal(ctx, lanes.OnOutcomeReported)
 		r.stop(ctx, ports.StopAtRest)
 		return
 	}
 	if turn.Status != ports.TurnCompleted {
 		report := failed(turn.Reason)
 		r.decided = &report
+		r.signal(ctx, lanes.OnLaneEnding)
 		r.stop(ctx, ports.StopAtRest)
 		return
 	}
@@ -429,10 +449,12 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 			return err
 		})
 		if ran && err == nil {
+			r.signal(ctx, lanes.OnInputHanded)
 			return
 		}
 	}
 	r.decided = &workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoOutcome}
+	r.signal(ctx, lanes.OnOutcomeReported)
 	r.stop(ctx, ports.StopAtRest)
 }
 
