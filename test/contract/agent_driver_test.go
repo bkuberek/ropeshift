@@ -12,6 +12,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/secrets"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/doubles"
 )
 
@@ -31,6 +32,8 @@ func TestClaudeCodeDriverContract(t *testing.T) {
 			driver.UseEnv([]string{"PATH=" + path})
 			spec := baseSpec(t)
 			spec.Env = []string{"PATH=" + path, "HOME=" + t.TempDir()}
+			spec.Binary, spec.TempDir = doubles.Ropeshift(t), apitest.ShortDir(t)
+			doubles.ReapShims(t, spec.ConfigDir)
 			return spec
 		}
 		arrange(ScenarioTwoTurns)

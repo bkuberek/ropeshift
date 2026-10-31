@@ -21,6 +21,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/doubles"
 	"ropeshift.dev/ropeshift/test/gittest"
 )
 
@@ -54,7 +55,7 @@ permission_mode = "default"
 `
 )
 
-// suite is one run of RS1 and everything it must clean up.
+// suite is one run of one suite and everything it must clean up.
 type suite struct {
 	t       *testing.T
 	home    string
@@ -67,11 +68,13 @@ type suite struct {
 	before  [32]byte
 	// worktree is where the lane's session ran.
 	worktree string
+	// standIn is the PATH of a dry run, which finds a scripted CLI first.
+	standIn string
 }
 
 // start refuses to run without the explicit start, and takes the settings digest before
-// anything else happens.
-func start(t *testing.T) *suite {
+// anything else happens. A name keeps two suites' scratch paths apart.
+func start(t *testing.T, name string) *suite {
 	t.Helper()
 	if os.Getenv(envStart) != "1" {
 		t.Skipf("real sessions need %s=1", envStart)
@@ -85,7 +88,7 @@ func start(t *testing.T) *suite {
 		t.Fatal(err)
 	}
 	// A short base, because a session's socket path has a 104-byte limit.
-	scratch, err := os.MkdirTemp("/tmp", "rs1")
+	scratch, err := os.MkdirTemp("/tmp", name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +101,9 @@ func start(t *testing.T) *suite {
 		stream: filepath.Join(scratch, "stream.log"),
 	}
 	t.Cleanup(s.finish)
+	if os.Getenv(envStandIn) != "" {
+		s.standIn = doubles.InstallFakeClaude(t, standInFixture)
+	}
 	return s
 }
 
@@ -145,6 +151,9 @@ func (s *suite) environment(tags ...string) []string {
 	lookup := func(name string) (string, bool) {
 		value, ok := os.LookupEnv(name)
 		if name == "PATH" {
+			if s.standIn != "" {
+				value = s.standIn
+			}
 			return withoutCanary(value), ok
 		}
 		return value, ok
@@ -228,7 +237,7 @@ func (s *suite) probe() {
 	if err := checkArguments(args); err != nil {
 		s.t.Fatal(err)
 	}
-	binary, err := exec.LookPath("claude")
+	binary, err := claudeOn(s.environment())
 	if err != nil {
 		s.t.Fatal(err)
 	}
@@ -282,7 +291,7 @@ func (s *suite) probe() {
 // real session can show lane_report through `ropeshift mcp`, the lane token reaching a
 // stdio server, and the driver's real flags.
 func TestRS1(t *testing.T) {
-	s := start(t)
+	s := start(t, "rs1")
 	s.build()
 	s.probe()
 
@@ -292,39 +301,11 @@ func TestRS1(t *testing.T) {
 	s.repo = repo.Dir
 	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "rs1-lane")
 
-	override, err := json.Marshal(map[string]any{
-		"args": append(append([]string{}, guardFlags...), "--max-turns", laneMaxTurns), "stream_log": s.stream,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.spend.charge("lane", laneTurnsPaid); err != nil {
 		t.Fatal(err)
 	}
-	daemon := exec.Command(filepath.Join(s.binDir, "ropeshiftd"), "solo",
-		"--source", repo.Dir, "--intake-tick", "200ms", "--heartbeat", "1s", "--lease-tick", "1s")
-	daemon.Env = s.environment(append(s.daemonTags(), "ROPESHIFT_SESSION_OVERRIDE="+string(override))...)
-	var daemonErr bytes.Buffer
-	daemon.Stderr = &daemonErr
-	if err := daemon.Start(); err != nil {
-		t.Fatal(err)
-	}
-	exited := make(chan error, 1)
-	go func() { exited <- daemon.Wait() }()
-	stopped := false
-	stop := func() {
-		if stopped {
-			return
-		}
-		stopped = true
-		_ = daemon.Process.Signal(syscall.SIGTERM)
-		select {
-		case <-exited:
-		case <-time.After(15 * time.Second):
-			_ = daemon.Process.Signal(syscall.SIGKILL)
-			<-exited
-		}
-	}
+	running := s.startDaemon()
+	stop := running.stop
 	t.Cleanup(stop)
 
 	id := s.waitForWorkOrder(stop)
@@ -363,9 +344,65 @@ func TestRS1(t *testing.T) {
 		t.Fatalf("STOP: the lane's init: %v", err)
 	}
 	if row.State != workorders.Acceptance {
-		t.Fatalf("the lane ended in %s\n%s", row.State, daemonErr.String())
+		t.Fatalf("the lane ended in %s\n%s", row.State, running.stderr.String())
 	}
 	s.report(id, init, raw)
+}
+
+// daemon is one `ropeshiftd solo` this suite started. Signals go to its recorded process
+// and nowhere else.
+type daemon struct {
+	cmd     *exec.Cmd
+	exited  chan error
+	stderr  *bytes.Buffer
+	stopped bool
+}
+
+// startDaemon runs the daemon on this suite's repository, with the guard flags reaching
+// the production driver through the override that exists only under this build tag.
+func (s *suite) startDaemon() *daemon {
+	s.t.Helper()
+	override, err := json.Marshal(map[string]any{
+		"args": append(append([]string{}, guardFlags...), "--max-turns", laneMaxTurns), "stream_log": s.stream,
+	})
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(s.binDir, "ropeshiftd"), "solo",
+		"--source", s.repo, "--intake-tick", "200ms", "--heartbeat", "1s", "--lease-tick", "1s")
+	cmd.Env = s.environment(append(s.daemonTags(), "ROPESHIFT_SESSION_OVERRIDE="+string(override))...)
+	d := &daemon{cmd: cmd, exited: make(chan error, 1), stderr: &bytes.Buffer{}}
+	cmd.Stderr = d.stderr
+	if err := cmd.Start(); err != nil {
+		s.t.Fatal(err)
+	}
+	go func() { d.exited <- cmd.Wait() }()
+	return d
+}
+
+// stop ends the daemon the way a service manager does.
+func (d *daemon) stop() {
+	if d.stopped {
+		return
+	}
+	d.stopped = true
+	_ = d.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-d.exited:
+	case <-time.After(15 * time.Second):
+		_ = d.cmd.Process.Signal(syscall.SIGKILL)
+		<-d.exited
+	}
+}
+
+// kill ends the daemon with no warning, by its exact process ID.
+func (d *daemon) kill() {
+	if d.stopped {
+		return
+	}
+	d.stopped = true
+	_ = d.cmd.Process.Signal(syscall.SIGKILL)
+	<-d.exited
 }
 
 func (s *suite) waitForWorkOrder(stop func()) string {

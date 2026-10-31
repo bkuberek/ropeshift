@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
@@ -245,5 +246,25 @@ func TestALaneGetsItsPlace(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(lane.Worktree.Path, "README.txt")); err == nil {
 		t.Error("the worktree holds a file its branch does not")
+	}
+}
+
+// TestDetachedProcessLeavesTheGroup holds what a shim depends on: a signal to the group
+// of whatever started it does not reach it.
+func TestDetachedProcessLeavesTheGroup(t *testing.T) {
+	process, err := osexec.Runner{}.Start(t.Context(), ports.ProcessSpec{Path: "/bin/sleep", Args: []string{"30"}, Detached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = process.Signal(ports.SignalKill)
+		_, _ = process.Wait()
+	}()
+	group, err := syscall.Getpgid(process.PID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group != process.PID() || group == syscall.Getpgrp() {
+		t.Errorf("process group %d of process %d, and this process's is %d", group, process.PID(), syscall.Getpgrp())
 	}
 }

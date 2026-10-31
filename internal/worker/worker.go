@@ -235,6 +235,9 @@ func (w *Worker) applyBeat(ctx context.Context, held []ledger.HeldLease, reply l
 	return w.journal.SaveLeases(ctx, kept)
 }
 
+// Wait returns when every lane this worker runs has ended.
+func (w *Worker) Wait() { w.laneGroup.Wait() }
+
 // Deadline returns when a lease may have ended, by this worker's own count.
 func (w *Worker) Deadline(workOrder string) (time.Time, bool) {
 	w.mu.Lock()

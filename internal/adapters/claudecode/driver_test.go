@@ -1,7 +1,9 @@
 package claudecode_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io/fs"
 	"maps"
@@ -10,14 +12,17 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/secrets"
+	"ropeshift.dev/ropeshift/internal/api/shimlink"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/doubles"
 )
 
@@ -83,7 +88,9 @@ func session(t *testing.T, fixture string, change func(*ports.SessionSpec)) (por
 	spec := ports.SessionSpec{
 		Lane: "lane-1", WorkOrder: "wo", Generation: 1, Dir: t.TempDir(), Model: "opus", PermissionMode: "default",
 		Brief: "the brief", ConfigDir: filepath.Join(t.TempDir(), "generated"), Env: []string{"PATH=" + path, "ROPESHIFT_LANE_ID=lane-1"},
+		Binary: doubles.Ropeshift(t), TempDir: apitest.ShortDir(t),
 	}
+	doubles.ReapShims(t, spec.ConfigDir)
 	if change != nil {
 		change(&spec)
 	}
@@ -176,7 +183,7 @@ func TestTheSessionEnvironmentIsTheSpecs(t *testing.T) {
 		t.Fatalf("%d sessions", len(seen))
 	}
 	for name := range seen[0].Env {
-		if name != "PATH" && name != "ROPESHIFT_LANE_ID" && name != "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS" {
+		if !slices.Contains([]string{"PATH", "ROPESHIFT_LANE_ID", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "CLAUDE_CODE_TMPDIR"}, name) {
 			t.Errorf("%s reached the session", name)
 		}
 	}
@@ -243,6 +250,208 @@ func readSettings(t *testing.T, spec ports.SessionSpec) (generatedSettings, stri
 		t.Fatal(err)
 	}
 	return out, string(raw)
+}
+
+// waitFor reads a stream until one event, and returns what it read.
+func waitFor(t *testing.T, events <-chan ports.DriverEvent, kind ports.EventKind) []ports.DriverEvent {
+	t.Helper()
+	var out []ports.DriverEvent
+	deadline := time.After(30 * time.Second)
+	for {
+		select {
+		case event, open := <-events:
+			if !open {
+				t.Fatalf("the stream closed before %s: %+v", kind, out)
+			}
+			out = append(out, event)
+			if event.Kind == kind {
+				return out
+			}
+		case <-deadline:
+			t.Fatalf("no %s in %+v", kind, out)
+		}
+	}
+}
+
+// restarted is the driver a new worker process builds: it holds nothing of the last one.
+func restarted(path string) ports.AgentDriver {
+	return claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second})
+}
+
+// TestARestartedWorkerAdoptsASessionMidTurn is FR-LANE-17 at the driver: a new driver,
+// which knows nothing, finds the session, reads on, and stops it.
+func TestARestartedWorkerAdoptsASessionMidTurn(t *testing.T) {
+	first, path, spec := session(t, "stopped-turn", nil)
+	handle, err := first.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := first.Events(t.Context(), handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := waitFor(t, events, ports.EventSessionBound)
+	next := restarted(path)
+	located, err := next.Find(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !located.Found || !located.Readable || located.Liveness != lanes.LivenessAlive {
+		t.Fatalf("located %+v", located)
+	}
+	cursor := bound[len(bound)-1].Seq
+	if cursor == 0 {
+		t.Fatal("an event carried no position")
+	}
+	if err := next.Adopt(t.Context(), located.Handle, ports.AdoptFrom{Spec: spec, Cursor: cursor}); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Stop(t.Context(), located.Handle, ports.StopInterrupt); err != nil {
+		t.Fatal(err)
+	}
+	adopted := drain(t, next, located.Handle)
+	if adopted[0].Seq <= cursor {
+		t.Errorf("an adoption redelivered position %d from %d", adopted[0].Seq, cursor)
+	}
+	last := adopted[len(adopted)-1]
+	if last.Kind != ports.EventSessionEnded || last.End.Crashed {
+		t.Errorf("events %+v", adopted)
+	}
+}
+
+// A turn that ended while no worker was there is read from the journal, in order, after
+// the shim that wrote it has gone.
+func TestASessionThatEndedWhileTheWorkerWasAwayIsRead(t *testing.T) {
+	path := doubles.InstallFakeClaude(t, "two-turns")
+	first := claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}, ShimLinger: 10 * time.Millisecond})
+	spec := ports.SessionSpec{
+		Lane: "lane-1", WorkOrder: "wo", Generation: 1, Dir: t.TempDir(), Model: "opus", PermissionMode: "default",
+		Brief: "the brief", ConfigDir: filepath.Join(t.TempDir(), "generated"), Env: []string{"PATH=" + path},
+		Binary: doubles.Ropeshift(t), TempDir: apitest.ShortDir(t),
+	}
+	handle, err := first.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := first.Events(t.Context(), handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, ports.EventTurnEnded)
+	if err := first.Stop(t.Context(), handle, ports.StopAtRest); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(spec.TempDir, "s1.sock")
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(socket); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	next := restarted(path)
+	located, err := next.Find(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !located.Found || !located.Readable || located.Liveness != lanes.LivenessDead {
+		t.Fatalf("located %+v", located)
+	}
+	if err := next.Adopt(t.Context(), located.Handle, ports.AdoptFrom{Spec: spec}); err != nil {
+		t.Fatal(err)
+	}
+	read := drain(t, next, located.Handle)
+	kinds := make([]ports.EventKind, 0, len(read))
+	for _, event := range read {
+		kinds = append(kinds, event.Kind)
+	}
+	if !slices.Contains(kinds, ports.EventTurnEnded) || kinds[len(kinds)-1] != ports.EventSessionEnded {
+		t.Errorf("events %v", kinds)
+	}
+}
+
+// TestAKilledShimEndsTheSessionAndAResumeRecoversIt is the failure table's row: stdin
+// closes, the session ends with its turn, and a new shim resumes it.
+func TestAKilledShimEndsTheSessionAndAResumeRecoversIt(t *testing.T) {
+	driver, path, spec := session(t, "two-turns", nil)
+	handle, err := driver.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := driver.Events(t.Context(), handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, ports.EventTurnEnded)
+	state, err := shimlink.ReadState(filepath.Join(spec.ConfigDir, "shim-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(state.ShimPID, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	ended := waitFor(t, events, ports.EventSessionEnded)
+	if end := ended[len(ended)-1].End; !end.Crashed {
+		t.Errorf("a lost shim read as a clean end: %+v", end)
+	}
+	if err := syscall.Kill(state.ChildPID, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("the session outlived its shim: %v", err)
+	}
+	spec.Generation, spec.Brief = 2, "go on"
+	resumed, err := driver.Resume(t.Context(), spec, ports.ResumeRef{SessionID: "the-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Stop(t.Context(), resumed, ports.StopAtRest); err != nil {
+		t.Fatal(err)
+	}
+	read := drain(t, driver, resumed)
+	if last := read[len(read)-1]; last.Kind != ports.EventSessionEnded || last.End.Crashed {
+		t.Errorf("events %+v", read)
+	}
+	sawResume := false
+	for _, seen := range doubles.SeenBy(t, doubles.BinDir(path)) {
+		sawResume = sawResume || slices.Contains(seen.Args, "--resume")
+	}
+	if !sawResume {
+		t.Error("no session resumed")
+	}
+}
+
+// A retry that reaches a generation a shim holds must find it, not start a second.
+func TestASecondStartOfOneGenerationIsRefused(t *testing.T) {
+	driver, path, spec := session(t, "stopped-turn", nil)
+	handle, err := driver.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = driver.Stop(context.Background(), handle, ports.StopNow) }()
+	_, err = restarted(path).Start(t.Context(), spec)
+	if !errors.Is(err, claudecode.ErrSessionExists) {
+		t.Errorf("second start: %v", err)
+	}
+}
+
+func TestAFailedPingReadsUnknownAndNeverDead(t *testing.T) {
+	driver, _, spec := session(t, "stopped-turn", nil)
+	handle, err := driver.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = driver.Stop(context.Background(), handle, ports.StopNow) }()
+	observation, err := driver.Observe(t.Context(), handle)
+	if err != nil || observation.Liveness != lanes.LivenessAlive {
+		t.Fatalf("observation %+v: %v", observation, err)
+	}
+	socket := filepath.Join(spec.TempDir, "s1.sock")
+	if err := os.Rename(socket, socket+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Rename(socket+".moved", socket) }()
+	observation, err = driver.Observe(t.Context(), handle)
+	if err != nil || observation.Liveness != lanes.LivenessUnknown {
+		t.Errorf("observation %+v: %v", observation, err)
+	}
 }
 
 func writeFixture(t *testing.T, path string, body map[string]any) {
@@ -324,7 +533,6 @@ func TestFailedListingIsAnError(t *testing.T) {
 func TestGeneratedMCPNamesTheToken(t *testing.T) {
 	const token = "the-lane-token-value"
 	driver, _, spec := session(t, "two-turns", func(spec *ports.SessionSpec) {
-		spec.Binary = "/state/bin/ropeshift"
 		spec.Env = append(spec.Env, lanes.EnvLaneToken+"="+token, lanes.EnvWorkerSocket+"=/run/worker.sock")
 	})
 	play(t, driver, spec)
@@ -369,7 +577,13 @@ func TestGeneratedSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const stable = "/state dir/bin/ropeshift"
+	stable := filepath.Join(t.TempDir(), "state dir", "ropeshift")
+	if err := os.MkdirAll(filepath.Dir(stable), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(doubles.Ropeshift(t), stable); err != nil {
+		t.Fatal(err)
+	}
 	driver, _, spec := session(t, "two-turns", func(spec *ports.SessionSpec) {
 		spec.Binary, spec.Tools, spec.Credential = stable, []string{"lane_report"}, binding
 	})

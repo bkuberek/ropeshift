@@ -56,6 +56,7 @@ type AgentDriver struct {
 	left     map[string]ports.Located
 	adopted  []ports.AdoptFrom
 	findErr  error
+	stopped  bool
 }
 
 type driverSession struct {
@@ -91,6 +92,24 @@ func (d *AgentDriver) FailFind(err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.findErr = err
+}
+
+// StopEverySession ends what runs now and what starts later, so a test can end while a
+// lane is still on its way to a session.
+func (d *AgentDriver) StopEverySession() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stopped = true
+	for _, session := range d.sessions {
+		session.stop()
+	}
+}
+
+func (s *driverSession) stop() {
+	select {
+	case s.stops <- ports.StopNow:
+	default:
+	}
 }
 
 // Adopted lists where each adoption picked a session up.
@@ -175,6 +194,9 @@ func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.
 	d.sessions[handle.ID] = session
 	session.inputs <- ports.Input{Text: spec.Brief}
 	go session.run()
+	if d.stopped {
+		session.stop()
+	}
 	return handle, nil
 }
 
@@ -212,6 +234,9 @@ func (d *AgentDriver) Adopt(_ context.Context, h ports.SessionHandle, from ports
 	d.sessions[h.ID] = session
 	session.inputs <- ports.Input{}
 	go session.run()
+	if d.stopped {
+		session.stop()
+	}
 	return nil
 }
 

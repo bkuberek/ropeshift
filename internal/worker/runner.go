@@ -217,7 +217,9 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // adopt reads a session this process did not start, from where the journal says the
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
-	err := r.rt.Driver.Adopt(ctx, r.handle, ports.AdoptFrom{Cursor: r.cursor, Cost: r.cost})
+	err := r.rt.Driver.Adopt(ctx, r.handle, ports.AdoptFrom{
+		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost,
+	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
 		return r.finish(ctx, r.unattended(ctx))

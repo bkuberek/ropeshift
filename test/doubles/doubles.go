@@ -14,7 +14,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+
+	"ropeshift.dev/ropeshift/internal/api/shimlink"
 )
 
 //go:embed fixtures/*.json
@@ -33,6 +36,13 @@ type Seen struct {
 }
 
 var built struct {
+	once sync.Once
+	dir  string
+	path string
+	err  error
+}
+
+var builtBinary struct {
 	once sync.Once
 	dir  string
 	path string
@@ -60,11 +70,35 @@ func buildFakeClaude() (string, error) {
 	return built.path, built.err
 }
 
+// Ropeshift builds the real binary once per test process, because a session runs under
+// the real shim whichever double stands for the agent.
+func Ropeshift(t testing.TB) string {
+	t.Helper()
+	builtBinary.once.Do(func() {
+		builtBinary.dir, builtBinary.err = os.MkdirTemp("", "rsbin")
+		if builtBinary.err != nil {
+			return
+		}
+		builtBinary.path = filepath.Join(builtBinary.dir, "ropeshift")
+		build := exec.Command("go", "build", "-o", builtBinary.path, "ropeshift.dev/ropeshift/cmd/ropeshift")
+		build.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if out, err := build.CombinedOutput(); err != nil {
+			builtBinary.err = fmt.Errorf("build ropeshift: %v\n%s", err, out)
+		}
+	})
+	if builtBinary.err != nil {
+		t.Fatal(builtBinary.err)
+	}
+	return builtBinary.path
+}
+
 // Main runs a package's tests and removes the double it built.
 func Main(m *testing.M) int {
 	code := m.Run()
-	if built.dir != "" {
-		_ = os.RemoveAll(built.dir)
+	for _, dir := range []string{built.dir, builtBinary.dir} {
+		if dir != "" {
+			_ = os.RemoveAll(dir)
+		}
 	}
 	return code
 }
@@ -89,6 +123,30 @@ func InstallFakeClaude(t testing.TB, fixture string) string {
 		t.Fatal(err)
 	}
 	return dir + string(os.PathListSeparator) + CanaryPath(t)
+}
+
+// ReapShims stops what a generation's shim started, when a test ends, by the exact IDs
+// its state file names. A shim outlives its worker by design, so a test that fails with
+// a session running would otherwise leave both behind.
+func ReapShims(t testing.TB, configDir string) {
+	t.Helper()
+	t.Cleanup(func() {
+		dirs, err := filepath.Glob(filepath.Join(configDir, "shim-*"))
+		if err != nil {
+			return
+		}
+		for _, dir := range dirs {
+			state, err := shimlink.ReadState(dir)
+			if err != nil {
+				continue
+			}
+			for _, pid := range []int{state.ChildPID, state.ShimPID} {
+				if pid > 0 {
+					_ = syscall.Kill(pid, syscall.SIGKILL)
+				}
+			}
+		}
+	})
 }
 
 // BinDir returns the directory InstallFakeClaude made, from the PATH it returned.

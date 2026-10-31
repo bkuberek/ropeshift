@@ -35,8 +35,8 @@ type variant struct {
 	// wrap decorates every Store handle.
 	wrap func(ports.Store) ports.Store
 	// check is a contract check ID, "crash" for the crash case below, "random"
-	// for a run of random kills, "paused" for the stopped writer, or "holder" for a
-	// run that stops a holder on purpose.
+	// for a run of random kills, "paused" for the stopped writer, "holder" for a run
+	// that stops a holder on purpose, or "shim" for a worker reading a shim.
 	check string
 	// crash is the case and step a crash variant runs.
 	crash func() (crashCase, string)
@@ -400,6 +400,7 @@ func allVariants() []variant {
 			check: "crash",
 			crash: func() (crashCase, string) { return workerLaneCase(), laneSplitStep },
 		},
+		{name: "a reader that skips what it missed", check: "shim"},
 		{
 			name:  retriesBlind,
 			check: "crash",
@@ -563,6 +564,8 @@ func runVariant(t *testing.T, v variant) error {
 		return checkSoloSleep(newWorld(t, ""), sqlstore.EnvCut+"="+sqlstore.OpRenew+"|"+deadlineGuard)
 	case "random":
 		return runRandomVariant(t, v)
+	case "shim":
+		return checkShimGroundTruth(t)
 	case "holder":
 		run := newRandomRun(newWorld(t, v.name), holderVariantKills)
 		run.holders = 1

@@ -138,6 +138,8 @@ type Located struct {
 
 // AdoptFrom is where a restarted worker picks a session up.
 type AdoptFrom struct {
+	// Spec names the session the way Find was asked for it.
+	Spec SessionSpec
 	// Cursor is the last stream position this worker finished with. Anything at or
 	// before it is dropped, because a kill between reading and saving redelivers.
 	Cursor int64

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"syscall"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/api/shimlink"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
@@ -81,25 +83,84 @@ func processExists(pid int) bool {
 	return pid > 0 && !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }
 
-// Find looks for a session an earlier process started. With no shim its pipes went with
-// that process, so a session the listing shows can only end, and it reads unknown until
-// it has: a restart must not start a second one beside it.
+func liveRows(rows []listedSession) []listedSession {
+	return slices.DeleteFunc(slices.Clone(rows), func(row listedSession) bool { return !processExists(row.PID) })
+}
+
+// Find looks for a session an earlier process started, and changes nothing. Each piece
+// of evidence proves less than it appears to: a shim that answers a ping is alive, an
+// exit in the journal is dead, and two processes that are both gone are dead. Anything
+// less is unknown, because unknown restarts nothing. The listing is a second opinion,
+// and it can only hold a session back from reading dead.
 func (d *Driver) Find(ctx context.Context, spec ports.SessionSpec) (ports.Located, error) {
-	rows, err := d.listing(ctx, spec)
+	handle := ports.SessionHandle{ID: sessionHandleID(spec)}
+	rows, listing := d.listing(ctx, spec)
+	state, err := shimlink.ReadState(shimDir(spec))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if listing != nil {
+			return ports.Located{}, listing
+		}
+		live := liveRows(rows)
+		if len(live) == 0 {
+			return ports.Located{}, nil
+		}
+		handle.PID = live[0].PID
+		return ports.Located{Session: lanes.Session{Found: true, Liveness: lanes.LivenessUnknown}, Handle: handle}, nil
+	case err != nil:
+		return ports.Located{}, err
+	}
+	handle.PID = state.ShimPID
+	if answersPing(ctx, shimSocket(spec)) {
+		return ports.Located{Session: lanes.Session{Found: true, Liveness: lanes.LivenessAlive, Readable: true}, Handle: handle}, nil
+	}
+	ended, err := shimlink.Ended(shimDir(spec))
 	if err != nil {
 		return ports.Located{}, err
 	}
-	rows = slices.DeleteFunc(slices.Clone(rows), func(row listedSession) bool { return !processExists(row.PID) })
-	if len(rows) == 0 {
-		return ports.Located{}, nil
+	gone := ended || (!processExists(state.ShimPID) && !processExists(state.ChildPID) && len(liveRows(rows)) == 0)
+	if gone {
+		return ports.Located{Session: lanes.Session{Found: true, Liveness: lanes.LivenessDead, Readable: true}, Handle: handle}, nil
 	}
-	return ports.Located{
-		Session: lanes.Session{Found: true, Liveness: lanes.LivenessUnknown},
-		Handle:  ports.SessionHandle{ID: sessionHandleID(spec), PID: rows[0].PID},
-	}, nil
+	return ports.Located{Session: lanes.Session{Found: true, Liveness: lanes.LivenessUnknown}, Handle: handle}, nil
 }
 
-// Adopt has nothing to take over without a shim holding the session's pipes.
-func (d *Driver) Adopt(_ context.Context, h ports.SessionHandle, _ ports.AdoptFrom) error {
-	return fmt.Errorf("%s: %w", h.ID, ports.ErrNoSession)
+func answersPing(ctx context.Context, socket string) bool {
+	attempt, cancel := context.WithTimeout(ctx, shimDialDeadline)
+	defer cancel()
+	client, err := shimlink.Dial(attempt, socket)
+	return err == nil && client.Ping(attempt) == nil
+}
+
+// Adopt takes over a session from where a worker stopped. A shim that answers carries on
+// the stream, and a shim that has gone left its journal, so a session that ended while
+// the worker was away still ends in order, with nothing of its last turn lost.
+func (d *Driver) Adopt(ctx context.Context, h ports.SessionHandle, from ports.AdoptFrom) error {
+	spec := from.Spec
+	if spec.ConfigDir == "" {
+		return fmt.Errorf("%s: %w", h.ID, ports.ErrNoSession)
+	}
+	if _, err := shimlink.ReadState(shimDir(spec)); err != nil {
+		return fmt.Errorf("%s: %w: %v", h.ID, ports.ErrNoSession, err)
+	}
+	attempt, cancel := context.WithTimeout(ctx, shimDialDeadline)
+	defer cancel()
+	if client, err := shimlink.Dial(attempt, shimSocket(spec)); err == nil {
+		_, err := d.follow(ctx, spec, h, client, from.Cursor, from.Cost)
+		return err
+	}
+	log, err := openStreamLog(spec)
+	if err != nil {
+		return err
+	}
+	s := d.newSession(spec, h, nil, from.Cost)
+	s.last = from.Cursor
+	d.keep(s)
+	go func() {
+		if log != nil {
+			defer log.Close()
+		}
+		s.drain(log)
+	}()
+	return nil
 }

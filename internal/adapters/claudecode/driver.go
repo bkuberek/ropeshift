@@ -1,10 +1,10 @@
 // Package claudecode is the AgentDriver for the unmodified `claude` binary, in the
-// headless run mode. It reads only the documented stream, flags, and settings, and
-// never a transcript or a vendor credential.
+// headless run mode, under `ropeshift lane-shim`, so a session outlives its worker. It
+// reads only the documented stream, flags, and settings, and never a transcript or a
+// vendor credential.
 package claudecode
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -18,8 +18,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/api/shimlink"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
@@ -44,7 +46,20 @@ const (
 	defaultStopGrace = 5 * time.Second
 	versionTimeout   = 30 * time.Second
 	eventBuffer      = 256
+	// shimStartLimit bounds the wait for a new shim's first answer.
+	shimStartLimit = 30 * time.Second
+	// shimDialDeadline bounds one try at reaching a shim.
+	shimDialDeadline = time.Second
+	// lostShimGrace is how long a session gets to finish its turn after its shim dies.
+	// Its stdin closed, so it ends by itself, and the spike saw that take seconds.
+	lostShimGrace = time.Minute
+	// lostPoll is how often a session whose shim died is checked for its end.
+	lostPoll = 50 * time.Millisecond
 )
+
+// ErrSessionExists means a shim already holds this generation, so a retry that reached
+// this far must look for it and not start a second.
+var ErrSessionExists = errors.New("a shim already holds this generation")
 
 // ErrNoBinary means the lane's PATH holds no agent CLI.
 var ErrNoBinary = errors.New("claude is not on PATH")
@@ -55,12 +70,19 @@ type Options struct {
 	Env []string
 	// StopGrace is how long a session gets to end before the next signal.
 	StopGrace time.Duration
+	// ShimLinger is how long a shim stays after its session ends. Zero takes the shim's
+	// default.
+	ShimLinger time.Duration
+	// JournalCap bounds a shim's journal in bytes. Zero takes the shim's default.
+	JournalCap int64
 }
 
-// Driver runs headless sessions through a ProcessRunner.
+// Driver runs headless sessions, each under a shim started through a ProcessRunner.
 type Driver struct {
 	runner ports.ProcessRunner
 	grace  time.Duration
+	linger time.Duration
+	cap    int64
 
 	mu       sync.Mutex
 	env      []string
@@ -75,7 +97,8 @@ func New(runner ports.ProcessRunner, options Options) *Driver {
 		grace = defaultStopGrace
 	}
 	return &Driver{
-		runner: runner, grace: grace, env: options.Env, sessions: map[string]*session{}, listed: map[string][]listedSession{},
+		runner: runner, grace: grace, linger: options.ShimLinger, cap: options.JournalCap, env: options.Env,
+		sessions: map[string]*session{}, listed: map[string][]listedSession{},
 	}
 }
 
@@ -191,8 +214,14 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	if _, err := findBinary(spec.Env); err != nil {
 		problem("%v", err)
 	}
+	if spec.Binary == "" {
+		problem("no ropeshift binary to run the shim")
+	}
 	if len(spec.TempDir)+len(socketTail) > maxSocketPath {
 		problem("a session's socket under %s passes the %d-byte limit", spec.TempDir, maxSocketPath)
+	}
+	if socket := shimSocket(spec); len(socket) > maxSocketPath {
+		problem("the shim's socket at %s passes the %d-byte limit", socket, maxSocketPath)
 	}
 	for _, entry := range spec.Env {
 		name, _, _ := strings.Cut(entry, "=")
@@ -247,53 +276,103 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	if err := writeGenerated(spec); err != nil {
 		return ports.SessionHandle{}, err
 	}
-	env := sessionEnv(spec, Qualified(version))
-	stdinRead, stdinWrite, err := os.Pipe()
-	if err != nil {
-		return ports.SessionHandle{}, err
-	}
-	stdoutRead, stdoutWrite, err := os.Pipe()
-	if err != nil {
-		_ = stdinRead.Close()
-		_ = stdinWrite.Close()
-		return ports.SessionHandle{}, err
-	}
 	stderr, err := openStderr(spec)
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
+	config := shimlink.Config{
+		Dir: shimDir(spec), Socket: shimSocket(spec), Command: append([]string{binary}, arguments...),
+		Linger: d.linger, JournalCap: d.cap,
+	}
 	process, err := d.runner.Start(ctx, ports.ProcessSpec{
-		Path: binary, Args: arguments, Dir: spec.Dir, Env: env, Stdin: stdinRead, Stdout: stdoutWrite, Stderr: stderr,
+		Path: spec.Binary, Args: shimlink.Args(config), Dir: spec.Dir, Env: sessionEnv(spec, Qualified(version)),
+		Stderr: stderr, Detached: true,
 	})
-	_ = stdinRead.Close()
-	_ = stdoutWrite.Close()
 	_ = stderr.Close()
 	if err != nil {
-		_ = stdinWrite.Close()
-		_ = stdoutRead.Close()
 		return ports.SessionHandle{}, err
 	}
-	s := &session{
-		handle:  ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID()},
-		process: process, stdin: stdinWrite, events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}),
-		meter: meter,
-	}
-	log, err := openStreamLog(spec)
+	client, err := awaitShim(ctx, process, config.Socket)
 	if err != nil {
-		_ = process.Signal(ports.SignalKill)
 		return ports.SessionHandle{}, err
 	}
-	d.mu.Lock()
-	d.sessions[s.handle.ID] = s
-	d.mu.Unlock()
-	go s.read(stdoutRead, log)
+	s, err := d.follow(ctx, spec, ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID()}, client, 0, meter)
+	if err != nil {
+		_ = client.Signal(ctx, shimlink.SignalKill)
+		return ports.SessionHandle{}, err
+	}
 	if spec.Brief != "" {
-		if _, err := s.write(ports.Input{Text: spec.Brief}); err != nil {
-			_ = process.Signal(ports.SignalKill)
+		if _, err := s.write(ctx, ports.Input{Text: spec.Brief}); err != nil {
+			_ = client.Signal(ctx, shimlink.SignalKill)
 			return ports.SessionHandle{}, err
 		}
 	}
 	return s.handle, nil
+}
+
+// awaitShim waits for the first answer of the shim it started, and reaps it whenever it
+// ends, because a process with no reader of its status stays a zombie under a live
+// worker. Any other shim that answers already holds this generation, and following it
+// would hand a running session a second brief.
+func awaitShim(ctx context.Context, process ports.Process, socket string) (*shimlink.Client, error) {
+	exited := make(chan ports.ExitStatus, 1)
+	go func() {
+		status, _ := process.Wait()
+		exited <- status
+	}()
+	deadline := time.Now().Add(shimStartLimit)
+	for time.Now().Before(deadline) {
+		attempt, cancel := context.WithTimeout(ctx, shimDialDeadline)
+		client, err := shimlink.Dial(attempt, socket)
+		cancel()
+		if err == nil {
+			if client.PID() != process.PID() {
+				return nil, ErrSessionExists
+			}
+			return client, nil
+		}
+		select {
+		case status := <-exited:
+			if status.Code == shimlink.ExitLocked {
+				return nil, ErrSessionExists
+			}
+			return nil, fmt.Errorf("the shim exited before it answered: %+v", status)
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(lostPoll):
+		}
+	}
+	return nil, errors.New("the shim did not answer")
+}
+
+// follow attaches after a cursor and starts the one reader of a session's stream.
+func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, cursor int64, meter lanes.CostMeter) (*session, error) {
+	s := d.newSession(spec, handle, client, meter)
+	stream, err := client.Attach(ctx, cursor)
+	if err != nil {
+		return nil, err
+	}
+	log, err := openStreamLog(spec)
+	if err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	d.keep(s)
+	go s.read(stream, log, cursor)
+	return s, nil
+}
+
+func (d *Driver) newSession(spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, meter lanes.CostMeter) *session {
+	return &session{
+		handle: handle, client: client, dir: shimDir(spec), socket: shimSocket(spec), grace: d.grace,
+		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter,
+	}
+}
+
+func (d *Driver) keep(s *session) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sessions[s.handle.ID] = s
 }
 
 func sessionHandleID(spec ports.SessionSpec) string {
@@ -325,50 +404,132 @@ func openStreamLog(spec ports.SessionSpec) (io.WriteCloser, error) {
 	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
-// session is one running process.
+// shimDir holds a generation's journal, state, and lock.
+func shimDir(spec ports.SessionSpec) string {
+	return filepath.Join(spec.ConfigDir, fmt.Sprintf("shim-%d", spec.Generation))
+}
+
+// shimSocket sits in the session's short private directory when it has one, because a
+// socket path has a 104-byte limit.
+func shimSocket(spec ports.SessionSpec) string {
+	dir := spec.TempDir
+	if dir == "" {
+		dir = spec.ConfigDir
+	}
+	return filepath.Join(dir, fmt.Sprintf("s%d.sock", spec.Generation))
+}
+
+// session is one session under a shim.
 type session struct {
-	handle  ports.SessionHandle
-	process ports.Process
-	events  chan ports.DriverEvent
-	done    chan struct{}
+	handle ports.SessionHandle
+	client *shimlink.Client
+	dir    string
+	socket string
+	grace  time.Duration
+	events chan ports.DriverEvent
+	done   chan struct{}
 
 	mu       sync.Mutex
-	stdin    *os.File
 	stopping bool
+	closed   bool
 	inFlight int
+	last     int64
 	meter    lanes.CostMeter
 	seen     ports.Observation
 }
 
-// read is the one reader of the stream. It ends when the process closes stdout.
-func (s *session) read(stdout *os.File, log io.WriteCloser) {
-	defer stdout.Close()
+// read is the one reader of a session's stream. It ends at the child's exit, which is
+// always the last record, or when the shim goes.
+func (s *session) read(stream *shimlink.Stream, log io.WriteCloser, cursor int64) {
+	defer stream.Close()
 	if log != nil {
 		defer log.Close()
 	}
-	reader := bufio.NewReaderSize(stdout, 1<<20)
+	s.last = cursor
 	for {
-		line, err := reader.ReadBytes('\n')
-		if len(bytes.TrimSpace(line)) != 0 {
-			if log != nil {
-				_, _ = log.Write(line)
-			}
-			s.take(line)
-		}
+		record, err := stream.Next()
 		if err != nil {
-			break
+			s.drain(log)
+			return
+		}
+		if s.takeRecord(record, log) {
+			return
 		}
 	}
-	s.finish()
 }
 
-func (s *session) take(line []byte) {
+// drain finishes a session whose shim is gone. The journal keeps what the shim wrote, and
+// the session ends by itself because its stdin closed, so this reads the rest and waits.
+func (s *session) drain(log io.Writer) {
+	records, err := shimlink.ReadJournal(s.dir, s.last)
+	if err != nil {
+		s.finish(ports.ExitStatus{}, err)
+		return
+	}
+	for _, record := range records {
+		if s.takeRecord(record, log) {
+			return
+		}
+	}
+	s.awaitChild()
+	s.finish(ports.ExitStatus{}, shimlink.ErrUnreachable)
+}
+
+// awaitChild waits for a session that lost its shim, and ends one that does not end:
+// nothing else can reach it, and a lane must not end with its session still writing.
+func (s *session) awaitChild() {
+	state, err := shimlink.ReadState(s.dir)
+	if err != nil {
+		return
+	}
+	for deadline := time.Now().Add(lostShimGrace); time.Now().Before(deadline); time.Sleep(lostPoll) {
+		if !processExists(state.ChildPID) {
+			return
+		}
+	}
+	_ = syscall.Kill(state.ChildPID, syscall.SIGKILL)
+}
+
+// takeRecord applies one record, and reports the child's end. An input counts here, in
+// stream order, so an adoption counts the same from the journal.
+func (s *session) takeRecord(record shimlink.Record, log io.Writer) bool {
+	if record.Seq != 0 {
+		s.last = record.Seq
+	}
+	switch {
+	case record.Line != "":
+		if log != nil {
+			_, _ = io.WriteString(log, record.Line+"\n")
+		}
+		s.take([]byte(record.Line), record.Seq)
+	case record.Input != "":
+		s.mu.Lock()
+		s.inFlight++
+		s.mu.Unlock()
+	case record.Gap != 0:
+		s.events <- ports.DriverEvent{Kind: ports.EventMalformed, Detail: "the journal rotated past this reader", Seq: record.Gap}
+	case record.Exit != nil:
+		s.finish(exitStatus(*record.Exit), nil)
+		return true
+	}
+	return false
+}
+
+func exitStatus(exit shimlink.Exit) ports.ExitStatus {
+	status := ports.ExitStatus{Code: exit.Code}
+	if exit.Signal != "" {
+		status = ports.ExitStatus{Signal: ports.Signal(exit.Signal)}
+	}
+	return status
+}
+
+func (s *session) take(line []byte, seq int64) {
 	p, err := parseLine(line)
 	if err != nil {
 		s.mu.Lock()
 		s.seen.Malformed++
 		s.mu.Unlock()
-		s.events <- ports.DriverEvent{Kind: ports.EventMalformed}
+		s.events <- ports.DriverEvent{Kind: ports.EventMalformed, Seq: seq}
 		return
 	}
 	if !p.useful {
@@ -391,21 +552,23 @@ func (s *session) take(line []byte) {
 		p.event.Turn.Cost = s.meter
 	}
 	s.mu.Unlock()
+	p.event.Seq = seq
 	s.events <- p.event
 }
 
-// finish reaps the process and reports how it ended. No `result` for an input means
-// the process died mid-turn, unless someone asked it to stop.
-func (s *session) finish() {
-	status, err := s.process.Wait()
+// finish reports how the session ended, and lets the shim go. No `result` for an input
+// means the process died mid-turn, unless someone asked it to stop.
+func (s *session) finish(status ports.ExitStatus, err error) {
 	s.mu.Lock()
 	crashed := !s.stopping && (s.inFlight > 0 || status.Code != 0 || status.Signal != "" || err != nil)
-	if s.stdin != nil {
-		_ = s.stdin.Close()
-		s.stdin = nil
-	}
+	last := s.last
 	s.mu.Unlock()
-	s.events <- ports.DriverEvent{Kind: ports.EventSessionEnded, End: &ports.SessionEnd{Crashed: crashed, Exit: status}}
+	if s.client != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), shimDialDeadline)
+		defer cancel()
+		_ = s.client.Shutdown(ctx)
+	}
+	s.events <- ports.DriverEvent{Kind: ports.EventSessionEnded, End: &ports.SessionEnd{Crashed: crashed, Exit: status}, Seq: last}
 	close(s.events)
 	close(s.done)
 }
@@ -434,9 +597,10 @@ func newUUID() (string, error) {
 	return text[:8] + "-" + text[8:12] + "-" + text[12:16] + "-" + text[16:20] + "-" + text[20:], nil
 }
 
-// write is the one writer of stdin. It counts the input before it writes, so a process
-// that dies at once still reads as having an input in flight.
-func (s *session) write(in ports.Input) (ports.SendReceipt, error) {
+// write hands one input to the shim, which is the one writer of stdin and writes each ID
+// at most once. A line built from a typed value always passes its check, so a refusal
+// here means the session has gone.
+func (s *session) write(ctx context.Context, in ports.Input) (ports.SendReceipt, error) {
 	if in.ID == "" {
 		id, err := newUUID()
 		if err != nil {
@@ -448,14 +612,10 @@ func (s *session) write(in ports.Input) (ports.SendReceipt, error) {
 	if err != nil {
 		return ports.SendReceipt{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.stdin == nil {
+	if s.client == nil {
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w", s.handle.ID, ports.ErrNoSession)
 	}
-	s.inFlight++
-	if _, err := s.stdin.Write(append(raw, '\n')); err != nil {
-		s.inFlight--
+	if _, err := s.client.Input(ctx, in.ID, string(raw)); err != nil {
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
 	}
 	return ports.SendReceipt{ID: in.ID, Path: ports.SendStdin}, nil
@@ -471,9 +631,10 @@ func (d *Driver) session(h ports.SessionHandle) (*session, error) {
 	return s, nil
 }
 
-// Observe returns what the stream showed. Only a reaped process reads dead, and a
-// handle this driver does not know reads unknown.
-func (d *Driver) Observe(_ context.Context, h ports.SessionHandle) (ports.Observation, error) {
+// Observe returns what the stream showed, and pings the shim, which is the handshake on
+// this path. Only a session whose end was read reads dead. A failed ping or a handle this
+// driver does not know reads unknown, because neither is evidence of an end.
+func (d *Driver) Observe(ctx context.Context, h ports.SessionHandle) (ports.Observation, error) {
 	s, err := d.session(h)
 	if err != nil {
 		return ports.Observation{Liveness: ports.LivenessUnknown}, err
@@ -481,11 +642,19 @@ func (d *Driver) Observe(_ context.Context, h ports.SessionHandle) (ports.Observ
 	s.mu.Lock()
 	out := s.seen
 	s.mu.Unlock()
-	out.Liveness = ports.LivenessAlive
 	select {
 	case <-s.done:
 		out.Liveness = ports.LivenessDead
+		return out, nil
 	default:
+	}
+	out.Liveness = ports.LivenessUnknown
+	if s.client != nil {
+		attempt, cancel := context.WithTimeout(ctx, shimDialDeadline)
+		defer cancel()
+		if s.client.Ping(attempt) == nil {
+			out.Liveness = ports.LivenessAlive
+		}
 	}
 	return out, nil
 }
@@ -500,12 +669,12 @@ func (d *Driver) Events(_ context.Context, h ports.SessionHandle) (<-chan ports.
 }
 
 // Send hands one input to the session on stdin.
-func (d *Driver) Send(_ context.Context, h ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {
+func (d *Driver) Send(ctx context.Context, h ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {
 	s, err := d.session(h)
 	if err != nil {
 		return ports.SendReceipt{}, err
 	}
-	return s.write(in)
+	return s.write(ctx, in)
 }
 
 // Decide has no path yet: an approval returns through the waiting hook.
@@ -519,8 +688,10 @@ func (d *Driver) Compact(ctx context.Context, h ports.SessionHandle) error {
 	return err
 }
 
-// Stop ends a session. Signals go only to this session's recorded process. A session
-// that does not end within the grace takes the next signal, and SIGKILL is last.
+// Stop ends a session. A signal goes through the shim, which sends it only to the
+// session it holds. A session that does not end within the grace takes the next signal,
+// and SIGKILL is last. A shim that does not answer has gone, and the reader finishes the
+// session, so a failed request here is not a failed stop.
 func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.StopMode) error {
 	s, err := d.session(h)
 	if err != nil {
@@ -531,19 +702,15 @@ func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.Stop
 	s.mu.Unlock()
 	switch how {
 	case ports.StopInterrupt:
-		if err := s.process.Signal(ports.SignalInterrupt); err != nil {
-			return err
-		}
-		s.closeStdin()
+		s.signal(ctx, shimlink.SignalInterrupt)
+		s.closeStdin(ctx)
 	case ports.StopAtRest:
-		s.closeStdin()
+		s.closeStdin(ctx)
 	case ports.StopNow:
-		s.closeStdin()
-		if err := s.process.Signal(ports.SignalKill); err != nil {
-			return err
-		}
+		s.closeStdin(ctx)
+		s.signal(ctx, shimlink.SignalKill)
 	}
-	for _, next := range []ports.Signal{ports.SignalTerminate, ports.SignalKill} {
+	for _, next := range []string{shimlink.SignalTerminate, shimlink.SignalKill} {
 		select {
 		case <-s.done:
 			return nil
@@ -551,9 +718,7 @@ func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.Stop
 			return ctx.Err()
 		case <-time.After(d.grace):
 		}
-		if err := s.process.Signal(next); err != nil {
-			return err
-		}
+		s.signal(ctx, next)
 	}
 	select {
 	case <-s.done:
@@ -563,12 +728,19 @@ func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.Stop
 	}
 }
 
-func (s *session) closeStdin() {
+func (s *session) signal(ctx context.Context, name string) {
+	if s.client != nil {
+		_ = s.client.Signal(ctx, name)
+	}
+}
+
+func (s *session) closeStdin(ctx context.Context) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.stdin != nil {
-		_ = s.stdin.Close()
-		s.stdin = nil
+	closed := s.closed
+	s.closed = true
+	s.mu.Unlock()
+	if !closed && s.client != nil {
+		_ = s.client.CloseStdin(ctx)
 	}
 }
 

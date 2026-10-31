@@ -22,11 +22,18 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+
+	"ropeshift.dev/ropeshift/test/doubles"
 )
 
 const (
 	// envStart is the explicit start. `make check` never sets it.
 	envStart = "ROPESHIFT_REAL_SESSIONS"
+	// envStandIn runs a suite against a scripted CLI, so a dry run proves the harness and
+	// spends nothing.
+	envStandIn = "ROPESHIFT_REAL_STANDIN"
+	// standInFixture is what a dry run plays.
+	standInFixture = "rs2-stand-in"
 	// The ceiling of one run.
 	maxSessions = 3
 	maxTurns    = 20
@@ -293,6 +300,24 @@ func removeEmptyProject(home, scratch, dir string) error {
 	return nil
 }
 
+// claudeOn finds the CLI on an environment's PATH, because a session runs from that
+// environment and not from this process's.
+func claudeOn(env []string) (string, error) {
+	for _, entry := range env {
+		path, ok := strings.CutPrefix(entry, "PATH=")
+		if !ok {
+			continue
+		}
+		for _, dir := range filepath.SplitList(path) {
+			candidate := filepath.Join(dir, "claude")
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return candidate, nil
+			}
+		}
+	}
+	return "", errors.New("claude is not on the session's PATH")
+}
+
 // settingsDigest hashes the user-level settings file, which a run must not change.
 func settingsDigest(home string) ([32]byte, error) {
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
@@ -317,6 +342,10 @@ func processesHolding(dir string) ([]string, error) {
 		}
 	}
 	return found, scanner.Err()
+}
+
+func TestMain(m *testing.M) {
+	os.Exit(doubles.Main(m))
 }
 
 func TestLedgerRefusesPastTheCeiling(t *testing.T) {
@@ -373,6 +402,24 @@ func TestCanaryLeavesThePath(t *testing.T) {
 	path := strings.Join([]string{"/repo/test/doubles/canary", "/usr/bin"}, string(os.PathListSeparator))
 	if got := withoutCanary(path); got != "/usr/bin" {
 		t.Errorf("PATH %q", got)
+	}
+}
+
+// A stand-in must win over any `claude` later on the PATH, so a dry run cannot reach the
+// real binary.
+func TestCanaryAndClaudeResolveFromTheSessionEnvironment(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	for _, dir := range []string{first, second} {
+		if err := os.WriteFile(filepath.Join(dir, "claude"), nil, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := claudeOn([]string{"HOME=/h", "PATH=" + first + string(os.PathListSeparator) + second})
+	if err != nil || got != filepath.Join(first, "claude") {
+		t.Errorf("claude at %s: %v", got, err)
+	}
+	if _, err := claudeOn([]string{"PATH=" + t.TempDir()}); err == nil {
+		t.Error("an empty PATH found a claude")
 	}
 }
 

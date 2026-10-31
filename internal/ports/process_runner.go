@@ -26,6 +26,10 @@ type ProcessSpec struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+
+	// Detached starts the process in a session of its own, so a signal to the group of
+	// whatever started it does not reach it, and it has no terminal to lose.
+	Detached bool
 }
 
 // ExitStatus says how a process ended. Signal is empty for a normal exit.

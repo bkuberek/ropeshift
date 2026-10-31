@@ -54,11 +54,17 @@ type step struct {
 	Hold bool `json:"hold,omitempty"`
 	// Exit ends the process at once, with no result.
 	Exit *int `json:"exit,omitempty"`
+	// WaitFile holds the turn until this file appears beside the binary, so a test can
+	// choose what a session is doing when a worker dies.
+	WaitFile string `json:"wait_file,omitempty"`
+	// SleepMs is a turn taking its time.
+	SleepMs int `json:"sleep_ms,omitempty"`
 }
 
 // A session's flags, as the real CLI takes them.
 type options struct {
 	print, version bool
+	inputFormat    string
 	settings       string
 	mcpConfig      string
 	model          string
@@ -154,6 +160,8 @@ func parse(args []string) options {
 			o.print = true
 		case "--version":
 			o.version = true
+		case "--input-format":
+			o.inputFormat = value()
 		case "--settings":
 			o.settings = value()
 		case "--mcp-config":
@@ -219,6 +227,10 @@ func readSettings(path string) (settings, error) {
 func (s *session) run() {
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, syscall.SIGINT)
+	if s.opts.inputFormat != "stream-json" {
+		s.onePrompt(interrupts)
+		return
+	}
 	lines := make(chan string)
 	go readInput(lines)
 	s.hook("SessionStart", map[string]any{"source": "startup"})
@@ -241,6 +253,18 @@ func (s *session) run() {
 			turn++
 		}
 	}
+}
+
+// onePrompt is a run with no --input-format: stdin is one plain prompt and one turn, and
+// the process ends with it, as the real CLI does.
+func (s *session) onePrompt(interrupts <-chan os.Signal) {
+	if _, err := io.ReadAll(os.Stdin); err != nil {
+		fail("%v", err)
+	}
+	if len(s.script.Turns) != 0 {
+		s.play(s.script.Turns[0], interrupts)
+	}
+	s.end()
 }
 
 // readInput validates each line as the real CLI does: one that does not parse ends
@@ -292,6 +316,10 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 			writeLine([]byte(st.Raw))
 		case st.MCP != "":
 			s.callTool(st.MCP, st.Arguments)
+		case st.WaitFile != "":
+			awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.WaitFile))
+		case st.SleepMs != 0:
+			time.Sleep(time.Duration(st.SleepMs) * time.Millisecond)
 		case st.Hold:
 			<-interrupts
 			s.emit(map[string]any{
@@ -302,6 +330,15 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 		case st.Exit != nil:
 			os.Exit(*st.Exit)
 		}
+	}
+}
+
+func awaitFile(path string) {
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

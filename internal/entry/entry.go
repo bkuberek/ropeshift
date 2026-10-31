@@ -12,6 +12,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/cli"
 	"ropeshift.dev/ropeshift/internal/hook"
 	"ropeshift.dev/ropeshift/internal/mcpserver"
+	"ropeshift.dev/ropeshift/internal/shim"
 )
 
 // Exit codes shared by every command.
@@ -54,6 +55,9 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	}
 	if rest[0] == "mcp" {
 		return mcpserver.Main(os.Stdin, stdout, stderr, os.Getenv)
+	}
+	if rest[0] == "lane-shim" {
+		return shim.Main(rest[1:], stderr)
 	}
 	if !cli.IsCommand(rest[0]) {
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", command, rest[0])

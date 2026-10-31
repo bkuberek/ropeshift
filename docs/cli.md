@@ -20,12 +20,13 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 
-Two commands are for an agent CLI to run, and a person does not need them:
+Three commands are for ropeshift or an agent CLI to run, and a person does not need them:
 
 | Command | Does |
 |---------|------|
 | `ropeshift hook <event>` | Reports one hook event to the worker, and spools it if the worker is down. It always exits 0 |
 | `ropeshift mcp` | Serves a lane's tools over stdio, and reaches only the local worker |
+| `ropeshift lane-shim` | Holds a headless session's pipes in a process of its own, so the session outlives its worker. It journals every line, serves that journal on a private socket, and writes each input at most once |
 
 ## Exit codes
 

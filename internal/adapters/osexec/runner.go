@@ -33,6 +33,9 @@ func (Runner) Start(_ context.Context, spec ports.ProcessSpec) (ports.Process, e
 		Stdout: spec.Stdout,
 		Stderr: spec.Stderr,
 	}
+	if spec.Detached {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

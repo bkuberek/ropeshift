@@ -95,6 +95,12 @@ func TestMain(m *testing.M) {
 	if raw := os.Getenv(childEnv); raw != "" {
 		os.Exit(childMain(raw))
 	}
+	if text := os.Getenv(envNumbered); text != "" {
+		os.Exit(numberedChild(text))
+	}
+	if raw := os.Getenv(envReader); raw != "" {
+		os.Exit(shimReaderMain(raw))
+	}
 	code := m.Run()
 	if err := afterTests(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

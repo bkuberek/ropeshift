@@ -23,9 +23,15 @@ type worldRig struct {
 	leases []ledger.DesiredLease
 }
 
+// newWorldRig stops what a test left running before its directories go.
 func newWorldRig(t *testing.T) *worldRig {
 	t.Helper()
-	return &worldRig{laneRig: newLaneRig(t)}
+	w := &worldRig{laneRig: newLaneRig(t)}
+	t.Cleanup(func() {
+		w.driver.StopEverySession()
+		w.subject.Wait()
+	})
+	return w
 }
 
 func (w *worldRig) desire(lane string) {
