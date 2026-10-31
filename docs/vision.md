@@ -51,7 +51,7 @@ These principles constrain every design decision. A proposal that violates one m
 
 ### Wrap native capabilities
 
-Agent CLIs ship supervision features quickly. Claude Code already has background sessions, `claude agents --json`, hooks, stream-json, a per-session messaging socket, and Remote Control. Ropeshift wraps these and defers to them. It does not rebuild them, and it never treats a file the vendor documents as unstable, such as transcript JSONL or `~/.claude/jobs/`, as a contract. It feature-detects rather than assumes.
+Agent CLIs ship supervision features quickly. Claude Code already has background sessions, `claude agents --json`, hooks, stream-json, a per-session messaging socket, and Remote Control. Ropeshift wraps these rather than rebuilding them, and it verifies what it relies on. It never treats a file the vendor documents as unstable, such as transcript JSONL or `~/.claude/jobs/`, as a contract. It feature-detects rather than assumes.
 
 ### Never touch agent credentials
 
