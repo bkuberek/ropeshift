@@ -30,8 +30,9 @@ func (e *Error) Error() string {
 
 // Client is the one client of the API. Every surface uses it, so no two can drift.
 type Client struct {
-	http *http.Client
-	base string
+	http       *http.Client
+	base       string
+	credential string
 }
 
 // NewUnixClient returns a client on a unix socket. A daemon on the local machine
@@ -65,6 +66,9 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	}
 	if in != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if c.credential != "" {
+		request.Header.Set("Authorization", "Bearer "+c.credential)
 	}
 	response, err := c.http.Do(request)
 	if err != nil {

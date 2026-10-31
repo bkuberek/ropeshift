@@ -65,6 +65,9 @@ type childSpec struct {
 	// journal of a later unit. Gate is the file a stopped writer waits for.
 	Current string `json:"current,omitempty"`
 	Gate    string `json:"gate,omitempty"`
+	// Socket and Journal are a worker child's control plane and journal.
+	Socket  string `json:"socket,omitempty"`
+	Journal string `json:"journal,omitempty"`
 }
 
 type child struct {

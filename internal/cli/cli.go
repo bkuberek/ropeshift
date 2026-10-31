@@ -37,6 +37,8 @@ const usage = `usage: ropeshift <command>
   work release <id> --claim-id C --fence N           give a claim back
   work reassign <id> --reason R                      end a lapsed holder's ownership
   source list                                        list sources and their health
+  worker list                                        list registered workers
+  worker token                                       make a join token
   version                                            print the version
 
 Every command takes --json and --socket. docs/cli.md lists the exit codes.
@@ -44,7 +46,7 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 
 // IsCommand reports a first word this package handles.
 func IsCommand(word string) bool {
-	return word == "work" || word == "source"
+	return word == "work" || word == "source" || word == "worker"
 }
 
 // Options is what a command needs from its process.
@@ -79,6 +81,8 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"work release":  (*invocation).workRelease,
 		"work reassign": (*invocation).workReassign,
 		"source list":   (*invocation).sourceList,
+		"worker list":   (*invocation).workerList,
+		"worker token":  (*invocation).workerToken,
 	}
 	base.name = args[0] + " " + args[1]
 	command, ok := commands[base.name]

@@ -29,6 +29,8 @@ type world struct {
 	logPath string
 	variant string
 	stats   runStats
+	// socket is where this world serves its control plane, once one is serving.
+	socket string
 }
 
 // runStats counts what the witness shows.

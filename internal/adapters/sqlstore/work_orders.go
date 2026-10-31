@@ -28,6 +28,13 @@ var (
  WHERE workspace_id = :workspace_id
  ORDER BY id`)
 
+	stmtHeldBy = define("work_order.held_by",
+		`SELECT `+workOrderColumns+`
+  FROM work_orders
+ WHERE workspace_id = :workspace_id
+   AND lease_worker = :worker
+ ORDER BY id`)
+
 	stmtInsertWorkOrder = define("work_order.insert",
 		`INSERT INTO work_orders
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
@@ -77,6 +84,23 @@ func (t workOrderTx) Get(id string) (workorders.WorkOrder, error) {
 
 func (t workOrderTx) List() ([]workorders.WorkOrder, error) {
 	rows, err := t.rows(stmtListWorkOrders, params{"workspace_id": string(t.scope)})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []workorders.WorkOrder
+	for rows.Next() {
+		w, err := scanWorkOrder(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+func (t workOrderTx) HeldBy(worker string) ([]workorders.WorkOrder, error) {
+	rows, err := t.rows(stmtHeldBy, params{"workspace_id": string(t.scope), "worker": worker})
 	if err != nil {
 		return nil, err
 	}

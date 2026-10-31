@@ -31,6 +31,11 @@ type Config struct {
 	Store ports.Store
 	// LeaseTTL is the policy's lease in milliseconds, for a claim that names none.
 	LeaseTTL int64
+	// Protocol is the plane protocol this control plane speaks. Zero means this
+	// build's version.
+	Protocol int
+	// HeartbeatMs is what a worker is told to beat at.
+	HeartbeatMs int64
 }
 
 type handler struct {
@@ -38,6 +43,7 @@ type handler struct {
 	workOrders *control.WorkOrders
 	leases     *control.Leases
 	reviews    *control.Reviews
+	workers    *control.Workers
 }
 
 // New returns the versioned API.
@@ -47,8 +53,12 @@ func New(config Config) http.Handler {
 		workOrders: control.NewWorkOrders(config.Store),
 		leases:     control.NewLeases(config.Store),
 		reviews:    control.NewReviews(config.Store),
+		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
+			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL,
+		}),
 	}
 	mux := http.NewServeMux()
+	h.workerRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.createWorkOrder)
@@ -87,11 +97,22 @@ func refuse(w http.ResponseWriter, status int, detail api.ErrorDetail) {
 // store that cannot answer is 503, so a client retries instead of giving up.
 func fail(w http.ResponseWriter, err error) {
 	var fenced *workorders.FencedError
+	var protocol *ledger.ProtocolError
 	switch {
 	case errors.As(err, &fenced):
 		refuse(w, http.StatusConflict, api.ErrorDetail{
 			Code: api.CodeFenced, Message: err.Error(), CurrentFence: fenced.Current, State: string(fenced.State),
 		})
+	case errors.As(err, &protocol):
+		refuse(w, http.StatusUpgradeRequired, api.ErrorDetail{
+			Code: api.CodeProtocol, Message: err.Error(), Worker: protocol.Worker, Oldest: protocol.Oldest, Newest: protocol.Newest,
+		})
+	case errors.Is(err, ledger.ErrBadCredential):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadCredential, Message: err.Error()})
+	case errors.Is(err, ledger.ErrBadJoinToken):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadJoinToken, Message: err.Error()})
+	case errors.Is(err, ledger.ErrStaleEpoch):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
 	case errors.Is(err, workorders.ErrInvalid):
@@ -217,6 +238,8 @@ func (h *handler) review(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, api.ReviewResult{State: result.State, Failures: result.Failures})
 }
 
+// claim serves both claimants: a worker names itself with its credential, and a
+// member with no credential chooses the worker (FR-WO-9).
 func (h *handler) claim(w http.ResponseWriter, r *http.Request) {
 	var in api.ClaimRequest
 	if !decode(w, r, &in) {
@@ -230,9 +253,14 @@ func (h *handler) claim(w http.ResponseWriter, r *http.Request) {
 	if ttl == 0 {
 		ttl = h.LeaseTTL
 	}
-	grant, err := h.leases.Claim(r.Context(), h.Scope, workorders.ClaimRequest{
-		WorkOrder: r.PathValue("id"), ClaimID: in.ClaimID, Worker: in.WorkerID, TTLMs: ttl,
-	}, localMember)
+	request := workorders.ClaimRequest{WorkOrder: r.PathValue("id"), ClaimID: in.ClaimID, Worker: in.WorkerID, TTLMs: ttl}
+	var grant workorders.Grant
+	var err error
+	if credential := bearer(r); credential != "" {
+		grant, err = h.workers.Claim(r.Context(), ledger.WorkerAuth{WorkerID: in.WorkerID, Credential: credential}, request)
+	} else {
+		grant, err = h.leases.Claim(r.Context(), h.Scope, request, localMember)
+	}
 	if err != nil {
 		fail(w, err)
 		return

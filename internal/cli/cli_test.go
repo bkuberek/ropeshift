@@ -145,6 +145,11 @@ func TestExitCodes(t *testing.T) {
 		{"reassign of work that did not lapse", func(s *session) { s.claimed("wo") }, []string{"work", "reassign", "wo", "--reason", "r"}, cli.ExitConflict},
 		{"reassign with no reason", nil, []string{"work", "reassign", "wo"}, cli.ExitUsage},
 
+		{"worker list", nil, []string{"worker", "list"}, cli.ExitOK},
+		{"worker token", nil, []string{"worker", "token"}, cli.ExitOK},
+		{"worker list with a stray argument", nil, []string{"worker", "list", "stray"}, cli.ExitUsage},
+		{"an unknown worker command", nil, []string{"worker", "nonsense"}, cli.ExitUsage},
+
 		{"source list", nil, []string{"source", "list"}, cli.ExitOK},
 		{"an unknown source command", nil, []string{"source", "nonsense"}, cli.ExitUsage},
 	}
@@ -180,6 +185,8 @@ func TestUnreachableDaemon(t *testing.T) {
 		{"work", "release", "wo", "--claim-id", "c", "--fence", "1"},
 		{"work", "reassign", "wo", "--reason", "r"},
 		{"source", "list"},
+		{"worker", "list"},
+		{"worker", "token"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			code, _, stderr := run(t, socket, args...)

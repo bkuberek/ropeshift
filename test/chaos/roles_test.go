@@ -34,6 +34,9 @@ var childRoles = map[string]func(*child) error{
 	"intake":            roleIntake,
 	"review-pass":       roleReviewPass,
 	"record-work":       roleRecordWork,
+	"worker-upload":     roleWorkerUpload,
+	"worker-daemon":     roleWorkerDaemon,
+	"plane-server":      rolePlaneServer,
 }
 
 func roleRecordWork(c *child) error {

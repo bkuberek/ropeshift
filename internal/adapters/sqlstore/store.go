@@ -329,6 +329,10 @@ func (t *readTx) Planning() ports.PlanningReader {
 	return planningTx{session: t.session, scope: t.scope}
 }
 
+func (t *readTx) Workers() ports.WorkerReader {
+	return workerTx{session: t.session, scope: t.scope}
+}
+
 // writeTx is one write transaction.
 type writeTx struct {
 	*session
@@ -406,6 +410,10 @@ func (t *writeTx) Lanes() ports.LaneWriter {
 
 func (t *writeTx) Planning() ports.PlanningWriter {
 	return planningTx{session: t.session, scope: t.scope}
+}
+
+func (t *writeTx) Workers() ports.WorkerWriter {
+	return workerTx{session: t.session, scope: t.scope, now: t.now}
 }
 
 // Append adds one event. The transaction's first event uses the revision taken at

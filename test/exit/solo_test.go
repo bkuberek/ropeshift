@@ -19,6 +19,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/contract"
@@ -314,6 +315,60 @@ func TestIntakeTickReadsARepository(t *testing.T) {
 	}
 	if len(sources.Sources) != 1 || sources.Sources[0].Health != "ok" {
 		t.Errorf("sources %+v", sources)
+	}
+}
+
+func (in *install) workers() []ledger.Worker {
+	in.t.Helper()
+	var list api.WorkerList
+	if err := json.Unmarshal([]byte(in.must("worker", "list", "--json")), &list); err != nil {
+		in.t.Fatal(err)
+	}
+	return list.Workers
+}
+
+// TestWorkerRegistersOnceAndRenews is the worker plane on the real binary: one
+// registration across restarts, a new epoch each start, and heartbeats that hold a
+// lease far past its first deadline.
+func TestWorkerRegistersOnceAndRenews(t *testing.T) {
+	in := newInstall(t)
+	d := in.start("--heartbeat", "30ms", "--lease-tick", "20ms")
+	in.waitReady(d)
+	in.waitFor("the worker's session", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch >= 1
+	})
+	first := in.workers()[0]
+	in.must("work", "create", "--id", "wo", "--title", "T", "--criterion", "C")
+	in.must("work", "review", "wo")
+	in.must("work", "claim", "wo", "--worker", first.ID, "--claim-id", "c1", "--ttl", "300ms")
+	time.Sleep(time.Second)
+	if row := in.show("wo"); row.State != workorders.Claimed || row.Fence != 1 {
+		t.Fatalf("heartbeats did not hold the lease: %+v", row)
+	}
+	d.kill()
+	again := in.start("--heartbeat", "30ms", "--lease-tick", "20ms")
+	in.waitReady(again)
+	in.waitFor("a new epoch", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch > first.Epoch
+	})
+	if got := in.workers()[0]; got.ID != first.ID {
+		t.Errorf("a restart registered again: %s after %s", got.ID, first.ID)
+	}
+	in.waitFor("the return", func() bool { return in.show("wo").State == workorders.Claimed })
+}
+
+func TestJoinTokenFromTheCLI(t *testing.T) {
+	in := newInstall(t)
+	d := in.start()
+	in.waitReady(d)
+	var token api.JoinTokenResponse
+	if err := json.Unmarshal([]byte(in.must("worker", "token", "--json")), &token); err != nil {
+		t.Fatal(err)
+	}
+	if token.Token == "" {
+		t.Error("no token")
 	}
 }
 

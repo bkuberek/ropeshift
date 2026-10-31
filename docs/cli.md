@@ -16,6 +16,8 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |
 | `ropeshift source list` | Lists sources, their health, and the files they cannot read |
+| `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
+| `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 
 ## Exit codes
 

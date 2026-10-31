@@ -60,6 +60,8 @@ type ReadTx interface {
 	Lanes() LaneReader
 	// Planning reads plans, contracts, links, dependencies, and bindings.
 	Planning() PlanningReader
+	// Workers reads registered workers and join grants.
+	Workers() WorkerReader
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
@@ -88,6 +90,8 @@ type WriteTx interface {
 	// Planning reads and writes plans, contracts, links, dependencies, and
 	// bindings.
 	Planning() PlanningWriter
+	// Workers reads and writes registered workers and join grants.
+	Workers() WorkerWriter
 }
 
 // WorkOrderReader reads the work order projection.
@@ -96,6 +100,8 @@ type WorkOrderReader interface {
 	Get(id string) (workorders.WorkOrder, error)
 	// List returns every work order in the workspace, ordered by ID.
 	List() ([]workorders.WorkOrder, error)
+	// HeldBy returns the work orders a worker holds a lease on.
+	HeldBy(worker string) ([]workorders.WorkOrder, error)
 	// Expired lists the leases past their deadline at a time. A tick reads this
 	// with no lock, so each item must be checked again by a guarded statement.
 	Expired(now int64) ([]string, error)
@@ -209,4 +215,29 @@ type PlanningWriter interface {
 	InsertDependency(planning.Dependency) error
 	// SaveBinding creates or replaces a binding.
 	SaveBinding(planning.SourceBinding) error
+}
+
+// WorkerReader reads the worker plane's records.
+type WorkerReader interface {
+	// Find returns one worker and its proof digest, or ErrNotFound.
+	Find(id string) (ledger.WorkerRecord, error)
+	// List returns every worker.
+	List() ([]ledger.Worker, error)
+	// JoinGrant returns one join grant, or ErrNotFound.
+	JoinGrant(id string) (ledger.JoinGrant, error)
+}
+
+// WorkerWriter writes the worker plane's records.
+type WorkerWriter interface {
+	WorkerReader
+	// InsertJoinGrant records a join token by its digest.
+	InsertJoinGrant(ledger.JoinGrant) error
+	// SpendJoinGrant marks a grant used by a worker.
+	SpendJoinGrant(id, worker string) error
+	// Insert adds a worker with no session yet.
+	Insert(ledger.WorkerRecord) error
+	// ReplaceProof swaps a worker's proof digest.
+	ReplaceProof(id, digest string) error
+	// OpenEpoch moves a worker to its next epoch and returns it.
+	OpenEpoch(worker ledger.Worker) (int64, error)
 }

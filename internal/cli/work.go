@@ -262,3 +262,44 @@ func (c *invocation) sourceList(args []string) int {
 		return out.String()
 	})
 }
+
+func (c *invocation) workerList(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	client := c.client()
+	defer client.Close()
+	workers, err := client.Workers(c.ctx)
+	if workers == nil {
+		workers = []ledger.Worker{}
+	}
+	return c.finish(err, api.WorkerList{Workers: workers}, func() string {
+		var out strings.Builder
+		for _, worker := range workers {
+			fmt.Fprintf(&out, "%s\t%s\tepoch %d\tprotocol %d\n", worker.ID, worker.Name, worker.Epoch, worker.Protocol)
+		}
+		return out.String()
+	})
+}
+
+// workerToken prints a join token. This is the one time anyone sees it, because the
+// ledger keeps only its digest.
+func (c *invocation) workerToken(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	client := c.client()
+	defer client.Close()
+	token, err := client.CreateJoinToken(c.ctx)
+	return c.finish(err, api.JoinTokenResponse{Token: token}, func() string { return token + "\n" })
+}

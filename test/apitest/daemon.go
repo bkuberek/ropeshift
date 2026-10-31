@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
+	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -23,10 +24,13 @@ const Scope = ledger.WorkspaceID("test-workspace")
 // LeaseTTL is the policy lease of every harness.
 const LeaseTTL = int64(60_000)
 
+// HeartbeatMs is the heartbeat of every harness.
+const HeartbeatMs = int64(15_000)
+
 // Daemon is one served API.
 type Daemon struct {
 	Socket string
-	Store  *fake.Store
+	Store  *sqlstore.Store
 	Client *api.Client
 }
 
@@ -49,13 +53,35 @@ func ShortDir(t testing.TB) string {
 	return resolved
 }
 
+// Options changes what a harness serves.
+type Options struct {
+	// Protocol is the control plane's protocol version, zero for this build's.
+	Protocol int
+	// Wrap stands between the socket and the handler, which is how a test breaks a
+	// response on the wire.
+	Wrap func(http.Handler) http.Handler
+	// Clock wraps the dialect, which is how a test moves database time.
+	Clock func(sqlstore.Dialect) sqlstore.Dialect
+}
+
 // Start serves the API until the test ends.
 func Start(t testing.TB) *Daemon {
 	t.Helper()
-	store, err := fake.NewStore()
+	return StartWith(t, Options{})
+}
+
+// StartWith serves the API with options until the test ends.
+func StartWith(t testing.TB, options Options) *Daemon {
+	t.Helper()
+	var dialect sqlstore.Dialect = sqlite.Dialect{}
+	if options.Clock != nil {
+		dialect = options.Clock(dialect)
+	}
+	db, err := sqlite.OpenMemoryDB()
 	if err != nil {
 		t.Fatal(err)
 	}
+	store := sqlstore.New(db, dialect, sqlstore.Options{})
 	t.Cleanup(func() { _ = store.Close() })
 	ctx := context.Background()
 	if err := store.Migrate(ctx); err != nil {
@@ -70,10 +96,13 @@ func Start(t testing.TB) *Daemon {
 	if err != nil {
 		t.Fatal(err)
 	}
-	httpServer := &http.Server{
-		Handler:           server.New(server.Config{Scope: Scope, Store: store, LeaseTTL: LeaseTTL}),
-		ReadHeaderTimeout: 10 * time.Second,
+	handler := server.New(server.Config{
+		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
+	})
+	if options.Wrap != nil {
+		handler = options.Wrap(handler)
 	}
+	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

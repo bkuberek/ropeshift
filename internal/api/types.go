@@ -31,6 +31,10 @@ type ErrorDetail struct {
 	Message      string `json:"message"`
 	CurrentFence int64  `json:"current_fence,omitempty"`
 	State        string `json:"state,omitempty"`
+	// Oldest and Newest say which protocols a refusing control plane accepts.
+	Worker int `json:"worker_protocol,omitempty"`
+	Oldest int `json:"oldest_protocol,omitempty"`
+	Newest int `json:"newest_protocol,omitempty"`
 }
 
 // Health answers only after the server read the store.

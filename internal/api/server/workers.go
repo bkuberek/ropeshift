@@ -1,0 +1,159 @@
+package server
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/ledger"
+)
+
+func (h *handler) workerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/workers/tokens", h.createJoinToken)
+	mux.HandleFunc("POST /v1/workers/register", h.register)
+	mux.HandleFunc("GET /v1/workers", h.listWorkers)
+	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
+	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
+	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
+	mux.HandleFunc("GET /v1/workers/{id}/watch", h.watch)
+	mux.HandleFunc("POST /v1/workers/{id}/events", h.events)
+}
+
+func bearer(r *http.Request) string {
+	token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return token
+}
+
+// authOf reads who a call says it is. The use case decides whether to believe it.
+func authOf(r *http.Request) ledger.WorkerAuth {
+	return ledger.WorkerAuth{WorkerID: r.PathValue("id"), Credential: bearer(r)}
+}
+
+func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request) {
+	token, err := h.workers.CreateJoinToken(r.Context(), localMember)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, api.JoinTokenResponse{Token: token})
+}
+
+func (h *handler) register(w http.ResponseWriter, r *http.Request) {
+	var in ledger.Registration
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.WorkerID == "" {
+		invalid(w, "a registration needs a worker_id")
+		return
+	}
+	credential, err := h.workers.Register(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, credential)
+}
+
+func (h *handler) listWorkers(w http.ResponseWriter, r *http.Request) {
+	workers, err := h.workers.List(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if workers == nil {
+		workers = []ledger.Worker{}
+	}
+	reply(w, http.StatusOK, api.WorkerList{Workers: workers})
+}
+
+func (h *handler) openSession(w http.ResponseWriter, r *http.Request) {
+	var in ledger.SessionRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	session, err := h.workers.OpenSession(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, session)
+}
+
+func (h *handler) heartbeat(w http.ResponseWriter, r *http.Request) {
+	var in ledger.Heartbeat
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	if in.Nonce == "" {
+		invalid(w, "a heartbeat needs a nonce")
+		return
+	}
+	answer, err := h.workers.Heartbeat(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, answer)
+}
+
+func (h *handler) desired(w http.ResponseWriter, r *http.Request) {
+	since, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	if err != nil {
+		invalid(w, "since must be a revision")
+		return
+	}
+	state, err := h.workers.Desired(r.Context(), ledger.DesiredRequest{Auth: authOf(r), Since: since})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, state)
+}
+
+// watch streams hints only. If the stream breaks, the next heartbeat still carries
+// the current revision, so a lost hint costs latency.
+func (h *handler) watch(w http.ResponseWriter, r *http.Request) {
+	after, err := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64)
+	if err != nil {
+		after = 0
+	}
+	hints, err := h.workers.Watch(r.Context(), ledger.WatchRequest{Auth: authOf(r), After: after})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		refuse(w, http.StatusInternalServerError, api.ErrorDetail{Code: api.CodeUnavailable, Message: "streaming is not available"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+	for rev := range hints {
+		if _, err := fmt.Fprintf(w, "id: %d\nevent: revision\ndata: {\"rev\":%d}\n\n", rev, rev); err != nil {
+			return
+		}
+		flusher.Flush()
+	}
+}
+
+func (h *handler) events(w http.ResponseWriter, r *http.Request) {
+	var in ledger.UploadBatch
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	answer, err := h.workers.Upload(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, answer)
+}

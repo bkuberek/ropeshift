@@ -15,14 +15,17 @@ import (
 	"syscall"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/clock"
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/worker"
 )
 
 // soloScope is the one implicit workspace of solo mode.
@@ -46,6 +49,7 @@ type soloOptions struct {
 	leaseTick  time.Duration
 	intakeTick time.Duration
 	leaseTTL   time.Duration
+	heartbeat  time.Duration
 }
 
 type repeatedFlag []string
@@ -67,6 +71,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
+	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
 	if err := flags.Parse(args); err != nil {
 		return opts, false
 	}
@@ -163,7 +168,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	}
 	httpServer := &http.Server{
 		Handler: server.New(server.Config{
-			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(),
+			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -179,6 +184,10 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 			fmt.Fprintf(stderr, "ropeshiftd: %s tick: %v\n", name, err)
 		})
 	}()
+	workerDone, err := startSoloWorker(ctx, paths, store, opts, stderr)
+	if err != nil {
+		return err
+	}
 
 	select {
 	case err = <-serveErr:
@@ -189,10 +198,50 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		err = nil
 	}
 	<-ticksDone
+	<-workerDone
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// startSoloWorker runs the worker in this process, on the real protocol over the
+// private socket, so solo mode exercises the path a group's worker takes. A first
+// start makes its own join token, because the person who started the daemon owns
+// the control plane.
+func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, stderr io.Writer) (<-chan struct{}, error) {
+	journal, err := sqlite.OpenJournal(filepath.Join(paths.StateDir, api.JournalFileName))
+	if err != nil {
+		return nil, err
+	}
+	if err := journal.Migrate(ctx); err != nil {
+		_ = journal.Close()
+		return nil, err
+	}
+	plane := control.NewWorkers(store, soloScope, control.WorkerOptions{
+		HeartbeatMs: opts.heartbeat.Milliseconds(), LeaseTTLMs: opts.leaseTTL.Milliseconds(),
+	})
+	client := api.NewUnixClient(paths.ControlSocket())
+	subject := worker.New(workerlink.New(client), journal, clock.System{}, worker.Config{
+		Name: "solo",
+		JoinToken: func(ctx context.Context) (string, error) {
+			return plane.CreateJoinToken(ctx, tickActor("solo"))
+		},
+		Capabilities: map[string]string{"mode": "solo"},
+		Report: func(err error) {
+			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
+		},
+	})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer journal.Close()
+		defer client.Close()
+		if err := subject.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
+		}
+	}()
+	return done, nil
 }
 
 func soloTicks(store ports.Store, opts soloOptions) []control.Tick {

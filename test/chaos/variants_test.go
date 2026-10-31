@@ -405,6 +405,21 @@ func allVariants() []variant {
 			crash: func() (crashCase, string) { return intakeCase("intake.item", withSteps()), "split" },
 		},
 		{
+			name: "an uploaded event loses its identity",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("event.append",
+				":rev, :id, :type", ":rev, :id || CAST(:rev AS TEXT), :type")},
+			check: "plane",
+			crash: func() (crashCase, string) {
+				return uploadCase("worker.upload", []string{"answered"}), "answered"
+			},
+		},
+		{
+			name: "a lapsed lease cannot return",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.return",
+				"state = 'lapsed'", "state = 'nothing'")},
+			check: "sleep",
+		},
+		{
 			name:     "a write retried after a lost answer is not found",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("event.find", "AND id = :id", "AND id = :id AND 1 = 0")},
 			check:    "L23",
@@ -477,6 +492,15 @@ func runVariant(t *testing.T, v variant) error {
 		return runCrashCase(newWorld(t, v.name), c, step)
 	case "paused":
 		return checkPausedWorker(newWorld(t, v.name))
+	case "plane":
+		sqlstore.Sabotaged(v.sabotage)
+		defer sqlstore.Sabotaged(sqlstore.Sabotage{})
+		c, step := v.crash()
+		return runCrashCase(newWorld(t, ""), c, step)
+	case "sleep":
+		sqlstore.Sabotaged(v.sabotage)
+		defer sqlstore.Sabotaged(sqlstore.Sabotage{})
+		return checkSleep(newWorld(t, ""), false)
 	case "random":
 		return runRandomVariant(t, v)
 	}
