@@ -34,6 +34,8 @@ type Config struct {
 	Capabilities map[string]string
 	// BatchSize bounds one upload.
 	BatchSize int
+	// Spool is the file hooks append to when the worker is down.
+	Spool string
 	// Report receives what Run could not do, because Run outlives any one failure.
 	Report func(error)
 }
@@ -106,6 +108,9 @@ func (w *Worker) Start(ctx context.Context) error {
 	}
 	identity.Epoch = session.Epoch
 	if err := w.journal.SaveIdentity(ctx, identity); err != nil {
+		return err
+	}
+	if err := w.DrainSpool(ctx); err != nil {
 		return err
 	}
 	cached, err := w.journal.Desired(ctx)

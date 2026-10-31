@@ -6,9 +6,12 @@ package entry
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.dev/ropeshift/internal/hook"
+	"ropeshift.dev/ropeshift/internal/mcpserver"
 )
 
 // Exit codes shared by every command.
@@ -45,6 +48,12 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", command, rest[0])
 		return exitUsage
+	}
+	if rest[0] == "hook" {
+		return hook.Main(rest[1:], os.Stdin, stdout, os.Getenv)
+	}
+	if rest[0] == "mcp" {
+		return mcpserver.Main(os.Stdin, stdout, stderr, os.Getenv)
 	}
 	if !cli.IsCommand(rest[0]) {
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", command, rest[0])

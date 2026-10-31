@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 )
 
@@ -38,4 +39,22 @@ type Journal interface {
 	Desired(ctx context.Context) (ledger.DesiredState, error)
 	// SaveDesired replaces it.
 	SaveDesired(ctx context.Context, state ledger.DesiredState) error
+	// SaveLane creates or replaces one lane's record.
+	SaveLane(ctx context.Context, lane lanes.Record) error
+	// Lane returns one lane, or ErrNotFound.
+	Lane(ctx context.Context, id string) (lanes.Record, error)
+	// LaneByToken returns the lane a token digest belongs to, or ErrNotFound. A token
+	// that expired has no lane.
+	LaneByToken(ctx context.Context, digest string) (lanes.Record, error)
+	// Lanes lists every lane.
+	Lanes(ctx context.Context) ([]lanes.Record, error)
+	// SaveReport keeps a lane's first report, and reports whether this was it.
+	SaveReport(ctx context.Context, lane string, report []byte) (bool, error)
+	// ExpireToken ends a lane's token, because its process ended.
+	ExpireToken(ctx context.Context, lane string) error
+	// MergeHook stores one hook event. A repeat of the same generation, event, and
+	// subject adds to the first.
+	MergeHook(ctx context.Context, event lanes.HookEvent) error
+	// HookEvents lists one lane's merged events.
+	HookEvents(ctx context.Context, lane string) ([]lanes.HookRecord, error)
 }

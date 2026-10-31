@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
@@ -266,6 +267,124 @@ func (j *Journal) SaveDesired(ctx context.Context, state ledger.DesiredState) er
 	_, err = j.db.ExecContext(ctx, `INSERT INTO desired (id, body) VALUES (1, ?1)
 ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
+}
+
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report`
+
+func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
+	var lane lanes.Record
+	var digest sql.NullString
+	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
+		&digest, &lane.Worktree, &lane.Branch, &lane.Report)
+	lane.TokenDigest = digest.String
+	return lane, err
+}
+
+func nullable(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
+}
+
+// SaveLane creates or replaces a lane. It leaves a report alone, because a report
+// arrives on another goroutine.
+func (j *Journal) SaveLane(ctx context.Context, lane lanes.Record) error {
+	_, err := j.db.ExecContext(ctx, `INSERT INTO lanes (`+laneColumns+`)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6,
+  token_digest = ?7, worktree = ?8, branch = ?9, report = coalesce(lanes.report, ?10)`,
+		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State,
+		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report)
+	return err
+}
+
+func (j *Journal) laneWhere(ctx context.Context, condition, value string) (lanes.Record, error) {
+	row := j.db.QueryRowContext(ctx, `SELECT `+laneColumns+` FROM lanes WHERE `+condition+` = ?1`, value)
+	lane, err := scanLane(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return lanes.Record{}, fmt.Errorf("lane: %w", ports.ErrNotFound)
+	}
+	return lane, err
+}
+
+// Lane returns one lane.
+func (j *Journal) Lane(ctx context.Context, id string) (lanes.Record, error) {
+	return j.laneWhere(ctx, "id", id)
+}
+
+// LaneByToken returns the lane of a token digest.
+func (j *Journal) LaneByToken(ctx context.Context, digest string) (lanes.Record, error) {
+	return j.laneWhere(ctx, "token_digest", digest)
+}
+
+// Lanes lists every lane.
+func (j *Journal) Lanes(ctx context.Context) ([]lanes.Record, error) {
+	rows, err := j.db.QueryContext(ctx, `SELECT `+laneColumns+` FROM lanes ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []lanes.Record
+	for rows.Next() {
+		lane, err := scanLane(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, lane)
+	}
+	return out, rows.Err()
+}
+
+// SaveReport keeps the first report.
+func (j *Journal) SaveReport(ctx context.Context, lane string, report []byte) (bool, error) {
+	result, err := j.db.ExecContext(ctx, `UPDATE lanes SET report = ?1 WHERE id = ?2 AND report IS NULL`, report, lane)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	return changed > 0, err
+}
+
+// ExpireToken ends a lane's token.
+func (j *Journal) ExpireToken(ctx context.Context, lane string) error {
+	_, err := j.db.ExecContext(ctx, `UPDATE lanes SET token_digest = NULL WHERE id = ?1`, lane)
+	return err
+}
+
+// MergeHook stores one event, or adds a repeat to its first. Order does not matter,
+// because hook payloads have no sequence and the bounds only widen.
+func (j *Journal) MergeHook(ctx context.Context, event lanes.HookEvent) error {
+	malformed := 0
+	if event.Malformed {
+		malformed = 1
+	}
+	_, err := j.db.ExecContext(ctx, `INSERT INTO hook_events
+  (lane, generation, event, subject, session_id, tool, detail, malformed, first_ms, last_ms, count)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 1)
+ON CONFLICT (lane, generation, event, subject) DO UPDATE SET
+  first_ms = min(first_ms, ?9), last_ms = max(last_ms, ?9), count = count + 1`,
+		event.Lane, event.Generation, event.Event, event.Subject, event.SessionID, event.Tool, event.Detail, malformed, event.AtMs)
+	return err
+}
+
+// HookEvents lists one lane's events.
+func (j *Journal) HookEvents(ctx context.Context, lane string) ([]lanes.HookRecord, error) {
+	rows, err := j.db.QueryContext(ctx, `SELECT generation, event, subject, session_id, tool, detail, malformed, first_ms, last_ms, count
+  FROM hook_events WHERE lane = ?1 ORDER BY generation, first_ms, event, subject`, lane)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []lanes.HookRecord
+	for rows.Next() {
+		var r lanes.HookRecord
+		var malformed int64
+		err := rows.Scan(&r.Generation, &r.Event, &r.Subject, &r.SessionID, &r.Tool, &r.Detail, &malformed, &r.FirstMs, &r.LastMs, &r.Count)
+		if err != nil {
+			return nil, err
+		}
+		r.Lane, r.Malformed = lane, malformed != 0
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 var _ ports.Journal = (*Journal)(nil)

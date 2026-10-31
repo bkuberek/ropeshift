@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/clock"
+	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
@@ -210,11 +211,19 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 // start makes its own join token, because the person who started the daemon owns
 // the control plane.
 func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, stderr io.Writer) (<-chan struct{}, error) {
+	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
+		return nil, err
+	}
 	journal, err := sqlite.OpenJournal(filepath.Join(paths.StateDir, api.JournalFileName))
 	if err != nil {
 		return nil, err
 	}
 	if err := journal.Migrate(ctx); err != nil {
+		_ = journal.Close()
+		return nil, err
+	}
+	lanes, err := server.Listen(paths.WorkerSocket())
+	if err != nil {
 		_ = journal.Close()
 		return nil, err
 	}
@@ -228,10 +237,18 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 			return plane.CreateJoinToken(ctx, tickActor("solo"))
 		},
 		Capabilities: map[string]string{"mode": "solo"},
+		Spool:        paths.Spool(),
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},
 	})
+	socketDone := make(chan struct{})
+	go func() {
+		defer close(socketDone)
+		if err := subject.ServeLanes(ctx, lanes); err != nil {
+			fmt.Fprintf(stderr, "ropeshiftd: worker socket: %v\n", err)
+		}
+	}()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -240,8 +257,44 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		if err := subject.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		}
+		<-socketDone
 	}()
 	return done, nil
+}
+
+// keepStableBinary points the stable path at this binary, so generated settings and
+// a running lane survive an upgrade that removes a versioned path (D18). A new target
+// runs once, because the first run of a new binary can exceed the hook budget.
+func keepStableBinary(ctx context.Context, paths api.Paths, runner ports.ProcessRunner) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	target, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		return err
+	}
+	link := paths.StableBinary()
+	if current, err := os.Readlink(link); err == nil && current == target {
+		return nil
+	}
+	if err := server.PrivateDir(filepath.Dir(link)); err != nil {
+		return err
+	}
+	replacement := link + ".new"
+	_ = os.Remove(replacement)
+	if err := os.Symlink(target, replacement); err != nil {
+		return err
+	}
+	if err := os.Rename(replacement, link); err != nil {
+		return err
+	}
+	process, err := runner.Start(ctx, ports.ProcessSpec{Path: link, Args: []string{"version"}})
+	if err != nil {
+		return err
+	}
+	_, err = process.Wait()
+	return err
 }
 
 func soloTicks(store ports.Store, opts soloOptions) []control.Tick {
