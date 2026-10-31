@@ -386,7 +386,9 @@ func (c *child) work(grant workorders.Grant) error {
 		if err := c.completed("write", lease.WorkOrder, key, lease.Fence, event.Rev); err != nil {
 			return err
 		}
-		c.awaitGate(lease)
+		if c.awaitGate(lease) {
+			continue
+		}
 		c.sleep(14 * time.Millisecond)
 		if c.rng.IntN(3) == 0 {
 			if err := c.ops.Renew(c.ctx, c.scope, lease, c.spec.TTLMs); err != nil {
@@ -407,16 +409,18 @@ func (c *child) work(grant workorders.Grant) error {
 }
 
 // awaitGate stops a worker that has a gate, once, while it holds a lease it just wrote
-// under. A holder writes at least twice, so a next act always follows.
-func (c *child) awaitGate(lease workorders.Lease) {
+// under, and reports that it did. A holder writes at least twice, so its next act is a
+// write. That must not be a renewal, which has a guard of its own and would hide a write
+// with none.
+func (c *child) awaitGate(lease workorders.Lease) bool {
 	if c.spec.Gate == "" || c.gated {
-		return
+		return false
 	}
 	c.gated = true
 	fmt.Printf("AT holding %s %d\n", lease.WorkOrder, lease.Fence)
 	for {
 		if _, err := os.Stat(c.spec.Gate); err == nil {
-			return
+			return true
 		}
 		time.Sleep(2 * time.Millisecond)
 	}

@@ -307,7 +307,7 @@ func (r *randomRun) witness(actor string, fence int64) (refused, wrote int, err 
 			continue
 		}
 		switch {
-		case record.Kind == Rejected && (record.Op == "write" || record.Op == "lease"):
+		case record.Kind == Rejected && record.Op == "write":
 			refused++
 		case record.Kind == Completed && record.Op == "write":
 			wrote++
@@ -386,8 +386,8 @@ func TestCrashLeases(t *testing.T) {
 	t.Logf("kills=%d at_step=%d distinct_steps=%d pauses=%d spawned=%d claims=%d writes=%d fenced=%d salvaged=%d records=%d",
 		run.killed.Load(), run.atStep.Load(), len(run.stepsKilled), run.paused.Load(), run.spawned.Load(),
 		w.stats.claims, w.stats.writes, w.stats.fencedWrites, w.stats.salvaged, w.stats.records)
-	if fenced := w.stats.fencedWrites + w.stats.salvaged; fenced < holderRounds {
-		t.Errorf("seed %d: %d holders fenced of the %d stopped on purpose", run.seed, fenced, holderRounds)
+	if w.stats.fencedWrites < holderRounds {
+		t.Errorf("seed %d: %d writes fenced for the %d holders stopped on purpose", run.seed, w.stats.fencedWrites, holderRounds)
 	}
 }
 
