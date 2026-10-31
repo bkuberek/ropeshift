@@ -1,3 +1,5 @@
+![The ropeshift wordmark above separate hemp yarns that twist into one rope, with a blue marker yarn laid through it.](docs/assets/ropeshift-banner.png)
+
 # ropeshift
 
 Ropeshift is a free, fair-source, self-hosted software factory: project management combined with agentic workforce management and operations. It is designed to turn planned work into verified outcomes with a fleet of supervised agents, and to interrupt a person only when a person is needed. It wraps agent CLIs such as Claude Code, Codex, and opencode. It does not replace them, and it is not a model client.
