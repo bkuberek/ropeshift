@@ -283,6 +283,8 @@ const (
 	stateGuard = "\n   AND state = 'ready'"
 	fenceGuard = "\n   AND fence = :fence"
 	leaseGuard = "\n   AND fence = :fence\n   AND claim_id = :claim_id"
+
+	deadlineGuard = "\n   AND lease_until > :now"
 )
 
 // allVariants lists every broken variant. The name is also how a child finds one.
@@ -359,6 +361,12 @@ func allVariants() []variant {
 			sabotage: sqlstore.Sabotage{Rewrite: replace(sqlstore.OpRenew, leaseGuard, "")},
 			check:    "L8",
 		},
+		{
+			name:     "renewal revives an expired lease",
+			sabotage: sqlstore.Sabotage{Rewrite: replace(sqlstore.OpRenew, deadlineGuard, "")},
+			check:    "L24",
+		},
+		{name: "renewal revives an expired lease", check: "solo-sleep"},
 		{
 			name:     "lapse trusts the sweep's earlier read",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.lapse", "\n   AND lease_until <= :now", "")},
@@ -513,6 +521,8 @@ func runVariant(t *testing.T, v variant) error {
 		sqlstore.Sabotaged(v.sabotage)
 		defer sqlstore.Sabotaged(sqlstore.Sabotage{})
 		return checkSleep(newWorld(t, ""), false)
+	case "solo-sleep":
+		return checkSoloSleep(newWorld(t, ""), sqlstore.EnvCut+"="+sqlstore.OpRenew+"|"+deadlineGuard)
 	case "random":
 		return runRandomVariant(t, v)
 	}

@@ -3,9 +3,28 @@
 package sqlstore
 
 import (
+	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 )
+
+// EnvCut removes text from one statement, as "statement|text", so a broken variant
+// reaches a daemon that runs as its own process.
+const EnvCut = "ROPESHIFT_CHAOS_CUT"
+
+func init() {
+	statement, text, found := strings.Cut(os.Getenv(EnvCut), "|")
+	if !found {
+		return
+	}
+	Sabotaged(Sabotage{Rewrite: func(name, in string) string {
+		if name != statement {
+			return in
+		}
+		return strings.Replace(in, text, "", 1)
+	}})
+}
 
 // Sabotage is a broken variant of the adapter, used only to prove that a check
 // can fail. The chaos build holds these seams, and a normal build has none.

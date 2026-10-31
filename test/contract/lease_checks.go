@@ -27,7 +27,7 @@ var LeaseChecks = []Check{
 	{"L5", "the old holder cannot write after ownership ends", checkWriteAfterRevocation},
 	{"L6", "an expired lease lapses and does not transfer", checkLapseNotTransfer},
 	{"L8", "renewal cannot revive a lease that was reassigned", checkRenewCannotRevive},
-	{"L9", "renewal racing the sweep keeps the lease", checkRenewRacesSweep},
+	{"L9", "a sweep's earlier read cannot lapse a lease that returned since", checkStaleSweep},
 	{"L10", "lease time comes only from the database", checkLeaseTimeFromDatabase},
 	{"L11", "a claim retry returns the original grant", checkClaimRetry},
 	{"L12", "a crash in claimed reaches lapsed", checkClaimedLapses},
@@ -42,6 +42,7 @@ var LeaseChecks = []Check{
 	{"L21", "the state table decides every move", checkMovesFollowTheTable},
 	{"L22", "a retry of a lease step changes nothing", checkLeaseRetries},
 	{"L23", "a fenced write retried after a lost answer stores one event", checkWriteRetry},
+	{"L24", "a renewal after the deadline is refused, so a lapse goes on record", checkRenewalAfterDeadline},
 }
 
 // Ready creates a work order and walks it to `ready` through the state table.
@@ -483,7 +484,10 @@ func checkRenewCannotRevive(r *Rig) error {
 	return nil
 }
 
-func checkRenewRacesSweep(r *Rig) error {
+// checkStaleSweep holds one sweep between its read and its lapse while a second sweep
+// lapses the lease and the holder returns. The list the first sweep read is out of
+// date by then, so only the expiry predicate in the statement keeps the live lease.
+func checkStaleSweep(r *Rig) error {
 	paused, resume := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	sweeper := r.StoreWith(func(op, name string) {
@@ -495,6 +499,7 @@ func checkRenewRacesSweep(r *Rig) error {
 		}
 	})
 	s := r.Store()
+	ops := r.NewOps(s)
 	id, err := r.Ready(s)
 	if err != nil {
 		return err
@@ -516,10 +521,13 @@ func checkRenewRacesSweep(r *Rig) error {
 	case <-time.After(10 * time.Second):
 		return errors.New("the sweep never reached its pause")
 	}
-	err = r.NewOps(s).Renew(r.Ctx, r.Scope, holder.Lease, TTLMs)
+	_, err = ops.Sweep(r.Ctx, r.Scope, r.Actor)
+	if err == nil {
+		err = ops.Return(r.Ctx, r.Scope, holder.Lease, TTLMs, r.worker("a"))
+	}
 	close(resume)
 	if err != nil {
-		return fmt.Errorf("renewal: %w", err)
+		return err
 	}
 	if err := <-swept; err != nil {
 		return err
@@ -529,7 +537,71 @@ func checkRenewRacesSweep(r *Rig) error {
 		return err
 	}
 	if w.State != workorders.Running {
-		return Violatedf("a renewed lease was lapsed by a sweep that read it earlier: state %s", w.State)
+		return Violatedf("a returned lease was lapsed by a sweep that read it earlier: state %s", w.State)
+	}
+	return nil
+}
+
+// checkRenewalAfterDeadline covers a renewal that arrives after the deadline and
+// before the sweep, as the first heartbeat after a machine wakes does. It leaves the
+// row alone and does not fence the holder, the sweep records the lapse, and the same
+// holder returns.
+func checkRenewalAfterDeadline(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	holder, err := r.Running(s, id, "a")
+	if err != nil {
+		return err
+	}
+	before, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	r.DB.ShiftClock(TTLMs + 1)
+	if err := ops.Renew(r.Ctx, r.Scope, holder.Lease, TTLMs); !errors.Is(err, workorders.ErrExpired) {
+		return Violatedf("a renewal after the deadline returned %v", err)
+	}
+	after, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	if after.State != workorders.Running || after.LeaseUntil != before.LeaseUntil {
+		return Violatedf("a refused renewal changed the row: state %s, deadline %d", after.State, after.LeaseUntil)
+	}
+	lapsed, err := ops.Sweep(r.Ctx, r.Scope, r.Actor)
+	if err != nil {
+		return err
+	}
+	if len(lapsed) != 1 || lapsed[0] != id {
+		return Violatedf("the sweep after a refused renewal lapsed %v", lapsed)
+	}
+	if err := ops.Renew(r.Ctx, r.Scope, holder.Lease, TTLMs); !errors.Is(err, workorders.ErrLapsed) {
+		return Violatedf("a renewal after the lapse returned %v", err)
+	}
+	if err := ops.Return(r.Ctx, r.Scope, holder.Lease, TTLMs, r.worker("a")); err != nil {
+		return fmt.Errorf("return: %w", err)
+	}
+	returned, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	if returned.State != workorders.Running || returned.Fence != holder.Fence {
+		return Violatedf("after the return: state %s, fence %d", returned.State, returned.Fence)
+	}
+	lapses, err := r.countEvents(s, workorders.EventType(workorders.TriggerLeaseExpired), id)
+	if err != nil {
+		return err
+	}
+	returns, err := r.countEvents(s, workorders.EventType(workorders.TriggerReturnedStarted), id)
+	if err != nil {
+		return err
+	}
+	if lapses != 1 || returns != 1 {
+		return Violatedf("%d lapses and %d returns on record", lapses, returns)
 	}
 	return nil
 }

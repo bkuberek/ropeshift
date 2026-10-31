@@ -238,7 +238,8 @@ func (w *Workers) checkSession(tx reader, auth ledger.WorkerAuth, epoch int64) e
 // Heartbeat reads the store, renews each lease, and answers with the worker's own
 // nonce. Each renewal is its own statement and takes no revision (ADR-0010), and a
 // lease that lapsed returns here, because a worker with the current fence has
-// nothing else to ask for.
+// nothing else to ask for. A lease past its deadline that no sweep has lapsed is in
+// neither list: the worker keeps it, and a later beat returns it.
 func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.HeartbeatReply, error) {
 	if beat.Nonce == "" {
 		return ledger.HeartbeatReply{}, fmt.Errorf("%w: a heartbeat needs a nonce", workorders.ErrInvalid)
@@ -262,6 +263,7 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 			reply.Fenced = append(reply.Fenced, ledger.FencedLease{WorkOrder: held.WorkOrder, Fence: held.Fence, CurrentFence: fenced.Current})
 		case errors.Is(err, ports.ErrNotFound):
 			reply.Fenced = append(reply.Fenced, ledger.FencedLease{WorkOrder: held.WorkOrder, Fence: held.Fence})
+		case errors.Is(err, workorders.ErrExpired):
 		default:
 			return ledger.HeartbeatReply{}, err
 		}

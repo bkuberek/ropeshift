@@ -15,6 +15,10 @@ var (
 	// ErrLapsed means the fence is current and the lease has expired, so the
 	// holder should return.
 	ErrLapsed = errors.New("lease lapsed")
+	// ErrExpired means the fence is current and the deadline passed, and no sweep
+	// has recorded the lapse. The holder keeps its claim and asks again, because a
+	// lease past its deadline comes back only through a lapse on record.
+	ErrExpired = errors.New("lease expired")
 	// ErrNotLapsed means a reassignment found a work order that is not lapsed.
 	ErrNotLapsed = errors.New("work order is not lapsed")
 	// ErrForbidden means this actor may not take this step.
@@ -103,4 +107,15 @@ func Reject(current WorkOrder, lease Lease) error {
 		return ErrLapsed
 	}
 	return &FencedError{Current: current.Fence, State: current.State}
+}
+
+// RejectRenewal is Reject for a renewal, whose statement also refuses a deadline that
+// has passed. A row this holder still has can only have failed that predicate, so it
+// is expired and not fenced, and the holder must not stop or salvage anything.
+func RejectRenewal(current WorkOrder, lease Lease) error {
+	holds := current.Fence == lease.Fence && current.ClaimID == lease.ClaimID
+	if holds && (current.State == Claimed || current.State == Running) {
+		return ErrExpired
+	}
+	return Reject(current, lease)
 }

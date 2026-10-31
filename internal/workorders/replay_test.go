@@ -162,6 +162,29 @@ func TestRejectTellsStaleFromLapsed(t *testing.T) {
 	}
 }
 
+func TestRejectRenewalTellsExpiredFromFenced(t *testing.T) {
+	lease := Lease{WorkOrder: testID, ClaimID: "c1", Fence: 7}
+	var fenced *FencedError
+	tests := []struct {
+		name    string
+		current WorkOrder
+		check   func(error) bool
+	}{
+		{"claimed past the deadline", WorkOrder{State: Claimed, Fence: 7, ClaimID: "c1"}, func(err error) bool { return errors.Is(err, ErrExpired) }},
+		{"running past the deadline", WorkOrder{State: Running, Fence: 7, ClaimID: "c1"}, func(err error) bool { return errors.Is(err, ErrExpired) }},
+		{"lapsed", WorkOrder{State: Lapsed, Fence: 7, ClaimID: "c1"}, func(err error) bool { return errors.Is(err, ErrLapsed) }},
+		{"another holder", WorkOrder{State: Running, Fence: 9, ClaimID: "c2"}, func(err error) bool { return errors.As(err, &fenced) }},
+		{"finished under the same fence", WorkOrder{State: Done, Fence: 7, ClaimID: "c1"}, func(err error) bool { return errors.As(err, &fenced) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := RejectRenewal(tt.current, lease); !tt.check(err) {
+				t.Errorf("got %v", err)
+			}
+		})
+	}
+}
+
 func TestMoveRefusesALeasedEdge(t *testing.T) {
 	if _, err := Move(WorkOrder{State: Ready}, TriggerClaimGranted); !errors.Is(err, ErrLeasedEdge) {
 		t.Errorf("got %v", err)

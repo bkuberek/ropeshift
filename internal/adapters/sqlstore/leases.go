@@ -104,7 +104,8 @@ var (
    AND lease_until <= :now`)
 
 	// stmtRenew is guarded by the same token as a write, so a stale worker cannot
-	// extend a lease it lost.
+	// extend a lease it lost. The deadline predicate refuses a renewal that arrives
+	// after the deadline and before the sweep, so a lapse always goes on record.
 	stmtRenew = define(OpRenew,
 		`UPDATE work_orders
    SET lease_until = CAST(:now AS BIGINT) + CAST(:ttl AS BIGINT)
@@ -112,7 +113,8 @@ var (
    AND id = :id
    AND fence = :fence
    AND claim_id = :claim_id
-   AND state IN ('claimed', 'running')`)
+   AND state IN ('claimed', 'running')
+   AND lease_until > :now`)
 )
 
 func (t leaseTx) Guard(workOrder string, fence int64) (bool, error) {
@@ -213,7 +215,7 @@ func (s *Store) Renew(ctx context.Context, scope ledger.WorkspaceID, lease worko
 		if err != nil {
 			return err
 		}
-		return workorders.Reject(current, lease)
+		return workorders.RejectRenewal(current, lease)
 	}
 	crashpoint.Hit(OpRenew, "before-commit")
 	if err := tx.Commit(); err != nil {

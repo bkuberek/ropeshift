@@ -384,7 +384,8 @@ func (c *child) stateOf(id string) (workorders.State, error) {
 // that is one record in the witness.
 func (c *child) lostLease(lease workorders.Lease, cause error) error {
 	var fenced *workorders.FencedError
-	if !errors.As(cause, &fenced) && !errors.Is(cause, workorders.ErrLapsed) {
+	expired := errors.Is(cause, workorders.ErrExpired) || errors.Is(cause, workorders.ErrLapsed)
+	if !errors.As(cause, &fenced) && !expired {
 		return cause
 	}
 	if err := c.rejected("lease", lease.WorkOrder, lease.ClaimID, lease.Fence, "salvage"); err != nil {

@@ -38,7 +38,7 @@ type Store interface {
 	// Renew extends a lease. It is the one write that takes no revision and
 	// appends no event: one guarded statement on one row, because every heartbeat
 	// would otherwise wait for the workspace lock. A rejection reads the row in
-	// the same transaction and returns ErrLapsed or a FencedError.
+	// the same transaction and returns ErrExpired, ErrLapsed, or a FencedError.
 	Renew(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, ttlMs int64) error
 	// Close releases the database.
 	Close() error

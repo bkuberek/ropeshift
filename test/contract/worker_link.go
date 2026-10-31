@@ -59,6 +59,7 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"a wrong nonce fails", checkWrongNonce},
 		{"an empty nonce is refused", checkEmptyNonce},
 		{"a lapsed lease returns through a heartbeat", checkLapsedReturns},
+		{"an expired lease waits for the sweep", checkExpiredWaitsForTheSweep},
 		{"a lost lease comes back as fenced", checkFencedLease},
 		{"desired state names this worker's leases", checkDesired},
 		{"a hint follows a revision", checkHint},
@@ -352,6 +353,38 @@ func checkLapsedReturns(t *testing.T, ctx context.Context, b LinkBackend) {
 	}
 	row := r.order(t, ctx, "wo")
 	if row.State != workorders.Claimed || row.Fence != grant.Fence {
+		t.Errorf("after the return %+v", row)
+	}
+}
+
+// checkExpiredWaitsForTheSweep beats after the deadline and before the sweep. The
+// answer neither renews nor fences the lease, so the worker keeps it, and the next
+// beat after the sweep returns it.
+func checkExpiredWaitsForTheSweep(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	grant := r.claim(t, ctx, r.readyOrder(t, ctx, "wo"), "c1", "a")
+	r.ShiftClock(linkTTL + 1)
+	beat := ledger.Heartbeat{Auth: auth, Epoch: session.Epoch, Nonce: "n", Leases: []ledger.HeldLease{heldLease(grant)}}
+	reply, err := r.Link.Heartbeat(ctx, beat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.Leases) != 0 || len(reply.Fenced) != 0 {
+		t.Errorf("before the sweep: %+v", reply)
+	}
+	actor := ledger.Actor{Kind: ledger.ActorSystem, ID: "tick"}
+	if _, err := control.NewLeases(r.Store).Sweep(ctx, r.Scope, actor); err != nil {
+		t.Fatal(err)
+	}
+	if reply, err = r.Link.Heartbeat(ctx, beat); err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.Leases) != 1 || len(reply.Fenced) != 0 {
+		t.Errorf("after the sweep: %+v", reply)
+	}
+	if row := r.order(t, ctx, "wo"); row.State != workorders.Claimed || row.Fence != grant.Fence {
 		t.Errorf("after the return %+v", row)
 	}
 }

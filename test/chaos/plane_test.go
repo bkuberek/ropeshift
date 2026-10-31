@@ -24,6 +24,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/control"
+	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -439,27 +440,27 @@ func TestSleepReturnsFromLapsed(t *testing.T) {
 	}
 }
 
-// TestSoloSleepKeepsTheLease stops the whole of a real ropeshiftd past its lease, as
-// a closed laptop does. The lease tick and the heartbeat resume together, and either
-// may win: the sweep lapses the lease and the heartbeat returns it, or the heartbeat
-// renews it first, which is what renewal racing the sweep allows. Either way the
-// holder keeps the same fence, and a lapse on record has its return.
-func TestSoloSleepKeepsTheLease(t *testing.T) {
-	w := newWorld(t, "")
+// checkSoloSleep stops the whole of a real ropeshiftd past its lease, as a closed
+// laptop does. The lease tick and the heartbeat resume together, so the sweep is held
+// back and the heartbeat comes first, which is the renewal the deadline refuses. A
+// lapse goes on record, and the same holder returns under the same fence. A late beat
+// on a loaded machine can add a lapse and its return, and changes nothing else.
+func checkSoloSleep(w *world, sabotage ...string) error {
 	binary := filepath.Join(w.target.Dir, "ropeshiftd")
 	build := exec.Command("go", "build", "-tags", "chaos", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshiftd")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
+		return fmt.Errorf("build: %v\n%s", err, out)
 	}
 	paths := api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(w.target.Dir, "run")}
 	daemon := exec.Command(binary, "solo", "--heartbeat", "40ms", "--lease-ttl", "500ms", "--lease-tick", "40ms")
-	daemon.Env = []string{
+	daemon.Env = append([]string{
 		"HOME=" + w.target.Dir, "PATH=" + os.Getenv("PATH"),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir,
-	}
+		crashpoint.EnvPause + "=sweep/candidates-read=150ms",
+	}, sabotage...)
 	if err := daemon.Start(); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- daemon.Wait() }()
@@ -471,89 +472,107 @@ func TestSoloSleepKeepsTheLease(t *testing.T) {
 	client := api.NewUnixClient(paths.ControlSocket())
 	defer client.Close()
 	ctx := w.rig.Ctx
-	if err := until("the worker's registration", func() (bool, error) {
+	err := until("the worker's registration", func() (bool, error) {
 		workers, err := client.Workers(ctx)
 		return err == nil && len(workers) == 1 && workers[0].Epoch >= 1, nil
-	}); err != nil {
-		t.Fatal(err)
+	})
+	if err != nil {
+		return err
 	}
 	workers, err := client.Workers(ctx)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if _, err := client.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "wo", Title: "T", Criteria: criterion()}); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if _, err := client.Review(ctx, "wo"); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	grant, err := client.Claim(ctx, "wo", api.ClaimRequest{ClaimID: "c1", WorkerID: workers[0].ID})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	first, err := client.WorkOrder(ctx, "wo")
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
-	if err := until("the worker's first renewal", func() (bool, error) {
+	err = until("the worker's first renewal", func() (bool, error) {
 		row, err := client.WorkOrder(ctx, "wo")
 		return err == nil && row.LeaseUntil > first.LeaseUntil, nil
-	}); err != nil {
-		t.Fatal(err)
+	})
+	if err != nil {
+		return err
 	}
 	if err := daemon.Process.Signal(syscall.SIGSTOP); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	time.Sleep(time.Second)
 	resumed := time.Now().UnixMilli()
 	if err := daemon.Process.Signal(syscall.SIGCONT); err != nil {
-		t.Fatal(err)
+		return err
 	}
-	if err := until("a lease renewed after the wake", func() (bool, error) {
+	err = until("a lease held after the wake", func() (bool, error) {
 		row, err := client.WorkOrder(ctx, "wo")
 		return err == nil && row.State == workorders.Claimed && row.LeaseUntil > resumed, nil
-	}); err != nil {
-		t.Fatal(err)
+	})
+	if err != nil {
+		return err
 	}
 	row, err := client.WorkOrder(ctx, "wo")
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	if row.Fence != grant.Fence || row.ClaimID != grant.ClaimID {
-		t.Errorf("after the sleep %+v", row)
+		return contract.Violatedf("after the sleep %+v", row)
 	}
 	_ = daemon.Process.Kill()
 	<-exited
 	exited <- nil
-	lapses, returns, err := soloReturns(ctx, paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lapses != returns {
-		t.Errorf("%d lapses and %d returns", lapses, returns)
-	}
-	t.Logf("lapses on record: %d", lapses)
+	return checkLapsesReturned(ctx, paths)
 }
 
-func soloReturns(ctx context.Context, paths api.Paths) (lapses, returns int, err error) {
+// checkLapsesReturned reads the ledger of a stopped daemon. Lapses and returns must
+// alternate from a lapse, and at least one of each must be on record. The kill can
+// land between a late lapse and its return.
+func checkLapsesReturned(ctx context.Context, paths api.Paths) error {
 	store, err := sqlite.Open(filepath.Join(paths.StateDir, api.LedgerFileName), sqlstore.Options{})
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
 	defer store.Close()
+	lapses, returns := 0, 0
 	err = store.Read(ctx, "default", func(tx ports.ReadTx) error {
 		events, err := control.ReadAllEvents(tx.Events)
 		for _, e := range events {
 			switch e.Type {
 			case workorders.EventType(workorders.TriggerLeaseExpired):
+				if lapses != returns {
+					return contract.Violatedf("a second lapse with no return at revision %d", e.Rev)
+				}
 				lapses++
 			case workorders.EventType(workorders.TriggerReturnedUnstarted):
+				if returns+1 != lapses {
+					return contract.Violatedf("a return with no lapse at revision %d", e.Rev)
+				}
 				returns++
 			}
 		}
 		return err
 	})
-	return lapses, returns, err
+	if err != nil {
+		return err
+	}
+	if returns == 0 {
+		return contract.Violatedf("a sleep past the lease left %d lapses and %d returns on record", lapses, returns)
+	}
+	return nil
+}
+
+func TestSoloSleepLapsesAndReturns(t *testing.T) {
+	if err := checkSoloSleep(newWorld(t, "")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func criterion() []planning.Criterion {
