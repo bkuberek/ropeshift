@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -249,9 +251,8 @@ func hookEvents(stream []byte) int {
 	return found
 }
 
-// projectDirectory is the name the CLI derives from a working directory. The suite
-// reads it only to report that nothing was left there.
-func projectDirectory(home, dir string) string {
+// projectName is the name the CLI derives from a working directory.
+func projectName(dir string) string {
 	var name strings.Builder
 	for _, r := range dir {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
@@ -260,7 +261,36 @@ func projectDirectory(home, dir string) string {
 			name.WriteRune('-')
 		}
 	}
-	return filepath.Join(home, ".claude", "projects", name.String())
+	return name.String()
+}
+
+// projectDirectory is where the CLI keeps a project's files.
+func projectDirectory(home, dir string) string {
+	return filepath.Join(home, ".claude", "projects", projectName(dir))
+}
+
+// removeEmptyProject takes away what the CLI makes for a session even with
+// --no-session-persistence: an empty memory directory in a project directory. It runs
+// only on a directory inside the suite's own scratch path, and rmdir cannot remove
+// anything with content, so whatever else is there stays for the leftovers check.
+func removeEmptyProject(home, scratch, dir string) error {
+	if !filepath.IsAbs(scratch) || (dir != scratch && !strings.HasPrefix(dir, scratch+string(filepath.Separator))) {
+		return fmt.Errorf("refused: %s is outside this suite's scratch path", dir)
+	}
+	project := projectDirectory(home, dir)
+	if !strings.HasPrefix(filepath.Base(project), projectName(scratch)) {
+		return fmt.Errorf("refused: %s does not name this suite's scratch path", filepath.Base(project))
+	}
+	for _, path := range []string{filepath.Join(project, "memory"), project} {
+		switch err := syscall.Rmdir(path); {
+		case err == nil, errors.Is(err, syscall.ENOENT):
+		case errors.Is(err, syscall.ENOTEMPTY):
+			return nil
+		default:
+			return fmt.Errorf("rmdir %s: %w", filepath.Base(path), err)
+		}
+	}
+	return nil
 }
 
 // settingsDigest hashes the user-level settings file, which a run must not change.
@@ -386,11 +416,11 @@ func TestInitCheckStopsOnUserConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := map[string]func(*initLine){
-		"an API key":          func(i *initLine) { i.KeySource = "ANTHROPIC_API_KEY" },
-		"a user plugin":       func(i *initLine) { i.Plugins[0].Source = "x@market" },
-		"another server":      func(i *initLine) { i.Servers = append(i.Servers, i.Servers[0]); i.Servers[1].Name = "user" },
-		"a failed server":     func(i *initLine) { i.Servers[0].Status = "failed" },
-		"another MCP tool":    func(i *initLine) { i.Tools = append(i.Tools, "mcp__user__tool") },
+		"an API key":       func(i *initLine) { i.KeySource = "ANTHROPIC_API_KEY" },
+		"a user plugin":    func(i *initLine) { i.Plugins[0].Source = "x@market" },
+		"another server":   func(i *initLine) { i.Servers = append(i.Servers, i.Servers[0]); i.Servers[1].Name = "user" },
+		"a failed server":  func(i *initLine) { i.Servers[0].Status = "failed" },
+		"another MCP tool": func(i *initLine) { i.Tools = append(i.Tools, "mcp__user__tool") },
 	}
 	for name, change := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -401,6 +431,64 @@ func TestInitCheckStopsOnUserConfiguration(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLeftoverProjectRemoval(t *testing.T) {
+	const scratch = "/tmp/rs2-scratch"
+	inside := filepath.Join(scratch, "repository")
+	tests := []struct {
+		name string
+		dir  string
+		// files are created in the project directory, and must all survive.
+		files   []string
+		refused bool
+		gone    bool
+	}{
+		{name: "the empty memory directory the CLI leaves", dir: inside, gone: true},
+		{name: "the scratch path itself", dir: scratch, gone: true},
+		{name: "a note in memory", dir: inside, files: []string{"memory/note.md"}},
+		{name: "a transcript beside memory", dir: inside, files: []string{"session.jsonl"}},
+		{name: "a directory outside the scratch path", dir: "/tmp/other/repository", refused: true},
+		{name: "a sibling sharing the prefix", dir: "/tmp/rs2-scratch-other", refused: true},
+		{name: "no directory at all", dir: "", refused: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			project := projectDirectory(home, tt.dir)
+			if err := os.MkdirAll(filepath.Join(project, "memory"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range tt.files {
+				if err := os.WriteFile(filepath.Join(project, file), []byte("kept"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := removeEmptyProject(home, scratch, tt.dir)
+			if refused := err != nil; refused != tt.refused {
+				t.Fatalf("error %v, want refused=%v", err, tt.refused)
+			}
+			_, statErr := os.Stat(project)
+			if gone := errors.Is(statErr, os.ErrNotExist); gone != tt.gone {
+				t.Fatalf("project gone=%v, want %v", gone, tt.gone)
+			}
+			for _, file := range tt.files {
+				if _, err := os.Stat(filepath.Join(project, file)); err != nil {
+					t.Errorf("%s did not survive: %v", file, err)
+				}
+			}
+			if tt.refused {
+				if _, err := os.Stat(filepath.Join(project, "memory")); err != nil {
+					t.Errorf("a refused call touched the project: %v", err)
+				}
+			}
+		})
+	}
+	t.Run("an absent project is not an error", func(t *testing.T) {
+		if err := removeEmptyProject(t.TempDir(), scratch, inside); err != nil {
+			t.Error(err)
+		}
+	})
 }
 
 func TestHookEventsAreCounted(t *testing.T) {

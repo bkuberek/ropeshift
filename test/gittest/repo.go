@@ -29,8 +29,13 @@ func Require(t testing.TB) {
 // New creates a repository with one branch, main, and no commits.
 func New(t testing.TB) *Repo {
 	t.Helper()
+	return NewIn(t, t.TempDir())
+}
+
+// NewIn creates the same repository in a directory the caller owns.
+func NewIn(t testing.TB, root string) *Repo {
+	t.Helper()
 	Require(t)
-	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	dir := filepath.Join(root, "repository")
 	for _, path := range []string{home, dir} {

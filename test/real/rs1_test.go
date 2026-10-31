@@ -113,25 +113,21 @@ func (s *suite) finish() {
 	}
 	sessions, turns := s.spend.used()
 	s.t.Logf("charged: sessions=%d turns=%d of %d and %d", sessions, turns, maxSessions, maxTurns)
-	for _, dir := range []string{s.scratch, s.repo} {
-		if dir == "" {
-			continue
-		}
-		left, err := processesHolding(filepath.Dir(dir))
-		if err != nil {
-			s.t.Error(err)
-		}
-		for _, process := range left {
-			if strings.Contains(process, s.scratch) || strings.Contains(process, s.repo) {
-				s.t.Errorf("a process remains: %s", process)
-			}
-		}
+	left, err := processesHolding(s.scratch)
+	if err != nil {
+		s.t.Error(err)
+	}
+	for _, process := range left {
+		s.t.Errorf("a process remains: %s", process)
 	}
 	// The CLI names a project after the git root, so a lane's worktree lands on its
 	// repository's name.
 	for _, dir := range []string{filepath.Join(s.scratch, "probe"), s.repo, s.worktree} {
 		if dir == "" {
 			continue
+		}
+		if err := removeEmptyProject(s.home, s.scratch, dir); err != nil {
+			s.t.Error(err)
 		}
 		if _, err := os.Stat(projectDirectory(s.home, dir)); err == nil {
 			s.t.Errorf("a project directory remains for a scratch path")
@@ -290,7 +286,7 @@ func TestRS1(t *testing.T) {
 	s.build()
 	s.probe()
 
-	repo := gittest.New(t)
+	repo := gittest.NewIn(t, s.scratch)
 	repo.Commit(".ropeshift/profile.toml", profileText)
 	repo.Commit("contract.md", contractText)
 	s.repo = repo.Dir
