@@ -1,0 +1,22 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local files
+.env
+.env.*
+.scratch/
+.atl/
+.claude/
+
+# Go build output
+dist/
+bin/
