@@ -264,6 +264,9 @@ func roleLeaseWorker(c *child) error {
 		if err := c.finishClaim(current); err != nil {
 			return err
 		}
+		if c.gated && c.refused {
+			return nil
+		}
 	}
 }
 
@@ -370,6 +373,7 @@ func (c *child) work(grant workorders.Grant) error {
 		event, err := c.ops.Write(c.ctx, c.scope, holder, key, []byte(key), c.actor)
 		var fenced *workorders.FencedError
 		if errors.As(err, &fenced) {
+			c.refused = true
 			if err := c.rejected("write", lease.WorkOrder, key, lease.Fence, "fenced"); err != nil {
 				return err
 			}
@@ -381,6 +385,7 @@ func (c *child) work(grant workorders.Grant) error {
 		if err := c.completed("write", lease.WorkOrder, key, lease.Fence, event.Rev); err != nil {
 			return err
 		}
+		c.awaitGate(lease)
 		c.sleep(14 * time.Millisecond)
 		if c.rng.IntN(3) == 0 {
 			if err := c.ops.Renew(c.ctx, c.scope, lease, c.spec.TTLMs); err != nil {
@@ -398,6 +403,22 @@ func (c *child) work(grant workorders.Grant) error {
 		}
 	}
 	return c.clearCurrent()
+}
+
+// awaitGate stops a worker that has a gate, once, while it holds a lease it just wrote
+// under. A holder writes at least twice, so a next act always follows.
+func (c *child) awaitGate(lease workorders.Lease) {
+	if c.spec.Gate == "" || c.gated {
+		return
+	}
+	c.gated = true
+	fmt.Printf("AT holding %s %d\n", lease.WorkOrder, lease.Fence)
+	for {
+		if _, err := os.Stat(c.spec.Gate); err == nil {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func (c *child) stateOf(id string) (workorders.State, error) {
@@ -418,6 +439,7 @@ func (c *child) lostLease(lease workorders.Lease, cause error) error {
 	if !errors.As(cause, &fenced) && !expired {
 		return cause
 	}
+	c.refused = true
 	if err := c.rejected("lease", lease.WorkOrder, lease.ClaimID, lease.Fence, "salvage"); err != nil {
 		return err
 	}

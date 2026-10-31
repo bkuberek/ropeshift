@@ -35,7 +35,8 @@ type variant struct {
 	// wrap decorates every Store handle.
 	wrap func(ports.Store) ports.Store
 	// check is a contract check ID, "crash" for the crash case below, "random"
-	// for a run of random kills, or "paused" for the stopped writer.
+	// for a run of random kills, "paused" for the stopped writer, or "holder" for a
+	// run that stops a holder on purpose.
 	check string
 	// crash is the case and step a crash variant runs.
 	crash func() (crashCase, string)
@@ -336,6 +337,7 @@ func allVariants() []variant {
 		{name: "write without the fencing predicate", sabotage: noFencePredicate, check: "L3"},
 		{name: "write without the fencing predicate", sabotage: noFencePredicate, check: "L5"},
 		{name: "write without the fencing predicate", sabotage: noFencePredicate, check: "paused"},
+		{name: "write without the fencing predicate", sabotage: noFencePredicate, check: "holder"},
 		{
 			name: "fence checked outside the transaction",
 			ops: func(s ports.Store) contract.Ops {
@@ -556,6 +558,13 @@ func runVariant(t *testing.T, v variant) error {
 		return checkSoloSleep(newWorld(t, ""), sqlstore.EnvCut+"="+sqlstore.OpRenew+"|"+deadlineGuard)
 	case "random":
 		return runRandomVariant(t, v)
+	case "holder":
+		run := newRandomRun(newWorld(t, v.name), holderVariantKills)
+		run.holders = 1
+		if err := run.seedWork(3); err != nil {
+			return err
+		}
+		return run.execute()
 	}
 	check, ok := findCheck(v.check)
 	if !ok {
@@ -570,6 +579,9 @@ func runVariant(t *testing.T, v variant) error {
 	}
 	return check.Run(rig)
 }
+
+// holderVariantKills is small, because the stopped holder decides this variant.
+const holderVariantKills = 4
 
 // runRandomVariant repeats a run up to a bound, because a defect that needs one
 // interleaving is not found in every schedule.

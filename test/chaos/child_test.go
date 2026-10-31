@@ -62,7 +62,7 @@ type childSpec struct {
 	Spawn int    `json:"spawn,omitempty"`
 	Seed  uint64 `json:"seed,omitempty"`
 	// Current is the file a worker keeps its open claim in, standing for the
-	// journal of a later unit. Gate is the file a stopped writer waits for.
+	// journal of a later unit. Gate is the file a stopped writer or holder waits for.
 	Current string `json:"current,omitempty"`
 	Gate    string `json:"gate,omitempty"`
 	// Socket and Journal are a worker child's control plane and journal.
@@ -84,6 +84,8 @@ type child struct {
 	rng   *rand.Rand
 	scope ledger.WorkspaceID
 	actor ledger.Actor
+	// gated says this worker has waited at its gate, and refused that a fence stopped it.
+	gated, refused bool
 }
 
 // afterTests stops what a tagged suite started.

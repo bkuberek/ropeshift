@@ -3,6 +3,7 @@
 package chaos
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -20,6 +21,15 @@ import (
 )
 
 const defaultSeed = uint64(20261031)
+
+const (
+	// holderRounds is how many holders a run stops on purpose. A pause at a random
+	// moment finds a holder less than half the time and leaves it 60 ms to act, so a
+	// schedule alone can end with no holder fenced and prove nothing about fencing.
+	holderRounds = 3
+	// holderLimit bounds each wait of one round.
+	holderLimit = 30 * time.Second
+)
 
 // crashSeed fixes the kill schedule. Process timing still varies between runs, so
 // a seed replays the schedule and not the interleaving.
@@ -53,6 +63,8 @@ type randomRun struct {
 	kills   int
 	ttlMs   int64
 	workers int
+	// holders is how many holders this run stops on purpose, one after another.
+	holders int
 
 	killed      atomic.Int64
 	atStep      atomic.Int64
@@ -181,7 +193,19 @@ func (r *randomRun) execute() error {
 			r.slot(slot)
 		}()
 	}
+	var refused error
+	wg.Go(func() {
+		for round := range r.holders {
+			if refused = r.pauseHolder(round); refused != nil {
+				r.stop.Store(true)
+				return
+			}
+		}
+	})
 	wg.Wait()
+	if refused != nil {
+		return refused
+	}
 	r.mu.Lock()
 	failures := slices.Clone(r.failures)
 	r.mu.Unlock()
@@ -192,6 +216,124 @@ func (r *randomRun) execute() error {
 		return err
 	}
 	return r.world.verify()
+}
+
+// pauseHolder is the pause no schedule can miss. A worker stops itself just after a
+// committed write, the parent stops the process, and the lease is taken from it in real
+// time while the other workers run. Then the worker continues, still believing, and the
+// witness must show it refused.
+func (r *randomRun) pauseHolder(round int) error {
+	w := r.world
+	slot := r.workers + round
+	spec := w.spec(childSpec{
+		Role: "lease-worker", Slot: slot, Spawn: int(r.spawned.Add(1)), Seed: r.seed, TTLMs: r.ttlMs,
+		Current: filepath.Join(w.target.Dir, fmt.Sprintf("current-%d.json", slot)),
+		Gate:    filepath.Join(w.target.Dir, fmt.Sprintf("holder-gate-%d", slot)),
+	})
+	child, err := startChild(spec)
+	if err != nil {
+		return err
+	}
+	defer child.sigkill()
+	var workOrder string
+	var fence int64
+	select {
+	case at := <-child.at:
+		if _, err := fmt.Sscanf(at, "holding %s %d", &workOrder, &fence); err != nil {
+			return fmt.Errorf("round %d: %q: %w", round, at, err)
+		}
+	case <-child.exited:
+		return fmt.Errorf("round %d: the holder exited early: %s", round, child.stderr.String())
+	case <-time.After(holderLimit):
+		return fmt.Errorf("round %d: no holder reached its first write", round)
+	}
+	if err := child.cmd.Process.Signal(syscall.SIGSTOP); err != nil {
+		return err
+	}
+	r.paused.Add(1)
+	if err := r.takeLease(workOrder, fence); err != nil {
+		return fmt.Errorf("round %d: %w", round, err)
+	}
+	actor := fmt.Sprintf("worker-%d", slot)
+	_, wrote, err := r.witness(actor, fence)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(spec.Gate, nil, 0o600); err != nil {
+		return err
+	}
+	if err := child.cmd.Process.Signal(syscall.SIGCONT); err != nil {
+		return err
+	}
+	return r.awaitRefusal(actor, fence, wrote)
+}
+
+// takeLease waits for the stopped holder's lease to end in real time, and moves the
+// fence. A rival may do either first, which is the contention this run is for.
+func (r *randomRun) takeLease(workOrder string, fence int64) error {
+	w := r.world
+	ops := w.rig.NewOps(w.store)
+	deadline := time.Now().Add(holderLimit)
+	for time.Now().Before(deadline) {
+		if _, err := ops.Sweep(w.rig.Ctx, w.rig.Scope, w.rig.Actor); err != nil {
+			return err
+		}
+		row, err := w.rig.WorkOrder(w.store, workOrder)
+		if err != nil {
+			return err
+		}
+		if row.Fence > fence {
+			return nil
+		}
+		if row.State == workorders.Lapsed {
+			err := ops.Reassign(w.rig.Ctx, w.rig.Scope, workOrder, "stopped holder", w.rig.Actor)
+			if err != nil && !errors.Is(err, workorders.ErrNotLapsed) {
+				return err
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return fmt.Errorf("the fence of %s never moved past %d", workOrder, fence)
+}
+
+// witness counts what one holder saw at one fence, from the log it cannot rewrite.
+func (r *randomRun) witness(actor string, fence int64) (refused, wrote int, err error) {
+	records, err := ReadEffectLog(r.world.logPath)
+	if err != nil {
+		return 0, 0, contract.Violatedf("%v", err)
+	}
+	for _, record := range records {
+		if record.Actor != actor || record.Fence != fence {
+			continue
+		}
+		switch {
+		case record.Kind == Rejected && (record.Op == "write" || record.Op == "lease"):
+			refused++
+		case record.Kind == Completed && record.Op == "write":
+			wrote++
+		}
+	}
+	return refused, wrote, nil
+}
+
+// awaitRefusal ends at the holder's next act. Its fence already moved, so one more write
+// is a violation, and a refusal is the only pass.
+func (r *randomRun) awaitRefusal(actor string, fence int64, wrote int) error {
+	deadline := time.Now().Add(holderLimit)
+	for time.Now().Before(deadline) {
+		refused, now, err := r.witness(actor, fence)
+		if err != nil {
+			return err
+		}
+		if now > wrote {
+			return contract.Violatedf("%s wrote at fence %d after the fence moved", actor, fence)
+		}
+		if refused > 0 {
+			return nil
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return fmt.Errorf("%s neither wrote nor was refused at fence %d", actor, fence)
 }
 
 // drain finishes with no kills: every lease a dead worker left must expire and
@@ -229,10 +371,11 @@ func (r *randomRun) drain() error {
 }
 
 // TestCrashLeases is the random run: SIGKILL at exact steps and at random delays,
-// and SIGSTOP past the lease, on four real worker processes.
+// and SIGSTOP past the lease at random and on purpose, on four real worker processes.
 func TestCrashLeases(t *testing.T) {
 	w := newWorld(t, "")
 	run := newRandomRun(w, crashKills(60))
+	run.holders = holderRounds
 	if err := run.seedWork(3); err != nil {
 		t.Fatal(err)
 	}
@@ -243,8 +386,8 @@ func TestCrashLeases(t *testing.T) {
 	t.Logf("kills=%d at_step=%d distinct_steps=%d pauses=%d spawned=%d claims=%d writes=%d fenced=%d salvaged=%d records=%d",
 		run.killed.Load(), run.atStep.Load(), len(run.stepsKilled), run.paused.Load(), run.spawned.Load(),
 		w.stats.claims, w.stats.writes, w.stats.fencedWrites, w.stats.salvaged, w.stats.records)
-	if w.stats.fencedWrites+w.stats.salvaged == 0 {
-		t.Errorf("seed %d: no holder was fenced, so the run did not exercise fencing", run.seed)
+	if fenced := w.stats.fencedWrites + w.stats.salvaged; fenced < holderRounds {
+		t.Errorf("seed %d: %d holders fenced of the %d stopped on purpose", run.seed, fenced, holderRounds)
 	}
 }
 
