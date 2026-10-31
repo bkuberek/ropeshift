@@ -213,7 +213,7 @@ type outsideCheck struct {
 	store ports.Store
 }
 
-func (o outsideCheck) Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, payload []byte, actor ledger.Actor) (ledger.Event, error) {
+func (o outsideCheck) Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, _ string, payload []byte, actor ledger.Actor) (ledger.Event, error) {
 	var current workorders.WorkOrder
 	err := o.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		var err error
@@ -403,6 +403,11 @@ func allVariants() []variant {
 			},
 			check: "crash",
 			crash: func() (crashCase, string) { return intakeCase("intake.item", withSteps()), "split" },
+		},
+		{
+			name:     "a write retried after a lost answer is not found",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("event.find", "AND id = :id", "AND id = :id AND 1 = 0")},
+			check:    "L23",
 		},
 		{
 			name: "intake does not compare the digest",

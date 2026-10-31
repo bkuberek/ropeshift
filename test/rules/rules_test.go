@@ -60,6 +60,12 @@ func TestDependencyDirectionFixtures(t *testing.T) {
 		{"an adapter imports the application", "adapter-imports-control", "adapters-outward"},
 		{"a package has no layer", "unclassified", "unclassified"},
 		{"crashpoint imports the module", "support-imports-module", "support-leaf"},
+		{"a client imports the API handlers", "client-imports-api-server", "clients-through-api"},
+		{"a client reaches the Store port through the API package", "client-transitive-store", "clients-through-api"},
+		{"the API client imports the application", "api-client-imports-control", "api-client-light"},
+		{"the API client imports the ports", "api-client-imports-ports", "api-client-light"},
+		{"the API handlers wire an adapter", "api-server-imports-adapter", "only-entry-wires"},
+		{"an adapter imports the API handlers", "adapter-imports-api-server", "adapters-outward"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -77,6 +83,21 @@ func TestDependencyDirectionFixtures(t *testing.T) {
 			}
 			if !slices.Contains(rules, tt.rule) {
 				t.Errorf("rule %s not reported, got %v", tt.rule, violations)
+			}
+		})
+	}
+}
+
+// TestAllowedAPIShapes proves the rules do not refuse the layout they describe.
+func TestAllowedAPIShapes(t *testing.T) {
+	for _, fixture := range []string{"adapter-imports-api-client", "api-server-is-allowed"} {
+		t.Run(fixture, func(t *testing.T) {
+			pkgs, err := LoadPackages(filepath.Join("testdata", "dependencies", fixture))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if violations := CheckDependencies(module, pkgs); len(violations) != 0 {
+				t.Errorf("reported %v", violations)
 			}
 		})
 	}
@@ -125,6 +146,20 @@ func TestPortWithAFakePasses(t *testing.T) {
 	}
 	if len(violations) != 0 {
 		t.Errorf("a port with a fake reported %v", violations)
+	}
+}
+
+// TestNoTCPListener holds solo mode to its unix sockets (FR-DEP-1): nothing in this
+// module opens a TCP listener yet.
+func TestNoTCPListener(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, []string{
+		`net.Listen("tcp`, `ListenAndServe(`, `ListenConfig{`, `net.ListenTCP(`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range found {
+		t.Error(hit)
 	}
 }
 

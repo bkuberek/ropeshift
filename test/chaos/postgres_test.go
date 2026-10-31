@@ -24,7 +24,7 @@ type plainFenceRead struct {
 	store ports.Store
 }
 
-func (p plainFenceRead) Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, payload []byte, actor ledger.Actor) (ledger.Event, error) {
+func (p plainFenceRead) Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, _ string, payload []byte, actor ledger.Actor) (ledger.Event, error) {
 	var written ledger.Event
 	err := p.store.Write(ctx, scope, "fenced_write", func(tx ports.WriteTx) error {
 		current, err := tx.WorkOrders().Get(holder.WorkOrder)

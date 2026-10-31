@@ -109,6 +109,17 @@ func CheckKind(kind FileKind) error {
 	return fmt.Errorf("%w: %q", ErrUnknownKind, kind)
 }
 
+// CheckSize accepts a declared size, and an absent one records unknown (D27).
+func CheckSize(size string) (string, error) {
+	switch size {
+	case SizeSmall, SizeMedium, SizeLarge, SizeUnknown:
+		return size, nil
+	case "":
+		return SizeUnknown, nil
+	}
+	return "", fmt.Errorf("size %q", size)
+}
+
 // Normalize fills the defaults of a contract file and refuses one that cannot
 // become records. A contract with no criteria is valid here, because the
 // definition of ready is what refuses it.
@@ -138,13 +149,11 @@ func (f ContractFile) Normalize() (ContractFile, error) {
 		if slices.Contains(order.DependsOn, order.ID) {
 			return f, fmt.Errorf("%w: work order %q depends on itself", ErrBadFile, order.ID)
 		}
-		switch order.Size {
-		case SizeSmall, SizeMedium, SizeLarge:
-		case "":
-			orders[i].Size = SizeUnknown
-		default:
-			return f, fmt.Errorf("%w: work order %q has size %q", ErrBadFile, order.ID, order.Size)
+		size, err := CheckSize(order.Size)
+		if err != nil {
+			return f, fmt.Errorf("%w: work order %q: %v", ErrBadFile, order.ID, err)
 		}
+		orders[i].Size = size
 		if order.Repo == "" {
 			orders[i].Repo = CurrentRepository
 		}

@@ -63,6 +63,12 @@ VALUES
  ORDER BY rev
  LIMIT :limit`)
 
+	stmtFindEvent = define("event.find",
+		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
+       data, occurred_at, recorded_at, traceparent
+  FROM events
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
 	stmtMigrationApplied = define("migration.applied",
 		`SELECT count(*) FROM schema_migrations WHERE version = :version`)
 

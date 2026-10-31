@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+
+	"ropeshift.dev/ropeshift/internal/cli"
 )
 
 // Exit codes shared by every command.
@@ -34,13 +36,31 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "usage: %s version [--json]\n", command)
 		return exitUsage
 	}
-	switch rest[0] {
-	case "version":
+	if rest[0] == "version" {
 		return runVersion(command, rest[1:], stdout, stderr)
-	default:
+	}
+	if command == commandDaemon {
+		if rest[0] == "solo" {
+			return runSolo(rest[1:], stdout, stderr)
+		}
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", command, rest[0])
 		return exitUsage
 	}
+	if !cli.IsCommand(rest[0]) {
+		fmt.Fprintf(stderr, "%s: unknown command %q\n", command, rest[0])
+		return exitUsage
+	}
+	return cli.Run(rest, stdout, stderr, cliOptions())
+}
+
+// cliOptions finds the local control plane. A path that does not resolve leaves the
+// socket empty, and the command reports it cannot reach anything.
+func cliOptions() cli.Options {
+	paths, err := installationPaths()
+	if err != nil {
+		return cli.Options{}
+	}
+	return cli.Options{Socket: paths.ControlSocket()}
 }
 
 // commandName maps the started name to a command. A renamed binary acts as the

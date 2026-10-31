@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -32,6 +33,14 @@ var childRoles = map[string]func(*child) error{
 	"zombie-writer":     roleZombieWriter,
 	"intake":            roleIntake,
 	"review-pass":       roleReviewPass,
+	"record-work":       roleRecordWork,
+}
+
+func roleRecordWork(c *child) error {
+	_, err := c.ops.Record(c.ctx, c.scope, control.LedgerWork{
+		Order: workorders.WorkOrder{ID: c.spec.WorkOrder, Kind: workorders.KindChange, Title: "from a child"},
+	}, c.actor)
+	return err
 }
 
 // roleIntake polls one contract file. The source is rebuilt on every start, because
@@ -121,7 +130,7 @@ func roleFencedWrite(c *child) error {
 	if err := c.attempted("write", c.spec.WorkOrder, key, c.spec.Fence); err != nil {
 		return err
 	}
-	event, err := c.ops.Write(c.ctx, c.scope, c.holder(), []byte(key), c.actor)
+	event, err := c.ops.Write(c.ctx, c.scope, c.holder(), key, []byte(key), c.actor)
 	if err != nil {
 		return err
 	}
@@ -331,7 +340,7 @@ func (c *child) work(grant workorders.Grant) error {
 		if err := c.attempted("write", lease.WorkOrder, key, lease.Fence); err != nil {
 			return err
 		}
-		event, err := c.ops.Write(c.ctx, c.scope, holder, []byte(key), c.actor)
+		event, err := c.ops.Write(c.ctx, c.scope, holder, key, []byte(key), c.actor)
 		var fenced *workorders.FencedError
 		if errors.As(err, &fenced) {
 			if err := c.rejected("write", lease.WorkOrder, key, lease.Fence, "fenced"); err != nil {
@@ -408,7 +417,7 @@ func roleZombieWriter(c *child) error {
 		if err := c.attempted("write", request.WorkOrder, key, grant.Fence); err != nil {
 			return err
 		}
-		event, err := c.ops.Write(c.ctx, c.scope, holder, []byte(key), c.actor)
+		event, err := c.ops.Write(c.ctx, c.scope, holder, key, []byte(key), c.actor)
 		var fenced *workorders.FencedError
 		if errors.As(err, &fenced) {
 			return c.rejected("write", request.WorkOrder, key, grant.Fence, "fenced")

@@ -3,8 +3,10 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -53,6 +55,97 @@ func (w *WorkOrders) Create(ctx context.Context, scope ledger.WorkspaceID, draft
 		return workorders.WorkOrder{}, err
 	}
 	return record, nil
+}
+
+// LedgerWork is a work order that lives only in the ledger, with the contract it
+// pins (FR-LEDGER-3).
+type LedgerWork struct {
+	Order     workorders.WorkOrder
+	Statement string
+	Criteria  []planning.Criterion
+	DependsOn []string
+}
+
+// Record creates ledger work in one transaction and carries it to
+// `contract_review`, where a person reviews it as they would a contract file. The
+// client generates the work order's ID, so a retry returns what the first attempt
+// wrote.
+func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work LedgerWork, actor ledger.Actor) (workorders.WorkOrder, error) {
+	record, err := workorders.New(work.Order)
+	if err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	if record.Title == "" {
+		return workorders.WorkOrder{}, fmt.Errorf("%w: no title", workorders.ErrInvalid)
+	}
+	if record.Size, err = planning.CheckSize(record.Size); err != nil {
+		return workorders.WorkOrder{}, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	err = w.store.Write(ctx, scope, "work_order.record", func(tx ports.WriteTx) error {
+		existing, err := tx.WorkOrders().Get(record.ID)
+		if err == nil {
+			record = existing
+			return nil
+		}
+		if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		pinned, err := recordLedgerWork(tx, record, work, actor)
+		record = pinned
+		return err
+	})
+	if err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	return record, nil
+}
+
+func recordLedgerWork(tx ports.WriteTx, record workorders.WorkOrder, work LedgerWork, actor ledger.Actor) (workorders.WorkOrder, error) {
+	r := planningWriter{tx: tx, actor: actor}
+	planID, err := newID(tx.Now())
+	if err != nil {
+		return record, err
+	}
+	contractID, err := newID(tx.Now())
+	if err != nil {
+		return record, err
+	}
+	contract := planning.Contract{
+		ID: contractID, Version: 1, PlanID: planID, Title: record.Title, Statement: work.Statement,
+		Criteria: work.Criteria, Requirements: record.Requirements, Status: planning.StatusActive,
+	}
+	if contract.Digest, err = planning.LedgerDigest(contract); err != nil {
+		return record, err
+	}
+	plan := planning.Plan{ID: planID, Title: record.Title, Status: planning.StatusActive}
+	if err := r.plan(plan); err != nil {
+		return record, err
+	}
+	if err := r.contract(contract); err != nil {
+		return record, err
+	}
+	record.ContractID, record.ContractVersion = contract.ID, contract.Version
+	if err := tx.WorkOrders().Insert(record); err != nil {
+		return record, err
+	}
+	event, err := workorders.CreatedEvent(record, actor)
+	if err != nil {
+		return record, err
+	}
+	if _, err := tx.Append(event); err != nil {
+		return record, err
+	}
+	for _, dependsOn := range work.DependsOn {
+		if err := r.dependency(planning.Dependency{WorkOrder: record.ID, DependsOn: dependsOn, Kind: planning.DependencyBlocking}); err != nil {
+			return record, err
+		}
+	}
+	for _, trigger := range []workorders.Trigger{workorders.TriggerAccepted, workorders.TriggerContractSubmitted} {
+		if err := takeEdge(tx, record.ID, trigger, actor); err != nil {
+			return record, err
+		}
+	}
+	return tx.WorkOrders().Get(record.ID)
 }
 
 // Move takes one unleased edge of the state machine. The compare-and-set repeats

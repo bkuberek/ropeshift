@@ -181,10 +181,7 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 			return itemOutcome{}, err
 		}
 	}
-	if err := r.append(planning.EventContractVersion, planning.SubjectContract, contract.ID, contract); err != nil {
-		return itemOutcome{}, err
-	}
-	if err := r.tx.Planning().InsertContract(contract); err != nil {
+	if err := r.writer().contract(contract); err != nil {
 		return itemOutcome{}, err
 	}
 	crashpoint.Hit("intake.item", "versioned")
@@ -264,30 +261,58 @@ func (r *itemRecorder) orderKey(spec planning.WorkOrderSpec) ledger.ExternalKey 
 // file is enough for a first work order.
 func (r *itemRecorder) recordNewContract(contract planning.Contract) error {
 	plan := planning.Plan{ID: contract.PlanID, Title: contract.Title, Status: planning.StatusActive, Source: r.item.Contract.Plan}
-	if err := r.tx.Planning().InsertPlan(plan); err != nil {
+	if err := r.writer().plan(plan); err != nil {
 		return err
 	}
-	if err := r.append(planning.EventPlanRecorded, planning.SubjectPlan, plan.ID, plan); err != nil {
-		return err
-	}
-	return r.link(planning.SubjectContract, contract.ID, r.item.Key)
+	return r.writer().link(planning.SubjectContract, contract.ID, r.item.Key)
 }
 
-func (r *itemRecorder) link(kind, id string, key ledger.ExternalKey) error {
-	link := ledger.ExternalLink{RecordKind: kind, RecordID: id, Key: key, DisplayKey: key.NativeID}
-	if err := r.tx.Planning().InsertLink(link); err != nil {
-		return err
-	}
-	return r.append(planning.EventLinkRecorded, planning.SubjectLink, id, link)
+func (r *itemRecorder) writer() planningWriter {
+	return planningWriter{tx: r.tx, actor: intakeActor}
 }
 
-func (r *itemRecorder) append(eventType, subjectKind, subjectID string, record any) error {
-	event, err := planning.RecordEvent(eventType, subjectKind, subjectID, record, intakeActor)
+// planningWriter records planning data with the event each record traces to.
+type planningWriter struct {
+	tx    ports.WriteTx
+	actor ledger.Actor
+}
+
+func (w planningWriter) append(eventType, subjectKind, subjectID string, record any) error {
+	event, err := planning.RecordEvent(eventType, subjectKind, subjectID, record, w.actor)
 	if err != nil {
 		return err
 	}
-	_, err = r.tx.Append(event)
+	_, err = w.tx.Append(event)
 	return err
+}
+
+func (w planningWriter) plan(plan planning.Plan) error {
+	if err := w.tx.Planning().InsertPlan(plan); err != nil {
+		return err
+	}
+	return w.append(planning.EventPlanRecorded, planning.SubjectPlan, plan.ID, plan)
+}
+
+func (w planningWriter) contract(contract planning.Contract) error {
+	if err := w.tx.Planning().InsertContract(contract); err != nil {
+		return err
+	}
+	return w.append(planning.EventContractVersion, planning.SubjectContract, contract.ID, contract)
+}
+
+func (w planningWriter) link(kind, id string, key ledger.ExternalKey) error {
+	link := ledger.ExternalLink{RecordKind: kind, RecordID: id, Key: key, DisplayKey: key.NativeID}
+	if err := w.tx.Planning().InsertLink(link); err != nil {
+		return err
+	}
+	return w.append(planning.EventLinkRecorded, planning.SubjectLink, id, link)
+}
+
+func (w planningWriter) dependency(edge planning.Dependency) error {
+	if err := w.tx.Planning().InsertDependency(edge); err != nil {
+		return err
+	}
+	return w.append(planning.EventDependencyRecorded, planning.SubjectDependency, edge.WorkOrder, edge)
 }
 
 // recordOrder creates a work order this contract names for the first time, pinned
@@ -329,7 +354,7 @@ func (r *itemRecorder) recordOrder(contract planning.Contract, spec planning.Wor
 	if _, err := r.tx.Append(event); err != nil {
 		return false, err
 	}
-	if err := r.link(workorders.SubjectKind, id, key); err != nil {
+	if err := r.writer().link(workorders.SubjectKind, id, key); err != nil {
 		return false, err
 	}
 	for _, dependsOn := range spec.DependsOn {
@@ -355,14 +380,10 @@ func (r *itemRecorder) repository(spec planning.WorkOrderSpec) string {
 }
 
 func (r *itemRecorder) dependency(workOrder, dependsOn string) error {
-	edge := planning.Dependency{
+	return r.writer().dependency(planning.Dependency{
 		WorkOrder: workOrder, DependsOn: dependsOn, Adapter: r.item.Key.Adapter, Instance: r.item.Key.Instance,
 		Kind: planning.DependencyBlocking,
-	}
-	if err := r.tx.Planning().InsertDependency(edge); err != nil {
-		return err
-	}
-	return r.append(planning.EventDependencyRecorded, planning.SubjectDependency, workOrder, edge)
+	})
 }
 
 // newID generates a client ID. The time comes from the caller, because every

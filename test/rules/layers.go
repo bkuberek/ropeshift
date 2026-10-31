@@ -18,6 +18,7 @@ const (
 	LayerApplication  Layer = "application"
 	LayerAdapter      Layer = "adapter"
 	LayerAPI          Layer = "api"
+	LayerAPIServer    Layer = "api-server"
 	LayerClient       Layer = "client"
 	LayerSupport      Layer = "support"
 	LayerUnclassified Layer = "unclassified"
@@ -72,6 +73,9 @@ func Classify(rel string) Layer {
 	case "adapters":
 		return LayerAdapter
 	case "api":
+		if len(parts) > 2 && parts[2] == "server" {
+			return LayerAPIServer
+		}
 		return LayerAPI
 	case "crashpoint":
 		return LayerSupport

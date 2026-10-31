@@ -41,6 +41,7 @@ var LeaseChecks = []Check{
 	{"L20", "the revision stays first through every lease statement", checkLeaseStatementOrder},
 	{"L21", "the state table decides every move", checkMovesFollowTheTable},
 	{"L22", "a retry of a lease step changes nothing", checkLeaseRetries},
+	{"L23", "a fenced write retried after a lost answer stores one event", checkWriteRetry},
 }
 
 // Ready creates a work order and walks it to `ready` through the state table.
@@ -233,7 +234,7 @@ func checkStaleWrite(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	_, err = ops.Write(r.Ctx, r.Scope, old, []byte("stale"), r.worker("a"))
+	_, err = ops.Write(r.Ctx, r.Scope, old, r.ID("write"), []byte("stale"), r.worker("a"))
 	var fenced *workorders.FencedError
 	if !errors.As(err, &fenced) {
 		return Violatedf("a write with fence %d was not fenced: %v", old.Fence, err)
@@ -248,10 +249,10 @@ func checkStaleWrite(r *Rig) error {
 	}
 	ahead := current
 	ahead.Fence = current.Fence + 1
-	if _, err := ops.Write(r.Ctx, r.Scope, ahead, []byte("ahead"), r.worker("b")); !errors.As(err, &fenced) {
+	if _, err := ops.Write(r.Ctx, r.Scope, ahead, r.ID("write"), []byte("ahead"), r.worker("b")); !errors.As(err, &fenced) {
 		return Violatedf("a write with a fence from the future was accepted: %v", err)
 	}
-	_, err = ops.Write(r.Ctx, r.Scope, current, []byte("current"), r.worker("b"))
+	_, err = ops.Write(r.Ctx, r.Scope, current, r.ID("write"), []byte("current"), r.worker("b"))
 	return err
 }
 
@@ -287,7 +288,7 @@ func checkInFlightWrite(r *Rig) error {
 	}
 	written := make(chan outcome, 1)
 	go func() {
-		event, err := r.NewOps(a).Write(r.Ctx, r.Scope, holder, []byte("in flight"), r.worker("a"))
+		event, err := r.NewOps(a).Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("in flight"), r.worker("a"))
 		written <- outcome{event.Rev, err}
 	}()
 	select {
@@ -344,7 +345,7 @@ func checkWriteAfterRevocation(r *Rig) error {
 	ops := r.NewOps(s)
 	var accepted []string
 	stale := func(path string, holder workorders.Holder) error {
-		_, err := ops.Write(r.Ctx, r.Scope, holder, []byte(path), r.worker("a"))
+		_, err := ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte(path), r.worker("a"))
 		var fenced *workorders.FencedError
 		switch {
 		case errors.As(err, &fenced):
@@ -675,7 +676,7 @@ func checkReturn(r *Rig) error {
 	if err := ops.Renew(r.Ctx, r.Scope, holder.Lease, TTLMs); err != nil {
 		return err
 	}
-	if _, err := ops.Write(r.Ctx, r.Scope, holder, []byte("back"), r.worker("a")); err != nil {
+	if _, err := ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("back"), r.worker("a")); err != nil {
 		return err
 	}
 
@@ -829,11 +830,11 @@ func checkGeneration(r *Rig) error {
 		return fmt.Errorf("a handoff kept generation %d", next)
 	}
 	var fenced *workorders.FencedError
-	if _, err := ops.Write(r.Ctx, r.Scope, holder, []byte("old"), r.worker("a")); !errors.As(err, &fenced) {
+	if _, err := ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("old"), r.worker("a")); !errors.As(err, &fenced) {
 		return Violatedf("the previous generation wrote after a handoff: %v", err)
 	}
 	holder.Generation = next
-	_, err = ops.Write(r.Ctx, r.Scope, holder, []byte("new"), r.worker("a"))
+	_, err = ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("new"), r.worker("a"))
 	return err
 }
 
@@ -943,7 +944,7 @@ func checkLeaseReplay(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ops.Write(r.Ctx, r.Scope, holder, []byte("one"), r.worker("a")); err != nil {
+	if _, err := ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("one"), r.worker("a")); err != nil {
 		return err
 	}
 	if err := r.Expire(s); err != nil {
@@ -960,7 +961,7 @@ func checkLeaseReplay(r *Rig) error {
 		return err
 	}
 	holder.Generation = next
-	if _, err := ops.Write(r.Ctx, r.Scope, holder, []byte("two"), r.worker("a")); err != nil {
+	if _, err := ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("two"), r.worker("a")); err != nil {
 		return err
 	}
 	if err := r.CheckProjection(s); err != nil {
@@ -1008,7 +1009,7 @@ func checkLeaseStatementOrder(r *Rig) error {
 	if err := ops.Renew(r.Ctx, r.Scope, holder.Lease, TTLMs); err != nil {
 		return err
 	}
-	if _, err := ops.Write(r.Ctx, r.Scope, holder, []byte("traced"), r.worker("a")); err != nil {
+	if _, err := ops.Write(r.Ctx, r.Scope, holder, r.ID("write"), []byte("traced"), r.worker("a")); err != nil {
 		return err
 	}
 	if err := r.Expire(s); err != nil {
@@ -1121,4 +1122,61 @@ func checkLeaseRetries(r *Rig) error {
 		return Violatedf("a repeated release wrote %d events", n)
 	}
 	return r.CheckRevisions(s, r.Scope)
+}
+
+func checkWriteRetry(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	id, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	holder, err := r.Running(s, id, "a")
+	if err != nil {
+		return err
+	}
+	writeID := r.ID("write")
+	first, err := ops.Write(r.Ctx, r.Scope, holder, writeID, []byte("once"), r.worker("a"))
+	if err != nil {
+		return err
+	}
+	before, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	again, err := ops.Write(r.Ctx, r.Scope, holder, writeID, []byte("once"), r.worker("a"))
+	if err != nil {
+		return Violatedf("a retry failed: %v", err)
+	}
+	if again.Rev != first.Rev {
+		return Violatedf("the retry stored rev %d after rev %d", again.Rev, first.Rev)
+	}
+	count, err := r.countEvents(s, workorders.EventFencedWrite, id)
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return Violatedf("%d writes stored", count)
+	}
+	after, err := r.WorkOrder(s, id)
+	if err != nil {
+		return err
+	}
+	if after.Rev != before.Rev {
+		return Violatedf("the retry moved the write count from %d to %d", before.Rev, after.Rev)
+	}
+	if err := r.Expire(s); err != nil {
+		return err
+	}
+	if err := ops.Reassign(r.Ctx, r.Scope, id, "lost", r.Actor); err != nil {
+		return err
+	}
+	late, err := ops.Write(r.Ctx, r.Scope, holder, writeID, []byte("once"), r.worker("a"))
+	if err != nil {
+		return Violatedf("a retry after the fence moved failed: %v", err)
+	}
+	if late.Rev != first.Rev {
+		return Violatedf("a late retry answered rev %d", late.Rev)
+	}
+	return r.CheckProjection(s)
 }

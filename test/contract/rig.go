@@ -90,8 +90,9 @@ type Ops interface {
 	Release(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, actor ledger.Actor) error
 	Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrder, reason string, actor ledger.Actor) error
 	StartLane(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, lane string, actor ledger.Actor) (int64, error)
-	Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, payload []byte, actor ledger.Actor) (ledger.Event, error)
+	Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, writeID string, payload []byte, actor ledger.Actor) (ledger.Event, error)
 	Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error)
+	Record(ctx context.Context, scope ledger.WorkspaceID, work control.LedgerWork, actor ledger.Actor) (workorders.WorkOrder, error)
 	Poll(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource) (control.IntakeReport, error)
 	Pass(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (control.ReviewResult, error)
 	Promote(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)

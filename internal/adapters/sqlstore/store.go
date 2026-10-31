@@ -376,6 +376,18 @@ func (t *writeTx) Events(after int64, limit int) ([]ledger.Event, error) {
 	return listEvents(t.session, t.scope, after, limit)
 }
 
+func (t *writeTx) Event(id string) (ledger.Event, error) {
+	row, err := t.row(stmtFindEvent, params{"workspace_id": string(t.scope), "id": id})
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	e, err := scanEvent(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ledger.Event{}, fmt.Errorf("event %s: %w", id, ports.ErrNotFound)
+	}
+	return e, err
+}
+
 func (t *writeTx) WorkOrders() ports.WorkOrderWriter {
 	return workOrderTx{session: t.session, scope: t.scope}
 }
@@ -482,22 +494,30 @@ func listEvents(se *session, scope ledger.WorkspaceID, after int64, limit int) (
 	defer rows.Close()
 	var events []ledger.Event
 	for rows.Next() {
-		var e ledger.Event
-		var actorKind, data string
-		var occurredAt sql.NullInt64
-		var traceparent sql.NullString
-		err := rows.Scan(&e.Rev, &e.ID, &e.Type, &actorKind, &e.Actor.ID, &e.Subject.Kind, &e.Subject.ID,
-			&data, &occurredAt, &e.RecordedAt, &traceparent)
+		e, err := scanEvent(rows)
 		if err != nil {
 			return nil, err
 		}
-		e.Actor.Kind = ledger.ActorKind(actorKind)
-		e.Data = []byte(data)
-		e.OccurredAt = occurredAt.Int64
-		e.Traceparent = traceparent.String
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func scanEvent(row scanner) (ledger.Event, error) {
+	var e ledger.Event
+	var actorKind, data string
+	var occurredAt sql.NullInt64
+	var traceparent sql.NullString
+	err := row.Scan(&e.Rev, &e.ID, &e.Type, &actorKind, &e.Actor.ID, &e.Subject.Kind, &e.Subject.ID,
+		&data, &occurredAt, &e.RecordedAt, &traceparent)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	e.Actor.Kind = ledger.ActorKind(actorKind)
+	e.Data = []byte(data)
+	e.OccurredAt = occurredAt.Int64
+	e.Traceparent = traceparent.String
+	return e, nil
 }
 
 func nullText(s string) sql.NullString {

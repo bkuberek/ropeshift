@@ -72,6 +72,9 @@ type WriteTx interface {
 	Workspace() (ledger.Workspace, error)
 	// Events returns up to limit events after the revision, in order.
 	Events(after int64, limit int) ([]ledger.Event, error)
+	// Event returns the event with a client-generated ID, or ErrNotFound. It is how
+	// a retry finds its first attempt.
+	Event(id string) (ledger.Event, error)
 	// Append adds one event, which takes its own revision.
 	Append(ledger.EventDraft) (ledger.Event, error)
 	// WorkOrders reads and writes the work order projection.
@@ -189,6 +192,8 @@ type PlanningReader interface {
 	AllDependencies() ([]planning.Dependency, error)
 	// Binding returns one source binding, or ErrNotFound.
 	Binding(id string) (planning.SourceBinding, error)
+	// Bindings returns every source binding.
+	Bindings() ([]planning.SourceBinding, error)
 }
 
 // PlanningWriter records what intake read.

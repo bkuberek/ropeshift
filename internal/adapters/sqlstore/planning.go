@@ -76,6 +76,11 @@ VALUES (:workspace_id, :work_order_id, :depends_on, :adapter, :instance, :kind)`
 		`SELECT id, port, adapter, instance_url, cursor, health, detail, problems FROM source_bindings
  WHERE workspace_id = :workspace_id AND id = :id`)
 
+	stmtListBindings = define("binding.list",
+		`SELECT id, port, adapter, instance_url, cursor, health, detail, problems FROM source_bindings
+ WHERE workspace_id = :workspace_id
+ ORDER BY id`)
+
 	stmtSaveBinding = define("binding.save",
 		`INSERT INTO source_bindings (workspace_id, id, port, adapter, instance_url, cursor, health, detail, problems)
 VALUES (:workspace_id, :id, :port, :adapter, :instance_url, :cursor, :health, :detail, :problems)
@@ -298,19 +303,40 @@ func (t planningTx) Binding(id string) (planning.SourceBinding, error) {
 	if err != nil {
 		return planning.SourceBinding{}, err
 	}
-	var b planning.SourceBinding
-	var cursor, detail sql.NullString
-	var problems string
-	err = row.Scan(&b.ID, &b.Port, &b.Adapter, &b.Instance, &cursor, &b.Health, &detail, &problems)
+	b, err := scanBinding(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return planning.SourceBinding{}, fmt.Errorf("binding %s: %w", id, ports.ErrNotFound)
 	}
+	return b, err
+}
+
+func (t planningTx) Bindings() ([]planning.SourceBinding, error) {
+	rows, err := t.rows(stmtListBindings, t.scoped(nil))
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []planning.SourceBinding
+	for rows.Next() {
+		b, err := scanBinding(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+func scanBinding(row scanner) (planning.SourceBinding, error) {
+	var b planning.SourceBinding
+	var cursor, detail sql.NullString
+	var problems string
+	if err := row.Scan(&b.ID, &b.Port, &b.Adapter, &b.Instance, &cursor, &b.Health, &detail, &problems); err != nil {
 		return planning.SourceBinding{}, err
 	}
 	b.Cursor, b.Detail = cursor.String, detail.String
 	if err := json.Unmarshal([]byte(problems), &b.Problems); err != nil {
-		return planning.SourceBinding{}, fmt.Errorf("binding %s: %w", id, err)
+		return planning.SourceBinding{}, fmt.Errorf("binding %s: %w", b.ID, err)
 	}
 	return b, nil
 }

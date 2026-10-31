@@ -131,6 +131,7 @@ func crashMatrix() []crashCase {
 		intakeCase("intake.item", withSteps("versioned", "ordered")),
 		intakeCase("intake.settle", withSteps()),
 		reviewCase(),
+		recordCase(),
 	}
 }
 
@@ -409,6 +410,24 @@ func intakeSettled(w *world, id string) error {
 		return contract.Violatedf("%s: %d versions and %d work orders, want one of each", id, contracts, orders)
 	}
 	return nil
+}
+
+// recordCase is ledger work: a contract and its work order in one transaction.
+func recordCase() crashCase {
+	return crashCase{
+		name:  "record ledger work",
+		op:    "work_order.record",
+		steps: withSteps(),
+		prepare: func(w *world) (childSpec, error) {
+			return childSpec{Role: "record-work", WorkOrder: w.rig.ID("wo")}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, workorders.EventCreated, spec.WorkOrder, 1); err != nil {
+				return err
+			}
+			return hasState(w, spec.WorkOrder, workorders.ContractReview)
+		},
+	}
 }
 
 func reviewCase() crashCase {

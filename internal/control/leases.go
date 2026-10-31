@@ -65,7 +65,9 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 			return err
 		}
 		crashpoint.Hit("claim", "recorded")
-		grant = grantOf(current, request)
+		if grant, err = grantOf(tx, current, request); err != nil {
+			return err
+		}
 		event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerClaimGranted), request.WorkOrder, workorders.Change{
 			Trigger:    workorders.TriggerClaimGranted,
 			Fence:      current.Fence,
@@ -89,8 +91,8 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 	return grant, nil
 }
 
-func grantOf(w workorders.WorkOrder, request workorders.ClaimRequest) workorders.Grant {
-	return workorders.Grant{
+func grantOf(tx ports.WriteTx, w workorders.WorkOrder, request workorders.ClaimRequest) (workorders.Grant, error) {
+	grant := workorders.Grant{
 		Lease:           workorders.Lease{WorkOrder: w.ID, ClaimID: request.ClaimID, Fence: w.Fence},
 		TTLMs:           request.TTLMs,
 		ResumeLaneID:    w.ResumeLaneID,
@@ -98,6 +100,15 @@ func grantOf(w workorders.WorkOrder, request workorders.ClaimRequest) workorders
 		ContractID:      w.ContractID,
 		ContractVersion: w.ContractVersion,
 	}
+	if w.ContractVersion == 0 {
+		return grant, nil
+	}
+	contract, err := tx.Planning().Contract(w.ContractID, w.ContractVersion)
+	if err != nil {
+		return workorders.Grant{}, err
+	}
+	grant.ContractDigest = contract.Digest
+	return grant, nil
 }
 
 // replayGrant answers a retry. It changes nothing, so the transaction rolls back
@@ -110,7 +121,10 @@ func replayGrant(tx ports.WriteTx, claim workorders.Claim, request workorders.Cl
 	if claim.Ended() || current.ClaimID != claim.ID {
 		return workorders.Grant{}, workorders.ErrLost
 	}
-	grant := grantOf(current, request)
+	grant, err := grantOf(tx, current, request)
+	if err != nil {
+		return workorders.Grant{}, err
+	}
 	grant.Fence = claim.Fence
 	grant.Replayed = true
 	return grant, nil
@@ -384,25 +398,34 @@ func (l *Leases) StartLane(ctx context.Context, scope ledger.WorkspaceID, lease 
 // between the check and the commit.
 func (l *Leases) Fenced(ctx context.Context, scope ledger.WorkspaceID, op string, holder workorders.Holder, fn func(ports.WriteTx) error) error {
 	return l.store.Write(ctx, scope, op, func(tx ports.WriteTx) error {
-		won, err := tx.Leases().Guard(holder.WorkOrder, holder.Fence)
-		if err != nil {
+		if err := guardHolder(tx, op, holder); err != nil {
 			return err
-		}
-		if !won {
-			return fenced(tx, holder.WorkOrder)
-		}
-		crashpoint.Hit(op, "guarded")
-		if holder.Lane != "" {
-			generation, err := tx.Lanes().Generation(holder.Lane)
-			if err != nil {
-				return err
-			}
-			if generation != holder.Generation {
-				return fenced(tx, holder.WorkOrder)
-			}
 		}
 		return fn(tx)
 	})
+}
+
+// guardHolder checks a holder's fence and generation inside a write transaction.
+func guardHolder(tx ports.WriteTx, op string, holder workorders.Holder) error {
+	won, err := tx.Leases().Guard(holder.WorkOrder, holder.Fence)
+	if err != nil {
+		return err
+	}
+	if !won {
+		return fenced(tx, holder.WorkOrder)
+	}
+	crashpoint.Hit(op, "guarded")
+	if holder.Lane == "" {
+		return nil
+	}
+	generation, err := tx.Lanes().Generation(holder.Lane)
+	if err != nil {
+		return err
+	}
+	if generation != holder.Generation {
+		return fenced(tx, holder.WorkOrder)
+	}
+	return nil
 }
 
 func fenced(tx ports.WriteTx, workOrder string) error {
@@ -414,10 +437,23 @@ func fenced(tx ports.WriteTx, workOrder string) error {
 }
 
 // Write appends one event under the holder's fence. The event carries the fence,
-// so a replay can check it and count the write.
-func (l *Leases) Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, payload []byte, actor ledger.Actor) (ledger.Event, error) {
+// so a replay can check it and count the write. The client generates writeID, and
+// a retry finds the first attempt before it checks anything, so a write whose
+// answer was lost cannot repeat, even if the fence moved since.
+func (l *Leases) Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, writeID string, payload []byte, actor ledger.Actor) (ledger.Event, error) {
 	var written ledger.Event
-	err := l.Fenced(ctx, scope, "fenced_write", holder, func(tx ports.WriteTx) error {
+	err := l.store.Write(ctx, scope, "fenced_write", func(tx ports.WriteTx) error {
+		first, err := tx.Event(writeID)
+		if err == nil {
+			written = first
+			return nil
+		}
+		if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		if err := guardHolder(tx, "fenced_write", holder); err != nil {
+			return err
+		}
 		event, err := workorders.ChangeEvent(workorders.EventFencedWrite, holder.WorkOrder, workorders.Change{
 			Guarded:    true,
 			Fence:      holder.Fence,
@@ -429,6 +465,7 @@ func (l *Leases) Write(ctx context.Context, scope ledger.WorkspaceID, holder wor
 		if err != nil {
 			return err
 		}
+		event.ID = writeID
 		written, err = tx.Append(event)
 		return err
 	})

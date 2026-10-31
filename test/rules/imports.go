@@ -79,6 +79,37 @@ func LoadPackages(root string) ([]Package, error) {
 	return pkgs, nil
 }
 
+// FindSource lists where any of the phrases appear in the non-test Go source under
+// the named directories.
+func FindSource(root string, dirs, phrases []string) ([]string, error) {
+	var found []string
+	for _, top := range dirs {
+		err := filepath.WalkDir(filepath.Join(root, top), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !isSource(d.Name()) {
+				return err
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			for _, phrase := range phrases {
+				if strings.Contains(string(raw), phrase) {
+					rel, err := filepath.Rel(root, path)
+					if err != nil {
+						return err
+					}
+					found = append(found, rel+" holds "+phrase)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return found, nil
+}
+
 func isSource(name string) bool {
 	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
 }
@@ -137,6 +168,7 @@ func CheckDependencies(module string, pkgs []Package) []Violation {
 		}
 	}
 	found = append(found, checkHookClosure(module, pkgs)...)
+	found = append(found, checkClientClosure(module, pkgs)...)
 	slices.SortFunc(found, func(a, b Violation) int { return strings.Compare(a.String(), b.String()) })
 	return found
 }
@@ -179,14 +211,21 @@ func checkImport(module, rel string, layer Layer, path string) []Violation {
 	case LayerApplication:
 		return checkApplicationImport(rel, kind, to, target, fail)
 	case LayerAdapter:
-		if kind == importModule && to != LayerDomain && to != LayerPorts && to != LayerAdapter && to != LayerSupport {
+		if kind == importModule && !adapterMayImport(to) {
 			return fail("adapters-outward")
 		}
 	case LayerClient:
-		if kind == importModule && (to == LayerPorts || to == LayerApplication || to == LayerAdapter) {
+		if kind == importModule && behindTheAPI(to) {
 			return fail("clients-through-api")
 		}
-	case LayerAPI, LayerSupport:
+	case LayerAPI:
+		if kind == importModule && to == LayerAdapter {
+			return fail("only-entry-wires")
+		}
+		if kind == importModule && behindTheAPI(to) {
+			return fail("api-client-light")
+		}
+	case LayerAPIServer, LayerSupport:
 		if kind == importModule && to == LayerAdapter {
 			return fail("only-entry-wires")
 		}
@@ -195,6 +234,19 @@ func checkImport(module, rel string, layer Layer, path string) []Violation {
 		}
 	}
 	return nil
+}
+
+// adapterMayImport allows the API's wire types and client, because the worker's
+// HTTP link speaks the same API as every other client (FR-API-3).
+func adapterMayImport(to Layer) bool {
+	return to == LayerDomain || to == LayerPorts || to == LayerAdapter || to == LayerSupport || to == LayerAPI
+}
+
+// behindTheAPI names what a client must not reach (FR-UI-4). The API's handlers
+// are on this side, because they hold the application, and the wire types and
+// client are not.
+func behindTheAPI(layer Layer) bool {
+	return layer == LayerPorts || layer == LayerApplication || layer == LayerAdapter || layer == LayerAPIServer
 }
 
 func checkApplicationImport(rel string, kind importKind, to Layer, target string, fail func(string) []Violation) []Violation {
@@ -229,6 +281,22 @@ func planeOf(rel string) string {
 // checkHookClosure follows imports from the hook package. The hook runs inside
 // the NFR-PERF-2 budget, so an adapter must not reach it through any path.
 func checkHookClosure(module string, pkgs []Package) []Violation {
+	return checkClosure(module, pkgs, "internal/hook", "hook-no-adapter", func(l Layer) bool { return l == LayerAdapter })
+}
+
+// checkClientClosure follows imports from every client, because a client that
+// reaches the Store through another package still bypasses the API (FR-UI-4).
+func checkClientClosure(module string, pkgs []Package) []Violation {
+	var found []Violation
+	for _, pkg := range pkgs {
+		if Classify(pkg.Rel) == LayerClient {
+			found = append(found, checkClosure(module, pkgs, pkg.Rel, "clients-through-api", behindTheAPI)...)
+		}
+	}
+	return found
+}
+
+func checkClosure(module string, pkgs []Package, start, rule string, forbidden func(Layer) bool) []Violation {
 	imports := map[string][]string{}
 	for _, pkg := range pkgs {
 		imports[pkg.Rel] = pkg.Imports
@@ -247,13 +315,13 @@ func checkHookClosure(module string, pkgs []Package) []Violation {
 				continue
 			}
 			chain := append(slices.Clone(via), target)
-			if Classify(target) == LayerAdapter {
-				found = append(found, Violation{"hook-no-adapter", "internal/hook", "reaches " + strings.Join(chain, " -> ")})
+			if forbidden(Classify(target)) {
+				found = append(found, Violation{rule, start, "reaches " + strings.Join(chain, " -> ")})
 				continue
 			}
 			walk(target, chain)
 		}
 	}
-	walk("internal/hook", nil)
+	walk(start, nil)
 	return found
 }

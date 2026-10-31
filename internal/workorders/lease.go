@@ -69,6 +69,7 @@ type Grant struct {
 	Branch          string
 	ContractID      string
 	ContractVersion int64
+	ContractDigest  string
 	// Rev is the revision of the grant event. A replayed grant has none.
 	Rev      int64
 	Replayed bool
