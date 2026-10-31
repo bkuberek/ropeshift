@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,9 +114,14 @@ func (d *daemon) kill() {
 	}
 }
 
+// waitReady waits for the daemon's own answer. A connection proves only that something
+// is bound, and the kernel takes one before the socket has its mode, so only a reply
+// shows the daemon finished setting the socket up.
 func (in *install) waitReady(d *daemon) {
 	in.t.Helper()
 	socket := in.paths().ControlSocket()
+	client := api.NewUnixClient(socket)
+	defer client.Close()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
@@ -125,13 +129,14 @@ func (in *install) waitReady(d *daemon) {
 			in.t.Fatalf("the daemon exited: %v\n%s", err, d.stderr.String())
 		default:
 		}
-		if conn, err := net.Dial("unix", socket); err == nil {
-			_ = conn.Close()
+		_, err := client.Health(in.t.Context())
+		var refused *api.Error
+		if err == nil || errors.As(err, &refused) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	in.t.Fatalf("no socket at %s\n%s", socket, d.stderr.String())
+	in.t.Fatalf("no answer at %s\n%s", socket, d.stderr.String())
 }
 
 func (in *install) run(args ...string) (int, string, string) {
