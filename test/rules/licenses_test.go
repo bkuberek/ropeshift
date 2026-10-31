@@ -1,0 +1,93 @@
+package rules
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLicenseClassification(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		want    string
+		allowed bool
+	}{
+		{"MIT", "mit", "MIT", true},
+		{"BSD with three clauses", "bsd3", "BSD-3-Clause", true},
+		{"BSD with two clauses", "bsd2", "BSD-2-Clause", true},
+		{"Apache 2.0", "apache2", "Apache-2.0", true},
+		{"ISC", "isc", "ISC", true},
+		{"MPL 2.0", "mpl2", "MPL-2.0", true},
+		{"public domain", "public-domain", "Public-Domain", true},
+		{"a license with a hosted-use limit", "sspl", "SSPL", false},
+		{"source-available terms", "bsl", "BUSL", false},
+		{"AGPL", "agpl", "AGPL", false},
+		{"text nothing recognizes", "unknown", "unknown", false},
+		{"no license file", "missing", "none", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ClassifyModule(filepath.Join("testdata", "licenses", tt.fixture))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Name != tt.want || got.Allowed != tt.allowed {
+				t.Errorf("got %+v, want %s allowed=%v", got, tt.want, tt.allowed)
+			}
+		})
+	}
+}
+
+func TestLicenseCheckFailsOnADisallowedModule(t *testing.T) {
+	modules := []Module{
+		{Path: "example.com/good", Version: "v1.0.0", Dir: filepath.Join("testdata", "licenses", "mit")},
+		{Path: "example.com/bad", Version: "v1.0.0", Dir: filepath.Join("testdata", "licenses", "sspl")},
+		{Path: "example.com/none", Version: "v1.0.0", Dir: filepath.Join("testdata", "licenses", "missing")},
+	}
+	report, violations := CheckLicenses(modules)
+	if len(report) != len(modules) {
+		t.Errorf("the report lists %d of %d modules", len(report), len(modules))
+	}
+	if len(violations) != 2 {
+		t.Fatalf("got %v, want the bad and the unlicensed module", violations)
+	}
+	for _, v := range violations {
+		if v.Rule != "license" {
+			t.Errorf("rule %q", v.Rule)
+		}
+	}
+}
+
+// TestDependencyLicenses is the license rule over the real build list. It runs in
+// the default suite, so a new dependency cannot land without passing it.
+func TestDependencyLicenses(t *testing.T) {
+	modules, err := ListModules(repoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, violations := CheckLicenses(modules)
+	for _, line := range report {
+		t.Log(line)
+	}
+	for _, v := range violations {
+		t.Error(v)
+	}
+	if len(report) != len(modules) {
+		t.Errorf("the report lists %d of %d modules", len(report), len(modules))
+	}
+}
+
+func TestReportLineNamesModuleVersionAndLicense(t *testing.T) {
+	report, _ := CheckLicenses([]Module{
+		{Path: "example.com/good", Version: "v1.2.3", Dir: filepath.Join("testdata", "licenses", "mit")},
+	})
+	if len(report) != 1 {
+		t.Fatalf("report %v", report)
+	}
+	for _, want := range []string{"example.com/good", "v1.2.3", "MIT"} {
+		if !strings.Contains(report[0], want) {
+			t.Errorf("line %q lacks %q", report[0], want)
+		}
+	}
+}
