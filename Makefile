@@ -4,9 +4,18 @@
 GO ?= go
 TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
 
-.PHONY: check vet lint test licenses cross bench check-postgres chaos
+# A `claude` that fails the run if anything executes it. The test layers put it first
+# on PATH, and fakeclaude goes in front of it where a test needs an agent.
+CANARY := $(CURDIR)/test/doubles/canary
+export PATH := $(CANARY):$(PATH)
 
-check: vet lint test licenses
+.PHONY: check vet lint test licenses cross bench check-postgres chaos canary
+
+check: vet lint test licenses canary
+
+# The mark the canary leaves stops a run after the tests that hid it.
+canary:
+	@test ! -e $(CANARY)/tripped || (echo "the claude canary ran" && rm $(CANARY)/tripped && exit 1)
 
 vet:
 	$(GO) vet ./...
@@ -29,6 +38,7 @@ cross:
 
 bench:
 	$(GO) test -tags bench -count=1 -v ./test/bench/...
+	@$(MAKE) --no-print-directory canary
 
 # The contract suite on a private Postgres, which also prepares every statement
 # on a real server, and the two defects only Postgres shows (D7). It needs initdb
@@ -43,3 +53,4 @@ KILLS ?= 120
 
 chaos:
 	KILLS=$(KILLS) $(GO) test -tags chaos -count=1 -timeout 45m ./test/chaos/...
+	@$(MAKE) --no-print-directory canary

@@ -1,0 +1,265 @@
+package ports
+
+import (
+	"context"
+	"errors"
+
+	"ropeshift.dev/ropeshift/internal/lanes"
+)
+
+// The values of a capability that has a closed list.
+const (
+	RunModeHeadless    = "headless"
+	RunModeInteractive = "interactive"
+
+	ApprovalHook = "hook"
+
+	InjectionBetweenTools = "between_tools"
+
+	ContextLive = "live"
+
+	CompactNative = "native"
+
+	UsageLimitResetTime = "reset_time"
+
+	SignInSubscription = "subscription"
+	SignInAPIKey       = "api_key"
+)
+
+// ErrNoSession means a handle names nothing this driver is running.
+var ErrNoSession = errors.New("no such session")
+
+// Capabilities says what a driver supports for the installed version (FR-DRV-5). The
+// promise lives here, and what actually happened lives in a SendReceipt.
+type Capabilities struct {
+	RunModes         []string
+	ApprovalChannel  string
+	DeferredTurn     bool
+	Injection        string
+	BriefAck         bool
+	ContextReport    string
+	Compact          string
+	NativeResume     bool
+	UsageLimitReport string
+	SignInKinds      []string
+	// Version is the installed version.
+	Version string
+	// Degraded says the version is outside the qualification matrix, so the driver
+	// uses documented, version-independent surfaces only.
+	Degraded bool
+}
+
+// DoctorReport says what is present and usable. It uses vendor status commands and
+// never reads credentials. SignIn stays empty until the doctor unit reads it.
+type DoctorReport struct {
+	Present   bool
+	Version   string
+	Qualified bool
+	SignIn    string
+	Detail    string
+}
+
+// PreflightReport says whether a spec can start. An empty list passes.
+type PreflightReport struct {
+	Problems []string
+}
+
+// SessionSpec is one session to start. Env is the whole environment, so nothing is
+// inherited, and the driver adds only its own variables to it.
+type SessionSpec struct {
+	Lane       string
+	WorkOrder  string
+	Generation int64
+	// Dir is the lane's worktree.
+	Dir string
+	// Env is the lane's environment from the allowlist.
+	Env []string
+	// Model is the requested model, which may be an alias.
+	Model string
+	// PermissionMode is stated on every start, because the two run modes start
+	// differently with no flag.
+	PermissionMode string
+	// Brief is the first prompt.
+	Brief string
+	// ConfigDir receives the generated settings, with a new name per generation.
+	ConfigDir string
+	// Binary is the stable path of the ropeshift binary (D18).
+	Binary string
+	// Tools are this caller's ropeshift MCP tools, which the settings allow.
+	Tools []string
+	// Credential binds an API key to the CLI, for a lane that has one.
+	Credential SecretBinding
+	// TempDir is a short private directory for the session's sockets. Empty leaves
+	// them where the CLI puts them.
+	TempDir string
+	// Override carries a real-session suite's guard flags. It is empty outside the
+	// realsession build.
+	Override lanes.SessionOverride
+}
+
+// SessionHandle names one running session.
+type SessionHandle struct {
+	ID  string
+	PID int
+}
+
+// ResumeRef names an earlier session to continue as a new generation.
+type ResumeRef struct {
+	SessionID string
+	// SessionTotalUSD is the last running total seen, so cost continues from there.
+	SessionTotalUSD float64
+}
+
+// Liveness has three values, because an incomplete read is not a negative answer.
+type Liveness string
+
+// The values of Liveness. Dead needs positive evidence.
+const (
+	LivenessAlive   Liveness = "alive"
+	LivenessDead    Liveness = "dead"
+	LivenessUnknown Liveness = "unknown"
+)
+
+// Observation is a session's state as the driver sees it.
+type Observation struct {
+	Liveness      Liveness
+	SessionID     string
+	ModelResolved string
+	ContextTokens int64
+	// Malformed counts stream lines that did not parse.
+	Malformed int
+}
+
+// EventKind sorts a driver's normalized events.
+type EventKind string
+
+// The kinds of DriverEvent.
+const (
+	// EventSessionBound carries the session and the resolved model. It arrives on
+	// every turn, because a session's identity is current state.
+	EventSessionBound EventKind = "session_bound"
+	// EventUsage carries the context of one API call.
+	EventUsage EventKind = "usage"
+	// EventTurnEnded carries how a turn ended, which is the only signal a turn is
+	// over. An exit code cannot say, because a stopped turn exits 0.
+	EventTurnEnded EventKind = "turn_ended"
+	// EventInputAdmitted carries the ID of an input the session took.
+	EventInputAdmitted EventKind = "input_admitted"
+	// EventCompaction says a compaction ran.
+	EventCompaction EventKind = "compaction"
+	// EventLimit carries a usage limit signal.
+	EventLimit EventKind = "limit"
+	// EventRetry says the CLI is retrying the model API.
+	EventRetry EventKind = "retry"
+	// EventMalformed says a stream line did not parse.
+	EventMalformed EventKind = "malformed"
+	// EventSessionEnded is the last event of a session.
+	EventSessionEnded EventKind = "session_ended"
+)
+
+// TurnStatus says how a turn ended.
+type TurnStatus string
+
+// The values of TurnStatus.
+const (
+	TurnCompleted TurnStatus = "completed"
+	TurnStopped   TurnStatus = "stopped"
+	TurnFailed    TurnStatus = "failed"
+)
+
+// TurnResult is one turn's end.
+type TurnResult struct {
+	Status TurnStatus
+	// Reason is the vendor's word for a turn that did not complete.
+	Reason string
+	Usage  lanes.Usage
+	// CostUSD is this turn's share of the running total.
+	CostUSD float64
+	// Cost is the generation's cost so far.
+	Cost lanes.CostMeter
+}
+
+// SessionEnd says how a session ended.
+type SessionEnd struct {
+	// Crashed says the process died mid-turn, which is no `result` for an input.
+	Crashed bool
+	Exit    ExitStatus
+}
+
+// DriverEvent is one normalized event.
+type DriverEvent struct {
+	Kind          EventKind
+	SessionID     string
+	ModelResolved string
+	ContextTokens int64
+	Turn          *TurnResult
+	End           *SessionEnd
+	// InputID is the input an EventInputAdmitted names.
+	InputID string
+	// Detail is a short reason: a limit's status, or a compaction's trigger.
+	Detail string
+}
+
+// Input is one message to a session. The driver assigns its ID when it is empty.
+type Input struct {
+	ID   string
+	Text string
+}
+
+// The paths a SendReceipt can state.
+const (
+	SendStdin = "stdin"
+)
+
+// SendReceipt states what actually happened to an input.
+type SendReceipt struct {
+	ID   string
+	Path string
+}
+
+// ApprovalDecision answers a waiting session.
+type ApprovalDecision struct {
+	Allow  bool
+	Reason string
+}
+
+// StopMode says how to end a session.
+type StopMode string
+
+// The ways to stop.
+const (
+	// StopAtRest ends a session between turns.
+	StopAtRest StopMode = "at_rest"
+	// StopInterrupt interrupts the turn first.
+	StopInterrupt StopMode = "interrupt"
+	// StopNow ends the process at once.
+	StopNow StopMode = "now"
+)
+
+// AgentDriver adapts one agent CLI. The core never calls a vendor CLI directly.
+type AgentDriver interface {
+	// Capabilities reports what this driver supports for the installed version.
+	Capabilities(ctx context.Context) (Capabilities, error)
+	// Doctor reports presence, version, qualification, and sign-in kind. It uses
+	// vendor status commands and never reads credentials.
+	Doctor(ctx context.Context) (DoctorReport, error)
+	// Preflight checks a spec before start.
+	Preflight(ctx context.Context, spec SessionSpec) (PreflightReport, error)
+	// Start launches a session for a generation and returns its handle.
+	Start(ctx context.Context, spec SessionSpec) (SessionHandle, error)
+	// Resume continues an earlier session as a new generation.
+	Resume(ctx context.Context, spec SessionSpec, from ResumeRef) (SessionHandle, error)
+	// Observe returns the session's state as the driver sees it. An incomplete read
+	// returns liveness unknown, never dead.
+	Observe(ctx context.Context, h SessionHandle) (Observation, error)
+	// Events streams normalized events. The channel closes after EventSessionEnded.
+	Events(ctx context.Context, h SessionHandle) (<-chan DriverEvent, error)
+	// Send hands input to the session. The receipt states what actually happened.
+	Send(ctx context.Context, h SessionHandle, in Input) (SendReceipt, error)
+	// Decide returns an approval decision to the waiting session.
+	Decide(ctx context.Context, h SessionHandle, d ApprovalDecision) error
+	// Compact requests native compaction where the driver has a path for it.
+	Compact(ctx context.Context, h SessionHandle) error
+	// Stop ends the session, interrupting the turn first when the mode asks.
+	Stop(ctx context.Context, h SessionHandle, how StopMode) error
+}

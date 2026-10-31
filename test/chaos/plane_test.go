@@ -31,6 +31,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.dev/ropeshift/test/doubles"
 )
 
 const reportedEvent = "work_order.note"
@@ -455,7 +456,7 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	paths := api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(w.target.Dir, "run")}
 	daemon := exec.Command(binary, "solo", "--heartbeat", "40ms", "--lease-ttl", "500ms", "--lease-tick", "40ms")
 	daemon.Env = append([]string{
-		"HOME=" + w.target.Dir, "PATH=" + os.Getenv("PATH"),
+		"HOME=" + w.target.Dir, "PATH=" + doubles.CanaryPath(w.t),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir,
 		crashpoint.EnvPause + "=sweep/candidates-read=150ms",
 	}, sabotage...)

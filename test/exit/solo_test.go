@@ -23,6 +23,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.dev/ropeshift/test/doubles"
 	"ropeshift.dev/ropeshift/test/gittest"
 )
 
@@ -45,7 +46,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 	binaries.err = err
-	code := m.Run()
+	code := doubles.Main(m)
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
@@ -54,6 +55,8 @@ func TestMain(m *testing.M) {
 type install struct {
 	t    *testing.T
 	home string
+	// path is the PATH of every process, with the canary or fakeclaude first.
+	path string
 }
 
 func newInstall(t *testing.T) *install {
@@ -64,11 +67,11 @@ func newInstall(t *testing.T) *install {
 	if binaries.err != nil {
 		t.Fatal(binaries.err)
 	}
-	return &install{t: t, home: apitest.ShortDir(t)}
+	return &install{t: t, home: apitest.ShortDir(t), path: doubles.CanaryPath(t)}
 }
 
 func (in *install) env() []string {
-	return []string{"HOME=" + in.home, "PATH=" + os.Getenv("PATH"), "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state")}
+	return []string{"HOME=" + in.home, "PATH=" + in.path, "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state")}
 }
 
 func (in *install) paths() api.Paths {

@@ -126,3 +126,9 @@ func CheckSpawn(binary string) error {
 	}
 	return nil
 }
+
+// ShellQuote makes a value one word of a shell command. The agent CLI runs a generated
+// command through a shell, so a state directory with a space in it needs this.
+func ShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}

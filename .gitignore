@@ -20,3 +20,6 @@ desktop.ini
 # Go build output
 dist/
 bin/
+
+# The mark the claude canary leaves when it runs.
+test/doubles/canary/tripped

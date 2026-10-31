@@ -178,6 +178,54 @@ func TestNoShellInTheSource(t *testing.T) {
 	}
 }
 
+// vendorFiles are what ADR-0002 and NFR-COMPAT-1 keep out of the code: a transcript
+// and a job file are formats the vendor documents as unstable.
+var vendorFiles = []string{"/.claude/projects", "/.claude/jobs", ".claude/jobs/", "transcript_path", ".jsonl\""}
+
+// TestNoVendorFileReads finds no read of a transcript or a job file.
+func TestNoVendorFileReads(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, vendorFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range found {
+		t.Error(hit)
+	}
+}
+
+// TestNoVendorFileReadsCanFail runs the same rule on a tree that breaks it.
+func TestNoVendorFileReadsCanFail(t *testing.T) {
+	found, err := FindSource(filepath.Join("testdata", "vendorfiles"), []string{"internal"}, vendorFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) == 0 {
+		t.Error("the rule found nothing in a tree that reads a transcript")
+	}
+}
+
+// TestCanaryIsFirstAndFails proves the canary can fail a run: a copy of it, executed,
+// exits with an error and leaves its mark.
+func TestCanaryIsFirstAndFails(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "test", "doubles", "canary", "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	copied := filepath.Join(dir, "claude")
+	if err := os.WriteFile(copied, raw, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(copied, "-p")
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	if err := cmd.Run(); err == nil {
+		t.Error("the canary exited 0")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tripped")); err != nil {
+		t.Errorf("the canary left no mark: %v", err)
+	}
+}
+
 // TestCoreTestsPassWithNoGit runs the domain and application tests with a PATH that
 // holds the Go tool and nothing else (NFR-TEST-1).
 func TestCoreTestsPassWithNoGit(t *testing.T) {

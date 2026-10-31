@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/test/doubles"
 )
 
 const (
@@ -76,7 +77,7 @@ func timeDaemon(t *testing.T, binary string) time.Duration {
 	defer os.RemoveAll(dir)
 	paths := api.Paths{StateDir: filepath.Join(dir, "state"), RunDir: filepath.Join(dir, "run")}
 	cmd := exec.Command(binary, "solo")
-	cmd.Env = []string{"HOME=" + dir, "PATH=" + os.Getenv("PATH"), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir}
+	cmd.Env = []string{"HOME=" + dir, "PATH=" + doubles.CanaryPath(t), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir}
 	client := api.NewUnixClient(paths.ControlSocket())
 	defer client.Close()
 	start := time.Now()

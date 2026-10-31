@@ -10,11 +10,12 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.dev/ropeshift/test/doubles"
 	"ropeshift.dev/ropeshift/test/pgtest"
 )
 
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := doubles.Main(m)
 	if err := pgtest.StopShared(); err != nil {
 		fmt.Fprintln(os.Stderr, "stop private Postgres:", err)
 		code = 1

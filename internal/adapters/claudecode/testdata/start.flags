@@ -1,0 +1,16 @@
+-p
+--input-format
+stream-json
+--output-format
+stream-json
+--verbose
+--include-partial-messages
+--replay-user-messages
+--permission-mode
+default
+--model
+opus
+--settings
+/state/lanes/lane-1/settings-2.json
+--mcp-config
+/state/lanes/lane-1/mcp-2.json
