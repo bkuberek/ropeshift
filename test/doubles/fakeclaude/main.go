@@ -54,9 +54,11 @@ type step struct {
 	Emit map[string]any `json:"emit,omitempty"`
 	// Raw writes one line as it stands.
 	Raw string `json:"raw,omitempty"`
-	// MCP calls one tool on the generated server. Arguments are the tool's input.
+	// MCP calls one tool on the generated server. Arguments are the tool's input, and Refusable
+	// reads a refusal as the real CLI does, as an answer the session goes on from.
 	MCP       string         `json:"mcp,omitempty"`
 	Arguments map[string]any `json:"arguments,omitempty"`
+	Refusable bool           `json:"refusable,omitempty"`
 	// Hold waits for a signal, as a turn in progress does.
 	Hold bool `json:"hold,omitempty"`
 	// Exit ends the process at once, with no result.
@@ -370,7 +372,7 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 		case st.Raw != "":
 			writeLine([]byte(st.Raw))
 		case st.MCP != "":
-			s.callTool(st.MCP, st.Arguments)
+			s.callTool(st.MCP, st.Arguments, st.Refusable)
 		case st.WaitFile != "":
 			awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.WaitFile))
 		case st.SleepMs != 0:
@@ -681,7 +683,7 @@ func (c *mcpClient) close() {
 
 // callTool refuses a call the settings do not allow, because a headless session has
 // nobody to answer a prompt, and that is what the allow rule exists to prevent.
-func (s *session) callTool(name string, arguments map[string]any) {
+func (s *session) callTool(name string, arguments map[string]any, refusable bool) {
 	if !slices.Contains(s.settings.Permissions.Allow, "mcp__ropeshift__"+name) {
 		fail("%s would wait on a permission prompt", name)
 	}
@@ -698,9 +700,16 @@ func (s *session) callTool(name string, arguments map[string]any) {
 		fail("the server does not list %s", name)
 	}
 	s.hook("PreToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_fixture", "tool_input": arguments})
+	s.emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_use", "name": "mcp__ropeshift__" + name},
+	}}})
 	result := client.call("tools/call", map[string]any{"name": name, "arguments": arguments})
-	if isError, _ := result["isError"].(bool); isError {
+	isError, _ := result["isError"].(bool)
+	if isError && !refusable {
 		fail("%s was refused: %v", name, result["content"])
 	}
+	s.emit(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_result", "is_error": isError},
+	}}})
 	s.hook("PostToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_fixture"})
 }

@@ -4,9 +4,11 @@ package real
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,7 +181,43 @@ func (s *suite) checkParked(lane string, state workorders.State, left int) []str
 	fail(parked.degraded || parked.handoff.Narrative == nil, "the session wrote no narrative")
 	fail(parked.generation.EndReason != workorders.EndParked, "the generation ended "+parked.generation.EndReason)
 	fail(parked.handoff.Reason != string(lanes.ParkBlockingQuestion), "the document says "+parked.handoff.Reason)
-	return failures
+	return append(failures, s.sequenceGaps(lane, 1)...)
+}
+
+// sequenceGaps reads the worker's own record of a parking, because a narrative alone does not
+// show it was asked for, and a process that is gone does not show that the worker stopped it.
+func (s *suite) sequenceGaps(lane string, generation int64) []string {
+	s.t.Helper()
+	journal, err := sqlite.OpenJournal(filepath.Join(s.paths.StateDir, api.JournalFileName))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	defer journal.Close()
+	effects, err := journal.Effects(s.t.Context())
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return parkingGaps(effects, lane, generation)
+}
+
+// parkingGaps names what an effect log lacks of one generation's parking.
+func parkingGaps(effects []lanes.Effect, lane string, generation int64) []string {
+	asked, stopped := false, false
+	for _, effect := range effects {
+		if effect.Lane != lane || effect.Generation != generation || effect.State != lanes.EffectCompleted {
+			continue
+		}
+		asked = asked || (effect.Kind == lanes.EffectInput && strings.HasSuffix(effect.Key, "/handoff"))
+		stopped = stopped || effect.Kind == lanes.EffectStop
+	}
+	var gaps []string
+	if !asked {
+		gaps = append(gaps, fmt.Sprintf("generation %d was never asked for its narrative", generation))
+	}
+	if !stopped {
+		gaps = append(gaps, fmt.Sprintf("the worker has no stop of generation %d on record", generation))
+	}
+	return gaps
 }
 
 func (s *suite) reportParked(mode, lane string, state workorders.State, left int) {
@@ -209,6 +247,7 @@ func (s *suite) settleProcesses(lane string) int {
 // request answered through `lane_handoff`, a stop that SIGINT ends, and no process left.
 func TestRS6(t *testing.T) {
 	s := start(t, "rs6")
+	s.watched = []string{rs6HeadlessLane, rs6PaneLane}
 	t.Cleanup(s.killTerminal)
 	s.reapLanes(rs6HeadlessLane)
 	s.build()

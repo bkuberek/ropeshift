@@ -43,6 +43,11 @@ const (
 
 	rs7FirstQuestion  = "rs7 first question"
 	rs7SecondQuestion = "rs7 second question"
+
+	// rs7OlderMessage is the value of envOnly that has a dry run play a resumed session acting on
+	// an older message, which is the cause an earlier run could only infer. It must stop the run,
+	// and its evidence must show what the session did and where the lane stood.
+	rs7OlderMessage = "older-message"
 )
 
 func rs7Profile(mode string) string {
@@ -210,6 +215,22 @@ func standInHandoff(carries bool) []any {
 	}
 }
 
+// standInActsOnOlderMessage is a resumed session that answers the handoff instruction it stopped
+// on: the worker refuses a narrative nobody asked for, and the session ends two turns with no
+// question and no outcome.
+func standInActsOnOlderMessage() []any {
+	return []any{
+		[]any{
+			map[string]any{"init": true},
+			map[string]any{"mcp": lanes.ToolLaneHandoff, "refusable": true, "arguments": map[string]any{
+				"done": []string{"asked"}, "in_progress": []string{}, "next_steps": []string{"go on"}, "risks": []string{}, "carries_next_step": false,
+			}},
+			standInResult(),
+		},
+		[]any{standInResult()},
+	}
+}
+
 func standInReport() []any {
 	return []any{
 		map[string]any{"init": true},
@@ -266,6 +287,7 @@ func (s *suite) checkedStream(stop func()) []initLine {
 // that goes on from a handoff.
 func TestRS7(t *testing.T) {
 	s := start(t, "rs7")
+	s.watched = []string{rs7HeadlessLane, rs7PaneLane}
 	s.spend.turnCeiling = rs7TurnCeiling
 	t.Cleanup(s.killTerminal)
 	s.reapGenerations(rs7HeadlessLane)
@@ -290,7 +312,11 @@ func TestRS7(t *testing.T) {
 	// A native resume needs a transcript, so this suite's sessions keep one, and finish takes
 	// away only the ones this run's ledger names.
 	flags := []string{"--setting-sources", "project", "--strict-mcp-config", "--tools", "", "--max-budget-usd", budgetUSD, "--max-turns", rs7MaxTurns}
-	s.playStandIn([]any{standInAsk(rs7FirstQuestion), standInHandoff(false)}, []any{standInAsk(rs7SecondQuestion), standInHandoff(true)})
+	resumed := []any{standInAsk(rs7SecondQuestion), standInHandoff(true)}
+	if os.Getenv(envOnly) == rs7OlderMessage {
+		resumed = standInActsOnOlderMessage()
+	}
+	s.playStandIn([]any{standInAsk(rs7FirstQuestion), standInHandoff(false)}, resumed)
 
 	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
 	t.Cleanup(first.stop)
@@ -390,6 +416,22 @@ func (s *suite) reportPark(name, lane string, generation int64, left int) {
 	if left != 0 {
 		s.t.Errorf("%s: a process of the session remains", name)
 	}
+	for _, gap := range s.sequenceGaps(lane, generation) {
+		s.t.Errorf("%s: %s", name, gap)
+	}
+}
+
+// resumedHooks counts what a generation's process ran of the hooks `--settings` names, and of
+// the tools `--mcp-config` serves, which only a flag passed again could give a resume.
+func (s *suite) resumedHooks(lane string, generation int64) map[string]int64 {
+	s.t.Helper()
+	counts := map[string]int64{}
+	for _, record := range s.hookRecords(lane) {
+		if record.Generation == generation {
+			counts[record.Event] += record.Count
+		}
+	}
+	return counts
 }
 
 // reportHeadless checks the lane that walked both paths, and keeps no ID in what it logs.
@@ -410,11 +452,16 @@ func (s *suite) reportHeadless() {
 	}
 	native := generations[0].SessionID == generations[1].SessionID
 	fresh := generations[2].SessionID != generations[1].SessionID
-	s.t.Logf("rs7: headless: version=%s reasons=%s,%s,%s same_session_on_resume=%v new_session_on_handoff=%v inits=%d same_start=%v handoff_in=%v responded=%v,%v",
+	hooks := s.resumedHooks(rs7HeadlessLane, 2)
+	s.t.Logf("rs7: headless: version=%s reasons=%s,%s,%s same_session_on_resume=%v new_session_on_handoff=%v inits=%d same_start=%v handoff_in=%v responded=%v,%v resumed_session_start=%d resumed_tools=%d",
 		inits[0].Version, generations[0].StartReason, generations[1].StartReason, generations[2].StartReason, native, fresh,
-		len(inits), same, generations[2].HandoffIn != "", generations[0].LastResponseAt != 0, generations[1].LastResponseAt != 0)
+		len(inits), same, generations[2].HandoffIn != "", generations[0].LastResponseAt != 0, generations[1].LastResponseAt != 0,
+		hooks["SessionStart"], hooks["PreToolUse"])
 	if generations[1].StartReason != ledger.StartResume || generations[2].StartReason != ledger.StartHandoff {
 		s.t.Errorf("reasons %s and %s", generations[1].StartReason, generations[2].StartReason)
+	}
+	if hooks["SessionStart"] == 0 || hooks["PreToolUse"] == 0 {
+		s.t.Error("the resumed process ran no generated hook, so a start flag was lost")
 	}
 	if !native {
 		s.t.Error("a native resume changed its session")
@@ -439,13 +486,7 @@ func (s *suite) reportPane(screens *screenLog, left int) {
 	if len(generations) != 2 {
 		s.t.Fatalf("generations %d", len(generations))
 	}
-	records := s.hookRecords(rs7PaneLane)
-	second := map[string]int64{}
-	for _, record := range records {
-		if record.Generation == 2 {
-			second[record.Event] += record.Count
-		}
-	}
+	second := s.resumedHooks(rs7PaneLane, 2)
 	native := generations[0].SessionID == generations[1].SessionID
 	s.t.Logf("rs7: pane: screens=%v reason=%s same_session_on_resume=%v resumed_session_start=%d resumed_tools=%d resumed_prompts=%d processes_left=%d",
 		screens.names(), generations[1].StartReason, native, second["SessionStart"], second["PreToolUse"], second["UserPromptSubmit"], left)

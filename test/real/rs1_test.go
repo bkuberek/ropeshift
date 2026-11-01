@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,6 +79,9 @@ type suite struct {
 	others []string
 	// standIn is the PATH of a dry run, which finds a scripted CLI first.
 	standIn string
+	// watched names the lanes a run reports its evidence on, and daemons what it started.
+	watched []string
+	daemons []*daemon
 }
 
 // start refuses to run without the explicit start, and takes the settings digest before
@@ -119,6 +123,7 @@ func start(t *testing.T, name string) *suite {
 // not edit.
 func (s *suite) finish() {
 	s.t.Helper()
+	s.reportEvidence()
 	after, err := settingsDigest(s.home)
 	if err != nil {
 		s.t.Error(err)
@@ -452,7 +457,17 @@ func (s *suite) startDaemonWith(overrides map[string]any) *daemon {
 		s.t.Fatal(err)
 	}
 	go func() { d.exited <- cmd.Wait() }()
+	s.daemons = append(s.daemons, d)
 	return d
+}
+
+// reported reads what a daemon wrote, and only once it has stopped, because its process writes
+// to that buffer until then.
+func (d *daemon) reported() string {
+	if !d.stopped {
+		return ""
+	}
+	return fmt.Sprintf("exit: %v\n%s", d.exit, d.stderr)
 }
 
 // stop ends the daemon the way a service manager does.
