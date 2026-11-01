@@ -637,6 +637,48 @@ not a line of JSON
 	}
 }
 
+// TestHookStandInHoldsOnlyACommand keeps RS4's markers on the calls they name. A session may
+// write a marker in its report, and a hook that held that call would stop the lane reporting.
+func TestHookStandInHoldsOnlyACommand(t *testing.T) {
+	dir := t.TempDir()
+	reached := filepath.Join(dir, "reached")
+	real := filepath.Join(dir, "real")
+	if err := os.WriteFile(real, []byte("#!/bin/sh\ncat > /dev/null\n: > \""+reached+"\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(dir, "stand-in")
+	if err := os.WriteFile(script, []byte(slowHook(real, filepath.Join(dir, "record"), "0")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		input   string
+		reaches bool
+	}{
+		{name: "a command with the slow marker", input: `{"tool_name":"Bash","tool_input":{"command":"echo slow > rs4-slow.txt"}}`},
+		{name: "a command with the rule marker", input: `{"tool_name":"Bash","tool_input":{"command":"echo rule > rs4-rule.txt"}}`},
+		{name: "a spaced command with the slow marker", input: `{"tool_name": "Bash", "tool_input": {"command": "echo slow > rs4-slow.txt"}}`},
+		{name: "a plain command", input: `{"tool_name":"Bash","tool_input":{"command":"echo pane > pane-inside.txt"}}`, reaches: true},
+		{name: "a report naming the slow marker", input: `{"tool_name":"mcp__ropeshift__lane_report","tool_input":{"reason":"rs4-slow.txt was refused"}}`, reaches: true},
+		{name: "a report naming the rule marker", input: `{"tool_name":"mcp__ropeshift__lane_report","tool_input":{"artifacts":["rs4-rule.txt"]}}`, reaches: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.Remove(reached); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(script, "hook", "PreToolUse")
+			cmd.Stdin = strings.NewReader(tt.input)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v: %s", err, out)
+			}
+			if got := exists4(reached); got != tt.reaches {
+				t.Errorf("reached the real hook: %v, want %v", got, tt.reaches)
+			}
+		})
+	}
+}
+
 func TestHookRefusalsAreCountedByClass(t *testing.T) {
 	stream := []byte(`{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"ropeshift policy: a force push is denied"}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"Permission to edit this path has been denied."}]}}
