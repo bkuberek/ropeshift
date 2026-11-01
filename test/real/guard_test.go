@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -360,6 +361,21 @@ func processesHolding(dir string) ([]string, error) {
 	return found, scanner.Err()
 }
 
+// stillHeld keeps the recorded IDs a processesHolding listing names.
+func stillHeld(listing []string, recorded []int) []int {
+	var held []int
+	for _, pid := range recorded {
+		id := strconv.Itoa(pid)
+		if slices.ContainsFunc(listing, func(line string) bool {
+			first, _, _ := strings.Cut(line, " ")
+			return first == id
+		}) {
+			held = append(held, pid)
+		}
+	}
+	return held
+}
+
 func TestMain(m *testing.M) {
 	os.Exit(doubles.Main(m))
 }
@@ -560,6 +576,29 @@ func TestLeftoverProjectRemoval(t *testing.T) {
 			t.Error(err)
 		}
 	})
+}
+
+// A recorded ID outlives its process, so only a listing that still names it may be signaled.
+func TestLeftoverIDsAreSignaledOnlyWhileHeld(t *testing.T) {
+	listing := []string{"101 /tmp/rs4x/bin/ropeshift lane-shim", "1012 /tmp/rs4x/claude -p"}
+	tests := []struct {
+		name     string
+		recorded []int
+		want     []int
+	}{
+		{name: "a session and its shim", recorded: []int{1012, 101}, want: []int{1012, 101}},
+		{name: "an ID that starts like a listed one", recorded: []int{10}},
+		{name: "an ID this suite's processes do not hold", recorded: []int{999}},
+		{name: "an ID that was never set", recorded: []int{0}},
+		{name: "one of two ended", recorded: []int{999, 101}, want: []int{101}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stillHeld(listing, tt.recorded); !slices.Equal(got, tt.want) {
+				t.Errorf("held %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestRedactKeepsShapeAndNoWord(t *testing.T) {

@@ -33,7 +33,7 @@ const (
 	rs5Charge = 5
 	// rs5EndLimit bounds the end of a deferred session, and rs5EndPoll how often it is read.
 	rs5EndLimit = 10 * time.Second
-	rs5EndPoll  = 20 * time.Millisecond
+	rs5EndPoll  = 200 * time.Millisecond
 )
 
 func rs5Profile(mode string) string {
@@ -121,26 +121,63 @@ func (s *suite) startRS5Lane(id, lane string) {
 	s.cli("lane", "start", id, "--lane", lane)
 }
 
+// endSession stops what a shim started, by the exact IDs its state file recorded at the start,
+// and reports whether both ended. An ID is signaled only while the process holding it names
+// this suite's scratch path, because an ID outlives its process.
+func (s *suite) endSession(state shimlink.State) bool {
+	s.t.Helper()
+	recorded := []int{state.ChildPID, state.ShimPID}
+	held := func() []int {
+		listing, err := processesHolding(s.scratch)
+		if err != nil {
+			s.t.Error(err)
+		}
+		return stillHeld(listing, recorded)
+	}
+	for _, pid := range held() {
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+	}
+	for deadline := time.Now().Add(rs5EndLimit); time.Now().Before(deadline); time.Sleep(rs5EndPoll) {
+		if len(held()) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *suite) shimState(lane string) (shimlink.State, error) {
+	return shimlink.ReadState(filepath.Join(s.paths.StateDir, "lanes", lane, "shim-1"))
+}
+
 // endDeferred stops a session whose turn ended with a deferred call. Nothing parks it until a
-// later unit, and a shim outlives its daemon, so it stops here by the exact IDs its own state
-// file names.
+// later unit, and a shim outlives its daemon.
 func (s *suite) endDeferred(lane string) {
 	s.t.Helper()
-	state, err := shimlink.ReadState(filepath.Join(s.paths.StateDir, "lanes", lane, "shim-1"))
+	state, err := s.shimState(lane)
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	for _, pid := range []int{state.ChildPID, state.ShimPID} {
-		if pid > 0 {
-			_ = syscall.Kill(pid, syscall.SIGTERM)
-		}
+	if !s.endSession(state) {
+		s.t.Errorf("the deferred session of %s outlasted its signal", lane)
 	}
-	for deadline := time.Now().Add(rs5EndLimit); time.Now().Before(deadline); time.Sleep(rs5EndPoll) {
-		if syscall.Kill(state.ShimPID, 0) != nil && syscall.Kill(state.ChildPID, 0) != nil {
-			return
+}
+
+// reapLanes ends, when a suite stops early, the headless sessions its lanes left behind. A shim
+// outlives its daemon, and the IDs that name its session go with the scratch directory, so
+// nothing could stop them afterward. Register it before the daemons, so it runs after them.
+func (s *suite) reapLanes(names ...string) {
+	s.t.Helper()
+	s.t.Cleanup(func() {
+		for _, lane := range names {
+			state, err := s.shimState(lane)
+			if err != nil {
+				continue
+			}
+			if !s.endSession(state) {
+				s.t.Errorf("the session of %s outlasted its signal", lane)
+			}
 		}
-	}
-	s.t.Errorf("the deferred session of %s outlasted its signal", lane)
+	})
 }
 
 // TestRS5 runs a real session at each path `AskUserQuestion` can take, which the matrix lists
@@ -150,6 +187,7 @@ func (s *suite) endDeferred(lane string) {
 func TestRS5(t *testing.T) {
 	s := start(t, "rs5")
 	t.Cleanup(s.killTerminal)
+	s.reapLanes(rs5HeadlessLane, rs5PaneLane)
 	s.build()
 	s.probe()
 

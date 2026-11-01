@@ -316,6 +316,7 @@ func exists4(path string) bool {
 func TestRS4(t *testing.T) {
 	s := start(t, "rs4")
 	t.Cleanup(s.killTerminal)
+	s.reapLanes(rs4HeadlessLane, rs4PaneLane)
 	s.build()
 	s.probe()
 	if err := os.MkdirAll(s.paths.StateDir, 0o700); err != nil {
