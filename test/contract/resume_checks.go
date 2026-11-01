@@ -3,6 +3,7 @@ package contract
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 
 	"ropeshift.dev/ropeshift/internal/control"
@@ -435,14 +436,30 @@ func checkPreferredAffinity(r *Rig) error {
 	return r.CheckProjection(s.store)
 }
 
+// checkWokenSortsFirst puts new work ahead of the woken work in the order a list reads, because
+// work created after it would leave the woken work first with no sort at all.
 func checkWokenSortsFirst(r *Rig) error {
+	fresh, err := r.Ready(r.Store())
+	if err != nil {
+		return err
+	}
 	s, err := newStatusRig(r)
 	if err != nil {
 		return err
 	}
-	fresh, err := r.Ready(s.store)
+	var listed []string
+	err = s.store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		rows, err := tx.WorkOrders().List()
+		for _, row := range rows {
+			listed = append(listed, row.ID)
+		}
+		return err
+	})
 	if err != nil {
 		return err
+	}
+	if slices.Index(listed, fresh) > slices.Index(listed, s.grant.WorkOrder) {
+		return fmt.Errorf("a list reads %v, so nothing here needs a sort", listed)
 	}
 	wake := r.ID("wake")
 	if err := accepted(s.parkingUpload(wake, `{"human_resume":true}`)); err != nil {
