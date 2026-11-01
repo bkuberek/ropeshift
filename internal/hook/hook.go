@@ -37,6 +37,7 @@ const unavailablePolicy = "the policy file cannot be read"
 type config struct {
 	event      string
 	socket     string
+	session    string
 	spool      string
 	token      string
 	policy     string
@@ -50,7 +51,7 @@ func read(event string, getenv func(string) string) config {
 	return config{
 		event: event, socket: getenv(api.EnvWorkerSocket), spool: getenv(api.EnvSpool), token: getenv(api.EnvLaneToken),
 		policy: getenv(api.EnvPolicy), lane: getenv(api.EnvLaneID), workOrder: getenv(api.EnvWorkOrder),
-		generation: generation,
+		session: getenv(lanes.EnvMessagingSocket), generation: generation,
 	}
 }
 
@@ -83,6 +84,7 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 	case eventPreToolUse:
 		decide(cfg, input, stdout)
 	case eventSessionStart:
+		event.Socket = cfg.session
 		reground(cfg, event, stdout)
 	}
 	forward(cfg, event)

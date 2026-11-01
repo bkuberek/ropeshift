@@ -13,5 +13,8 @@ func ParseOverride(string) (SessionOverride, error) { return SessionOverride{}, 
 // Args adds nothing in a normal build.
 func (SessionOverride) Args() []string { return nil }
 
+// Env adds nothing in a normal build.
+func (SessionOverride) Env() []string { return nil }
+
 // StreamLog keeps nothing in a normal build.
 func (SessionOverride) StreamLog() string { return "" }

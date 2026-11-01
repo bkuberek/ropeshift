@@ -14,9 +14,29 @@ type HookEvent struct {
 	SessionID string `json:"session_id,omitempty"`
 	Tool      string `json:"tool,omitempty"`
 	// Detail is the event's one word: a source, a reason, a trigger, or an error.
-	Detail    string `json:"detail,omitempty"`
-	AtMs      int64  `json:"at_ms"`
-	Malformed bool   `json:"malformed,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	// Model is the model a session names at its start, or on its status line.
+	Model string `json:"model,omitempty"`
+	// Socket is the session's messaging socket, which a SessionStart hook reports,
+	// because a pane has no stream to read it from.
+	Socket string `json:"socket,omitempty"`
+	// Status is what one run of the status line said.
+	Status    *StatusReport `json:"status,omitempty"`
+	AtMs      int64         `json:"at_ms"`
+	Malformed bool          `json:"malformed,omitempty"`
+}
+
+// EventStatusLine names a status line's report among hook events. The CLI has no hook of
+// this name: the driver's status line command reports on the same socket.
+const EventStatusLine = "StatusLine"
+
+// StatusReport is the part of a status line's input a worker uses.
+type StatusReport struct {
+	// ContextKnown is false when the line had no usage to read, which holds after a
+	// compaction until the next call. A zero there is not a small context.
+	ContextKnown  bool    `json:"context_known,omitempty"`
+	ContextTokens int64   `json:"context_tokens,omitempty"`
+	CostUSD       float64 `json:"cost_usd,omitempty"`
 }
 
 // hookPayload names the fields a hook reads from its input.
@@ -29,6 +49,46 @@ type hookPayload struct {
 	Trigger          string `json:"trigger"`
 	NotificationType string `json:"notification_type"`
 	Error            string `json:"error"`
+	Model            string `json:"model"`
+}
+
+// statusPayload names the fields of a status line's input a worker reads, and nothing
+// else, so no prompt or account field leaves the session.
+type statusPayload struct {
+	SessionID string `json:"session_id"`
+	Model     struct {
+		ID string `json:"id"`
+	} `json:"model"`
+	Cost struct {
+		TotalUSD float64 `json:"total_cost_usd"`
+	} `json:"cost"`
+	Window struct {
+		Current *struct {
+			Input         int64 `json:"input_tokens"`
+			CacheCreation int64 `json:"cache_creation_input_tokens"`
+			CacheRead     int64 `json:"cache_read_input_tokens"`
+		} `json:"current_usage"`
+	} `json:"context_window"`
+}
+
+// NewStatusEvent reads one status line's input. Context is the sum of one call's input
+// tokens. The line reads zero or null until the next call after a compaction, and neither
+// is a context, so both report nothing.
+func NewStatusEvent(input []byte) HookEvent {
+	out := HookEvent{Event: EventStatusLine}
+	var payload statusPayload
+	if err := json.Unmarshal(input, &payload); err != nil {
+		out.Malformed = true
+		return out
+	}
+	out.SessionID, out.Subject, out.Model = payload.SessionID, payload.SessionID, payload.Model.ID
+	report := StatusReport{CostUSD: payload.Cost.TotalUSD}
+	if current := payload.Window.Current; current != nil {
+		report.ContextTokens = current.Input + current.CacheCreation + current.CacheRead
+		report.ContextKnown = report.ContextTokens > 0
+	}
+	out.Status = &report
+	return out
 }
 
 // NewHookEvent reads one hook's input. Input that does not parse is still an event,
@@ -40,7 +100,7 @@ func NewHookEvent(event string, input []byte) HookEvent {
 		out.Malformed = true
 		return out
 	}
-	out.SessionID, out.Tool = payload.SessionID, payload.ToolName
+	out.SessionID, out.Tool, out.Model = payload.SessionID, payload.ToolName, payload.Model
 	for _, detail := range []string{payload.Source, payload.Reason, payload.Trigger, payload.NotificationType, payload.Error} {
 		if detail != "" {
 			out.Detail = detail

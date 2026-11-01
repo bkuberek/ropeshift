@@ -413,17 +413,19 @@ func (j *Journal) MergeHook(ctx context.Context, event lanes.HookEvent) error {
 		malformed = 1
 	}
 	_, err := j.db.ExecContext(ctx, `INSERT INTO hook_events
-  (lane, generation, event, subject, session_id, tool, detail, malformed, first_ms, last_ms, count)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 1)
+  (lane, generation, event, subject, session_id, tool, detail, malformed, socket, model, first_ms, last_ms, count)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?10, ?11, ?9, ?9, 1)
 ON CONFLICT (lane, generation, event, subject) DO UPDATE SET
-  first_ms = min(first_ms, ?9), last_ms = max(last_ms, ?9), count = count + 1`,
-		event.Lane, event.Generation, event.Event, event.Subject, event.SessionID, event.Tool, event.Detail, malformed, event.AtMs)
+  first_ms = min(first_ms, ?9), last_ms = max(last_ms, ?9), count = count + 1,
+  socket = CASE WHEN ?10 = '' THEN socket ELSE ?10 END, model = CASE WHEN ?11 = '' THEN model ELSE ?11 END`,
+		event.Lane, event.Generation, event.Event, event.Subject, event.SessionID, event.Tool, event.Detail, malformed, event.AtMs,
+		event.Socket, event.Model)
 	return err
 }
 
 // HookEvents lists one lane's events.
 func (j *Journal) HookEvents(ctx context.Context, lane string) ([]lanes.HookRecord, error) {
-	rows, err := j.db.QueryContext(ctx, `SELECT generation, event, subject, session_id, tool, detail, malformed, first_ms, last_ms, count
+	rows, err := j.db.QueryContext(ctx, `SELECT generation, event, subject, session_id, tool, detail, malformed, socket, model, first_ms, last_ms, count
   FROM hook_events WHERE lane = ?1 ORDER BY generation, first_ms, event, subject`, lane)
 	if err != nil {
 		return nil, err
@@ -433,7 +435,7 @@ func (j *Journal) HookEvents(ctx context.Context, lane string) ([]lanes.HookReco
 	for rows.Next() {
 		var r lanes.HookRecord
 		var malformed int64
-		err := rows.Scan(&r.Generation, &r.Event, &r.Subject, &r.SessionID, &r.Tool, &r.Detail, &malformed, &r.FirstMs, &r.LastMs, &r.Count)
+		err := rows.Scan(&r.Generation, &r.Event, &r.Subject, &r.SessionID, &r.Tool, &r.Detail, &malformed, &r.Socket, &r.Model, &r.FirstMs, &r.LastMs, &r.Count)
 		if err != nil {
 			return nil, err
 		}

@@ -20,7 +20,13 @@ var refusedArguments = []string{
 type SessionOverride struct {
 	Extra  []string `json:"args"`
 	Stream string   `json:"stream_log"`
+	// Session lists variables a session starts with. A pane has no flag that keeps a
+	// transcript out of a person's home directory, and this is the documented way.
+	Session []string `json:"env"`
 }
+
+// allowedVariables are all a suite may add to a session.
+var allowedVariables = []string{"CLAUDE_CODE_SKIP_PROMPT_HISTORY=1"}
 
 // ParseOverride reads a suite's override from one JSON document. A refused argument
 // stops the worker from starting a session at all.
@@ -37,11 +43,19 @@ func ParseOverride(text string) (SessionOverride, error) {
 			return SessionOverride{}, fmt.Errorf("refused argument: %s", arg)
 		}
 	}
+	for _, entry := range override.Session {
+		if !slices.Contains(allowedVariables, entry) {
+			return SessionOverride{}, fmt.Errorf("refused variable: %s", entry)
+		}
+	}
 	return override, nil
 }
 
 // Args returns the guard flags.
 func (o SessionOverride) Args() []string { return o.Extra }
+
+// Env returns the variables a suite adds to a session.
+func (o SessionOverride) Env() []string { return o.Session }
 
 // StreamLog names the file that receives a copy of the raw stream.
 func (o SessionOverride) StreamLog() string { return o.Stream }

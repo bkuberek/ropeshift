@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 )
@@ -28,6 +29,14 @@ const (
 
 // ErrNoSession means a handle names nothing this driver is running.
 var ErrNoSession = errors.New("no such session")
+
+// The two ways a checked start stops. Neither session ran a turn.
+var (
+	// ErrUnknownScreen means a fresh start never reached a screen the driver knows.
+	ErrUnknownScreen = errors.New("the start stopped on an unknown screen")
+	// ErrResumeNotReady means a resume did not reach a ready state in its time.
+	ErrResumeNotReady = errors.New("the resume did not reach a ready state")
+)
 
 // Capabilities says what a driver supports for the installed version (FR-DRV-5). The
 // promise lives here, and what actually happened lives in a SendReceipt.
@@ -92,6 +101,10 @@ type SessionSpec struct {
 	// TempDir is a short private directory for the session's sockets. Empty leaves
 	// them where the CLI puts them.
 	TempDir string
+	// RunMode is RunModeHeadless or RunModeInteractive. Empty means headless.
+	RunMode string
+	// ReadyTimeout bounds a checked start. Zero takes the driver's default.
+	ReadyTimeout time.Duration
 	// Override carries a real-session suite's guard flags. It is empty outside the
 	// realsession build.
 	Override lanes.SessionOverride
@@ -145,6 +158,8 @@ type AdoptFrom struct {
 	Cursor int64
 	// Cost continues a generation's meter.
 	Cost lanes.CostMeter
+	// Hooks are what a session's hooks reported, for a driver with no stream to reread.
+	Hooks []lanes.HookRecord
 }
 
 // EventKind sorts a driver's normalized events.
@@ -228,7 +243,8 @@ type Input struct {
 
 // The paths a SendReceipt can state.
 const (
-	SendStdin = "stdin"
+	SendStdin  = "stdin"
+	SendSocket = "socket"
 )
 
 // SendReceipt states what actually happened to an input.
@@ -279,6 +295,10 @@ type AgentDriver interface {
 	Adopt(ctx context.Context, h SessionHandle, from AdoptFrom) error
 	// Events streams normalized events. The channel closes after EventSessionEnded.
 	Events(ctx context.Context, h SessionHandle) (<-chan DriverEvent, error)
+	// TakeHook hands a driver what a session's hook reported. The event names its lane
+	// and generation, so one can arrive while Start is still running. A driver with a
+	// stream ignores it, and one with none derives its events from it.
+	TakeHook(ctx context.Context, event lanes.HookEvent)
 	// Send hands input to the session. The receipt states what actually happened.
 	Send(ctx context.Context, h SessionHandle, in Input) (SendReceipt, error)
 	// Decide returns an approval decision to the waiting session.

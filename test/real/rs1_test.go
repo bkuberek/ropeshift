@@ -102,7 +102,7 @@ func start(t *testing.T, name string) *suite {
 	}
 	t.Cleanup(s.finish)
 	if os.Getenv(envStandIn) != "" {
-		s.standIn = doubles.InstallFakeClaude(t, standInFixture)
+		s.standIn = doubles.InstallFakeClaude(t, standInFixtures[name])
 	}
 	return s
 }
@@ -362,9 +362,15 @@ type daemon struct {
 // the production driver through the override that exists only under this build tag.
 func (s *suite) startDaemon() *daemon {
 	s.t.Helper()
-	override, err := json.Marshal(map[string]any{
+	return s.startDaemonWith(map[string]any{
 		"args": append(append([]string{}, guardFlags...), "--max-turns", laneMaxTurns), "stream_log": s.stream,
 	})
+}
+
+// startDaemonWith runs the daemon with one suite's override.
+func (s *suite) startDaemonWith(overrides map[string]any) *daemon {
+	s.t.Helper()
+	override, err := json.Marshal(overrides)
 	if err != nil {
 		s.t.Fatal(err)
 	}

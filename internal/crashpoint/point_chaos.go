@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -14,9 +15,22 @@ import (
 // order a race between two loops of a daemon that runs as its own process.
 const EnvPause = "ROPESHIFT_CHAOS_PAUSE"
 
+// EnvKill ends a process with SIGKILL at one named step, as "op/step", so a test can crash
+// a daemon that runs as its own process exactly there.
+const EnvKill = "ROPESHIFT_CHAOS_KILL"
+
 var handler atomic.Pointer[func(op, step string)]
 
 func init() {
+	if target := os.Getenv(EnvKill); target != "" {
+		Arm(func(op, step string) {
+			if op+"/"+step == target {
+				_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+				select {}
+			}
+		})
+		return
+	}
 	spec := os.Getenv(EnvPause)
 	if spec == "" {
 		return

@@ -32,8 +32,6 @@ const (
 	// envStandIn runs a suite against a scripted CLI, so a dry run proves the harness and
 	// spends nothing.
 	envStandIn = "ROPESHIFT_REAL_STANDIN"
-	// standInFixture is what a dry run plays.
-	standInFixture = "rs2-stand-in"
 	// The ceiling of one run.
 	maxSessions = 3
 	maxTurns    = 20
@@ -41,6 +39,9 @@ const (
 	sessionModel = "haiku"
 	budgetUSD    = "1"
 )
+
+// standInFixtures say what each suite's dry run plays.
+var standInFixtures = map[string]string{"rs1": "rs2-stand-in", "rs2": "rs2-stand-in", "rs3": "rs3-stand-in"}
 
 // allowedEnvironment is everything a session or the daemon takes from this process, so
 // no variable of a parent session can reach them. Tags are added by name.
@@ -58,6 +59,15 @@ var guardFlags = []string{
 	"--setting-sources", "project", "--strict-mcp-config", "--tools", "",
 	"--max-budget-usd", budgetUSD, "--no-session-persistence",
 }
+
+// paneGuardFlags are the guard flags a pane takes. `--no-session-persistence` and
+// `--max-budget-usd` work only with -p, and the first stops an interactive start, so a
+// pane's transcript stays off the disk through paneEnv instead.
+var paneGuardFlags = []string{"--setting-sources", "project", "--strict-mcp-config", "--tools", "Bash"}
+
+// paneEnv keeps a pane's prompts and transcript out of the home directory. The vendor
+// documents it for ephemeral scripted sessions.
+var paneEnv = []string{"CLAUDE_CODE_SKIP_PROMPT_HISTORY=1"}
 
 // spendLedger charges each turn before it runs and refuses past the ceiling.
 type spendLedger struct {
@@ -536,6 +546,20 @@ func TestLeftoverProjectRemoval(t *testing.T) {
 			t.Error(err)
 		}
 	})
+}
+
+func TestRedactKeepsShapeAndNoWord(t *testing.T) {
+	line := "❯ Reply from person@example.com in /tmp/rs3abc 12"
+	got := redact(line)
+	if strings.ContainsAny(got, "@") || strings.Contains(got, "person") || strings.Contains(got, "12") {
+		t.Errorf("redact kept %q", got)
+	}
+	if !strings.HasPrefix(got, "❯ ") {
+		t.Errorf("redact lost the shape: %q", got)
+	}
+	if kept := redact("   Yes, I trust this folder"); kept != "   Yes, I trust this folder" {
+		t.Errorf("a known word went: %q", kept)
+	}
 }
 
 func TestHookEventsAreCounted(t *testing.T) {

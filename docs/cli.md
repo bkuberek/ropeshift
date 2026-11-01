@@ -29,6 +29,8 @@ Three commands are for ropeshift or an agent CLI to run, and a person does not n
 | `ropeshift hook <event>` | Reports one hook event to the worker, and spools it if the worker is down. It always exits 0 |
 | `ropeshift mcp` | Serves a lane's tools over stdio, and reaches only the local worker |
 | `ropeshift lane-shim` | Holds a headless session's pipes in a process of its own, so the session outlives its worker. It journals every line, serves that journal on a private socket, and writes each input at most once |
+| `ropeshift lane-pane <file>` | Replaces itself with an interactive session in its pane, with the exact environment a private file holds, and removes that file first |
+| `ropeshift statusline [--pass]` | Reports one status line input to the worker. It is the driver's half of an interactive lane's status line, and `--pass` prints the input for a person's own command after it in a pipe |
 
 ## Exit codes
 

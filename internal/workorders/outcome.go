@@ -20,6 +20,9 @@ const (
 	ReasonNoRepository    = "no_repository"
 	ReasonWorkerRestarted = "worker_restarted"
 	ReasonFenced          = "fenced"
+	// ReasonUnknownScreen says a checked start stopped on a screen the driver does not
+	// know. It stands for the human_resume wake until lanes can park.
+	ReasonUnknownScreen = "unknown_screen"
 )
 
 // CheckResult is one check a lane reports.

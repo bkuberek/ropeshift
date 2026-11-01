@@ -359,6 +359,9 @@ func (w *Worker) Run(ctx context.Context) error {
 
 // tick is one reconcile pass that outlives its own failure.
 func (w *Worker) tick(ctx context.Context) {
+	if err := w.DrainSpool(ctx); err != nil && ctx.Err() == nil {
+		w.config.Report(err)
+	}
 	if _, err := w.Reconcile(ctx); err != nil && ctx.Err() == nil {
 		w.config.Report(err)
 	}

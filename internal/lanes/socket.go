@@ -14,6 +14,10 @@ const (
 	EnvPolicy       = TagPrefix + "POLICY"
 )
 
+// EnvMessagingSocket is the one vendor variable a hook reads. The CLI exports it before
+// any hook runs, and a pane has no other way to tell a worker where its socket is.
+const EnvMessagingSocket = "CLAUDE_CODE_MESSAGING_SOCKET"
+
 // ToolLaneReport is the tool that ends a lane.
 const ToolLaneReport = "lane_report"
 

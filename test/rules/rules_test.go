@@ -246,6 +246,46 @@ func TestAgentsListingRuleCanFail(t *testing.T) {
 	}
 }
 
+// screenRead finds a read of a pane's screen.
+var screenRead = []string{".Capture(", "capture-pane"}
+
+// The two files that may read a screen: the start check, which is the one use on a
+// qualified version, and the adapter, which is how it reads.
+var screenFiles = []string{"internal/adapters/claudecode/startcheck.go", "internal/adapters/tmux/tmux.go"}
+
+// TestScreenReadsOnlyInStartCheck finds no read of a screen outside the start check. From
+// `briefing` onward state and input go through hooks and the messaging socket.
+func TestScreenReadsOnlyInStartCheck(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, screenRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, hit := range found {
+		file, _, _ := strings.Cut(hit, " holds ")
+		if !slices.Contains(screenFiles, file) {
+			t.Error(hit)
+		}
+		seen[file] = true
+	}
+	for _, file := range screenFiles {
+		if !seen[file] {
+			t.Errorf("no read of a screen in %s, so this rule is checking the wrong file", file)
+		}
+	}
+}
+
+// TestScreenRuleCanFail runs the same rule on a tree that reads a pane for state.
+func TestScreenRuleCanFail(t *testing.T) {
+	found, err := FindSource(filepath.Join("testdata", "screenreads"), []string{"internal"}, screenRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) == 0 {
+		t.Error("the rule found nothing in a tree that reads a pane for state")
+	}
+}
+
 // markingFields are the names that would let a caller say what a lane is.
 var markingFields = []string{"ready", "briefed", "actual_state", "liveness", "conditions", "reachability", "model_reach", "ledger_reach"}
 

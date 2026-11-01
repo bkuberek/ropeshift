@@ -13,6 +13,8 @@ import (
 // ServerName is the MCP server's name, which is part of every tool's name.
 const ServerName = "ropeshift"
 
+const inboundAccept = "accept"
+
 // hookTimeoutSeconds bounds a hook the CLI runs. The hook holds itself to far less.
 const hookTimeoutSeconds = 5
 
@@ -44,6 +46,11 @@ type settingsFile struct {
 	Hooks        map[string][]hookGroup `json:"hooks,omitempty"`
 	Permissions  permissions            `json:"permissions"`
 	APIKeyHelper string                 `json:"apiKeyHelper,omitempty"`
+	// CrossSessionInbound is `accept`, because a worker's input to a pane and every
+	// message to a lane arrive on the session's socket, and nobody is there to answer a
+	// hold.
+	CrossSessionInbound string      `json:"crossSessionInbound"`
+	StatusLine          *statusLine `json:"statusLine,omitempty"`
 }
 
 // toolRule is the permission rule of one ropeshift MCP tool.
@@ -54,7 +61,9 @@ func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 // hook through a shell. PreToolUse fails closed: a hook that times out must block the
 // call, or a denial could be skipped by a slow machine.
 func generateSettings(spec ports.SessionSpec) settingsFile {
-	out := settingsFile{Permissions: permissions{Allow: []string{}}, APIKeyHelper: spec.Credential.APIKeyHelper}
+	out := settingsFile{
+		Permissions: permissions{Allow: []string{}}, APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: inboundAccept,
+	}
 	for _, tool := range spec.Tools {
 		out.Permissions.Allow = append(out.Permissions.Allow, toolRule(tool))
 	}
@@ -70,6 +79,9 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 			command.OnFailure = "block"
 		}
 		out.Hooks[event] = []hookGroup{{Hooks: []hookCommand{command}}}
+	}
+	if spec.RunMode == ports.RunModeInteractive {
+		out.StatusLine = composedStatusLine(spec)
 	}
 	return out
 }

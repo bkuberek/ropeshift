@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/control"
@@ -40,6 +41,9 @@ type variant struct {
 	check string
 	// crash is the case and step a crash variant runs.
 	crash func() (crashCase, string)
+	// pane names a broken driver for a pane run, and paneStep the step it crashes at.
+	pane     string
+	paneStep string
 }
 
 // replace returns a Rewrite that swaps one piece of one statement. It panics when
@@ -401,6 +405,8 @@ func allVariants() []variant {
 			crash: func() (crashCase, string) { return workerLaneCase(), laneSplitStep },
 		},
 		{name: "a reader that skips what it missed", check: "shim"},
+		{name: "a trust dialog confirmed where its focus stands", check: "pane", pane: claudecode.SabotageBlindConfirm, paneStep: "checked"},
+		{name: "a brief sent again after a crash", check: "pane", pane: claudecode.SabotageRepeatBrief, paneStep: "briefed"},
 		{
 			name:  retriesBlind,
 			check: "crash",
@@ -566,6 +572,8 @@ func runVariant(t *testing.T, v variant) error {
 		return runRandomVariant(t, v)
 	case "shim":
 		return checkShimGroundTruth(t)
+	case "pane":
+		return checkPaneVariant(t, v.pane, v.paneStep)
 	case "holder":
 		run := newRandomRun(newWorld(t, v.name), holderVariantKills)
 		run.holders = 1

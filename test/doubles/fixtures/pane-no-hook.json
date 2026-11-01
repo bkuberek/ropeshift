@@ -1,0 +1,4 @@
+{
+  "source": "a ready screen with no SessionStart hook",
+  "pane": {"no_session_start": true}
+}

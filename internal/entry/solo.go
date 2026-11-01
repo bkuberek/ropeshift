@@ -24,6 +24,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/secrets"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/adapters/tmux"
 	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
@@ -288,8 +289,12 @@ func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
+	terminal, err := soloTerminal(paths, env)
+	if err != nil {
+		return nil, err
+	}
 	return &worker.LaneRuntime{
-		Driver:      claudecode.New(osexec.Runner{}, claudecode.Options{Env: env}),
+		Driver:      claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: terminal}),
 		Provisioner: worker.Provisioner{Profiles: profiles.Filesystem{}, Worktrees: gitcli.Worktrees{}},
 		Secrets:     secrets.Resolver{},
 		Repository:  checkouts(opts),
@@ -300,6 +305,20 @@ func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
 		RunDir:      paths.RunDir,
 		Override:    override,
 	}, nil
+}
+
+// soloTerminal is the worker's private server. A machine with no tmux runs headless lanes
+// and refuses an interactive one at its start, because a worker should still run what it
+// can.
+func soloTerminal(paths api.Paths, env []string) (ports.Terminal, error) {
+	terminal, err := tmux.New(osexec.Runner{}, tmux.Options{Socket: paths.TerminalSocket(), Env: env})
+	if errors.Is(err, tmux.ErrNoTmux) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return terminal, nil
 }
 
 // checkouts finds a work order's repository among the daemon's sources. A repository

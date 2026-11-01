@@ -5,6 +5,7 @@
 package doubles
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"syscall"
 	"testing"
 
+	"ropeshift.dev/ropeshift/internal/adapters/osexec"
+	"ropeshift.dev/ropeshift/internal/adapters/tmux"
 	"ropeshift.dev/ropeshift/internal/api/shimlink"
 )
 
@@ -147,6 +150,75 @@ func ReapShims(t testing.TB, configDir string) {
 			}
 		}
 	})
+}
+
+// RequireTmux skips a test on a machine with no tmux, which the default suite tolerates
+// because no other layer needs a terminal.
+func RequireTmux(t testing.TB) {
+	t.Helper()
+	if _, err := exec.LookPath(tmux.Binary); err != nil {
+		t.Skip("no tmux on this machine")
+	}
+}
+
+// PrivateTmux returns a terminal on a server nothing else uses, and ends that server when
+// the test ends. It uses the shortest directory a test can have, because a socket path
+// has a 104-byte limit.
+func PrivateTmux(t testing.TB) *tmux.Terminal {
+	t.Helper()
+	terminal, stop := NewTmux(t)
+	t.Cleanup(stop)
+	return terminal
+}
+
+// NewTmux returns a terminal and the function that ends its server.
+func NewTmux(t testing.TB) (*tmux.Terminal, func()) {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "rsmux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(dir, "s")
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+	terminal, err := tmux.New(osexec.Runner{}, tmux.Options{Socket: socket, Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return terminal, func() {
+		binary, err := exec.LookPath(tmux.Binary)
+		if err == nil {
+			kill := exec.Command(binary, "-S", socket, "kill-server")
+			kill.Env = env
+			_ = kill.Run()
+		}
+		_ = os.RemoveAll(dir)
+	}
+}
+
+// TmuxOn returns a terminal on a server something else started, and ends that server when
+// the test ends, because a daemon's server outlives the daemon by design.
+func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
+	t.Helper()
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket)}
+	terminal, err := tmux.New(osexec.Runner{}, tmux.Options{Socket: socket, Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		binary, err := exec.LookPath(tmux.Binary)
+		if err == nil {
+			kill := exec.Command(binary, "-S", socket, "kill-server")
+			kill.Env = env
+			_ = kill.Run()
+		}
+	})
+	return terminal
+}
+
+// KillTmux closes one pane when a test ends, which ends a server with no other pane.
+func KillTmux(t testing.TB, terminal *tmux.Terminal, name string) {
+	t.Helper()
+	t.Cleanup(func() { _ = terminal.Close(context.Background(), name) })
 }
 
 // BinDir returns the directory InstallFakeClaude made, from the PATH it returned.

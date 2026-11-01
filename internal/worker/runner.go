@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -52,7 +53,8 @@ type laneRun struct {
 	generation int64
 	model      string
 
-	// handleLock guards the handle, because a heartbeat reads it while a start writes it.
+	// handleLock guards the generation and the handle, because a heartbeat and a hook read
+	// them while a start writes them.
 	handleLock sync.Mutex
 	handle     ports.SessionHandle
 
@@ -85,6 +87,13 @@ func (r *laneRun) sessionHandle() ports.SessionHandle {
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
 	return r.handle
+}
+
+// currentGeneration is which generation this run follows now.
+func (r *laneRun) currentGeneration() int64 {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.generation
 }
 
 func (r *laneRun) setHandle(handle ports.SessionHandle) {
@@ -242,14 +251,24 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // adopt reads a session this process did not start, from where the journal says the
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
-	err := r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
-		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost,
+	hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
+	}
+	for _, record := range hooks {
+		if record.Generation == r.generation {
+			r.observeHook(ctx, record.HookEvent)
+		}
+	}
+	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
+		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
 		return r.finish(ctx, r.unattended(ctx))
 	}
 	crashpoint.Hit("worker.lane", "adopted")
+	r.signal(ctx, lanes.OnDriverReady)
 	events, err := r.rt.Driver.Events(ctx, r.sessionHandle())
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its session: %w", r.lease.Lane, err))
@@ -321,6 +340,10 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		r.setHandle(handle)
 		return err
 	})
+	if errors.Is(err, ports.ErrUnknownScreen) {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonUnknownScreen}
+	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -343,8 +366,11 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
-	mode := prepared.Profile.RunMode
-	if mode != "" && !slices.Contains(capabilities.RunModes, mode) {
+	mode, err := runMode(prepared.Profile.RunMode)
+	if err != nil {
+		return ports.SessionSpec{}, err
+	}
+	if !slices.Contains(capabilities.RunModes, mode) {
 		return ports.SessionSpec{}, fmt.Errorf("the driver has no run mode %q", mode)
 	}
 	credential, err := r.rt.Secrets.Resolve(ctx, prepared.Profile.Agent.Credentials.SecretRef)
@@ -364,6 +390,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 		}),
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
+		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile),
 	}
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
@@ -378,6 +405,24 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 		return ports.SessionSpec{}, fmt.Errorf("preflight: %v", report.Problems)
 	}
 	return spec, nil
+}
+
+// runMode reads a profile's value in the driver's terms.
+func runMode(value string) (string, error) {
+	switch value {
+	case lanes.ProfileRunTmux:
+		return ports.RunModeInteractive, nil
+	case lanes.ProfileRunHeadless, "":
+		return ports.RunModeHeadless, nil
+	}
+	return "", fmt.Errorf("%w: run mode %q", lanes.ErrBadProfile, value)
+}
+
+// readyTimeout reads a profile's value. One that does not parse takes the driver's own,
+// because a bad profile value must not stop a lane.
+func readyTimeout(profile lanes.Profile) time.Duration {
+	timeout, _ := time.ParseDuration(profile.Lifecycle.ReadyTimeout)
+	return timeout
 }
 
 // watch follows the session to its end. Lane state derives from driver events, and

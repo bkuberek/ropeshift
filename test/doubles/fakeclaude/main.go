@@ -33,6 +33,8 @@ type fixture struct {
 	// Agents is what `claude agents --json` prints, and AgentsExit how it ends.
 	Agents     []map[string]any `json:"agents,omitempty"`
 	AgentsExit int              `json:"agents_exit,omitempty"`
+	// Pane is what a session does with no -p, in a terminal.
+	Pane paneScript `json:"pane,omitempty"`
 }
 
 // step is one thing the session does. Exactly one field is set.
@@ -59,6 +61,8 @@ type step struct {
 	WaitFile string `json:"wait_file,omitempty"`
 	// SleepMs is a turn taking its time.
 	SleepMs int `json:"sleep_ms,omitempty"`
+	// Status runs the status line once, with this payload merged in, as a reply does.
+	Status map[string]any `json:"status,omitempty"`
 }
 
 // A session's flags, as the real CLI takes them.
@@ -82,6 +86,8 @@ type session struct {
 	settings settings
 	server   *mcpClient
 	costUSD  float64
+	// pane means this session draws on a terminal and writes no stream.
+	pane bool
 }
 
 func main() {
@@ -108,14 +114,15 @@ func main() {
 		return
 	}
 	remember(self, os.Args[1:])
-	if !opts.print {
-		fail("a lane runs with -p")
-	}
 	s := &session{opts: opts, script: script}
 	if opts.settings != "" {
 		if s.settings, err = readSettings(opts.settings); err != nil {
 			fail("settings: %v", err)
 		}
+	}
+	if !opts.print {
+		s.runPane()
+		return
 	}
 	s.run()
 }
@@ -156,6 +163,7 @@ func parse(args []string) options {
 			fail("refused argument %s", args[i])
 		}
 		switch args[i] {
+		case "--tui":
 		case "-p", "--print":
 			o.print = true
 		case "--version":
@@ -213,6 +221,9 @@ type settings struct {
 	Permissions struct {
 		Allow []string `json:"allow"`
 	} `json:"permissions"`
+	StatusLine struct {
+		Command string `json:"command"`
+	} `json:"statusLine"`
 }
 
 func readSettings(path string) (settings, error) {
@@ -320,6 +331,8 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 			awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.WaitFile))
 		case st.SleepMs != 0:
 			time.Sleep(time.Duration(st.SleepMs) * time.Millisecond)
+		case st.Status != nil:
+			s.statusLine(st.Status)
 		case st.Hold:
 			<-interrupts
 			s.emit(map[string]any{
@@ -375,6 +388,9 @@ func (s *session) servers() []map[string]string {
 }
 
 func (s *session) emit(line map[string]any) {
+	if s.pane {
+		return
+	}
 	if line["session_id"] == nil {
 		line["session_id"] = sessionID
 	}
@@ -394,7 +410,7 @@ func writeLine(raw []byte) {
 // hook runs an event's commands through a shell, as the CLI does, with the session's
 // whole environment and the payload on stdin.
 func (s *session) hook(event string, input map[string]any) {
-	payload := map[string]any{"session_id": sessionID, "hook_event_name": event, "cwd": mustGetwd()}
+	payload := map[string]any{"session_id": s.currentSession(), "hook_event_name": event, "cwd": mustGetwd()}
 	for key, value := range input {
 		payload[key] = value
 	}
@@ -416,6 +432,13 @@ func (s *session) hook(event string, input map[string]any) {
 			}
 		}
 	}
+}
+
+func (s *session) currentSession() string {
+	if s.pane {
+		return s.paneSessionID()
+	}
+	return sessionID
 }
 
 // mcpConfig is a generated MCP configuration.

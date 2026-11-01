@@ -47,6 +47,7 @@ func newLaneRig(t *testing.T) *laneRig {
 		Name:      "test",
 		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
 		Lanes:     config,
+		Spool:     filepath.Join(dir, "spool"),
 	})
 	if err := r.subject.Start(t.Context()); err != nil {
 		t.Fatal(err)

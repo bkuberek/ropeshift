@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
-	"strings"
+	"slices"
 	"testing"
 	"time"
 
@@ -147,7 +147,7 @@ func checkDriverCapabilities(t *testing.T, ctx context.Context, rig DriverRig) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version == "" || !strings.Contains(strings.Join(got.RunModes, " "), ports.RunModeHeadless) {
+	if got.Version == "" || !slices.Contains(got.RunModes, ports.RunModeHeadless) {
 		t.Errorf("capabilities %+v", got)
 	}
 	if got.ApprovalChannel != ports.ApprovalHook || got.ContextReport != ports.ContextLive || got.Compact != ports.CompactNative ||

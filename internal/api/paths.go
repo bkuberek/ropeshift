@@ -17,6 +17,8 @@ const ControlSocketName = "control.sock"
 const (
 	LedgerFileName  = "ledger.db"
 	JournalFileName = "journal.db"
+	// TerminalSocketName is short, because a socket path has a 104-byte limit.
+	TerminalSocketName = "tmux"
 )
 
 // Environment names that move the directories, for a second installation on one
@@ -31,6 +33,9 @@ type Paths struct {
 	StateDir string
 	RunDir   string
 }
+
+// TerminalSocket is the private terminal server's socket (D20).
+func (p Paths) TerminalSocket() string { return filepath.Join(p.RunDir, TerminalSocketName) }
 
 // ControlSocket is the control plane's socket.
 func (p Paths) ControlSocket() string { return filepath.Join(p.RunDir, ControlSocketName) }

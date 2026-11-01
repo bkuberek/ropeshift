@@ -94,6 +94,11 @@ func liveRows(rows []listedSession) []listedSession {
 // and it can only hold a session back from reading dead.
 func (d *Driver) Find(ctx context.Context, spec ports.SessionSpec) (ports.Located, error) {
 	handle := ports.SessionHandle{ID: sessionHandleID(spec)}
+	if state, err := readPaneState(spec); err == nil {
+		return d.findPane(ctx, spec, state)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return ports.Located{}, err
+	}
 	rows, listing := d.listing(ctx, spec)
 	state, err := shimlink.ReadState(shimDir(spec))
 	switch {
@@ -140,6 +145,11 @@ func (d *Driver) Adopt(ctx context.Context, h ports.SessionHandle, from ports.Ad
 	if spec.ConfigDir == "" {
 		return fmt.Errorf("%s: %w", h.ID, ports.ErrNoSession)
 	}
+	if state, err := readPaneState(spec); err == nil {
+		return d.adoptPane(ctx, h, from, state)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if _, err := shimlink.ReadState(shimDir(spec)); err != nil {
 		return fmt.Errorf("%s: %w: %v", h.ID, ports.ErrNoSession, err)
 	}
@@ -155,7 +165,7 @@ func (d *Driver) Adopt(ctx context.Context, h ports.SessionHandle, from ports.Ad
 	}
 	s := d.newSession(spec, h, nil, from.Cost)
 	s.last = from.Cursor
-	d.keep(s)
+	d.keep(h.ID, s)
 	go func() {
 		if log != nil {
 			defer log.Close()

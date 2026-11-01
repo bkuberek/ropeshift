@@ -1,7 +1,7 @@
-// Package claudecode is the AgentDriver for the unmodified `claude` binary, in the
-// headless run mode, under `ropeshift lane-shim`, so a session outlives its worker. It
-// reads only the documented stream, flags, and settings, and never a transcript or a
-// vendor credential.
+// Package claudecode is the AgentDriver for the unmodified `claude` binary, in both run
+// modes: headless under `ropeshift lane-shim`, and interactive in a pane on a private
+// terminal server. Either way a session outlives its worker. It reads only the documented
+// stream, flags, hooks, and settings, and never a transcript or a vendor credential.
 package claudecode
 
 import (
@@ -75,19 +75,42 @@ type Options struct {
 	ShimLinger time.Duration
 	// JournalCap bounds a shim's journal in bytes. Zero takes the shim's default.
 	JournalCap int64
+	// Terminal runs interactive sessions. Nil leaves the driver headless only.
+	Terminal ports.Terminal
 }
 
-// Driver runs headless sessions, each under a shim started through a ProcessRunner.
+// Driver runs sessions, each under a shim or in a pane, so each outlives this process.
 type Driver struct {
-	runner ports.ProcessRunner
-	grace  time.Duration
-	linger time.Duration
-	cap    int64
+	runner   ports.ProcessRunner
+	terminal ports.Terminal
+	grace    time.Duration
+	linger   time.Duration
+	cap      int64
 
 	mu       sync.Mutex
 	env      []string
-	sessions map[string]*session
+	sessions map[string]liveSession
 	listed   map[string][]listedSession
+}
+
+// liveSession is one session this process follows, in either run mode.
+type liveSession interface {
+	// stream is the session's events.
+	stream() <-chan ports.DriverEvent
+	// ended closes when the session's end has been read.
+	ended() <-chan struct{}
+	// observe reads the session, and an incomplete read is unknown.
+	observe(ctx context.Context) ports.Observation
+	// send hands the session one input.
+	send(ctx context.Context, in ports.Input) (ports.SendReceipt, error)
+	// compact asks for the native compaction.
+	compact(ctx context.Context) error
+	// beginStop asks the session to end, and later steps escalate.
+	beginStop(ctx context.Context, how ports.StopMode)
+	// escalate sends the next signal of a stop.
+	escalate(ctx context.Context, signal ports.Signal)
+	// takeHook hands the session what one of its hooks reported.
+	takeHook(event lanes.HookEvent)
 }
 
 // New returns a driver.
@@ -97,8 +120,8 @@ func New(runner ports.ProcessRunner, options Options) *Driver {
 		grace = defaultStopGrace
 	}
 	return &Driver{
-		runner: runner, grace: grace, linger: options.ShimLinger, cap: options.JournalCap, env: options.Env,
-		sessions: map[string]*session{}, listed: map[string][]listedSession{},
+		runner: runner, terminal: options.Terminal, grace: grace, linger: options.ShimLinger, cap: options.JournalCap, env: options.Env,
+		sessions: map[string]liveSession{}, listed: map[string][]listedSession{},
 	}
 }
 
@@ -171,8 +194,12 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 	if err != nil {
 		return ports.Capabilities{}, err
 	}
+	modes := []string{ports.RunModeHeadless}
+	if d.terminal != nil {
+		modes = append(modes, ports.RunModeInteractive)
+	}
 	return ports.Capabilities{
-		RunModes: []string{ports.RunModeHeadless}, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
+		RunModes: modes, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
 		Injection: ports.InjectionBetweenTools, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
 		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
@@ -217,6 +244,9 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	if spec.Binary == "" {
 		problem("no ropeshift binary to run the shim")
 	}
+	if spec.RunMode == ports.RunModeInteractive && d.terminal == nil {
+		problem("no terminal for an interactive session")
+	}
 	if len(spec.TempDir)+len(socketTail) > maxSocketPath {
 		problem("a session's socket under %s passes the %d-byte limit", spec.TempDir, maxSocketPath)
 	}
@@ -255,13 +285,20 @@ func ResumeArgs(spec ports.SessionSpec, from ports.ResumeRef) []string {
 
 // Start launches a session and hands it the brief.
 func (d *Driver) Start(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
+	if spec.RunMode == ports.RunModeInteractive {
+		return d.launchPane(ctx, spec, paneArgs(spec), checkFresh, lanes.CostMeter{})
+	}
 	return d.launch(ctx, spec, StartArgs(spec), lanes.CostMeter{})
 }
 
 // Resume continues an earlier session as a new generation, and its cost continues
 // from the last running total.
 func (d *Driver) Resume(ctx context.Context, spec ports.SessionSpec, from ports.ResumeRef) (ports.SessionHandle, error) {
-	return d.launch(ctx, spec, ResumeArgs(spec, from), lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD})
+	meter := lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD}
+	if spec.RunMode == ports.RunModeInteractive {
+		return d.launchPane(ctx, spec, append(paneArgs(spec), "--resume", from.SessionID), checkResume, meter)
+	}
+	return d.launch(ctx, spec, ResumeArgs(spec, from), meter)
 }
 
 func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments []string, meter lanes.CostMeter) (ports.SessionHandle, error) {
@@ -357,7 +394,7 @@ func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle port
 		_ = stream.Close()
 		return nil, err
 	}
-	d.keep(s)
+	d.keep(s.handle.ID, s)
 	go s.read(stream, log, cursor)
 	return s, nil
 }
@@ -369,10 +406,16 @@ func (d *Driver) newSession(spec ports.SessionSpec, handle ports.SessionHandle, 
 	}
 }
 
-func (d *Driver) keep(s *session) {
+func (d *Driver) keep(id string, s liveSession) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.sessions[s.handle.ID] = s
+	d.sessions[id] = s
+}
+
+func (d *Driver) forget(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.sessions, id)
 }
 
 func sessionHandleID(spec ports.SessionSpec) string {
@@ -621,7 +664,7 @@ func (s *session) write(ctx context.Context, in ports.Input) (ports.SendReceipt,
 	return ports.SendReceipt{ID: in.ID, Path: ports.SendStdin}, nil
 }
 
-func (d *Driver) session(h ports.SessionHandle) (*session, error) {
+func (d *Driver) session(h ports.SessionHandle) (liveSession, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	s, ok := d.sessions[h.ID]
@@ -631,21 +674,27 @@ func (d *Driver) session(h ports.SessionHandle) (*session, error) {
 	return s, nil
 }
 
-// Observe returns what the stream showed, and pings the shim, which is the handshake on
-// this path. Only a session whose end was read reads dead. A failed ping or a handle this
-// driver does not know reads unknown, because neither is evidence of an end.
+// Observe returns what the session showed. An unknown handle reads unknown, because it is
+// no evidence of an end.
 func (d *Driver) Observe(ctx context.Context, h ports.SessionHandle) (ports.Observation, error) {
 	s, err := d.session(h)
 	if err != nil {
 		return ports.Observation{Liveness: ports.LivenessUnknown}, err
 	}
+	return s.observe(ctx), nil
+}
+
+// observe returns what the stream showed, and pings the shim, which is the handshake on
+// this path. Only a session whose end was read reads dead, and a failed ping reads
+// unknown.
+func (s *session) observe(ctx context.Context) ports.Observation {
 	s.mu.Lock()
 	out := s.seen
 	s.mu.Unlock()
 	select {
 	case <-s.done:
 		out.Liveness = ports.LivenessDead
-		return out, nil
+		return out
 	default:
 	}
 	out.Liveness = ports.LivenessUnknown
@@ -656,7 +705,7 @@ func (d *Driver) Observe(ctx context.Context, h ports.SessionHandle) (ports.Obse
 			out.Liveness = ports.LivenessAlive
 		}
 	}
-	return out, nil
+	return out
 }
 
 // Events returns the session's stream.
@@ -665,15 +714,40 @@ func (d *Driver) Events(_ context.Context, h ports.SessionHandle) (<-chan ports.
 	if err != nil {
 		return nil, err
 	}
-	return s.events, nil
+	return s.stream(), nil
 }
 
-// Send hands one input to the session on stdin.
+// TakeHook hands a session what its hook reported.
+func (d *Driver) TakeHook(_ context.Context, event lanes.HookEvent) {
+	d.mu.Lock()
+	s, ok := d.sessions[hookSessionID(event)]
+	d.mu.Unlock()
+	if ok {
+		s.takeHook(event)
+	}
+}
+
+func hookSessionID(event lanes.HookEvent) string {
+	return fmt.Sprintf("%s/%d", event.Lane, event.Generation)
+}
+
+func (s *session) stream() <-chan ports.DriverEvent { return s.events }
+
+func (s *session) ended() <-chan struct{} { return s.done }
+
+// takeHook has nothing to add: a headless session's state comes from its stream.
+func (s *session) takeHook(lanes.HookEvent) {}
+
+// Send hands one input to the session, by whatever path its run mode has.
 func (d *Driver) Send(ctx context.Context, h ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {
 	s, err := d.session(h)
 	if err != nil {
 		return ports.SendReceipt{}, err
 	}
+	return s.send(ctx, in)
+}
+
+func (s *session) send(ctx context.Context, in ports.Input) (ports.SendReceipt, error) {
 	return s.write(ctx, in)
 }
 
@@ -682,21 +756,50 @@ func (d *Driver) Decide(context.Context, ports.SessionHandle, ports.ApprovalDeci
 	return ports.ErrUnsupported
 }
 
-// Compact sends the native command as a stream-json message.
+// Compact asks for the native command.
 func (d *Driver) Compact(ctx context.Context, h ports.SessionHandle) error {
-	_, err := d.Send(ctx, h, ports.Input{Text: "/compact"})
+	s, err := d.session(h)
+	if err != nil {
+		return err
+	}
+	return s.compact(ctx)
+}
+
+// compact sends the command as a stream-json message.
+func (s *session) compact(ctx context.Context) error {
+	_, err := s.write(ctx, ports.Input{Text: "/compact"})
 	return err
 }
 
-// Stop ends a session. A signal goes through the shim, which sends it only to the
-// session it holds. A session that does not end within the grace takes the next signal,
-// and SIGKILL is last. A shim that does not answer has gone, and the reader finishes the
-// session, so a failed request here is not a failed stop.
+// Stop ends a session. A session that does not end within the grace takes the next
+// signal, and SIGKILL is last. A session whose reader is gone reads ended, so a failed
+// request here is not a failed stop.
 func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.StopMode) error {
 	s, err := d.session(h)
 	if err != nil {
 		return err
 	}
+	s.beginStop(ctx, how)
+	for _, next := range []ports.Signal{ports.SignalTerminate, ports.SignalKill} {
+		select {
+		case <-s.ended():
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(d.grace):
+		}
+		s.escalate(ctx, next)
+	}
+	select {
+	case <-s.ended():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// beginStop goes through the shim, which sends a signal only to the session it holds.
+func (s *session) beginStop(ctx context.Context, how ports.StopMode) {
 	s.mu.Lock()
 	s.stopping = true
 	s.mu.Unlock()
@@ -710,22 +813,14 @@ func (d *Driver) Stop(ctx context.Context, h ports.SessionHandle, how ports.Stop
 		s.closeStdin(ctx)
 		s.signal(ctx, shimlink.SignalKill)
 	}
-	for _, next := range []string{shimlink.SignalTerminate, shimlink.SignalKill} {
-		select {
-		case <-s.done:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(d.grace):
-		}
-		s.signal(ctx, next)
+}
+
+func (s *session) escalate(ctx context.Context, signal ports.Signal) {
+	if signal == ports.SignalKill {
+		s.signal(ctx, shimlink.SignalKill)
+		return
 	}
-	select {
-	case <-s.done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	s.signal(ctx, shimlink.SignalTerminate)
 }
 
 func (s *session) signal(ctx context.Context, name string) {

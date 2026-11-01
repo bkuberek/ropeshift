@@ -90,6 +90,13 @@ type Profile struct {
 	Hooks     map[string][]string `toml:"hooks" json:"hooks"`
 }
 
+// The values of `run_mode`. The default waits for the doctor, and until then an empty
+// value runs headless.
+const (
+	ProfileRunTmux     = "tmux"
+	ProfileRunHeadless = "headless"
+)
+
 // Digest identifies the settings. It is recorded on the lane, so the bytes must not
 // depend on the order of a file. encoding/json sorts map keys, and a struct has one
 // order.

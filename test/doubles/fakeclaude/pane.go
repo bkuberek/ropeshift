@@ -1,0 +1,372 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+)
+
+// paneScript says how a session behaves in a terminal. The screens follow the shapes the
+// qualification matrix records. Source names them, and RS3 corrects them.
+type paneScript struct {
+	// Trust starts on the trust dialog, once per directory.
+	Trust bool `json:"trust,omitempty"`
+	// Stuck draws this and never reaches a prompt.
+	Stuck string `json:"stuck,omitempty"`
+	// ExitOnStart ends the process before a prompt, with this code.
+	ExitOnStart *int `json:"exit_on_start,omitempty"`
+	// NoSessionStart keeps the SessionStart hook from running.
+	NoSessionStart bool `json:"no_session_start,omitempty"`
+	// SessionID replaces the session ID of the hooks.
+	SessionID string `json:"session_id,omitempty"`
+}
+
+const (
+	screenTrustCancel = `────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ %[1]s
+
+ Quick safety check: Is this a project you created or one you trust?
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to select · Esc to exit
+`
+	screenTrustAccept = `────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ %[1]s
+
+ Quick safety check: Is this a project you created or one you trust?
+
+   No, exit
+ ❯ Yes, I trust this folder
+
+ Enter to select · Esc to exit
+`
+	screenReady = ` fakeclaude
+
+────────────────────────────────────────────────────────────────────────────────
+❯ %[1]s
+────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts
+`
+)
+
+const (
+	keyUp    = "<up>"
+	keyDown  = "<down>"
+	keyEnter = "<enter>"
+)
+
+// witness appends one line beside the binary, where a test reads what a pane took.
+func witness(kind, line string) {
+	dir := filepath.Dir(os.Args[0])
+	file, err := os.OpenFile(filepath.Join(dir, kind+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		fail("%v", err)
+	}
+	defer file.Close()
+	if _, err := fmt.Fprintf(file, "%d %s\n", os.Getpid(), line); err != nil {
+		fail("%v", err)
+	}
+}
+
+func draw(text string) {
+	fmt.Print("\033[2J\033[H" + strings.ReplaceAll(text, "\n", "\r\n"))
+}
+
+// terminalInput turns off line buffering, so a key arrives when it is pressed. The
+// interrupt key still raises SIGINT.
+func terminalInput() {
+	cmd := exec.Command("stty", "-icanon", "-echo", "min", "1")
+	cmd.Stdin = os.Stdin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fail("stty: %v: %s", err, out)
+	}
+}
+
+func readKeys(keys chan<- string) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		first, err := reader.ReadByte()
+		if err != nil {
+			close(keys)
+			return
+		}
+		switch first {
+		case '\r', '\n':
+			keys <- keyEnter
+		case 0x1b:
+			if _, err := reader.ReadByte(); err != nil {
+				close(keys)
+				return
+			}
+			arrow, err := reader.ReadByte()
+			if err != nil {
+				close(keys)
+				return
+			}
+			switch arrow {
+			case 'A':
+				keys <- keyUp
+			case 'B':
+				keys <- keyDown
+			}
+		default:
+			keys <- string(first)
+		}
+	}
+}
+
+func trustMark() string {
+	raw := strings.NewReplacer("/", "-", " ", "-").Replace(mustGetwd())
+	return filepath.Join(filepath.Dir(os.Args[0]), "trusted"+raw)
+}
+
+// askTrust is the dialog as the build shows it: the focus starts on the wrong answer, so
+// a bare Enter ends the process, and a test can see that it did.
+func (s *session) askTrust(keys <-chan string) {
+	if _, err := os.Stat(trustMark()); err == nil {
+		return
+	}
+	accept := false
+	show := func() {
+		if accept {
+			draw(fmt.Sprintf(screenTrustAccept, mustGetwd()))
+		} else {
+			draw(fmt.Sprintf(screenTrustCancel, mustGetwd()))
+		}
+	}
+	show()
+	for key := range keys {
+		witness("keys", "trust "+key)
+		switch key {
+		case keyDown:
+			accept = true
+		case keyUp:
+			accept = false
+		case keyEnter:
+			if !accept {
+				witness("bare-enter", "the wrong answer")
+				os.Exit(1)
+			}
+			if err := os.WriteFile(trustMark(), nil, 0o600); err != nil {
+				fail("%v", err)
+			}
+			return
+		}
+		show()
+	}
+}
+
+// listen binds the session's socket where the variable says, and takes each line.
+func listen(lines chan<- string) string {
+	dir := os.Getenv("CLAUDE_CODE_TMPDIR")
+	if dir == "" {
+		dir = filepath.Dir(os.Args[0])
+	}
+	sockets := filepath.Join(dir, "cc-socks")
+	if err := os.MkdirAll(sockets, 0o700); err != nil {
+		fail("%v", err)
+	}
+	path := filepath.Join(sockets, strconv.Itoa(os.Getpid())+".sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		fail("%v", err)
+	}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				scanner := bufio.NewScanner(conn)
+				scanner.Buffer(make([]byte, 1<<16), 1<<24)
+				for scanner.Scan() {
+					lines <- scanner.Text()
+				}
+			}()
+		}
+	}()
+	return path
+}
+
+func (s *session) paneSessionID() string {
+	if s.script.Pane.SessionID != "" {
+		return s.script.Pane.SessionID
+	}
+	return sessionID
+}
+
+// runPane is one session in a terminal: the start screens, a socket, and a turn for each
+// message or typed prompt. It writes no stream, and everything a worker learns comes
+// through the generated hooks and the status line.
+func (s *session) runPane() {
+	s.pane = true
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, syscall.SIGINT, syscall.SIGTERM)
+	terminalInput()
+	keys := make(chan string)
+	go readKeys(keys)
+	script := s.script.Pane
+	if script.ExitOnStart != nil {
+		os.Exit(*script.ExitOnStart)
+	}
+	if script.Stuck != "" {
+		s.waitStuck(script.Stuck, keys, interrupts)
+		return
+	}
+	if script.Trust {
+		s.askTrust(keys)
+	}
+	messages := make(chan string)
+	socket := listen(messages)
+	if err := os.Setenv("CLAUDE_CODE_MESSAGING_SOCKET", socket); err != nil {
+		fail("%v", err)
+	}
+	draw(fmt.Sprintf(screenReady, ""))
+	if !script.NoSessionStart {
+		source := "startup"
+		if s.opts.resume != "" {
+			source = "resume"
+		}
+		s.hook("SessionStart", map[string]any{"source": source, "model": s.modelName()})
+	}
+	s.paneLoop(keys, messages, interrupts)
+}
+
+func (s *session) modelName() string {
+	if s.script.Model != "" {
+		return s.script.Model
+	}
+	return "claude-fixture-5-5"
+}
+
+func (s *session) waitStuck(text string, keys <-chan string, interrupts <-chan os.Signal) {
+	draw(text + "\n")
+	for {
+		select {
+		case <-interrupts:
+			os.Exit(130)
+		case key, open := <-keys:
+			if !open {
+				select {}
+			}
+			witness("keys", "stuck "+key)
+		}
+	}
+}
+
+func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupts <-chan os.Signal) {
+	turn := 0
+	typed := ""
+	take := func(text string) {
+		s.hook("UserPromptSubmit", map[string]any{"prompt": text})
+		if turn < len(s.script.Turns) {
+			s.play(s.script.Turns[turn], interrupts)
+			turn++
+		}
+		s.hook("Stop", map[string]any{})
+	}
+	for {
+		select {
+		case <-interrupts:
+			s.hook("SessionEnd", map[string]any{"reason": "other"})
+			if s.server != nil {
+				s.server.close()
+			}
+			os.Exit(0)
+		case line := <-messages:
+			witness("messages", messageID(line))
+			take(messageText(line))
+		case key, open := <-keys:
+			if !open {
+				keys = nil
+				continue
+			}
+			witness("keys", "prompt "+key)
+			if key != keyEnter {
+				typed += key
+				draw(fmt.Sprintf(screenReady, typed))
+				continue
+			}
+			text := typed
+			typed = ""
+			draw(fmt.Sprintf(screenReady, ""))
+			switch text {
+			case "":
+			case "/compact":
+				s.compact()
+			default:
+				take(text)
+			}
+		}
+	}
+}
+
+func (s *session) compact() {
+	s.hook("PreCompact", map[string]any{"trigger": "manual"})
+	s.hook("SessionStart", map[string]any{"source": "compact", "model": s.modelName()})
+	s.hook("PostCompact", map[string]any{"trigger": "manual"})
+}
+
+type socketLine struct {
+	UUID    string `json:"uuid"`
+	Message struct {
+		Content string `json:"content"`
+	} `json:"message"`
+}
+
+func messageID(line string) string {
+	var parsed socketLine
+	if json.Unmarshal([]byte(line), &parsed) != nil {
+		return "malformed"
+	}
+	return parsed.UUID
+}
+
+func messageText(line string) string {
+	var parsed socketLine
+	if json.Unmarshal([]byte(line), &parsed) != nil {
+		return ""
+	}
+	return parsed.Message.Content
+}
+
+// statusLine runs the configured command with a payload on stdin, and keeps what it
+// printed, which is what a person would see.
+func (s *session) statusLine(payload map[string]any) {
+	if s.settings.StatusLine.Command == "" {
+		return
+	}
+	merged := map[string]any{"session_id": s.paneSessionID(), "model": map[string]any{"id": s.modelName()}}
+	for key, value := range payload {
+		merged[key] = value
+	}
+	raw, err := json.Marshal(merged)
+	if err != nil {
+		fail("%v", err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", s.settings.StatusLine.Command)
+	cmd.Stdin = bytes.NewReader(raw)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		fail("status line: %v", err)
+	}
+	witness("status-line", strings.TrimSpace(string(out)))
+}

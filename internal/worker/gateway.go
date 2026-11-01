@@ -88,9 +88,7 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return refused(lanes.CodeUnavailable, err.Error())
 		}
-		if run := w.runOf(lane.ID); run != nil {
-			run.observeHook(ctx, event)
-		}
+		w.deliverHook(ctx, event)
 		return lanes.Reply{OK: true}
 	case request.Report != nil:
 		reply := w.takeReport(ctx, lane, *request.Report)
@@ -100,6 +98,15 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		return reply
 	}
 	return refused(lanes.CodeInvalid, "this line asks for nothing")
+}
+
+// deliverHook hands one event to the run that holds its lane, if a run does. An event of an
+// earlier generation says nothing about the session this run follows.
+func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
+	if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation {
+		run.observeHook(ctx, event)
+		run.rt.Driver.TakeHook(ctx, event)
+	}
 }
 
 func (w *Worker) runOf(lane string) *laneRun {
@@ -145,9 +152,11 @@ func (w *Worker) takeReport(ctx context.Context, lane lanes.Record, report worko
 	return refused(lanes.CodeAlreadyReported, "this lane already reported its outcome")
 }
 
-// DrainSpool takes what hooks spooled while the worker was down. A crash during a
-// drain leaves the file aside, and the next start finishes it. Delivery is at-least-
-// once, and a repeat merges by meaning, so reading a line twice is safe.
+// DrainSpool takes what hooks spooled. Most of it was written while the worker was down,
+// and a hook that missed its ack under load spools with the worker alive, which a pane
+// with no stream would otherwise never tell again, so a live worker drains on every tick.
+// A crash during a drain leaves the file aside, and the next start finishes it. Delivery
+// is at-least-once, and a repeat merges by meaning, so reading a line twice is safe.
 func (w *Worker) DrainSpool(ctx context.Context) error {
 	path := w.config.Spool
 	if path == "" {
@@ -182,6 +191,7 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return err
 		}
+		w.deliverHook(ctx, event)
 	}
 	return os.Remove(path)
 }

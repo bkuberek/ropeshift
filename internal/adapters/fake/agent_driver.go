@@ -59,6 +59,7 @@ type AgentDriver struct {
 	adopted  []ports.AdoptFrom
 	findErr  error
 	stopped  bool
+	hooks    []lanes.HookEvent
 }
 
 type driverSession struct {
@@ -142,12 +143,12 @@ func (d *AgentDriver) Specs() []ports.SessionSpec {
 	return append([]ports.SessionSpec{}, d.specs...)
 }
 
-// Capabilities reports the capabilities of the real headless driver.
+// Capabilities reports the capabilities of the real driver.
 func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return ports.Capabilities{
-		RunModes: []string{ports.RunModeHeadless}, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
+		RunModes: []string{ports.RunModeHeadless, ports.RunModeInteractive}, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
 		Injection: ports.InjectionBetweenTools, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
 		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
@@ -361,6 +362,20 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 // Decide has no path in a headless fake, as in the driver at this unit.
 func (d *AgentDriver) Decide(context.Context, ports.SessionHandle, ports.ApprovalDecision) error {
 	return ports.ErrUnsupported
+}
+
+// TakeHook keeps what a hook reported.
+func (d *AgentDriver) TakeHook(_ context.Context, event lanes.HookEvent) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.hooks = append(d.hooks, event)
+}
+
+// Hooks lists what TakeHook took, in order.
+func (d *AgentDriver) Hooks() []lanes.HookEvent {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]lanes.HookEvent{}, d.hooks...)
 }
 
 // Compact has no scripted effect.

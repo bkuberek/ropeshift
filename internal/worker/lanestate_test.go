@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -358,5 +361,83 @@ func TestPublishReadsWhileASessionStarts(t *testing.T) {
 		r.subject.Wait()
 		close(stop)
 		<-reading
+	}
+}
+
+// A hook that missed its ack spools with the worker alive, and a pane has no stream to say
+// the same thing, so a live run must still hear it.
+func TestASpooledHookReachesALiveRun(t *testing.T) {
+	r := laneRigWith(t, "")
+	path := filepath.Join(r.dir, "spool")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	line, err := json.Marshal(lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: "s", AtMs: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if view := r.read(); view.ActualState != string(lanes.Compacting) {
+		t.Errorf("after a spooled hook: %s", view.ActualState)
+	}
+	if hooks := r.driver.Hooks(); len(hooks) != 1 || hooks[0].Event != "PreCompact" {
+		t.Errorf("the driver took %+v", hooks)
+	}
+}
+
+// A profile names `tmux`, and a driver names `interactive`.
+func TestRunModeReachesTheDriver(t *testing.T) {
+	r := laneRigWith(t, "run_mode = \"tmux\"\n[lifecycle]\nready_timeout = \"7s\"\n")
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject.Wait()
+	specs := r.driver.Specs()
+	if len(specs) != 1 || specs[0].RunMode != ports.RunModeInteractive || specs[0].ReadyTimeout != 7*time.Second {
+		t.Errorf("specs %+v", specs)
+	}
+}
+
+func TestAnUnknownRunModeIsRefused(t *testing.T) {
+	r := laneRigWith(t, "run_mode = \"container\"\n")
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject.Wait()
+	if specs := r.driver.Specs(); len(specs) != 0 {
+		t.Errorf("a session started: %+v", specs)
+	}
+}
+
+// startRefusal is a driver whose start stops at the check.
+type startRefusal struct {
+	*fake.AgentDriver
+	err error
+}
+
+func (d startRefusal) Start(context.Context, ports.SessionSpec) (ports.SessionHandle, error) {
+	return ports.SessionHandle{}, d.err
+}
+
+// A person has to look at an unknown screen, so the lane does not fail and retry. It ends
+// blocked until a lane can park with a human_resume wake.
+func TestAnUnknownScreenBlocksTheLane(t *testing.T) {
+	r := newLaneRig(t)
+	r.config.Driver = startRefusal{AgentDriver: r.driver, err: fmt.Errorf("check: %w", ports.ErrUnknownScreen)}
+	r.dispatched()
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject.Wait()
+	change := r.outcome()
+	if change.Outcome != workorders.OutcomeBlocked || change.Reason != workorders.ReasonUnknownScreen {
+		t.Errorf("outcome %+v", change)
 	}
 }

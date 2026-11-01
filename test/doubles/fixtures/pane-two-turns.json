@@ -1,0 +1,9 @@
+{
+  "source": "RS3: a pane's hooks and status line, in the shapes the matrix records",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": [
+    [{"status": {"context_window": {"current_usage": {"input_tokens": 3, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 900}}, "cost": {"total_cost_usd": 0.1}}}],
+    [{"status": {"context_window": {"current_usage": {"input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}, "cost": {"total_cost_usd": 0.25}}}]
+  ]
+}

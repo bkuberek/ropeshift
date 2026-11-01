@@ -1,0 +1,4 @@
+{
+  "source": "a process that ends in its pane",
+  "pane": {"exit_on_start": 7}
+}

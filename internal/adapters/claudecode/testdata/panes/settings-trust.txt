@@ -1,0 +1,6 @@
+ This folder's settings grant these permissions.
+
+ ❯ No, exit Claude Code
+   Yes, I trust these settings
+
+ Enter to select · Esc to exit

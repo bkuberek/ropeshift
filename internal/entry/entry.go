@@ -56,6 +56,12 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	if rest[0] == "mcp" {
 		return mcpserver.Main(os.Stdin, stdout, stderr, os.Getenv)
 	}
+	if rest[0] == "statusline" {
+		return hook.StatusMain(rest[1:], os.Stdin, stdout, os.Getenv)
+	}
+	if rest[0] == "lane-pane" {
+		return shim.PaneMain(rest[1:], stderr)
+	}
 	if rest[0] == "lane-shim" {
 		return shim.Main(rest[1:], stderr)
 	}
