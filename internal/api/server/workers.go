@@ -17,6 +17,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/lanes", h.listLanes)
 	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.resetLane)
+	mux.HandleFunc("POST /v1/work-orders/{id}/lane-archive", h.archiveLane)
 	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
 	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
 	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
@@ -182,6 +183,24 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, answer)
+}
+
+// archiveLane asks the worker that ran a lane to take its worktree away. It goes through
+// the work order, as a lane's start does.
+func (h *handler) archiveLane(w http.ResponseWriter, r *http.Request) {
+	var in api.ArchiveLane
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.LaneID == "" {
+		invalid(w, "an archive needs a lane_id")
+		return
+	}
+	if err := h.leases.ArchiveLane(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, in.Force, localMember); err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusAccepted, in)
 }
 
 // resetLane lets a member start the lane a work order's breaker stopped.

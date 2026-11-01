@@ -142,11 +142,17 @@ func (w Worktrees) Inspect(ctx context.Context, path string) (ports.Worktree, er
 	if err != nil {
 		return ports.Worktree{}, err
 	}
-	status, err := git.Text(ctx, "status", "--porcelain")
+	status, err := readStatus(ctx, git)
 	if err != nil {
 		return ports.Worktree{}, err
 	}
 	return ports.Worktree{Path: path, Branch: branch, Head: head, Clean: status == ""}, nil
+}
+
+// readStatus reads what differs from HEAD. Status refreshes the index when it can, which a
+// reader must not do to a worktree a session is writing in.
+func readStatus(ctx context.Context, git Git) (string, error) {
+	return git.Text(ctx, "--no-optional-locks", "status", "--porcelain")
 }
 
 // Remove deletes a clean worktree. Git refuses a dirty one on its own, and this
@@ -165,6 +171,17 @@ func (w Worktrees) Remove(ctx context.Context, repository, path string) error {
 		return fmt.Errorf("%w: %s", ports.ErrWorktreeDirty, path)
 	}
 	_, err = w.git(repository).Output(ctx, "worktree", "remove", path)
+	return err
+}
+
+// Discard deletes a worktree whatever it holds, and keeps its branch. Only a caller that
+// has saved the work, or a member who said to lose it, gets here.
+func (w Worktrees) Discard(ctx context.Context, repository, path string) error {
+	if _, err := os.Stat(filepath.Join(path, ".git")); errors.Is(err, os.ErrNotExist) {
+		_, err := w.git(repository).Output(ctx, "worktree", "prune")
+		return err
+	}
+	_, err := w.git(repository).Output(ctx, "worktree", "remove", "--force", path)
 	return err
 }
 

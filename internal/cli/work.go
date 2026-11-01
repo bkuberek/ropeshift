@@ -399,3 +399,27 @@ func (c *invocation) laneReset(args []string) int {
 	reset, err := client.ResetLane(c.ctx, id)
 	return c.finish(err, reset, func() string { return "reset the lane of " + reset.WorkOrder + "\n" })
 }
+
+// laneArchive reads which work order a lane belongs to, because a request goes through it.
+func (c *invocation) laneArchive(args []string) int {
+	set := c.flags()
+	var force bool
+	set.BoolVar(&force, "force", false, "remove it even if no remote holds its work")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	lane, err := client.Lane(c.ctx, id)
+	if err != nil {
+		return c.failure(err)
+	}
+	in := api.ArchiveLane{LaneID: id, Force: force}
+	err = client.ArchiveLane(c.ctx, lane.WorkOrder, in)
+	return c.finish(err, in, func() string { return fmt.Sprintf("lane %s: the worker removes its worktree on its next pass\n", id) })
+}

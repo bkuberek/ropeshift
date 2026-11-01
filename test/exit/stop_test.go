@@ -1,0 +1,109 @@
+package exit
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.dev/ropeshift/test/gittest"
+)
+
+// runLaneThatLeavesWork takes one lane to its end on the real binary, with a file git has
+// not seen left in its worktree.
+func runLaneThatLeavesWork(t *testing.T, in *install, repo *gittest.Repo) string {
+	t.Helper()
+	in.path = doubles.InstallFakeClaude(t, "lane-leaves-work")
+	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
+	in.waitReady(d)
+	in.waitFor("the worker's session", func() bool { return len(in.workers()) == 1 })
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
+	in.must("lane", "start", id, "--lane", "lane-1")
+	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
+	return filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "lane-1")
+}
+
+func (in *install) lane(id string) ledger.LaneView {
+	in.t.Helper()
+	var view ledger.LaneView
+	if err := json.Unmarshal([]byte(in.must("lane", "show", id, "--json")), &view); err != nil {
+		in.t.Fatal(err)
+	}
+	return view
+}
+
+// TestAStopSavesWorkToTheRemote walks the design's table on real git: what a session left
+// uncommitted reaches the remote, the worktree stays until a member removes it, and a
+// removal with nothing at risk needs no force.
+func TestAStopSavesWorkToTheRemote(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	bare := filepath.Join(filepath.Dir(repo.Dir), "remote.git")
+	repo.Git("init", "--quiet", "--bare", bare)
+	repo.Git("remote", "add", "origin", bare)
+	repo.Git("push", "--quiet", "origin", "main")
+	worktree := runLaneThatLeavesWork(t, in, repo)
+	const ref = "refs/ropeshift/checkpoints/lane-1/1"
+	in.waitFor("the snapshot on the remote", func() bool {
+		cmd := exec.Command("git", "-C", bare, "show", ref+":untracked.txt")
+		cmd.Env = repo.Env()
+		out, err := cmd.Output()
+		return err == nil && strings.TrimSpace(string(out)) == "work"
+	})
+	in.waitFor("the record of it", func() bool { return len(in.lane("lane-1").Artifacts) == 1 })
+	view := in.lane("lane-1")
+	if view.Artifacts[0].Kind != ledger.ArtifactSalvage || view.Artifacts[0].URI != ref {
+		t.Errorf("artifact %+v", view.Artifacts[0])
+	}
+	if slices.Contains(view.Conditions, "unpushed_work") {
+		t.Errorf("work on the remote reads as unpushed: %v", view.Conditions)
+	}
+	if _, err := os.Stat(worktree); err != nil {
+		t.Fatalf("a stop took the worktree: %v", err)
+	}
+	in.must("lane", "archive", "lane-1")
+	in.waitFor("the removal", func() bool {
+		_, err := os.Stat(worktree)
+		return errors.Is(err, os.ErrNotExist) && in.lane("lane-1").Archived
+	})
+}
+
+// TestRemovingUnpushedWorkTakesAForcedCommand is the case with no remote: the work has one
+// copy, so the ledger shows it, a plain removal is refused, and only --force goes on.
+func TestRemovingUnpushedWorkTakesAForcedCommand(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	worktree := runLaneThatLeavesWork(t, in, repo)
+	in.waitFor("the condition", func() bool { return slices.Contains(in.lane("lane-1").Conditions, "unpushed_work") })
+	if !strings.Contains(in.must("lane", "show", "lane-1"), "unpushed_work") {
+		t.Error("the condition does not reach a person")
+	}
+	code, _, stderr := in.run("lane", "archive", "lane-1")
+	if code != cli.ExitConflict || !strings.Contains(stderr, "no remote") {
+		t.Errorf("a plain removal: exit %d: %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "untracked.txt")); err != nil {
+		t.Fatalf("a refused removal touched the worktree: %v", err)
+	}
+	in.must("lane", "archive", "lane-1", "--force")
+	in.waitFor("the forced removal", func() bool {
+		_, err := os.Stat(worktree)
+		return errors.Is(err, os.ErrNotExist)
+	})
+	if got := repo.Git("show", "refs/ropeshift/checkpoints/lane-1/1:untracked.txt"); got != "work" {
+		t.Errorf("a forced removal lost the snapshot: %q", got)
+	}
+}

@@ -177,6 +177,10 @@ type LaneReader interface {
 	Rows() ([]ledger.LaneRow, error)
 	// Resets returns how many times a lane's breaker was reset, or ErrNotFound.
 	Resets(lane string) (int64, error)
+	// Artifacts lists what a lane left, oldest first.
+	Artifacts(lane string) ([]ledger.Artifact, error)
+	// Archiving lists the lanes a worker should take away.
+	Archiving(worker string) ([]ledger.DesiredArchive, error)
 }
 
 // LaneWriter writes lanes.
@@ -192,6 +196,15 @@ type LaneWriter interface {
 	MarkEnded(lane string) error
 	// Reset counts one human reset of a lane's breaker and returns the count.
 	Reset(lane string) (int64, error)
+	// Guarded keeps how a stop left a worktree. Work no remote holds withdraws a request
+	// to remove it, unless a member forced that request.
+	Guarded(lane string, unpushed bool) error
+	// AddArtifact keeps what a lane left, once per ID.
+	AddArtifact(artifact ledger.Artifact) error
+	// RequestArchive asks a worker to take a lane's worktree away.
+	RequestArchive(lane string, forced bool) error
+	// Archived records that a lane's worktree went.
+	Archived(lane string) error
 }
 
 // PlanningReader reads what intake recorded.

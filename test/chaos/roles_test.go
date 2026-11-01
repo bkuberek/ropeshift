@@ -42,6 +42,7 @@ var childRoles = map[string]func(*child) error{
 	"worker-daemon":     roleWorkerDaemon,
 	"plane-server":      rolePlaneServer,
 	"worktree-create":   roleWorktreeCreate,
+	"worker-stop":       roleWorkerStop,
 }
 
 func roleRecordWork(c *child) error {

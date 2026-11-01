@@ -149,6 +149,11 @@ func (c *Client) StartLane(ctx context.Context, id string, in StartLane) (LaneDi
 	return out, err
 }
 
+// ArchiveLane asks for a lane's worktree to be removed.
+func (c *Client) ArchiveLane(ctx context.Context, workOrder string, in ArchiveLane) error {
+	return c.Do(ctx, http.MethodPost, workOrderPath(workOrder, "lane-archive"), in, nil)
+}
+
 // Claim requests a work order.
 func (c *Client) Claim(ctx context.Context, id string, in ClaimRequest) (Grant, error) {
 	var out Grant

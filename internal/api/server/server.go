@@ -128,6 +128,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeLapsed, Message: err.Error()})
 	case errors.Is(err, workorders.ErrNotLapsed):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeNotLapsed, Message: err.Error()})
+	case errors.Is(err, workorders.ErrUnpushedWork):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeUnpushedWork, Message: err.Error()})
 	case errors.Is(err, workorders.ErrIllegalMove), errors.Is(err, workorders.ErrLeasedEdge):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeIllegalMove, Message: err.Error()})
 	default:

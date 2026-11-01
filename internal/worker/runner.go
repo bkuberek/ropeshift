@@ -37,6 +37,8 @@ type LaneRuntime struct {
 	Spool  string
 	// Binary is the stable path generated settings name (D18).
 	Binary string
+	// Ports is the pool this worker hands out. Zero takes the default.
+	Ports lanes.PortPool
 	// StateDir holds generated settings, per lane.
 	StateDir string
 	// RunDir holds each session's short private directory.
@@ -196,7 +198,10 @@ func (w *Worker) event(eventType string, record lanes.Record, payload []byte) le
 
 // endLane journals a lane's end and its outcome together, then uploads. A crash after
 // the journal write uploads on the next start.
-func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workorders.LaneResult) error {
+func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workorders.LaneResult, fenced bool) error {
+	if err := w.finalGuard(ctx, record, fenced); err != nil {
+		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
+	}
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return err
@@ -257,7 +262,7 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 	return r.w.endLane(context.WithoutCancel(ctx), r.record(), workorders.LaneResult{
 		Report: report, CostUSD: r.priorUSD + r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
 		UnknownCostTurns: r.priorUnknown + r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
-	})
+	}, r.fenced.Load())
 }
 
 // adoptedRun rebuilds a lane's run from the journal, because nothing else survived.
@@ -339,7 +344,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch,
+		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Allocate: r.allocate, RunHook: r.runHook,
 		Tags: map[string]string{
 			lanes.EnvLaneID: r.lease.Lane, lanes.EnvGeneration: strconv.FormatInt(r.currentGeneration(), 10),
 			lanes.EnvWorkOrder: r.lease.WorkOrder, lanes.EnvLaneToken: token,
@@ -350,6 +355,13 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 			return r.w.bracket(ctx, effect, perform)
 		},
 	})
+	if errors.Is(err, errHookUnknown) {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonHookUnknown}
+	}
+	if errors.Is(err, ErrHookFailed) {
+		return r.failStart(workorders.ReasonHookFailed, err)
+	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -607,6 +619,7 @@ func (r *laneRun) stop(ctx context.Context, how ports.StopMode) {
 	once.Do(func() {
 		r.stopped.Go(func() {
 			ctx := context.WithoutCancel(ctx)
+			r.guardBeforeStop(ctx)
 			effect := lanes.NewEffect(lanes.EffectStop, r.lease.Lane, r.currentGeneration(), "", "")
 			_, err := r.w.bracket(ctx, effect, func() error { return r.rt.Driver.Stop(ctx, r.sessionHandle(), how) })
 			if err != nil {

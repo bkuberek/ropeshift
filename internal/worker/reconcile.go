@@ -36,12 +36,27 @@ var effectSteps = map[lanes.EffectKind]struct{ started, performed, finished func
 		performed: func() { crashpoint.Hit("effect.stop", "performed") },
 		finished:  func() { crashpoint.Hit("effect.stop", "finished") },
 	},
+	lanes.EffectGuard: {
+		started:   func() { crashpoint.Hit("effect.guard", "started") },
+		performed: func() { crashpoint.Hit("effect.guard", "performed") },
+		finished:  func() { crashpoint.Hit("effect.guard", "finished") },
+	},
+	lanes.EffectRemoval: {
+		started:   func() { crashpoint.Hit("effect.removal", "started") },
+		performed: func() { crashpoint.Hit("effect.removal", "performed") },
+		finished:  func() { crashpoint.Hit("effect.removal", "finished") },
+	},
+	lanes.EffectHook: {
+		started:   func() { crashpoint.Hit("effect.hook", "started") },
+		performed: func() { crashpoint.Hit("effect.hook", "performed") },
+		finished:  func() { crashpoint.Hit("effect.hook", "finished") },
+	},
 }
 
 // bracket performs one external effect between two journal writes, so a crash at any
 // point leaves a record of it. It reports whether perform ran. An effect already on
-// record runs only if a retry cleared it to started, or if stopping failed earlier,
-// because a stop is safe to repeat.
+// record runs only if a retry cleared it to started, or if its kind repeats from where it
+// stands, because a stop that failed or a guard that reads again is safe.
 func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func() error) (bool, error) {
 	begun, err := w.journal.BeginEffect(ctx, effect)
 	if err != nil {
@@ -52,7 +67,7 @@ func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func(
 		if err != nil {
 			return false, err
 		}
-		again := current.State == lanes.EffectFailed && effect.Kind == lanes.EffectStop
+		again := effect.Kind.Repeats(current.State)
 		if current.State != lanes.EffectStarted && !again {
 			return false, nil
 		}
@@ -90,9 +105,10 @@ func (w *Worker) markUnknown(ctx context.Context) error {
 
 // observed is what one pass read, beside the world it hands to Plan.
 type observed struct {
-	leases  map[string]ledger.DesiredLease
-	records map[string]lanes.Record
-	located map[string]ports.Located
+	leases   map[string]ledger.DesiredLease
+	records  map[string]lanes.Record
+	located  map[string]ports.Located
+	archives map[string]ledger.DesiredArchive
 }
 
 func (w *Worker) held(lane string) bool {
@@ -105,11 +121,16 @@ func (w *Worker) held(lane string) bool {
 // desiredLeases reads the leases this worker should act on. No desired state yet means
 // no lease, and a worker still reconciles what it holds.
 func (w *Worker) desiredLeases(ctx context.Context) ([]ledger.DesiredLease, error) {
+	state, err := w.desired(ctx)
+	return state.Leases, err
+}
+
+func (w *Worker) desired(ctx context.Context) (ledger.DesiredState, error) {
 	state, err := w.journal.Desired(ctx)
 	if errors.Is(err, ports.ErrNotFound) {
-		return nil, nil
+		return ledger.DesiredState{}, nil
 	}
-	return state.Leases, err
+	return state, err
 }
 
 // sessionSpec is what a driver needs to look for a session it did not start.
@@ -126,8 +147,9 @@ func (w *Worker) sessionSpec(record lanes.Record) ports.SessionSpec {
 func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	seen := observed{
 		leases: map[string]ledger.DesiredLease{}, records: map[string]lanes.Record{}, located: map[string]ports.Located{},
+		archives: map[string]ledger.DesiredArchive{},
 	}
-	leases, err := w.desiredLeases(ctx)
+	desired, err := w.desired(ctx)
 	if err != nil {
 		return lanes.World{}, seen, err
 	}
@@ -167,12 +189,23 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 		finding := w.find(ctx, effect, seen.located[effect.Lane], unknownRead[effect.Lane])
 		world.Unknown = append(world.Unknown, lanes.ObservedEffect{Effect: effect, Finding: finding})
 	}
-	for _, lease := range leases {
+	for _, lease := range desired.Leases {
 		seen.leases[lease.Lane] = lease
 		_, recorded := seen.records[lease.Lane]
 		if lease.Lane != "" && lease.State == string(workorders.Claimed) && !recorded && !w.held(lease.Lane) {
 			world.Wanted = append(world.Wanted, lease.Lane)
 		}
+	}
+	allocations, err := w.journal.Allocations(ctx)
+	if err != nil {
+		return lanes.World{}, seen, err
+	}
+	for _, allocation := range allocations {
+		world.Allocations = append(world.Allocations, allocation.Lane)
+	}
+	for _, archive := range desired.Archives {
+		seen.archives[archive.Lane] = archive
+		world.Archives = append(world.Archives, archive.Lane)
 	}
 	return world, seen, nil
 }
@@ -216,6 +249,16 @@ func (w *Worker) find(ctx context.Context, effect lanes.Effect, session ports.Lo
 			return lanes.Found
 		}
 		return lanes.FoundNothing
+	case lanes.EffectRemoval:
+		_, err := w.config.Lanes.Provisioner.Worktrees.Inspect(ctx, effect.Target)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+			return lanes.Found
+		case err == nil:
+			return lanes.FoundNothing
+		}
+		w.config.Report(fmt.Errorf("effect %s: %w", effect.Key, err))
+		return lanes.FoundUnknown
 	}
 	return lanes.FoundNothing
 }
@@ -266,12 +309,19 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 		w.startRun(ctx, run, (*laneRun).adopt)
 	case lanes.ActionEnd:
 		return w.endUnattended(ctx, seen.records[action.Lane])
+	case lanes.ActionRelease:
+		if keepsResources() {
+			return nil
+		}
+		return w.journal.Release(ctx, action.Lane)
+	case lanes.ActionArchive:
+		return w.archive(ctx, seen.records[action.Lane], seen.archives[action.Lane])
 	}
 	return nil
 }
 
 // endUnattended accounts for a lane with no session left to read. A report it made
-// before the crash stands.
+// before the crash stands. A lane whose lease went stops through the same guard.
 func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 	result := workorders.LaneResult{
 		Report:  workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonWorkerRestarted},
@@ -282,7 +332,7 @@ func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 	if report, ok := decodeReport(record.Report); ok {
 		result.Report = report
 	}
-	return w.endLane(ctx, record, result)
+	return w.endLane(ctx, record, result, w.leaseGone(ctx, record))
 }
 
 func (rt *LaneRuntime) configDir(lane string) string {

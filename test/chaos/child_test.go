@@ -73,6 +73,9 @@ type childSpec struct {
 	Path       string   `json:"path,omitempty"`
 	Branch     string   `json:"branch,omitempty"`
 	GitEnv     []string `json:"git_env,omitempty"`
+	// Script says what a stopping lane's session does, and Profile is the user's layer.
+	Script  string `json:"script,omitempty"`
+	Profile string `json:"profile,omitempty"`
 }
 
 type child struct {

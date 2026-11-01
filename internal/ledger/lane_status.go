@@ -17,6 +17,38 @@ const EventLaneStatus = "lane.status"
 // EventLaneReset records a member resetting a lane's breaker.
 const EventLaneReset = "lane.reset"
 
+// The events of a lane's stop and removal.
+const (
+	// EventLaneGuarded records how a stop left a worktree. It is the one thing a fenced
+	// holder may still say, because it adds no ownership and keeps a person's work in view.
+	EventLaneGuarded = "lane.guarded"
+	// EventLaneArchiveRequested records a request to take a worktree away.
+	EventLaneArchiveRequested = "lane.archive_requested"
+	// EventLaneArchived records that a worktree went.
+	EventLaneArchived = "lane.archived"
+)
+
+// ArtifactSalvage is the kind of a ref a stop left. A later unit adds the other kinds.
+const ArtifactSalvage = "salvage"
+
+// Artifact is something a lane left. URI names it, and Digest pins its content.
+type Artifact struct {
+	ID        string `json:"id"`
+	Lane      string `json:"lane_id"`
+	Kind      string `json:"kind"`
+	URI       string `json:"uri"`
+	Digest    string `json:"digest,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// LaneGuard is what a worker says about how a stop left a worktree.
+type LaneGuard struct {
+	UnpushedWork bool   `json:"unpushed_work"`
+	Ref          string `json:"ref,omitempty"`
+	Commit       string `json:"commit,omitempty"`
+	Detail       string `json:"detail,omitempty"`
+}
+
 // StateEnded is a lane's last state, which the ledger records for itself.
 const StateEnded = "ended"
 
@@ -42,6 +74,12 @@ type LaneRow struct {
 	// ReportedAt is database time, when the status arrived.
 	ReportedAt      int64
 	ReportedByEpoch int64
+	// StartedFence is the fence this lane started under.
+	StartedFence int64
+	// UnpushedWork says the last stop left work no remote holds.
+	UnpushedWork bool
+	// Archived says its worktree went.
+	Archived bool
 }
 
 // LaneView is a lane as a client reads it: its status, and how much to believe it.
@@ -54,4 +92,7 @@ type LaneView struct {
 	AsOf            int64  `json:"as_of"`
 	Freshness       string `json:"freshness"`
 	ReportedByEpoch int64  `json:"reported_by_epoch"`
+	// Archived says its worktree went.
+	Archived  bool       `json:"archived,omitempty"`
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 }

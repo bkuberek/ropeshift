@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -449,4 +450,98 @@ func openTestJournal(t *testing.T) ports.Journal {
 		t.Fatal(err)
 	}
 	return journal
+}
+
+func openJournal(t *testing.T) ports.Journal {
+	t.Helper()
+	journal, err := sqlite.OpenJournal(filepath.Join(t.TempDir(), "journal.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = journal.Close() })
+	if err := journal.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return journal
+}
+
+func TestJournalAllocations(t *testing.T) {
+	journal := openJournal(t)
+	ctx := t.Context()
+	pool := lanes.PortPool{Base: 20000, Size: 20}
+	first, err := journal.Allocate(ctx, lanes.AllocationRequest{Lane: "one", Ports: 10, ComposeProject: "rs-one", Pool: pool})
+	if err != nil || first.PortBase != 20000 || first.ComposeProject != "rs-one" {
+		t.Fatalf("first %+v: %v", first, err)
+	}
+	second, err := journal.Allocate(ctx, lanes.AllocationRequest{Lane: "two", Ports: 10, ComposeProject: "rs-two", Pool: pool})
+	if err != nil || second.PortBase != 20010 {
+		t.Fatalf("second %+v: %v", second, err)
+	}
+	again, err := journal.Allocate(ctx, lanes.AllocationRequest{Lane: "one", Ports: 10, ComposeProject: "rs-one", Pool: pool})
+	if err != nil || again != first {
+		t.Errorf("a retry got %+v: %v", again, err)
+	}
+	if _, err := journal.Allocate(ctx, lanes.AllocationRequest{Lane: "three", Ports: 10, Pool: pool}); !errors.Is(err, ports.ErrNoPorts) {
+		t.Errorf("a full pool: %v", err)
+	}
+	if err := journal.Release(ctx, "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Release(ctx, "one"); err != nil {
+		t.Errorf("a repeat: %v", err)
+	}
+	third, err := journal.Allocate(ctx, lanes.AllocationRequest{Lane: "three", Ports: 10, Pool: pool})
+	if err != nil || third.PortBase != 20000 {
+		t.Errorf("a released block: %+v: %v", third, err)
+	}
+	held, err := journal.Allocations(ctx)
+	if err != nil || len(held) != 2 {
+		t.Errorf("held %+v: %v", held, err)
+	}
+}
+
+func TestJournalAllocationsRaceForOneBlock(t *testing.T) {
+	journal := openJournal(t)
+	ctx := t.Context()
+	pool := lanes.PortPool{Base: 20000, Size: 1000}
+	const racers = 16
+	var wg sync.WaitGroup
+	for i := range racers {
+		wg.Go(func() {
+			if _, err := journal.Allocate(ctx, lanes.AllocationRequest{Lane: fmt.Sprint("lane-", i), Ports: 10, Pool: pool}); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	held, err := journal.Allocations(ctx)
+	if err != nil || len(held) != racers {
+		t.Fatalf("held %+v: %v", held, err)
+	}
+	seen := map[int64]bool{}
+	for _, allocation := range held {
+		if seen[allocation.PortBase] {
+			t.Errorf("two lanes share %d", allocation.PortBase)
+		}
+		seen[allocation.PortBase] = true
+	}
+}
+
+func TestJournalKeepsAGuard(t *testing.T) {
+	journal := openJournal(t)
+	ctx := t.Context()
+	if err := journal.SaveLane(ctx, lanes.Record{ID: "lane", WorkOrder: "w", ClaimID: "c", State: lanes.StateRunning}); err != nil {
+		t.Fatal(err)
+	}
+	want := lanes.GuardResult{Unpushed: true, Ref: "refs/ropeshift/salvage/lane/f1", Commit: "abc", Detail: "pushing"}
+	if err := journal.SaveGuard(ctx, "lane", want); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkArchived(ctx, "lane", ledger.UploadEvent{Type: ledger.UploadLaneArchived, OccurredAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := journal.Lane(ctx, "lane")
+	if err != nil || got.Guard != want || got.State != lanes.StateArchived {
+		t.Errorf("lane %+v: %v", got, err)
+	}
 }

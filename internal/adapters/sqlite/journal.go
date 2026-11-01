@@ -280,21 +280,26 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
 	var digest sql.NullString
-	var progress []byte
+	var progress, guard []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard)
 	if err != nil {
 		return lane, err
 	}
 	lane.TokenDigest = digest.String
 	if len(progress) != 0 {
-		err = json.Unmarshal(progress, &lane.Progress)
+		if err := json.Unmarshal(progress, &lane.Progress); err != nil {
+			return lane, err
+		}
+	}
+	if len(guard) != 0 {
+		err = json.Unmarshal(guard, &lane.Guard)
 	}
 	return lane, err
 }
@@ -342,6 +347,96 @@ func (j *Journal) BeginGeneration(ctx context.Context, lane lanes.Record, event 
 		return ledger.UploadEvent{}, err
 	}
 	return stored, tx.Commit()
+}
+
+// SaveGuard keeps how the last stop left a lane's worktree.
+func (j *Journal) SaveGuard(ctx context.Context, lane string, result lanes.GuardResult) error {
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	_, err = j.db.ExecContext(ctx, `UPDATE lanes SET guard = ?2 WHERE id = ?1`, lane, raw)
+	return err
+}
+
+// MarkArchived records a removal and its event together.
+func (j *Journal) MarkArchived(ctx context.Context, lane string, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET state = ?2 WHERE id = ?1`, lane, lanes.StateArchived); err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	stored, err := insertEvent(ctx, tx, event)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return stored, tx.Commit()
+}
+
+// Allocate decides inside one transaction, so two lanes cannot read the same free block,
+// and the unique index refuses them if a broken caller tries.
+func (j *Journal) Allocate(ctx context.Context, request lanes.AllocationRequest) (lanes.Allocation, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return lanes.Allocation{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	held, err := readAllocations(ctx, tx)
+	if err != nil {
+		return lanes.Allocation{}, err
+	}
+	for _, allocation := range held {
+		if allocation.Lane == request.Lane {
+			return allocation, nil
+		}
+	}
+	base, fits := lanes.NextPortBase(held, request.Pool, request.Ports)
+	if !fits {
+		return lanes.Allocation{}, fmt.Errorf("%w: %d ports for lane %s", ports.ErrNoPorts, request.Ports, request.Lane)
+	}
+	allocation := lanes.Allocation{Lane: request.Lane, PortBase: base, Ports: request.Ports, ComposeProject: request.ComposeProject}
+	_, err = tx.ExecContext(ctx, `INSERT INTO lane_allocations (lane, port_base, ports, compose_project) VALUES (?1, ?2, ?3, ?4)`,
+		allocation.Lane, allocation.PortBase, allocation.Ports, allocation.ComposeProject)
+	if err != nil {
+		return lanes.Allocation{}, err
+	}
+	return allocation, tx.Commit()
+}
+
+// querier is a database or a transaction.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func readAllocations(ctx context.Context, db querier) ([]lanes.Allocation, error) {
+	rows, err := db.QueryContext(ctx, `SELECT lane, port_base, ports, compose_project FROM lane_allocations ORDER BY port_base, lane`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []lanes.Allocation
+	for rows.Next() {
+		var allocation lanes.Allocation
+		if err := rows.Scan(&allocation.Lane, &allocation.PortBase, &allocation.Ports, &allocation.ComposeProject); err != nil {
+			return nil, err
+		}
+		out = append(out, allocation)
+	}
+	return out, rows.Err()
+}
+
+// Allocations lists what every lane holds.
+func (j *Journal) Allocations(ctx context.Context) ([]lanes.Allocation, error) {
+	return readAllocations(ctx, j.db)
+}
+
+// Release gives back what a lane holds.
+func (j *Journal) Release(ctx context.Context, lane string) error {
+	_, err := j.db.ExecContext(ctx, `DELETE FROM lane_allocations WHERE lane = ?1`, lane)
+	return err
 }
 
 // ChargeRestart keeps one charge once.

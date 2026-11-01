@@ -41,6 +41,7 @@ const usage = `usage: ropeshift <command>
   lane list                                          list lanes, each with its freshness
   lane show <lane>                                   show one lane, with its freshness
   lane reset <work-order>                            let a lane its breaker stopped start again
+  lane archive <lane> [--force]                      remove a lane's worktree, which keeps its branch
   worker list                                        list registered workers
   worker token                                       make a join token
   version                                            print the version
@@ -86,6 +87,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"work reassign": (*invocation).workReassign,
 		"lane start":    (*invocation).laneStart,
 		"lane reset":    (*invocation).laneReset,
+		"lane archive":  (*invocation).laneArchive,
 		"lane list":     (*invocation).laneList,
 		"lane show":     (*invocation).laneShow,
 		"source list":   (*invocation).sourceList,
@@ -186,7 +188,7 @@ func exitOf(refused *api.Error) int {
 		return ExitFenced
 	case api.CodeLapsed:
 		return ExitLapsed
-	case api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove:
+	case api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork:
 		return ExitConflict
 	case api.CodeInvalid:
 		return ExitUsage

@@ -23,6 +23,10 @@ const (
 	// ReasonUnknownScreen says a checked start stopped on a screen the driver does not
 	// know. It stands for the human_resume wake until lanes can park.
 	ReasonUnknownScreen = "unknown_screen"
+	// ReasonHookFailed says a profile's hook did not finish, so no session started.
+	ReasonHookFailed = "hook_failed"
+	// ReasonHookUnknown says a crash left a hook's end unknown, and a person has to look.
+	ReasonHookUnknown = "hook_unknown"
 )
 
 // CheckResult is one check a lane reports.

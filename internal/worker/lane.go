@@ -1,8 +1,13 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -20,6 +25,11 @@ type LaneRequest struct {
 	// Bracket records the worktree's creation as an external effect. It reports false
 	// when an earlier attempt already made it. Nil creates it with no record.
 	Bracket func(target string, perform func() error) (bool, error)
+	// Allocate gives the lane its resources. Nil gives it none.
+	Allocate func(lanes.ResourceSettings) (lanes.Allocation, error)
+	// RunHook runs a profile's hook once, as an external effect. Nil runs it with no
+	// record.
+	RunHook func(target string, perform func() error) error
 }
 
 // PreparedLane is everything a lane starts from, and nothing it inherited.
@@ -38,6 +48,8 @@ type PreparedLane struct {
 type Provisioner struct {
 	Profiles  ports.ProfileSource
 	Worktrees ports.Worktrees
+	// Hooks runs what a profile names. Nil refuses a profile that names a hook.
+	Hooks ports.HookRunner
 	// Lookup reads the worker's environment. Nil reads the process's.
 	Lookup func(string) (string, bool)
 }
@@ -61,7 +73,13 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	if ref := profile.Agent.Credentials.SecretRef; ref != "" {
 		refs = append(refs, ref)
 	}
-	environment, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: lookup, SecretRefs: refs, Tags: request.Tags})
+	var allocation lanes.Allocation
+	if request.Allocate != nil {
+		if allocation, err = request.Allocate(profile.Resources); err != nil {
+			return PreparedLane{}, err
+		}
+	}
+	environment, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: lookup, SecretRefs: refs, Tags: request.Tags, Allocation: allocation})
 	if err != nil {
 		return PreparedLane{}, err
 	}
@@ -73,11 +91,59 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	if err != nil {
 		return PreparedLane{}, err
 	}
+	if err := p.laneCreated(ctx, request, profile, worktree, environment); err != nil {
+		return PreparedLane{}, err
+	}
 	branch, err := p.Worktrees.DefaultBranch(ctx, request.Repository)
 	if err != nil {
 		branch = ""
 	}
 	return PreparedLane{Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch}, nil
+}
+
+// hookTimeout bounds a lane's setup, which a stuck script must not hold forever.
+const hookTimeout = 10 * time.Minute
+
+// ErrHookFailed means a profile's hook ended badly, so no session starts on what it left.
+var ErrHookFailed = errors.New("a profile's hook failed")
+
+// laneCreated runs what a profile names for a new lane, in its worktree. The hook gets the
+// lane's environment without its token, because a repository's script holds no authority
+// of the lane's.
+func (p Provisioner) laneCreated(ctx context.Context, request LaneRequest, profile lanes.Profile, worktree ports.Worktree, environment []string) error {
+	argv := profile.Hooks[lanes.HookLaneCreated]
+	if len(argv) == 0 {
+		return nil
+	}
+	if p.Hooks == nil {
+		return fmt.Errorf("%w: this worker runs no hooks", ErrHookFailed)
+	}
+	perform := func() error {
+		result, err := p.Hooks.Run(ctx, ports.HookCommand{
+			Argv: lanes.ExpandHook(argv, request.Lane), Dir: worktree.Path, Env: withoutToken(environment), Timeout: hookTimeout,
+		})
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrHookFailed, err)
+		}
+		if result.Exit.Code != 0 || result.Exit.Signal != "" {
+			return fmt.Errorf("%w: exit %+v: %s", ErrHookFailed, result.Exit, bytes.TrimSpace(result.Output))
+		}
+		return nil
+	}
+	if request.RunHook == nil {
+		return perform()
+	}
+	return request.RunHook(worktree.Path, perform)
+}
+
+func withoutToken(environment []string) []string {
+	out := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, lanes.EnvLaneToken+"=") {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 func (p Provisioner) worktree(ctx context.Context, request LaneRequest, place lanes.Placement) (ports.Worktree, error) {

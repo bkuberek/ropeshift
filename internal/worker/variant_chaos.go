@@ -12,8 +12,25 @@ import (
 // chaos build holds this seam, and a normal build has none.
 const EnvSabotage = "ROPESHIFT_CHAOS_WORKER"
 
-// SabotageRecharge charges a crash again whenever a process gets to it.
-const SabotageRecharge = "recharge"
+// The broken variants of a worker.
+const (
+	// SabotageRecharge charges a crash again whenever a process gets to it.
+	SabotageRecharge = "recharge"
+	// SabotageNoGuard reads every worktree as clean.
+	SabotageNoGuard = "no-guard"
+	// SabotageKeepResources never gives a block back.
+	SabotageKeepResources = "keep-resources"
+	// SabotageBlindRemoval removes a worktree with no second reading.
+	SabotageBlindRemoval = "blind-removal"
+)
+
+func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
+
+func skipsGuard() bool { return sabotaged(SabotageNoGuard) }
+
+func keepsResources() bool { return sabotaged(SabotageKeepResources) }
+
+func removesBlind() bool { return sabotaged(SabotageBlindRemoval) }
 
 func chargeKey(key string) string {
 	if os.Getenv(EnvSabotage) != SabotageRecharge {

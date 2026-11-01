@@ -12,6 +12,8 @@ const (
 	EnvWorkerSocket = TagPrefix + "WORKER_SOCKET"
 	EnvSpool        = TagPrefix + "SPOOL"
 	EnvPolicy       = TagPrefix + "POLICY"
+	// EnvPortBase is the first port of a lane's block.
+	EnvPortBase = TagPrefix + "PORT_BASE"
 )
 
 // EnvMessagingSocket is the one vendor variable a hook reads. The CLI exports it before

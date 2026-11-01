@@ -20,6 +20,9 @@ var ErrNoRevision = errors.New("no such revision")
 type Git struct {
 	Dir string
 	Env []string
+	// Extra adds variables after everything else, which is how one command gets an index
+	// of its own.
+	Extra []string
 }
 
 // inheritedLocation lists what would point a command at another repository, or at
@@ -42,7 +45,7 @@ func (g Git) environment() []string {
 		}
 	}
 	// A command never waits on a prompt, because a daemon has no terminal.
-	return append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	return append(append(base[:len(base):len(base)], "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), g.Extra...)
 }
 
 // Output runs one command and returns its stdout as it is.

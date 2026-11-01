@@ -405,6 +405,12 @@ func allVariants() []variant {
 			check: "crash",
 			crash: func() (crashCase, string) { return workerLaneCase(), laneSplitStep },
 		},
+		{name: sabotageTrackedOnly, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
+		{name: sabotageOwnIndex, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
+		{name: sabotageNoGuard, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
+		{name: sabotageKeeps, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
+		{name: "a removal that reads nothing first", check: "removal"},
+		{name: "a guard's push that forces", check: "force", gitSabotage: gitcli.Sabotage{ForcePush: true}},
 		{name: "a reader that skips what it missed", check: "shim"},
 		{name: "a trust dialog confirmed where its focus stands", check: "pane", pane: claudecode.SabotageBlindConfirm, paneStep: "checked"},
 		{name: "a brief sent again after a crash", check: "pane", pane: claudecode.SabotageRepeatBrief, paneStep: "briefed"},
@@ -564,6 +570,12 @@ func runVariant(t *testing.T, v variant) error {
 		gitcli.Sabotaged(v.gitSabotage)
 		defer gitcli.Sabotaged(gitcli.Sabotage{})
 		return checkDeadRegistration(newWorld(t, ""))
+	case "force":
+		gitcli.Sabotaged(v.gitSabotage)
+		defer gitcli.Sabotaged(gitcli.Sabotage{})
+		return checkNoForce(newWorld(t, ""))
+	case "removal":
+		return checkRemovalReads(newWorld(t, sabotageBlindRemoval))
 	case "sleep":
 		sqlstore.Sabotaged(v.sabotage)
 		defer sqlstore.Sabotaged(sqlstore.Sabotage{})

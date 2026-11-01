@@ -10,6 +10,8 @@ import (
 const (
 	StateRunning = "running"
 	StateEnded   = "ended"
+	// StateArchived says a lane's worktree went at a member's request.
+	StateArchived = "archived"
 )
 
 // Record is what a worker keeps about one lane, so a restart works from its journal
@@ -36,6 +38,8 @@ type Record struct {
 	ResumeSession string
 	// ResetsSeen is how many human resets of the breaker this worker has acted on.
 	ResetsSeen int64
+	// Guard is how the last stop left the worktree.
+	Guard GuardResult
 }
 
 // Progress is how far a worker read a session, and what that reading added up to, so an

@@ -44,6 +44,33 @@ func TestPlan(t *testing.T) {
 			world: lanes.World{Lanes: []lanes.Actual{{Record: lanes.Record{ID: "lane", State: lanes.StateEnded}}}},
 		},
 		{
+			name:  "an ended lane gives back what it held",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: lanes.Record{ID: "lane", State: lanes.StateEnded}}}, Allocations: []string{"lane"}},
+			want:  []lanes.Action{{Kind: lanes.ActionRelease, Lane: "lane"}},
+		},
+		{
+			name:  "a running lane keeps what it holds",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: running("lane"), Held: true}}, Allocations: []string{"lane"}},
+		},
+		{
+			name:  "a lane with no record holds nothing",
+			world: lanes.World{Allocations: []string{"lane"}},
+			want:  []lanes.Action{{Kind: lanes.ActionRelease, Lane: "lane"}},
+		},
+		{
+			name:  "a removal waits for the lane to end",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: running("lane"), Held: true}}, Archives: []string{"lane"}},
+		},
+		{
+			name:  "an ended lane's worktree goes",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: lanes.Record{ID: "lane", State: lanes.StateEnded}}}, Archives: []string{"lane"}},
+			want:  []lanes.Action{{Kind: lanes.ActionArchive, Lane: "lane"}},
+		},
+		{
+			name:  "an archived lane is not removed twice",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: lanes.Record{ID: "lane", State: lanes.StateArchived}}}, Archives: []string{"lane"}},
+		},
+		{
 			name:  "a session outlived the worker",
 			world: lanes.World{Lanes: []lanes.Actual{{Record: running("lane"), Session: alive}}},
 			want:  []lanes.Action{{Kind: lanes.ActionAdopt, Lane: "lane"}},

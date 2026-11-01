@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
+	"ropeshift.dev/ropeshift/internal/adapters/hookrun"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -71,6 +72,29 @@ func TestWorktreesContract(t *testing.T) {
 				Path:  func(name string) string { return "/work/lanes/" + name },
 				Dirty: worktrees.Dirty,
 			}
+		})
+	})
+}
+
+func TestHookRunnerContract(t *testing.T) {
+	t.Run("os/exec", func(t *testing.T) {
+		RunHookRunner(t, func(t *testing.T) HookRig {
+			return HookRig{
+				Runner: hookrun.Runner{Processes: osexec.Runner{}}, Pass: []string{"/usr/bin/true"}, Fail: []string{"/usr/bin/false"},
+				Slow: []string{"/bin/sleep", "60"}, Dir: t.TempDir(),
+			}
+		})
+	})
+	t.Run("fake", func(t *testing.T) {
+		RunHookRunner(t, func(*testing.T) HookRig {
+			runner := fake.NewHookRunner()
+			runner.Programs["fail"] = func(ports.HookCommand) ports.HookResult {
+				return ports.HookResult{Exit: ports.ExitStatus{Code: 1}}
+			}
+			runner.Programs["slow"] = func(ports.HookCommand) ports.HookResult {
+				return ports.HookResult{Exit: ports.ExitStatus{Signal: ports.SignalTerminate}}
+			}
+			return HookRig{Runner: runner, Pass: []string{"pass"}, Fail: []string{"fail"}, Slow: []string{"slow"}, Dir: "/work"}
 		})
 	})
 }

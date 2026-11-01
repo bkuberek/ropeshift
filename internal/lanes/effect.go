@@ -23,11 +23,32 @@ const (
 	EffectSession  EffectKind = "session"
 	EffectInput    EffectKind = "input"
 	EffectStop     EffectKind = "stop"
+	// EffectGuard is one pass of a stop's guard, which pushes and writes refs.
+	EffectGuard EffectKind = "guard"
+	// EffectRemoval takes a worktree away.
+	EffectRemoval EffectKind = "removal"
+	// EffectHook runs a profile's hook.
+	EffectHook EffectKind = "hook"
 )
 
 // Observable says a restart can look for this effect. Nothing shows whether a session
-// took an input before a crash, so an input stays unknown until a person decides.
-func (k EffectKind) Observable() bool { return k != EffectInput }
+// took an input before a crash, so an input stays unknown until a person decides, and the
+// same goes for a hook, because only its author knows what it does.
+func (k EffectKind) Observable() bool { return k != EffectInput && k != EffectHook }
+
+// Repeats says this effect may run again from a state it already reached. A stop is safe
+// to repeat once it failed, a guard always is, because each pass reads the worktree first,
+// and a removal is too, because a worktree already gone is done. A removal a restart gave
+// up on must run again, or a lane would read as archived with its worktree standing.
+func (k EffectKind) Repeats(state EffectState) bool {
+	switch k {
+	case EffectStop:
+		return state == EffectFailed
+	case EffectGuard, EffectRemoval:
+		return true
+	}
+	return false
+}
 
 // Effect is one bracket in the journal. Key is unique for good, so one effect can be
 // performed only once, and a retry of the same effect keeps its key.

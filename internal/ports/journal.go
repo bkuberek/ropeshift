@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"errors"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -96,4 +97,19 @@ type Journal interface {
 	Restarts(ctx context.Context, lane string) ([]lanes.Restart, error)
 	// ClearRestarts drops a lane's charges and keeps how many resets it has acted on.
 	ClearRestarts(ctx context.Context, lane string, resets int64) error
+	// SaveGuard keeps how the last stop left a lane's worktree.
+	SaveGuard(ctx context.Context, lane string, result lanes.GuardResult) error
+	// MarkArchived records that a lane's worktree went, and stores that event, together,
+	// so a crash cannot leave a removal the ledger never hears of.
+	MarkArchived(ctx context.Context, lane string, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// Allocate gives a lane its resources, or returns what it already holds, so a retry
+	// after a crash converges. A pool with no block left is ErrNoPorts.
+	Allocate(ctx context.Context, request lanes.AllocationRequest) (lanes.Allocation, error)
+	// Allocations lists what every lane holds.
+	Allocations(ctx context.Context) ([]lanes.Allocation, error)
+	// Release gives back what a lane holds. A lane that holds nothing is done.
+	Release(ctx context.Context, lane string) error
 }
+
+// ErrNoPorts means a worker's pool has no block left.
+var ErrNoPorts = errors.New("no ports left in the pool")

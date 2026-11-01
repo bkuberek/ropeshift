@@ -18,6 +18,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/clock"
 	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
+	"ropeshift.dev/ropeshift/internal/adapters/hookrun"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
@@ -298,6 +299,7 @@ func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
 		Provisioner: worker.Provisioner{
 			Profiles:  profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)},
 			Worktrees: gitcli.Worktrees{},
+			Hooks:     hookrun.Runner{Processes: osexec.Runner{}},
 		},
 		Secrets:    secrets.Resolver{},
 		Repository: checkouts(opts),

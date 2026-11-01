@@ -65,6 +65,7 @@ type AgentDriver struct {
 	findErr  error
 	stopped  bool
 	hooks    []lanes.HookEvent
+	onStop   func()
 }
 
 type driverSession struct {
@@ -118,6 +119,14 @@ func (s *driverSession) stop() {
 	case s.stops <- ports.StopNow:
 	default:
 	}
+}
+
+// OnStop runs a function when a stop reaches the driver, as a session that writes once
+// more on its way out would.
+func (d *AgentDriver) OnStop(do func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.onStop = do
 }
 
 // Adopted lists where each adoption picked a session up.
@@ -437,6 +446,12 @@ func (d *AgentDriver) Stop(_ context.Context, h ports.SessionHandle, how ports.S
 	session, err := d.session(h)
 	if err != nil {
 		return err
+	}
+	d.mu.Lock()
+	onStop := d.onStop
+	d.mu.Unlock()
+	if onStop != nil {
+		onStop()
 	}
 	select {
 	case session.stops <- how:

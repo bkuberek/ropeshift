@@ -44,7 +44,10 @@ func newLaneRigFor(t *testing.T, base *rig) *laneRig {
 	dir := t.TempDir()
 	config := &worker.LaneRuntime{
 		Driver:      driver,
-		Provisioner: worker.Provisioner{Profiles: fake.NewProfileSource(), Worktrees: fake.NewWorktrees(), Lookup: func(string) (string, bool) { return "", false }},
+		Provisioner: worker.Provisioner{
+			Profiles: fake.NewProfileSource(), Worktrees: fake.NewWorktrees(), Hooks: fake.NewHookRunner(),
+			Lookup: func(string) (string, bool) { return "", false },
+		},
 		Secrets:     fake.SecretResolver{},
 		Repository:  func(context.Context, string) (string, error) { return "/repository", nil },
 		Socket:      "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",

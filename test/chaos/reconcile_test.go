@@ -167,6 +167,22 @@ func (w lastingWorktrees) Inspect(_ context.Context, path string) (ports.Worktre
 
 func (w lastingWorktrees) Remove(context.Context, string, string) error { return nil }
 
+func (w lastingWorktrees) Discard(context.Context, string, string) error { return nil }
+
+// Survey reads a stand-in worktree, which holds no work, as nothing to save.
+func (w lastingWorktrees) Survey(_ context.Context, path string) (lanes.WorktreeFindings, error) {
+	current, err := w.Inspect(context.Background(), path)
+	return lanes.WorktreeFindings{Branch: current.Branch}, err
+}
+
+func (w lastingWorktrees) Snapshot(context.Context, string, string) (string, error) {
+	return "", errors.New("a stand-in worktree takes no snapshot")
+}
+
+func (w lastingWorktrees) Push(context.Context, string, string, string) error {
+	return errors.New("a stand-in worktree has no remote")
+}
+
 // roleWorkerReconcile runs one lane through a real worker, on a session and a worktree
 // that survive a kill. The claim and the dispatch are safe to repeat.
 func roleWorkerReconcile(c *child) error {

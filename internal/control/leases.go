@@ -645,6 +645,40 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 	})
 }
 
+// ArchiveLane asks the worker that ran a lane to take its worktree away. Only a member can
+// force that past work no remote holds, and nobody can remove a worktree a lane still uses.
+func (l *Leases) ArchiveLane(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane string, forced bool, actor ledger.Actor) error {
+	if actor.Kind != ledger.ActorMember && (forced || actor.Kind != ledger.ActorOrchestrator) {
+		return workorders.ErrForbidden
+	}
+	return l.store.Write(ctx, scope, "lane.archive", func(tx ports.WriteTx) error {
+		row, err := tx.Lanes().Row(lane)
+		if err != nil {
+			return err
+		}
+		if row.WorkOrder != workOrder {
+			return fmt.Errorf("lane %s of work order %s: %w", lane, workOrder, ports.ErrNotFound)
+		}
+		order, err := tx.WorkOrders().Get(workOrder)
+		if err != nil {
+			return err
+		}
+		if row.Status.ActualState != ledger.StateEnded && order.Fence == row.StartedFence {
+			return fmt.Errorf("%w: lane %s is still running", workorders.ErrIllegalMove, lane)
+		}
+		if row.UnpushedWork && !forced {
+			return fmt.Errorf("%w: lane %s", workorders.ErrUnpushedWork, lane)
+		}
+		if err := tx.Lanes().RequestArchive(lane, forced); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: ledger.EventLaneArchiveRequested, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: lane},
+		})
+		return err
+	})
+}
+
 // Handoff moves a lane to its next generation within the same claim, so the
 // previous generation cannot write after it.
 func (l *Leases) Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error) {

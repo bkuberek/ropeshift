@@ -49,6 +49,7 @@ type laneState struct {
 	unconfirmed bool
 	retried     bool
 	degraded    bool
+	unpushed    bool
 	warnTokens  int64
 	stallAfter  time.Duration
 	briefGrace  time.Duration
@@ -217,6 +218,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		State: state, SinceProgress: now.Sub(s.progress), StallAfter: s.stallAfter, ToolInFlight: len(s.tools) != 0,
 		WaitDeclared: now.Before(s.waitUntil), PastDeadline: r.lease.Deadline != 0 && now.UnixMilli() > r.lease.Deadline,
 		ContextTokens: s.context, WarnTokens: s.warnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
+		UnpushedWork: s.unpushed,
 	}
 	out := ledger.LaneStatus{
 		ActualState: string(state), Liveness: string(liveness),

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,10 @@ const (
 	eventSessionOpened    = "worker.session_opened"
 	eventWorkerReported   = "worker.reported"
 )
+
+// conditionUnpushed is the condition the ledger keeps past a lane's end, because the
+// worktree it speaks of stays until someone removes it.
+const conditionUnpushed = "unpushed_work"
 
 // opUpload names the transaction that stores one uploaded event.
 const opUpload = "plane.upload"
@@ -320,7 +325,8 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			}
 			state.Leases = append(state.Leases, lease)
 		}
-		return nil
+		state.Archives, err = tx.Lanes().Archiving(request.Auth.WorkerID)
+		return err
 	})
 	if err != nil {
 		return ledger.DesiredState{}, err
@@ -467,6 +473,10 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return err
 	case ledger.UploadLaneStatus:
 		return reportLane(tx, worker, id, e)
+	case ledger.UploadLaneGuarded:
+		return reportGuard(tx, worker, id, e)
+	case ledger.UploadLaneArchived:
+		return reportArchived(tx, worker, id, e)
 	case ledger.UploadGenerationStarted:
 		holder := workorders.Holder{Lease: lease, Lane: e.Lane, Generation: e.Generation - 1}
 		return nextGeneration(tx, holder, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
@@ -503,6 +513,60 @@ func reportLane(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error
 	}
 	_, err = tx.Append(ledger.EventDraft{
 		ID: id, Type: ledger.EventLaneStatus, OccurredAt: e.OccurredAt, Data: e.Payload,
+		Actor:   ledger.Actor{Kind: ledger.ActorWorker, ID: worker},
+		Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: e.Lane},
+	})
+	return err
+}
+
+// ranLane refuses a worker that never held this claim. A guard's report passes no fence,
+// so a fenced holder can still say what it saved, and this is what keeps that to its own.
+func ranLane(tx ports.WriteTx, worker string, e ledger.UploadEvent) error {
+	claim, err := tx.Claims().Find(e.ClaimID)
+	if err != nil {
+		return err
+	}
+	if claim.Worker != worker {
+		return fmt.Errorf("%w: claim %s is not this worker's", workorders.ErrInvalid, e.ClaimID)
+	}
+	return nil
+}
+
+// reportGuard stores how a stop left a worktree. Replaying the same stop is one row,
+// because the artifact takes this event's ID.
+func reportGuard(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	var guard ledger.LaneGuard
+	if err := json.Unmarshal(e.Payload, &guard); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if err := ranLane(tx, worker, e); err != nil {
+		return err
+	}
+	if err := tx.Lanes().Guarded(e.Lane, guard.UnpushedWork); err != nil {
+		return err
+	}
+	if guard.Ref != "" {
+		artifact := ledger.Artifact{ID: id, Lane: e.Lane, Kind: ledger.ArtifactSalvage, URI: guard.Ref, Digest: guard.Commit}
+		if err := tx.Lanes().AddArtifact(artifact); err != nil {
+			return err
+		}
+	}
+	return appendLaneEvent(tx, worker, id, ledger.EventLaneGuarded, e)
+}
+
+func reportArchived(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	if err := ranLane(tx, worker, e); err != nil {
+		return err
+	}
+	if err := tx.Lanes().Archived(e.Lane); err != nil {
+		return err
+	}
+	return appendLaneEvent(tx, worker, id, ledger.EventLaneArchived, e)
+}
+
+func appendLaneEvent(tx ports.WriteTx, worker, id, eventType string, e ledger.UploadEvent) error {
+	_, err := tx.Append(ledger.EventDraft{
+		ID: id, Type: eventType, OccurredAt: e.OccurredAt, Data: e.Payload,
 		Actor:   ledger.Actor{Kind: ledger.ActorWorker, ID: worker},
 		Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: e.Lane},
 	})
@@ -577,10 +641,16 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 	view := ledger.LaneView{
 		ID: row.ID, WorkOrder: row.WorkOrder, WorkerID: row.WorkerID, Generation: row.Generation,
 		LaneStatus: row.Status, AsOf: row.ReportedAt, Freshness: ledger.FreshnessLastReported,
-		ReportedByEpoch: row.ReportedByEpoch,
+		ReportedByEpoch: row.ReportedByEpoch, Archived: row.Archived,
+	}
+	if row.UnpushedWork && !slices.Contains(view.Conditions, conditionUnpushed) {
+		view.Conditions = append(slices.Clone(view.Conditions), conditionUnpushed)
 	}
 	now, err := tx.Now()
 	if err != nil {
+		return view, err
+	}
+	if view.Artifacts, err = tx.Lanes().Artifacts(row.ID); err != nil {
 		return view, err
 	}
 	if row.Status.ActualState == ledger.StateEnded {

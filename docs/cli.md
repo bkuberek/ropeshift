@@ -20,6 +20,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift lane list` | Lists lanes. Each line states the lane's state, liveness, reachability, conditions, and whether the value is `observed` or `last_reported` |
 | `ropeshift lane show <lane>` | Shows one lane the same way. `--json` adds `as_of` and `reported_by_epoch` |
 | `ropeshift lane reset <work-order>` | Lets the lane its breaker stopped start again. Only a member can, because a tripped lane is waiting for a person |
+| `ropeshift lane archive <lane> [--force]` | Asks the worker that ran an ended lane to remove its worktree. Its branch stays. A lane with `unpushed_work` is refused, and `--force` removes it anyway, which only a member can do. The worker reads the worktree again first, and saves what it finds to a ref |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 
@@ -41,7 +42,7 @@ Three commands are for ropeshift or an agent CLI to run, and a person does not n
 | 1 | The control plane could not answer, or the command failed for another reason | Retry, and read the message |
 | 2 | The command line or the request is invalid | Fix the command |
 | 3 | The record does not exist | Check the ID |
-| 4 | The ledger's state refused this: a claim was lost, work was not lapsed, or the move has no edge | Read the current state |
+| 4 | The ledger's state refused this: a claim was lost, work was not lapsed, the move has no edge, or a removal would lose work no remote holds | Read the current state |
 | 5 | The fence is stale: another holder owns this work | Stop, and read the current fence in the message |
 | 6 | The lease lapsed and this holder can return | Return, then retry |
 | 7 | The review is recorded, and the definition of ready names what still holds the work back | Resolve what it names. The work order moves on its own |

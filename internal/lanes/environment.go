@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +16,10 @@ const TagPrefix = "ROPESHIFT_"
 // SecretRefEnv is the form of a secret reference that names an environment variable
 // (D9). The allowlist passes it through, so no code path reads its value for use.
 const SecretRefEnv = "env:"
+
+// EnvComposeProject names a lane's compose project. It is the one variable a lane gets
+// from ropeshift that carries no tag, because compose reads it by this name.
+const EnvComposeProject = "COMPOSE_PROJECT_NAME"
 
 // inherited is everything a lane takes from the process that started it. A session
 // started inside another session inherits that session's markers, so anything not
@@ -59,6 +64,8 @@ type EnvironmentSpec struct {
 	SecretRefs []string
 	// Tags are ropeshift's own variables.
 	Tags map[string]string
+	// Allocation is what this lane holds beside its worktree. Empty fields add nothing.
+	Allocation Allocation
 }
 
 // BuildEnvironment returns the whole environment of a lane, sorted so that a spec
@@ -84,6 +91,12 @@ func BuildEnvironment(spec EnvironmentSpec) ([]string, error) {
 			return nil, fmt.Errorf("%w: %s", ErrBadTag, name)
 		}
 		values[name] = value
+	}
+	if spec.Allocation.Ports > 0 {
+		values[EnvPortBase] = strconv.FormatInt(spec.Allocation.PortBase, 10)
+	}
+	if spec.Allocation.ComposeProject != "" {
+		values[EnvComposeProject] = spec.Allocation.ComposeProject
 	}
 	out := make([]string, 0, len(values))
 	for name, value := range values {

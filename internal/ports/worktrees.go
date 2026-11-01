@@ -3,6 +3,8 @@ package ports
 import (
 	"context"
 	"errors"
+
+	"ropeshift.dev/ropeshift/internal/lanes"
 )
 
 // Worktree refusals.
@@ -42,6 +44,19 @@ type Worktrees interface {
 	// Remove deletes a clean worktree and keeps its branch. Uncommitted work is
 	// ErrWorktreeDirty, and a worktree already gone is done.
 	Remove(ctx context.Context, repository, path string) error
+	// Discard deletes a worktree whatever it holds, and keeps its branch. A worktree
+	// already gone is done.
+	Discard(ctx context.Context, repository, path string) error
+	// Survey reads what a stop must account for, and changes nothing a session can see. An
+	// absent worktree is ErrNotFound.
+	Survey(ctx context.Context, path string) (lanes.WorktreeFindings, error)
+	// Snapshot records the worktree as it stands in a commit under ref, untracked files
+	// included, and leaves the lane's index and branch alone. A snapshot of what the ref
+	// already holds is that commit, and an earlier snapshot stays reachable from a later
+	// one, so a repeat loses nothing.
+	Snapshot(ctx context.Context, path, ref string) (string, error)
+	// Push sends one ref to a remote under the same name, and never forces.
+	Push(ctx context.Context, path, remote, ref string) error
 	// DefaultBranch names the branch a repository's work lands on. It reads an upstream's
 	// default first, and a repository with none has its current branch.
 	DefaultBranch(ctx context.Context, repository string) (string, error)

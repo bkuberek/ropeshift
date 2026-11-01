@@ -372,6 +372,35 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
    SET actual_state = 'ended', liveness = 'dead', reach_model = 'unknown', reach_ledger = 'unknown', reported_at = :now
  WHERE workspace_id = :workspace_id AND id = :id`)
 
+	stmtLaneGuarded = define("lane.guarded",
+		`UPDATE lanes
+   SET unpushed_work = :unpushed,
+       archive_request = CASE WHEN :unpushed = 1 AND archive_request = 'plain' THEN '' ELSE archive_request END
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtInsertArtifact = define("artifact.insert",
+		`INSERT INTO artifacts (workspace_id, id, lane_id, kind, uri, digest, created_at)
+VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :now)`)
+
+	stmtListArtifacts = define("artifact.list",
+		`SELECT id, lane_id, kind, uri, digest, created_at FROM artifacts
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id ORDER BY created_at, id`)
+
+	stmtRequestArchive = define("lane.request_archive",
+		`UPDATE lanes SET archive_request = :request WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtLaneArchived = define("lane.archived",
+		`UPDATE lanes SET archived = 1, archive_request = '', unpushed_work = 0
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtLanesArchiving = define("lane.archiving",
+		`SELECT l.id, l.archive_request, w.repository_id
+  FROM lanes l
+  JOIN claims c ON c.workspace_id = l.workspace_id AND c.lane_id = l.id
+  JOIN work_orders w ON w.workspace_id = l.workspace_id AND w.id = l.work_order_id
+ WHERE l.workspace_id = :workspace_id AND l.archive_request <> '' AND l.archived = 0 AND c.worker_id = :worker
+ ORDER BY l.id`)
+
 	stmtLaneRow = define("lane.row",
 		`SELECT `+laneRowColumns+` FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
 
@@ -393,7 +422,13 @@ RETURNING current_generation`)
 )
 
 const laneRowColumns = `id, work_order_id, worker_id, current_generation, actual_state, conditions, liveness,
-       reach_model, reach_ledger, reported_at, reported_by_epoch`
+       reach_model, reach_ledger, reported_at, reported_by_epoch, started_fence, unpushed_work, archived`
+
+// The values of `archive_request`. Empty means nobody asked.
+const (
+	archivePlain  = "plain"
+	archiveForced = "forced"
+)
 
 // conditionSeparator joins a lane's conditions, none of which holds it.
 const conditionSeparator = ","
@@ -401,11 +436,14 @@ const conditionSeparator = ","
 func scanLaneRow(row interface{ Scan(...any) error }) (ledger.LaneRow, error) {
 	var out ledger.LaneRow
 	var conditions string
+	var unpushed, archived int64
 	err := row.Scan(&out.ID, &out.WorkOrder, &out.WorkerID, &out.Generation, &out.Status.ActualState, &conditions,
-		&out.Status.Liveness, &out.Status.ModelReach, &out.Status.LedgerReach, &out.ReportedAt, &out.ReportedByEpoch)
+		&out.Status.Liveness, &out.Status.ModelReach, &out.Status.LedgerReach, &out.ReportedAt, &out.ReportedByEpoch,
+		&out.StartedFence, &unpushed, &archived)
 	if conditions != "" {
 		out.Status.Conditions = strings.Split(conditions, conditionSeparator)
 	}
+	out.UnpushedWork, out.Archived = unpushed != 0, archived != 0
 	return out, err
 }
 
@@ -449,6 +487,78 @@ func (t laneTx) Report(row ledger.LaneRow) error {
 		"reach_model": row.Status.ModelReach, "reach_ledger": row.Status.LedgerReach, "now": now, "epoch": row.ReportedByEpoch,
 	})
 	return err
+}
+
+func (t laneTx) Guarded(lane string, unpushed bool) error {
+	flag := int64(0)
+	if unpushed {
+		flag = 1
+	}
+	_, err := t.exec(stmtLaneGuarded, params{"workspace_id": string(t.scope), "id": lane, "unpushed": flag})
+	return err
+}
+
+func (t laneTx) AddArtifact(artifact ledger.Artifact) error {
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtInsertArtifact, params{
+		"workspace_id": string(t.scope), "id": artifact.ID, "lane_id": artifact.Lane, "kind": artifact.Kind,
+		"uri": artifact.URI, "digest": artifact.Digest, "now": now,
+	})
+	return err
+}
+
+func (t laneTx) Artifacts(lane string) ([]ledger.Artifact, error) {
+	rows, err := t.rows(stmtListArtifacts, params{"workspace_id": string(t.scope), "lane_id": lane})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ledger.Artifact
+	for rows.Next() {
+		var artifact ledger.Artifact
+		if err := rows.Scan(&artifact.ID, &artifact.Lane, &artifact.Kind, &artifact.URI, &artifact.Digest, &artifact.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, artifact)
+	}
+	return out, rows.Err()
+}
+
+func (t laneTx) RequestArchive(lane string, forced bool) error {
+	request := archivePlain
+	if forced {
+		request = archiveForced
+	}
+	_, err := t.exec(stmtRequestArchive, params{"workspace_id": string(t.scope), "id": lane, "request": request})
+	return err
+}
+
+func (t laneTx) Archived(lane string) error {
+	_, err := t.exec(stmtLaneArchived, params{"workspace_id": string(t.scope), "id": lane})
+	return err
+}
+
+func (t laneTx) Archiving(worker string) ([]ledger.DesiredArchive, error) {
+	rows, err := t.rows(stmtLanesArchiving, params{"workspace_id": string(t.scope), "worker": worker})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ledger.DesiredArchive
+	for rows.Next() {
+		var archive ledger.DesiredArchive
+		var request string
+		var repository sql.NullString
+		if err := rows.Scan(&archive.Lane, &request, &repository); err != nil {
+			return nil, err
+		}
+		archive.Forced, archive.Repository = request == archiveForced, repository.String
+		out = append(out, archive)
+	}
+	return out, rows.Err()
 }
 
 func (t laneTx) MarkEnded(lane string) error {

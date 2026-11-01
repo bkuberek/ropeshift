@@ -16,6 +16,8 @@ const (
 	CodeLapsed      = "lapsed"
 	CodeNotLapsed   = "not_lapsed"
 	CodeIllegalMove = "illegal_move"
+	// CodeUnpushedWork refuses a removal that could lose work no remote holds.
+	CodeUnpushedWork = "unpushed_work"
 	CodeUnavailable = "unavailable"
 )
 
@@ -110,6 +112,13 @@ type LaneDispatched struct {
 	WorkOrder string `json:"work_order"`
 	ClaimID   string `json:"claim_id"`
 	Fence     int64  `json:"fence"`
+}
+
+// ArchiveLane asks for a lane's worktree to be removed. Force accepts losing what no
+// remote holds, and only a member can send it.
+type ArchiveLane struct {
+	LaneID string `json:"lane_id"`
+	Force  bool   `json:"force,omitempty"`
 }
 
 // ReleaseRequest gives a claim back.

@@ -54,6 +54,10 @@ type World struct {
 	Lanes  []Actual
 	// Unknown holds the effects a crash left unknown, each with what was found.
 	Unknown []ObservedEffect
+	// Allocations names the lanes holding resources.
+	Allocations []string
+	// Archives are the lanes a member asked to take away.
+	Archives []string
 }
 
 // ActionKind names what a pass does.
@@ -75,6 +79,10 @@ const (
 	ActionAdopt ActionKind = "adopt"
 	// ActionEnd accounts for a lane whose session is gone.
 	ActionEnd ActionKind = "end"
+	// ActionRelease gives back what an ended lane held.
+	ActionRelease ActionKind = "release"
+	// ActionArchive takes away a worktree a member asked to remove.
+	ActionArchive ActionKind = "archive"
 )
 
 // Action is one step of a pass.
@@ -123,6 +131,38 @@ func Plan(world World) []Action {
 		}
 		if action, ok := planLane(lane); ok {
 			actions = append(actions, action)
+		}
+	}
+	return append(append(actions, releases(world)...), archives(world)...)
+}
+
+// releases finds resources no live lane stands behind. They live in the journal, so a
+// crash at any point after an allocation leaves them here for the next pass.
+func releases(world World) []Action {
+	live := map[string]bool{}
+	for _, lane := range world.Lanes {
+		live[lane.Record.ID] = lane.Held || lane.Record.State == StateRunning
+	}
+	var actions []Action
+	for _, lane := range world.Allocations {
+		if !live[lane] {
+			actions = append(actions, Action{Kind: ActionRelease, Lane: lane})
+		}
+	}
+	return actions
+}
+
+// archives keeps to ended lanes: a running lane's worktree is in use, and an archived one
+// is already gone.
+func archives(world World) []Action {
+	ended := map[string]bool{}
+	for _, lane := range world.Lanes {
+		ended[lane.Record.ID] = !lane.Held && lane.Record.State == StateEnded
+	}
+	var actions []Action
+	for _, lane := range world.Archives {
+		if ended[lane] {
+			actions = append(actions, Action{Kind: ActionArchive, Lane: lane})
 		}
 	}
 	return actions

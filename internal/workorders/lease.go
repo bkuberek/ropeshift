@@ -19,6 +19,8 @@ var (
 	// has recorded the lapse. The holder keeps its claim and asks again, because a
 	// lease past its deadline comes back only through a lapse on record.
 	ErrExpired = errors.New("lease expired")
+	// ErrUnpushedWork means a removal would lose work no remote holds.
+	ErrUnpushedWork = errors.New("the worktree holds work no remote has")
 	// ErrNotLapsed means a reassignment found a work order that is not lapsed.
 	ErrNotLapsed = errors.New("work order is not lapsed")
 	// ErrForbidden means this actor may not take this step.

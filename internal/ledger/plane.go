@@ -163,13 +163,22 @@ type DesiredLease struct {
 	Resets int64 `json:"resets,omitempty"`
 }
 
+// DesiredArchive is a lane whose worktree should go.
+type DesiredArchive struct {
+	Lane       string `json:"lane"`
+	Repository string `json:"repository,omitempty"`
+	// Forced says a member accepts losing what no remote holds.
+	Forced bool `json:"forced,omitempty"`
+}
+
 // DesiredState is what the control plane wants of one worker. Unchanged says the
 // worker already holds this revision.
 type DesiredState struct {
-	Rev       int64          `json:"rev"`
-	FleetMode FleetMode      `json:"fleet_mode"`
-	Unchanged bool           `json:"unchanged,omitempty"`
-	Leases    []DesiredLease `json:"leases"`
+	Rev       int64            `json:"rev"`
+	FleetMode FleetMode        `json:"fleet_mode"`
+	Unchanged bool             `json:"unchanged,omitempty"`
+	Leases    []DesiredLease   `json:"leases"`
+	Archives  []DesiredArchive `json:"archives,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.
@@ -203,6 +212,10 @@ const (
 	// UploadGenerationStarted moves a lane to its next generation after a crash.
 	UploadGenerationStarted = "generation_started"
 	UploadLaneStatus        = "lane_status"
+	// UploadLaneGuarded says how a stop left a worktree, and passes no fence.
+	UploadLaneGuarded = "lane_guarded"
+	// UploadLaneArchived says a worktree went.
+	UploadLaneArchived = "lane_archived"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

@@ -198,6 +198,12 @@ func RunWorktrees(t *testing.T, fresh func(*testing.T) WorktreeRig) {
 		{"a branch checked out elsewhere is a conflict", checkWorktreeBranchConflict},
 		{"a clean worktree is removed and its removal repeats", checkWorktreeRemove},
 		{"a dirty worktree is refused", checkWorktreeDirty},
+		{"a survey reads what a stop must account for", checkWorktreeSurvey},
+		{"a survey of nothing is not found", checkWorktreeSurveyAbsent},
+		{"a snapshot leaves the worktree as it stood", checkWorktreeSnapshot},
+		{"a snapshot of nothing is an error", checkWorktreeSnapshotAbsent},
+		{"a push with no remote is an error", checkWorktreePushNoRemote},
+		{"a discard removes a dirty worktree and repeats", checkWorktreeDiscard},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -295,6 +301,125 @@ func checkWorktreeDirty(t *testing.T, ctx context.Context, r WorktreeRig) {
 	got, err := r.Worktrees.Inspect(ctx, created.Path)
 	if err != nil || got.Clean {
 		t.Errorf("the worktree after a refusal %+v: %v", got, err)
+	}
+}
+
+func checkWorktreeSurvey(t *testing.T, ctx context.Context, r WorktreeRig) {
+	created := r.create(t, ctx, "one", "lane/one")
+	clean, err := r.Worktrees.Survey(ctx, created.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean.Dirty || clean.Branch != "lane/one" || clean.Head == "" {
+		t.Errorf("a clean worktree reads %+v", clean)
+	}
+	r.Dirty(created.Path)
+	dirty, err := r.Worktrees.Survey(ctx, created.Path)
+	if err != nil || !dirty.Dirty {
+		t.Errorf("a dirty worktree reads %+v: %v", dirty, err)
+	}
+}
+
+func checkWorktreeSurveyAbsent(t *testing.T, ctx context.Context, r WorktreeRig) {
+	if _, err := r.Worktrees.Survey(ctx, r.Path("absent")); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("got %v", err)
+	}
+}
+
+func checkWorktreeSnapshot(t *testing.T, ctx context.Context, r WorktreeRig) {
+	created := r.create(t, ctx, "one", "lane/one")
+	r.Dirty(created.Path)
+	commit, err := r.Worktrees.Snapshot(ctx, created.Path, "refs/ropeshift/checkpoints/one/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commit == "" {
+		t.Error("a snapshot named no commit")
+	}
+	got, err := r.Worktrees.Inspect(ctx, created.Path)
+	if err != nil || got.Clean || got.Branch != "lane/one" {
+		t.Errorf("after a snapshot %+v: %v", got, err)
+	}
+}
+
+func checkWorktreeSnapshotAbsent(t *testing.T, ctx context.Context, r WorktreeRig) {
+	if _, err := r.Worktrees.Snapshot(ctx, r.Path("absent"), "refs/ropeshift/checkpoints/one/1"); err == nil {
+		t.Error("a snapshot of nothing passed")
+	}
+}
+
+func checkWorktreePushNoRemote(t *testing.T, ctx context.Context, r WorktreeRig) {
+	created := r.create(t, ctx, "one", "lane/one")
+	if err := r.Worktrees.Push(ctx, created.Path, "", lanes.HeadsRef("lane/one")); err == nil {
+		t.Error("a push with no remote passed")
+	}
+}
+
+func checkWorktreeDiscard(t *testing.T, ctx context.Context, r WorktreeRig) {
+	created := r.create(t, ctx, "one", "lane/one")
+	r.Dirty(created.Path)
+	for range 2 {
+		if err := r.Worktrees.Discard(ctx, r.Repository, created.Path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.Worktrees.Inspect(ctx, created.Path); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("got %v", err)
+	}
+}
+
+// HookRig is a runner and the commands a check runs on it.
+type HookRig struct {
+	Runner ports.HookRunner
+	// Pass exits 0, Fail exits 1, and Slow runs until a signal ends it.
+	Pass, Fail, Slow []string
+	Dir              string
+	Env              []string
+}
+
+// RunHookRunner runs one contract on one runner.
+func RunHookRunner(t *testing.T, fresh func(*testing.T) HookRig) {
+	t.Helper()
+	checks := []struct {
+		name string
+		run  func(*testing.T, context.Context, HookRig)
+	}{
+		{"a command that passes reports exit 0", checkHookPasses},
+		{"a command that fails reports its code and no error", checkHookFails},
+		{"a command past its timeout ends with a signal", checkHookTimeout},
+		{"a hook with no command is an error", checkHookEmpty},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			check.run(t, t.Context(), fresh(t))
+		})
+	}
+}
+
+func checkHookPasses(t *testing.T, ctx context.Context, r HookRig) {
+	result, err := r.Runner.Run(ctx, ports.HookCommand{Argv: r.Pass, Dir: r.Dir, Env: r.Env, Timeout: time.Minute})
+	if err != nil || result.Exit.Code != 0 || result.Exit.Signal != "" {
+		t.Errorf("result %+v: %v", result, err)
+	}
+}
+
+func checkHookFails(t *testing.T, ctx context.Context, r HookRig) {
+	result, err := r.Runner.Run(ctx, ports.HookCommand{Argv: r.Fail, Dir: r.Dir, Env: r.Env, Timeout: time.Minute})
+	if err != nil || result.Exit.Code != 1 {
+		t.Errorf("result %+v: %v", result, err)
+	}
+}
+
+func checkHookTimeout(t *testing.T, ctx context.Context, r HookRig) {
+	result, err := r.Runner.Run(ctx, ports.HookCommand{Argv: r.Slow, Dir: r.Dir, Env: r.Env, Timeout: 50 * time.Millisecond})
+	if err != nil || result.Exit.Signal == "" {
+		t.Errorf("result %+v: %v", result, err)
+	}
+}
+
+func checkHookEmpty(t *testing.T, ctx context.Context, r HookRig) {
+	if _, err := r.Runner.Run(ctx, ports.HookCommand{Dir: r.Dir, Env: r.Env}); err == nil {
+		t.Error("a hook with no command passed")
 	}
 }
 
