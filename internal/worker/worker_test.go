@@ -29,6 +29,9 @@ type rig struct {
 	clock   *fake.Clock
 	// deadline is the next work order's, in Unix milliseconds.
 	deadline int64
+	// workerJournal stands between a lane rig's worker and the journal when a test must
+	// stop that worker at one call. Nil leaves the journal itself.
+	workerJournal ports.Journal
 }
 
 func newRig(t *testing.T) *rig {

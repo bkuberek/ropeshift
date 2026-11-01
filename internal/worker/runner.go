@@ -77,8 +77,11 @@ type laneRun struct {
 	stopOnce *sync.Once
 	stopped  sync.WaitGroup
 	state    *laneState
-	// crashed says the session that just ended died on its own.
-	crashed bool
+	// crashed says the session that just ended died on its own, and crashedAt when. That
+	// time is read before the lane says `backoff`, so anyone who reads that state and looks
+	// at a clock looks past the moment the delay counts from.
+	crashed   bool
+	crashedAt time.Time
 	// resumeFrom is the session a restarted generation continues. Empty starts fresh.
 	resumeFrom string
 	// priorUSD and priorUnknown are what earlier generations cost.
@@ -512,7 +515,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			if event.End != nil && event.End.Crashed {
-				r.crashed = true
+				r.crashed, r.crashedAt = true, r.w.clock.Now()
 				r.signal(ctx, lanes.OnActivity, lanes.OnSessionGone)
 			}
 			return r.verdict(ctx, event.End)

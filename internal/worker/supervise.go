@@ -108,11 +108,12 @@ func (r *laneRun) backOff(ctx context.Context) bool {
 	return r.nextGeneration(ctx, next)
 }
 
-// chargeFor finds a charge a crash left, or judges a new one. A verdict of tripped waits
-// for a person, and a reset clears what the breaker counted and starts the lane at once,
-// because a person is waiting to see it run.
+// chargeFor finds a charge a crash left, or judges a new one, and a delay counts from the
+// crash, however late this runs. A verdict of tripped waits for a person, and a reset
+// clears what the breaker counted and starts the lane at once, because a person is waiting
+// to see it run.
 func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, bool) {
-	reset := false
+	from, reset := r.crashedAt, false
 	for {
 		charges, err := r.w.journal.Restarts(ctx, r.lease.Lane)
 		if err != nil {
@@ -124,13 +125,12 @@ func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, boo
 				return charge, true
 			}
 		}
-		now := r.w.clock.Now()
-		verdict := r.state.breaker().Judge(charges, now)
+		verdict := r.state.breaker().Judge(charges, from)
 		if reset {
 			verdict.Delay = 0
 		}
 		if !verdict.Tripped {
-			charge := lanes.Restart{Key: chargeKey(key), AtMs: now.UnixMilli(), NotBeforeMs: now.Add(verdict.Delay).UnixMilli()}
+			charge := lanes.Restart{Key: chargeKey(key), AtMs: from.UnixMilli(), NotBeforeMs: from.Add(verdict.Delay).UnixMilli()}
 			if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 				return lanes.Restart{}, false
@@ -141,7 +141,7 @@ func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, boo
 		if !r.awaitReset(ctx) {
 			return lanes.Restart{}, false
 		}
-		reset = true
+		from, reset = r.w.clock.Now(), true
 	}
 }
 

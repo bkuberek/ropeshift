@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -202,6 +204,47 @@ func TestACrashRestartsAfterItsBackoffAndResumes(t *testing.T) {
 	}
 }
 
+// heldCharge stops a worker at its first read of a lane's restarts, which falls after the
+// lane reads `backoff` and before the worker judges the restart.
+type heldCharge struct {
+	ports.Journal
+	once    sync.Once
+	reached chan struct{}
+	release chan struct{}
+}
+
+func (j *heldCharge) Restarts(ctx context.Context, lane string) ([]lanes.Restart, error) {
+	j.once.Do(func() {
+		close(j.reached)
+		<-j.release
+	})
+	return j.Journal.Restarts(ctx, lane)
+}
+
+// A delay counts from the crash. A reader who sees `backoff` and moves the clock has moved
+// it past that crash, however late the worker gets to the charge.
+func TestARestartDelayCountsFromTheCrash(t *testing.T) {
+	base := newRig(t)
+	held := &heldCharge{Journal: base.journal, reached: make(chan struct{}), release: make(chan struct{})}
+	base.workerJournal = held
+	r := newLaneRigFor(t, base)
+	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", restarts)
+	r.dispatched()
+	r.driver.Play(script(crashed()))
+	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	r.start()
+	select {
+	case <-held.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the worker never came to its charge")
+	}
+	r.laneState(lanes.Backoff)
+	r.clock.Advance(31 * time.Second)
+	close(held.release)
+	r.awaitGeneration(t, 2)
+	r.subject.Wait()
+}
+
 func TestACrashBeforeASessionBoundStartsFresh(t *testing.T) {
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script([]fake.DriverStep{{Crash: true}}))
@@ -342,6 +385,7 @@ func TestACrashRestartChargesOnceAcrossAWorkerRestart(t *testing.T) {
 	r.driver.Play(script(crashed()))
 	r.start()
 	r.laneState(lanes.Backoff)
+	r.awaitCharge(t)
 	if charges, err := r.journal.Restarts(t.Context(), "lane-1"); err != nil || len(charges) != 1 {
 		t.Fatalf("charges %+v, %v", charges, err)
 	}
