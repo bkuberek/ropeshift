@@ -66,6 +66,20 @@ type RecordDecision struct {
 	QuestionID    string                   `json:"question_id,omitempty"`
 }
 
+// AnswerQuestion is a member's answer. ID names the decision it becomes, and the client
+// generates it, so a retry finds what the first attempt wrote.
+type AnswerQuestion struct {
+	ID        string   `json:"id"`
+	Answer    string   `json:"answer"`
+	Rationale string   `json:"rationale,omitempty"`
+	Citations []string `json:"citations,omitempty"`
+}
+
+// BatchList is what reached members and still waits for them.
+type BatchList struct {
+	Batches []questions.Presented `json:"batches"`
+}
+
 // CategoryList is every category of a workspace, built-in and added.
 type CategoryList struct {
 	Categories []string `json:"categories"`
@@ -112,6 +126,25 @@ func (c *Client) RecordQuestion(ctx context.Context, in RecordQuestion) (questio
 // DismissQuestion closes a question with no answer.
 func (c *Client) DismissQuestion(ctx context.Context, id string) error {
 	return c.Do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/dismiss", struct{}{}, nil)
+}
+
+// AnswerQuestion closes a question with a member's answer.
+func (c *Client) AnswerQuestion(ctx context.Context, id string, in AnswerQuestion) (questions.Decision, error) {
+	var out questions.Decision
+	err := c.Do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/answer", in, &out)
+	return out, err
+}
+
+// Batches lists the delivered batches that still wait for a member, within one category.
+// An empty category lists them all.
+func (c *Client) Batches(ctx context.Context, category string) ([]questions.Presented, error) {
+	path := "/v1/question-batches"
+	if category != "" {
+		path += "?category=" + url.QueryEscape(category)
+	}
+	var out BatchList
+	err := c.Do(ctx, http.MethodGet, path, nil, &out)
+	return out.Batches, err
 }
 
 // Decisions lists the decisions a filter selects.

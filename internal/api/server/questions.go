@@ -17,6 +17,8 @@ func (h *handler) questionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/questions", h.member(h.recordQuestion))
 	mux.HandleFunc("GET /v1/questions/{id}", h.showQuestion)
 	mux.HandleFunc("POST /v1/questions/{id}/dismiss", h.member(h.dismissQuestion))
+	mux.HandleFunc("POST /v1/questions/{id}/answer", h.member(h.answerQuestion))
+	mux.HandleFunc("GET /v1/question-batches", h.listBatches)
 	mux.HandleFunc("GET /v1/decisions", h.listDecisions)
 	mux.HandleFunc("POST /v1/decisions", h.member(h.recordDecision))
 	mux.HandleFunc("GET /v1/decisions/{id}", h.showDecision)
@@ -84,6 +86,49 @@ func (h *handler) dismissQuestion(w http.ResponseWriter, r *http.Request, actor 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) answerQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.AnswerQuestion
+	if !decode(w, r, &in) {
+		return
+	}
+	record, err := h.questions.Answer(r.Context(), h.Scope, r.PathValue("id"), questions.Answer{
+		DecisionID: in.ID, Statement: in.Answer, Rationale: in.Rationale, Citations: in.Citations,
+	}, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, record)
+}
+
+// listBatches is what reached members and still waits for one. A member filters by
+// category, and nothing is assigned to anyone.
+func (h *handler) listBatches(w http.ResponseWriter, r *http.Request) {
+	category := r.URL.Query().Get("category")
+	list := api.BatchList{Batches: []questions.Presented{}}
+	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
+		batches, err := tx.Questions().WaitingBatches()
+		if err != nil {
+			return err
+		}
+		for _, batch := range batches {
+			rows, err := tx.Questions().BatchQuestions(batch.ID)
+			if err != nil {
+				return err
+			}
+			if presented := questions.Present(batch, rows, category); len(presented.Items) != 0 {
+				list.Batches = append(list.Batches, presented)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, list)
 }
 
 func (h *handler) listDecisions(w http.ResponseWriter, r *http.Request) {

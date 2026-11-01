@@ -59,6 +59,8 @@ type WorkerOptions struct {
 	HeartbeatMs int64
 	// LeaseTTLMs is the lease a heartbeat renews to.
 	LeaseTTLMs int64
+	// Batches says how long questions gather for a person.
+	Batches questions.BatchPolicy
 }
 
 // Workers is the control plane's side of the plane protocol. It has the shape of
@@ -84,7 +86,7 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 	if options.LeaseTTLMs == 0 {
 		options.LeaseTTLMs = defaultLeaseTTLMs
 	}
-	return &Workers{store: store, scope: scope, options: options, leases: NewLeases(store), questions: NewQuestions(store)}
+	return &Workers{store: store, scope: scope, options: options, leases: NewLeases(store), questions: NewQuestions(store, options.Batches)}
 }
 
 func newSecret() (string, error) {

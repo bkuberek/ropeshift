@@ -117,6 +117,81 @@ func (c *invocation) questionDismiss(args []string) int {
 	}{positional[0]}, func() string { return positional[0] + "\tdismissed\n" })
 }
 
+func (c *invocation) questionAnswer(args []string) int {
+	set := c.flags()
+	var request api.AnswerQuestion
+	var citations repeated
+	set.StringVar(&request.ID, "id", "", "a client-generated ID for the decision it becomes")
+	set.StringVar(&request.Answer, "answer", "", "the answer")
+	set.StringVar(&request.Rationale, "rationale", "", "why")
+	set.Var(&citations, "citation", "what it rests on, repeatable")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one question ID")
+	}
+	if request.Answer == "" {
+		return c.usageError("--answer is required")
+	}
+	if request.ID == "" {
+		id, err := newID()
+		if err != nil {
+			return c.failure(err)
+		}
+		request.ID = id
+	}
+	request.Citations = citations
+	client := c.client()
+	defer client.Close()
+	row, err := client.AnswerQuestion(c.ctx, positional[0], request)
+	return c.finish(err, row, func() string { return decisionLine(row) })
+}
+
+func (c *invocation) questionBatches(args []string) int {
+	set := c.flags()
+	category := set.String("category", "", "only this category")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	client := c.client()
+	defer client.Close()
+	rows, err := client.Batches(c.ctx, *category)
+	if rows == nil {
+		rows = []questions.Presented{}
+	}
+	return c.finish(err, api.BatchList{Batches: rows}, func() string {
+		var out strings.Builder
+		for _, row := range rows {
+			fmt.Fprintf(&out, "batch %s\n", row.Batch.ID)
+			for _, item := range row.Items {
+				out.WriteString(itemLines(item))
+			}
+		}
+		return out.String()
+	})
+}
+
+// itemLines shows one question with all a member needs to answer it once.
+func itemLines(item questions.Item) string {
+	var out strings.Builder
+	blocking := ""
+	if item.Blocking {
+		blocking = "\tblocking"
+	}
+	fmt.Fprintf(&out, "  %s\t%s\t%s%s\n", item.ID, strings.Join(item.Categories, ","), item.Text, blocking)
+	fmt.Fprintf(&out, "    options: %s\n    recommendation: %s\n", strings.Join(item.Options, " | "), item.Recommendation)
+	if len(item.Citations) != 0 {
+		fmt.Fprintf(&out, "    citations: %s\n", strings.Join(item.Citations, ", "))
+	}
+	return out.String()
+}
+
 func (c *invocation) decisionList(args []string) int {
 	set := c.flags()
 	var filter api.RecordFilter

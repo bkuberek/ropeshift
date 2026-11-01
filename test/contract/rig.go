@@ -86,6 +86,8 @@ const defaultMaxAttempts = 3
 // Ops are the use cases the checks drive.
 type Ops interface {
 	SignIn(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, ttlMs int64) (control.SessionGrant, error)
+	Answer(ctx context.Context, scope ledger.WorkspaceID, id string, answer questions.Answer, actor ledger.Actor) (questions.Decision, error)
+	DeliverBatches(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 	Create(ctx context.Context, scope ledger.WorkspaceID, draft workorders.WorkOrder, actor ledger.Actor) (workorders.WorkOrder, error)
 	Move(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, actor ledger.Actor) error
 	Rebuild(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) error
@@ -126,6 +128,13 @@ type realOps struct {
 	*control.Questions
 }
 
+// The limits a batch runs under here: a window long enough that a blocking question can
+// close it early.
+const (
+	BatchWindowMs  int64 = 60 * 60 * 1000
+	BatchMaxWaitMs int64 = 10 * 60 * 1000
+)
+
 // provenMember signs anyone in, so a run tests a session's write and not a slow hash.
 type provenMember struct {
 	ports.IdentityProvider
@@ -140,7 +149,7 @@ func (provenMember) Authenticate(context.Context, ledger.WorkspaceID, ports.Proo
 func RealOps(store ports.Store) Ops {
 	return realOps{
 		control.NewSessions(store, provenMember{}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
-		control.NewQuestions(store),
+		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -148,6 +149,8 @@ func crashMatrix() []crashCase {
 		takeCase(),
 		climbCase(),
 		escalateCase(),
+		deliverCase(),
+		answerCase(),
 		resolveCase(),
 		mergeCase(),
 		dismissCase(),
@@ -799,13 +802,70 @@ func escalateCase() crashCase {
 	return crashCase{
 		name:  "escalate",
 		op:    "question.escalate",
-		steps: withSteps("passed"),
+		steps: withSteps("passed", "gathered"),
 		prepare: func(w *world) (childSpec, error) {
 			id, err := w.heldQuestion("May audit data leave the region?", questions.RungLookup, questions.RungOpen)
 			return childSpec{Role: "escalate", Key: id}, err
 		},
 		settled: func(w *world, spec childSpec) error {
 			return w.questionIs(spec.Key, questions.StatusNeedsHuman, "")
+		},
+	}
+}
+
+// dueBatch puts one escalated question in a batch whose window already closed. A crash run
+// keeps real time, so the batch is opened under a window of one millisecond.
+func (w *world) dueBatch() (string, string, error) {
+	id, err := w.heldQuestion("May audit data leave the region?", questions.RungLookup, questions.RungOpen)
+	if err != nil {
+		return "", "", err
+	}
+	quick := control.NewQuestions(w.store, questions.BatchPolicy{WindowMs: 1, MaxWaitMs: 1})
+	record, err := quick.Escalate(w.rig.Ctx, w.rig.Scope, id, questions.Escalation{
+		Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep",
+	}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"})
+	if err != nil {
+		return "", "", err
+	}
+	time.Sleep(5 * time.Millisecond)
+	return id, record.BatchID, nil
+}
+
+func deliverCase() crashCase {
+	return crashCase{
+		name:  "deliver a batch",
+		op:    "question.deliver",
+		steps: withSteps("closed"),
+		prepare: func(w *world) (childSpec, error) {
+			_, batch, err := w.dueBatch()
+			return childSpec{Role: "deliver", Key: batch}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			return countEvents(w, questions.EventBatchDelivered, spec.Key, 1)
+		},
+	}
+}
+
+func answerCase() crashCase {
+	return crashCase{
+		name:  "answer a question",
+		op:    "question.answer",
+		steps: withSteps("decided"),
+		prepare: func(w *world) (childSpec, error) {
+			draft := questions.Question{ID: w.rig.ID("q"), Text: "What is the retry budget?"}
+			if _, err := w.rig.NewOps(w.store).RecordQuestion(w.rig.Ctx, w.rig.Scope, draft, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "answer", Key: draft.ID, ClaimID: w.rig.ID("d")}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := w.questionIs(spec.Key, questions.StatusAnswered, ""); err != nil {
+				return err
+			}
+			if err := countEvents(w, questions.EventDecisionRecorded, spec.ClaimID, 1); err != nil {
+				return err
+			}
+			return findable(w, questions.KindDecision, spec.ClaimID)
 		},
 	}
 }

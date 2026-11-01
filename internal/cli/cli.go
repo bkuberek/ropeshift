@@ -48,6 +48,8 @@ const usage = `usage: ropeshift <command>
   question show <id>                                 show one question
   question record --text T [--category C]... [flags] record a question as it is
   question dismiss <id>                              close a question with no answer
+  question answer <id> --answer A [flags]            answer a question, once
+  question batches [--category C]                    show what reached members and still waits
   decision list [--category C] [--status S] [--scope S] [--text T]
                                                      find decisions
   decision show <id>                                 show one decision
@@ -151,6 +153,8 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"question show":     (*invocation).questionShow,
 		"question record":   (*invocation).questionRecord,
 		"question dismiss":  (*invocation).questionDismiss,
+		"question answer":   (*invocation).questionAnswer,
+		"question batches":  (*invocation).questionBatches,
 		"decision list":     (*invocation).decisionList,
 		"decision show":     (*invocation).decisionShow,
 		"decision record":   (*invocation).decisionRecord,
@@ -278,7 +282,7 @@ func exitOf(refused *api.Error) int {
 		return ExitFenced
 	case api.CodeLapsed:
 		return ExitLapsed
-	case api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork:
+	case api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved:
 		return ExitConflict
 	case api.CodeInvalid:
 		return ExitUsage

@@ -236,6 +236,7 @@ type Book struct {
 	Attachments map[string]Attachment
 	Decisions   map[string]Decision
 	Categories  map[string]bool
+	Batches     map[string]Batch
 }
 
 // AttachmentKey identifies an attachment in a Book.
@@ -245,7 +246,7 @@ func AttachmentKey(question, lane string) string { return question + "/" + lane 
 func Replay(events []ledger.Event) (Book, error) {
 	book := Book{
 		Questions: map[string]Question{}, Attachments: map[string]Attachment{},
-		Decisions: map[string]Decision{}, Categories: map[string]bool{},
+		Decisions: map[string]Decision{}, Categories: map[string]bool{}, Batches: map[string]Batch{},
 	}
 	for _, e := range events {
 		if err := book.apply(e); err != nil {
@@ -277,6 +278,18 @@ func (b Book) apply(e ledger.Event) error {
 		b.Decisions[decision.ID] = decision
 	case EventCategoryAdded:
 		b.Categories[e.Subject.ID] = true
+	case EventBatchChanged:
+		var batch Batch
+		if err := json.Unmarshal(e.Data, &batch); err != nil {
+			return err
+		}
+		b.Batches[batch.ID] = batch
+	case EventBatchDelivered:
+		var delivery Delivery
+		if err := json.Unmarshal(e.Data, &delivery); err != nil {
+			return err
+		}
+		b.Batches[delivery.Batch.ID] = delivery.Batch
 	}
 	return nil
 }

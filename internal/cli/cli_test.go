@@ -564,3 +564,81 @@ func TestPassphraseSetNeedsTwoThatMatch(t *testing.T) {
 		t.Fatalf("exit %d, %s", code, stderr)
 	}
 }
+
+// deliveredBatch takes one question past the gate and delivers its batch, which is the
+// ledger's own path, because a person's commands stop at the batch.
+func (s *session) deliveredBatch(id, category string) {
+	s.t.Helper()
+	ctx := s.t.Context()
+	s.must("question", "record", "--id", id, "--text", "What is the retry budget?", "--category", category)
+	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
+	use := control.NewQuestions(s.daemon.Store, questions.BatchPolicy{WindowMs: 1})
+	if _, err := use.Take(ctx, apitest.Scope, id, 60_000, orchestrator); err != nil {
+		s.t.Fatal(err)
+	}
+	for _, rung := range []int64{questions.RungLookup, questions.RungOpen} {
+		step := questions.Step{Rung: rung, Candidates: []string{"decision-1"}, Outcome: "no match"}
+		if _, err := use.Climb(ctx, apitest.Scope, id, step, orchestrator); err != nil {
+			s.t.Fatal(err)
+		}
+	}
+	escalation := questions.Escalation{Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep"}
+	if _, err := use.Escalate(ctx, apitest.Scope, id, escalation, orchestrator); err != nil {
+		s.t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	delivered, err := use.DeliverBatches(ctx, apitest.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "test"})
+	if err != nil || len(delivered) != 1 {
+		s.t.Fatalf("delivered %v: %v", delivered, err)
+	}
+}
+
+func TestQuestionBatches(t *testing.T) {
+	s := newSession(t)
+	if text := s.must("question", "batches"); text != "" {
+		t.Fatalf("nothing reached anyone, and it printed %q", text)
+	}
+	s.deliveredBatch("q1", "security")
+	text := s.must("question", "batches")
+	for _, want := range []string{"q1", "security", "What is the retry budget?", "Keep | Change", "recommendation: Keep", "decision-1"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("batches %q lacks %q", text, want)
+		}
+	}
+	if text := s.must("question", "batches", "--category", "product"); text != "" {
+		t.Errorf("another category shows %q", text)
+	}
+	var list api.BatchList
+	if err := json.Unmarshal([]byte(s.must("question", "batches", "--json", "--category", "security")), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Batches) != 1 || len(list.Batches[0].Items) != 1 || list.Batches[0].Items[0].Recommendation != "Keep" {
+		t.Fatalf("list %+v", list)
+	}
+}
+
+func TestQuestionAnswer(t *testing.T) {
+	s := newSession(t)
+	s.must("question", "record", "--id", "q1", "--text", "What is the retry budget?")
+	if code, _, stderr := s.run("question", "answer", "q1"); code != cli.ExitUsage || !strings.Contains(stderr, "--answer") {
+		t.Fatalf("no answer: exit %d, %s", code, stderr)
+	}
+	if code, _, _ := s.run("question", "answer", "--answer", "Two."); code != cli.ExitUsage {
+		t.Fatalf("no question: exit %d", code)
+	}
+	if code, _, _ := s.run("question", "answer", "missing", "--answer", "Two."); code != cli.ExitNotFound {
+		t.Fatalf("an unknown question: exit %d", code)
+	}
+	if text := s.must("question", "answer", "q1", "--answer", "Two retries.", "--id", "d1", "--citation", "PAY-12"); !strings.Contains(text, "d1") {
+		t.Fatalf("printed %q", text)
+	}
+	if code, _, _ := s.run("question", "answer", "q1", "--answer", "Three."); code != cli.ExitConflict {
+		t.Fatalf("a second answer: exit %d", code)
+	}
+	if text := s.must("question", "answer", "q1", "--answer", "Two retries.", "--id", "d1"); !strings.Contains(text, "d1") {
+		t.Fatalf("a retry printed %q", text)
+	}
+	if code, _, _ := s.runAs("", nil, "question", "answer", "q1", "--answer", "Three."); code != cli.ExitForbidden {
+		t.Fatalf("no session: exit %d", code)
+	}
+}

@@ -11,6 +11,9 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/lanes"
+
+	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.dev/ropeshift/internal/ledger"
 )
 
 const module = "ropeshift.dev/ropeshift"
@@ -49,6 +52,12 @@ func TestOneAuthorizationFunction(t *testing.T) {
 	}
 	for _, v := range found {
 		t.Error(v)
+	}
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "any"}
+	for _, action := range authority.Actions() {
+		if !authority.Allowed(member, action) {
+			t.Errorf("the one function refuses a member %s", action)
+		}
 	}
 }
 

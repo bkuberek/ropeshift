@@ -23,7 +23,7 @@ var (
 	// ErrBadProof means what a person presented proves nothing.
 	ErrBadProof = errors.New("the passphrase does not match")
 	// ErrNotEnrolled means nobody can sign in yet.
-	ErrNotEnrolled = errors.New("no passphrase is set")
+	ErrNotEnrolled = errors.New("no passphrase is set: run ropeshift passphrase set on a terminal")
 	// ErrInvalid means a proof cannot be accepted as it stands.
 	ErrInvalid = errors.New("invalid sign-in")
 )

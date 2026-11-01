@@ -9,6 +9,10 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"ropeshift.dev/ropeshift/internal/adapters/profiles"
+	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/questions"
 )
 
 func TestDispatchOnStartedName(t *testing.T) {
@@ -106,5 +110,39 @@ func TestOneBinaryTwoNames(t *testing.T) {
 		if got.Command != want {
 			t.Errorf("started as %s, ran as %s", want, got.Command)
 		}
+	}
+}
+
+func TestBatchLimitsComeFromTheUserLayer(t *testing.T) {
+	dir := t.TempDir()
+	paths := api.Paths{StateDir: dir}
+	tests := []struct {
+		name    string
+		profile string
+		want    questions.BatchPolicy
+	}{
+		{"no layer leaves the built-in limits", "", questions.BatchPolicy{WindowMs: 15 * 60_000, MaxWaitMs: 5 * 60_000}},
+		{"the user layer sets them", "[lifecycle]\nhuman_batch_window = \"1h\"\nhuman_batch_max_wait = \"10m\"\n", questions.BatchPolicy{WindowMs: 3_600_000, MaxWaitMs: 600_000}},
+		{"a layer that does not parse leaves zero, which means the defaults", "[lifecycle", questions.BatchPolicy{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(dir, profiles.UserFile), []byte(tt.profile), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := soloBatches(paths); got != tt.want {
+				t.Fatalf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTheDefaultLimitsLetABlockingQuestionHurry holds the rule the two limits exist for: a
+// fixed window leaves a blocking question nothing to shorten unless its wait is the shorter
+// limit.
+func TestTheDefaultLimitsLetABlockingQuestionHurry(t *testing.T) {
+	limits := soloBatches(api.Paths{StateDir: t.TempDir()}).Filled()
+	if limits.MaxWaitMs >= limits.WindowMs {
+		t.Fatalf("limits %+v: a blocking question could never close a batch early", limits)
 	}
 }

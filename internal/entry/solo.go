@@ -37,6 +37,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/worker"
 )
 
@@ -64,6 +65,7 @@ type soloOptions struct {
 	directory  string
 	leaseTick  time.Duration
 	intakeTick time.Duration
+	batchTick  time.Duration
 	leaseTTL   time.Duration
 	heartbeat  time.Duration
 }
@@ -86,6 +88,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.StringVar(&opts.directory, "dir", "", "the directory intake reads, by default the whole repository")
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
+	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
 	if err := flags.Parse(args); err != nil {
@@ -182,11 +185,12 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
+	batches := soloBatches(paths)
 	httpServer := &http.Server{
 		Handler: server.New(server.Config{
 			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 			Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
-			Identity: localauth.New(store, localauth.DefaultParams),
+			Identity: localauth.New(store, localauth.DefaultParams), Batches: batches,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -194,7 +198,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	go func() { serveErr <- httpServer.Serve(listener) }()
 	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", paths.ControlSocket())
 
-	ticks := soloTicks(store, opts)
+	ticks := soloTicks(store, opts, batches)
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)
@@ -422,8 +426,25 @@ func soloKnowledge(opts soloOptions) []ports.KnowledgeSource {
 	return sources
 }
 
-func soloTicks(store ports.Store, opts soloOptions) []control.Tick {
+// soloBatches reads how long questions gather from the user's layer. A layer that does not
+// parse leaves the defaults, and a lane that reads it reports the fault.
+func soloBatches(paths api.Paths) questions.BatchPolicy {
+	raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return questions.BatchPolicy{}
+	}
+	profile, err := profiles.Resolve(string(raw))
+	if err != nil {
+		return questions.BatchPolicy{}
+	}
+	window, _ := time.ParseDuration(profile.Lifecycle.HumanBatchWindow)
+	maxWait, _ := time.ParseDuration(profile.Lifecycle.HumanBatchMaxWait)
+	return questions.BatchPolicy{WindowMs: window.Milliseconds(), MaxWaitMs: maxWait.Milliseconds()}
+}
+
+func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolicy) []control.Tick {
 	leases := control.NewLeases(store)
+	asked := control.NewQuestions(store, batches)
 	intake := control.NewIntake(store)
 	reviews := control.NewReviews(store)
 	sources := make([]ports.WorkSource, 0, len(opts.sources))
@@ -431,6 +452,14 @@ func soloTicks(store ports.Store, opts soloOptions) []control.Tick {
 		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
 	}
 	return []control.Tick{
+		{
+			Name:  "batches",
+			Every: opts.batchTick,
+			Run: func(ctx context.Context) error {
+				_, err := asked.DeliverBatches(ctx, soloScope, tickActor("batch-tick"))
+				return err
+			},
+		},
 		{
 			Name:  "lease",
 			Every: opts.leaseTick,

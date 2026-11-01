@@ -235,3 +235,39 @@ func TestAMemberClaimNeedsASession(t *testing.T) {
 	_, err := anonymous.Claim(t.Context(), "w1", api.ClaimRequest{ClaimID: "c1", WorkerID: "worker-a", TTLMs: 60_000})
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
 }
+
+func TestAnAnswerNeedsAMemberSession(t *testing.T) {
+	d := apitest.Start(t)
+	if _, err := d.Client.RecordQuestion(t.Context(), api.RecordQuestion{ID: "q1", Text: "What is the retry budget?"}); err != nil {
+		t.Fatal(err)
+	}
+	anonymous := api.NewUnixClient(d.Socket)
+	defer anonymous.Close()
+	_, err := anonymous.AnswerQuestion(t.Context(), "q1", api.AnswerQuestion{ID: "d1", Answer: "Two retries."})
+	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
+	row, err := d.Client.Question(t.Context(), "q1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != questions.StatusOpen || row.DecisionID != "" {
+		t.Fatalf("the refused answer moved the question: %+v", row)
+	}
+}
+
+func TestAnAnsweredQuestionRefusesASecondAnswer(t *testing.T) {
+	d := apitest.Start(t)
+	if _, err := d.Client.RecordQuestion(t.Context(), api.RecordQuestion{ID: "q1", Text: "What is the retry budget?"}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := d.Client.AnswerQuestion(t.Context(), "q1", api.AnswerQuestion{ID: "d1", Answer: "Two retries."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.DecidedBy == "" || first.QuestionID != "q1" {
+		t.Fatalf("decision %+v", first)
+	}
+	_, err = d.Client.AnswerQuestion(t.Context(), "q1", api.AnswerQuestion{ID: "d2", Answer: "Three retries."})
+	refusedWith(t, err, http.StatusConflict, api.CodeResolved)
+	_, err = d.Client.AnswerQuestion(t.Context(), "q1", api.AnswerQuestion{ID: "d3"})
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+}

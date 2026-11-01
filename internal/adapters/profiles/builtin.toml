@@ -36,7 +36,7 @@ brief_grace = "2m"
 approval_wait = "5m"
 restart_backoff = "30s"
 human_batch_window = "15m"
-human_batch_max_wait = "1h"
+human_batch_max_wait = "5m"
 
 [worktree]
 root = "../{repo}-lanes"

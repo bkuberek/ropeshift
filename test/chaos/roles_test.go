@@ -39,6 +39,8 @@ var childRoles = map[string]func(*child) error{
 	"record-question":   roleRecordQuestion,
 	"record-decision":   roleRecordDecision,
 	"sign-in":           roleSignIn,
+	"deliver":           roleDeliver,
+	"answer":            roleAnswer,
 	"add-category":      roleAddCategory,
 	"ask":               roleAsk,
 	"take":              roleTake,
@@ -151,6 +153,16 @@ func (c *child) orchestrator() ledger.Actor {
 
 func roleSignIn(c *child) error {
 	_, err := c.ops.SignIn(c.ctx, c.scope, ports.Proof{}, 0)
+	return err
+}
+
+func roleDeliver(c *child) error {
+	_, err := c.ops.DeliverBatches(c.ctx, c.scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "batch-tick"})
+	return err
+}
+
+func roleAnswer(c *child) error {
+	_, err := c.ops.Answer(c.ctx, c.scope, c.spec.Key, questions.Answer{DecisionID: c.spec.ClaimID, Statement: "The retry budget is two calls."}, c.member())
 	return err
 }
 

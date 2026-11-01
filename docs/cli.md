@@ -26,6 +26,8 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift question show <id>` | Shows one question |
 | `ropeshift question record --text T [--category C]... [--subject ID] [--subject-kind K] [--blocking]` | Records a question as it is, in `open`. Categories come from `category list` |
 | `ropeshift question dismiss <id>` | Closes a question with no answer. It stays on record |
+| `ropeshift question answer <id> --answer A [--rationale R] [--citation C]... [--id I]` | Answers a question that still waits, which records a decision. It works with no orchestrator running, needs no ladder trace, and ends any hold. A question is answered once, and a second answer exits 4 |
+| `ropeshift question batches [--category C]` | Shows the batches that reached members and still wait, each question with its options, recommendation, and citations. Nothing is assigned to anyone |
 | `ropeshift decision list [--category C] [--status S] [--scope S] [--text T]` | Finds decisions, and an overturned decision stays findable |
 | `ropeshift decision show <id>` | Shows one decision |
 | `ropeshift decision record --statement S [--rationale R] [--scope S] [--category C]... [--citation C]... [--reversibility R] [--question Q] [--assumed]` | Records a decision, or with `--assumed` a reversible assumption |

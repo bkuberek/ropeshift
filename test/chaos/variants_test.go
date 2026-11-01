@@ -435,6 +435,75 @@ func (s splitSignIn) SignIn(ctx context.Context, scope ledger.WorkspaceID, _ por
 	})
 }
 
+// splitAnswer closes a question in one transaction and records its decision in another,
+// so a kill between them leaves an answer nobody can read.
+type splitAnswer struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitAnswer) Answer(ctx context.Context, scope ledger.WorkspaceID, id string, answer questions.Answer, actor ledger.Actor) (questions.Decision, error) {
+	err := s.store.Write(ctx, scope, "question.answer", func(tx ports.WriteTx) error {
+		record, err := tx.Questions().Question(id)
+		if err != nil {
+			return err
+		}
+		record.Status, record.DecisionID = questions.StatusAnswered, answer.DecisionID
+		if err := tx.Questions().Save(record); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventQuestionChanged, questions.SubjectQuestion, id, record, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	crashpoint.Hit("question.answer", "split")
+	return s.Ops.RecordDecision(ctx, scope, questions.Decision{
+		ID: answer.DecisionID, Status: questions.DecisionDecided, Statement: answer.Statement, QuestionID: id,
+	}, actor)
+}
+
+// splitDelivery closes a batch in one transaction and writes its interruption in another,
+// so a kill between them loses the one record that counts it.
+type splitDelivery struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitDelivery) DeliverBatches(ctx context.Context, scope ledger.WorkspaceID, _ ledger.Actor) ([]string, error) {
+	var due []string
+	err := s.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		due, err = tx.Questions().DueBatches(now)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range due {
+		err := s.store.Write(ctx, scope, "question.deliver", func(tx ports.WriteTx) error {
+			if _, err := tx.Questions().CloseBatch(id, questions.BatchDelivered, tx.Now()); err != nil {
+				return err
+			}
+			_, err := tx.Append(noteEvent(ledger.Actor{Kind: ledger.ActorSystem, ID: "batch-tick"}))
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		crashpoint.Hit("question.deliver", "split")
+	}
+	return due, nil
+}
+
 // openGate escalates with no gate, which is the one way past a member's attention.
 type openGate struct {
 	contract.Ops
@@ -903,6 +972,37 @@ func allVariants() []variant {
 			},
 			check: "crash",
 			crash: func() (crashCase, string) { return askCase("question.ask", nil), "split" },
+		},
+		{
+			name:     "a batch delivered before its window closes",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question_batch.due", "\n   AND closes_at <= :now", "")},
+			check:    "B1",
+		},
+		{
+			name:     "a blocking question waits out the window",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question_batch.hasten", "AND closes_at > :closes_at", "AND 1 = 0")},
+			check:    "B2",
+		},
+		{
+			name:     "a delivery with no compare-and-set",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question_batch.close", "\n   AND status = 'open'", "")},
+			check:    "B5",
+		},
+		{
+			name: "an answer and its decision in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitAnswer{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return answerCase(), "split" },
+		},
+		{
+			name: "a delivery and its interruption in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitDelivery{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return deliverCase(), "split" },
 		},
 		{
 			name: "a sign-in and its record in two transactions",

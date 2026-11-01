@@ -29,7 +29,7 @@ func (q *Questions) Ask(ctx context.Context, scope ledger.WorkspaceID, ask quest
 	var result questions.AskResult
 	err = q.store.Write(ctx, scope, "question.ask", func(tx ports.WriteTx) error {
 		var err error
-		result, err = askIn(tx, draft, ask, actor)
+		result, err = q.askIn(tx, draft, ask, actor)
 		return err
 	})
 	if err != nil {
@@ -38,7 +38,7 @@ func (q *Questions) Ask(ctx context.Context, scope ledger.WorkspaceID, ask quest
 	return result, nil
 }
 
-func askIn(tx ports.WriteTx, draft questions.Question, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error) {
+func (q *Questions) askIn(tx ports.WriteTx, draft questions.Question, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error) {
 	same, err := tx.Questions().ByHash(draft.NormalizedHash)
 	if err != nil {
 		return questions.AskResult{}, err
@@ -59,7 +59,7 @@ func askIn(tx ports.WriteTx, draft questions.Question, ask questions.Ask, actor 
 		}
 	}
 	if open != nil {
-		return joinAsk(tx, *open, ask, actor)
+		return q.joinAsk(tx, *open, ask, actor)
 	}
 	if err := checkCategories(tx.Questions(), draft.Categories); err != nil {
 		return questions.AskResult{}, err
@@ -96,7 +96,7 @@ func answerOf(tx ports.WriteTx, question questions.Question) (questions.AskResul
 
 // joinAsk adds a lane to an open question. A retry of the first ask finds what it wrote and
 // reads the same, and a blocking lane makes the question block.
-func joinAsk(tx ports.WriteTx, open questions.Question, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error) {
+func (q *Questions) joinAsk(tx ports.WriteTx, open questions.Question, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error) {
 	if err := attachLane(tx, open.ID, ask, actor); err != nil {
 		return questions.AskResult{}, err
 	}
@@ -106,6 +106,9 @@ func joinAsk(tx ports.WriteTx, open questions.Question, ask questions.Ask, actor
 			return questions.AskResult{}, err
 		}
 		if err := holdBack(tx, open, actor); err != nil {
+			return questions.AskResult{}, err
+		}
+		if err := q.hastenFor(tx, open, actor); err != nil {
 			return questions.AskResult{}, err
 		}
 	}
@@ -274,6 +277,9 @@ func (q *Questions) Escalate(ctx context.Context, scope ledger.WorkspaceID, id s
 		}
 		crashpoint.Hit("question.escalate", "passed")
 		record.Status, record.Rung, record.ClaimedBy, record.ClaimUntil = questions.StatusNeedsHuman, questions.RungEscalate, "", 0
+		if err := q.gather(tx, &record, actor); err != nil {
+			return err
+		}
 		return saveQuestion(tx, record, actor)
 	})
 	if err != nil {
@@ -345,6 +351,9 @@ func (q *Questions) Merge(ctx context.Context, scope ledger.WorkspaceID, id, int
 		if err := saveQuestion(tx, target, actor); err != nil {
 			return err
 		}
-		return holdBack(tx, target, actor)
+		if err := holdBack(tx, target, actor); err != nil {
+			return err
+		}
+		return q.hastenFor(tx, target, actor)
 	})
 }

@@ -39,6 +39,8 @@ type Config struct {
 	Matcher ports.Matcher
 	// Identity authenticates humans.
 	Identity ports.IdentityProvider
+	// Batches says how long questions gather for a person.
+	Batches questions.BatchPolicy
 }
 
 type handler struct {
@@ -59,11 +61,11 @@ func New(config Config) http.Handler {
 		workOrders: control.NewWorkOrders(config.Store),
 		leases:     control.NewLeases(config.Store),
 		reviews:    control.NewReviews(config.Store),
-		questions:  control.NewQuestions(config.Store),
+		questions:  control.NewQuestions(config.Store, config.Batches),
 		fleet:      control.NewFleet(config.Store),
 		sessions:   control.NewSessions(config.Store, config.Identity),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
-			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL,
+			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches,
 		}),
 	}
 	mux := http.NewServeMux()
@@ -136,6 +138,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
 	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
+	case errors.Is(err, questions.ErrResolved):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})
 	case errors.Is(err, workorders.ErrForbidden):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: err.Error()})
 	case errors.Is(err, workorders.ErrLost):

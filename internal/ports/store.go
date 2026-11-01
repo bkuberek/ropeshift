@@ -335,6 +335,20 @@ type QuestionReader interface {
 	Decisions(filter RecordFilter) ([]questions.Decision, error)
 	// Categories returns the categories this workspace added.
 	Categories() ([]string, error)
+	// Batch returns one batch, or ErrNotFound.
+	Batch(id string) (questions.Batch, error)
+	// OpenBatch returns the batch that gathers now, or ErrNotFound.
+	OpenBatch() (questions.Batch, error)
+	// Batches returns every batch, oldest first.
+	Batches() ([]questions.Batch, error)
+	// DueBatches lists the batches whose window closed by a time. A tick reads this with no
+	// lock, so CloseBatch decides each one.
+	DueBatches(now int64) ([]string, error)
+	// WaitingBatches returns the delivered batches that hold a question a person has not
+	// answered, oldest first.
+	WaitingBatches() ([]questions.Batch, error)
+	// BatchQuestions returns the questions one batch holds.
+	BatchQuestions(id string) ([]questions.Question, error)
 }
 
 // QuestionWriter writes questions, decisions, and added categories.
@@ -353,6 +367,14 @@ type QuestionWriter interface {
 	InsertDecision(questions.Decision) error
 	// AddCategory adds a category and reports whether it was new.
 	AddCategory(name string) (bool, error)
+	// InsertBatch adds a batch that gathers.
+	InsertBatch(questions.Batch) error
+	// HastenBatch moves an open batch's close to an earlier time, and reports whether it
+	// moved.
+	HastenBatch(id string, closesAt int64) (bool, error)
+	// CloseBatch is the compare-and-set that ends an open batch, so a batch reaches its end
+	// once. It reports whether the row matched.
+	CloseBatch(id string, status questions.BatchStatus, deliveredAt int64) (bool, error)
 }
 
 // MemberReader reads who can sign in and who has.

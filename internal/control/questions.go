@@ -16,13 +16,15 @@ import (
 // Questions holds the use cases of questions and decisions. The core stores, searches, and
 // validates, and an agent judges (ADR-0007).
 type Questions struct {
-	store  ports.Store
-	policy questions.Policy
+	store   ports.Store
+	policy  questions.Policy
+	batches questions.BatchPolicy
 }
 
-// NewQuestions returns the use cases over a Store.
-func NewQuestions(store ports.Store) *Questions {
-	return &Questions{store: store, policy: questions.DefaultPolicy()}
+// NewQuestions returns the use cases over a Store, with how long questions gather for a
+// person.
+func NewQuestions(store ports.Store, batches questions.BatchPolicy) *Questions {
+	return &Questions{store: store, policy: questions.DefaultPolicy(), batches: batches.Filled()}
 }
 
 // RecordQuestion keeps a question as it is, in `open`. The client generates its ID, so a

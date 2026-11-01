@@ -15,6 +15,7 @@ const (
 	questionColumns = `id, text, normalized_hash, categories, status, rung, blocking, subject_kind, subject_id,
        batch_id, asked_by, options, recommendation, escalation_reason, ladder_trace,
        claimed_by, claim_until, decision_id`
+	batchColumns    = `b.id, b.status, b.opened_at, b.closes_at, b.delivered_at`
 	decisionColumns = `id, status, statement, rationale, citations, scope, reversibility, categories,
        decided_by, supersedes, question_id, policy_version`
 
@@ -133,6 +134,46 @@ ON CONFLICT (workspace_id, name) DO NOTHING`)
 
 	stmtListCategories = define("category.list",
 		`SELECT name FROM workspace_categories WHERE workspace_id = :workspace_id ORDER BY name`)
+
+	stmtInsertBatch = define("question_batch.insert",
+		`INSERT INTO question_batches (workspace_id, id, status, opened_at, closes_at)
+VALUES (:workspace_id, :id, :status, :opened_at, :closes_at)`)
+
+	stmtReadBatch = define("question_batch.read",
+		`SELECT `+batchColumns+` FROM question_batches b WHERE b.workspace_id = :workspace_id AND b.id = :id`)
+
+	stmtOpenBatch = define("question_batch.open",
+		`SELECT `+batchColumns+` FROM question_batches b WHERE b.workspace_id = :workspace_id AND b.status = 'open'`)
+
+	stmtListBatches = define("question_batch.list",
+		`SELECT `+batchColumns+` FROM question_batches b WHERE b.workspace_id = :workspace_id ORDER BY b.opened_at, b.id`)
+
+	stmtDueBatches = define("question_batch.due",
+		`SELECT id FROM question_batches
+ WHERE workspace_id = :workspace_id AND status = 'open'
+   AND closes_at <= :now
+ ORDER BY closes_at, id`)
+
+	stmtWaitingBatches = define("question_batch.waiting",
+		`SELECT `+batchColumns+`
+  FROM question_batches b
+ WHERE b.workspace_id = :workspace_id AND b.status = 'delivered'
+   AND EXISTS (SELECT 1 FROM questions q
+                WHERE q.workspace_id = b.workspace_id AND q.batch_id = b.id AND q.status = 'needs_human')
+ ORDER BY b.delivered_at, b.id
+ LIMIT :limit`)
+
+	stmtBatchQuestions = define("question_batch.questions",
+		`SELECT `+questionColumns+` FROM questions WHERE workspace_id = :workspace_id AND batch_id = :batch_id ORDER BY id`)
+
+	stmtHastenBatch = define("question_batch.hasten",
+		`UPDATE question_batches SET closes_at = :closes_at
+ WHERE workspace_id = :workspace_id AND id = :id AND status = 'open' AND closes_at > :closes_at`)
+
+	stmtCloseBatch = define("question_batch.close",
+		`UPDATE question_batches SET status = :status, delivered_at = :delivered_at
+ WHERE workspace_id = :workspace_id AND id = :id
+   AND status = 'open'`)
 )
 
 // questionTx is the question area of one transaction.
@@ -423,4 +464,97 @@ func (t questionTx) Categories() ([]string, error) {
 		out = append(out, name)
 	}
 	return out, rows.Err()
+}
+
+func scanBatch(row scanner) (questions.Batch, error) {
+	var batch questions.Batch
+	var deliveredAt sql.NullInt64
+	if err := row.Scan(&batch.ID, &batch.Status, &batch.OpenedAt, &batch.ClosesAt, &deliveredAt); err != nil {
+		return questions.Batch{}, err
+	}
+	batch.DeliveredAt = deliveredAt.Int64
+	return batch, nil
+}
+
+func (t questionTx) oneBatch(st *statement, p params, what string) (questions.Batch, error) {
+	row, err := t.row(st, t.scoped(p))
+	if err != nil {
+		return questions.Batch{}, err
+	}
+	batch, err := scanBatch(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return questions.Batch{}, fmt.Errorf("%s: %w", what, ports.ErrNotFound)
+	}
+	return batch, err
+}
+
+func (t questionTx) Batch(id string) (questions.Batch, error) {
+	return t.oneBatch(stmtReadBatch, params{"id": id}, "batch "+id)
+}
+
+func (t questionTx) OpenBatch() (questions.Batch, error) {
+	return t.oneBatch(stmtOpenBatch, params{}, "open batch")
+}
+
+func (t questionTx) listBatches(st *statement, p params) ([]questions.Batch, error) {
+	rows, err := t.rows(st, t.scoped(p))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []questions.Batch
+	for rows.Next() {
+		batch, err := scanBatch(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch)
+	}
+	return out, rows.Err()
+}
+
+func (t questionTx) Batches() ([]questions.Batch, error) {
+	return t.listBatches(stmtListBatches, params{})
+}
+
+func (t questionTx) WaitingBatches() ([]questions.Batch, error) {
+	return t.listBatches(stmtWaitingBatches, params{"limit": ports.MaxRecords})
+}
+
+func (t questionTx) DueBatches(now int64) ([]string, error) {
+	rows, err := t.rows(stmtDueBatches, t.scoped(params{"now": now}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+func (t questionTx) BatchQuestions(id string) ([]questions.Question, error) {
+	return t.listQuestions(stmtBatchQuestions, params{"batch_id": id})
+}
+
+func (t questionTx) InsertBatch(batch questions.Batch) error {
+	_, err := t.exec(stmtInsertBatch, t.scoped(params{
+		"id": batch.ID, "status": string(batch.Status), "opened_at": batch.OpenedAt, "closes_at": batch.ClosesAt,
+	}))
+	return err
+}
+
+func (t questionTx) HastenBatch(id string, closesAt int64) (bool, error) {
+	n, err := t.exec(stmtHastenBatch, t.scoped(params{"id": id, "closes_at": closesAt}))
+	return n > 0, err
+}
+
+func (t questionTx) CloseBatch(id string, status questions.BatchStatus, deliveredAt int64) (bool, error) {
+	n, err := t.exec(stmtCloseBatch, t.scoped(params{"id": id, "status": string(status), "delivered_at": nullInt(deliveredAt)}))
+	return n > 0, err
 }

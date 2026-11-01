@@ -102,6 +102,38 @@ func (r *Rig) CheckSessions(s ports.Store) error {
 	})
 }
 
+// checkAnswersStand proves an answered question names a decision the ledger holds, so no
+// lane can be told a question has an answer nobody can read.
+func checkAnswersStand(tx ports.ReadTx, rows []questions.Question) error {
+	for _, row := range rows {
+		if row.Status != questions.StatusAnswered {
+			continue
+		}
+		if _, err := tx.Questions().Decision(row.DecisionID); err != nil {
+			return Violatedf("question %s is answered by %q: %v", row.ID, row.DecisionID, err)
+		}
+	}
+	return nil
+}
+
+// checkBatchesReplay compares the batch table with the log, which is what counts
+// interruptions, so a batch and its count cannot disagree.
+func checkBatchesReplay(tx ports.ReadTx, book questions.Book) error {
+	batches, err := tx.Questions().Batches()
+	if err != nil {
+		return err
+	}
+	if len(batches) != len(book.Batches) {
+		return Violatedf("%d batches, the log replays to %d", len(batches), len(book.Batches))
+	}
+	for _, batch := range batches {
+		if book.Batches[batch.ID] != batch {
+			return Violatedf("batch %+v disagrees with its log: %+v", batch, book.Batches[batch.ID])
+		}
+	}
+	return nil
+}
+
 // CheckQuestions compares question and decision tables with what the log replays to.
 func (r *Rig) CheckQuestions(s ports.Store) error {
 	book, err := r.questionBook(s)
@@ -122,6 +154,12 @@ func (r *Rig) CheckQuestions(s ports.Store) error {
 				want.NormalizedHash != row.NormalizedHash || want.DecisionID != row.DecisionID || want.Blocking != row.Blocking {
 				return Violatedf("question %s disagrees with its log: %+v and %+v", row.ID, row, want)
 			}
+		}
+		if err := checkAnswersStand(tx, rows); err != nil {
+			return err
+		}
+		if err := checkBatchesReplay(tx, book); err != nil {
+			return err
 		}
 		attachments, err := tx.Questions().Attachments("")
 		if err != nil {
