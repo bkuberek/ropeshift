@@ -22,10 +22,16 @@ const (
 	opLaneParked  = "lane.parked"
 	opWakeFire    = "wake.fire"
 	opWakeSignal  = "wake.signal"
+	opLaneEase    = "lane.ease"
 )
 
 // maxMerges bounds how far a question's answer is followed through merges.
 const maxMerges = 16
+
+// AffinityDelayMs is how long a preferred worker has a woken lane to itself, so a machine that
+// holds the session gets the cheaper path. The design names a delay and no value, and this is
+// long enough for a worker's beats to find it and short enough not to strand work.
+const AffinityDelayMs int64 = 5 * 60 * 1000
 
 // Wakes holds the use cases of durable parking. A wake fires only for a work order that is
 // `parked`, under two guards in one transaction, and every path that fires one takes the
@@ -301,6 +307,9 @@ func fire(tx ports.WriteTx, wake parking.Wake, expr parking.Expr, cause string, 
 		}
 		return outcome, fmt.Errorf("wake %s fired and %s did not move from %s", wake.ID, order.ID, order.State)
 	}
+	if err := tx.Lanes().Wakened(wake.Lane, tx.Now()+AffinityDelayMs); err != nil {
+		return outcome, err
+	}
 	event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerWakeFired), order.ID, workorders.Change{
 		Trigger: workorders.TriggerWakeFired, Lane: wake.Lane, Reason: cause, Payload: []byte(wake.ID),
 	}, actor)
@@ -486,7 +495,41 @@ func (w *Wakes) WakeTick(ctx context.Context, scope ledger.WorkspaceID, actor le
 			fired = append(fired, id)
 		}
 	}
-	return fired, nil
+	return fired, w.easeAffinities(ctx, scope, actor)
+}
+
+// easeAffinities ends the first claim of each preferred worker whose delay ran out. A delay
+// moves no revision by itself, so this is what lets any other worker hear of it. It reads with
+// no lock, and the guarded statement decides each lane.
+func (w *Wakes) easeAffinities(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) error {
+	var due []string
+	err := w.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		due, err = tx.Lanes().EasingDue(now)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, lane := range due {
+		err := w.store.Write(ctx, scope, opLaneEase, func(tx ports.WriteTx) error {
+			won, err := tx.Lanes().Ease(lane, tx.Now())
+			if err != nil || !won {
+				return err
+			}
+			_, err = tx.Append(ledger.EventDraft{
+				Type: ledger.EventLaneAffinityEased, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: lane},
+			})
+			return err
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Signal records a fact that has no record of its own and fires the wakes that wait on it, in
@@ -518,6 +561,40 @@ func (w *Wakes) ResumeLane(ctx context.Context, scope ledger.WorkspaceID, lane s
 		var err error
 		fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: lane}, actor)
 		return err
+	})
+	return fired, err
+}
+
+// ResumeWork is a member waking a work order's parked lane. It goes through the work order, as a
+// reset does, because no route writes a lane directly.
+func (w *Wakes) ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) ([]string, error) {
+	if !authority.Allowed(actor, authority.ActionResumeLane) {
+		return nil, workorders.ErrForbidden
+	}
+	var fired []string
+	err := w.store.Write(ctx, scope, opWakeSignal, func(tx ports.WriteTx) error {
+		order, err := tx.WorkOrders().Get(workOrder)
+		if err != nil {
+			return err
+		}
+		if order.State != workorders.Parked {
+			return fmt.Errorf("%w: work order %s is %s", workorders.ErrIllegalMove, workOrder, order.State)
+		}
+		open, err := tx.Wakes().Open()
+		if err != nil {
+			return err
+		}
+		for _, wake := range open {
+			row, err := tx.Lanes().Row(wake.Lane)
+			if err != nil {
+				return err
+			}
+			if row.WorkOrder == workOrder {
+				fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: wake.Lane}, actor)
+				return err
+			}
+		}
+		return fmt.Errorf("work order %s waits on no wake: %w", workOrder, ports.ErrNotFound)
 	})
 	return fired, err
 }

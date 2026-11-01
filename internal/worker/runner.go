@@ -112,6 +112,8 @@ type laneRun struct {
 	drainingSince time.Time
 	// waiting says a goroutine holds this lane for `ask_wait`.
 	waiting atomic.Bool
+	// fellBack says this generation meant to resume and started from its handoff.
+	fellBack bool
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -136,6 +138,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	}
 	run.left, run.parking = record.Handoff, record.Parking
 	run.instruction, run.blocking = record.Progress.Instruction, record.Blocking
+	run.state.keepContext(record.Progress.ContextTokens, record.Progress.BaselineTokens)
 	run.inheritedFrom(record.Handoff)
 	return run
 }
@@ -190,12 +193,13 @@ func (w *Worker) startRun(ctx context.Context, run *laneRun, body func(*laneRun,
 }
 
 // stopFenced stops the lane of a lease this worker lost. Its outcome is rejected, and
-// the rejection is kept in the journal.
-func (w *Worker) stopFenced(ctx context.Context, workOrder string) {
+// the rejection is kept in the journal. A lane that came back under a later claim on the same
+// work order lost nothing, so the fence has to match.
+func (w *Worker) stopFenced(ctx context.Context, lost ledger.FencedLease) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, run := range w.running {
-		if run.lease.WorkOrder == workOrder {
+		if run.lease.WorkOrder == lost.WorkOrder && run.lease.Fence == lost.Fence {
 			run.fenced.Store(true)
 			run.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
 			run.stop(ctx, ports.StopInterrupt)
@@ -318,6 +322,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
 	run.state = newLaneState(record.Actual, w.clock.Now())
+	run.state.keepContext(record.Progress.ContextTokens, record.Progress.BaselineTokens)
 	run.inheritedFrom(record.Handoff)
 	run.loadProfile(ctx)
 	_, err := w.journal.Effect(ctx, run.nudge().Key)
@@ -361,6 +366,9 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	}
 	r.resumeParking(ctx)
 	r.resumeHandoff(ctx)
+	if len(r.blockingQuestions()) != 0 && r.state.current() == lanes.Idle {
+		r.awaitAnswer(ctx)
+	}
 	return r.conclude(ctx, r.watch(ctx, events))
 }
 
@@ -405,7 +413,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Overrides: r.lease.Overrides,
+		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Overrides: r.lease.Overrides, Fetch: r.fetchNames(),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
 		Tags: map[string]string{
@@ -459,6 +467,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return failed(workorders.ReasonWorkerRestarted)
 	}
 	crashpoint.Hit("worker.lane", "spawned")
+	if r.woken() != nil {
+		crashpoint.Hit("worker.resume", "launched")
+	}
 	r.saveProgress(ctx, r.cursor)
 	r.signal(ctx, lanes.OnDriverReady)
 	events, err := r.rt.Driver.Events(ctx, r.sessionHandle())
@@ -471,14 +482,22 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 // launch starts a generation. A restart continues the session it replaces, and one that
 // has none, or a resume that never reached a ready state, starts from the brief.
 func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
+	if r.woken() != nil {
+		crashpoint.Hit("worker.resume", "launching")
+	}
 	if r.resumeFrom == "" {
 		return r.rt.Driver.Start(ctx, spec)
 	}
 	resumed := spec
-	resumed.Brief = lanes.Restarted
+	resumed.Brief = r.resumePrompt()
+	if r.woken() != nil {
+		r.setInstruction(resumed.Brief)
+	}
 	handle, err := r.rt.Driver.Resume(ctx, resumed, ports.ResumeRef{SessionID: r.resumeFrom, SessionTotalUSD: r.cost.SessionTotalUSD})
 	if errors.Is(err, ports.ErrResumeNotReady) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		r.fellBack = r.woken() != nil
+		r.setInstruction(spec.Brief)
 		return r.rt.Driver.Start(ctx, spec)
 	}
 	return handle, err
@@ -568,6 +587,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		case ports.EventTurnEnded:
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
 			r.finishTurn(event.Turn)
+			r.noteResponse(ctx, event.Turn)
 			r.afterTurn(ctx, event.Turn)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
@@ -589,6 +609,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(),
 	}
+	progress.ContextTokens, progress.BaselineTokens = r.state.contextRead()
 	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
 		r.w.config.Report(err)
 	}
@@ -606,7 +627,7 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	r.handleLock.Unlock()
 	payload, err := json.Marshal(workorders.GenerationBinding{
 		SessionID: event.SessionID, ModelRequested: r.model, ModelResolved: event.ModelResolved,
-		ProfileDigest: r.profileDigest, DriverVersion: r.version, DegradedMode: r.degraded,
+		ProfileDigest: r.profileDigest, DriverVersion: r.version, DegradedMode: r.degraded, FellBack: r.fellBack,
 	})
 	if err != nil {
 		r.w.config.Report(err)

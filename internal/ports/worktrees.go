@@ -57,6 +57,10 @@ type Worktrees interface {
 	Snapshot(ctx context.Context, path, ref string) (string, error)
 	// Push sends one ref to a remote under the same name, and never forces.
 	Push(ctx context.Context, path, remote, ref string) error
+	// Fetch brings refs a remote holds into a repository under the same names, so a lane can
+	// go on from work another machine pushed. A repository with no remote, and a ref the remote
+	// does not hold, are done: a worktree then starts from what this machine has.
+	Fetch(ctx context.Context, repository string, refs []string) error
 	// DefaultBranch names the branch a repository's work lands on. It reads an upstream's
 	// default first, and a repository with none has its current branch.
 	DefaultBranch(ctx context.Context, repository string) (string, error)

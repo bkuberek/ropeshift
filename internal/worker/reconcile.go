@@ -109,6 +109,7 @@ type observed struct {
 	records  map[string]lanes.Record
 	located  map[string]ports.Located
 	archives map[string]ledger.DesiredArchive
+	woken    map[string]ledger.DesiredWoken
 }
 
 func (w *Worker) held(lane string) bool {
@@ -147,7 +148,7 @@ func (w *Worker) sessionSpec(record lanes.Record) ports.SessionSpec {
 func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	seen := observed{
 		leases: map[string]ledger.DesiredLease{}, records: map[string]lanes.Record{}, located: map[string]ports.Located{},
-		archives: map[string]ledger.DesiredArchive{},
+		archives: map[string]ledger.DesiredArchive{}, woken: map[string]ledger.DesiredWoken{},
 	}
 	desired, err := w.desired(ctx)
 	if err != nil {
@@ -207,10 +208,20 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	}
 	for _, lease := range desired.Leases {
 		seen.leases[lease.Lane] = lease
-		_, recorded := seen.records[lease.Lane]
-		if lease.Lane != "" && lease.State == string(workorders.Claimed) && !recorded && !w.held(lease.Lane) {
+		record, recorded := seen.records[lease.Lane]
+		switch {
+		case lease.Lane == "" || lease.State != string(workorders.Claimed) || w.held(lease.Lane):
+		case lease.Resume != nil:
+			if !recorded || record.ClaimID != lease.ClaimID {
+				world.Resuming = append(world.Resuming, lease.Lane)
+			}
+		case !recorded:
 			world.Wanted = append(world.Wanted, lease.Lane)
 		}
+	}
+	for _, woken := range desired.Woken {
+		seen.woken[woken.Lane] = woken
+		world.Woken = append(world.Woken, woken.Lane)
 	}
 	for _, allocation := range allocations {
 		world.Allocations = append(world.Allocations, allocation.Lane)
@@ -305,6 +316,14 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 			return w.hold(ctx, lease, reason)
 		}
 		w.startRun(ctx, newRun(w, lease), (*laneRun).begin)
+	case lanes.ActionClaim:
+		return w.claimWoken(ctx, seen.woken[action.Lane])
+	case lanes.ActionResume:
+		lease := seen.leases[action.Lane]
+		if reason := w.admission(ctx, lease); reason != "" {
+			return w.hold(ctx, lease, reason)
+		}
+		w.startRun(ctx, w.wokenRun(lease, seen.records[action.Lane]), (*laneRun).resume)
 	case lanes.ActionConfirm:
 		return w.journal.FinishEffect(ctx, action.Effect, lanes.EffectCompleted, "found after a crash")
 	case lanes.ActionAbandon:

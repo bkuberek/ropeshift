@@ -23,6 +23,7 @@ type Worktrees struct {
 	refuse    bool
 	survey    error
 	pushed    []string
+	fetched   []string
 	snapshots map[string]string
 }
 
@@ -60,6 +61,21 @@ func (w *Worktrees) Commit(path string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.ahead[path]++
+}
+
+// Fetch keeps which refs a repository asked for.
+func (w *Worktrees) Fetch(_ context.Context, _ string, refs []string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.fetched = append(w.fetched, refs...)
+	return nil
+}
+
+// Fetched lists every ref a fetch asked for, in order.
+func (w *Worktrees) Fetched() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string{}, w.fetched...)
 }
 
 // Pushed lists every ref a push took, in order.

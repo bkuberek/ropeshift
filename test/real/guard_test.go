@@ -51,7 +51,7 @@ var laneTools = []string{"mcp__ropeshift__lane_report", "mcp__ropeshift__lane_wa
 // standInFixtures say what each suite's dry run plays.
 var standInFixtures = map[string]string{
 	"rs1": "rs2-stand-in", "rs2": "rs2-stand-in", "rs3": "rs3-stand-in", "rs4": "rs4-stand-in", "rs5": "rs5-stand-in",
-	"rs6": "rs6-stand-in",
+	"rs6": "rs6-stand-in", "rs7": "rs7-stand-in",
 }
 
 // allowedEnvironment is everything a session or the daemon takes from this process, so
@@ -85,6 +85,8 @@ type spendLedger struct {
 	mu       sync.Mutex
 	sessions map[string]bool
 	turns    int
+	// turnCeiling replaces maxTurns for a suite that needs more and has the room for it.
+	turnCeiling int
 }
 
 func newSpendLedger() *spendLedger { return &spendLedger{sessions: map[string]bool{}} }
@@ -95,8 +97,12 @@ func (l *spendLedger) charge(session string, turns int) error {
 	if !l.sessions[session] && len(l.sessions) >= maxSessions {
 		return fmt.Errorf("the session ceiling of %d is reached", maxSessions)
 	}
-	if l.turns+turns > maxTurns {
-		return fmt.Errorf("the turn ceiling of %d is reached", maxTurns)
+	ceiling := maxTurns
+	if l.turnCeiling != 0 {
+		ceiling = l.turnCeiling
+	}
+	if l.turns+turns > ceiling {
+		return fmt.Errorf("the turn ceiling of %d is reached", ceiling)
 	}
 	l.sessions[session] = true
 	l.turns += turns
@@ -319,6 +325,29 @@ func removeEmptyProject(home, scratch, dir string) error {
 		}
 	}
 	return nil
+}
+
+// sessionName is the form a session's ID takes, so a name can never reach out of a directory.
+var sessionName = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// removeTranscript takes away what a resumable session leaves in a scratch project: its
+// transcript and its own directory. It removes only the named session of a project that encodes
+// this suite's scratch path, so anything else stays for the leftovers check.
+func removeTranscript(home, scratch, dir, session string) error {
+	if !filepath.IsAbs(scratch) || (dir != scratch && !strings.HasPrefix(dir, scratch+string(filepath.Separator))) {
+		return fmt.Errorf("refused: %s is outside this suite's scratch path", dir)
+	}
+	if !sessionName.MatchString(session) {
+		return fmt.Errorf("refused: %q does not name a session", session)
+	}
+	project := projectDirectory(home, dir)
+	if !strings.HasPrefix(filepath.Base(project), projectName(scratch)) {
+		return fmt.Errorf("refused: %s does not name this suite's scratch path", filepath.Base(project))
+	}
+	if err := os.Remove(filepath.Join(project, session+".jsonl")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(project, session))
 }
 
 // claudeOn finds the CLI on an environment's PATH, because a session runs from that
@@ -580,6 +609,62 @@ func TestLeftoverProjectRemoval(t *testing.T) {
 			t.Error(err)
 		}
 	})
+}
+
+func TestLeftoverTranscriptRemoval(t *testing.T) {
+	const scratch = "/tmp/rs7-scratch"
+	const session = "00000000-0000-4000-8000-000000000000"
+	inside := filepath.Join(scratch, "repository")
+	setup := func(t *testing.T, dir string) (string, string) {
+		home := t.TempDir()
+		project := projectDirectory(home, dir)
+		if err := os.MkdirAll(filepath.Join(project, session, "subagents"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{session + ".jsonl", "another.jsonl"} {
+			if err := os.WriteFile(filepath.Join(project, name), []byte("kept"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return home, project
+	}
+	t.Run("the named session goes and nothing else", func(t *testing.T) {
+		home, project := setup(t, inside)
+		if err := removeTranscript(home, scratch, inside, session); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(project, session+".jsonl")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the transcript remains: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(project, session)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("its directory remains: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(project, "another.jsonl")); err != nil {
+			t.Errorf("another session went: %v", err)
+		}
+	})
+	refusals := []struct {
+		name    string
+		dir     string
+		session string
+	}{
+		{"a directory outside the scratch path", "/tmp/other/repository", session},
+		{"a sibling sharing the prefix", "/tmp/rs7-scratch-other", session},
+		{"a name that climbs out", inside, "../../settings"},
+		{"an empty name", inside, ""},
+		{"a name of no session", inside, "another"},
+	}
+	for _, tt := range refusals {
+		t.Run(tt.name, func(t *testing.T) {
+			home, project := setup(t, tt.dir)
+			if err := removeTranscript(home, scratch, tt.dir, tt.session); err == nil {
+				t.Error("it was not refused")
+			}
+			if _, err := os.Stat(filepath.Join(project, session+".jsonl")); err != nil {
+				t.Errorf("a refused call touched the project: %v", err)
+			}
+		})
+	}
 }
 
 // A recorded ID outlives its process, so only a listing that still names it may be signaled.

@@ -18,6 +18,8 @@ type BriefSpec struct {
 	Criteria  []string
 	// Handoff is what the last generation left, for a generation that follows one.
 	Handoff *Handoff
+	// Pending is what a stopped generation was doing, because a stopped turn is not continued.
+	Pending string
 }
 
 // Brief is a lane's first prompt until context packs replace it: the contract, and
@@ -36,6 +38,9 @@ func Brief(spec BriefSpec) string {
 	}
 	if spec.Handoff != nil {
 		writeHandoff(&out, *spec.Handoff)
+	}
+	if spec.Pending != "" {
+		out.WriteString("\n" + pendingNotice + "\n\n" + spec.Pending + "\n")
 	}
 	out.WriteString("\nWhen the work is done, or cannot go on, call the " + ToolLaneReport +
 		" tool once with its outcome, then end your turn.\n")

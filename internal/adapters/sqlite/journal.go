@@ -458,6 +458,43 @@ func (j *Journal) CommitParked(ctx context.Context, lane string, parking lanes.P
 	return stored, tx.Commit()
 }
 
+// BeginResume brings a parked lane back under a new claim as its next generation, and stores
+// that event, together. A worker that never ran the lane has no row, so this makes one.
+func (j *Journal) BeginResume(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	progress, err := json.Marshal(lane.Progress)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	handoff, err := handoffColumn(lane.Handoff)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	parking, err := json.Marshal(lane.Parking)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `INSERT INTO lanes
+  (id, work_order, claim, fence, generation, state, worktree, branch, resume_session, progress, handoff, parking)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6, token_digest = NULL,
+  session_id = '', resume_session = ?9, progress = ?10, handoff = ?11, parking = ?12, blocking = NULL`,
+		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State, lane.Worktree, lane.Branch,
+		lane.ResumeSession, progress, handoff, parking)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	stored, err := insertEvent(ctx, tx, event)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return stored, tx.Commit()
+}
+
 // SaveBlocking replaces the questions a lane cannot go on without.
 func (j *Journal) SaveBlocking(ctx context.Context, lane string, questions []string) error {
 	raw, err := json.Marshal(questions)

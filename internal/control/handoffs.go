@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -34,6 +35,35 @@ func bindGeneration(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 		return err
 	}
 	if err := tx.Lanes().BindSession(e.Lane, e.Generation, binding.SessionID); err != nil {
+		return err
+	}
+	if binding.FellBack {
+		if err := fellBack(tx, e); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Append(draft)
+	return err
+}
+
+// fellBack corrects a generation that began as a resume and started from its handoff, because a
+// start reason is a fact an experience record reads.
+func fellBack(tx ports.WriteTx, e ledger.UploadEvent) error {
+	left, err := tx.Lanes().Handoff(e.Lane, e.Generation-1)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	return tx.Lanes().FellBack(e.Lane, e.Generation, left.ArtifactID)
+}
+
+// respondGeneration stamps a generation's last model response with database time, when this
+// report arrives. It can run late by the time the report took, and never early.
+func respondGeneration(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	draft, err := uploadedDraft(tx, worker, id, e)
+	if err != nil {
+		return err
+	}
+	if err := tx.Lanes().Responded(e.Lane, e.Generation); err != nil {
 		return err
 	}
 	_, err = tx.Append(draft)

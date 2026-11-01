@@ -95,7 +95,10 @@ func (d *parkDriver) Stop(ctx context.Context, h ports.SessionHandle, how ports.
 }
 
 // parks is a session at work when its worker parks it, and one that writes its narrative.
-func (d *parkDriver) parks() fake.DriverScript {
+func (d *parkDriver) parks() fake.DriverScript { return d.parksCarrying(true) }
+
+// parksCarrying says whether that narrative holds what the next step needs.
+func (d *parkDriver) parksCarrying(carries bool) fake.DriverScript {
 	turn := fake.DriverStep{Turn: &fake.DriverTurn{Status: ports.TurnCompleted, TotalUSD: 0.01}}
 	park := fake.DriverStep{Do: func(spec ports.SessionSpec) {
 		request := lanes.ParkRequest{Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake([]string{d.question})}
@@ -109,7 +112,7 @@ func (d *parkDriver) parks() fake.DriverScript {
 	answer := fake.DriverStep{Do: func(spec ports.SessionSpec) {
 		line, err := json.Marshal(lanes.Request{
 			Version: lanes.SocketProtocol, Token: tokenOf(spec),
-			Handoff: json.RawMessage(`{"next_steps":["go on"],"carries_next_step":true}`),
+			Handoff: json.RawMessage(fmt.Sprintf(`{"next_steps":["go on"],"carries_next_step":%v}`, carries)),
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "session:", err)

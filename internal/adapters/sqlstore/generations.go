@@ -26,8 +26,17 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 		`UPDATE generations SET handoff_out = :handoff_out
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
+	stmtResponded = define("generation.responded",
+		`UPDATE generations SET last_response_at = :now
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
+
+	stmtFellBack = define("generation.fell_back",
+		`UPDATE generations SET start_reason = :start_reason, handoff_in = :handoff_in
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
+
 	stmtListGenerations = define("generation.list",
-		`SELECT lane_id, generation, start_reason, end_reason, session_id, handoff_in, handoff_out, started_at, ended_at
+		`SELECT lane_id, generation, start_reason, end_reason, session_id, handoff_in, handoff_out, started_at, ended_at,
+       last_response_at
   FROM generations
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id
  ORDER BY generation`)
@@ -100,11 +109,11 @@ func (t laneTx) Generations(lane string) ([]ledger.Generation, error) {
 	for rows.Next() {
 		var g ledger.Generation
 		var reason string
-		var ended sql.NullInt64
-		if err := rows.Scan(&g.Lane, &g.Number, &reason, &g.EndReason, &g.SessionID, &g.HandoffIn, &g.HandoffOut, &g.StartedAt, &ended); err != nil {
+		var ended, responded sql.NullInt64
+		if err := rows.Scan(&g.Lane, &g.Number, &reason, &g.EndReason, &g.SessionID, &g.HandoffIn, &g.HandoffOut, &g.StartedAt, &ended, &responded); err != nil {
 			return nil, err
 		}
-		g.StartReason, g.EndedAt = ledger.StartReason(reason), ended.Int64
+		g.StartReason, g.EndedAt, g.LastResponseAt = ledger.StartReason(reason), ended.Int64, responded.Int64
 		out = append(out, g)
 	}
 	return out, rows.Err()
@@ -144,6 +153,24 @@ func (t laneTx) Handoff(lane string, generation int64) (ledger.HandoffRecord, er
 	}
 	out.Degraded, out.Body = degraded != 0, []byte(body)
 	return out, err
+}
+
+func (t laneTx) Responded(lane string, number int64) error {
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	p := t.generationParams(lane, number)
+	p["now"] = now
+	_, err = t.exec(stmtResponded, p)
+	return err
+}
+
+func (t laneTx) FellBack(lane string, number int64, handoffIn string) error {
+	p := t.generationParams(lane, number)
+	p["start_reason"], p["handoff_in"] = string(ledger.StartHandoff), handoffIn
+	_, err := t.exec(stmtFellBack, p)
+	return err
 }
 
 func (t laneTx) SaveCheckpoint(checkpoint ledger.Checkpoint) error {

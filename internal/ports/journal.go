@@ -102,6 +102,10 @@ type Journal interface {
 	// CommitParked marks a lane parked, ends its token, and stores the commit's event, together.
 	// A worker with no connection commits here and uploads on return.
 	CommitParked(ctx context.Context, lane string, parking lanes.ParkProgress, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// BeginResume brings a parked lane back under a new claim as its next generation, and stores
+	// that event, together, so a crash leaves the lane parked or resumed. It creates the record
+	// of a lane this worker never ran.
+	BeginResume(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error)
 	// SaveBlocking replaces the questions a lane cannot go on without.
 	SaveBlocking(ctx context.Context, lane string, questions []string) error
 	// ChargeRestart keeps one charge and reports whether this was the first of its key.

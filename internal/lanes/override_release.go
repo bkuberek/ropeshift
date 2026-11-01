@@ -2,6 +2,8 @@
 
 package lanes
 
+import "time"
+
 // ReadsVendorStatus is true in a normal build. A real-session build reads no status.
 const ReadsVendorStatus = true
 
@@ -21,3 +23,6 @@ func (SessionOverride) Env() []string { return nil }
 
 // StreamLog keeps nothing in a normal build.
 func (SessionOverride) StreamLog() string { return "" }
+
+// CacheLifetime is what a driver documents, in a normal build.
+func (SessionOverride) CacheLifetime(documented time.Duration) time.Duration { return documented }

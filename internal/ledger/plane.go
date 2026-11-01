@@ -168,6 +168,42 @@ type DesiredLease struct {
 	Resets int64 `json:"resets,omitempty"`
 	// Overrides is this lane's own profile layer, as TOML.
 	Overrides string `json:"overrides,omitempty"`
+	// Resume says this claim brings a parked lane back, and what from.
+	Resume *DesiredResume `json:"resume,omitempty"`
+}
+
+// DesiredResume is what the ledger holds of the generation that parked, which is all a worker
+// that never ran the lane has. Durations cross the wire, because the worker's clock decides
+// nothing about the ledger's time.
+type DesiredResume struct {
+	// Generation is the one that parked.
+	Generation int64 `json:"generation"`
+	// SessionID is what the vendor called its session.
+	SessionID string `json:"session_id,omitempty"`
+	// Worker holds that session.
+	Worker string `json:"worker,omitempty"`
+	// Handoff is the document it left, and Degraded says it has no narrative.
+	Handoff  []byte `json:"handoff,omitempty"`
+	Degraded bool   `json:"degraded,omitempty"`
+	// Pending is what it was doing when it stopped.
+	Pending string `json:"pending,omitempty"`
+	// Refs are what a worker with no copy of the work must fetch.
+	Branch      string `json:"branch,omitempty"`
+	SnapshotRef string `json:"snapshot_ref,omitempty"`
+	// Responded says a model response is on record, and SinceResponseMs how long ago that was
+	// when this was read.
+	Responded       bool  `json:"responded,omitempty"`
+	SinceResponseMs int64 `json:"since_response_ms,omitempty"`
+}
+
+// DesiredWoken is a woken lane this worker may claim.
+type DesiredWoken struct {
+	WorkOrder  string `json:"work_order"`
+	Lane       string `json:"lane"`
+	Repository string `json:"repository,omitempty"`
+	// Fence is the work order's now, so one claim ID answers for one offer, and a claim given
+	// back leaves the next one free to be made.
+	Fence int64 `json:"fence"`
 }
 
 // DesiredArchive is a lane whose worktree should go.
@@ -186,6 +222,9 @@ type DesiredState struct {
 	Unchanged bool             `json:"unchanged,omitempty"`
 	Leases    []DesiredLease   `json:"leases"`
 	Archives  []DesiredArchive `json:"archives,omitempty"`
+	// Woken lists the woken lanes offered to this worker, which claims them, because a wake
+	// must bring a lane back with nobody there to dispatch it.
+	Woken []DesiredWoken `json:"woken,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.
@@ -231,6 +270,11 @@ const (
 	UploadLaneParking = "lane_parking"
 	// UploadLaneParked commits `parked`, once its process is gone.
 	UploadLaneParked = "lane_parked"
+	// UploadLaneResumed starts a woken lane's next generation under the claim that took it.
+	UploadLaneResumed = "lane_resumed"
+	// UploadGenerationResponded says a generation's model answered, which the ledger stamps
+	// with its own time, for the resume table's cache clock.
+	UploadGenerationResponded = "generation_responded"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

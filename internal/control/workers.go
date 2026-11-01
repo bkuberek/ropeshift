@@ -331,13 +331,89 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			}
 			state.Leases = append(state.Leases, lease)
 		}
-		state.Archives, err = tx.Lanes().Archiving(request.Auth.WorkerID)
+		if state.Archives, err = tx.Lanes().Archiving(request.Auth.WorkerID); err != nil {
+			return err
+		}
+		state.Woken, err = wokenFor(tx, request.Auth.WorkerID)
 		return err
 	})
 	if err != nil {
 		return ledger.DesiredState{}, err
 	}
 	return state, nil
+}
+
+// wokenFor lists the woken work this worker may claim, the most urgent first.
+func wokenFor(tx ports.ReadTx, worker string) ([]ledger.DesiredWoken, error) {
+	rows, err := tx.WorkOrders().Woken()
+	if err != nil {
+		return nil, err
+	}
+	var out []ledger.DesiredWoken
+	for _, row := range rows {
+		offered, err := offers(tx, row, worker)
+		if err != nil {
+			return nil, err
+		}
+		if offered {
+			out = append(out, ledger.DesiredWoken{WorkOrder: row.ID, Lane: row.ResumeLaneID, Repository: row.RepositoryID, Fence: row.Fence})
+		}
+	}
+	return out, nil
+}
+
+// offers says a worker may claim this work: its manifest meets the needs, and affinity lets it.
+func offers(tx ports.ReadTx, row workorders.WorkOrder, worker string) (bool, error) {
+	record, err := tx.Workers().Find(worker)
+	if err != nil {
+		return false, err
+	}
+	if runs, _ := record.Manifest.Runs(row.Needs); !runs {
+		return false, nil
+	}
+	return admitsResume(tx.Lanes(), row, worker)
+}
+
+// desiredResume reads what a claim on woken work brings back. A generation that left no document
+// or no checkpoint leaves those out, and a worker reads that as a degraded handoff.
+func desiredResume(tx ports.ReadTx, lane string) (*ledger.DesiredResume, error) {
+	row, err := tx.Lanes().Row(lane)
+	if err != nil {
+		return nil, err
+	}
+	resume := &ledger.DesiredResume{Generation: row.Generation, Worker: row.Hold.Worker, Degraded: true}
+	left, err := tx.Lanes().Handoff(lane, row.Generation)
+	switch {
+	case err == nil:
+		resume.Handoff, resume.Degraded = left.Body, left.Degraded
+	case !errors.Is(err, ports.ErrNotFound):
+		return nil, err
+	}
+	checkpoint, err := tx.Lanes().Checkpoint(lane, row.Generation)
+	switch {
+	case err == nil:
+		resume.Pending, resume.Branch, resume.SnapshotRef = checkpoint.PendingInstruction, checkpoint.Branch, checkpoint.SnapshotRef
+	case !errors.Is(err, ports.ErrNotFound):
+		return nil, err
+	}
+	generations, err := tx.Lanes().Generations(lane)
+	if err != nil {
+		return nil, err
+	}
+	now, err := tx.Now()
+	if err != nil {
+		return nil, err
+	}
+	for _, generation := range generations {
+		if generation.Number != row.Generation {
+			continue
+		}
+		resume.SessionID = generation.SessionID
+		if generation.LastResponseAt != 0 {
+			resume.Responded, resume.SinceResponseMs = true, now-generation.LastResponseAt
+		}
+	}
+	return resume, nil
 }
 
 // desiredLease adds what a dispatched lane starts from.
@@ -361,6 +437,11 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, err
 	}
 	lease.Resets = resets
+	if row.ResumeLaneID != "" {
+		if lease.Resume, err = desiredResume(tx, row.ResumeLaneID); err != nil {
+			return lease, err
+		}
+	}
 	if row.ContractVersion == 0 {
 		return lease, nil
 	}
@@ -496,6 +577,10 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return parkingUpload(tx, worker, e, stamp)
 	case ledger.UploadLaneParked:
 		return parkedUpload(tx, worker, e, stamp)
+	case ledger.UploadLaneResumed:
+		return resumeUpload(tx, worker, e, stamp)
+	case ledger.UploadGenerationResponded:
+		return respondGeneration(tx, worker, id, e)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {
@@ -783,25 +868,38 @@ func (w *Workers) Rule(ctx context.Context, ruling questions.WorkerRuling) (ques
 	return w.questions.Rule(ctx, w.scope, ruling.Question, ruling.Ruling, actor)
 }
 
-// Offered lists the work a worker could claim now: ready work whose needs its manifest
-// meets (FR-WO-6).
+// Offered lists the work a worker could claim now: ready work whose needs its manifest meets
+// and whose affinity lets it (FR-WO-6). Woken work comes first, because finishing started work
+// comes first.
 func (w *Workers) Offered(ctx context.Context, worker string) ([]workorders.WorkOrder, error) {
 	offered := []workorders.WorkOrder{}
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
-		record, err := tx.Workers().Find(worker)
-		if err != nil {
-			return err
-		}
 		rows, err := tx.WorkOrders().List()
 		if err != nil {
 			return err
 		}
 		for _, row := range rows {
-			if runs, _ := record.Manifest.Runs(row.Needs); runs && row.State == workorders.Ready {
+			if row.State != workorders.Ready {
+				continue
+			}
+			admitted, err := offers(tx, row, worker)
+			if err != nil {
+				return err
+			}
+			if admitted {
 				offered = append(offered, row)
 			}
 		}
 		return nil
+	})
+	slices.SortStableFunc(offered, func(a, b workorders.WorkOrder) int {
+		switch {
+		case a.ResumeLaneID != "" && b.ResumeLaneID == "":
+			return -1
+		case a.ResumeLaneID == "" && b.ResumeLaneID != "":
+			return 1
+		}
+		return 0
 	})
 	return offered, err
 }

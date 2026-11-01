@@ -142,6 +142,8 @@ type WorkOrderReader interface {
 	List() ([]workorders.WorkOrder, error)
 	// HeldBy returns the work orders a worker holds a lease on.
 	HeldBy(worker string) ([]workorders.WorkOrder, error)
+	// Woken returns the work orders a wake made ready, each with a lane to resume.
+	Woken() ([]workorders.WorkOrder, error)
 	// ByContract returns the work orders of one contract.
 	ByContract(contract string) ([]workorders.WorkOrder, error)
 	// Expired lists the leases past their deadline at a time. A tick reads this
@@ -202,6 +204,8 @@ type ClaimReader interface {
 	// List returns every claim, by work order and then by fence. The fence orders
 	// grants, because two grants can share a millisecond.
 	List() ([]workorders.Claim, error)
+	// OfLane returns the last claim that ran a lane, or ErrNotFound.
+	OfLane(lane string) (workorders.Claim, error)
 }
 
 // ClaimWriter writes claims.
@@ -237,6 +241,9 @@ type LaneReader interface {
 	Handoff(lane string, generation int64) (ledger.HandoffRecord, error)
 	// Checkpoint returns what one parked generation left, or ErrNotFound.
 	Checkpoint(lane string, generation int64) (ledger.Checkpoint, error)
+	// EasingDue lists the lanes whose preferred worker's first claim has run out at a time. A
+	// tick reads this with no lock, so Ease decides each one.
+	EasingDue(now int64) ([]string, error)
 }
 
 // LaneWriter writes lanes.
@@ -257,6 +264,17 @@ type LaneWriter interface {
 	MarkParked(lane string, hold ledger.ResumeHold) error
 	// SaveCheckpoint keeps what a parked generation left.
 	SaveCheckpoint(checkpoint ledger.Checkpoint) error
+	// Wakened starts the delay a preferred worker has, from a wake.
+	Wakened(lane string, after int64) error
+	// Ease ends a preferred worker's first claim, once its delay ran out, and reports whether
+	// it matched.
+	Ease(lane string, now int64) (bool, error)
+	// Resume moves a lane to the fence of the claim that took it, and lets go of its hold.
+	Resume(lane string, fence int64) error
+	// Responded stamps a generation's last model response with database time.
+	Responded(lane string, number int64) error
+	// FellBack says a generation that meant to resume started from its handoff instead.
+	FellBack(lane string, number int64, handoffIn string) error
 	// Reset counts one human reset of a lane's breaker and returns the count.
 	Reset(lane string) (int64, error)
 	// Guarded keeps how a stop left a worktree. Work no remote holds withdraws a request

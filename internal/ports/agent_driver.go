@@ -56,6 +56,8 @@ type Capabilities struct {
 	// Degraded says the version is outside the qualification matrix, so the driver
 	// uses documented, version-independent surfaces only.
 	Degraded bool
+	// Resume is the driver's data for the resume table.
+	Resume lanes.ResumeCosts
 }
 
 // DoctorReport says what is present and usable. It uses vendor status commands and

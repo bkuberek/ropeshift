@@ -39,12 +39,16 @@ type ParkProgress struct {
 	Trigger ParkTrigger `json:"trigger"`
 	// SkipNarrative says the agent is not asked for its part.
 	SkipNarrative bool `json:"skip_narrative,omitempty"`
+	// Generation is the one that parked.
+	Generation int64 `json:"generation,omitempty"`
 	// Seq is the journal position of the parked commit, so a refusal can be matched to it.
 	Seq int64 `json:"seq,omitempty"`
-	// Pending is what the last generation was doing when it stopped.
+	// Pending is what that generation was doing when it stopped.
 	Pending string `json:"pending,omitempty"`
 	// Begun says the next generation exists, so nothing is left to finish.
 	Begun bool `json:"begun,omitempty"`
+	// Fetch names what a worker that never ran this lane must bring from a remote.
+	Fetch []string `json:"fetch,omitempty"`
 }
 
 // Open says a lane has parking left to finish.

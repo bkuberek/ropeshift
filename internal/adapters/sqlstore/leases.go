@@ -47,9 +47,11 @@ var (
    AND id = :id
    AND state = 'ready'`)
 
+	// stmtStartWorkOrder clears the lane to resume here and not at the claim, because a claim
+	// given back before its lane starts leaves that lane still to resume.
 	stmtStartWorkOrder = define("lease.start",
 		`UPDATE work_orders
-   SET state = 'running'
+   SET state = 'running', resume_lane_id = NULL
  WHERE workspace_id = :workspace_id
    AND id = :id
    AND fence = :fence
@@ -313,8 +315,15 @@ var (
  ORDER BY work_order_id, fence`)
 
 	stmtRecordClaim = define("claim.record",
-		`INSERT INTO claims (workspace_id, id, work_order_id, worker_id, fence, granted_at)
-VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at)`)
+		`INSERT INTO claims (workspace_id, id, work_order_id, worker_id, fence, granted_at, lane_id, lane_overrides)
+VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at, :lane, :overrides)`)
+
+	stmtClaimOfLane = define("claim.of_lane",
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides
+  FROM claims
+ WHERE workspace_id = :workspace_id AND lane_id = :lane
+ ORDER BY fence DESC
+ LIMIT 1`)
 
 	stmtEndClaim = define("claim.end",
 		`UPDATE claims SET ended_at = :now, end_reason = :reason
@@ -369,8 +378,21 @@ func (t claimTx) Record(c workorders.Claim) error {
 	_, err := t.exec(stmtRecordClaim, params{
 		"workspace_id": string(t.scope), "id": c.ID, "work_order_id": c.WorkOrder,
 		"worker_id": c.Worker, "fence": c.Fence, "granted_at": c.GrantedAt,
+		"lane": nullText(c.Lane), "overrides": c.Overrides,
 	})
 	return err
+}
+
+func (t claimTx) OfLane(lane string) (workorders.Claim, error) {
+	row, err := t.row(stmtClaimOfLane, params{"workspace_id": string(t.scope), "lane": lane})
+	if err != nil {
+		return workorders.Claim{}, err
+	}
+	claim, err := scanClaim(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return workorders.Claim{}, fmt.Errorf("claim of lane %s: %w", lane, ports.ErrNotFound)
+	}
+	return claim, err
 }
 
 func (t claimTx) Dispatch(id, lane, overrides string) error {
@@ -425,6 +447,25 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
 		`UPDATE lanes
    SET actual_state = 'parked', liveness = 'dead', reach_model = 'unknown', reach_ledger = 'unknown', reported_at = :now,
        resume_affinity = :affinity, resume_worker = :worker
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtLaneWakened = define("lane.wakened",
+		`UPDATE lanes SET resume_after = CAST(:after AS BIGINT) WHERE workspace_id = :workspace_id AND id = :id`)
+
+	// stmtLaneEase repeats its predicates, because a tick's list can be out of date by now.
+	stmtLaneEase = define("lane.ease",
+		`UPDATE lanes SET resume_affinity = ''
+ WHERE workspace_id = :workspace_id AND id = :id AND resume_affinity = 'preferred' AND resume_after <= :now`)
+
+	stmtLaneEasing = define("lane.easing",
+		`SELECT id FROM lanes
+ WHERE workspace_id = :workspace_id AND resume_affinity = 'preferred' AND resume_after <= :now
+ ORDER BY id`)
+
+	stmtLaneResume = define("lane.resume",
+		`UPDATE lanes
+   SET started_fence = :fence, resume_affinity = '', resume_after = NULL, actual_state = 'provisioning',
+       liveness = 'unknown', reported_at = :now
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtLaneGuarded = define("lane.guarded",
@@ -647,6 +688,42 @@ func (t laneTx) MarkParked(lane string, hold ledger.ResumeHold) error {
 	_, err = t.exec(stmtLaneParked, params{
 		"workspace_id": string(t.scope), "id": lane, "now": now, "affinity": hold.Affinity, "worker": hold.Worker,
 	})
+	return err
+}
+
+func (t laneTx) Wakened(lane string, after int64) error {
+	_, err := t.exec(stmtLaneWakened, params{"workspace_id": string(t.scope), "id": lane, "after": after})
+	return err
+}
+
+func (t laneTx) Ease(lane string, now int64) (bool, error) {
+	n, err := t.exec(stmtLaneEase, params{"workspace_id": string(t.scope), "id": lane, "now": now})
+	return n > 0, err
+}
+
+func (t laneTx) EasingDue(now int64) ([]string, error) {
+	rows, err := t.rows(stmtLaneEasing, params{"workspace_id": string(t.scope), "now": now})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+func (t laneTx) Resume(lane string, fence int64) error {
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtLaneResume, params{"workspace_id": string(t.scope), "id": lane, "fence": fence, "now": now})
 	return err
 }
 

@@ -17,6 +17,10 @@ const EventLaneStatus = "lane.status"
 // EventLaneReset records a member resetting a lane's breaker.
 const EventLaneReset = "lane.reset"
 
+// EventLaneAffinityEased records that a preferred worker's first claim on a woken lane ran out,
+// so any capable worker can take it. Its revision is how those workers hear of that.
+const EventLaneAffinityEased = "lane.affinity_eased"
+
 // The events of a lane's stop and removal.
 const (
 	// EventLaneGuarded records how a stop left a worktree. It is the one thing a fenced
@@ -112,6 +116,11 @@ const (
 type ResumeHold struct {
 	Affinity string
 	Worker   string
+}
+
+// Admits says a worker can take this lane. An empty hold is a preference a delay ran out on.
+func (h ResumeHold) Admits(worker string) bool {
+	return h.Affinity == "" || h.Worker == worker
 }
 
 // HoldOf reads a checkpoint for what binds a lane to its worker. Work no remote holds exists

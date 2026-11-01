@@ -485,6 +485,28 @@ func (c *invocation) laneReset(args []string) int {
 	return c.finish(err, reset, func() string { return "reset the lane of " + reset.WorkOrder + "\n" })
 }
 
+// laneResume gives a work order's parked lane a member's word.
+func (c *invocation) laneResume(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	resumed, err := client.ResumeLane(c.ctx, id)
+	return c.finish(err, resumed, func() string {
+		if len(resumed.Fired) == 0 {
+			return "the lane of " + resumed.WorkOrder + " has your word, and it woke nothing yet\n"
+		}
+		return "woke the lane of " + resumed.WorkOrder + "\n"
+	})
+}
+
 // laneArchive reads which work order a lane belongs to, because a request goes through it.
 func (c *invocation) laneArchive(args []string) int {
 	set := c.flags()

@@ -203,8 +203,17 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 		Injection: ports.InjectionBetweenTools, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
 		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
-		Version:     version, Degraded: !Qualified(version),
+		Version:     version, Degraded: !Qualified(version), Resume: resumeCosts,
 	}, nil
+}
+
+// resumeCosts is this driver's data for the resume table (D12). The documented cache lasts an
+// hour for a main conversation on a subscription and five minutes with an API key. A ratio is a
+// model's one-hour write price over its cache read price, taken from list prices, so on a
+// subscription it is a guide. A model with none skips the table's row.
+var resumeCosts = lanes.ResumeCosts{
+	Lifetimes: map[string]time.Duration{ports.SignInSubscription: time.Hour, ports.SignInAPIKey: 5 * time.Minute},
+	Ratios:    map[string]int64{"claude-haiku-5-5": 20, "claude-opus-5-5": 40, "claude-sonnet-5-5": 40},
 }
 
 // DriverName is what a work order's needs call this driver.

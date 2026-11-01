@@ -32,5 +32,8 @@ func forgetsWake() bool { return false }
 // splitsPark is false: a normal build keeps a parked commit and its upload together.
 func splitsPark() bool { return false }
 
+// splitsResume is false: a normal build keeps a resume and its upload together.
+func splitsResume() bool { return false }
+
 // instructionLabel is the one label, so a generation sends its instruction once.
 func instructionLabel() string { return handoffInput }

@@ -77,7 +77,9 @@ func TestM1WalkingSkeleton(t *testing.T) {
 			d.kill()
 			events := in.events(t, id)
 			want := append(slices.Clone(m1Steps), workorders.EventType(tt.last))
-			if got := eventTypes(events); !slices.Equal(got, want) {
+			// A lane reports each response for the resume table, as many as it takes turns.
+			got := slices.DeleteFunc(eventTypes(events), func(event string) bool { return event == workorders.EventGenerationResponded })
+			if !slices.Equal(got, want) {
 				t.Errorf("events\n got %v\nwant %v", got, want)
 			}
 			var ended workorders.Change

@@ -203,3 +203,27 @@ func (w Worktrees) Push(ctx context.Context, path, remote, ref string) error {
 	_, err := w.git(path).Output(ctx, pushArguments(remote, ref)...)
 	return err
 }
+
+// Fetch brings each ref the remote holds into this repository under its own name. A branch
+// checked out here is left alone, because git refuses that, and this worktree's branch is the
+// one a lane already holds.
+func (w Worktrees) Fetch(ctx context.Context, repository string, refs []string) error {
+	git := w.git(repository)
+	remote, err := remoteOf(ctx, git, "")
+	if err != nil || remote == "" {
+		return err
+	}
+	for _, ref := range refs {
+		listed, err := git.Text(ctx, "ls-remote", remote, ref)
+		if err != nil {
+			return err
+		}
+		if listed == "" {
+			continue
+		}
+		if _, err := git.Output(ctx, "fetch", "--quiet", "--no-tags", remote, ref+":"+ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -134,6 +134,8 @@ type Ops interface {
 	WakeTick(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 	Signal(ctx context.Context, scope ledger.WorkspaceID, signal parking.Signal, actor ledger.Actor) ([]string, error)
 	ResumeLane(ctx context.Context, scope ledger.WorkspaceID, lane string, actor ledger.Actor) ([]string, error)
+	ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) ([]string, error)
+	ContinueLane(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, reason ledger.StartReason, actor ledger.Actor) (int64, error)
 }
 
 type realOps struct {

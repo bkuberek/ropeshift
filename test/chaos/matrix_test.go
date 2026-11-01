@@ -174,7 +174,7 @@ func crashMatrix() []crashCase {
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
 		worktreeCase(),
-	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases(), parkCases())...)
+	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases(), parkCases(), resumeCases())...)
 }
 
 const longTTL = int64(60_000)
@@ -1329,6 +1329,7 @@ func TestEveryNamedStepIsInTheMatrix(t *testing.T) {
 	// These steps exist only in the broken variants that split the write they name.
 	rows["worker.handoff/split"] = true
 	rows["worker.park/split"] = true
+	rows["worker.resume/split"] = true
 	for _, step := range literal {
 		if !rows[step] {
 			t.Errorf("named step %s has no matrix row", step)

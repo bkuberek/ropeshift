@@ -32,6 +32,9 @@ type LaneRequest struct {
 	RunHook func(target string, perform func() error) error
 	// Overrides is this lane's own profile layer.
 	Overrides string
+	// Fetch names what a remote holds and this machine must bring before a worktree exists,
+	// for a lane another machine ran.
+	Fetch []string
 }
 
 // PreparedLane is everything a lane starts from, and nothing it inherited.
@@ -150,6 +153,11 @@ func withoutToken(environment []string) []string {
 
 func (p Provisioner) worktree(ctx context.Context, request LaneRequest, place lanes.Placement) (ports.Worktree, error) {
 	create := func() (ports.Worktree, error) {
+		if len(request.Fetch) != 0 {
+			if err := p.Worktrees.Fetch(ctx, request.Repository, request.Fetch); err != nil {
+				return ports.Worktree{}, err
+			}
+		}
 		return p.Worktrees.Create(ctx, ports.WorktreeSpec{
 			Repository: request.Repository, Path: place.Path, Branch: place.Branch, Base: request.Base,
 		})

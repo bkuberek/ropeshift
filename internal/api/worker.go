@@ -150,6 +150,20 @@ func (c *Client) ResetLane(ctx context.Context, workOrder string) (LaneReset, er
 	return out, err
 }
 
+// LaneResumed says what a member's word to a parked lane fired. A lane that waits on more than a
+// person fires nothing yet.
+type LaneResumed struct {
+	WorkOrder string   `json:"work_order"`
+	Fired     []string `json:"fired,omitempty"`
+}
+
+// ResumeLane gives a work order's parked lane a member's word.
+func (c *Client) ResumeLane(ctx context.Context, workOrder string) (LaneResumed, error) {
+	var out LaneResumed
+	err := c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-resume", nil, &out)
+	return out, err
+}
+
 // WatchEvent is the data of one server-sent event: a hint, which carries no state.
 type WatchEvent struct {
 	Rev int64 `json:"rev"`

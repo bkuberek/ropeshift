@@ -248,24 +248,28 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 // worker's clock never decides anything on the server.
 func (w *Worker) applyBeat(ctx context.Context, held []ledger.HeldLease, reply ledger.HeartbeatReply, sent time.Time) error {
 	w.mu.Lock()
-	for _, renewed := range reply.Leases {
-		w.deadlines[renewed.WorkOrder] = sent.Add(time.Duration(renewed.TTLMs) * time.Millisecond)
-	}
 	for _, fenced := range reply.Fenced {
 		delete(w.deadlines, fenced.WorkOrder)
+	}
+	for _, renewed := range reply.Leases {
+		w.deadlines[renewed.WorkOrder] = sent.Add(time.Duration(renewed.TTLMs) * time.Millisecond)
 	}
 	w.mu.Unlock()
 	if len(reply.Fenced) == 0 {
 		return nil
 	}
-	lost := map[string]bool{}
+	type lostLease struct {
+		workOrder string
+		fence     int64
+	}
+	lost := map[lostLease]bool{}
 	for _, fenced := range reply.Fenced {
-		lost[fenced.WorkOrder] = true
-		w.stopFenced(ctx, fenced.WorkOrder)
+		lost[lostLease{fenced.WorkOrder, fenced.Fence}] = true
+		w.stopFenced(ctx, fenced)
 	}
 	kept := make([]ledger.HeldLease, 0, len(held))
 	for _, lease := range held {
-		if !lost[lease.WorkOrder] {
+		if !lost[lostLease{lease.WorkOrder, lease.Fence}] {
 			kept = append(kept, lease)
 		}
 	}

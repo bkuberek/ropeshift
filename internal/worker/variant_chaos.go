@@ -36,6 +36,8 @@ const (
 	SabotageForgetsWake = "forgets-wake"
 	// SabotageSplitsPark keeps a parked commit and its upload in two journal writes.
 	SabotageSplitsPark = "splits-park"
+	// SabotageSplitsResume keeps a resume and its upload in two journal writes.
+	SabotageSplitsResume = "splits-resume"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -57,6 +59,8 @@ func parksFirst() bool { return sabotaged(SabotageParksFirst) }
 func forgetsWake() bool { return sabotaged(SabotageForgetsWake) }
 
 func splitsPark() bool { return sabotaged(SabotageSplitsPark) }
+
+func splitsResume() bool { return sabotaged(SabotageSplitsResume) }
 
 func instructionLabel() string {
 	if !sabotaged(SabotageResendsHandoff) {

@@ -69,6 +69,8 @@ var childRoles = map[string]func(*child) error{
 	"worker-stop":       roleWorkerStop,
 	"worker-handoff":    roleWorkerHandoff,
 	"worker-park":       roleWorkerPark,
+	"worker-resume":     roleWorkerResume,
+	"continue-lane":     roleContinueLane,
 	"begin-parking":     roleBeginParking,
 	"commit-parked":     roleCommitParked,
 	"wake-tick":         roleWakeTick,

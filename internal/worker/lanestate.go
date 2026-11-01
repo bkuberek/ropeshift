@@ -42,6 +42,7 @@ type laneState struct {
 	progress time.Time
 	tools    map[string]bool
 	context  int64
+	baseline int64
 	since    time.Time
 	model    reachSeen
 	ledger   reachSeen
@@ -134,12 +135,38 @@ func (s *laneState) current() lanes.ActualState {
 	return s.tracker.State()
 }
 
-// newGeneration clears what one session left, and keeps what belongs to the lane.
-func (s *laneState) newGeneration(now time.Time) {
+// newGeneration clears what one session left, and keeps what belongs to the lane. A session that
+// goes on keeps the baseline it started with, because its next call holds the whole conversation.
+func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tools, s.progress, s.since, s.context = map[string]bool{}, now, now, 0
+	s.tools, s.progress, s.since, s.context, s.baseline = map[string]bool{}, now, now, 0, baseline
 	s.unconfirmed, s.retried = false, false
+}
+
+// noteContext keeps the context of one API call. The first of a session is what every path
+// carries.
+func (s *laneState) noteContext(tokens int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.context = tokens
+	if s.baseline == 0 {
+		s.baseline = tokens
+	}
+}
+
+// contextRead reads what the session held at its last call, and at its first.
+func (s *laneState) contextRead() (tokens, baseline int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.context, s.baseline
+}
+
+// keepContext goes on from what a journal held.
+func (s *laneState) keepContext(tokens, baseline int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.context, s.baseline = tokens, baseline
 }
 
 // signal moves the lane and keeps where it stands, so an adopted run goes on from there.
@@ -194,9 +221,7 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		r.signal(ctx, lanes.OnActivity)
 	case ports.EventUsage:
 		r.progressed()
-		s.mu.Lock()
-		s.context = event.ContextTokens
-		s.mu.Unlock()
+		s.noteContext(event.ContextTokens)
 		r.noteModel(lanes.Reachable)
 		r.signal(ctx, lanes.OnActivity)
 	case ports.EventTurnEnded:

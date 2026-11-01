@@ -28,6 +28,15 @@ var (
  WHERE workspace_id = :workspace_id
  ORDER BY id`)
 
+	// stmtWoken reads work a wake made ready, the highest priority first.
+	stmtWoken = define("work_order.woken",
+		`SELECT `+workOrderColumns+`
+  FROM work_orders
+ WHERE workspace_id = :workspace_id
+   AND state = 'ready'
+   AND resume_lane_id IS NOT NULL
+ ORDER BY priority DESC, id`)
+
 	stmtHeldBy = define("work_order.held_by",
 		`SELECT `+workOrderColumns+`
   FROM work_orders
@@ -117,6 +126,10 @@ func (t workOrderTx) List() ([]workorders.WorkOrder, error) {
 
 func (t workOrderTx) HeldBy(worker string) ([]workorders.WorkOrder, error) {
 	return t.list(stmtHeldBy, params{"worker": worker})
+}
+
+func (t workOrderTx) Woken() ([]workorders.WorkOrder, error) {
+	return t.list(stmtWoken, params{})
 }
 
 func (t workOrderTx) ByContract(contract string) ([]workorders.WorkOrder, error) {

@@ -30,6 +30,10 @@ type Generation struct {
 	HandoffOut string `json:"handoff_out,omitempty"`
 	StartedAt  int64  `json:"started_at"`
 	EndedAt    int64  `json:"ended_at,omitempty"`
+	// LastResponseAt is database time, when the worker's report of the session's last model
+	// response was recorded. It can run late and never early, and a late value can only choose
+	// a costlier path.
+	LastResponseAt int64 `json:"last_response_at,omitempty"`
 }
 
 // HandoffRecord is a handoff document in the ledger, so a later generation on another machine

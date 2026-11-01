@@ -53,7 +53,11 @@ type Actual struct {
 type World struct {
 	// Wanted names the lanes desired state runs here that have no record.
 	Wanted []string
-	Lanes  []Actual
+	// Resuming names the lanes a claim here brings back.
+	Resuming []string
+	// Woken names the lanes a wake offers this worker, which it may claim.
+	Woken []string
+	Lanes []Actual
 	// Unknown holds the effects a crash left unknown, each with what was found.
 	Unknown []ObservedEffect
 	// Allocations names the lanes holding resources.
@@ -83,6 +87,10 @@ const (
 	ActionHandoff ActionKind = "handoff"
 	// ActionPark finishes parking whose session went with the worker that followed it.
 	ActionPark ActionKind = "park"
+	// ActionClaim claims a woken lane, because nobody is there to dispatch it.
+	ActionClaim ActionKind = "claim"
+	// ActionResume brings a claimed lane back as its next generation.
+	ActionResume ActionKind = "resume"
 	// ActionEnd accounts for a lane whose session is gone.
 	ActionEnd ActionKind = "end"
 	// ActionRelease gives back what an ended lane held.
@@ -105,6 +113,12 @@ type Action struct {
 // lane is decided alone, so one stuck lane stops no other.
 func Plan(world World) []Action {
 	var actions []Action
+	for _, lane := range world.Resuming {
+		actions = append(actions, Action{Kind: ActionResume, Lane: lane})
+	}
+	for _, lane := range world.Woken {
+		actions = append(actions, Action{Kind: ActionClaim, Lane: lane})
+	}
 	for _, lane := range world.Wanted {
 		actions = append(actions, Action{Kind: ActionStart, Lane: lane})
 	}

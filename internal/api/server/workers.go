@@ -17,6 +17,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workers", h.listWorkers)
 	mux.HandleFunc("GET /v1/lanes", h.listLanes)
 	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
+	mux.HandleFunc("POST /v1/work-orders/{id}/lane-resume", h.member(h.resumeLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.member(h.resetLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-archive", h.member(h.archiveLane))
 	mux.HandleFunc("GET /v1/fleet", h.showFleet)
@@ -288,6 +289,17 @@ func (h *handler) setFleetCaps(w http.ResponseWriter, r *http.Request, actor led
 		return
 	}
 	h.answerFleet(w, r)
+}
+
+// resumeLane is a member's word to a work order's parked lane, which a `human_resume` term waits
+// on.
+func (h *handler) resumeLane(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	fired, err := h.wakes.ResumeWork(r.Context(), h.Scope, r.PathValue("id"), actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.LaneResumed{WorkOrder: r.PathValue("id"), Fired: fired})
 }
 
 // resetLane lets a member start the lane a work order's breaker stopped.

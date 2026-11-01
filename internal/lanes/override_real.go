@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // ReadsVendorStatus is false here, so a build that runs real sessions never runs a sign-in
@@ -27,6 +28,9 @@ type SessionOverride struct {
 	// Session lists variables a session starts with. A pane has no flag that keeps a
 	// transcript out of a person's home directory, and this is the documented way.
 	Session []string `json:"env"`
+	// ExpiredCache has the resume table read every cache as past its lifetime, so a suite can
+	// walk the fresh path with no long park.
+	ExpiredCache bool `json:"expired_cache"`
 }
 
 // allowedVariables are all a suite may add to a session.
@@ -63,3 +67,11 @@ func (o SessionOverride) Env() []string { return o.Session }
 
 // StreamLog names the file that receives a copy of the raw stream.
 func (o SessionOverride) StreamLog() string { return o.Stream }
+
+// CacheLifetime reads a driver's lifetime, or none for a suite that walks the fresh path.
+func (o SessionOverride) CacheLifetime(documented time.Duration) time.Duration {
+	if o.ExpiredCache {
+		return 0
+	}
+	return documented
+}

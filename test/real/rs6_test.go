@@ -243,7 +243,10 @@ func TestRS6(t *testing.T) {
 		}
 		return len(workers.Workers) == 1 && workers.Workers[0].Epoch >= 1
 	})
-	state := s.awaitParked(first, id, rs6HeadlessLane, func() { s.checkStream(first.stop) })
+	state := s.awaitParked(first, id, rs6HeadlessLane, func() {
+		s.checkStream(first.stop)
+		s.checkedStream(first.stop)
+	})
 	left := s.settleProcesses(rs6HeadlessLane)
 	first.stop()
 	stream, err := os.ReadFile(s.stream)

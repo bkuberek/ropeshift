@@ -60,7 +60,8 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	}
 	record := r.record()
 	parking := lanes.ParkProgress{
-		Wake: lanes.WakeID(record.ID, record.Generation), Expr: request.Expr, Trigger: request.Trigger, SkipNarrative: request.SkipNarrative,
+		Wake: lanes.WakeID(record.ID, record.Generation), Expr: request.Expr, Trigger: request.Trigger,
+		SkipNarrative: request.SkipNarrative, Generation: record.Generation,
 	}
 	handoff := lanes.HandoffProgress{
 		Reason: string(request.Trigger), DeadlineMs: r.w.clock.Now().Add(r.state.handoffTimeout()).UnixMilli(),
@@ -271,6 +272,17 @@ func (r *laneRun) setInstruction(text string) {
 func (r *laneRun) finishTurn(turn *ports.TurnResult) {
 	if turn.Status == ports.TurnCompleted {
 		r.setInstruction("")
+	}
+}
+
+// noteResponse tells the ledger a model answered, which starts the resume table's cache clock. A
+// failed turn may have answered nothing, and a late report can only choose a costlier path.
+func (r *laneRun) noteResponse(ctx context.Context, turn *ports.TurnResult) {
+	if turn.Status == ports.TurnFailed {
+		return
+	}
+	if _, err := r.w.Record(ctx, r.w.event(ledger.UploadGenerationResponded, r.record(), nil)); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 	}
 }
 

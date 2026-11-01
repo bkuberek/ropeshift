@@ -169,11 +169,18 @@ const EventLaneHandoff = "work_order.lane_handoff"
 // order: renewal keeps covering its lease until the process is gone.
 const EventLaneParking = "work_order.lane_parking"
 
+// EventLaneResumed records a woken lane's next generation continuing its earlier session.
+const EventLaneResumed = "work_order.lane_resumed"
+
 // EventGenerationBound records what a generation runs on, which changes no state.
 const EventGenerationBound = "work_order.generation_bound"
 
 // EventAdmissionHeld records that a worker held a lane back from starting, with why.
 const EventAdmissionHeld = "work_order.admission_held"
+
+// EventGenerationResponded records a model response, which starts the resume table's cache
+// clock and changes no state.
+const EventGenerationResponded = "work_order.generation_responded"
 
 // GenerationBinding is the payload of EventGenerationBound. It records the resolved
 // model and not only the alias, because aliases drift (FR-DRV-10).
@@ -184,6 +191,9 @@ type GenerationBinding struct {
 	ProfileDigest  string `json:"profile_digest"`
 	DriverVersion  string `json:"driver_version"`
 	DegradedMode   bool   `json:"degraded_mode,omitempty"`
+	// FellBack says a generation that meant to resume started fresh from its handoff, because
+	// its resume never reached a ready state.
+	FellBack bool `json:"fell_back,omitempty"`
 }
 
 // PinEvent is the event of unstarted work taking a new contract version.
@@ -285,6 +295,7 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 		if change.Fence != w.Fence {
 			return w, fmt.Errorf("%w: lane started at fence %d under fence %d", ErrInvalid, change.Fence, w.Fence)
 		}
+		w.ResumeLaneID = ""
 	case TriggerReturnedStarted, TriggerReturnedUnstarted:
 		w.LeaseUntil = change.LeaseUntil
 	case TriggerClaimReleased, TriggerTakeover:

@@ -58,14 +58,17 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		if err != nil {
 			return err
 		}
-		err = tx.Claims().Record(workorders.Claim{
+		claim := workorders.Claim{
 			ID:        request.ClaimID,
 			WorkOrder: request.WorkOrder,
 			Worker:    request.Worker,
 			Fence:     current.Fence,
 			GrantedAt: tx.Now(),
-		})
-		if err != nil {
+		}
+		if err := continuesLane(tx, current, &claim); err != nil {
+			return err
+		}
+		if err := tx.Claims().Record(claim); err != nil {
 			return err
 		}
 		crashpoint.Hit("claim", "recorded")
@@ -78,6 +81,7 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 			ClaimID:    request.ClaimID,
 			Worker:     request.Worker,
 			LeaseUntil: current.LeaseUntil,
+			Lane:       claim.Lane,
 		}, actor)
 		if err != nil {
 			return err
@@ -93,6 +97,21 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		return workorders.Grant{}, err
 	}
 	return grant, nil
+}
+
+// continuesLane makes a claim on woken work the claim of the lane it woke, with that lane's own
+// profile layer, so the next claim resumes it and nobody dispatches anything.
+func continuesLane(tx ports.WriteTx, order workorders.WorkOrder, claim *workorders.Claim) error {
+	if order.ResumeLaneID == "" {
+		return nil
+	}
+	claim.Lane = order.ResumeLaneID
+	last, err := tx.Claims().OfLane(order.ResumeLaneID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	claim.Overrides = last.Overrides
+	return err
 }
 
 func grantOf(tx ports.WriteTx, w workorders.WorkOrder, request workorders.ClaimRequest) (workorders.Grant, error) {
@@ -157,6 +176,13 @@ func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest) error {
 			return err
 		}
 	}
+	admitted, err := admitsResume(tx.Lanes(), order, request.Worker)
+	if err != nil {
+		return err
+	}
+	if !admitted {
+		return fmt.Errorf("%w: worker %s does not hold lane %s", workorders.ErrIneligible, request.Worker, order.ResumeLaneID)
+	}
 	limit := workspace.WorkerLimit
 	record, err := tx.Workers().Find(request.Worker)
 	switch {
@@ -170,6 +196,19 @@ func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest) error {
 	}
 	count := func() (int64, error) { return tx.Leases().HeldByWorker(request.Worker) }
 	return underCap(limit, "lanes on this worker", count)
+}
+
+// admitsResume says affinity lets this worker take a work order. Work with no lane to resume
+// goes to anyone.
+func admitsResume(lanes ports.LaneReader, order workorders.WorkOrder, worker string) (bool, error) {
+	if order.ResumeLaneID == "" {
+		return true, nil
+	}
+	row, err := lanes.Row(order.ResumeLaneID)
+	if err != nil {
+		return false, err
+	}
+	return row.Hold.Admits(worker), nil
 }
 
 // tighter picks the smaller of two limits, where zero means none.
@@ -661,6 +700,7 @@ func (l *Leases) Write(ctx context.Context, scope ledger.WorkspaceID, holder wor
 const (
 	opLaneRestart = "lane.restart"
 	opLaneHandoff = "lane.handoff"
+	opLaneResume  = "lane.resume"
 )
 
 // nextGeneration moves a lane on under the claim it holds, so what the last generation still
@@ -668,8 +708,11 @@ const (
 // generation reads.
 func nextGeneration(tx ports.WriteTx, holder workorders.Holder, reason ledger.StartReason, actor ledger.Actor, stamp func(*ledger.EventDraft)) (int64, error) {
 	op, eventType := opLaneRestart, workorders.EventLaneRestarted
-	if reason == ledger.StartHandoff {
+	switch reason {
+	case ledger.StartHandoff:
 		op, eventType = opLaneHandoff, workorders.EventLaneHandoff
+	case ledger.StartResume:
+		op, eventType = opLaneResume, workorders.EventLaneResumed
 	}
 	if err := guardHolder(tx, op, holder); err != nil {
 		return 0, err
@@ -701,6 +744,84 @@ func nextGeneration(tx ports.WriteTx, holder workorders.Holder, reason ledger.St
 	stamp(&event)
 	_, err = tx.Append(event)
 	return next, err
+}
+
+// ContinueLane starts a woken lane's next generation under the claim that took it. The holder
+// names that claim and the generation that parked. A retry after a lost answer returns the
+// generation the lane already moved to.
+func (l *Leases) ContinueLane(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, reason ledger.StartReason, actor ledger.Actor) (int64, error) {
+	var next int64
+	err := l.store.Write(ctx, scope, opLaneResume, func(tx ports.WriteTx) error {
+		var err error
+		next, err = continueLane(tx, holder, reason, actor, noStamp)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return next, nil
+}
+
+// continueLane runs inside a write transaction, because a worker's upload resumes a lane in the
+// same transaction that stores the event. The work order runs again, the lane moves to this
+// claim's fence, and the lane to resume clears, all together.
+func continueLane(tx ports.WriteTx, holder workorders.Holder, reason ledger.StartReason, actor ledger.Actor, stamp func(*ledger.EventDraft)) (int64, error) {
+	won, err := tx.Leases().Start(holder.Lease)
+	if err != nil {
+		return 0, err
+	}
+	if !won {
+		return resumedAlready(tx, holder)
+	}
+	crashpoint.Hit("lane.resume", "started")
+	if err := tx.Lanes().Resume(holder.Lane, holder.Fence); err != nil {
+		return 0, err
+	}
+	event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerLaneStarted), holder.WorkOrder, workorders.Change{
+		Trigger: workorders.TriggerLaneStarted, Fence: holder.Fence, ClaimID: holder.ClaimID, Lane: holder.Lane, Generation: holder.Generation + 1,
+	}, actor)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Append(event); err != nil {
+		return 0, err
+	}
+	crashpoint.Hit("lane.resume", "recorded")
+	return nextGeneration(tx, holder, reason, actor, stamp)
+}
+
+// resumedAlready answers a resume that matched nothing, which a retry after a lost answer does.
+func resumedAlready(tx ports.WriteTx, holder workorders.Holder) (int64, error) {
+	current, err := tx.WorkOrders().Get(holder.WorkOrder)
+	if err != nil {
+		return 0, err
+	}
+	generation, err := tx.Lanes().Generation(holder.Lane)
+	if err != nil {
+		return 0, err
+	}
+	if current.State == workorders.Running && current.Fence == holder.Fence && current.ClaimID == holder.ClaimID && generation == holder.Generation+1 {
+		return generation, nil
+	}
+	return 0, workorders.Reject(current, holder.Lease)
+}
+
+// resumeUpload starts a woken lane's next generation on a worker's word. The event names the new
+// generation, as a restart's does. The claim must be this worker's, and for this lane.
+func resumeUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp func(*ledger.EventDraft)) error {
+	claim, err := tx.Claims().Find(e.ClaimID)
+	if err != nil {
+		return err
+	}
+	if claim.Worker != worker || claim.Lane != e.Lane {
+		return fmt.Errorf("%w: claim %s does not run lane %s here", workorders.ErrInvalid, e.ClaimID, e.Lane)
+	}
+	holder := workorders.Holder{
+		Lease: workorders.Lease{WorkOrder: e.WorkOrder, ClaimID: e.ClaimID, Fence: e.Fence},
+		Lane:  e.Lane, Generation: e.Generation - 1,
+	}
+	_, err = continueLane(tx, holder, startReason(e), ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
+	return err
 }
 
 // ResetLane lets a work order's tripped lane start again. Only a person can, because the

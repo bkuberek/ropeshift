@@ -4,6 +4,7 @@ package real
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -135,9 +136,15 @@ func (s *suite) finish() {
 	}
 	// The CLI names a project after the git root, so a lane's worktree lands on its
 	// repository's name.
+	transcripts := s.ledgerSessions()
 	for _, dir := range append([]string{filepath.Join(s.scratch, "probe"), s.repo, s.worktree}, s.others...) {
 		if dir == "" {
 			continue
+		}
+		for _, session := range transcripts {
+			if err := removeTranscript(s.home, s.scratch, dir, session); err != nil {
+				s.t.Error(err)
+			}
 		}
 		if err := removeEmptyProject(s.home, s.scratch, dir); err != nil {
 			s.t.Error(err)
@@ -150,6 +157,44 @@ func (s *suite) finish() {
 		s.t.Error(err)
 	}
 	s.t.Logf("scratch path, for the leftovers report: %s", s.scratch)
+}
+
+// ledgerSessions names every session this run's ledger holds, because a suite that resumes keeps
+// its transcripts until here. A run that never reached a ledger has none.
+func (s *suite) ledgerSessions() []string {
+	path := filepath.Join(s.paths.StateDir, api.LedgerFileName)
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	store, err := sqlite.Open(path, sqlstore.Options{})
+	if err != nil {
+		s.t.Error(err)
+		return nil
+	}
+	defer store.Close()
+	var sessions []string
+	err = store.Read(context.Background(), "default", func(tx ports.ReadTx) error {
+		rows, err := tx.Lanes().Rows()
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			generations, err := tx.Lanes().Generations(row.ID)
+			if err != nil {
+				return err
+			}
+			for _, generation := range generations {
+				if generation.SessionID != "" && !slices.Contains(sessions, generation.SessionID) {
+					sessions = append(sessions, generation.SessionID)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		s.t.Error(err)
+	}
+	return sessions
 }
 
 // environment is the whole environment of a process this suite starts.

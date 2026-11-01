@@ -3,11 +3,15 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
+	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
@@ -32,15 +36,19 @@ type rig struct {
 	// workerJournal stands between a lane rig's worker and the journal when a test must
 	// stop that worker at one call. Nil leaves the journal itself.
 	workerJournal ports.Journal
+	// offset moves database time.
+	offset *atomic.Int64
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	ctx := t.Context()
-	store, err := fake.NewStore()
+	offset := &atomic.Int64{}
+	db, err := sqlite.OpenMemoryDB()
 	if err != nil {
 		t.Fatal(err)
 	}
+	store := &fake.Store{Store: sqlstore.New(db, shiftedDialect{Dialect: sqlite.Dialect{}, offset: offset}, sqlstore.Options{})}
 	t.Cleanup(func() { _ = store.Close() })
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
@@ -59,8 +67,25 @@ func newRig(t *testing.T) *rig {
 	plane := control.NewWorkers(store, scope, control.WorkerOptions{HeartbeatMs: 20, LeaseTTLMs: 60_000})
 	return &rig{
 		t: t, store: store, plane: plane, link: &fake.WorkerLink{Plane: plane},
-		journal: journal, clock: fake.NewClock(time.UnixMilli(1_000_000)),
+		journal: journal, clock: fake.NewClock(time.UnixMilli(1_000_000)), offset: offset,
 	}
+}
+
+// shiftedDialect adds an offset to database time, which is how a test moves that clock.
+type shiftedDialect struct {
+	sqlstore.Dialect
+	offset *atomic.Int64
+}
+
+func (d shiftedDialect) ClockSQL() string {
+	inner := strings.TrimPrefix(d.Dialect.ClockSQL(), "SELECT ")
+	return "SELECT (" + inner + ") + " + strconv.FormatInt(d.offset.Load(), 10)
+}
+
+// shiftDatabase moves database time, which the worker's own clock has no part in.
+func (r *rig) shiftDatabase(t *testing.T, deltaMs int64) {
+	t.Helper()
+	r.offset.Add(deltaMs)
 }
 
 func (r *rig) subject() *worker.Worker {

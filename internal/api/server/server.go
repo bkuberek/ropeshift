@@ -52,6 +52,7 @@ type handler struct {
 	questions  *control.Questions
 	workers    *control.Workers
 	fleet      *control.Fleet
+	wakes      *control.Wakes
 	sessions   *control.Sessions
 }
 
@@ -65,6 +66,7 @@ func New(config Config) http.Handler {
 		accepting:  control.NewAcceptances(config.Store),
 		questions:  control.NewQuestions(config.Store, config.Batches),
 		fleet:      control.NewFleet(config.Store),
+		wakes:      control.NewWakes(config.Store),
 		sessions:   control.NewSessions(config.Store, config.Identity),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches,

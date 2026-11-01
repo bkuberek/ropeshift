@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -71,6 +72,8 @@ type AgentDriver struct {
 	onStop   func()
 	signIn   string
 	present  bool
+	costs    lanes.ResumeCosts
+	noResume bool
 }
 
 type driverSession struct {
@@ -90,8 +93,27 @@ type driverSession struct {
 func NewAgentDriver() *AgentDriver {
 	return &AgentDriver{
 		version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{},
-		signIn: ports.SignInAPIKey, present: true,
+		signIn: ports.SignInAPIKey, present: true, costs: DefaultResumeCosts(),
 	}
+}
+
+// DefaultResumeCosts holds a cache long enough for any test, and no model's ratio.
+func DefaultResumeCosts() lanes.ResumeCosts {
+	return lanes.ResumeCosts{Lifetimes: map[string]time.Duration{ports.SignInSubscription: time.Hour, ports.SignInAPIKey: time.Hour}}
+}
+
+// SetResumeCosts sets the driver's data for the resume table.
+func (d *AgentDriver) SetResumeCosts(costs lanes.ResumeCosts) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.costs = costs
+}
+
+// SetNativeResume says whether this driver can continue a session.
+func (d *AgentDriver) SetNativeResume(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.noResume = !on
 }
 
 func sessionID(lane string, generation int64) string { return fmt.Sprintf("%s/%d", lane, generation) }
@@ -214,9 +236,9 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 	return ports.Capabilities{
 		RunModes: []string{ports.RunModeHeadless, ports.RunModeInteractive}, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
 		Injection: ports.InjectionBetweenTools, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
-		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
+		NativeResume: !d.noResume, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
-		Version:     d.version, Degraded: d.degraded,
+		Version:     d.version, Degraded: d.degraded, Resume: d.costs,
 	}, nil
 }
 

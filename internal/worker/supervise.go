@@ -244,6 +244,9 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64, reason ledger.
 	r.priorUSD, r.priorUnknown = r.priorUSD+r.cost.CostUSD, r.priorUnknown+r.cost.UnknownTurns
 	record.Generation, record.ResumeSession = next, resume
 	record.Progress = lanes.Progress{Cost: meter, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown}
+	if resume != "" {
+		_, record.Progress.BaselineTokens = r.state.contextRead()
+	}
 	event := r.w.event(ledger.UploadGenerationStarted, record, payload)
 	if _, err := r.w.journal.BeginGeneration(ctx, record, event); err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
@@ -271,9 +274,9 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.flightLock.Unlock()
 	r.sessionOver.Store(false)
 	r.resumeFrom = resume
-	r.bound, r.nudged, r.crashed, r.cursor = false, false, false, 0
+	r.bound, r.nudged, r.crashed, r.cursor, r.fellBack = false, false, false, 0, false
 	r.cost = progress.Cost
-	r.state.newGeneration(r.w.clock.Now())
+	r.state.newGeneration(r.w.clock.Now(), progress.BaselineTokens)
 }
 
 // retryBrief sends a brief that showed no evidence once more, as a new message, after
@@ -317,7 +320,7 @@ func (r *laneRun) retryBrief(ctx context.Context) {
 func (r *laneRun) briefText() string {
 	return lanes.Brief(lanes.BriefSpec{
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
-		Handoff: r.inherited,
+		Handoff: r.inherited, Pending: r.pendingInstruction(),
 	})
 }
 

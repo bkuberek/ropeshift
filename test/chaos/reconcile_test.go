@@ -184,6 +184,9 @@ func (w lastingWorktrees) Push(context.Context, string, string, string) error {
 	return errors.New("a stand-in worktree has no remote")
 }
 
+// Fetch has nothing to bring, because a stand-in worktree has no remote.
+func (w lastingWorktrees) Fetch(context.Context, string, []string) error { return nil }
+
 // roleWorkerReconcile runs one lane through a real worker, on a session and a worktree
 // that survive a kill. The claim and the dispatch are safe to repeat.
 func roleWorkerReconcile(c *child) error {
