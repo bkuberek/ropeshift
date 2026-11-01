@@ -139,4 +139,10 @@ type DenyRule struct {
 // deny, so a denial needs no worker.
 type DenyPolicy struct {
 	Deny []DenyRule `json:"deny"`
+	// Roots are the directories a lane may write. None turns the path checks off.
+	Roots []string `json:"roots,omitempty"`
+	// Home is what `~` and `$HOME` mean to the session.
+	Home string `json:"home,omitempty"`
+	// DefaultBranches are the branches no push may reach.
+	DefaultBranches []string `json:"default_branches,omitempty"`
 }

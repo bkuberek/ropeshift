@@ -38,6 +38,8 @@ type hookGroup struct {
 
 type permissions struct {
 	Allow []string `json:"allow"`
+	Deny  []string `json:"deny,omitempty"`
+	Ask   []string `json:"ask,omitempty"`
 }
 
 // settingsFile is what a generation's `--settings` holds. It holds no secret, because
@@ -62,7 +64,8 @@ func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 // call, or a denial could be skipped by a slow machine.
 func generateSettings(spec ports.SessionSpec) settingsFile {
 	out := settingsFile{
-		Permissions: permissions{Allow: []string{}}, APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: inboundAccept,
+		Permissions:  permissions{Allow: []string{}, Deny: denyRules(spec), Ask: askRules(spec)},
+		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: inboundAccept,
 	}
 	for _, tool := range spec.Tools {
 		out.Permissions.Allow = append(out.Permissions.Allow, toolRule(tool))
@@ -118,6 +121,11 @@ func generateMCP(spec ports.SessionSpec) mcpFile {
 	return out
 }
 
+// policyPath names the file a generation's hook reads.
+func policyPath(spec ports.SessionSpec) string {
+	return filepath.Join(spec.ConfigDir, fmt.Sprintf("policy-%d.json", spec.Generation))
+}
+
 // generatedPaths names a generation's files.
 func generatedPaths(spec ports.SessionSpec) (settings, mcp string) {
 	return filepath.Join(spec.ConfigDir, fmt.Sprintf("settings-%d.json", spec.Generation)),
@@ -130,7 +138,8 @@ func writeGenerated(spec ports.SessionSpec) error {
 		return err
 	}
 	settingsPath, mcpPath := generatedPaths(spec)
-	for path, body := range map[string]any{settingsPath: generateSettings(spec), mcpPath: generateMCP(spec)} {
+	files := map[string]any{settingsPath: generateSettings(spec), mcpPath: generateMCP(spec), policyPath(spec): compilePolicy(spec)}
+	for path, body := range files {
 		raw, err := json.MarshalIndent(body, "", "  ")
 		if err != nil {
 			return err

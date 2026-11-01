@@ -63,6 +63,11 @@ type step struct {
 	SleepMs int `json:"sleep_ms,omitempty"`
 	// Status runs the status line once, with this payload merged in, as a reply does.
 	Status map[string]any `json:"status,omitempty"`
+	// Tool calls a built-in tool: the PreToolUse hook decides, and a command that passes
+	// runs through a shell, in the session's directory.
+	Tool    string `json:"tool,omitempty"`
+	Command string `json:"command,omitempty"`
+	File    string `json:"file,omitempty"`
 }
 
 // A session's flags, as the real CLI takes them.
@@ -333,6 +338,8 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 			time.Sleep(time.Duration(st.SleepMs) * time.Millisecond)
 		case st.Status != nil:
 			s.statusLine(st.Status)
+		case st.Tool != "":
+			s.callBuiltin(st)
 		case st.Hold:
 			<-interrupts
 			s.emit(map[string]any{
@@ -407,9 +414,48 @@ func writeLine(raw []byte) {
 	}
 }
 
+// callBuiltin runs one built-in tool the way the CLI does: a denial from the hook stops it
+// and reaches the model, and a call that passes takes effect.
+func (s *session) callBuiltin(st step) {
+	input := map[string]any{}
+	if st.Command != "" {
+		input["command"] = st.Command
+	}
+	if st.File != "" {
+		input["file_path"] = st.File
+	}
+	outputs := s.hook("PreToolUse", map[string]any{"tool_name": st.Tool, "tool_use_id": "toolu_builtin", "tool_input": input})
+	for _, output := range outputs {
+		var decision struct {
+			Specific struct {
+				Decision string `json:"permissionDecision"`
+				Reason   string `json:"permissionDecisionReason"`
+			} `json:"hookSpecificOutput"`
+		}
+		if json.Unmarshal(output, &decision) == nil && decision.Specific.Decision == "deny" {
+			witness("denied", decision.Specific.Reason)
+			return
+		}
+	}
+	if st.Command != "" {
+		cmd := exec.Command("/bin/sh", "-c", st.Command)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fail("tool: %v: %s", err, out)
+		}
+	}
+	if st.File != "" {
+		if err := os.WriteFile(st.File, nil, 0o600); err != nil {
+			fail("tool: %v", err)
+		}
+	}
+	witness("ran", st.Tool)
+	s.hook("PostToolUse", map[string]any{"tool_name": st.Tool, "tool_use_id": "toolu_builtin"})
+}
+
 // hook runs an event's commands through a shell, as the CLI does, with the session's
-// whole environment and the payload on stdin.
-func (s *session) hook(event string, input map[string]any) {
+// whole environment and the payload on stdin, and returns what they printed.
+func (s *session) hook(event string, input map[string]any) [][]byte {
+	var outputs [][]byte
 	payload := map[string]any{"session_id": s.currentSession(), "hook_event_name": event, "cwd": mustGetwd()}
 	for key, value := range input {
 		payload[key] = value
@@ -428,10 +474,12 @@ func (s *session) hook(event string, input map[string]any) {
 				fail("hook %s failed: %v", event, err)
 			}
 			if len(bytes.TrimSpace(out)) != 0 {
+				outputs = append(outputs, out)
 				s.emit(map[string]any{"type": "system", "subtype": "hook_output", "hook": event, "output": string(out)})
 			}
 		}
 	}
+	return outputs
 }
 
 func (s *session) currentSession() string {

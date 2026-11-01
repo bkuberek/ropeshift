@@ -425,7 +425,7 @@ func sessionHandleID(spec ports.SessionSpec) string {
 // sessionEnv adds the driver's own variables. An undocumented one goes only to a
 // version that passed its check.
 func sessionEnv(spec ports.SessionSpec, qualified bool) []string {
-	env := append(slices.Clone(spec.Env), envSessionState)
+	env := append(slices.Clone(spec.Env), envSessionState, lanes.EnvPolicy+"="+policyPath(spec))
 	if spec.TempDir != "" && qualified {
 		env = append(env, envTempDir+spec.TempDir)
 	}

@@ -183,7 +183,7 @@ func TestTheSessionEnvironmentIsTheSpecs(t *testing.T) {
 		t.Fatalf("%d sessions", len(seen))
 	}
 	for name := range seen[0].Env {
-		if !slices.Contains([]string{"PATH", "ROPESHIFT_LANE_ID", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "CLAUDE_CODE_TMPDIR"}, name) {
+		if !slices.Contains([]string{"PATH", "ROPESHIFT_LANE_ID", "ROPESHIFT_POLICY", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "CLAUDE_CODE_TMPDIR"}, name) {
 			t.Errorf("%s reached the session", name)
 		}
 	}

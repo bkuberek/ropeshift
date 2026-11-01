@@ -41,7 +41,9 @@ const (
 )
 
 // standInFixtures say what each suite's dry run plays.
-var standInFixtures = map[string]string{"rs1": "rs2-stand-in", "rs2": "rs2-stand-in", "rs3": "rs3-stand-in"}
+var standInFixtures = map[string]string{
+	"rs1": "rs2-stand-in", "rs2": "rs2-stand-in", "rs3": "rs3-stand-in", "rs4": "rs4-stand-in",
+}
 
 // allowedEnvironment is everything a session or the daemon takes from this process, so
 // no variable of a parent session can reach them. Tags are added by name.

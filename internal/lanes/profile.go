@@ -29,6 +29,10 @@ type AgentSettings struct {
 	PermissionMode   string      `toml:"permission_mode" json:"permission_mode"`
 	InstructionsFile string      `toml:"instructions_file" json:"instructions_file"`
 	Credentials      Credentials `toml:"credentials" json:"credentials"`
+	// Gates are permission rules for actions a person must approve. On a lane that would
+	// not prompt, the driver writes each as an `ask` rule, because `PermissionRequest`
+	// fires only for a call that would.
+	Gates []string `toml:"gates" json:"gates"`
 }
 
 // RoleThresholds is the context policy of one role.

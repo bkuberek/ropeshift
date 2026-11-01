@@ -28,6 +28,9 @@ type PreparedLane struct {
 	Environment   []string
 	Profile       lanes.Profile
 	ProfileDigest string
+	// DefaultBranch is the repository's, for the generation's policy. A policy guards the
+	// usual names whether or not this read works, so a failed read stops nothing.
+	DefaultBranch string
 }
 
 // Provisioner gives a lane its settings, its worktree, and its environment. It holds
@@ -70,7 +73,11 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	if err != nil {
 		return PreparedLane{}, err
 	}
-	return PreparedLane{Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest}, nil
+	branch, err := p.Worktrees.DefaultBranch(ctx, request.Repository)
+	if err != nil {
+		branch = ""
+	}
+	return PreparedLane{Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch}, nil
 }
 
 func (p Provisioner) worktree(ctx context.Context, request LaneRequest, place lanes.Placement) (ports.Worktree, error) {

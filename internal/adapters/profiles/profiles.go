@@ -20,8 +20,12 @@ import (
 //go:embed builtin.toml
 var builtin string
 
-// RepositoryFile is a repository's layer, relative to its root.
-const RepositoryFile = ".ropeshift/profile.toml"
+// RepositoryFile is a repository's layer, relative to its root, and UserFile the user's,
+// relative to the state directory.
+const (
+	RepositoryFile = ".ropeshift/profile.toml"
+	UserFile       = "profile.toml"
+)
 
 // Resolve folds layers of TOML over the built-in defaults. A key the settings do not
 // name is refused, because a misspelled threshold that silently keeps its default is
@@ -50,20 +54,54 @@ func Resolve(layers ...string) (lanes.Profile, error) {
 	return profile, nil
 }
 
-// Filesystem reads a repository's layer from its working tree.
-type Filesystem struct{}
-
-// Load resolves one repository's profile. A repository with no layer gets the
-// defaults, and a layer that cannot be read stops the lane.
-func (Filesystem) Load(_ context.Context, repository string) (lanes.Profile, error) {
-	raw, err := os.ReadFile(filepath.Join(repository, RepositoryFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return Resolve()
-	}
+// ResolveRepository folds a user's layer and a repository's. A repository is code from
+// somewhere else, so its layer can narrow what a lane may do and can never widen it. Any
+// file it names is the user's to trust.
+func ResolveRepository(user, repository string) (lanes.Profile, error) {
+	below, err := Resolve(user)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	return Resolve(string(raw))
+	profile, err := Resolve(user, repository)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	if lanes.RaisesPermission(below.Agent.PermissionMode, profile.Agent.PermissionMode) {
+		return lanes.Profile{}, fmt.Errorf("%w: a repository cannot raise the permission mode from %s to %s",
+			lanes.ErrBadProfile, below.Agent.PermissionMode, profile.Agent.PermissionMode)
+	}
+	return profile, nil
+}
+
+// Filesystem reads a user's layer and a repository's layer from its working tree.
+type Filesystem struct {
+	// User is the user's layer. An empty path or an absent file has none.
+	User string
+}
+
+func readLayer(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	return string(raw), err
+}
+
+// Load resolves one repository's profile. A repository with no layer gets the defaults,
+// and a layer that cannot be read stops the lane.
+func (f Filesystem) Load(_ context.Context, repository string) (lanes.Profile, error) {
+	user, err := readLayer(f.User)
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	layer, err := readLayer(filepath.Join(repository, RepositoryFile))
+	if err != nil {
+		return lanes.Profile{}, err
+	}
+	return ResolveRepository(user, layer)
 }
 
 var _ ports.ProfileSource = Filesystem{}

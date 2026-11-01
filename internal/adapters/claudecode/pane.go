@@ -142,7 +142,8 @@ func paneName(spec ports.SessionSpec) string {
 
 // paneEnv is the session's environment, which the launcher sets exactly.
 func paneEnv(spec ports.SessionSpec, qualified bool) []string {
-	env := append(slices.Clone(spec.Env), spec.Override.Env()...)
+	env := append(slices.Clone(spec.Env), lanes.EnvPolicy+"="+policyPath(spec))
+	env = append(env, spec.Override.Env()...)
 	if spec.TempDir != "" && qualified {
 		env = append(env, envTempDir+spec.TempDir)
 	}

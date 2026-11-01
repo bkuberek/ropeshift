@@ -190,6 +190,7 @@ func RunWorktrees(t *testing.T, fresh func(*testing.T) WorktreeRig) {
 		run  func(*testing.T, context.Context, WorktreeRig)
 	}{
 		{"a lane gets a worktree on its branch", checkWorktreeCreate},
+		{"a repository names its default branch", checkDefaultBranch},
 		{"a retry returns the same worktree", checkWorktreeRetry},
 		{"inspect reads what is there", checkWorktreeInspect},
 		{"an absent worktree is not found", checkWorktreeAbsent},
@@ -212,6 +213,16 @@ func (r WorktreeRig) create(t *testing.T, ctx context.Context, name, branch stri
 		t.Fatal(err)
 	}
 	return worktree
+}
+
+func checkDefaultBranch(t *testing.T, ctx context.Context, r WorktreeRig) {
+	branch, err := r.Worktrees.DefaultBranch(ctx, r.Repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch == "" {
+		t.Error("a repository with a branch named none")
+	}
 }
 
 func checkWorktreeCreate(t *testing.T, ctx context.Context, r WorktreeRig) {

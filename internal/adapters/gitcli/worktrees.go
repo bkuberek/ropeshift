@@ -168,4 +168,13 @@ func (w Worktrees) Remove(ctx context.Context, repository, path string) error {
 	return err
 }
 
+// DefaultBranch reads a remote's HEAD where it has one, and a checkout's HEAD otherwise.
+func (w Worktrees) DefaultBranch(ctx context.Context, repository string) (string, error) {
+	git := w.git(repository)
+	if head, err := git.Text(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil && head != "" {
+		return strings.TrimPrefix(head, "origin/"), nil
+	}
+	return git.Text(ctx, "symbolic-ref", "--quiet", "--short", "HEAD")
+}
+
 var _ ports.Worktrees = Worktrees{}

@@ -75,4 +75,7 @@ func (w *Worktrees) Remove(_ context.Context, _, path string) error {
 	return nil
 }
 
+// DefaultBranch names the branch every fake repository lands on.
+func (w *Worktrees) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
+
 var _ ports.Worktrees = (*Worktrees)(nil)

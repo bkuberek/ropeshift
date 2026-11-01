@@ -42,4 +42,7 @@ type Worktrees interface {
 	// Remove deletes a clean worktree and keeps its branch. Uncommitted work is
 	// ErrWorktreeDirty, and a worktree already gone is done.
 	Remove(ctx context.Context, repository, path string) error
+	// DefaultBranch names the branch a repository's work lands on. It reads an upstream's
+	// default first, and a repository with none has its current branch.
+	DefaultBranch(ctx context.Context, repository string) (string, error)
 }

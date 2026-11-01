@@ -294,16 +294,19 @@ func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
 		return nil, err
 	}
 	return &worker.LaneRuntime{
-		Driver:      claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: terminal}),
-		Provisioner: worker.Provisioner{Profiles: profiles.Filesystem{}, Worktrees: gitcli.Worktrees{}},
-		Secrets:     secrets.Resolver{},
-		Repository:  checkouts(opts),
-		Socket:      paths.WorkerSocket(),
-		Spool:       paths.Spool(),
-		Binary:      paths.StableBinary(),
-		StateDir:    paths.StateDir,
-		RunDir:      paths.RunDir,
-		Override:    override,
+		Driver: claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: terminal}),
+		Provisioner: worker.Provisioner{
+			Profiles:  profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)},
+			Worktrees: gitcli.Worktrees{},
+		},
+		Secrets:    secrets.Resolver{},
+		Repository: checkouts(opts),
+		Socket:     paths.WorkerSocket(),
+		Spool:      paths.Spool(),
+		Binary:     paths.StableBinary(),
+		StateDir:   paths.StateDir,
+		RunDir:     paths.RunDir,
+		Override:   override,
 	}, nil
 }
 

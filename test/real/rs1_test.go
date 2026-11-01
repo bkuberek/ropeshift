@@ -68,6 +68,8 @@ type suite struct {
 	before  [32]byte
 	// worktree is where the lane's session ran.
 	worktree string
+	// others are further directories a suite's sessions ran in.
+	others []string
 	// standIn is the PATH of a dry run, which finds a scripted CLI first.
 	standIn string
 }
@@ -128,7 +130,7 @@ func (s *suite) finish() {
 	}
 	// The CLI names a project after the git root, so a lane's worktree lands on its
 	// repository's name.
-	for _, dir := range []string{filepath.Join(s.scratch, "probe"), s.repo, s.worktree} {
+	for _, dir := range append([]string{filepath.Join(s.scratch, "probe"), s.repo, s.worktree}, s.others...) {
 		if dir == "" {
 			continue
 		}

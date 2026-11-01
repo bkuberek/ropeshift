@@ -105,6 +105,10 @@ type SessionSpec struct {
 	RunMode string
 	// ReadyTimeout bounds a checked start. Zero takes the driver's default.
 	ReadyTimeout time.Duration
+	// DefaultBranch is the repository's own, which the generation's policy guards.
+	DefaultBranch string
+	// Gates are the permission rules a person must approve.
+	Gates []string
 	// Override carries a real-session suite's guard flags. It is empty outside the
 	// realsession build.
 	Override lanes.SessionOverride

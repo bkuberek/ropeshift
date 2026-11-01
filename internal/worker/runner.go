@@ -390,7 +390,8 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 		}),
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
-		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile),
+		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
+		Gates: prepared.Profile.Agent.Gates,
 	}
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {

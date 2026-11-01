@@ -13,6 +13,7 @@ import (
 // the filesystem source uses.
 type ProfileSource struct {
 	mu     sync.Mutex
+	user   string
 	layers map[string]string
 }
 
@@ -28,15 +29,19 @@ func (s *ProfileSource) Put(repository, text string) {
 	s.layers[repository] = text
 }
 
+// PutUser stands for the user's layer.
+func (s *ProfileSource) PutUser(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.user = text
+}
+
 // Load resolves one repository's profile.
 func (s *ProfileSource) Load(_ context.Context, repository string) (lanes.Profile, error) {
 	s.mu.Lock()
-	text, ok := s.layers[repository]
+	text, user := s.layers[repository], s.user
 	s.mu.Unlock()
-	if !ok {
-		return profiles.Resolve()
-	}
-	return profiles.Resolve(text)
+	return profiles.ResolveRepository(user, text)
 }
 
 var _ ports.ProfileSource = (*ProfileSource)(nil)

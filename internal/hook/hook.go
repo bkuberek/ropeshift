@@ -107,15 +107,23 @@ func decide(cfg config, input []byte, stdout io.Writer) {
 	}
 	var call struct {
 		Tool  string `json:"tool_name"`
+		Cwd   string `json:"cwd"`
 		Input struct {
-			Command string `json:"command"`
+			Command  string `json:"command"`
+			File     string `json:"file_path"`
+			Notebook string `json:"notebook_path"`
 		} `json:"tool_input"`
 	}
 	if json.Unmarshal(input, &call) != nil {
 		deny(stdout, unavailablePolicy)
 		return
 	}
-	if reason, denied := policy.Decide(call.Tool, call.Input.Command); denied {
+	target := call.Input.File
+	if target == "" {
+		target = call.Input.Notebook
+	}
+	reason, denied := policy.Decide(lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd})
+	if denied {
 		deny(stdout, reason)
 	}
 }

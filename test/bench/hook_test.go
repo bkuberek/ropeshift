@@ -44,6 +44,10 @@ type hookScenario struct {
 	baseline    bool
 }
 
+// benchDenial is a call a compiled policy has to read to the end of a command line to
+// deny, which is the work the budget holds.
+const benchDenial = `{"session_id":"s","cwd":"/lanes/bench","tool_name":"Bash","tool_use_id":"t","tool_input":{"command":"go build ./... && go test ./... 2>&1 | tee build.log; git push -f origin HEAD:main"}}`
+
 func toolPayload(size int) []byte {
 	head := `{"session_id":"00000000-0000-4000-8000-000000000000","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"toolu_1","tool_input":{"command":"echo bench"},"tool_response":{"stdout":"`
 	tail := `"}}`
@@ -64,7 +68,7 @@ func hookScenarios() []hookScenario {
 		{name: "worker-down-parallel-8", event: "PostToolUse", payload: small, concurrency: 8},
 		{name: "worker-hung", event: "PostToolUse", worker: "hang", payload: small, concurrency: 1},
 		{name: "malformed-input", event: "Stop", payload: []byte("{not json"), concurrency: 1},
-		{name: "policy-deny-worker-down", event: "PreToolUse", payload: small, concurrency: 1, policy: true},
+		{name: "policy-deny-worker-down", event: "PreToolUse", payload: []byte(benchDenial), concurrency: 1, policy: true},
 	}
 }
 
@@ -109,7 +113,7 @@ func measureHook(t *testing.T, binary string, s hookScenario) time.Duration {
 	}
 	if s.policy {
 		policy := filepath.Join(dir, "policy.json")
-		if err := os.WriteFile(policy, []byte(`{"deny":[{"tool":"Bash","command_prefix":"echo bench","reason":"a bench denial"}]}`), 0o600); err != nil {
+		if err := os.WriteFile(policy, []byte(`{"deny":[],"roots":["/lanes/bench"],"default_branches":["main","master"]}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		env = append(env, api.EnvPolicy+"="+policy)

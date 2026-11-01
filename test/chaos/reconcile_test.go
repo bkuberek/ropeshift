@@ -136,6 +136,8 @@ func (d *lastingDriver) rest() fake.DriverScript {
 }
 
 // lastingWorktrees is a worktree a killed process leaves on disk.
+func (lastingWorktrees) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
+
 type lastingWorktrees struct {
 	dir string
 	log *EffectLog

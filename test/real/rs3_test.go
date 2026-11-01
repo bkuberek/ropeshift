@@ -74,7 +74,7 @@ warn_tokens = 1
 `
 )
 
-// tmuxBinary finds tmux on the session's PATH, and this suite reads panes with it only on
+// tmuxCommand finds tmux on the session's PATH, and this suite reads panes with it only on
 // the worker's private socket.
 func (s *suite) tmuxCommand(args ...string) *exec.Cmd {
 	s.t.Helper()
@@ -180,7 +180,7 @@ func (s *suite) watchPane(stop func(), pane string, screens *screenLog) string {
 	return text
 }
 
-// hookCounts reads what a lane's hooks left in the journal, by event name.
+// hookRecords reads what a lane's hooks left in the journal.
 func (s *suite) hookRecords(lane string) []lanes.HookRecord {
 	s.t.Helper()
 	journal, err := sqlite.OpenJournal(filepath.Join(s.paths.StateDir, api.JournalFileName))

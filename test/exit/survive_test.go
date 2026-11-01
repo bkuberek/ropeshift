@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/api/shimlink"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
@@ -235,5 +236,60 @@ func TestPaneLaneSurvivesAWorkerKill(t *testing.T) {
 	}
 	if listings != 1 {
 		t.Errorf("%d reads of the listing", listings)
+	}
+}
+
+// TestDenialWithWorkerDown is FR-AUTH-8 on real processes: the policy a generation compiled
+// stops a force push, a push to the default branch, and writes outside the worktree while
+// no worker is running, and a call the policy allows still runs.
+func TestDenialWithWorkerDown(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	in.path = doubles.InstallFakeClaude(t, "policy-denials")
+	flags := []string{"--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir}
+	daemon := in.start(flags...)
+	in.waitReady(daemon)
+	in.waitFor("the worker's session", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch >= 1
+	})
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
+	in.must("lane", "start", id, "--lane", "lane-1")
+	config := filepath.Join(in.paths().StateDir, "lanes", "lane-1")
+	doubles.ReapShims(t, config)
+	in.waitFor("the generation's binding", func() bool {
+		return slices.Contains(eventTypes(in.events(t, id)), workorders.EventGenerationBound)
+	})
+	daemon.kill()
+
+	bin := doubles.BinDir(in.path)
+	if err := os.WriteFile(filepath.Join(bin, "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	denied := filepath.Join(bin, "denied.log")
+	in.waitFor("the session's last call", func() bool {
+		_, err := os.Stat(filepath.Join(bin, "ran.log"))
+		return err == nil
+	})
+	raw, err := os.ReadFile(denied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reason := range []string{lanes.ReasonForcePush, lanes.ReasonDefaultBranch, lanes.ReasonOutside} {
+		if !strings.Contains(string(raw), reason) {
+			t.Errorf("no denial for %q in %s", reason, raw)
+		}
+	}
+	if count := strings.Count(string(raw), lanes.ReasonOutside); count != 2 {
+		t.Errorf("%d writes outside were denied, of 2", count)
+	}
+	if _, err := os.Stat("/tmp/rs-denied-by-policy"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a denied write ran: %v", err)
+	}
+	if ran, err := os.ReadFile(filepath.Join(bin, "ran.log")); err != nil || strings.Count(string(ran), "\n") != 1 {
+		t.Errorf("the allowed call: %q, %v", ran, err)
 	}
 }
