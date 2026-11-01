@@ -331,8 +331,7 @@ func (s *suite) probe() {
 	case err = <-done:
 	case <-time.After(turnLimit):
 		_ = cmd.Process.Signal(syscall.SIGTERM)
-		<-done
-		s.t.Fatal("STOP: the probe passed its limit")
+		s.t.Fatalf("STOP: the probe passed its limit, and it exited: %v", <-done)
 	}
 	signals := append(stopSignals(stdout.Bytes()), stderrSignals(stderr.Bytes())...)
 	if len(signals) != 0 {
@@ -424,6 +423,8 @@ type daemon struct {
 	exited  chan error
 	stderr  *bytes.Buffer
 	stopped bool
+	// exit is how its process ended, once it has.
+	exit error
 }
 
 // startDaemon runs the daemon on this suite's repository, with the guard flags reaching
@@ -462,10 +463,10 @@ func (d *daemon) stop() {
 	d.stopped = true
 	_ = d.cmd.Process.Signal(syscall.SIGTERM)
 	select {
-	case <-d.exited:
+	case d.exit = <-d.exited:
 	case <-time.After(15 * time.Second):
 		_ = d.cmd.Process.Signal(syscall.SIGKILL)
-		<-d.exited
+		d.exit = <-d.exited
 	}
 }
 
@@ -476,7 +477,7 @@ func (d *daemon) kill() {
 	}
 	d.stopped = true
 	_ = d.cmd.Process.Signal(syscall.SIGKILL)
-	<-d.exited
+	d.exit = <-d.exited
 }
 
 func (s *suite) waitForWorkOrder(stop func()) string {
