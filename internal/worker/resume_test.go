@@ -2,6 +2,8 @@ package worker_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -309,6 +311,177 @@ func TestAFenceOnTheLastClaimLeavesTheNextOneAlone(t *testing.T) {
 	}
 	r.awaitOrder(t, workorders.Acceptance)
 	r.subject.Wait()
+}
+
+// restingProfile parks a lane soon after it comes to rest on a question.
+const restingProfile = profileAt + "[lifecycle]\nask_wait = \"1s\"\nhandoff_timeout = \"3m\"\nmax_restarts = 0\n"
+
+// sessionToken reads a session's own token, because each generation has one.
+func sessionToken(t *testing.T, spec ports.SessionSpec) string {
+	t.Helper()
+	for _, entry := range spec.Env {
+		if value, ok := strings.CutPrefix(entry, lanes.EnvLaneToken+"="); ok {
+			return value
+		}
+	}
+	t.Error("no token")
+	return ""
+}
+
+// callAs is one line of the lane protocol from whichever generation a session belongs to.
+func (r *laneRig) callAs(spec ports.SessionSpec, request lanes.Request) {
+	r.t.Helper()
+	request.Version, request.Token = lanes.SocketProtocol, sessionToken(r.t, spec)
+	line, err := json.Marshal(request)
+	if err != nil {
+		r.t.Error(err)
+		return
+	}
+	if reply := r.subject.AnswerLane(context.Background(), line); !reply.OK {
+		r.t.Errorf("generation %d: %s", spec.Generation, reply.Message)
+	}
+}
+
+// asksThenNarrates is a session that asks a blocking question and comes to rest, then answers
+// the instruction that asks for its narrative.
+func (r *laneRig) asksThenNarrates(question, narrative string) fake.DriverScript {
+	ask := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		r.callAs(spec, lanes.Request{Ask: &lanes.AskRequest{Text: question, Blocking: true}})
+	}}
+	narrate := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		r.callAs(spec, lanes.Request{Handoff: json.RawMessage(narrative)})
+	}}
+	return script([]fake.DriverStep{{Bound: true}, ask, completed(0.01)}, []fake.DriverStep{narrate, completed(0.02)})
+}
+
+// awaitRest waits for a generation to come to rest, and lets its `ask_wait` pass.
+func (r *laneRig) awaitRest(t *testing.T, generation int64) {
+	t.Helper()
+	r.eventually("generation to rest", func(view ledger.LaneView) bool {
+		return view.Generation == generation && view.ActualState == string(lanes.Idle)
+	})
+	r.clock.Advance(2 * time.Second)
+}
+
+// TestAResumedLaneAsksAndParksAgain walks a lane through two parkings, which is what RS7 asks of
+// a real session: the second question belongs to the generation that came back, and it must
+// reach the ledger, hold the lane at rest, and park it with a wake of its own.
+func TestAResumedLaneAsksAndParksAgain(t *testing.T) {
+	r := laneRigWith(t, restingProfile)
+	r.driver.Play(r.asksThenNarrates("The first question?", notCarried))
+	r.driver.PlayAfter(r.asksThenNarrates("The second question?", notCarried), r.toldToGoOn())
+	r.start()
+	r.awaitRest(t, 1)
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	r.wake(t)
+	r.pass(t)
+	r.awaitRest(t, 2)
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	if view := r.read(); view.ActualState != ledger.StateParked || view.Generation != 2 {
+		t.Fatalf("the lane reads %s in generation %d", view.ActualState, view.Generation)
+	}
+	wake := r.wakeOf(t, 2)
+	if !wake.Open() {
+		t.Errorf("the second wake closed with nobody asked: %+v", wake)
+	}
+	if first := r.wakeOf(t, 1); first.Open() {
+		t.Errorf("the first wake stayed open: %+v", first)
+	}
+	asked := r.questionList(t)
+	if len(asked) != 2 {
+		t.Fatalf("questions %+v", asked)
+	}
+	var second string
+	for _, question := range asked {
+		if question.Text == "The second question?" {
+			second = question.ID
+		}
+	}
+	if want := lanes.QuestionWake([]string{second}); wake.Expr != want {
+		t.Errorf("the second wake waits on %s, want %s", wake.Expr, want)
+	}
+	r.wake(t)
+	r.resumed(t)
+	generations := r.generations(t)
+	if len(generations) != 3 || generations[1].EndReason != workorders.EndParked {
+		t.Fatalf("generations %+v", generations)
+	}
+	if got := r.driver.Resumed(); len(got) != 2 {
+		t.Errorf("resumed %+v", got)
+	}
+}
+
+// killedAtResume stands for a kill right after a resume's journal write: the write stands, and
+// nothing that follows it in the run happens.
+type killedAtResume struct {
+	ports.Journal
+}
+
+var errKilled = errors.New("killed")
+
+func (j killedAtResume) BeginResume(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	stored, err := j.Journal.BeginResume(ctx, lane, event)
+	if err != nil {
+		return stored, err
+	}
+	return stored, errKilled
+}
+
+// TestALaneKilledInItsResumeStillComesToRest kills a worker after a resume's journal write, so
+// the next process starts that generation from the record. A lane still reading `parked` takes
+// no signal the table has an edge for: it never rests, never parks, and never hands off.
+func TestALaneKilledInItsResumeStillComesToRest(t *testing.T) {
+	r := laneRigWith(t, restingProfile)
+	r.driver.Play(r.asksThenNarrates("The first question?", notCarried))
+	r.start()
+	r.awaitRest(t, 1)
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	r.wake(t)
+	killed := worker.New(r.link, killedAtResume{Journal: r.journal}, r.clock, worker.Config{
+		Name:      "test",
+		JoinToken: func(ctx context.Context) (string, error) { return r.plane.CreateJoinToken(ctx, member) },
+		Lanes:     r.config,
+		Report:    func(err error) { t.Log(err) },
+	})
+	if err := killed.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := killed.Sync(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := killed.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	killed.Wait()
+	if len(r.driver.Resumed()) != 0 {
+		t.Fatalf("the kill came after the session: %+v", r.driver.Resumed())
+	}
+	next := r.nextWorker(t)
+	r.subject = next
+	driver, ok := r.config.Driver.(*fake.AgentDriver)
+	if !ok {
+		t.Fatalf("driver %T", r.config.Driver)
+	}
+	r.driver = driver
+	driver.Play(r.asksThenNarrates("The second question?", notCarried))
+	t.Cleanup(driver.StopEverySession)
+	if err := next.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := next.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.awaitRest(t, 2)
+	r.awaitOrder(t, workorders.Parked)
+	next.Wait()
+	if view := r.read(); view.ActualState != ledger.StateParked || view.Generation != 2 {
+		t.Errorf("the lane reads %s in generation %d", view.ActualState, view.Generation)
+	}
 }
 
 // otherWorker is a second machine on the same control plane.

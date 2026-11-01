@@ -35,5 +35,8 @@ func splitsPark() bool { return false }
 // splitsResume is false: a normal build keeps a resume and its upload together.
 func splitsResume() bool { return false }
 
+// leavesParked is false: a normal build moves a lane's state with its resume.
+func leavesParked() bool { return false }
+
 // instructionLabel is the one label, so a generation sends its instruction once.
 func instructionLabel() string { return handoffInput }

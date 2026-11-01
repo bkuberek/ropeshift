@@ -459,7 +459,9 @@ func (j *Journal) CommitParked(ctx context.Context, lane string, parking lanes.P
 }
 
 // BeginResume brings a parked lane back under a new claim as its next generation, and stores
-// that event, together. A worker that never ran the lane has no row, so this makes one.
+// that event, together. A worker that never ran the lane has no row, so this makes one. The
+// state moves in the same write, because a process that dies here leaves a run that starts from
+// this row, and a lane that reads `parked` has no way forward from its own start.
 func (j *Journal) BeginResume(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error) {
 	progress, err := json.Marshal(lane.Progress)
 	if err != nil {
@@ -479,12 +481,12 @@ func (j *Journal) BeginResume(ctx context.Context, lane lanes.Record, event ledg
 	}
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx, `INSERT INTO lanes
-  (id, work_order, claim, fence, generation, state, worktree, branch, resume_session, progress, handoff, parking)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+  (id, work_order, claim, fence, generation, state, worktree, branch, resume_session, progress, handoff, parking, actual)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6, token_digest = NULL,
-  session_id = '', resume_session = ?9, progress = ?10, handoff = ?11, parking = ?12, blocking = NULL`,
+  session_id = '', resume_session = ?9, progress = ?10, handoff = ?11, parking = ?12, blocking = NULL, actual = ?13`,
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State, lane.Worktree, lane.Branch,
-		lane.ResumeSession, progress, handoff, parking)
+		lane.ResumeSession, progress, handoff, parking, lane.Actual)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}

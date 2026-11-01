@@ -33,9 +33,16 @@ const (
 	pathFresh  = "fresh"
 )
 
-// sabotageSplitsResume keeps a resume and its upload in two journal writes, so a kill between
-// them leaves a lane on a generation the ledger never hears of.
-const sabotageSplitsResume = "a resume and its upload in two journal writes"
+const (
+	// sabotageSplitsResume keeps a resume and its upload in two journal writes, so a kill between
+	// them leaves a lane on a generation the ledger never hears of.
+	sabotageSplitsResume = "a resume and its upload in two journal writes"
+	// sabotageLeavesParked journals a resume with its lane still reading `parked`, so a kill after
+	// that write leaves a generation with no way to rest, park, or hand off.
+	sabotageLeavesParked = "a resume that leaves its lane reading parked"
+	// witnessStranded records a session that found its lane still reading `parked`.
+	witnessStranded = "stranded"
+)
 
 // resumeDriver is a parked session's lane, and the generation that follows it.
 type resumeDriver struct {
@@ -72,10 +79,23 @@ func (d *resumeDriver) Adopt(ctx context.Context, h ports.SessionHandle, from po
 	return d.lastingDriver.Adopt(ctx, h, from)
 }
 
-// goesOn is the generation that follows, which ends the lane.
+// goesOn is the generation that follows, which ends the lane. It first says where it found its
+// lane, because a session that reports needs no state at all, and only a lane's state lets it
+// rest, park, or hand off.
 func (d *resumeDriver) goesOn() fake.DriverScript {
 	turn := fake.DriverStep{Turn: &fake.DriverTurn{Status: ports.TurnCompleted, TotalUSD: 0.02}}
-	report := fake.DriverStep{Do: func(spec ports.SessionSpec) { d.report(spec, "") }}
+	report := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		record, err := d.journal.Lane(context.Background(), spec.Lane)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "lane:", err)
+		}
+		if record.Actual == lanes.Parked {
+			if err := d.witness(witnessStranded, handleOf(spec)); err != nil {
+				fmt.Fprintln(os.Stderr, "witness:", err)
+			}
+		}
+		d.report(spec, "")
+	}}
 	return fake.DriverScript{SessionID: "session-1", Model: "fixture", Turns: [][]fake.DriverStep{{{Bound: true}, report, turn}}}
 }
 
@@ -154,8 +174,11 @@ func convergeUntilEnded(c *child, subject *worker.Worker, journal *sqlite.Journa
 }
 
 func applyResumeVariant(variant string) {
-	if variant == sabotageSplitsResume {
+	switch variant {
+	case sabotageSplitsResume:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageSplitsResume)
+	case sabotageLeavesParked:
+		_ = os.Setenv(worker.EnvSabotage, worker.SabotageLeavesParked)
 	}
 }
 
@@ -232,6 +255,8 @@ func sessionsApart(w *world, spec childSpec) error {
 			order = append(order, "spawn "+record.Key)
 		case record.Op == witnessEnded:
 			order = append(order, "ended "+record.Key)
+		case record.Op == witnessStranded:
+			return contract.Violatedf("session %s found its lane still reading parked", record.Key)
 		}
 	}
 	if spawned[first] != 1 || spawned[second] != 1 {
@@ -306,6 +331,10 @@ func resumeVariants() []variant {
 		{
 			name: sabotageSplitsResume, check: "crash",
 			crash: func() (crashCase, string) { return resumeCase(pathNative, "worker.resume", "split"), "split" },
+		},
+		{
+			name: sabotageLeavesParked, check: "crash",
+			crash: func() (crashCase, string) { return resumeCase(pathNative, "worker.resume", "begun"), "begun" },
 		},
 		{
 			name:     "a resume that leaves the lane to resume on the work order",

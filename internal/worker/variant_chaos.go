@@ -38,6 +38,8 @@ const (
 	SabotageSplitsPark = "splits-park"
 	// SabotageSplitsResume keeps a resume and its upload in two journal writes.
 	SabotageSplitsResume = "splits-resume"
+	// SabotageLeavesParked journals a resume with its lane still reading `parked`.
+	SabotageLeavesParked = "leaves-parked"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -61,6 +63,8 @@ func forgetsWake() bool { return sabotaged(SabotageForgetsWake) }
 func splitsPark() bool { return sabotaged(SabotageSplitsPark) }
 
 func splitsResume() bool { return sabotaged(SabotageSplitsResume) }
+
+func leavesParked() bool { return sabotaged(SabotageLeavesParked) }
 
 func instructionLabel() string {
 	if !sabotaged(SabotageResendsHandoff) {

@@ -161,9 +161,12 @@ func (r *laneRun) resumeRecord(record lanes.Record, next int64, choice lanes.Res
 	from := r.lease.Resume
 	stored := lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence, Generation: next,
-		State: lanes.StateRunning, Worktree: record.Worktree, Branch: record.Branch,
+		State: lanes.StateRunning, Actual: lanes.Provisioning, Worktree: record.Worktree, Branch: record.Branch,
 		Handoff: &lanes.HandoffProgress{Reason: string(choice.Rule), Document: from.Handoff, Begun: true},
 		Parking: &lanes.ParkProgress{Generation: from.Generation, Pending: from.Pending, Begun: true},
+	}
+	if leavesParked() {
+		stored.Actual = lanes.Parked
 	}
 	r.priorUSD, r.priorUnknown = r.priorUSD+r.cost.CostUSD, r.priorUnknown+r.cost.UnknownTurns
 	stored.Progress = lanes.Progress{
