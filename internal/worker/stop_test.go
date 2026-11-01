@@ -140,9 +140,20 @@ func TestASnapshotThatSavesWorkIsOnRecord(t *testing.T) {
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")
 	r.runWith(r.dirtying(stopWorktree))
-	artifacts := r.view().Artifacts
-	if len(artifacts) != 1 || artifacts[0].Kind != ledger.ArtifactSalvage || artifacts[0].URI != lanes.CheckpointRef("lane-1", 1) {
-		t.Errorf("artifacts %+v", artifacts)
+	var salvage, branches []ledger.Artifact
+	for _, artifact := range r.view().Artifacts {
+		switch artifact.Kind {
+		case ledger.ArtifactSalvage:
+			salvage = append(salvage, artifact)
+		case ledger.ArtifactBranch:
+			branches = append(branches, artifact)
+		}
+	}
+	if len(salvage) != 1 || salvage[0].URI != lanes.CheckpointRef("lane-1", 1) {
+		t.Errorf("salvage %+v", salvage)
+	}
+	if len(branches) != 1 {
+		t.Errorf("branches %+v", branches)
 	}
 }
 

@@ -468,6 +468,105 @@ func (s splitAnswer) Answer(ctx context.Context, scope ledger.WorkspaceID, id st
 	}, actor)
 }
 
+// splitAccept moves accepted work in one transaction and records who accepted it in another,
+// so a kill between them leaves work `done` with nobody standing behind it.
+type splitAccept struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitAccept) Accept(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (workorders.State, error) {
+	err := s.store.Write(ctx, scope, "acceptance.accept", func(tx ports.WriteTx) error {
+		won, err := tx.WorkOrders().Move(id, workorders.Acceptance, workorders.Done)
+		if err != nil || !won {
+			return err
+		}
+		_, err = tx.Append(noteEvent(actor))
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	crashpoint.Hit("acceptance.accept", "split")
+	err = s.store.Write(ctx, scope, "acceptance.accept", func(tx ports.WriteTx) error {
+		event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerAcceptancePassed), id,
+			workorders.Change{Trigger: workorders.TriggerAcceptancePassed}, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	return workorders.Done, err
+}
+
+// splitEvidence ends a lane in one transaction and keeps what it left in another, so a kill
+// between them leaves an outcome with no evidence behind it.
+type splitEvidence struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitEvidence) EndLane(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, result workorders.LaneResult, actor ledger.Actor) error {
+	bare := result
+	bare.Branch, bare.Head, bare.Artifacts, bare.Checks = "", "", nil, nil
+	if err := s.Ops.EndLane(ctx, scope, holder, bare, actor); err != nil {
+		return err
+	}
+	crashpoint.Hit("lane.end", "split")
+	return s.store.Write(ctx, scope, "lane.end", func(tx ports.WriteTx) error {
+		artifact := ledger.Artifact{ID: holder.Lane + "-branch", Lane: holder.Lane, Kind: ledger.ArtifactBranch, URI: result.Branch, Digest: result.Head}
+		if err := tx.Lanes().AddArtifact(artifact); err != nil {
+			return err
+		}
+		artifact.ID, artifact.Kind = holder.Lane+"-report", ledger.ArtifactReport
+		if err := tx.Lanes().AddArtifact(artifact); err != nil {
+			return err
+		}
+		err := tx.Evidence().Record(workorders.Evidence{
+			ID: holder.Lane + "-check", WorkOrder: holder.WorkOrder, Lane: holder.Lane, Fence: holder.Fence + 1, Name: "unit",
+			Status: workorders.CheckPassed, Source: workorders.SourceLane,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(noteEvent(actor))
+		return err
+	})
+}
+
+// anyoneAccepts answers as a member for whoever asked, so a lane accepts its own work.
+type anyoneAccepts struct {
+	contract.Ops
+}
+
+func (a anyoneAccepts) Accept(ctx context.Context, scope ledger.WorkspaceID, id string, _ ledger.Actor) (workorders.State, error) {
+	return a.Ops.Accept(ctx, scope, id, ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"})
+}
+
+// reworkWithNoCheck moves work to `ready` and never asks the definition of ready.
+type reworkWithNoCheck struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (r reworkWithNoCheck) Rework(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) (workorders.State, error) {
+	err := r.store.Write(ctx, scope, "acceptance.rework", func(tx ports.WriteTx) error {
+		won, err := tx.WorkOrders().Move(id, workorders.Acceptance, workorders.Ready)
+		if err != nil || !won {
+			return err
+		}
+		event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerRework), id,
+			workorders.Change{Trigger: workorders.TriggerRework, Reason: reason}, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	return workorders.ContractReview, err
+}
+
 // splitOverturn ends a decision in one transaction and writes the rest in another, so a kill
 // between them leaves a reversal with no decision in its place and no rework.
 type splitOverturn struct {
@@ -1067,6 +1166,57 @@ func allVariants() []variant {
 			},
 			check: "crash",
 			crash: func() (crashCase, string) { return answerCase(), "split" },
+		},
+		{
+			name: "an acceptance in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitAccept{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return acceptCase(), "split" },
+		},
+		{
+			name: "a lane's evidence in a transaction of its own",
+			ops: func(s ports.Store) contract.Ops {
+				return splitEvidence{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return laneEndCase(), "split" },
+		},
+		{
+			name:     "a move that does not compare the state",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("work_order.move", " AND state = :from_state", "")},
+			check:    "A9",
+		},
+		{
+			name: "acceptance that ignores who asks",
+			ops: func(s ports.Store) contract.Ops {
+				return anyoneAccepts{Ops: contract.RealOps(s)}
+			},
+			check: "A1",
+		},
+		{
+			name:     "a lane's own check reads as independent",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("evidence.record", ":status, :source,", ":status, 'forge',")},
+			check:    "A4",
+		},
+		{
+			name:     "an earlier attempt's evidence still counts",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("evidence.attempt", " AND fence = :fence", "")},
+			check:    "A7",
+		},
+		{
+			name: "a rework that skips the definition of ready",
+			ops: func(s ports.Store) contract.Ops {
+				return reworkWithNoCheck{Ops: contract.RealOps(s), store: s}
+			},
+			check: "A11",
+		},
+		{
+			name: "a check run again keeps its first answer",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("evidence.record",
+				"DO UPDATE SET status = :status, details_uri = :details_uri", "DO NOTHING")},
+			check: "A13",
 		},
 		{
 			name: "an overturn in two transactions",

@@ -759,7 +759,8 @@ func (r *Rig) finish(s ports.Store, id string) error {
 	if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, result, r.Actor); err != nil {
 		return err
 	}
-	return r.NewOps(s).Move(r.Ctx, r.Scope, id, workorders.TriggerAcceptancePassed, r.Actor)
+	_, err = r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.Actor)
+	return err
 }
 
 func checkReviewUnknownDependency(r *Rig) error {

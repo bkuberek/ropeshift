@@ -28,16 +28,25 @@ const (
 	EventLaneArchived = "lane.archived"
 )
 
-// ArtifactSalvage is the kind of a ref a stop left. A later unit adds the other kinds.
-const ArtifactSalvage = "salvage"
+// The kinds of artifact a lane leaves. A later unit adds the others.
+const (
+	// ArtifactSalvage is a ref a stop left.
+	ArtifactSalvage = "salvage"
+	// ArtifactBranch is the final artifact: a member merges it, and ropeshift does not (D17).
+	ArtifactBranch = "branch"
+	// ArtifactReport is what a lane's report named.
+	ArtifactReport = "report"
+)
 
-// Artifact is something a lane left. URI names it, and Digest pins its content.
+// Artifact is something a lane left. URI names it, and Digest pins its content. Fence names
+// the attempt that left it, and a stop's salvage names none.
 type Artifact struct {
 	ID        string `json:"id"`
 	Lane      string `json:"lane_id"`
 	Kind      string `json:"kind"`
 	URI       string `json:"uri"`
 	Digest    string `json:"digest,omitempty"`
+	Fence     int64  `json:"fence,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 }
 

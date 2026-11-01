@@ -112,6 +112,14 @@ func (t *writeTx) Policies() ports.PolicyWriter {
 	return policyTx{session: t.session, scope: t.scope}
 }
 
+func (t *readTx) Evidence() ports.EvidenceReader {
+	return evidenceTx{session: t.session, scope: t.scope}
+}
+
+func (t *writeTx) Evidence() ports.EvidenceWriter {
+	return evidenceTx{session: t.session, scope: t.scope}
+}
+
 func (t *readTx) Measures() ports.MeasureReader {
 	return measureTx{session: t.session, scope: t.scope}
 }

@@ -227,6 +227,75 @@ func (c *invocation) workRelease(args []string) int {
 	}{id}, func() string { return id + "\treleased\n" })
 }
 
+// workAcceptance prints what a work order's evidence leaves to do, then what stays linked to it.
+func (c *invocation) workAcceptance(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	view, err := client.Acceptance(c.ctx, id)
+	return c.finish(err, view, func() string {
+		var out strings.Builder
+		fmt.Fprintf(&out, "%s\t%s\tneeds %s\n", id, view.State, view.Assessment.Needs)
+		for _, row := range view.Assessment.Criteria {
+			fmt.Fprintf(&out, "criterion\t%s\t%s\n", row.Criterion, row.Standing)
+		}
+		for _, name := range view.Assessment.Failed {
+			fmt.Fprintf(&out, "failed\t%s\n", name)
+		}
+		for _, artifact := range view.Artifacts {
+			fmt.Fprintf(&out, "artifact\t%s\t%s\t%s\n", artifact.Kind, artifact.URI, artifact.Digest)
+		}
+		for _, check := range view.Checks {
+			fmt.Fprintf(&out, "check\t%s\t%s\t%s\t%s\n", check.Name, check.Status, check.Source, check.Criterion)
+		}
+		return out.String()
+	})
+}
+
+func (c *invocation) workAccept(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	result, err := client.Accept(c.ctx, id)
+	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.State) })
+}
+
+func (c *invocation) workRework(args []string) int {
+	set := c.flags()
+	reason := set.String("reason", "", "why the work goes back")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	if *reason == "" {
+		return c.usageError("--reason is required")
+	}
+	client := c.client()
+	defer client.Close()
+	result, err := client.Rework(c.ctx, id, api.ReworkRequest{Reason: *reason})
+	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.State) })
+}
+
 func (c *invocation) workReassign(args []string) int {
 	set := c.flags()
 	var request api.ReassignRequest

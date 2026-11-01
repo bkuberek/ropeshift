@@ -149,8 +149,12 @@ func recordLedgerWork(tx ports.WriteTx, record workorders.WorkOrder, work Ledger
 }
 
 // Move takes one unleased edge of the state machine. The compare-and-set repeats
-// the state read, so a racing move loses instead of skipping an edge.
+// the state read, so a racing move loses instead of skipping an edge. The edges out of
+// `acceptance` answer to the evidence, so only Acceptances takes them.
 func (w *WorkOrders) Move(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, actor ledger.Actor) error {
+	if workorders.LeavesAcceptance(trigger) {
+		return workorders.ErrForbidden
+	}
 	return w.store.Write(ctx, scope, "work_order.move", func(tx ports.WriteTx) error {
 		return takeEdge(tx, id, trigger, actor)
 	})

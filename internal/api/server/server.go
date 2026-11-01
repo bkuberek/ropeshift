@@ -48,6 +48,7 @@ type handler struct {
 	workOrders *control.WorkOrders
 	leases     *control.Leases
 	reviews    *control.Reviews
+	accepting  *control.Acceptances
 	questions  *control.Questions
 	workers    *control.Workers
 	fleet      *control.Fleet
@@ -61,6 +62,7 @@ func New(config Config) http.Handler {
 		workOrders: control.NewWorkOrders(config.Store),
 		leases:     control.NewLeases(config.Store),
 		reviews:    control.NewReviews(config.Store),
+		accepting:  control.NewAcceptances(config.Store),
 		questions:  control.NewQuestions(config.Store, config.Batches),
 		fleet:      control.NewFleet(config.Store),
 		sessions:   control.NewSessions(config.Store, config.Identity),
@@ -79,6 +81,9 @@ func New(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/work-orders", h.listWorkOrders)
 	mux.HandleFunc("GET /v1/work-orders/{id}", h.showWorkOrder)
 	mux.HandleFunc("POST /v1/work-orders/{id}/review", h.member(h.review))
+	mux.HandleFunc("GET /v1/work-orders/{id}/acceptance", h.acceptance)
+	mux.HandleFunc("POST /v1/work-orders/{id}/accept", h.member(h.accept))
+	mux.HandleFunc("POST /v1/work-orders/{id}/rework", h.member(h.rework))
 	mux.HandleFunc("POST /v1/work-orders/{id}/claims", h.claim)
 	mux.HandleFunc("POST /v1/work-orders/{id}/claims/{claim}/release", h.member(h.release))
 	mux.HandleFunc("POST /v1/work-orders/{id}/reassign", h.member(h.reassign))
@@ -155,6 +160,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeDecisionEnded, Message: err.Error()})
 	case errors.Is(err, workorders.ErrForbidden):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: err.Error()})
+	case errors.Is(err, workorders.ErrNotAcceptable):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeNotAcceptable, Message: err.Error()})
 	case errors.Is(err, workorders.ErrLost):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeLost, Message: err.Error()})
 	case errors.Is(err, workorders.ErrIneligible):
@@ -284,6 +291,38 @@ func (h *handler) review(w http.ResponseWriter, r *http.Request, actor ledger.Ac
 		return
 	}
 	reply(w, http.StatusOK, api.ReviewResult{State: result.State, Failures: result.Failures})
+}
+
+// acceptance reads where a work order stands, with what stays linked to it.
+func (h *handler) acceptance(w http.ResponseWriter, r *http.Request) {
+	view, err := h.accepting.Standing(r.Context(), h.Scope, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, view)
+}
+
+func (h *handler) accept(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	state, err := h.accepting.Accept(r.Context(), h.Scope, r.PathValue("id"), actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.Accepted{State: state})
+}
+
+func (h *handler) rework(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.ReworkRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	state, err := h.accepting.Rework(r.Context(), h.Scope, r.PathValue("id"), in.Reason, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.Accepted{State: state})
 }
 
 // claim serves both claimants: a worker names itself with its credential, and a

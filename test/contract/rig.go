@@ -122,6 +122,10 @@ type Ops interface {
 	Overturn(ctx context.Context, scope ledger.WorkspaceID, id string, overturn questions.Overturn, actor ledger.Actor) (questions.Overturned, error)
 	PublishPolicy(ctx context.Context, scope ledger.WorkspaceID, draft questions.PolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error)
 	PolicyVersions(ctx context.Context, scope ledger.WorkspaceID) ([]authority.PolicyVersion, error)
+	Accept(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (workorders.State, error)
+	Rework(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) (workorders.State, error)
+	Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error)
+	Standing(ctx context.Context, scope ledger.WorkspaceID, id string) (workorders.AcceptanceView, error)
 }
 
 type realOps struct {
@@ -131,6 +135,7 @@ type realOps struct {
 	*control.Intake
 	*control.Reviews
 	*control.Questions
+	*control.Acceptances
 }
 
 // The limits a batch runs under here: a window long enough that a blocking question can
@@ -155,6 +160,7 @@ func RealOps(store ports.Store) Ops {
 	return realOps{
 		control.NewSessions(store, provenMember{}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
 		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
+		control.NewAcceptances(store),
 	}
 }
 

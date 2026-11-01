@@ -236,6 +236,9 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 		current.ReviewedBy = e.Actor.ID
 		return current, nil
 	}
+	if e.Type == EventEvidenceRecorded {
+		return current, nil
+	}
 	var change Change
 	if err := json.Unmarshal(e.Data, &change); err != nil {
 		return current, fmt.Errorf("%w: %v", ErrInvalid, err)

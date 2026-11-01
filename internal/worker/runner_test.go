@@ -166,6 +166,9 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 	if !strings.Contains(spec.Brief, lanes.ToolLaneReport) || !strings.Contains(spec.Brief, r.id) {
 		t.Errorf("brief %q", spec.Brief)
 	}
+	if !strings.Contains(spec.Brief, "- c1: It works") {
+		t.Errorf("a lane cannot name a criterion its brief does not: %q", spec.Brief)
+	}
 	var token string
 	for _, entry := range spec.Env {
 		if value, ok := strings.CutPrefix(entry, lanes.EnvLaneToken+"="); ok {
@@ -194,6 +197,29 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 	}
 	if result.CostUSD != 0.25 {
 		t.Errorf("result %+v", result)
+	}
+}
+
+// TestALanesEndCarriesTheBranchItsWorkerRead keeps the final artifact out of a session's hands
+// (D17): the worker reads the worktree, and a report that names a branch changes nothing.
+func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
+	r := newLaneRig(t)
+	claimed := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		raw := []byte(`{"outcome":"completed","branch":"lane/not-this-one","head":"a-session-wrote-this"}`)
+		if _, err := r.journal.SaveReport(context.Background(), spec.Lane, raw); err != nil {
+			r.t.Error(err)
+		}
+	}}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, claimed, completed(0.25)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var result workorders.LaneResult
+	if err := json.Unmarshal(r.outcome().Payload, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Branch != "lane/lane-1" || result.Head != "fake-head" {
+		t.Errorf("the lane's end names %s at %s", result.Branch, result.Head)
 	}
 }
 

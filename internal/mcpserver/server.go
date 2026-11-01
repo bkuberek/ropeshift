@@ -143,8 +143,9 @@ var laneReportTool = map[string]any{
 			"checks": map[string]any{"type": "array", "items": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name":   map[string]any{"type": "string"},
-					"passed": map[string]any{"type": "boolean"},
+					"name":      map[string]any{"type": "string"},
+					"passed":    map[string]any{"type": "boolean"},
+					"criterion": map[string]any{"type": "string", "description": "The ID of the acceptance criterion this check proves."},
 				},
 				"required": []string{"name", "passed"},
 			}},

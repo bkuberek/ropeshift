@@ -8,15 +8,17 @@ import (
 
 // The error codes of the API. A client decides on the code, never on the text.
 const (
-	CodeInvalid     = "invalid"
-	CodeNotFound    = "not_found"
-	CodeForbidden   = "forbidden"
-	CodeLost        = "lost"
-	CodeIneligible  = "ineligible"
-	CodeFenced      = "fenced"
-	CodeLapsed      = "lapsed"
-	CodeNotLapsed   = "not_lapsed"
-	CodeIllegalMove = "illegal_move"
+	CodeInvalid   = "invalid"
+	CodeNotFound  = "not_found"
+	CodeForbidden = "forbidden"
+	// CodeNotAcceptable says a check failed, so the work goes back for rework.
+	CodeNotAcceptable = "not_acceptable"
+	CodeLost          = "lost"
+	CodeIneligible    = "ineligible"
+	CodeFenced        = "fenced"
+	CodeLapsed        = "lapsed"
+	CodeNotLapsed     = "not_lapsed"
+	CodeIllegalMove   = "illegal_move"
 	// CodeUnpushedWork refuses a removal that could lose work no remote holds.
 	CodeUnpushedWork = "unpushed_work"
 	CodeUnavailable  = "unavailable"
@@ -161,6 +163,16 @@ type ArchiveLane struct {
 // ReleaseRequest gives a claim back.
 type ReleaseRequest struct {
 	Fence int64 `json:"fence"`
+}
+
+// ReworkRequest sends completed work back for another attempt.
+type ReworkRequest struct {
+	Reason string `json:"reason"`
+}
+
+// Accepted says where acceptance left a work order.
+type Accepted struct {
+	State workorders.State `json:"state"`
 }
 
 // ReassignRequest ends a lapsed holder's ownership.

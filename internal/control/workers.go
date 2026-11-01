@@ -369,7 +369,7 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	}
 	lease.Statement = pinned.Statement
 	for _, criterion := range pinned.Criteria {
-		lease.Criteria = append(lease.Criteria, criterion.Text)
+		lease.Criteria = append(lease.Criteria, criterion.ID+": "+criterion.Text)
 	}
 	return lease, nil
 }

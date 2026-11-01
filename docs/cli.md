@@ -14,6 +14,9 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work list [--state S] [--worker W]` | Lists work orders. With `--worker`, it lists only ready work that worker's manifest can run |
 | `ropeshift work show <id>` | Shows one work order |
 | `ropeshift work review <id>` | Records a passed review, and the definition of ready decides the move to `ready` |
+| `ropeshift work acceptance <id>` | Shows what a work order's evidence leaves to do, with every artifact and check result linked to it |
+| `ropeshift work accept <id>` | Moves completed work to `done`. A failed check cannot be accepted, and a criterion no check maps to needs a member |
+| `ropeshift work rework <id> --reason R` | Sends completed work back to `ready` for another attempt. Its evidence stays on record and stops counting |
 | `ropeshift work claim <id> --worker W [--claim-id C]` | Claims a work order for a worker. A retry with the same claim ID returns the grant |
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |

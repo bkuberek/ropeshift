@@ -405,11 +405,11 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtInsertArtifact = define("artifact.insert",
-		`INSERT INTO artifacts (workspace_id, id, lane_id, kind, uri, digest, created_at)
-VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :now)`)
+		`INSERT INTO artifacts (workspace_id, id, lane_id, kind, uri, digest, fence, created_at)
+VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :fence, :now)`)
 
 	stmtListArtifacts = define("artifact.list",
-		`SELECT id, lane_id, kind, uri, digest, created_at FROM artifacts
+		`SELECT id, lane_id, kind, uri, digest, fence, created_at FROM artifacts
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id ORDER BY created_at, id`)
 
 	stmtRequestArchive = define("lane.request_archive",
@@ -531,7 +531,7 @@ func (t laneTx) AddArtifact(artifact ledger.Artifact) error {
 	}
 	_, err = t.exec(stmtInsertArtifact, params{
 		"workspace_id": string(t.scope), "id": artifact.ID, "lane_id": artifact.Lane, "kind": artifact.Kind,
-		"uri": artifact.URI, "digest": artifact.Digest, "now": now,
+		"uri": artifact.URI, "digest": artifact.Digest, "fence": artifact.Fence, "now": now,
 	})
 	return err
 }
@@ -542,10 +542,14 @@ func (t laneTx) Artifacts(lane string) ([]ledger.Artifact, error) {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanArtifacts(rows)
+}
+
+func scanArtifacts(rows *sql.Rows) ([]ledger.Artifact, error) {
 	var out []ledger.Artifact
 	for rows.Next() {
 		var artifact ledger.Artifact
-		if err := rows.Scan(&artifact.ID, &artifact.Lane, &artifact.Kind, &artifact.URI, &artifact.Digest, &artifact.CreatedAt); err != nil {
+		if err := rows.Scan(&artifact.ID, &artifact.Lane, &artifact.Kind, &artifact.URI, &artifact.Digest, &artifact.Fence, &artifact.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, artifact)

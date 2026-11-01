@@ -543,6 +543,10 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if err := tx.Lanes().MarkEnded(holder.Lane); err != nil {
 		return err
 	}
+	if err := recordEvidence(tx, holder, current.Fence+1, result); err != nil {
+		return err
+	}
+	crashpoint.Hit("lane.end", "evidence")
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return err

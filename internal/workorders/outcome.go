@@ -29,10 +29,12 @@ const (
 	ReasonHookUnknown = "hook_unknown"
 )
 
-// CheckResult is one check a lane reports.
+// CheckResult is one check a lane reports. Criterion names what it speaks for, and a check
+// that names none covers no criterion.
 type CheckResult struct {
-	Name   string `json:"name"`
-	Passed bool   `json:"passed"`
+	Name      string `json:"name"`
+	Passed    bool   `json:"passed"`
+	Criterion string `json:"criterion,omitempty"`
 }
 
 // Report is a lane's outcome, with its evidence.
@@ -78,9 +80,12 @@ func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
 }
 
 // LaneResult is what a lane's end records: its report, and what only the worker saw.
-// An agent's report cannot set the cost, because it is a separate value.
+// An agent's report cannot set the cost or the branch, because each is a separate value.
 type LaneResult struct {
 	Report
+	// Branch and Head are the final artifact (D17): the branch a member merges, and its commit.
+	Branch           string  `json:"branch,omitempty"`
+	Head             string  `json:"head,omitempty"`
 	CostUSD          float64 `json:"cost_usd,omitempty"`
 	SessionTotalUSD  float64 `json:"session_total_cost_usd,omitempty"`
 	UnknownCostTurns int64   `json:"unknown_cost_turns,omitempty"`

@@ -142,6 +142,9 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"work list":         (*invocation).workList,
 		"work show":         (*invocation).workShow,
 		"work review":       (*invocation).workReview,
+		"work acceptance":   (*invocation).workAcceptance,
+		"work accept":       (*invocation).workAccept,
+		"work rework":       (*invocation).workRework,
 		"work claim":        (*invocation).workClaim,
 		"work release":      (*invocation).workRelease,
 		"work reassign":     (*invocation).workReassign,
@@ -290,7 +293,7 @@ func exitOf(refused *api.Error) int {
 		return ExitFenced
 	case api.CodeLapsed:
 		return ExitLapsed
-	case api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
+	case api.CodeNotAcceptable, api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
 		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit:
 		return ExitConflict
 	case api.CodeInvalid:

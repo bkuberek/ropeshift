@@ -177,6 +177,27 @@ func (c *Client) Review(ctx context.Context, id string) (ReviewResult, error) {
 	return out, err
 }
 
+// Acceptance reads where a work order stands, with what stays linked to it.
+func (c *Client) Acceptance(ctx context.Context, id string) (workorders.AcceptanceView, error) {
+	var out workorders.AcceptanceView
+	err := c.Do(ctx, http.MethodGet, workOrderPath(id, "acceptance"), nil, &out)
+	return out, err
+}
+
+// Accept moves completed work to `done`.
+func (c *Client) Accept(ctx context.Context, id string) (Accepted, error) {
+	var out Accepted
+	err := c.Do(ctx, http.MethodPost, workOrderPath(id, "accept"), struct{}{}, &out)
+	return out, err
+}
+
+// Rework sends completed work back for another attempt.
+func (c *Client) Rework(ctx context.Context, id string, in ReworkRequest) (Accepted, error) {
+	var out Accepted
+	err := c.Do(ctx, http.MethodPost, workOrderPath(id, "rework"), in, &out)
+	return out, err
+}
+
 // StartLane asks the claim's worker to run a lane.
 func (c *Client) StartLane(ctx context.Context, id string, in StartLane) (LaneDispatched, error) {
 	var out LaneDispatched

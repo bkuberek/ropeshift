@@ -7,6 +7,13 @@ type Action string
 
 // The actions a check names.
 const (
+	// ActionAccept accepts work whose criteria a forge covered, so no person need stand behind
+	// it. The tick takes this one.
+	ActionAccept Action = "acceptance.accept"
+	// ActionAcceptLaneChecks accepts work only its lane vouches for, as a second principal.
+	ActionAcceptLaneChecks Action = "acceptance.lane_checks"
+	// ActionAcceptUnchecked accepts a criterion no check maps to. Only a person answers for that.
+	ActionAcceptUnchecked Action = "acceptance.unchecked"
 	ActionAddCategory     Action = "category.add"
 	ActionAnswerQuestion  Action = "question.answer"
 	ActionArchiveLane     Action = "lane.archive"
@@ -24,18 +31,21 @@ const (
 	ActionReassign        Action = "work_order.reassign"
 	ActionRecordDecision  Action = "decision.record"
 	ActionResetLane       Action = "lane.reset"
-	ActionSendBack        Action = "review.send_back"
-	ActionSetPassphrase   Action = "member.set_passphrase"
-	ActionTakeQuestion    Action = "question.take"
+	// ActionRework sends completed work back for another attempt.
+	ActionRework        Action = "acceptance.rework"
+	ActionSendBack      Action = "review.send_back"
+	ActionSetPassphrase Action = "member.set_passphrase"
+	ActionTakeQuestion  Action = "question.take"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
 func Actions() []Action {
 	return []Action{
-		ActionAddCategory, ActionAnswerQuestion, ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken,
-		ActionDecideUnbound, ActionDismissQuestion, ActionDispatchLane, ActionForceArchive, ActionOverturn,
-		ActionPassReview, ActionPublishPolicy, ActionReassign, ActionRecordDecision, ActionResetLane,
-		ActionSendBack, ActionSetPassphrase, ActionTakeQuestion,
+		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAddCategory, ActionAnswerQuestion,
+		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
+		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
+		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRework, ActionSendBack,
+		ActionSetPassphrase, ActionTakeQuestion,
 	}
 }
 
@@ -43,10 +53,11 @@ func Actions() []Action {
 // none of these.
 var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
-		ActionArchiveLane: true, ActionDismissQuestion: true, ActionDispatchLane: true, ActionReassign: true,
-		ActionRecordDecision: true, ActionSendBack: true, ActionTakeQuestion: true,
+		ActionAccept: true, ActionAcceptLaneChecks: true, ActionArchiveLane: true, ActionDismissQuestion: true,
+		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRework: true,
+		ActionSendBack: true, ActionTakeQuestion: true,
 	},
-	ledger.ActorSystem: {ActionCreateJoinToken: true},
+	ledger.ActorSystem: {ActionAccept: true, ActionCreateJoinToken: true, ActionRework: true},
 }
 
 // Allowed is the one authorization function. Every check passes through it. There are no

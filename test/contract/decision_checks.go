@@ -685,7 +685,8 @@ func (r *Rig) Completed(s ports.Store, accepted bool) (string, error) {
 	if !accepted {
 		return id, nil
 	}
-	return id, ops.Move(r.Ctx, r.Scope, id, workorders.TriggerAcceptancePassed, r.Actor)
+	_, err = ops.Accept(r.Ctx, r.Scope, id, r.Actor)
+	return id, err
 }
 
 func checkOverturnSteps(r *Rig) error {

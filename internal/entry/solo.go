@@ -447,6 +447,7 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 	asked := control.NewQuestions(store, batches)
 	intake := control.NewIntake(store)
 	reviews := control.NewReviews(store)
+	accepting := control.NewAcceptances(store)
 	sources := make([]ports.WorkSource, 0, len(opts.sources))
 	for _, path := range opts.sources {
 		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
@@ -465,6 +466,16 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 			Every: opts.leaseTick,
 			Run: func(ctx context.Context) error {
 				_, err := leases.Sweep(ctx, soloScope, tickActor("lease-tick"))
+				return err
+			},
+		},
+		{
+			// No release in phase 1 ships a Forge adapter, so a lane's checks wait for a second
+			// principal (D16). The tick still sends back work with a failed check.
+			Name:  "acceptance",
+			Every: opts.leaseTick,
+			Run: func(ctx context.Context) error {
+				_, err := accepting.Settle(ctx, soloScope, nil, tickActor("acceptance-tick"))
 				return err
 			},
 		},

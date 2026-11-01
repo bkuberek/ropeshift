@@ -73,6 +73,8 @@ type ReadTx interface {
 	Policies() PolicyReader
 	// Measures reads experience records.
 	Measures() MeasureReader
+	// Evidence reads what stays linked to a work order for its acceptance.
+	Evidence() EvidenceReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -115,6 +117,8 @@ type WriteTx interface {
 	Policies() PolicyWriter
 	// Measures reads and writes experience records.
 	Measures() MeasureWriter
+	// Evidence reads and writes what stays linked to a work order for its acceptance.
+	Evidence() EvidenceWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -240,6 +244,24 @@ type LaneWriter interface {
 	RequestArchive(lane string, forced bool) error
 	// Archived records that a lane's worktree went.
 	Archived(lane string) error
+}
+
+// EvidenceReader reads what a work order's lanes left and what its checks said.
+type EvidenceReader interface {
+	// Attempt lists the check results of one attempt, oldest first.
+	Attempt(workOrder string, fence int64) ([]workorders.Evidence, error)
+	// Checks lists every attempt's check results, oldest first.
+	Checks(workOrder string) ([]workorders.Evidence, error)
+	// Artifacts lists what every lane of a work order left, oldest first.
+	Artifacts(workOrder string) ([]ledger.Artifact, error)
+}
+
+// EvidenceWriter writes check results.
+type EvidenceWriter interface {
+	EvidenceReader
+	// Record keeps one check result. The same ID replaces its status and details, because a
+	// forge can run a check again on the same commit.
+	Record(evidence workorders.Evidence) error
 }
 
 // PlanningReader reads what intake recorded.

@@ -126,6 +126,11 @@ func Next(from State, trigger Trigger) (Transition, bool) {
 	return edge, ok
 }
 
+// LeavesAcceptance reports the edges that end a lane's work, which answer to its evidence.
+func LeavesAcceptance(trigger Trigger) bool {
+	return trigger == TriggerAcceptancePassed || trigger == TriggerRework
+}
+
 // TakesNewVersion reports a state whose work has not started, so a new contract version can
 // replace its pin. A lane that started keeps what it pinned, and a later version reaches it
 // as a notice (FR-PLAN-8).

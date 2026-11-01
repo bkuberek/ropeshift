@@ -189,6 +189,26 @@ func (w *Worker) finalGuard(ctx context.Context, record lanes.Record, fenced boo
 	return w.reportGuard(ctx, stored, result)
 }
 
+// finalBranch reads the final artifact, which a member merges (D17). The worker reads it,
+// because it is evidence a session must not write. A worktree it cannot read leaves no branch
+// on record, and the lane still ends.
+func (w *Worker) finalBranch(ctx context.Context, record lanes.Record) (string, string) {
+	stored, err := w.journal.Lane(ctx, record.ID)
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
+		return "", ""
+	}
+	if stored.Worktree == "" {
+		return "", ""
+	}
+	found, err := w.config.Lanes.Provisioner.Worktrees.Inspect(ctx, stored.Worktree)
+	if err != nil {
+		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
+		return "", ""
+	}
+	return found.Branch, found.Head
+}
+
 // reportGuard journals what the ledger should know. A clean stop says nothing.
 func (w *Worker) reportGuard(ctx context.Context, record lanes.Record, result lanes.GuardResult) error {
 	if !result.Unpushed && result.Ref == "" {

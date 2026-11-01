@@ -204,6 +204,7 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workor
 	if err := w.finalGuard(ctx, record, fenced); err != nil {
 		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
 	}
+	result.Branch, result.Head = w.finalBranch(ctx, record)
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return err

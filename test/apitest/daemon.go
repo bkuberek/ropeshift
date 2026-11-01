@@ -20,7 +20,9 @@ import (
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
 // Scope is the workspace of every harness.
@@ -174,4 +176,37 @@ func (d *Daemon) signIn(t testing.TB, identity ports.IdentityProvider) {
 	}
 	d.Session = grant.Token
 	d.Client.UseSession(grant.Token)
+}
+
+// Completed walks a new work order to `acceptance`, as a lane ending with result leaves it.
+func (d *Daemon) Completed(t *testing.T, id string, result workorders.LaneResult) {
+	t.Helper()
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	work := control.LedgerWork{
+		Order:     workorders.WorkOrder{ID: id, Kind: workorders.KindChange, Title: "Add the retry budget", MaxAttempts: 1},
+		Statement: "Add the retry budget.",
+		Criteria:  []planning.Criterion{{ID: "c1", Text: "It retries"}},
+	}
+	ctx := t.Context()
+	if _, err := control.NewWorkOrders(d.Store).Record(ctx, Scope, work, member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.NewReviews(d.Store).Pass(ctx, Scope, id, member); err != nil {
+		t.Fatal(err)
+	}
+	leases := control.NewLeases(d.Store)
+	worker := ledger.Actor{Kind: ledger.ActorWorker, ID: "worker-a"}
+	grant, err := leases.Claim(ctx, Scope, workorders.ClaimRequest{WorkOrder: id, ClaimID: "claim-" + id, Worker: worker.ID, TTLMs: 60_000}, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane := "lane-" + id
+	generation, err := leases.StartLane(ctx, Scope, grant.Lease, lane, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder := workorders.Holder{Lease: grant.Lease, Lane: lane, Generation: generation}
+	if err := leases.EndLane(ctx, Scope, holder, result, worker); err != nil {
+		t.Fatal(err)
+	}
 }

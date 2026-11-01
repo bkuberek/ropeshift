@@ -146,6 +146,9 @@ func crashMatrix() []crashCase {
 		supersedeCase(),
 		ruleCase(),
 		overturnCase(),
+		acceptCase(),
+		reworkCase(),
+		settleCase(),
 		publishPolicyCase(),
 		addCategoryCase(),
 		askCase("question.ask", withSteps("recorded", "attached")),
@@ -394,7 +397,7 @@ func laneEndCase() crashCase {
 	return crashCase{
 		name:  "end a lane",
 		op:    "lane.end",
-		steps: withSteps("ended"),
+		steps: withSteps("ended", "evidence"),
 		prepare: func(w *world) (childSpec, error) {
 			holder, err := w.running(longTTL)
 			return holderSpec("end-lane", holder), err
@@ -403,7 +406,94 @@ func laneEndCase() crashCase {
 			if err := hasState(w, spec.WorkOrder, workorders.Acceptance); err != nil {
 				return err
 			}
+			if err := evidenceHeld(w, spec.WorkOrder, 2, 1); err != nil {
+				return err
+			}
 			return countEvents(w, workorders.EventType(workorders.TriggerLaneCompleted), spec.WorkOrder, 1)
+		},
+	}
+}
+
+// evidenceHeld counts what stayed linked to a work order. An outcome standing without what it
+// rests on is the failure this looks for, and so is one written twice.
+func evidenceHeld(w *world, id string, artifacts, checks int) error {
+	return w.store.Read(w.rig.Ctx, w.rig.Scope, func(tx ports.ReadTx) error {
+		held, err := tx.Evidence().Artifacts(id)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.Evidence().Checks(id)
+		if err != nil {
+			return err
+		}
+		if len(held) != artifacts || len(rows) != checks {
+			return contract.Violatedf("%s holds %d artifacts and %d checks, want %d and %d", id, len(held), len(rows), artifacts, checks)
+		}
+		return nil
+	})
+}
+
+// awaitingWork leaves a work order in `acceptance`, on a lane's own check.
+func awaitingWork(w *world, commit string) (string, error) {
+	return w.rig.Awaiting(w.store, []string{"c1"}, contract.LaneFinished(commit, contract.LaneCheck("c1", true)))
+}
+
+func acceptCase() crashCase {
+	return crashCase{
+		name:  "accept a work order",
+		op:    "acceptance.accept",
+		steps: withSteps("moved"),
+		prepare: func(w *world) (childSpec, error) {
+			id, err := awaitingWork(w, w.rig.ID("commit"))
+			return childSpec{Role: "accept", WorkOrder: id}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := hasState(w, spec.WorkOrder, workorders.Done); err != nil {
+				return err
+			}
+			return countEvents(w, workorders.EventType(workorders.TriggerAcceptancePassed), spec.WorkOrder, 1)
+		},
+	}
+}
+
+func reworkCase() crashCase {
+	return crashCase{
+		name:  "send work back",
+		op:    "acceptance.rework",
+		steps: withSteps("moved"),
+		prepare: func(w *world) (childSpec, error) {
+			id, err := awaitingWork(w, w.rig.ID("commit"))
+			return childSpec{Role: "rework", WorkOrder: id}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := hasState(w, spec.WorkOrder, workorders.Ready); err != nil {
+				return err
+			}
+			return countEvents(w, workorders.EventType(workorders.TriggerRework), spec.WorkOrder, 1)
+		},
+	}
+}
+
+// settleCase kills a tick between keeping a forge's result and acting on it. The two commit
+// together, so a retry reads the forge again and ends with one of each.
+func settleCase() crashCase {
+	return crashCase{
+		name:  "settle on a forge result",
+		op:    "acceptance.settle",
+		steps: withSteps("recorded", "moved"),
+		prepare: func(w *world) (childSpec, error) {
+			commit := w.rig.ID("commit")
+			id, err := w.rig.Awaiting(w.store, []string{"c1"}, contract.LaneFinished(commit))
+			return childSpec{Role: "settle", WorkOrder: id, Key: commit}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := hasState(w, spec.WorkOrder, workorders.Done); err != nil {
+				return err
+			}
+			if err := evidenceHeld(w, spec.WorkOrder, 2, 1); err != nil {
+				return err
+			}
+			return countEvents(w, workorders.EventType(workorders.TriggerAcceptancePassed), spec.WorkOrder, 1)
 		},
 	}
 }

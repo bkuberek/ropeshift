@@ -41,6 +41,9 @@ var childRoles = map[string]func(*child) error{
 	"supersede":         roleSupersede,
 	"rule":              roleRule,
 	"overturn":          roleOverturn,
+	"accept":            roleAccept,
+	"rework":            roleRework,
+	"settle":            roleSettle,
 	"publish-policy":    rolePublishPolicy,
 	"sign-in":           roleSignIn,
 	"deliver":           roleDeliver,
@@ -308,12 +311,39 @@ func roleEndLane(c *child) error {
 	holder := workorders.Holder{
 		Lease: c.lease(), Lane: c.spec.Lane, Generation: c.spec.Generation,
 	}
-	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}}
+	result := contract.LaneFinished("commit-"+c.spec.Lane, contract.LaneCheck("c1", true))
 	err := c.ops.EndLane(c.ctx, c.scope, holder, result, c.actor)
 	var fenced *workorders.FencedError
 	if errors.As(err, &fenced) && fenced.State == workorders.Acceptance {
 		return nil
 	}
+	return err
+}
+
+func roleAccept(c *child) error {
+	_, err := c.ops.Accept(c.ctx, c.scope, c.spec.WorkOrder, c.member())
+	return err
+}
+
+// roleRework counts a retry that finds the work already back.
+func roleRework(c *child) error {
+	_, err := c.ops.Rework(c.ctx, c.scope, c.spec.WorkOrder, "the criteria are not met", c.member())
+	if !errors.Is(err, workorders.ErrIllegalMove) {
+		return err
+	}
+	state, readErr := c.stateOf(c.spec.WorkOrder)
+	if readErr != nil || state != workorders.Ready {
+		return err
+	}
+	return nil
+}
+
+// roleSettle runs one tick on a forge that says the spec's commit passed.
+func roleSettle(c *child) error {
+	forge := &fake.Forge{}
+	forge.Set(c.scope, ports.ForgeRequest{Repository: contract.AcceptanceRepository, Commit: c.spec.Key},
+		ports.ForgeCheck{Name: "ci", Criterion: "c1", Status: workorders.CheckPassed})
+	_, err := c.ops.Settle(c.ctx, c.scope, forge, ledger.Actor{Kind: ledger.ActorSystem, ID: "acceptance-tick"})
 	return err
 }
 

@@ -78,6 +78,15 @@ func (s *session) claimed(id string) {
 	s.must("work", "claim", id, "--worker", "worker-a", "--claim-id", "claim-"+id)
 }
 
+// completed leaves a work order in `acceptance`, as a lane reporting these checks would.
+func (s *session) completed(id string, checks ...workorders.CheckResult) {
+	s.t.Helper()
+	s.daemon.Completed(s.t, id, workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Checks: checks},
+		Branch: "lane/" + id, Head: "abc123",
+	})
+}
+
 func (s *session) fenceOf(id string) string {
 	s.t.Helper()
 	var row workorders.WorkOrder
@@ -128,6 +137,19 @@ func TestExitCodes(t *testing.T) {
 		{"review", func(s *session) { s.create("wo") }, []string{"work", "review", "wo"}, cli.ExitOK},
 		{"review of an absent work order", nil, []string{"work", "review", "absent"}, cli.ExitNotFound},
 		{"review with no id", nil, []string{"work", "review"}, cli.ExitUsage},
+		{"acceptance of completed work", func(s *session) { s.completed("wo") }, []string{"work", "acceptance", "wo"}, cli.ExitOK},
+		{"acceptance of an absent work order", nil, []string{"work", "acceptance", "absent"}, cli.ExitNotFound},
+		{"acceptance with no id", nil, []string{"work", "acceptance"}, cli.ExitUsage},
+		{"accept completed work", func(s *session) { s.completed("wo") }, []string{"work", "accept", "wo"}, cli.ExitOK},
+		{"accept work that is not complete", func(s *session) { s.create("wo") }, []string{"work", "accept", "wo"}, cli.ExitConflict},
+		{"accept with no id", nil, []string{"work", "accept"}, cli.ExitUsage},
+		{
+			"accept over a failed check", func(s *session) { s.completed("wo", workorders.CheckResult{Name: "unit", Criterion: "c1"}) },
+			[]string{"work", "accept", "wo"}, cli.ExitConflict,
+		},
+		{"rework completed work", func(s *session) { s.completed("wo") }, []string{"work", "rework", "wo", "--reason", "it fails"}, cli.ExitOK},
+		{"rework with no reason", func(s *session) { s.completed("wo") }, []string{"work", "rework", "wo"}, cli.ExitUsage},
+		{"rework with no id", nil, []string{"work", "rework", "--reason", "it fails"}, cli.ExitUsage},
 		{
 			"review that the definition of ready refuses",
 			func(s *session) { s.must("work", "create", "--id", "bare", "--title", "No criteria") },

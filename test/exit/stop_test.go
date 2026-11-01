@@ -64,10 +64,19 @@ func TestAStopSavesWorkToTheRemote(t *testing.T) {
 		out, err := cmd.Output()
 		return err == nil && strings.TrimSpace(string(out)) == "work"
 	})
-	in.waitFor("the record of it", func() bool { return len(in.lane("lane-1").Artifacts) == 1 })
+	salvage := func(view ledger.LaneView) []ledger.Artifact {
+		var out []ledger.Artifact
+		for _, artifact := range view.Artifacts {
+			if artifact.Kind == ledger.ArtifactSalvage {
+				out = append(out, artifact)
+			}
+		}
+		return out
+	}
+	in.waitFor("the record of it", func() bool { return len(salvage(in.lane("lane-1"))) == 1 })
 	view := in.lane("lane-1")
-	if view.Artifacts[0].Kind != ledger.ArtifactSalvage || view.Artifacts[0].URI != ref {
-		t.Errorf("artifact %+v", view.Artifacts[0])
+	if salvage(view)[0].URI != ref {
+		t.Errorf("artifacts %+v", view.Artifacts)
 	}
 	if slices.Contains(view.Conditions, "unpushed_work") {
 		t.Errorf("work on the remote reads as unpushed: %v", view.Conditions)
