@@ -50,6 +50,8 @@ type Record struct {
 	Parking *ParkProgress
 	// Blocking names the questions this lane cannot go on without.
 	Blocking []string
+	// RunMode is the mode the lane's session started in, which a resume stays in.
+	RunMode string
 }
 
 // Progress is how far a worker read a session, and what that reading added up to, so an

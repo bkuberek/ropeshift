@@ -87,6 +87,8 @@ type laneRun struct {
 	sessionOver atomic.Bool
 	// resumeFrom is the session a restarted generation continues. Empty starts fresh.
 	resumeFrom string
+	// startedMode is the run mode of the session this lane last started.
+	startedMode string
 	// priorUSD and priorUnknown are what earlier generations cost.
 	priorUSD     float64
 	priorUnknown int64
@@ -130,7 +132,7 @@ func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 // session. A later generation keeps what the earlier ones left.
 func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *laneRun {
 	run := newRun(w, lease)
-	run.generation, run.resumeFrom = record.Generation, record.ResumeSession
+	run.generation, run.resumeFrom, run.startedMode = record.Generation, record.ResumeSession, record.RunMode
 	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
 	run.priorUSD, run.priorUnknown = record.Progress.PriorUSD, record.Progress.PriorUnknown
 	if record.Actual != "" {
@@ -444,6 +446,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	record := r.record()
 	record.TokenDigest, record.Worktree, record.Branch = lanes.TokenDigest(token), prepared.Worktree.Path, prepared.Worktree.Branch
+	record.RunMode = spec.RunMode
 	if err := r.w.journal.SaveLane(ctx, record); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -503,8 +506,9 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 	return handle, err
 }
 
-// spec builds a session from what the worker prepared, and refuses what the driver
-// cannot run before a process starts.
+// spec builds a session from what the worker prepared, and refuses what the driver cannot run
+// before a process starts. A session that goes on stays in the mode it started in, whatever the
+// profile says by now, because a session resumed in the other mode is untested.
 func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository string) (ports.SessionSpec, error) {
 	capabilities, err := r.rt.Driver.Capabilities(ctx)
 	if err != nil {
@@ -514,6 +518,10 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository st
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
+	if r.resumeFrom != "" && r.startedMode != "" {
+		mode = r.startedMode
+	}
+	r.startedMode = mode
 	if !slices.Contains(capabilities.RunModes, mode) {
 		return ports.SessionSpec{}, fmt.Errorf("the driver has no run mode %q", mode)
 	}

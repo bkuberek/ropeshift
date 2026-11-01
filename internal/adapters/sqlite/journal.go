@@ -280,7 +280,7 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
@@ -288,7 +288,7 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var progress, guard, handoff, parking, blocking []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode)
 	if err != nil {
 		return lane, err
 	}
@@ -333,12 +333,13 @@ func (j *Journal) SaveLane(ctx context.Context, lane lanes.Record) error {
 
 func saveLane(ctx context.Context, db execer, lane lanes.Record) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO lanes
-  (id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+  (id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, run_mode)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6,
-  token_digest = ?7, worktree = ?8, branch = ?9, report = coalesce(lanes.report, ?10)`,
+  token_digest = ?7, worktree = ?8, branch = ?9, report = coalesce(lanes.report, ?10),
+  run_mode = coalesce(nullif(?11, ''), lanes.run_mode)`,
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State,
-		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report)
+		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report, lane.RunMode)
 	return err
 }
 

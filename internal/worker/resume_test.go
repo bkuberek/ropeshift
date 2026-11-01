@@ -413,6 +413,42 @@ func TestAResumedLaneAsksAndParksAgain(t *testing.T) {
 	}
 }
 
+// TestANativeResumeStaysInTheRunModeItStartedIn changes a repository's profile while its lane is
+// parked. A session resumed in the other mode is untested, so a native resume keeps its mode, and
+// a fresh session has no such history and takes what the profile says now.
+func TestANativeResumeStaysInTheRunModeItStartedIn(t *testing.T) {
+	const pane, headless = "run_mode = \"tmux\"\n", "run_mode = \"headless\"\n"
+	tests := []struct {
+		name   string
+		native bool
+		want   string
+	}{
+		{"a native resume keeps its mode", true, ports.RunModeInteractive},
+		{"a fresh start reads the profile", false, ports.RunModeHeadless},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var r *handoffRig
+			r = atWorkOn(t, pane+handoffProfile, (*laneRig).toldToGoOn,
+				fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(notCarried) }}, completed(0.02))
+			r.driver.SetNativeResume(tt.native)
+			r.park(t, humanPark())
+			r.awaitOrder(t, workorders.Parked)
+			r.subject.Wait()
+			r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", headless+handoffProfile)
+			r.wake(t)
+			r.resumed(t)
+			specs := r.driver.Specs()
+			if len(specs) != 2 || specs[0].RunMode != ports.RunModeInteractive {
+				t.Fatalf("specs %+v", specs)
+			}
+			if specs[1].RunMode != tt.want {
+				t.Errorf("run mode %q, want %q", specs[1].RunMode, tt.want)
+			}
+		})
+	}
+}
+
 // killedAtResume stands for a kill right after a resume's journal write: the write stands, and
 // nothing that follows it in the run happens.
 type killedAtResume struct {
