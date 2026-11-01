@@ -17,14 +17,13 @@ import (
 // validates, and an agent judges (ADR-0007).
 type Questions struct {
 	store   ports.Store
-	policy  questions.Policy
 	batches questions.BatchPolicy
 }
 
 // NewQuestions returns the use cases over a Store, with how long questions gather for a
 // person.
 func NewQuestions(store ports.Store, batches questions.BatchPolicy) *Questions {
-	return &Questions{store: store, policy: questions.DefaultPolicy(), batches: batches.Filled()}
+	return &Questions{store: store, batches: batches.Filled()}
 }
 
 // RecordQuestion keeps a question as it is, in `open`. The client generates its ID, so a
@@ -108,8 +107,9 @@ func (q *Questions) Dismiss(ctx context.Context, scope ledger.WorkspaceID, id st
 	})
 }
 
-// RecordDecision keeps a decision. The client generates its ID, so a retry returns what the
-// first attempt wrote. A member or an orchestrator decides, and a lane never does.
+// RecordDecision keeps a decision, under the policy in force. The client generates its ID,
+// so a retry returns what the first attempt wrote. A member or an orchestrator decides, and
+// a lane never does.
 func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID, draft questions.Decision, actor ledger.Actor) (questions.Decision, error) {
 	if !authority.Allowed(actor, authority.ActionRecordDecision) {
 		return questions.Decision{}, workorders.ErrForbidden
@@ -128,10 +128,17 @@ func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID
 		if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
+		policy, err := policyInForce(tx)
+		if err != nil {
+			return err
+		}
 		if err := checkCategories(tx.Questions(), record.Categories); err != nil {
 			return err
 		}
-		return insertDecision(tx, record, actor)
+		if err := admit(tx, &record, policy, actor); err != nil {
+			return err
+		}
+		return recordAdmitted(tx, record, actor)
 	})
 	if err != nil {
 		return questions.Decision{}, err
@@ -147,6 +154,9 @@ func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Ac
 		return err
 	}
 	crashpoint.Hit("decision.record", "indexed")
+	if err := writeExperience(tx, record); err != nil {
+		return err
+	}
 	event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, actor)
 	if err != nil {
 		return err

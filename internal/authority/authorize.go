@@ -12,10 +12,15 @@ const (
 	ActionArchiveLane     Action = "lane.archive"
 	ActionChangeFleet     Action = "fleet.change"
 	ActionCreateJoinToken Action = "worker.join_token"
+	// ActionDecideUnbound decides outside the decision policy: a one-way choice, or with no
+	// statement about the decisions it overlaps. Only a person answers for that.
+	ActionDecideUnbound   Action = "decision.unbound"
 	ActionDismissQuestion Action = "question.dismiss"
 	ActionDispatchLane    Action = "lane.dispatch"
 	ActionForceArchive    Action = "lane.force_archive"
+	ActionOverturn        Action = "decision.overturn"
 	ActionPassReview      Action = "review.pass"
+	ActionPublishPolicy   Action = "policy.publish"
 	ActionReassign        Action = "work_order.reassign"
 	ActionRecordDecision  Action = "decision.record"
 	ActionResetLane       Action = "lane.reset"
@@ -28,8 +33,9 @@ const (
 func Actions() []Action {
 	return []Action{
 		ActionAddCategory, ActionAnswerQuestion, ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken,
-		ActionDismissQuestion, ActionDispatchLane, ActionForceArchive, ActionPassReview, ActionReassign,
-		ActionRecordDecision, ActionResetLane, ActionSendBack, ActionSetPassphrase, ActionTakeQuestion,
+		ActionDecideUnbound, ActionDismissQuestion, ActionDispatchLane, ActionForceArchive, ActionOverturn,
+		ActionPassReview, ActionPublishPolicy, ActionReassign, ActionRecordDecision, ActionResetLane,
+		ActionSendBack, ActionSetPassphrase, ActionTakeQuestion,
 	}
 }
 

@@ -103,3 +103,19 @@ func (t *readTx) Members() ports.MemberReader {
 func (t *writeTx) Members() ports.MemberWriter {
 	return memberTx{session: t.session, scope: t.scope}
 }
+
+func (t *readTx) Policies() ports.PolicyReader {
+	return policyTx{session: t.session, scope: t.scope}
+}
+
+func (t *writeTx) Policies() ports.PolicyWriter {
+	return policyTx{session: t.session, scope: t.scope}
+}
+
+func (t *readTx) Measures() ports.MeasureReader {
+	return measureTx{session: t.session, scope: t.scope}
+}
+
+func (t *writeTx) Measures() ports.MeasureWriter {
+	return measureTx{session: t.session, scope: t.scope}
+}

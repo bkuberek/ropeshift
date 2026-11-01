@@ -3,9 +3,12 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/questions"
 )
 
@@ -236,7 +239,7 @@ func (c *invocation) decisionShow(args []string) int {
 func (c *invocation) decisionRecord(args []string) int {
 	set := c.flags()
 	var request api.RecordDecision
-	var categories, citations repeated
+	var categories, citations, noConflict repeated
 	assumed := set.Bool("assumed", false, "record a reversible assumption, not a decision")
 	set.StringVar(&request.ID, "id", "", "a client-generated ID")
 	set.StringVar(&request.Statement, "statement", "", "what was decided")
@@ -244,6 +247,8 @@ func (c *invocation) decisionRecord(args []string) int {
 	set.StringVar(&request.Scope, "scope", "", "what it applies to")
 	set.StringVar(&request.Reversibility, "reversibility", "", "reversible or one_way")
 	set.StringVar(&request.QuestionID, "question", "", "the question it answers")
+	set.StringVar(&request.Supersedes, "supersedes", "", "the decision it replaces, with no rework")
+	set.Var(&noConflict, "no-conflict", "a decision it overlaps and does not conflict with, repeatable")
 	set.Var(&categories, "category", "a category, repeatable")
 	set.Var(&citations, "citation", "what it rests on, repeatable")
 	positional, ok := parse(set, args)
@@ -267,11 +272,116 @@ func (c *invocation) decisionRecord(args []string) int {
 	if *assumed {
 		request.Status = questions.DecisionAssumed
 	}
-	request.Categories, request.Citations = categories, citations
+	request.Categories, request.Citations, request.NoConflict = categories, citations, noConflict
 	client := c.client()
 	defer client.Close()
 	row, err := client.RecordDecision(c.ctx, request)
 	return c.finish(err, row, func() string { return decisionLine(row) })
+}
+
+func (c *invocation) decisionOverturn(args []string) int {
+	set := c.flags()
+	var request api.OverturnDecision
+	var citations repeated
+	set.StringVar(&request.ID, "id", "", "a client-generated ID for the decision that takes its place")
+	set.StringVar(&request.Statement, "statement", "", "what stands now")
+	set.StringVar(&request.Rationale, "rationale", "", "why")
+	set.Var(&citations, "citation", "what it rests on, repeatable")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one decision ID")
+	}
+	if request.Statement == "" {
+		return c.usageError("--statement is required")
+	}
+	if request.ID == "" {
+		id, err := newID()
+		if err != nil {
+			return c.failure(err)
+		}
+		request.ID = id
+	}
+	request.Citations = citations
+	client := c.client()
+	defer client.Close()
+	row, err := client.OverturnDecision(c.ctx, positional[0], request)
+	return c.finish(err, row, func() string {
+		var out strings.Builder
+		out.WriteString(decisionLine(row.Old))
+		out.WriteString(decisionLine(row.New))
+		for _, id := range row.Rework {
+			out.WriteString("rework\t" + id + "\n")
+		}
+		for _, lane := range row.Noticed {
+			out.WriteString("noticed\t" + lane + "\n")
+		}
+		return out.String()
+	})
+}
+
+func policyLine(p authority.PolicyVersion) string {
+	return fmt.Sprintf("%d\t%s\t%s\n", p.Version, p.AuthoredBy, p.Digest)
+}
+
+func (c *invocation) policyList(args []string) int {
+	client, ok, code := c.noArguments(args)
+	if !ok {
+		return code
+	}
+	defer client.Close()
+	rows, err := client.Policies(c.ctx)
+	return c.finish(err, api.PolicyList{Versions: rows}, func() string {
+		var out strings.Builder
+		for _, row := range rows {
+			out.WriteString(policyLine(row))
+		}
+		return out.String()
+	})
+}
+
+func (c *invocation) policyShow(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one version")
+	}
+	version, err := strconv.ParseInt(positional[0], 10, 64)
+	if err != nil {
+		return c.usageError("version %q is not a number", positional[0])
+	}
+	client := c.client()
+	defer client.Close()
+	row, err := client.Policy(c.ctx, version)
+	return c.finish(err, row, func() string { return row.Body })
+}
+
+func (c *invocation) policyPublish(args []string) int {
+	set := c.flags()
+	file := set.String("file", "", "the TOML table to publish")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	if *file == "" {
+		return c.usageError("--file is required")
+	}
+	body, err := os.ReadFile(*file)
+	if err != nil {
+		return c.failure(err)
+	}
+	client := c.client()
+	defer client.Close()
+	row, err := client.PublishPolicy(c.ctx, string(body))
+	return c.finish(err, row, func() string { return policyLine(row) })
 }
 
 func (c *invocation) categoryList(args []string) int {

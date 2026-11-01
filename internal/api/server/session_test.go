@@ -180,6 +180,7 @@ var sessionless = map[string]string{
 	"POST /v1/workers/{id}/heartbeat":  "a worker's credential",
 	"POST /v1/workers/{id}/events":     "a worker's credential",
 	"POST /v1/workers/{id}/ask":        "a worker's credential",
+	"POST /v1/workers/{id}/rulings":    "a worker's credential",
 }
 
 var routeLine = regexp.MustCompile(`mux\.HandleFunc\("((POST|PUT|PATCH|DELETE) ([^"]+))", (.+)\)$`)

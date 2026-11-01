@@ -113,6 +113,7 @@ func refuse(w http.ResponseWriter, status int, detail api.ErrorDetail) {
 func fail(w http.ResponseWriter, err error) {
 	var fenced *workorders.FencedError
 	var protocol *ledger.ProtocolError
+	var overlap *questions.OverlapError
 	switch {
 	case errors.As(err, &fenced):
 		refuse(w, http.StatusConflict, api.ErrorDetail{
@@ -140,6 +141,18 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, questions.ErrResolved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})
+	case errors.As(err, &overlap):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeOverlap, Message: err.Error(), Decisions: overlap.Overlapping})
+	case errors.Is(err, questions.ErrOneWay):
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeOneWay, Message: err.Error()})
+	case errors.Is(err, questions.ErrNotHeld), errors.Is(err, questions.ErrTaken):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeNotHeld, Message: err.Error()})
+	case errors.Is(err, questions.ErrWrongRung):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeWrongRung, Message: err.Error()})
+	case errors.Is(err, questions.ErrAssumptionLimit):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeAssumptionLimit, Message: err.Error()})
+	case errors.Is(err, questions.ErrDecisionEnded):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeDecisionEnded, Message: err.Error()})
 	case errors.Is(err, workorders.ErrForbidden):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: err.Error()})
 	case errors.Is(err, workorders.ErrLost):

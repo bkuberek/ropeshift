@@ -468,6 +468,78 @@ func (s splitAnswer) Answer(ctx context.Context, scope ledger.WorkspaceID, id st
 	}, actor)
 }
 
+// splitOverturn ends a decision in one transaction and writes the rest in another, so a kill
+// between them leaves a reversal with no decision in its place and no rework.
+type splitOverturn struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitOverturn) Overturn(ctx context.Context, scope ledger.WorkspaceID, id string, overturn questions.Overturn, actor ledger.Actor) (questions.Overturned, error) {
+	err := s.store.Write(ctx, scope, "decision.overturn", func(tx ports.WriteTx) error {
+		if _, err := tx.Questions().EndDecision(id, questions.DecisionOverturned); err != nil {
+			return err
+		}
+		record, err := tx.Questions().Decision(id)
+		if err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventDecisionEnded, questions.SubjectDecision, id, record, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil {
+		return questions.Overturned{}, err
+	}
+	crashpoint.Hit("decision.overturn", "split")
+	return questions.Overturned{}, nil
+}
+
+// freeRuling writes a ruling with no policy behind it, which is the path FR-ORCH-5 forbids.
+type freeRuling struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (f freeRuling) Rule(ctx context.Context, scope ledger.WorkspaceID, id string, ruling questions.Ruling, actor ledger.Actor) (questions.Decision, error) {
+	record := questions.Decision{ID: ruling.ID, Status: ruling.Status, Statement: ruling.Statement, QuestionID: id, PolicyVersion: 1}
+	return record, f.store.Write(ctx, scope, "question.rule", func(tx ports.WriteTx) error {
+		if err := tx.Questions().InsertDecision(record); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+}
+
+// freeDecision records what it is given, with no policy behind it.
+type freeDecision struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (f freeDecision) RecordDecision(ctx context.Context, scope ledger.WorkspaceID, draft questions.Decision, actor ledger.Actor) (questions.Decision, error) {
+	draft.PolicyVersion = 1
+	return draft, f.store.Write(ctx, scope, "decision.record", func(tx ports.WriteTx) error {
+		if err := tx.Questions().InsertDecision(draft); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, draft.ID, draft, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+}
+
 // splitDelivery closes a batch in one transaction and writes its interruption in another,
 // so a kill between them loses the one record that counts it.
 type splitDelivery struct {
@@ -995,6 +1067,61 @@ func allVariants() []variant {
 			},
 			check: "crash",
 			crash: func() (crashCase, string) { return answerCase(), "split" },
+		},
+		{
+			name: "an overturn in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitOverturn{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return overturnCase(), "split" },
+		},
+		{
+			name: "a ruling with no policy behind it",
+			ops: func(s ports.Store) contract.Ops {
+				return freeRuling{Ops: contract.RealOps(s), store: s}
+			},
+			check: "D1",
+		},
+		{
+			name: "a decision with no policy behind it",
+			ops: func(s ports.Store) contract.Ops {
+				return freeDecision{Ops: contract.RealOps(s), store: s}
+			},
+			check: "D2",
+		},
+		{
+			name:     "a decision ends twice",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("decision.end", "\n   AND status IN ('assumed', 'decided')", "")},
+			check:    "D19",
+		},
+		{
+			name:     "an outcome fills twice",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("experience.outcome", "\n   AND outcome IS NULL", "")},
+			check:    "D19",
+		},
+		{
+			name: "a policy version is written over",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("policy.insert",
+				"DO NOTHING", "DO UPDATE SET body = EXCLUDED.body")},
+			check: "D14",
+		},
+		{
+			name: "a decision keeps no policy version",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("decision.insert",
+				":question_id, :policy_version,", ":question_id, 0 * :policy_version,")},
+			check: "D4",
+		},
+		{
+			name:     "a replaced decision stays in force",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("decision.end", "SET status = :status", "SET status = status")},
+			check:    "D11",
+		},
+		{
+			name: "an overlap misses a wider scope",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("decision.overlapping",
+				"\n     OR substr(CAST(:scope AS TEXT), 1, length(d.scope) + 1) = d.scope || '/'", "")},
+			check: "D10",
 		},
 		{
 			name: "a delivery and its interruption in two transactions",

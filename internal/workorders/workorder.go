@@ -75,6 +75,10 @@ type WorkOrder struct {
 	Rev             int64             `json:"rev,omitempty"`
 }
 
+// Completed reports a state past its lane's work: the work is waiting for acceptance or was
+// accepted.
+func (s State) Completed() bool { return s == Acceptance || s == Done }
+
 // ErrInvalid marks a work order the ledger must not accept.
 var ErrInvalid = errors.New("invalid work order")
 
@@ -91,6 +95,16 @@ func New(draft WorkOrder) (WorkOrder, error) {
 	}
 	draft.State = Intake
 	return draft, nil
+}
+
+// NewRework is the work that follows a completed work order when something it rested on
+// changed. It keeps what the first one needs and pins contractVersion, and it starts fresh.
+func NewRework(id string, of WorkOrder, title string, contractVersion int64) (WorkOrder, error) {
+	return New(WorkOrder{
+		ID: id, Kind: KindRework, Title: title, RepositoryID: of.RepositoryID, Priority: of.Priority, Size: of.Size,
+		Requirements: of.Requirements, Needs: of.Needs, ContractID: of.ContractID, ContractVersion: contractVersion,
+		ReworkOf: of.ID, MaxAttempts: of.MaxAttempts,
+	})
 }
 
 // CreatedEvent is the event that records a new work order.

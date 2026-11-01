@@ -38,6 +38,10 @@ var childRoles = map[string]func(*child) error{
 	"send-back":         roleSendBack,
 	"record-question":   roleRecordQuestion,
 	"record-decision":   roleRecordDecision,
+	"supersede":         roleSupersede,
+	"rule":              roleRule,
+	"overturn":          roleOverturn,
+	"publish-policy":    rolePublishPolicy,
 	"sign-in":           roleSignIn,
 	"deliver":           roleDeliver,
 	"answer":            roleAnswer,
@@ -123,6 +127,35 @@ func roleRecordQuestion(c *child) error {
 func roleRecordDecision(c *child) error {
 	draft := questions.Decision{ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "The retry budget is three calls."}
 	_, err := c.ops.RecordDecision(c.ctx, c.scope, draft, c.member())
+	return err
+}
+
+// roleSupersede replaces the decision ClaimID names.
+func roleSupersede(c *child) error {
+	draft := questions.Decision{
+		ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "The retry budget is four calls.",
+		Scope: c.spec.Key, Supersedes: c.spec.ClaimID,
+	}
+	_, err := c.ops.RecordDecision(c.ctx, c.scope, draft, c.member())
+	return err
+}
+
+func roleRule(c *child) error {
+	ruling := contract.RulingOf(c.spec.ClaimID, questions.DecisionDecided)
+	ruling.Scope = c.spec.ClaimID
+	_, err := c.ops.Rule(c.ctx, c.scope, c.spec.Key, ruling, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: contract.RungHolder})
+	return err
+}
+
+func roleOverturn(c *child) error {
+	_, err := c.ops.Overturn(c.ctx, c.scope, c.spec.Key, questions.Overturn{
+		DecisionID: c.spec.ClaimID, Statement: "Retries log at warn.", Rationale: "A person read the logs.",
+	}, c.member())
+	return err
+}
+
+func rolePublishPolicy(c *child) error {
+	_, err := c.ops.PublishPolicy(c.ctx, c.scope, contract.NextPolicy(c.spec.Generation), c.member())
 	return err
 }
 

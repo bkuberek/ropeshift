@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/questions"
 )
 
@@ -64,6 +65,26 @@ type RecordDecision struct {
 	Categories    []string                 `json:"categories,omitempty"`
 	Supersedes    string                   `json:"supersedes,omitempty"`
 	QuestionID    string                   `json:"question_id,omitempty"`
+	NoConflict    []string                 `json:"no_conflict,omitempty"`
+}
+
+// OverturnDecision is a member's reversal. ID names the decision that takes its place, and
+// the client generates it, so a retry finds what the first attempt wrote.
+type OverturnDecision struct {
+	ID        string   `json:"id"`
+	Statement string   `json:"statement"`
+	Rationale string   `json:"rationale,omitempty"`
+	Citations []string `json:"citations,omitempty"`
+}
+
+// PolicyList is every version of the decision policy, newest first.
+type PolicyList struct {
+	Versions []authority.PolicyVersion `json:"versions"`
+}
+
+// PublishPolicy is a new version of the decision policy, as its table is written.
+type PublishPolicy struct {
+	Body string `json:"body"`
 }
 
 // AnswerQuestion is a member's answer. ID names the decision it becomes, and the client
@@ -165,6 +186,34 @@ func (c *Client) Decision(ctx context.Context, id string) (questions.Decision, e
 func (c *Client) RecordDecision(ctx context.Context, in RecordDecision) (questions.Decision, error) {
 	var out questions.Decision
 	err := c.Do(ctx, http.MethodPost, "/v1/decisions", in, &out)
+	return out, err
+}
+
+// OverturnDecision reverses a decision, with what takes its place.
+func (c *Client) OverturnDecision(ctx context.Context, id string, in OverturnDecision) (questions.Overturned, error) {
+	var out questions.Overturned
+	err := c.Do(ctx, http.MethodPost, "/v1/decisions/"+url.PathEscape(id)+"/overturn", in, &out)
+	return out, err
+}
+
+// Policies lists the versions of the decision policy.
+func (c *Client) Policies(ctx context.Context) ([]authority.PolicyVersion, error) {
+	var out PolicyList
+	err := c.Do(ctx, http.MethodGet, "/v1/policies", nil, &out)
+	return out.Versions, err
+}
+
+// Policy reads one version of the decision policy.
+func (c *Client) Policy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
+	var out authority.PolicyVersion
+	err := c.Do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10), nil, &out)
+	return out, err
+}
+
+// PublishPolicy records a new version of the decision policy.
+func (c *Client) PublishPolicy(ctx context.Context, body string) (authority.PolicyVersion, error) {
+	var out authority.PolicyVersion
+	err := c.Do(ctx, http.MethodPost, "/v1/policies", PublishPolicy{Body: body}, &out)
 	return out, err
 }
 

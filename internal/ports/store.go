@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/measures"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -68,6 +69,10 @@ type ReadTx interface {
 	Questions() QuestionReader
 	// Members reads who can sign in and who has.
 	Members() MemberReader
+	// Policies reads policy versions.
+	Policies() PolicyReader
+	// Measures reads experience records.
+	Measures() MeasureReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -106,6 +111,10 @@ type WriteTx interface {
 	Questions() QuestionWriter
 	// Members reads and writes who can sign in and who has.
 	Members() MemberWriter
+	// Policies reads and writes policy versions.
+	Policies() PolicyWriter
+	// Measures reads and writes experience records.
+	Measures() MeasureWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -333,6 +342,14 @@ type QuestionReader interface {
 	Decision(id string) (questions.Decision, error)
 	// Decisions returns the decisions a filter selects.
 	Decisions(filter RecordFilter) ([]questions.Decision, error)
+	// AnsweredBy returns the questions one decision answered.
+	AnsweredBy(decision string) ([]questions.Question, error)
+	// Overlapping returns the decisions in force whose scope overlaps one, by ID.
+	Overlapping(scope string) ([]questions.Decision, error)
+	// Assumptions counts the open assumptions about one work order.
+	Assumptions(workOrder string) (int64, error)
+	// Notices returns what one decision's end told lanes, or every notice for an empty ID.
+	Notices(decision string) ([]questions.Notice, error)
 	// Categories returns the categories this workspace added.
 	Categories() ([]string, error)
 	// Batch returns one batch, or ErrNotFound.
@@ -365,6 +382,11 @@ type QuestionWriter interface {
 	Take(id, holder string, ttlMs int64) (bool, error)
 	// InsertDecision adds a decision.
 	InsertDecision(questions.Decision) error
+	// EndDecision is the compare-and-set that ends a decision in force, so a decision ends
+	// once. It reports whether the row matched.
+	EndDecision(id string, status questions.DecisionStatus) (bool, error)
+	// Notice tells a lane once, and reports whether it was new.
+	Notice(questions.Notice) (bool, error)
 	// AddCategory adds a category and reports whether it was new.
 	AddCategory(name string) (bool, error)
 	// InsertBatch adds a batch that gathers.
@@ -375,6 +397,42 @@ type QuestionWriter interface {
 	// CloseBatch is the compare-and-set that ends an open batch, so a batch reaches its end
 	// once. It reports whether the row matched.
 	CloseBatch(id string, status questions.BatchStatus, deliveredAt int64) (bool, error)
+}
+
+// PolicyReader reads policy versions.
+type PolicyReader interface {
+	// InForce returns the newest version of a kind, or ErrNotFound for a workspace that has
+	// none yet.
+	InForce(kind authority.PolicyKind) (authority.PolicyVersion, error)
+	// Version returns one version, or ErrNotFound.
+	Version(kind authority.PolicyKind, version int64) (authority.PolicyVersion, error)
+	// Versions returns every version of a kind, newest first.
+	Versions(kind authority.PolicyKind) ([]authority.PolicyVersion, error)
+}
+
+// PolicyWriter writes policy versions. A version never changes once it is written.
+type PolicyWriter interface {
+	PolicyReader
+	// Insert adds a version and reports whether it was new.
+	Insert(authority.PolicyVersion) (bool, error)
+}
+
+// MeasureReader reads experience records.
+type MeasureReader interface {
+	// Experience returns the record of one subject, or ErrNotFound.
+	Experience(subjectKind, subjectID string) (measures.Experience, error)
+	// Experiences returns every record, by ID.
+	Experiences() ([]measures.Experience, error)
+}
+
+// MeasureWriter writes experience records.
+type MeasureWriter interface {
+	MeasureReader
+	// InsertExperience adds a record with no outcome.
+	InsertExperience(measures.Experience) error
+	// FillOutcome is the compare-and-set that fills a record's outcome, so it is filled
+	// once. It reports whether the row matched.
+	FillOutcome(subjectKind, subjectID string, outcome measures.Outcome, at int64) (bool, error)
 }
 
 // MemberReader reads who can sign in and who has.

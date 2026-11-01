@@ -28,6 +28,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workers/{id}/watch", h.watch)
 	mux.HandleFunc("POST /v1/workers/{id}/events", h.events)
 	mux.HandleFunc("POST /v1/workers/{id}/ask", h.workerAsk)
+	mux.HandleFunc("POST /v1/workers/{id}/rulings", h.workerRule)
 }
 
 func bearer(r *http.Request) string {
@@ -204,6 +205,22 @@ func (h *handler) workerAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, result)
+}
+
+// workerRule is how an orchestrator's rung 3 or 4 reaches the ledger: through its worker,
+// which proves itself, and which the control plane holds to the policy in force.
+func (h *handler) workerRule(w http.ResponseWriter, r *http.Request) {
+	var in questions.WorkerRuling
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	record, err := h.workers.Rule(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, record)
 }
 
 func (h *handler) archiveLane(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {

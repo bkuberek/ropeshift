@@ -98,6 +98,13 @@ func (c *Client) Ask(ctx context.Context, worker string, in questions.LaneAsk) (
 	return out, err
 }
 
+// Rule carries what a worker's orchestrator decided or assumed.
+func (c *Client) Rule(ctx context.Context, worker string, in questions.WorkerRuling) (questions.Decision, error) {
+	var out questions.Decision
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "rulings"), in, &out)
+	return out, err
+}
+
 // Upload sends one batch of events.
 func (c *Client) Upload(ctx context.Context, worker string, in ledger.UploadBatch) (ledger.UploadReply, error) {
 	var out ledger.UploadReply

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"slices"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/measures"
 )
 
 // The categories every workspace has. A workspace can add its own, and it cannot remove
@@ -58,6 +60,9 @@ const (
 	DecisionReplaced   DecisionStatus = "replaced"
 )
 
+// InForce reports a decision that still stands.
+func (s DecisionStatus) InForce() bool { return s == DecisionAssumed || s == DecisionDecided }
+
 // The reversibility of a decision.
 const (
 	Reversible = "reversible"
@@ -83,6 +88,7 @@ const (
 	SubjectQuestion = "question"
 	SubjectDecision = "decision"
 	SubjectCategory = "category"
+	SubjectPolicy   = "policy"
 )
 
 // The events that record questions and decisions. Each holds the whole record, so a replay
@@ -91,7 +97,11 @@ const (
 	EventQuestionChanged  = "question.changed"
 	EventQuestionAttached = "question.attached"
 	EventDecisionRecorded = "decision.recorded"
+	EventDecisionEnded    = "decision.ended"
+	EventDecisionNoticed  = "decision.noticed"
+	EventOutcomeFilled    = "experience.outcome"
 	EventCategoryAdded    = "category.added"
+	EventPolicyPublished  = "policy.published"
 )
 
 // Errors of the question use cases.
@@ -154,6 +164,10 @@ type Decision struct {
 	Supersedes    string         `json:"supersedes,omitempty"`
 	QuestionID    string         `json:"question_id,omitempty"`
 	PolicyVersion int64          `json:"policy_version,omitempty"`
+	// Overlaps names the decisions in force with an overlapping scope when this one was
+	// recorded, and NoConflict those its author judged compatible.
+	Overlaps   []string `json:"overlaps,omitempty"`
+	NoConflict []string `json:"no_conflict,omitempty"`
 }
 
 // maxCategoryName bounds a name a person has to read in a list.
@@ -237,16 +251,28 @@ type Book struct {
 	Decisions   map[string]Decision
 	Categories  map[string]bool
 	Batches     map[string]Batch
+	Notices     map[string]Notice
+	Outcomes    map[string]measures.Outcome
+	Policies    map[string]authority.PolicyVersion
 }
 
 // AttachmentKey identifies an attachment in a Book.
 func AttachmentKey(question, lane string) string { return question + "/" + lane }
+
+// NoticeKey identifies a notice in a Book.
+func NoticeKey(decision, lane string) string { return decision + "/" + lane }
+
+// PolicyKey identifies a policy version in a Book.
+func PolicyKey(kind authority.PolicyKind, version int64) string {
+	return fmt.Sprintf("%s/%d", kind, version)
+}
 
 // Replay rebuilds questions and decisions from events, in revision order.
 func Replay(events []ledger.Event) (Book, error) {
 	book := Book{
 		Questions: map[string]Question{}, Attachments: map[string]Attachment{},
 		Decisions: map[string]Decision{}, Categories: map[string]bool{}, Batches: map[string]Batch{},
+		Notices: map[string]Notice{}, Outcomes: map[string]measures.Outcome{}, Policies: map[string]authority.PolicyVersion{},
 	}
 	for _, e := range events {
 		if err := book.apply(e); err != nil {
@@ -270,12 +296,30 @@ func (b Book) apply(e ledger.Event) error {
 			return err
 		}
 		b.Attachments[AttachmentKey(attachment.QuestionID, attachment.Lane)] = attachment
-	case EventDecisionRecorded:
+	case EventDecisionRecorded, EventDecisionEnded:
 		var decision Decision
 		if err := json.Unmarshal(e.Data, &decision); err != nil {
 			return err
 		}
 		b.Decisions[decision.ID] = decision
+	case EventDecisionNoticed:
+		var notice Notice
+		if err := json.Unmarshal(e.Data, &notice); err != nil {
+			return err
+		}
+		b.Notices[NoticeKey(notice.DecisionID, notice.Lane)] = notice
+	case EventOutcomeFilled:
+		var outcome measures.Outcome
+		if err := json.Unmarshal(e.Data, &outcome); err != nil {
+			return err
+		}
+		b.Outcomes[e.Subject.ID] = outcome
+	case EventPolicyPublished:
+		var version authority.PolicyVersion
+		if err := json.Unmarshal(e.Data, &version); err != nil {
+			return err
+		}
+		b.Policies[PolicyKey(version.Kind, version.Version)] = version
 	case EventCategoryAdded:
 		b.Categories[e.Subject.ID] = true
 	case EventBatchChanged:

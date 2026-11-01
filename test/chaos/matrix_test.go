@@ -143,6 +143,10 @@ func crashMatrix() []crashCase {
 		sendBackCase(),
 		recordQuestionCase("indexed"),
 		recordDecisionCase(),
+		supersedeCase(),
+		ruleCase(),
+		overturnCase(),
+		publishPolicyCase(),
 		addCategoryCase(),
 		askCase("question.ask", withSteps("recorded", "attached")),
 		askCase("question.record", []string{"indexed"}),
@@ -685,6 +689,145 @@ func recordDecisionCase() crashCase {
 				return err
 			}
 			return findable(w, questions.KindDecision, spec.Key)
+		},
+	}
+}
+
+// supersedeCase kills a decision that replaces another. It must leave the old one in force
+// with no new one, or both done.
+func supersedeCase() crashCase {
+	return crashCase{
+		name:  "replace a decision",
+		op:    "decision.record",
+		steps: []string{"replaced"},
+		prepare: func(w *world) (childSpec, error) {
+			old, err := w.rig.Assumed(w.store, w.rig.ID("Which log level do retries use"), "")
+			if err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "supersede", Key: w.rig.ID("d"), ClaimID: old.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, questions.EventDecisionEnded, spec.ClaimID, 1); err != nil {
+				return err
+			}
+			return decisionIs(w, spec.ClaimID, questions.DecisionReplaced)
+		},
+	}
+}
+
+func decisionIs(w *world, id string, want questions.DecisionStatus) error {
+	return w.store.Read(w.rig.Ctx, w.rig.Scope, func(tx ports.ReadTx) error {
+		row, err := tx.Questions().Decision(id)
+		if err != nil {
+			return err
+		}
+		if row.Status != want {
+			return contract.Violatedf("decision %s is %s, want %s", id, row.Status, want)
+		}
+		return nil
+	})
+}
+
+// ruleCase kills rung 3. It must leave an open question with no decision, or an answered one.
+func ruleCase() crashCase {
+	return crashCase{
+		name:  "decide on rung 3",
+		op:    "question.rule",
+		steps: withSteps("decided"),
+		prepare: func(w *world) (childSpec, error) {
+			id, _, err := w.rig.OnRung(w.store, w.rig.ID("What is the retry budget"), questions.RungDecide, nil)
+			if err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "rule", Key: id, ClaimID: w.rig.ID("d")}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := w.questionIs(spec.Key, questions.StatusAnswered, ""); err != nil {
+				return err
+			}
+			return countEvents(w, questions.EventDecisionRecorded, spec.ClaimID, 1)
+		},
+	}
+}
+
+// overturnCase kills an overturn at each of its five steps. Nothing may stand half done, and
+// the retry must finish with one of everything.
+func overturnCase() crashCase {
+	return crashCase{
+		name:  "overturn a decision",
+		op:    "decision.overturn",
+		steps: withSteps("overturned", "succeeded", "reworked", "noticed", "measured"),
+		prepare: func(w *world) (childSpec, error) {
+			done, err := w.rig.Completed(w.store, true)
+			if err != nil {
+				return childSpec{}, err
+			}
+			old, err := w.rig.Assumed(w.store, w.rig.ID("Which log level do retries use"), done)
+			if err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "overturn", Key: old.ID, ClaimID: w.rig.ID("d"), WorkOrder: done}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := decisionIs(w, spec.Key, questions.DecisionOverturned); err != nil {
+				return err
+			}
+			for eventType, subject := range map[string]string{
+				questions.EventDecisionEnded:    spec.Key,
+				questions.EventDecisionRecorded: spec.ClaimID,
+				questions.EventOutcomeFilled:    spec.Key,
+			} {
+				if err := countEvents(w, eventType, subject, 1); err != nil {
+					return err
+				}
+			}
+			return reworkOnce(w, spec.WorkOrder)
+		},
+	}
+}
+
+func reworkOnce(w *world, of string) error {
+	return w.store.Read(w.rig.Ctx, w.rig.Scope, func(tx ports.ReadTx) error {
+		rows, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		found := 0
+		for _, row := range rows {
+			if row.ReworkOf == of {
+				found++
+			}
+		}
+		if found != 1 {
+			return contract.Violatedf("%d rework orders of %s", found, of)
+		}
+		return nil
+	})
+}
+
+// publishPolicyCase names the next version, so each kill publishes a new one.
+func publishPolicyCase() crashCase {
+	return crashCase{
+		name:  "publish a policy",
+		op:    "policy.publish",
+		steps: withSteps("inserted"),
+		prepare: func(w *world) (childSpec, error) {
+			versions, err := w.rig.NewOps(w.store).PolicyVersions(w.rig.Ctx, w.rig.Scope)
+			if err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "publish-policy", Generation: versions[0].Version + 1}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			versions, err := w.rig.NewOps(w.store).PolicyVersions(w.rig.Ctx, w.rig.Scope)
+			if err != nil {
+				return err
+			}
+			if versions[0].Version != spec.Generation {
+				return contract.Violatedf("version %d is in force, want %d", versions[0].Version, spec.Generation)
+			}
+			return nil
 		},
 	}
 }

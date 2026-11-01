@@ -7,8 +7,10 @@ import (
 	"sync"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/measures"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -192,8 +194,81 @@ func (r *Rig) CheckQuestions(s ports.Store) error {
 		if len(added) != len(book.Categories) {
 			return Violatedf("%d categories, the log replays to %d", len(added), len(book.Categories))
 		}
-		return nil
+		if err := checkPoliciesReplay(tx, book); err != nil {
+			return err
+		}
+		return checkDecisionsStand(tx, decisions, book)
 	})
+}
+
+// checkPoliciesReplay compares every policy version with the log, and each with its digest.
+func checkPoliciesReplay(tx ports.ReadTx, book questions.Book) error {
+	versions, err := tx.Policies().Versions(authority.PolicyDecision)
+	if err != nil {
+		return err
+	}
+	if len(versions) != len(book.Policies) {
+		return Violatedf("%d policy versions, the log replays to %d", len(versions), len(book.Policies))
+	}
+	for _, version := range versions {
+		if book.Policies[questions.PolicyKey(version.Kind, version.Version)] != version {
+			return Violatedf("policy version %d disagrees with its log", version.Version)
+		}
+		if err := version.CheckDigest(); err != nil {
+			return Violatedf("%v", err)
+		}
+	}
+	return nil
+}
+
+// checkDecisionsStand proves the records around a decision commit with it: its experience
+// record, the version it names, and for an overturned one the rest of its five steps.
+func checkDecisionsStand(tx ports.ReadTx, rows []questions.Decision, book questions.Book) error {
+	notices, err := tx.Questions().Notices("")
+	if err != nil {
+		return err
+	}
+	if len(notices) != len(book.Notices) {
+		return Violatedf("%d notices, the log replays to %d", len(notices), len(book.Notices))
+	}
+	successors := map[string]int{}
+	for _, row := range rows {
+		if row.Supersedes != "" {
+			successors[row.Supersedes]++
+		}
+	}
+	for _, row := range rows {
+		experience, err := tx.Measures().Experience(measures.SubjectDecision, row.ID)
+		if err != nil {
+			return Violatedf("decision %s has no experience record: %v", row.ID, err)
+		}
+		if row.PolicyVersion == 0 || experience.PolicyVersion != row.PolicyVersion {
+			return Violatedf("decision %s names version %d, its record %d", row.ID, row.PolicyVersion, experience.PolicyVersion)
+		}
+		if row.Status != questions.DecisionOverturned {
+			if experience.Outcome != nil {
+				return Violatedf("decision %s has an outcome and is %s", row.ID, row.Status)
+			}
+			continue
+		}
+		if successors[row.ID] != 1 {
+			return Violatedf("overturned decision %s has %d successors", row.ID, successors[row.ID])
+		}
+		logged, ok := book.Outcomes[row.ID]
+		if !ok || experience.Outcome == nil || !slices.Equal(logged.ReworkWorkOrders, experience.Outcome.ReworkWorkOrders) {
+			return Violatedf("overturned decision %s has outcome %+v, the log %+v", row.ID, experience.Outcome, logged)
+		}
+		for _, id := range experience.Outcome.ReworkWorkOrders {
+			order, err := tx.WorkOrders().Get(id)
+			if err != nil {
+				return Violatedf("overturned decision %s names rework %s: %v", row.ID, id, err)
+			}
+			if order.Kind != workorders.KindRework || order.ReworkOf == "" {
+				return Violatedf("rework %+v links to nothing", order)
+			}
+		}
+	}
+	return nil
 }
 
 func checkQuestionRecords(r *Rig) error {
@@ -1181,7 +1256,10 @@ func checkDecisionActors(r *Rig) error {
 		}
 	}
 	for _, kind := range []ledger.ActorKind{ledger.ActorMember, ledger.ActorOrchestrator} {
-		draft := questions.Decision{ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Three."}
+		draft := questions.Decision{
+			ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Three.", Rationale: "It follows.",
+			Citations: []string{"PAY-12"}, Scope: string(kind), Reversibility: questions.Reversible,
+		}
 		if _, err := ops.RecordDecision(r.Ctx, r.Scope, draft, ledger.Actor{Kind: kind, ID: "someone"}); err != nil {
 			return Violatedf("a %s could not decide: %v", kind, err)
 		}

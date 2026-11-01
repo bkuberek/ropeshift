@@ -29,6 +29,18 @@ const (
 	CodeResolved = "resolved"
 	// CodeNotEnrolled means nobody can sign in, because no passphrase is set.
 	CodeNotEnrolled = "not_enrolled"
+	// CodeOneWay means a one-way choice belongs to a human.
+	CodeOneWay = "one_way"
+	// CodeNotHeld means the caller does not hold the question it worked.
+	CodeNotHeld = "not_held"
+	// CodeWrongRung means a ruling does not belong to the rung its question stands on.
+	CodeWrongRung = "wrong_rung"
+	// CodeAssumptionLimit means a work order holds all the assumptions the policy allows.
+	CodeAssumptionLimit = "assumption_limit"
+	// CodeOverlap means a decision has not said how it stands to the decisions it overlaps.
+	CodeOverlap = "overlap"
+	// CodeDecisionEnded means a decision was already overturned or replaced.
+	CodeDecisionEnded = "decision_ended"
 )
 
 // ErrorBody is every error response.
@@ -47,6 +59,8 @@ type ErrorDetail struct {
 	Worker int `json:"worker_protocol,omitempty"`
 	Oldest int `json:"oldest_protocol,omitempty"`
 	Newest int `json:"newest_protocol,omitempty"`
+	// Decisions names the decisions an overlap refusal asks about.
+	Decisions []string `json:"decisions,omitempty"`
 }
 
 // Health answers only after the server read the store.

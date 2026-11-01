@@ -593,6 +593,63 @@ func (s *session) deliveredBatch(id, category string) {
 	}
 }
 
+func TestPolicyCommands(t *testing.T) {
+	s := newSession(t)
+	if text := s.must("policy", "list"); !strings.Contains(text, "1\tbuilt-in\tsha256:") {
+		t.Fatalf("policy list %q", text)
+	}
+	if text := s.must("policy", "show", "1"); text != questions.BuiltInPolicyBody {
+		t.Fatalf("policy show %q", text)
+	}
+	file := filepath.Join(t.TempDir(), "decision-policy.toml")
+	body := strings.Replace(questions.BuiltInPolicyBody, "version = 1", "version = 2", 1)
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if text := s.must("policy", "publish", "--file", file); !strings.HasPrefix(text, "2\tmember") {
+		t.Fatalf("policy publish %q", text)
+	}
+	if text := s.must("policy", "show", "2"); text != body {
+		t.Fatalf("policy show %q", text)
+	}
+	if code, _, _ := s.run("policy", "show", "9"); code != cli.ExitNotFound {
+		t.Fatalf("exit %d for a version nobody wrote", code)
+	}
+	if code, _, _ := s.run("policy", "publish"); code != cli.ExitUsage {
+		t.Fatalf("exit %d with no file", code)
+	}
+}
+
+func TestDecisionOverturn(t *testing.T) {
+	s := newSession(t)
+	s.must("decision", "record", "--id", "d1", "--statement", "Retries log at info.", "--assumed", "--scope", "checkout")
+	second := s.must("decision", "record", "--id", "d2", "--statement", "Retries emit a metric.", "--scope", "checkout",
+		"--no-conflict", "d1", "--json")
+	if !strings.Contains(second, `"overlaps":["d1"]`) || !strings.Contains(second, `"no_conflict":["d1"]`) {
+		t.Fatalf("decision record %q", second)
+	}
+	text := s.must("decision", "overturn", "d1", "--id", "d3", "--statement", "Retries log at warn.")
+	for _, want := range []string{"d1\toverturned", "d3\tdecided"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("overturn %q lacks %q", text, want)
+		}
+	}
+	if text := s.must("decision", "show", "d1"); !strings.Contains(text, "overturned\tcheckout\tRetries log at info.") {
+		t.Errorf("the overturned decision reads %q", text)
+	}
+	if code, _, _ := s.run("decision", "overturn", "d1", "--statement", "Again."); code != cli.ExitConflict {
+		t.Errorf("exit %d for a second overturn", code)
+	}
+	if code, _, _ := s.run("decision", "overturn", "d2"); code != cli.ExitUsage {
+		t.Errorf("exit %d with no statement", code)
+	}
+	s.must("decision", "record", "--id", "d4", "--statement", "Replaced.", "--scope", "other")
+	s.must("decision", "record", "--id", "d5", "--statement", "Replacing.", "--scope", "other", "--supersedes", "d4")
+	if text := s.must("decision", "show", "d4"); !strings.Contains(text, "replaced") {
+		t.Errorf("the replaced decision reads %q", text)
+	}
+}
+
 func TestQuestionBatches(t *testing.T) {
 	s := newSession(t)
 	if text := s.must("question", "batches"); text != "" {

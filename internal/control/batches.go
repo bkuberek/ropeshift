@@ -184,7 +184,17 @@ func (q *Questions) Answer(ctx context.Context, scope ledger.WorkspaceID, id str
 		if !question.Status.Unresolved() {
 			return fmt.Errorf("%w: %s", questions.ErrResolved, question.Status)
 		}
+		policy, err := policyInForce(tx)
+		if err != nil {
+			return err
+		}
 		record.Categories, record.Scope = question.Categories, question.SubjectID
+		if question.EscalationReason == questions.ReasonOneWay || !policy.MayDecide(question) {
+			record.Reversibility = questions.OneWay
+		}
+		if err := admit(tx, &record, policy, actor); err != nil {
+			return err
+		}
 		if err := insertDecision(tx, record, actor); err != nil {
 			return err
 		}

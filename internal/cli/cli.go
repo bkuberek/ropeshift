@@ -54,6 +54,10 @@ const usage = `usage: ropeshift <command>
                                                      find decisions
   decision show <id>                                 show one decision
   decision record --statement S [flags]              record a decision
+  decision overturn <id> --statement S [flags]       reverse a decision, which creates rework
+  policy list                                        list the versions of the decision policy
+  policy show <version>                              show one version as it was written
+  policy publish --file F                            publish a new version
   category list                                      list the workspace's categories
   category add <name>                                add a category
   search <words> [--kind K]... [--limit N]           rank candidates for a question
@@ -84,7 +88,7 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
-		"question", "decision", "category", "search", "login", "passphrase":
+		"question", "decision", "policy", "category", "search", "login", "passphrase":
 		return true
 	}
 	return false
@@ -158,6 +162,10 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"decision list":     (*invocation).decisionList,
 		"decision show":     (*invocation).decisionShow,
 		"decision record":   (*invocation).decisionRecord,
+		"decision overturn": (*invocation).decisionOverturn,
+		"policy list":       (*invocation).policyList,
+		"policy show":       (*invocation).policyShow,
+		"policy publish":    (*invocation).policyPublish,
 		"category list":     (*invocation).categoryList,
 		"category add":      (*invocation).categoryAdd,
 		"lane start":        (*invocation).laneStart,
@@ -276,13 +284,14 @@ func exitOf(refused *api.Error) int {
 	switch refused.Detail.Code {
 	case api.CodeNotFound:
 		return ExitNotFound
-	case api.CodeForbidden, api.CodeSessionRequired, api.CodeBadPassphrase, api.CodeNotEnrolled:
+	case api.CodeForbidden, api.CodeSessionRequired, api.CodeBadPassphrase, api.CodeNotEnrolled, api.CodeOneWay:
 		return ExitForbidden
 	case api.CodeFenced:
 		return ExitFenced
 	case api.CodeLapsed:
 		return ExitLapsed
-	case api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved:
+	case api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
+		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit:
 		return ExitConflict
 	case api.CodeInvalid:
 		return ExitUsage

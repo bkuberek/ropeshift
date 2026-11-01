@@ -17,7 +17,7 @@ const (
        claimed_by, claim_until, decision_id`
 	batchColumns    = `b.id, b.status, b.opened_at, b.closes_at, b.delivered_at`
 	decisionColumns = `id, status, statement, rationale, citations, scope, reversibility, categories,
-       decided_by, supersedes, question_id, policy_version`
+       decided_by, supersedes, question_id, policy_version, overlapping, no_conflict`
 
 	// questionFilter and decisionFilter read an empty parameter as no filter. Each
 	// parameter is cast, because Postgres cannot type one that appears twice.
@@ -73,6 +73,11 @@ VALUES
  WHERE workspace_id = :workspace_id AND normalized_hash = :normalized_hash
  ORDER BY id`)
 
+	stmtAnsweredBy = define("question.answered_by",
+		`SELECT `+questionColumns+` FROM questions
+ WHERE workspace_id = :workspace_id AND decision_id = :decision_id
+ ORDER BY id`)
+
 	stmtInsertAttachment = define("question.attach",
 		`INSERT INTO question_attachments (workspace_id, question_id, lane_id, generation, blocking, attached_at)
 VALUES (:workspace_id, :question_id, :lane_id, :generation, :blocking, :attached_at)
@@ -104,10 +109,10 @@ ON CONFLICT (workspace_id, question_id, lane_id) DO NOTHING`)
 	stmtInsertDecision = define("decision.insert",
 		`INSERT INTO decisions
   (workspace_id, id, status, statement, rationale, citations, scope, reversibility, categories,
-   decided_by, supersedes, question_id, policy_version)
+   decided_by, supersedes, question_id, policy_version, overlapping, no_conflict)
 VALUES
   (:workspace_id, :id, :status, :statement, :rationale, :citations, :scope, :reversibility, :categories,
-   :decided_by, :supersedes, :question_id, :policy_version)`)
+   :decided_by, :supersedes, :question_id, :policy_version, :overlaps, :no_conflict)`)
 
 	stmtReadDecision = define("decision.read",
 		`SELECT `+decisionColumns+` FROM decisions WHERE workspace_id = :workspace_id AND id = :id`)
@@ -121,12 +126,47 @@ VALUES
 
 	stmtSearchDecisions = define("decision.search",
 		`SELECT d.id, d.status, d.statement, d.rationale, d.citations, d.scope, d.reversibility, d.categories,
-       d.decided_by, d.supersedes, d.question_id, d.policy_version
+       d.decided_by, d.supersedes, d.question_id, d.policy_version, d.overlapping, d.no_conflict
   FROM decisions d
   JOIN (`+matchMark+`) m ON m.workspace_id = d.workspace_id AND m.kind = 'decision' AND m.record_id = d.id
  WHERE d.workspace_id = :workspace_id`+decisionFilter+`
  ORDER BY m.score DESC, d.id
  LIMIT :limit`)
+
+	stmtEndDecision = define("decision.end",
+		`UPDATE decisions SET status = :status
+ WHERE workspace_id = :workspace_id AND id = :id
+   AND status IN ('assumed', 'decided')`)
+
+	// stmtOverlapping repeats questions.ScopesOverlap. It compares prefixes with substr,
+	// because a scope may hold the marks a LIKE pattern reads.
+	stmtOverlapping = define("decision.overlapping",
+		`SELECT `+decisionColumns+`
+  FROM decisions d
+ WHERE d.workspace_id = :workspace_id
+   AND d.status IN ('assumed', 'decided')
+   AND (d.scope = CAST(:scope AS TEXT)
+     OR substr(d.scope, 1, length(CAST(:scope AS TEXT)) + 1) = CAST(:scope AS TEXT) || '/'
+     OR substr(CAST(:scope AS TEXT), 1, length(d.scope) + 1) = d.scope || '/')
+ ORDER BY d.id
+ LIMIT :limit`)
+
+	stmtAssumptions = define("decision.assumptions",
+		`SELECT count(*)
+  FROM decisions d
+  JOIN questions q ON q.workspace_id = d.workspace_id AND q.id = d.question_id
+ WHERE d.workspace_id = :workspace_id AND d.status = 'assumed'
+   AND q.subject_kind = 'work_order' AND q.subject_id = :work_order_id`)
+
+	stmtInsertNotice = define("decision_notice.insert",
+		`INSERT INTO decision_notices (workspace_id, decision_id, lane_id, generation, replaced_by, noticed_at)
+VALUES (:workspace_id, :decision_id, :lane_id, :generation, :replaced_by, :noticed_at)
+ON CONFLICT (workspace_id, decision_id, lane_id) DO NOTHING`)
+
+	stmtListNotices = define("decision_notice.list",
+		`SELECT decision_id, lane_id, generation, replaced_by, noticed_at FROM decision_notices
+ WHERE workspace_id = :workspace_id AND (CAST(:decision_id AS TEXT) = '' OR decision_id = CAST(:decision_id AS TEXT))
+ ORDER BY decision_id, lane_id`)
 
 	stmtAddCategory = define("category.add",
 		`INSERT INTO workspace_categories (workspace_id, name) VALUES (:workspace_id, :name)
@@ -322,6 +362,10 @@ func (t questionTx) ByHash(hash string) ([]questions.Question, error) {
 	return t.listQuestions(stmtQuestionsByHash, params{"normalized_hash": hash})
 }
 
+func (t questionTx) AnsweredBy(decision string) ([]questions.Question, error) {
+	return t.listQuestions(stmtAnsweredBy, params{"decision_id": decision})
+}
+
 func (t questionTx) Attach(a questions.Attachment) (bool, error) {
 	n, err := t.exec(stmtInsertAttachment, t.scoped(params{
 		"question_id": a.QuestionID, "lane_id": a.Lane, "generation": a.Generation,
@@ -373,31 +417,42 @@ func (t questionTx) InsertDecision(d questions.Decision) error {
 	if err != nil {
 		return err
 	}
+	overlaps, err := json.Marshal(nonNil(d.Overlaps))
+	if err != nil {
+		return err
+	}
+	noConflict, err := json.Marshal(nonNil(d.NoConflict))
+	if err != nil {
+		return err
+	}
 	_, err = t.exec(stmtInsertDecision, t.scoped(params{
 		"id": d.ID, "status": string(d.Status), "statement": d.Statement, "rationale": nullText(d.Rationale),
 		"citations": string(citations), "scope": nullText(d.Scope), "reversibility": nullText(d.Reversibility),
 		"categories": string(categories), "decided_by": nullText(d.DecidedBy), "supersedes": nullText(d.Supersedes),
 		"question_id": nullText(d.QuestionID), "policy_version": d.PolicyVersion,
+		"overlaps": string(overlaps), "no_conflict": string(noConflict),
 	}))
 	return err
 }
 
 func scanDecision(row scanner) (questions.Decision, error) {
 	var d questions.Decision
-	var status, citations, categories string
+	var status, citations, categories, overlaps, noConflict string
 	var rationale, scope, reversibility, decidedBy, supersedes, question sql.NullString
 	err := row.Scan(&d.ID, &status, &d.Statement, &rationale, &citations, &scope, &reversibility, &categories,
-		&decidedBy, &supersedes, &question, &d.PolicyVersion)
+		&decidedBy, &supersedes, &question, &d.PolicyVersion, &overlaps, &noConflict)
 	if err != nil {
 		return questions.Decision{}, err
 	}
 	d.Status, d.Rationale, d.Scope, d.Reversibility = questions.DecisionStatus(status), rationale.String, scope.String, reversibility.String
 	d.DecidedBy, d.Supersedes, d.QuestionID = decidedBy.String, supersedes.String, question.String
-	if err := json.Unmarshal([]byte(citations), &d.Citations); err != nil {
-		return questions.Decision{}, fmt.Errorf("decision %s: %w", d.ID, err)
-	}
-	if err := json.Unmarshal([]byte(categories), &d.Categories); err != nil {
-		return questions.Decision{}, fmt.Errorf("decision %s: %w", d.ID, err)
+	for _, field := range []struct {
+		raw  string
+		into *[]string
+	}{{citations, &d.Citations}, {categories, &d.Categories}, {overlaps, &d.Overlaps}, {noConflict, &d.NoConflict}} {
+		if err := json.Unmarshal([]byte(field.raw), field.into); err != nil {
+			return questions.Decision{}, fmt.Errorf("decision %s: %w", d.ID, err)
+		}
 	}
 	return d, nil
 }
@@ -442,6 +497,53 @@ func (t questionTx) Decisions(filter ports.RecordFilter) ([]questions.Decision, 
 	}
 	p["query"] = t.store.dialect.MatchQuery(terms)
 	return t.listDecisions(stmtSearchDecisions, p)
+}
+
+func (t questionTx) EndDecision(id string, status questions.DecisionStatus) (bool, error) {
+	n, err := t.exec(stmtEndDecision, t.scoped(params{"id": id, "status": string(status)}))
+	return n > 0, err
+}
+
+func (t questionTx) Overlapping(scope string) ([]questions.Decision, error) {
+	if scope == "" {
+		return nil, nil
+	}
+	return t.listDecisions(stmtOverlapping, params{"scope": scope, "limit": int64(ports.MaxRecords)})
+}
+
+func (t questionTx) Assumptions(workOrder string) (int64, error) {
+	row, err := t.row(stmtAssumptions, t.scoped(params{"work_order_id": workOrder}))
+	if err != nil {
+		return 0, err
+	}
+	var count int64
+	err = row.Scan(&count)
+	return count, err
+}
+
+func (t questionTx) Notice(n questions.Notice) (bool, error) {
+	added, err := t.exec(stmtInsertNotice, t.scoped(params{
+		"decision_id": n.DecisionID, "lane_id": n.Lane, "generation": n.Generation,
+		"replaced_by": n.ReplacedBy, "noticed_at": n.NoticedAt,
+	}))
+	return added > 0, err
+}
+
+func (t questionTx) Notices(decision string) ([]questions.Notice, error) {
+	rows, err := t.rows(stmtListNotices, t.scoped(params{"decision_id": decision}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []questions.Notice
+	for rows.Next() {
+		var n questions.Notice
+		if err := rows.Scan(&n.DecisionID, &n.Lane, &n.Generation, &n.ReplacedBy, &n.NoticedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 func (t questionTx) AddCategory(name string) (bool, error) {

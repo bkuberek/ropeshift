@@ -22,6 +22,10 @@ func (h *handler) questionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/decisions", h.listDecisions)
 	mux.HandleFunc("POST /v1/decisions", h.member(h.recordDecision))
 	mux.HandleFunc("GET /v1/decisions/{id}", h.showDecision)
+	mux.HandleFunc("POST /v1/decisions/{id}/overturn", h.member(h.overturnDecision))
+	mux.HandleFunc("GET /v1/policies", h.listPolicies)
+	mux.HandleFunc("POST /v1/policies", h.member(h.publishPolicy))
+	mux.HandleFunc("GET /v1/policies/{version}", h.showPolicy)
 	mux.HandleFunc("GET /v1/categories", h.listCategories)
 	mux.HandleFunc("POST /v1/categories", h.member(h.addCategory))
 	mux.HandleFunc("GET /v1/candidates", h.candidates)
@@ -155,7 +159,7 @@ func (h *handler) recordDecision(w http.ResponseWriter, r *http.Request, actor l
 	record, err := h.questions.RecordDecision(r.Context(), h.Scope, questions.Decision{
 		ID: in.ID, Status: in.Status, Statement: in.Statement, Rationale: in.Rationale, Citations: in.Citations,
 		Scope: in.Scope, Reversibility: in.Reversibility, Categories: in.Categories, Supersedes: in.Supersedes,
-		QuestionID: in.QuestionID,
+		QuestionID: in.QuestionID, NoConflict: in.NoConflict,
 	}, actor)
 	if err != nil {
 		fail(w, err)

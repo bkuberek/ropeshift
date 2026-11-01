@@ -236,14 +236,18 @@ func (q *Questions) Climb(ctx context.Context, scope ledger.WorkspaceID, id stri
 		if record, err = held(tx, id, actor); err != nil {
 			return err
 		}
-		if (step.Rung == questions.RungDecide || step.Rung == questions.RungAssume) && !q.policy.MayDecide(record) {
+		policy, err := policyInForce(tx)
+		if err != nil {
+			return err
+		}
+		if (step.Rung == questions.RungDecide || step.Rung == questions.RungAssume) && !policy.MayDecide(record) {
 			return fmt.Errorf("%w: %v", questions.ErrOneWay, record.Categories)
 		}
 		if step.Rung != record.Rung {
 			return fmt.Errorf("%w: step %d on rung %d", questions.ErrWrongRung, step.Rung, record.Rung)
 		}
 		record.LadderTrace = append(record.LadderTrace, step)
-		record.Rung = q.policy.NextRung(record)
+		record.Rung = policy.NextRung(record)
 		crashpoint.Hit("question.climb", "stepped")
 		return saveQuestion(tx, record, actor)
 	})
@@ -297,7 +301,11 @@ func (q *Questions) Resolve(ctx context.Context, scope ledger.WorkspaceID, id, d
 		if record, err = held(tx, id, actor); err != nil {
 			return err
 		}
-		if _, err := tx.Questions().Decision(decision); err != nil {
+		answer, err := tx.Questions().Decision(decision)
+		if err != nil {
+			return err
+		}
+		if err := checkAnswers(tx, answer, record, actor); err != nil {
 			return err
 		}
 		crashpoint.Hit("question.resolve", "answered")
@@ -308,6 +316,26 @@ func (q *Questions) Resolve(ctx context.Context, scope ledger.WorkspaceID, id, d
 		return questions.Question{}, err
 	}
 	return record, nil
+}
+
+// checkAnswers holds a rung 1 answer to what the policy lets an orchestrator rely on. It
+// never decides a one-way question, so only a decision in a forced category answers one, and
+// no orchestrator can have recorded that under this policy.
+func checkAnswers(tx ports.WriteTx, answer questions.Decision, question questions.Question, actor ledger.Actor) error {
+	if !answer.Status.InForce() {
+		return fmt.Errorf("%w: %s is %s", questions.ErrDecisionEnded, answer.ID, answer.Status)
+	}
+	if authority.Allowed(actor, authority.ActionDecideUnbound) {
+		return nil
+	}
+	policy, err := policyInForce(tx)
+	if err != nil {
+		return err
+	}
+	if !policy.MayDecide(question) && policy.Open(answer.Categories) {
+		return fmt.Errorf("%w: %s is not a person's answer to %v", questions.ErrOneWay, answer.ID, question.Categories)
+	}
+	return nil
 }
 
 // Merge closes a question an agent judged the same as an open one, which is rung 2 for a

@@ -3,7 +3,6 @@ package questions
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -52,7 +51,7 @@ const minOptions = 2
 func Gate(q Question) []GateFailure {
 	var failed []GateFailure
 	for _, rung := range []int64{RungLookup, RungOpen} {
-		if !q.ran(rung) {
+		if !q.Ran(rung) {
 			failed = append(failed, GateFailure{GateTrace, fmt.Sprintf("rung %d has no record in the ladder trace", rung)})
 			break
 		}
@@ -74,7 +73,8 @@ func Gate(q Question) []GateFailure {
 	return failed
 }
 
-func (q Question) ran(rung int64) bool {
+// Ran reports a rung the ladder trace holds.
+func (q Question) Ran(rung int64) bool {
 	for _, step := range q.LadderTrace {
 		if step.Rung == rung {
 			return true
@@ -108,28 +108,11 @@ var (
 	ErrOneWay = errors.New("a one-way category cannot be decided or assumed")
 	// ErrWrongRung means a step does not belong to the rung the question stands on.
 	ErrWrongRung = errors.New("this step is not the question's next rung")
+	// ErrAssumptionLimit means a work order holds all the open assumptions the policy allows.
+	ErrAssumptionLimit = errors.New("this work order holds as many assumptions as the policy allows")
+	// ErrDecisionEnded means a decision was already overturned or replaced.
+	ErrDecisionEnded = errors.New("this decision is no longer in force")
 )
-
-// Policy is the part of a decision policy the ladder reads.
-type Policy struct {
-	OneWayCategories []string `json:"one_way_categories,omitempty"`
-}
-
-// DefaultPolicy is what a workspace reads until decision policies are versioned records.
-func DefaultPolicy() Policy {
-	return Policy{OneWayCategories: []string{CategorySecurity, CategoryCompliance, CategoryData}}
-}
-
-// MayDecide reports whether an orchestrator may decide or assume a question. One category
-// the policy forces to one-way is enough to refuse.
-func (p Policy) MayDecide(q Question) bool {
-	for _, category := range q.Categories {
-		if slices.Contains(p.OneWayCategories, category) {
-			return false
-		}
-	}
-	return true
-}
 
 // NextRung is the rung after the one a question stands on. A one-way category passes rungs
 // 1 and 2, because an earlier human decision may answer it, and skips 3 and 4.
@@ -171,6 +154,31 @@ type AskResult struct {
 	DecisionID string    `json:"decision_id,omitempty"`
 	Answer     string    `json:"answer,omitempty"`
 	Citations  []string  `json:"citations,omitempty"`
+}
+
+// Ruling is what an orchestrator records on rung 3 or 4, for a question it holds. Status says
+// which: `decided` or `assumed`. Scope and Categories default to the question's. The client
+// generates ID, so a retry finds what the first attempt wrote.
+type Ruling struct {
+	ID            string         `json:"id"`
+	Status        DecisionStatus `json:"status"`
+	Statement     string         `json:"statement"`
+	Rationale     string         `json:"rationale,omitempty"`
+	Citations     []string       `json:"citations,omitempty"`
+	Scope         string         `json:"scope,omitempty"`
+	Reversibility string         `json:"reversibility,omitempty"`
+	Categories    []string       `json:"categories,omitempty"`
+	Supersedes    string         `json:"supersedes,omitempty"`
+	NoConflict    []string       `json:"no_conflict,omitempty"`
+}
+
+// WorkerRuling is a ruling a worker carries for its orchestrator. A machine runs one
+// orchestrator (FR-ORCH-1), so the worker's identity names it.
+type WorkerRuling struct {
+	Auth     ledger.WorkerAuth `json:"-"`
+	Epoch    int64             `json:"epoch"`
+	Question string            `json:"question"`
+	Ruling   Ruling            `json:"ruling"`
 }
 
 // Escalation is what an orchestrator adds to take a question to the gate. A lane may not

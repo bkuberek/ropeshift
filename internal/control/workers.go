@@ -757,6 +757,19 @@ func (w *Workers) Ask(ctx context.Context, ask questions.LaneAsk) (questions.Ask
 	return w.questions.Ask(ctx, w.scope, ask.Ask, ledger.Actor{Kind: ledger.ActorLane, ID: ask.Ask.Lane})
 }
 
+// Rule records what this worker's orchestrator decided or assumed for a question it holds.
+// An orchestrator reaches the ledger through its worker, as a lane does.
+func (w *Workers) Rule(ctx context.Context, ruling questions.WorkerRuling) (questions.Decision, error) {
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		return w.checkSession(tx, ruling.Auth, ruling.Epoch)
+	})
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	actor := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: ruling.Auth.WorkerID}
+	return w.questions.Rule(ctx, w.scope, ruling.Question, ruling.Ruling, actor)
+}
+
 // Offered lists the work a worker could claim now: ready work whose needs its manifest
 // meets (FR-WO-6).
 func (w *Workers) Offered(ctx context.Context, worker string) ([]workorders.WorkOrder, error) {
