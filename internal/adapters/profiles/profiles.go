@@ -66,6 +66,9 @@ func ResolveRepository(user, repository string) (lanes.Profile, error) {
 	if err != nil {
 		return lanes.Profile{}, err
 	}
+	if profile.Admission != below.Admission {
+		return lanes.Profile{}, fmt.Errorf("%w: a repository cannot change what this machine admits", lanes.ErrBadProfile)
+	}
 	if lanes.RaisesPermission(below.Agent.PermissionMode, profile.Agent.PermissionMode) {
 		return lanes.Profile{}, fmt.Errorf("%w: a repository cannot raise the permission mode from %s to %s",
 			lanes.ErrBadProfile, below.Agent.PermissionMode, profile.Agent.PermissionMode)

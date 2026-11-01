@@ -287,7 +287,11 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed) error {
 	switch action.Kind {
 	case lanes.ActionStart:
-		w.startRun(ctx, newRun(w, seen.leases[action.Lane]), (*laneRun).begin)
+		lease := seen.leases[action.Lane]
+		if reason := w.admission(ctx, lease); reason != "" {
+			return w.hold(ctx, lease, reason)
+		}
+		w.startRun(ctx, newRun(w, lease), (*laneRun).begin)
 	case lanes.ActionConfirm:
 		return w.journal.FinishEffect(ctx, action.Effect, lanes.EffectCompleted, "found after a crash")
 	case lanes.ActionAbandon:
@@ -297,7 +301,7 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 		return err
 	case lanes.ActionContinue:
 		lease, ok := seen.leases[action.Lane]
-		if !ok {
+		if !ok || !w.admitsRestart(ctx) {
 			return w.endUnattended(ctx, seen.records[action.Lane])
 		}
 		w.startRun(ctx, w.resumedRun(lease, seen.records[action.Lane]), (*laneRun).proceed)
@@ -310,10 +314,7 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 	case lanes.ActionEnd:
 		return w.endUnattended(ctx, seen.records[action.Lane])
 	case lanes.ActionRelease:
-		if keepsResources() {
-			return nil
-		}
-		return w.journal.Release(ctx, action.Lane)
+		return w.release(ctx, action.Lane)
 	case lanes.ActionArchive:
 		return w.archive(ctx, seen.records[action.Lane], seen.archives[action.Lane])
 	}

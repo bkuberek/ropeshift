@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/ledger"
 )
 
 // Exit codes. docs/cli.md documents each one, and a test holds the two together.
@@ -42,6 +43,10 @@ const usage = `usage: ropeshift <command>
   lane show <lane>                                   show one lane, with its freshness
   lane reset <work-order>                            let a lane its breaker stopped start again
   lane archive <lane> [--force]                      remove a lane's worktree, which keeps its branch
+  fleet show                                         show the fleet's mode and caps
+  fleet run|pause|drain                              set the fleet's mode
+  fleet caps [--wip N] [--per-repository N] [--per-worker N]
+                                                     set what a claim is held to
   worker list                                        list registered workers
   worker token                                       make a join token
   version                                            print the version
@@ -51,7 +56,7 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 
 // IsCommand reports a first word this package handles.
 func IsCommand(word string) bool {
-	return word == "work" || word == "lane" || word == "source" || word == "worker"
+	return word == "work" || word == "lane" || word == "source" || word == "worker" || word == "fleet"
 }
 
 // Options is what a command needs from its process.
@@ -91,6 +96,11 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"lane list":     (*invocation).laneList,
 		"lane show":     (*invocation).laneShow,
 		"source list":   (*invocation).sourceList,
+		"fleet show":    (*invocation).fleetShow,
+		"fleet run":     setsFleet(ledger.FleetRun),
+		"fleet pause":   setsFleet(ledger.FleetPause),
+		"fleet drain":   setsFleet(ledger.FleetDrain),
+		"fleet caps":    (*invocation).fleetCaps,
 		"worker list":   (*invocation).workerList,
 		"worker token":  (*invocation).workerToken,
 	}

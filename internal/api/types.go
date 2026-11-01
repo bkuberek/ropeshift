@@ -1,6 +1,7 @@
 package api
 
 import (
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -112,6 +113,17 @@ type LaneDispatched struct {
 	WorkOrder string `json:"work_order"`
 	ClaimID   string `json:"claim_id"`
 	Fence     int64  `json:"fence"`
+}
+
+// Fleet is the one control for a whole fleet, and the caps a claim is held to.
+type Fleet struct {
+	Mode ledger.FleetMode `json:"fleet_mode"`
+	ledger.Caps
+}
+
+// SetFleetMode changes the fleet's mode.
+type SetFleetMode struct {
+	Mode ledger.FleetMode `json:"fleet_mode"`
 }
 
 // ArchiveLane asks for a lane's worktree to be removed. Force accepts losing what no

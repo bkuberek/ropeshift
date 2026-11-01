@@ -21,6 +21,9 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift lane show <lane>` | Shows one lane the same way. `--json` adds `as_of` and `reported_by_epoch` |
 | `ropeshift lane reset <work-order>` | Lets the lane its breaker stopped start again. Only a member can, because a tripped lane is waiting for a person |
 | `ropeshift lane archive <lane> [--force]` | Asks the worker that ran an ended lane to remove its worktree. Its branch stays. A lane with `unpushed_work` is refused, and `--force` removes it anyway, which only a member can do. The worker reads the worktree again first, and saves what it finds to a ref |
+| `ropeshift fleet show` | Shows the fleet's mode and the caps a claim is held to |
+| `ropeshift fleet run`, `pause`, `drain` | Sets the mode for the whole fleet. `pause` takes no new claims and starts no new lanes, and a running lane that crashes still restarts. `drain` also stops new generations. Each lane already running goes on |
+| `ropeshift fleet caps [--wip N] [--per-repository N] [--per-worker N]` | Sets what a claim is held to. A flag left out keeps its value, and 0 means no limit. A claim already granted stays |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 

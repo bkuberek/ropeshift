@@ -57,6 +57,8 @@ type Worker struct {
 	deadlines  map[string]time.Time
 	running    map[string]*laneRun
 	published  map[string]ledger.LaneStatus
+	// holding names what each lane was last held back by, so a note goes out once.
+	holding map[string]string
 
 	uploading sync.Mutex
 	laneGroup sync.WaitGroup
@@ -77,6 +79,7 @@ func New(link ports.WorkerLink, journal ports.Journal, clock ports.Clock, config
 	return &Worker{
 		link: link, journal: journal, clock: clock, config: config,
 		deadlines: map[string]time.Time{}, running: map[string]*laneRun{}, published: map[string]ledger.LaneStatus{},
+		holding: map[string]string{},
 	}
 }
 

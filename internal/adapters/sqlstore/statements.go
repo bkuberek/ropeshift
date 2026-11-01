@@ -39,13 +39,19 @@ var (
 	// increments it, so it takes the workspace lock as the first statement of its
 	// transaction. A returned rev other than 1 means the workspace already exists.
 	stmtCreateWorkspace = define(StatementCreateWorkspace,
-		`INSERT INTO workspaces (id, name, fleet_mode, rev, policy_version, wip_limit)
-VALUES (:workspace_id, :name, :fleet_mode, 1, 0, :wip_limit)
+		`INSERT INTO workspaces (id, name, fleet_mode, rev, policy_version, wip_limit, repository_limit, worker_limit)
+VALUES (:workspace_id, :name, :fleet_mode, 1, 0, :wip_limit, :repository_limit, :worker_limit)
 ON CONFLICT (id) DO UPDATE SET rev = workspaces.rev + 1
 RETURNING rev`)
 
 	stmtReadWorkspace = define("workspace.read",
-		`SELECT id, name, fleet_mode, rev, policy_version, wip_limit FROM workspaces WHERE id = :workspace_id`)
+		`SELECT id, name, fleet_mode, rev, policy_version, wip_limit, repository_limit, worker_limit
+  FROM workspaces WHERE id = :workspace_id`)
+
+	stmtSaveFleet = define("workspace.save_fleet",
+		`UPDATE workspaces
+   SET fleet_mode = :fleet_mode, wip_limit = :wip_limit, repository_limit = :repository_limit, worker_limit = :worker_limit
+ WHERE id = :workspace_id`)
 
 	stmtAppendEvent = define("event.append",
 		`INSERT INTO events

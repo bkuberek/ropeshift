@@ -45,3 +45,9 @@ branch_prefix = "lane/"
 [resources]
 ports_per_lane = 10
 compose_project_prefix = "rs"
+
+[admission]
+max_lanes = 4
+max_lanes_per_sign_in = 4
+min_free_memory_mb = 0
+min_free_cpu_percent = 0

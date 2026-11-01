@@ -47,6 +47,15 @@ func (r *laneRun) allocate(settings lanes.ResourceSettings) (lanes.Allocation, e
 	return allocation, err
 }
 
+// release gives a lane's block back. A lane's end does this at once, and a crash before it
+// leaves an ended lane holding one, which the next pass finds.
+func (w *Worker) release(ctx context.Context, lane string) error {
+	if keepsResources() {
+		return nil
+	}
+	return w.journal.Release(ctx, lane)
+}
+
 // runHook runs a lane's setup once for good, whichever generation gets here first. It has
 // no second attempt: a hook that failed stays failed, and one a crash cut short waits for a
 // person.

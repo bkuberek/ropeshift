@@ -79,6 +79,8 @@ type WriteTx interface {
 	Event(id string) (ledger.Event, error)
 	// Append adds one event, which takes its own revision.
 	Append(ledger.EventDraft) (ledger.Event, error)
+	// SaveFleet replaces a workspace's fleet mode and caps.
+	SaveFleet(mode ledger.FleetMode, caps ledger.Caps) error
 	// WorkOrders reads and writes the work order projection.
 	WorkOrders() WorkOrderWriter
 	// Leases runs the guarded lease statements.
@@ -127,6 +129,10 @@ type WorkOrderWriter interface {
 type LeaseWriter interface {
 	// WorkInProgress counts the work orders a holder occupies.
 	WorkInProgress() (int64, error)
+	// InRepository counts the work orders a holder occupies in one repository.
+	InRepository(repository string) (int64, error)
+	// HeldByWorker counts the work orders one worker occupies.
+	HeldByWorker(worker string) (int64, error)
 	// Grant is the claim statement.
 	Grant(request workorders.ClaimRequest) (bool, error)
 	// Start moves a claimed work order to running under its lease.

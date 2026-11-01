@@ -37,7 +37,7 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		case !errors.Is(err, ports.ErrNotFound):
 			return err
 		}
-		if err := checkEligible(tx); err != nil {
+		if err := checkEligible(tx, request); err != nil {
 			return err
 		}
 		crashpoint.Hit("claim", "eligible")
@@ -132,25 +132,44 @@ func replayGrant(tx ports.WriteTx, claim workorders.Claim, request workorders.Cl
 	return grant, nil
 }
 
-// checkEligible reads the workspace after the revision was taken, so the count
-// cannot change before the grant.
-func checkEligible(tx ports.WriteTx) error {
+// checkEligible reads the workspace after the revision was taken, so no count can change
+// before the grant, and a claim that races another at a cap loses.
+func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest) error {
 	workspace, err := tx.Workspace()
 	if err != nil {
 		return err
 	}
 	if workspace.FleetMode != ledger.FleetRun {
-		return workorders.ErrIneligible
+		return fmt.Errorf("%w: the fleet is in %s", workorders.ErrIneligible, workspace.FleetMode)
 	}
-	if workspace.WIPLimit == 0 {
-		return nil
+	if err := underCap(workspace.WIPLimit, "work in progress", tx.Leases().WorkInProgress); err != nil {
+		return err
 	}
-	inProgress, err := tx.Leases().WorkInProgress()
+	order, err := tx.WorkOrders().Get(request.WorkOrder)
 	if err != nil {
 		return err
 	}
-	if inProgress >= workspace.WIPLimit {
-		return workorders.ErrIneligible
+	if order.RepositoryID != "" {
+		count := func() (int64, error) { return tx.Leases().InRepository(order.RepositoryID) }
+		if err := underCap(workspace.RepositoryLimit, "lanes in this repository", count); err != nil {
+			return err
+		}
+	}
+	count := func() (int64, error) { return tx.Leases().HeldByWorker(request.Worker) }
+	return underCap(workspace.WorkerLimit, "lanes on this worker", count)
+}
+
+// underCap reads a count only when a cap is set, because most workspaces set none.
+func underCap(limit int64, what string, count func() (int64, error)) error {
+	if limit == 0 {
+		return nil
+	}
+	current, err := count()
+	if err != nil {
+		return err
+	}
+	if current >= limit {
+		return fmt.Errorf("%w: %s at %d of %d", workorders.ErrIneligible, what, current, limit)
 	}
 	return nil
 }

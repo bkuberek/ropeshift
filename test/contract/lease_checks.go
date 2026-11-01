@@ -50,6 +50,8 @@ var LeaseChecks = []Check{
 	{"L29", "a lapsed lane ends after its worker returns", checkLapsedLaneEnd},
 	{"L30", "a failed lane returns to ready while attempts remain", checkAttempts},
 	{"L31", "a dispatch needs a claim and names one lane", checkDispatch},
+	{"L32", "the per-repository and per-worker caps hold under racing claims", checkCaps},
+	{"L33", "a lapsed work order counts toward every cap", checkLapsedCounts},
 }
 
 // Ready creates a work order and walks it to `ready` through the state table.
@@ -1167,6 +1169,142 @@ func checkEligibility(r *Rig) error {
 	}
 	if _, err := r.NewOps(s).Claim(r.Ctx, paused, r.Request(id, "a"), r.worker("a")); !errors.Is(err, workorders.ErrIneligible) {
 		return Violatedf("a claim passed a paused fleet: %v", err)
+	}
+	return nil
+}
+
+// readyIn walks a work order of one repository to `ready`.
+func (r *Rig) readyIn(s ports.Store, repository string) (string, error) {
+	ops := r.NewOps(s)
+	order, err := ops.Create(r.Ctx, r.Scope, workorders.WorkOrder{
+		ID: r.ID("wo"), Kind: workorders.KindChange, Title: "Add the retry budget", RepositoryID: repository, MaxAttempts: defaultMaxAttempts,
+	}, r.Actor)
+	if err != nil {
+		return "", err
+	}
+	for _, trigger := range []workorders.Trigger{
+		workorders.TriggerAccepted, workorders.TriggerContractSubmitted, workorders.TriggerReadyPassed,
+	} {
+		if err := ops.Move(r.Ctx, r.Scope, order.ID, trigger, r.Actor); err != nil {
+			return "", err
+		}
+	}
+	return order.ID, nil
+}
+
+// raceUnder sends racers claims at one cap, and reports how many won.
+func (r *Rig) raceUnder(s ports.Store, scope ledger.WorkspaceID, ids []string, worker func(int) string) (int64, error) {
+	var granted atomic.Int64
+	err := parallel(len(ids), func(i int) error {
+		_, err := r.NewOps(s).Claim(r.Ctx, scope, r.Request(ids[i], worker(i)), r.worker(worker(i)))
+		if errors.Is(err, workorders.ErrIneligible) {
+			return nil
+		}
+		if err == nil {
+			granted.Add(1)
+		}
+		return err
+	})
+	return granted.Load(), err
+}
+
+func checkCaps(r *Rig) error {
+	const racers, limit = 8, 2
+	gate := newBarrier(racers)
+	s := r.StoreWith(func(op, name string) {
+		if op == "claim" && name == StepEligible {
+			gate.wait(40 * time.Millisecond)
+		}
+	})
+	saved := r.Scope
+	defer func() { r.Scope = saved }()
+	repositories := ledger.WorkspaceID("workspace-repositories")
+	if _, err := s.CreateWorkspace(r.Ctx, ledger.Workspace{ID: repositories, RepositoryLimit: limit}, r.Actor); err != nil {
+		return err
+	}
+	r.Scope = repositories
+	ids := make([]string, racers)
+	for i := range ids {
+		id, err := r.readyIn(s, "repository-one")
+		if err != nil {
+			return err
+		}
+		ids[i] = id
+	}
+	other, err := r.readyIn(s, "repository-two")
+	if err != nil {
+		return err
+	}
+	granted, err := r.raceUnder(s, repositories, ids, func(i int) string { return fmt.Sprint("w", i) })
+	if err != nil {
+		return err
+	}
+	if granted > limit {
+		return Violatedf("%d claims granted in a repository with a cap of %d", granted, limit)
+	}
+	if _, err := r.NewOps(s).Claim(r.Ctx, repositories, r.Request(other, "w"), r.worker("w")); err != nil {
+		return Violatedf("a cap on one repository refused another: %v", err)
+	}
+
+	workers := ledger.WorkspaceID("workspace-workers")
+	if _, err := s.CreateWorkspace(r.Ctx, ledger.Workspace{ID: workers, WorkerLimit: limit}, r.Actor); err != nil {
+		return err
+	}
+	r.Scope = workers
+	for i := range ids {
+		id, err := r.Ready(s)
+		if err != nil {
+			return err
+		}
+		ids[i] = id
+	}
+	spare, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	granted, err = r.raceUnder(s, workers, ids, func(int) string { return "one" })
+	if err != nil {
+		return err
+	}
+	if granted > limit {
+		return Violatedf("%d claims granted to a worker with a cap of %d", granted, limit)
+	}
+	if _, err := r.NewOps(s).Claim(r.Ctx, workers, r.Request(spare, "two"), r.worker("two")); err != nil {
+		return Violatedf("a cap on one worker refused another: %v", err)
+	}
+	return nil
+}
+
+func checkLapsedCounts(r *Rig) error {
+	s := r.Store()
+	saved := r.Scope
+	defer func() { r.Scope = saved }()
+	scope := ledger.WorkspaceID("workspace-lapsed")
+	if _, err := s.CreateWorkspace(r.Ctx, ledger.Workspace{ID: scope, WorkerLimit: 1, WIPLimit: 1}, r.Actor); err != nil {
+		return err
+	}
+	r.Scope = scope
+	first, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	second, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	if _, err := ops.Claim(r.Ctx, scope, r.Request(first, "a"), r.worker("a")); err != nil {
+		return err
+	}
+	r.DB.ShiftClock(TTLMs + 1)
+	if _, err := ops.Sweep(r.Ctx, scope, r.Actor); err != nil {
+		return err
+	}
+	if got, err := r.WorkOrder(s, first); err != nil || got.State != workorders.Lapsed {
+		return fmt.Errorf("the first claim did not lapse: %+v: %v", got, err)
+	}
+	if _, err := ops.Claim(r.Ctx, scope, r.Request(second, "a"), r.worker("a")); !errors.Is(err, workorders.ErrIneligible) {
+		return Violatedf("a lapsed work order did not count: %v", err)
 	}
 	return nil
 }

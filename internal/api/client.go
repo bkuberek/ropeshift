@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -146,6 +147,27 @@ func (c *Client) Review(ctx context.Context, id string) (ReviewResult, error) {
 func (c *Client) StartLane(ctx context.Context, id string, in StartLane) (LaneDispatched, error) {
 	var out LaneDispatched
 	err := c.Do(ctx, http.MethodPost, workOrderPath(id, "lanes"), in, &out)
+	return out, err
+}
+
+// Fleet reads the fleet's mode and caps.
+func (c *Client) Fleet(ctx context.Context) (Fleet, error) {
+	var out Fleet
+	err := c.Do(ctx, http.MethodGet, "/v1/fleet", nil, &out)
+	return out, err
+}
+
+// SetFleetMode changes the fleet's mode.
+func (c *Client) SetFleetMode(ctx context.Context, in SetFleetMode) (Fleet, error) {
+	var out Fleet
+	err := c.Do(ctx, http.MethodPut, "/v1/fleet/mode", in, &out)
+	return out, err
+}
+
+// SetFleetCaps replaces the caps a claim is held to.
+func (c *Client) SetFleetCaps(ctx context.Context, in ledger.Caps) (Fleet, error) {
+	var out Fleet
+	err := c.Do(ctx, http.MethodPut, "/v1/fleet/caps", in, &out)
 	return out, err
 }
 

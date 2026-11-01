@@ -349,17 +349,27 @@ func TestAResourceBlockReachesTheLane(t *testing.T) {
 func TestAnEndedLaneGivesItsResourcesBack(t *testing.T) {
 	r := newLaneRig(t)
 	r.runWith()
-	held, err := r.journal.Allocations(t.Context())
+	if held, err := r.journal.Allocations(t.Context()); err != nil || len(held) != 0 {
+		t.Errorf("held after the lane ended: %+v: %v", held, err)
+	}
+}
+
+// A kill between a lane's end and its release leaves an ended lane holding a block.
+func TestReconcileReleasesWhatACrashLeft(t *testing.T) {
+	r := newLaneRig(t)
+	r.runWith()
+	request := lanes.AllocationRequest{Lane: "lane-1", Ports: 10, Pool: lanes.DefaultPortPool}
+	if _, err := r.journal.Allocate(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	actions, err := r.subject.Reconcile(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(held) != 1 {
-		t.Fatalf("held before a pass: %+v", held)
+	if !slices.Contains(actions, lanes.Action{Kind: lanes.ActionRelease, Lane: "lane-1"}) {
+		t.Errorf("actions %+v", actions)
 	}
-	if _, err := r.subject.Reconcile(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if held, err = r.journal.Allocations(t.Context()); err != nil || len(held) != 0 {
+	if held, err := r.journal.Allocations(t.Context()); err != nil || len(held) != 0 {
 		t.Errorf("held after a pass: %+v: %v", held, err)
 	}
 }

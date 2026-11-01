@@ -91,6 +91,7 @@ type Profile struct {
 	Lifecycle LifecycleSettings   `toml:"lifecycle" json:"lifecycle"`
 	Worktree  WorktreeSettings    `toml:"worktree" json:"worktree"`
 	Resources ResourceSettings    `toml:"resources" json:"resources"`
+	Admission Admission           `toml:"admission" json:"admission"`
 	Hooks     map[string][]string `toml:"hooks" json:"hooks"`
 }
 

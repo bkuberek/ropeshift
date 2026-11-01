@@ -43,6 +43,8 @@ type LaneRuntime struct {
 	StateDir string
 	// RunDir holds each session's short private directory.
 	RunDir string
+	// Machine reads what this machine has free. Nil leaves the floors unchecked.
+	Machine ports.Machine
 	// Override carries a real-session suite's guard flags.
 	Override lanes.SessionOverride
 }
@@ -210,6 +212,9 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workor
 		return err
 	}
 	crashpoint.Hit("worker.lane", "ended")
+	if err := w.release(ctx, record.ID); err != nil {
+		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
+	}
 	return w.Upload(ctx)
 }
 

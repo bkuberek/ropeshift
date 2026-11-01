@@ -423,3 +423,75 @@ func (c *invocation) laneArchive(args []string) int {
 	err = client.ArchiveLane(c.ctx, lane.WorkOrder, in)
 	return c.finish(err, in, func() string { return fmt.Sprintf("lane %s: the worker removes its worktree on its next pass\n", id) })
 }
+
+func fleetLine(fleet api.Fleet) string {
+	return fmt.Sprintf("fleet %s, work in progress %d, per repository %d, per worker %d\n",
+		fleet.Mode, fleet.WIPLimit, fleet.RepositoryLimit, fleet.WorkerLimit)
+}
+
+func (c *invocation) noArguments(args []string) (*api.Client, bool, int) {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return nil, false, ExitUsage
+	}
+	if len(positional) != 0 {
+		return nil, false, c.usageError("unexpected argument %q", positional[0])
+	}
+	return c.client(), true, ExitOK
+}
+
+func (c *invocation) fleetShow(args []string) int {
+	client, ok, code := c.noArguments(args)
+	if !ok {
+		return code
+	}
+	defer client.Close()
+	fleet, err := client.Fleet(c.ctx)
+	return c.finish(err, fleet, func() string { return fleetLine(fleet) })
+}
+
+// setsFleet is the command of one mode.
+func setsFleet(mode ledger.FleetMode) func(*invocation, []string) int {
+	return func(c *invocation, args []string) int {
+		client, ok, code := c.noArguments(args)
+		if !ok {
+			return code
+		}
+		defer client.Close()
+		fleet, err := client.SetFleetMode(c.ctx, api.SetFleetMode{Mode: mode})
+		return c.finish(err, fleet, func() string { return fleetLine(fleet) })
+	}
+}
+
+// fleetCaps starts from what is set, so a flag left out keeps its value.
+func (c *invocation) fleetCaps(args []string) int {
+	set := c.flags()
+	wip := set.Int64("wip", -1, "work in progress, 0 for no limit")
+	repository := set.Int64("per-repository", -1, "lanes per repository, 0 for no limit")
+	worker := set.Int64("per-worker", -1, "lanes per worker, 0 for no limit")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	client := c.client()
+	defer client.Close()
+	current, err := client.Fleet(c.ctx)
+	if err != nil {
+		return c.failure(err)
+	}
+	caps := current.Caps
+	for _, flag := range []struct {
+		value  int64
+		target *int64
+	}{{*wip, &caps.WIPLimit}, {*repository, &caps.RepositoryLimit}, {*worker, &caps.WorkerLimit}} {
+		if flag.value >= 0 {
+			*flag.target = flag.value
+		}
+	}
+	fleet, err := client.SetFleetCaps(c.ctx, caps)
+	return c.finish(err, fleet, func() string { return fleetLine(fleet) })
+}

@@ -18,6 +18,9 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.resetLane)
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-archive", h.archiveLane)
+	mux.HandleFunc("GET /v1/fleet", h.showFleet)
+	mux.HandleFunc("PUT /v1/fleet/mode", h.setFleetMode)
+	mux.HandleFunc("PUT /v1/fleet/caps", h.setFleetCaps)
 	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
 	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
 	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
@@ -201,6 +204,41 @@ func (h *handler) archiveLane(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusAccepted, in)
+}
+
+func (h *handler) answerFleet(w http.ResponseWriter, r *http.Request) {
+	workspace, err := h.fleet.Read(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.Fleet{Mode: workspace.FleetMode, Caps: workspace.Caps()})
+}
+
+func (h *handler) showFleet(w http.ResponseWriter, r *http.Request) { h.answerFleet(w, r) }
+
+func (h *handler) setFleetMode(w http.ResponseWriter, r *http.Request) {
+	var in api.SetFleetMode
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := h.fleet.SetMode(r.Context(), h.Scope, in.Mode, localMember); err != nil {
+		fail(w, err)
+		return
+	}
+	h.answerFleet(w, r)
+}
+
+func (h *handler) setFleetCaps(w http.ResponseWriter, r *http.Request) {
+	var in ledger.Caps
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := h.fleet.SetCaps(r.Context(), h.Scope, in, localMember); err != nil {
+		fail(w, err)
+		return
+	}
+	h.answerFleet(w, r)
 }
 
 // resetLane lets a member start the lane a work order's breaker stopped.

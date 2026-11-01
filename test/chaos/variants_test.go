@@ -455,6 +455,26 @@ func allVariants() []variant {
 			check: "L15",
 		},
 		{
+			name: "claim skips the repository cap",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.in_repository",
+				"state IN ('claimed', 'running', 'lapsed')", "state IN ('nothing')")},
+			check: "L32",
+		},
+		{
+			name: "claim skips the worker cap",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.held_by_worker",
+				"state IN ('claimed', 'running', 'lapsed')", "state IN ('nothing')")},
+			check: "L32",
+		},
+		{
+			name: "a lapsed lease leaves the worker's count",
+			sabotage: sqlstore.Sabotage{Rewrite: chain(
+				replace("lease.held_by_worker", "state IN ('claimed', 'running', 'lapsed')", "state IN ('claimed', 'running')"),
+				replace("lease.work_in_progress", "state IN ('claimed', 'running', 'lapsed')", "state IN ('claimed', 'running')"),
+			)},
+			check: "L33",
+		},
+		{
 			name: "write without the generation check",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("lane.generation",
 				"SELECT current_generation FROM lanes", "SELECT 1 FROM lanes")},

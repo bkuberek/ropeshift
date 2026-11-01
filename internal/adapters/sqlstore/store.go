@@ -222,6 +222,7 @@ func (s *Store) CreateWorkspace(ctx context.Context, w ledger.Workspace, actor l
 	}
 	row, err := t.row(stmtCreateWorkspace, params{
 		"workspace_id": string(w.ID), "name": w.Name, "fleet_mode": string(mode), "wip_limit": w.WIPLimit,
+		"repository_limit": w.RepositoryLimit, "worker_limit": w.WorkerLimit,
 	})
 	if err != nil {
 		return false, err
@@ -376,6 +377,15 @@ func (t *writeTx) Workspace() (ledger.Workspace, error) {
 	return readWorkspace(t.session, t.scope)
 }
 
+// SaveFleet replaces a workspace's fleet mode and caps.
+func (t *writeTx) SaveFleet(mode ledger.FleetMode, caps ledger.Caps) error {
+	_, err := t.exec(stmtSaveFleet, params{
+		"workspace_id": string(t.scope), "fleet_mode": string(mode), "wip_limit": caps.WIPLimit,
+		"repository_limit": caps.RepositoryLimit, "worker_limit": caps.WorkerLimit,
+	})
+	return err
+}
+
 func (t *writeTx) Events(after int64, limit int) ([]ledger.Event, error) {
 	return listEvents(t.session, t.scope, after, limit)
 }
@@ -484,7 +494,7 @@ func readWorkspace(se *session, scope ledger.WorkspaceID) (ledger.Workspace, err
 	}
 	var w ledger.Workspace
 	var id, mode string
-	switch err := row.Scan(&id, &w.Name, &mode, &w.Rev, &w.PolicyVersion, &w.WIPLimit); {
+	switch err := row.Scan(&id, &w.Name, &mode, &w.Rev, &w.PolicyVersion, &w.WIPLimit, &w.RepositoryLimit, &w.WorkerLimit); {
 	case errors.Is(err, sql.ErrNoRows):
 		return ledger.Workspace{}, fmt.Errorf("%w: %s", ledger.ErrUnknownWorkspace, scope)
 	case err != nil:

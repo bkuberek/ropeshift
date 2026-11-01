@@ -212,6 +212,8 @@ const (
 	// UploadGenerationStarted moves a lane to its next generation after a crash.
 	UploadGenerationStarted = "generation_started"
 	UploadLaneStatus        = "lane_status"
+	// UploadAdmissionHeld says a worker held a lane back. It is a fenced note.
+	UploadAdmissionHeld = "admission_held"
 	// UploadLaneGuarded says how a stop left a worktree, and passes no fence.
 	UploadLaneGuarded = "lane_guarded"
 	// UploadLaneArchived says a worktree went.

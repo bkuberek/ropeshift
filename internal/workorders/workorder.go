@@ -145,6 +145,9 @@ const EventLaneRestarted = "work_order.lane_restarted"
 // EventGenerationBound records what a generation runs on, which changes no state.
 const EventGenerationBound = "work_order.generation_bound"
 
+// EventAdmissionHeld records that a worker held a lane back from starting, with why.
+const EventAdmissionHeld = "work_order.admission_held"
+
 // GenerationBinding is the payload of EventGenerationBound. It records the resolved
 // model and not only the alias, because aliases drift (FR-DRV-10).
 type GenerationBinding struct {

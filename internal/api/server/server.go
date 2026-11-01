@@ -44,6 +44,7 @@ type handler struct {
 	leases     *control.Leases
 	reviews    *control.Reviews
 	workers    *control.Workers
+	fleet      *control.Fleet
 }
 
 // New returns the versioned API.
@@ -53,6 +54,7 @@ func New(config Config) http.Handler {
 		workOrders: control.NewWorkOrders(config.Store),
 		leases:     control.NewLeases(config.Store),
 		reviews:    control.NewReviews(config.Store),
+		fleet:      control.NewFleet(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL,
 		}),

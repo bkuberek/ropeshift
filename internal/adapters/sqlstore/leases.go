@@ -27,6 +27,14 @@ var (
 		`SELECT count(*) FROM work_orders
  WHERE workspace_id = :workspace_id AND state IN ('claimed', 'running', 'lapsed')`)
 
+	stmtInRepository = define("lease.in_repository",
+		`SELECT count(*) FROM work_orders
+ WHERE workspace_id = :workspace_id AND repository_id = :repository AND state IN ('claimed', 'running', 'lapsed')`)
+
+	stmtHeldByWorker = define("lease.held_by_worker",
+		`SELECT count(*) FROM work_orders
+ WHERE workspace_id = :workspace_id AND lease_worker = :worker AND state IN ('claimed', 'running', 'lapsed')`)
+
 	// stmtGrant is the claim. A row count of 1 means won, and 0 means lost.
 	stmtGrant = define("lease.grant",
 		`UPDATE work_orders
@@ -72,6 +80,24 @@ func (t leaseTx) WorkInProgress() (int64, error) {
 	var count int64
 	err = row.Scan(&count)
 	return count, err
+}
+
+func (t leaseTx) count(st *statement, p params) (int64, error) {
+	row, err := t.row(st, p)
+	if err != nil {
+		return 0, err
+	}
+	var count int64
+	err = row.Scan(&count)
+	return count, err
+}
+
+func (t leaseTx) InRepository(repository string) (int64, error) {
+	return t.count(stmtInRepository, params{"workspace_id": string(t.scope), "repository": repository})
+}
+
+func (t leaseTx) HeldByWorker(worker string) (int64, error) {
+	return t.count(stmtHeldByWorker, params{"workspace_id": string(t.scope), "worker": worker})
 }
 
 func (t leaseTx) Grant(request workorders.ClaimRequest) (bool, error) {
