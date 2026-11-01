@@ -39,12 +39,15 @@ const (
 	witnessHook  = "hook"
 	// laneDied ends a session with no stop, so only the last guard runs.
 	laneDied = "died"
+	// laneFenced loses the lane's lease while its session runs.
+	laneFenced = "fenced"
 )
 
 // The broken variants of a stop, each of which the oracle below must catch.
 const (
 	sabotageTrackedOnly = "a snapshot that omits untracked files"
 	sabotageNoGuard     = "a stop that skips the guard"
+	sabotageFenced      = "a fenced lane that skips the guard"
 	sabotageKeeps       = "an ended lane that keeps its resources"
 	sabotageOwnIndex    = "a snapshot built in the lane's own index"
 )
@@ -63,6 +66,8 @@ type workDriver struct {
 	*lastingDriver
 	gitEnv []string
 	died   bool
+	// fence takes the lease away, where a lane's session has reached its work.
+	fence func(ports.SessionSpec)
 }
 
 func gitIn(dir string, env []string, args ...string) (string, error) {
@@ -127,6 +132,9 @@ func (d *workDriver) script() fake.DriverScript {
 	if d.died {
 		steps = []fake.DriverStep{{Bound: true}, work, {Crash: true}}
 	}
+	if d.fence != nil {
+		steps = []fake.DriverStep{{Bound: true}, work, {Do: d.fence}, {Hold: true}}
+	}
 	return fake.DriverScript{SessionID: "session-1", Model: "fixture", Turns: [][]fake.DriverStep{steps}}
 }
 
@@ -145,7 +153,7 @@ func applyStopVariant(variant string) {
 		gitcli.Sabotaged(gitcli.Sabotage{TrackedOnly: true})
 	case sabotageOwnIndex:
 		gitcli.Sabotaged(gitcli.Sabotage{OwnIndex: true})
-	case sabotageNoGuard:
+	case sabotageNoGuard, sabotageFenced:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageNoGuard)
 	case sabotageKeeps:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageKeepResources)
@@ -171,7 +179,6 @@ func roleWorkerStop(c *child) error {
 		lastingDriver: &lastingDriver{AgentDriver: fake.NewAgentDriver(), dir: dir, log: c.log, journal: journal},
 		gitEnv:        c.spec.GitEnv, died: c.spec.Script == laneDied,
 	}
-	driver.Play(driver.script())
 	profiles := fake.NewProfileSource()
 	profiles.PutUser(c.spec.Profile)
 	subject := worker.New(workerlink.New(client), journal, clock.System{}, worker.Config{
@@ -190,13 +197,19 @@ func roleWorkerStop(c *child) error {
 	if err := subject.Start(c.ctx); err != nil {
 		return err
 	}
-	_, err = client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
+	grant, err := client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
 		ClaimID: c.spec.ClaimID, WorkerID: subject.Auth().WorkerID, TTLMs: longTTL,
 	})
 	var refused *api.Error
 	if err != nil && !errors.As(err, &refused) {
 		return err
 	}
+	if c.spec.Script == laneFenced {
+		driver.fence = c.loseLease(grant)
+		stop := beatUntilDone(c.ctx, subject)
+		defer stop()
+	}
+	driver.Play(driver.script())
 	_, err = client.StartLane(c.ctx, c.spec.WorkOrder, api.StartLane{LaneID: c.spec.Lane})
 	if err != nil && !errors.As(err, &refused) {
 		return err
@@ -212,6 +225,33 @@ func roleWorkerStop(c *child) error {
 	}
 	subject.Wait()
 	return subject.Upload(c.ctx)
+}
+
+// loseLease moves the fence under a running lane, the way a reassignment does.
+func (c *child) loseLease(grant api.Grant) func(ports.SessionSpec) {
+	return func(spec ports.SessionSpec) {
+		holder := workorders.Holder{
+			Lease: workorders.Lease{WorkOrder: grant.WorkOrder, ClaimID: grant.ClaimID, Fence: grant.Fence},
+			Lane:  spec.Lane, Generation: spec.Generation,
+		}
+		result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: "taken"}}
+		if err := control.NewLeases(c.store).EndLane(c.ctx, c.scope, holder, result, c.member()); err != nil {
+			fmt.Fprintln(os.Stderr, "losing the lease:", err)
+		}
+	}
+}
+
+// beatUntilDone beats as a running daemon does, which is how a worker learns its fence moved.
+func beatUntilDone(ctx context.Context, subject *worker.Worker) func() {
+	beating, stop := context.WithCancel(ctx)
+	go func() {
+		for beating.Err() == nil {
+			_, _ = subject.Beat(beating)
+			_ = subject.Upload(beating)
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+	return stop
 }
 
 // stopRepo is a repository and, for most cases, a bare remote that holds its history.
@@ -478,6 +518,41 @@ func hookCase() crashCase {
 	}
 }
 
+// fencedCase is a lane that lost its lease. What it wrote goes to a salvage ref on the
+// remote, its branch stays off the remote, and the ledger takes the record from a holder it
+// no longer accepts anything else from.
+func fencedCase(op string, steps ...string) crashCase {
+	return crashCase{
+		name: "a fenced lane at " + op, op: op, steps: steps,
+		prepare: func(w *world) (childSpec, error) { return stopSpec(w, true, laneFenced, "") },
+		settled: fencedSettled,
+	}
+}
+
+func fencedSettled(w *world, spec childSpec) error {
+	wrote, _, err := witnessed(w)
+	if err != nil {
+		return err
+	}
+	for name, content := range wrote {
+		found := refsHolding(spec.Path, spec.GitEnv, name, content)
+		if !slices.ContainsFunc(found, func(ref string) bool { return strings.HasPrefix(ref, "refs/ropeshift/salvage/"+spec.Lane+"/") }) {
+			return contract.Violatedf("no salvage ref on the remote holds %s: %v", name, found)
+		}
+	}
+	if heads, err := gitIn(spec.Path, spec.GitEnv, "for-each-ref", "refs/heads/lane"); err != nil || heads != "" {
+		return contract.Violatedf("a fenced lane moved a branch: %q: %v", heads, err)
+	}
+	view, err := w.laneView(spec.Lane)
+	if err != nil {
+		return err
+	}
+	if len(wrote) != 0 && !slices.ContainsFunc(view.Artifacts, func(a ledger.Artifact) bool { return strings.Contains(a.URI, "/salvage/") }) {
+		return contract.Violatedf("the ledger holds no salvage: %+v", view.Artifacts)
+	}
+	return nil
+}
+
 func stopCases() []crashCase {
 	const (
 		surveyed, pushed, snapshotted, snapshotPushed, saved = "surveyed", "pushed", "snapshotted", "snapshot-pushed", "saved"
@@ -489,6 +564,7 @@ func stopCases() []crashCase {
 		stopCase("worker.lane", "allocated"),
 		diedCase("worker.guard", surveyed, pushed, snapshotted, snapshotPushed, saved),
 		diedCase("worktree.snapshot", "read", "added", "committed", "recorded"),
+		fencedCase("worker.guard", surveyed, pushed, snapshotted, snapshotPushed, saved),
 		noRemoteCase(),
 		removalCase(),
 		archivedStepCase(),

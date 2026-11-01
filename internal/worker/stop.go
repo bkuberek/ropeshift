@@ -207,11 +207,11 @@ func (w *Worker) reportGuard(ctx context.Context, record lanes.Record, result la
 // leaseGone says no desired state names a lane's claim any more, which is how a restarted
 // worker learns a lane was fenced while it was away.
 func (w *Worker) leaseGone(ctx context.Context, record lanes.Record) bool {
-	leases, err := w.desiredLeases(ctx)
-	if err != nil {
+	state, err := w.desired(ctx)
+	if err != nil || state.Rev == 0 {
 		return false
 	}
-	for _, lease := range leases {
+	for _, lease := range state.Leases {
 		if lease.ClaimID == record.ClaimID {
 			return false
 		}

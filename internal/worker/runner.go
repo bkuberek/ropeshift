@@ -274,6 +274,7 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located ports.Located, lease ledger.DesiredLease) (*laneRun, error) {
 	lease.WorkOrder, lease.ClaimID, lease.Fence, lease.Lane = record.WorkOrder, record.ClaimID, record.Fence, record.ID
 	run := w.resumedRun(lease, record)
+	run.fenced.Store(w.leaseGone(ctx, record))
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
 	run.state = newLaneState(record.Actual, w.clock.Now())

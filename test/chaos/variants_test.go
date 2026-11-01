@@ -408,6 +408,7 @@ func allVariants() []variant {
 		{name: sabotageTrackedOnly, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
 		{name: sabotageOwnIndex, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
 		{name: sabotageNoGuard, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
+		{name: sabotageFenced, check: "crash", crash: func() (crashCase, string) { return fencedCase("worker.lane", "allocated"), "allocated" }},
 		{name: sabotageKeeps, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
 		{name: "a removal that reads nothing first", check: "removal"},
 		{name: "a guard's push that forces", check: "force", gitSabotage: gitcli.Sabotage{ForcePush: true}},
