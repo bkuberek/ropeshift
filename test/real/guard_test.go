@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"testing"
 
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/test/doubles"
 )
 
@@ -379,6 +380,14 @@ func TestLedgerRefusesPastTheCeiling(t *testing.T) {
 	}
 	if err := second.charge("one more", 1); err == nil {
 		t.Error("a session past the ceiling was charged")
+	}
+}
+
+// TestRefusedSignInReadInThisBuild holds a real-session build to the rule that it runs no
+// sign-in command in any form, not even one that only reads.
+func TestRefusedSignInReadInThisBuild(t *testing.T) {
+	if lanes.ReadsVendorStatus {
+		t.Error("a real-session build would run the vendor's status command")
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/doubles"
 	"ropeshift.dev/ropeshift/test/gittest"
 )
 
@@ -28,11 +29,14 @@ const (
 	rs4ToolLimit = 7
 	// rs4Gated is the one action a gate names. The command does nothing.
 	rs4Gated = "echo rs4-gated"
-	// rs4Bystep names a command the stand-in hook lets through, so a deny rule alone is
-	// left to stop it, and rs4Slow one it holds past its timeout.
+	// rs4Bystep names a call the stand-in hook lets through, so a deny rule alone is left to
+	// stop it, and rs4Slow one it holds past its timeout. Each is part of what a call does,
+	// so a session cannot drop it the way it could drop a comment.
 	rs4Bystep = "rs4-rule"
 	rs4Slow   = "rs4-slow"
-	rs4Gates  = `[agent]
+	// rs4HoldSeconds passes the hook's timeout of 5 seconds, and ends soon after.
+	rs4HoldSeconds = "12"
+	rs4Gates       = `[agent]
 permission_mode = "auto"
 gates = ["Bash(` + rs4Gated + `*)"]
 `
@@ -95,16 +99,18 @@ func rs4Settings(record string) string {
 	return string(raw)
 }
 
-// slowHook stands in for the stable binary for one lane, so a call can reach the deny
-// rules with no hook decision, and another can run past the hook's timeout. Anything else
-// goes to the real hook.
-func slowHook(real string) string {
+// slowHook stands in for the stable binary, so a call can reach the deny rules with no hook
+// decision, and another can run past the hook's timeout. Anything else goes to the real
+// hook. Every call is written down first, so a denial that stopped nothing cannot pass as
+// one that stopped a call.
+func slowHook(real, record string) string {
 	return `#!/bin/sh
 case "$1:$2" in
 hook:PreToolUse)
   input=$(cat)
+  printf '%s\n' "$input" >> "` + record + `"
   case "$input" in
-  *` + rs4Slow + `*) sleep 30 ;;
+  *` + rs4Slow + `*) sleep ` + rs4HoldSeconds + ` ;;
   *` + rs4Bystep + `*) ;;
   *) printf '%s' "$input" | exec "` + real + `" "$@" ;;
   esac
@@ -112,6 +118,135 @@ hook:PreToolUse)
 *) exec "` + real + `" "$@" ;;
 esac
 `
+}
+
+// standBehind puts the recording hook in front of the stable binary. A daemon points that
+// path back at itself when it starts, so this runs after each start.
+func (s *suite) standBehind(script string) {
+	s.t.Helper()
+	if err := os.Remove(s.paths.StableBinary()); err != nil {
+		s.t.Fatal(err)
+	}
+	if err := os.Symlink(script, s.paths.StableBinary()); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+// attempts lists the Bash commands a lane's sessions asked to run, whatever became of each.
+func attempts(record string) ([]string, error) {
+	raw, err := os.ReadFile(record)
+	if err != nil {
+		return nil, err
+	}
+	var commands []string
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		var call struct {
+			Tool  string `json:"tool_name"`
+			Input struct {
+				Command string `json:"command"`
+			} `json:"tool_input"`
+		}
+		if json.Unmarshal([]byte(line), &call) == nil && call.Tool == lanes.ToolBash {
+			commands = append(commands, call.Input.Command)
+		}
+	}
+	return commands, nil
+}
+
+// missing names the commands no session attempted. A call that was never made proves
+// nothing about what would have stopped it.
+func missing(commands, wanted []string) []string {
+	var absent []string
+	for _, want := range wanted {
+		if !slices.ContainsFunc(commands, func(command string) bool { return strings.Contains(command, want) }) {
+			absent = append(absent, want)
+		}
+	}
+	return absent
+}
+
+// standInStep is what a dry run's session does with one call. Blocked stands for a deny rule
+// or a hook timeout, which a scripted CLI does not implement.
+type standInStep struct {
+	command string
+	blocked bool
+}
+
+// playInStandIn gives a dry run this lane's calls, because they name this run's scratch
+// path. A real session reads them from its contract.
+func (s *suite) playInStandIn(steps ...standInStep) {
+	s.t.Helper()
+	if s.standIn == "" {
+		return
+	}
+	path := filepath.Join(filepath.SplitList(s.standIn)[0], doubles.FixtureFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	var fixture map[string]any
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		s.t.Fatal(err)
+	}
+	played := []any{map[string]any{"init": true}}
+	for _, step := range steps {
+		played = append(played, map[string]any{"tool": lanes.ToolBash, "command": step.command, "blocked": step.blocked})
+	}
+	played = append(played,
+		map[string]any{"mcp": lanes.ToolLaneReport, "arguments": map[string]any{
+			"outcome": "completed", "artifacts": []string{"none"}, "checks": []map[string]any{{"name": "stand-in", "passed": true}},
+		}},
+		map[string]any{"emit": map[string]any{
+			"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02,
+			"usage": map[string]int{"input_tokens": 3, "output_tokens": 5},
+		}})
+	turns := fixture["turns"].([]any)
+	turns[1] = played
+	raw, err = json.Marshal(fixture)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+// resultClass says what stopped a call, in words a log can keep. It reads a stream's text
+// and keeps no path, prompt, or reply.
+func resultClass(text string) string {
+	switch {
+	case strings.Contains(text, "ropeshift policy"):
+		return "hook"
+	case strings.Contains(strings.ToLower(text), "permission"), strings.Contains(strings.ToLower(text), "denied"):
+		return "rule"
+	}
+	return "other"
+}
+
+// refusals counts, per class, the tool results a stream says failed.
+func refusals(stream []byte) map[string]int {
+	found := map[string]int{}
+	for line := range strings.SplitSeq(string(stream), "\n") {
+		var event struct {
+			Type    string `json:"type"`
+			Message struct {
+				Content []struct {
+					Type    string          `json:"type"`
+					IsError bool            `json:"is_error"`
+					Content json.RawMessage `json:"content"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &event) != nil || event.Type != "user" {
+			continue
+		}
+		for _, block := range event.Message.Content {
+			if block.Type == "tool_result" && block.IsError {
+				found[resultClass(string(block.Content))]++
+			}
+		}
+	}
+	return found
 }
 
 // remote gives a repository a scratch remote, so even a push that was not stopped goes
@@ -194,27 +329,26 @@ func TestRS4(t *testing.T) {
 		t.Fatal(err)
 	}
 	gateRecord := filepath.Join(s.scratch, "gate-fired")
+	toolRecord := filepath.Join(s.scratch, "pre-tool-use.log")
 
+	forced := "git push --force origin HEAD:refs/heads/rs4-forced"
+	toMain := "git push origin HEAD:main"
+	outsideWrite := "echo denied > " + filepath.Join(outside, "denied.txt")
+	insideWrite := "echo inside > inside.txt"
 	headless := gittest.NewIn(t, s.subdirectory("h"))
 	headless.Commit(".ropeshift/profile.toml", rs4Profile(lanes.ProfileRunHeadless))
-	headless.Commit("contract.md", rs4Contract("rs4h",
-		"git push --force origin HEAD:refs/heads/rs4-forced",
-		"git push origin HEAD:main",
-		"echo denied > "+filepath.Join(outside, "denied.txt"),
-		"echo inside > inside.txt",
-	))
+	headless.Commit("contract.md", rs4Contract("rs4h", forced, toMain, outsideWrite, insideWrite))
 	headlessRemote := s.remote(headless, "headless")
 	before := s.head(headlessRemote)
 
 	pane := gittest.NewIn(t, s.subdirectory("p"))
 	pane.Commit(".ropeshift/profile.toml", rs4Profile(lanes.ProfileRunTmux))
 	pane.Commit(".claude/settings.json", rs4Settings(gateRecord))
-	pane.Commit("contract.md", rs4Contract("rs4p",
-		rs4Gated,
-		"echo rule > "+filepath.Join(outside, "rule.txt")+" # "+rs4Bystep,
-		"git push --force origin HEAD:refs/heads/rs4-rule # "+rs4Bystep,
-		"echo slow > slow.txt # "+rs4Slow,
-	))
+	ruleWrite := "echo rule > " + filepath.Join(outside, rs4Bystep+".txt")
+	rulePush := "git push --force origin HEAD:refs/heads/" + rs4Bystep
+	slowWrite := "echo slow > " + rs4Slow + ".txt"
+	paneInside := "echo pane > pane-inside.txt"
+	pane.Commit("contract.md", rs4Contract("rs4p", rs4Gated, ruleWrite, rulePush, slowWrite, paneInside))
 	paneRemote := s.remote(pane, "pane")
 
 	s.repo = headless.Dir
@@ -242,6 +376,16 @@ func TestRS4(t *testing.T) {
 		}
 		return len(workers.Workers) == 1 && workers.Workers[0].Epoch >= 1
 	})
+	real, err := os.Readlink(s.paths.StableBinary())
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(s.scratch, "slow-hook")
+	if err := os.WriteFile(script, []byte(slowHook(real, toolRecord)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.standBehind(script)
+	s.playInStandIn(standInStep{command: forced}, standInStep{command: toMain}, standInStep{command: outsideWrite}, standInStep{command: insideWrite})
 	state := s.awaitLane(first, id, rs4HeadlessLane, func() { s.checkStream(first.stop) })
 	first.stop()
 	raw, err := os.ReadFile(s.stream)
@@ -265,9 +409,23 @@ func TestRS4(t *testing.T) {
 		}
 	}
 	slices.Sort(denials)
-	t.Logf("rs4: headless: version=%s permission=%s state=%s denied=%v forced_ref=%v main_moved=%v wrote_outside=%v wrote_inside=%v",
+	calls, err := attempts(toolRecord)
+	if err != nil {
+		t.Fatalf("no call was recorded: %v", err)
+	}
+	t.Logf("rs4: headless: version=%s permission=%s state=%s denied=%v forced_ref=%v main_moved=%v wrote_outside=%v wrote_inside=%v attempted=%d unattempted=%d refused=%v",
 		init.Version, init.Permission, state, denials, s.refExists(headlessRemote, "refs/heads/rs4-forced"),
-		s.head(headlessRemote) != before, exists4(filepath.Join(outside, "denied.txt")), exists4(filepath.Join(s.worktree, "inside.txt")))
+		s.head(headlessRemote) != before, exists4(filepath.Join(outside, "denied.txt")), exists4(filepath.Join(s.worktree, "inside.txt")),
+		len(calls), len(missing(calls, []string{forced, toMain, outsideWrite, insideWrite})), refusals(raw))
+	if absent := missing(calls, []string{forced, toMain, outsideWrite, insideWrite}); len(absent) != 0 {
+		t.Errorf("%d of the headless calls were never attempted, so nothing shows what stops them", len(absent))
+	}
+	if s.standIn == "" && init.Permission != "auto" {
+		t.Errorf("the lane ran in %s, and the suite tests auto", init.Permission)
+	}
+	if !exists4(filepath.Join(s.worktree, "inside.txt")) {
+		t.Error("an allowed write inside the worktree left no file")
+	}
 	if s.refExists(headlessRemote, "refs/heads/rs4-forced") || s.head(headlessRemote) != before {
 		t.Error("a denied push reached the remote")
 	}
@@ -281,13 +439,9 @@ func TestRS4(t *testing.T) {
 		t.Errorf("the hook's reasons in the stream: %v", denials)
 	}
 
-	// The second lane runs behind the stand-in for the stable binary.
-	real, err := os.Readlink(s.paths.StableBinary())
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := filepath.Join(s.scratch, "slow-hook")
-	if err := os.WriteFile(script, []byte(slowHook(real)), 0o700); err != nil {
+	// The second lane runs behind the same stand-in, which a new daemon replaced. It starts
+	// its own record, so one lane's calls cannot stand for another's.
+	if err := os.Remove(toolRecord); err != nil {
 		t.Fatal(err)
 	}
 	s.repo = pane.Dir
@@ -312,12 +466,11 @@ func TestRS4(t *testing.T) {
 		}
 		return paneID != ""
 	})
-	if err := os.Remove(s.paths.StableBinary()); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(script, s.paths.StableBinary()); err != nil {
-		t.Fatal(err)
-	}
+	s.standBehind(script)
+	s.playInStandIn(
+		standInStep{command: rs4Gated}, standInStep{command: ruleWrite, blocked: true}, standInStep{command: rulePush, blocked: true},
+		standInStep{command: slowWrite, blocked: true}, standInStep{command: paneInside},
+	)
 	const name = rs4PaneLane + "-g1"
 	screens := &screenLog{}
 	paneState := s.awaitLane(second, paneID, rs4PaneLane, func() {
@@ -331,17 +484,29 @@ func TestRS4(t *testing.T) {
 	for _, shape := range screens.shapes {
 		t.Logf("rs4: screen %s", shape)
 	}
-	t.Logf("rs4: pane: state=%s screens=%v tools=%d post_tools=%d gate_fired=%v rule_wrote=%v rule_pushed=%v slow_wrote=%v",
+	calls, err = attempts(toolRecord)
+	if err != nil {
+		t.Fatalf("no call was recorded: %v", err)
+	}
+	wanted := []string{rs4Gated, ruleWrite, rulePush, slowWrite, paneInside}
+	t.Logf("rs4: pane: state=%s screens=%v tools=%d post_tools=%d gate_fired=%v rule_wrote=%v rule_pushed=%v slow_wrote=%v wrote_inside=%v attempted=%d unattempted=%d",
 		paneState, screens.names(), eventCount(records, "PreToolUse"), eventCount(records, "PostToolUse"), exists4(gateRecord),
-		exists4(filepath.Join(outside, "rule.txt")), s.refExists(paneRemote, "refs/heads/rs4-rule"), exists4(filepath.Join(paneWorktree, "slow.txt")))
-	if exists4(filepath.Join(outside, "rule.txt")) {
+		exists4(filepath.Join(outside, rs4Bystep+".txt")), s.refExists(paneRemote, "refs/heads/"+rs4Bystep),
+		exists4(filepath.Join(paneWorktree, rs4Slow+".txt")), exists4(filepath.Join(paneWorktree, "pane-inside.txt")), len(calls), len(missing(calls, wanted)))
+	if absent := missing(calls, wanted); len(absent) != 0 {
+		t.Errorf("%d of the pane's calls were never attempted, so nothing shows what stops them", len(absent))
+	}
+	if exists4(filepath.Join(outside, rs4Bystep+".txt")) {
 		t.Error("the generated Edit rule did not stop a redirect")
 	}
-	if s.refExists(paneRemote, "refs/heads/rs4-rule") {
+	if s.refExists(paneRemote, "refs/heads/"+rs4Bystep) {
 		t.Error("the generated Bash rule did not stop a force push")
 	}
-	if exists4(filepath.Join(paneWorktree, "slow.txt")) {
+	if exists4(filepath.Join(paneWorktree, rs4Slow+".txt")) {
 		t.Error("a hook that timed out did not block its call")
+	}
+	if !exists4(filepath.Join(paneWorktree, "pane-inside.txt")) {
+		t.Error("an allowed write in a pane left no file")
 	}
 	if s.standIn == "" && !exists4(gateRecord) {
 		t.Error("an ask rule in auto mode raised no PermissionRequest in tmux")

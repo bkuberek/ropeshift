@@ -174,6 +174,8 @@ func (s *suite) watchPane(stop func(), pane string, screens *screenLog) string {
 		screens.note("trust", text)
 	case strings.Contains(text, "Do you want to proceed"):
 		screens.note("permission", text)
+	case strings.Contains(text, "for shortcuts"), strings.Contains(text, "auto mode"):
+		screens.note("ready", text)
 	default:
 		screens.note("ready-or-turn", text)
 	}
