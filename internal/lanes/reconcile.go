@@ -138,16 +138,17 @@ func planLane(lane Actual) (Action, bool) {
 		return Action{Kind: ActionEnd, Lane: id}, true
 	case lane.Session.Found:
 		return Action{}, false
-	case spawned(lane.Effects):
+	case spawned(lane.Effects, lane.Record.Generation):
 		return Action{Kind: ActionEnd, Lane: id}, true
 	}
 	return Action{Kind: ActionContinue, Lane: id}, true
 }
 
-// spawned says the session effect finished, so a session is gone and not unstarted.
-func spawned(effects []Effect) bool {
+// spawned says this generation's session effect finished, so a session is gone and not
+// unstarted. An earlier generation's says nothing about this one.
+func spawned(effects []Effect, generation int64) bool {
 	for _, effect := range effects {
-		if effect.Kind != EffectSession {
+		if effect.Kind != EffectSession || effect.Generation != generation {
 			continue
 		}
 		return effect.State == EffectCompleted || effect.State == EffectFailed

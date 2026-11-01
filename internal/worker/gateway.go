@@ -96,6 +96,15 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 			run.noteLedger(reachOfCall(reply))
 		}
 		return reply
+	case request.Wait != nil:
+		if request.Wait.Minutes <= 0 {
+			return refused(lanes.CodeInvalid, "a wait needs a number of minutes")
+		}
+		if run := w.runOf(lane.ID); run != nil {
+			run.declareWait(*request.Wait)
+			run.noteLedger(lanes.Reachable)
+		}
+		return lanes.Reply{OK: true}
 	}
 	return refused(lanes.CodeInvalid, "this line asks for nothing")
 }

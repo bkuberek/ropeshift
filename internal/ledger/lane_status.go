@@ -14,6 +14,9 @@ const SubjectLane = "lane"
 // EventLaneStatus records a lane's status changing.
 const EventLaneStatus = "lane.status"
 
+// EventLaneReset records a member resetting a lane's breaker.
+const EventLaneReset = "lane.reset"
+
 // StateEnded is a lane's last state, which the ledger records for itself.
 const StateEnded = "ended"
 

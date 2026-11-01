@@ -178,6 +178,23 @@ func TestPaneStartAnswersTrustAndHandsOverTheBrief(t *testing.T) {
 	}
 }
 
+// SessionStart fires with no prompt, so a worker must not read it as a brief that arrived:
+// the first event of a session in a pane comes with its first prompt.
+func TestPaneSessionStartIsNoEvidenceOfABrief(t *testing.T) {
+	r := newPaneRig(t, "pane-two-turns")
+	r.spec.Brief = ""
+	s := r.start()
+	select {
+	case event := <-s.events:
+		t.Errorf("an event before any prompt: %+v", event)
+	case <-time.After(400 * time.Millisecond):
+	}
+	s.send2(t)
+	if bound := s.until(ports.EventSessionBound); bound.SessionID == "" {
+		t.Errorf("bound %+v", bound)
+	}
+}
+
 func TestPaneSessionRunsTheUnmodifiedBinaryWithItsExactEnvironment(t *testing.T) {
 	r := newPaneRig(t, "pane-two-turns")
 	s := r.start()

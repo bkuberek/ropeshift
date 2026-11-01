@@ -342,7 +342,7 @@ func TestRS1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkInit(init, []string{"ropeshift"}, []string{"mcp__ropeshift__lane_report"}); err != nil {
+	if err := checkInit(init, []string{"ropeshift"}, laneTools); err != nil {
 		t.Fatalf("STOP: the lane's init: %v", err)
 	}
 	if row.State != workorders.Acceptance {

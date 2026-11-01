@@ -383,3 +383,19 @@ func (c *invocation) workerToken(args []string) int {
 	token, err := client.CreateJoinToken(c.ctx)
 	return c.finish(err, api.JoinTokenResponse{Token: token}, func() string { return token + "\n" })
 }
+
+func (c *invocation) laneReset(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	reset, err := client.ResetLane(c.ctx, id)
+	return c.finish(err, reset, func() string { return "reset the lane of " + reset.WorkOrder + "\n" })
+}

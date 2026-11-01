@@ -40,6 +40,7 @@ const usage = `usage: ropeshift <command>
   source list                                        list sources and their health
   lane list                                          list lanes, each with its freshness
   lane show <lane>                                   show one lane, with its freshness
+  lane reset <work-order>                            let a lane its breaker stopped start again
   worker list                                        list registered workers
   worker token                                       make a join token
   version                                            print the version
@@ -84,6 +85,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"work release":  (*invocation).workRelease,
 		"work reassign": (*invocation).workReassign,
 		"lane start":    (*invocation).laneStart,
+		"lane reset":    (*invocation).laneReset,
 		"lane list":     (*invocation).laneList,
 		"lane show":     (*invocation).laneShow,
 		"source list":   (*invocation).sourceList,

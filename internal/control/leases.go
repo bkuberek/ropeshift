@@ -594,6 +594,57 @@ func (l *Leases) Write(ctx context.Context, scope ledger.WorkspaceID, holder wor
 	return written, err
 }
 
+// nextGeneration moves a lane on after a crash, under the claim it holds, so what the last
+// generation still has in flight is refused.
+func nextGeneration(tx ports.WriteTx, holder workorders.Holder, actor ledger.Actor, stamp func(*ledger.EventDraft)) error {
+	if err := guardHolder(tx, "lane.restart", holder); err != nil {
+		return err
+	}
+	next, err := tx.Lanes().NextGeneration(holder.Lane)
+	if err != nil {
+		return err
+	}
+	event, err := workorders.ChangeEvent(workorders.EventLaneRestarted, holder.WorkOrder, workorders.Change{
+		Guarded: true, Fence: holder.Fence, ClaimID: holder.ClaimID, Lane: holder.Lane, Generation: next,
+	}, actor)
+	if err != nil {
+		return err
+	}
+	stamp(&event)
+	_, err = tx.Append(event)
+	return err
+}
+
+// ResetLane lets a work order's tripped lane start again. Only a person can, because the
+// breaker exists to stop what no automatic step could fix. It goes through the work order,
+// as a lane's start does: a person asks, and the lane's state still derives from what
+// happens next.
+func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) error {
+	if actor.Kind != ledger.ActorMember {
+		return workorders.ErrForbidden
+	}
+	return l.store.Write(ctx, scope, "lane.reset", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(workOrder)
+		if err != nil {
+			return err
+		}
+		claim, err := tx.Claims().Find(current.ClaimID)
+		if err != nil {
+			return err
+		}
+		if claim.Lane == "" {
+			return fmt.Errorf("%w: work order %s runs no lane", workorders.ErrIllegalMove, workOrder)
+		}
+		if _, err := tx.Lanes().Reset(claim.Lane); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: ledger.EventLaneReset, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: claim.Lane},
+		})
+		return err
+	})
+}
+
 // Handoff moves a lane to its next generation within the same claim, so the
 // previous generation cannot write after it.
 func (l *Leases) Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error) {

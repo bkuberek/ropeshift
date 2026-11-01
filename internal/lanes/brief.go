@@ -33,3 +33,7 @@ func Brief(spec BriefSpec) string {
 		" tool once with its outcome, then end your turn.\n")
 	return out.String()
 }
+
+// Restarted is what a resumed generation is told, because a resume alone starts no turn.
+const Restarted = "Your session ended unexpectedly and was restarted. Continue this work order from where it stopped, " +
+	"and call lane_report when it is done or cannot go on."

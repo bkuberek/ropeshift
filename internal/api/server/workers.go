@@ -16,6 +16,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workers", h.listWorkers)
 	mux.HandleFunc("GET /v1/lanes", h.listLanes)
 	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
+	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.resetLane)
 	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
 	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
 	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
@@ -181,4 +182,13 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, answer)
+}
+
+// resetLane lets a member start the lane a work order's breaker stopped.
+func (h *handler) resetLane(w http.ResponseWriter, r *http.Request) {
+	if err := h.leases.ResetLane(r.Context(), h.Scope, r.PathValue("id"), localMember); err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.LaneReset{WorkOrder: r.PathValue("id")})
 }

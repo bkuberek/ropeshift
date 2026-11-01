@@ -280,14 +280,15 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
 	var digest sql.NullString
 	var progress []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
-		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual)
+		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
+		&lane.ResumeSession, &lane.ResetsSeen)
 	if err != nil {
 		return lane, err
 	}
@@ -317,6 +318,75 @@ ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generati
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State,
 		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report)
 	return err
+}
+
+// BeginGeneration moves a lane to its next generation and stores that event together.
+func (j *Journal) BeginGeneration(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	progress, err := json.Marshal(lane.Progress)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `UPDATE lanes
+   SET generation = ?2, token_digest = NULL, session_id = '', resume_session = ?3, progress = ?4 WHERE id = ?1`,
+		lane.ID, lane.Generation, lane.ResumeSession, progress)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	stored, err := insertEvent(ctx, tx, event)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return stored, tx.Commit()
+}
+
+// ChargeRestart keeps one charge once.
+func (j *Journal) ChargeRestart(ctx context.Context, lane string, charge lanes.Restart) (bool, error) {
+	result, err := j.db.ExecContext(ctx, `INSERT INTO lane_restarts (lane, key, at_ms, not_before_ms)
+VALUES (?1, ?2, ?3, ?4) ON CONFLICT (lane, key) DO NOTHING`, lane, charge.Key, charge.AtMs, charge.NotBeforeMs)
+	if err != nil {
+		return false, err
+	}
+	first, err := result.RowsAffected()
+	return first != 0, err
+}
+
+// Restarts lists a lane's charges.
+func (j *Journal) Restarts(ctx context.Context, lane string) ([]lanes.Restart, error) {
+	rows, err := j.db.QueryContext(ctx, `SELECT key, at_ms, not_before_ms FROM lane_restarts WHERE lane = ?1 ORDER BY at_ms, key`, lane)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []lanes.Restart
+	for rows.Next() {
+		var charge lanes.Restart
+		if err := rows.Scan(&charge.Key, &charge.AtMs, &charge.NotBeforeMs); err != nil {
+			return nil, err
+		}
+		out = append(out, charge)
+	}
+	return out, rows.Err()
+}
+
+// ClearRestarts takes a lane's charges away for a reset, and keeps the reset's number.
+func (j *Journal) ClearRestarts(ctx context.Context, lane string, resets int64) error {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM lane_restarts WHERE lane = ?1`, lane); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET resets_seen = ?2 WHERE id = ?1`, lane, resets); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // BeginLane stores a lane and its first event together.

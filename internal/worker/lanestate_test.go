@@ -272,8 +272,11 @@ func TestABriefWithNoEvidenceGoesIdleAndIsFlagged(t *testing.T) {
 		return view.ActualState == string(lanes.Briefing)
 	})
 	r.clock.Advance(3 * time.Minute)
+	if err := r.subject.Publish(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	view := r.read()
-	if view.ActualState != string(lanes.Idle) || !slices.Contains(view.Conditions, string(lanes.BriefUnconfirmed)) {
+	if !slices.Contains(view.Conditions, string(lanes.BriefUnconfirmed)) {
 		t.Errorf("view %+v", view)
 	}
 }

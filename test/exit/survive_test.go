@@ -13,6 +13,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api/shimlink"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
 	"ropeshift.dev/ropeshift/test/doubles"
@@ -291,5 +292,131 @@ func TestDenialWithWorkerDown(t *testing.T) {
 	}
 	if ran, err := os.ReadFile(filepath.Join(bin, "ran.log")); err != nil || strings.Count(string(ran), "\n") != 1 {
 		t.Errorf("the allowed call: %q, %v", ran, err)
+	}
+}
+
+// restartProfile restarts a crashed session at once, so a test need not wait.
+const restartProfile = "[lifecycle]\nrestart_backoff = \"10ms\"\n"
+
+// TestAWorkerRestartsASessionAfterItsShimDies is FR-LANE-12 on real processes: SIGKILL to
+// the shim ends its session, because its stdin closes, and the worker that reads that end
+// resumes the same session as a new generation, which reports the lane's outcome.
+func TestAWorkerRestartsASessionAfterItsShimDies(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit(".ropeshift/profile.toml", restartProfile)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	in.path = doubles.InstallFakeClaude(t, "shim-dies")
+	daemon := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
+	in.waitReady(daemon)
+	in.waitFor("the worker's session", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch >= 1
+	})
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
+	in.must("lane", "start", id, "--lane", "lane-1")
+	config := filepath.Join(in.paths().StateDir, "lanes", "lane-1")
+	doubles.ReapShims(t, config)
+	var state shimlink.State
+	in.waitFor("the session's start", func() bool {
+		var err error
+		state, err = shimlink.ReadState(filepath.Join(config, "shim-1"))
+		return err == nil && state.ChildPID != 0
+	})
+	in.waitFor("the generation's binding", func() bool {
+		return slices.Contains(eventTypes(in.events(t, id)), workorders.EventGenerationBound)
+	})
+
+	if err := syscall.Kill(state.ShimPID, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(doubles.BinDir(in.path), "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
+	daemon.kill()
+
+	var sessions [][]string
+	for _, seen := range doubles.SeenBy(t, doubles.BinDir(in.path)) {
+		if len(seen.Args) != 0 && seen.Args[0] == "-p" {
+			sessions = append(sessions, seen.Args)
+		}
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("%d sessions, want the first and its resume", len(sessions))
+	}
+	resumed := 0
+	for _, args := range sessions {
+		if slices.Contains(args, "--resume") {
+			resumed++
+		}
+	}
+	if resumed != 1 {
+		t.Errorf("%d resumes", resumed)
+	}
+	events := eventTypes(in.events(t, id))
+	if !slices.Contains(events, workorders.EventLaneRestarted) {
+		t.Errorf("no restart on record: %v", events)
+	}
+}
+
+// TestAWorkerRestartsAPaneThatDied is the same promise in the other run mode: the pane's
+// process dies by SIGKILL, and the next generation resumes in a new pane, through the
+// checked start.
+func TestAWorkerRestartsAPaneThatDied(t *testing.T) {
+	doubles.RequireTmux(t)
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit(".ropeshift/profile.toml", paneProfile+restartProfile)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	in.path = doubles.InstallFakeClaude(t, "pane-dies")
+	terminal := doubles.TmuxOn(t, in.paths().TerminalSocket())
+	daemon := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
+	in.waitReady(daemon)
+	in.waitFor("the worker's session", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch >= 1
+	})
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
+	in.must("lane", "start", id, "--lane", "lane-1")
+	in.waitFor("the generation's binding", func() bool {
+		return slices.Contains(eventTypes(in.events(t, id)), workorders.EventGenerationBound)
+	})
+	if err := terminal.Signal(t.Context(), "lane-1-g1", ports.SignalKill); err != nil {
+		t.Fatal(err)
+	}
+	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
+	daemon.kill()
+	if events := eventTypes(in.events(t, id)); !slices.Contains(events, workorders.EventLaneRestarted) {
+		t.Errorf("no restart on record: %v", events)
+	}
+}
+
+// TestALaneResetReachesTheCLI holds the one command a tripped lane waits for.
+func TestALaneResetReachesTheCLI(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	in.path = doubles.InstallFakeClaude(t, "lane-completed")
+	daemon := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
+	in.waitReady(daemon)
+	if code, _, _ := in.run("lane", "reset", "no-such-work-order"); code == 0 {
+		t.Error("a reset of nothing answered")
+	}
+	in.waitFor("the worker's session", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch >= 1
+	})
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
+	in.must("lane", "start", id, "--lane", "lane-1")
+	doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", "lane-1"))
+	if text := in.must("lane", "reset", id); !strings.Contains(text, "reset the lane of "+id) {
+		t.Errorf("reset said %q", text)
 	}
 }

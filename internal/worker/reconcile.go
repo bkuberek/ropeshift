@@ -257,9 +257,9 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 		if !ok {
 			return w.endUnattended(ctx, seen.records[action.Lane])
 		}
-		w.startRun(ctx, newRun(w, lease), (*laneRun).proceed)
+		w.startRun(ctx, w.resumedRun(lease, seen.records[action.Lane]), (*laneRun).proceed)
 	case lanes.ActionAdopt:
-		run, err := w.adoptedRun(ctx, seen.records[action.Lane], seen.located[action.Lane])
+		run, err := w.adoptedRun(ctx, seen.records[action.Lane], seen.located[action.Lane], seen.leases[action.Lane])
 		if err != nil {
 			return err
 		}
@@ -275,8 +275,8 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 	result := workorders.LaneResult{
 		Report:  workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonWorkerRestarted},
-		CostUSD: record.Progress.Cost.CostUSD, SessionTotalUSD: record.Progress.Cost.SessionTotalUSD,
-		UnknownCostTurns: record.Progress.Cost.UnknownTurns,
+		CostUSD: record.Progress.PriorUSD + record.Progress.Cost.CostUSD, SessionTotalUSD: record.Progress.Cost.SessionTotalUSD,
+		UnknownCostTurns: record.Progress.PriorUnknown + record.Progress.Cost.UnknownTurns,
 		InputTokens:      record.Progress.Usage.Context(), OutputTokens: record.Progress.Usage.OutputTokens,
 	}
 	if report, ok := decodeReport(record.Report); ok {

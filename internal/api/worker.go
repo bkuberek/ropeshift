@@ -116,6 +116,18 @@ func (c *Client) Lane(ctx context.Context, id string) (ledger.LaneView, error) {
 	return out, err
 }
 
+// LaneReset says which work order's lane a member reset.
+type LaneReset struct {
+	WorkOrder string `json:"work_order"`
+}
+
+// ResetLane resets the breaker of a work order's lane.
+func (c *Client) ResetLane(ctx context.Context, workOrder string) (LaneReset, error) {
+	var out LaneReset
+	err := c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-reset", nil, &out)
+	return out, err
+}
+
 // WatchEvent is the data of one server-sent event: a hint, which carries no state.
 type WatchEvent struct {
 	Rev int64 `json:"rev"`

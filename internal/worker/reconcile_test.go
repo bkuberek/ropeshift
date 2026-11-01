@@ -189,6 +189,7 @@ func TestAnEffectFoundIsNotRepeated(t *testing.T) {
 	w.record("lane-1", lanes.StateRunning)
 	effect := w.effect(lanes.EffectSession, "lane-1", lanes.EffectStarted)
 	w.driver.Leave("lane-1", 1, sessionAlive)
+	w.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", noRestarts)
 	w.driver.Play(script([]fake.DriverStep{{Crash: true}}))
 	if err := w.subject.Converge(t.Context()); err != nil {
 		t.Fatal(err)

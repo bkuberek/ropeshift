@@ -636,6 +636,9 @@ func TestEveryNamedStepIsInTheMatrix(t *testing.T) {
 	for _, step := range paneSteps {
 		rows[paneOp+"/"+step.name] = true
 	}
+	for _, step := range restartSteps {
+		rows[restartOp+"/"+step] = true
+	}
 	for _, step := range literal {
 		if !rows[step] {
 			t.Errorf("named step %s has no matrix row", step)

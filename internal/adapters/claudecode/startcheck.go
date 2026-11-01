@@ -124,7 +124,7 @@ func isRule(line string) bool {
 	width := 0
 	for _, r := range text {
 		switch r {
-		case '─', '━', '╭', '╮', '╰', '╯':
+		case '─', '━', '╌', '┄', '╭', '╮', '╰', '╯':
 			width++
 		default:
 			return false

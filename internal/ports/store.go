@@ -175,6 +175,8 @@ type LaneReader interface {
 	Row(lane string) (ledger.LaneRow, error)
 	// Rows returns every lane's status, by ID.
 	Rows() ([]ledger.LaneRow, error)
+	// Resets returns how many times a lane's breaker was reset, or ErrNotFound.
+	Resets(lane string) (int64, error)
 }
 
 // LaneWriter writes lanes.
@@ -188,6 +190,8 @@ type LaneWriter interface {
 	Report(row ledger.LaneRow) error
 	// MarkEnded records a lane's end, which the ledger knows for itself.
 	MarkEnded(lane string) error
+	// Reset counts one human reset of a lane's breaker and returns the count.
+	Reset(lane string) (int64, error)
 }
 
 // PlanningReader reads what intake recorded.

@@ -278,7 +278,8 @@ func TestMCPListsAndCallsLaneReport(t *testing.T) {
 	if err := json.Unmarshal(session.call("tools/list", map[string]any{}).Result, &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Tools) != 1 || listed.Tools[0].Name != "lane_report" || listed.Tools[0].InputSchema["type"] != "object" {
+	if len(listed.Tools) != 2 || listed.Tools[0].Name != "lane_report" || listed.Tools[1].Name != "lane_wait" ||
+		listed.Tools[0].InputSchema["type"] != "object" {
 		t.Fatalf("tools %+v", listed.Tools)
 	}
 	result := session.report(map[string]any{

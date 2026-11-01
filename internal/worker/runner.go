@@ -62,24 +62,47 @@ type laneRun struct {
 	version       string
 	degraded      bool
 
-	bound    bool
-	nudged   bool
-	cursor   int64
-	decided  *workorders.Report
-	cost     lanes.CostMeter
-	usage    lanes.Usage
-	fenced   atomic.Bool
-	stopping sync.Once
+	bound   bool
+	nudged  bool
+	cursor  int64
+	decided *workorders.Report
+	cost    lanes.CostMeter
+	usage   lanes.Usage
+	fenced  atomic.Bool
+	// stopOnce holds to one stop per generation, and the handle's lock guards it.
+	stopOnce *sync.Once
 	stopped  sync.WaitGroup
 	state    *laneState
+	// crashed says the session that just ended died on its own.
+	crashed bool
+	// resumeFrom is the session a restarted generation continues. Empty starts fresh.
+	resumeFrom string
+	// priorUSD and priorUnknown are what earlier generations cost.
+	priorUSD     float64
+	priorUnknown int64
 }
+
+func newOnce() *sync.Once { return &sync.Once{} }
 
 // newRun is a lane's run at its first generation.
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
-		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration,
+		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(),
 		state: newLaneState(lanes.Pending, w.clock.Now()),
 	}
+}
+
+// resumedRun is a run that goes on from a record, for a lane a crash stopped before its
+// session. A later generation keeps what the earlier ones left.
+func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *laneRun {
+	run := newRun(w, lease)
+	run.generation, run.resumeFrom = record.Generation, record.ResumeSession
+	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
+	run.priorUSD, run.priorUnknown = record.Progress.PriorUSD, record.Progress.PriorUnknown
+	if record.Actual != "" {
+		run.state = newLaneState(record.Actual, w.clock.Now())
+	}
+	return run
 }
 
 // sessionHandle returns the current session, which is empty before a start.
@@ -188,7 +211,7 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workor
 func (r *laneRun) record() lanes.Record {
 	return lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence,
-		Generation: r.generation, State: lanes.StateRunning,
+		Generation: r.currentGeneration(), State: lanes.StateRunning,
 	}
 }
 
@@ -211,7 +234,16 @@ func (r *laneRun) begin(ctx context.Context) error {
 // proceed runs a lane's session to the end. A restart comes here for a lane a crash
 // stopped before its session existed, and the effects on record say how far it got.
 func (r *laneRun) proceed(ctx context.Context) error {
-	return r.finish(ctx, r.session(ctx))
+	return r.conclude(ctx, r.session(ctx))
+}
+
+// conclude supervises what a session left, and ends the lane once it has an outcome.
+func (r *laneRun) conclude(ctx context.Context, report workorders.Report) error {
+	report, over := r.supervised(ctx, report)
+	if !over {
+		return nil
+	}
+	return r.finish(ctx, report)
 }
 
 // finish records the end only after a stop in flight has its own end on record, so a
@@ -223,21 +255,19 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 		_ = os.RemoveAll(dir)
 	}
 	return r.w.endLane(context.WithoutCancel(ctx), r.record(), workorders.LaneResult{
-		Report: report, CostUSD: r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
-		UnknownCostTurns: r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
+		Report: report, CostUSD: r.priorUSD + r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
+		UnknownCostTurns: r.priorUnknown + r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
 	})
 }
 
 // adoptedRun rebuilds a lane's run from the journal, because nothing else survived.
-func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located ports.Located) (*laneRun, error) {
-	run := newRun(w, ledger.DesiredLease{
-		WorkOrder: record.WorkOrder, ClaimID: record.ClaimID, Fence: record.Fence, Lane: record.ID,
-	})
-	run.generation = record.Generation
+func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located ports.Located, lease ledger.DesiredLease) (*laneRun, error) {
+	lease.WorkOrder, lease.ClaimID, lease.Fence, lease.Lane = record.WorkOrder, record.ClaimID, record.Fence, record.ID
+	run := w.resumedRun(lease, record)
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
-	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
 	run.state = newLaneState(record.Actual, w.clock.Now())
+	run.loadProfile(ctx)
 	_, err := w.journal.Effect(ctx, run.nudge().Key)
 	switch {
 	case err == nil:
@@ -256,7 +286,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
 	}
 	for _, record := range hooks {
-		if record.Generation == r.generation {
+		if record.Generation == r.currentGeneration() {
 			r.observeHook(ctx, record.HookEvent)
 		}
 	}
@@ -277,7 +307,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	if _, ok := r.reported(ctx); ok {
 		r.stop(ctx, ports.StopAtRest)
 	}
-	return r.finish(ctx, r.watch(ctx, events))
+	return r.conclude(ctx, r.watch(ctx, events))
 }
 
 // unattended is the outcome of a lane whose session cannot be read.
@@ -311,12 +341,12 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
 		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch,
 		Tags: map[string]string{
-			lanes.EnvLaneID: r.lease.Lane, lanes.EnvGeneration: strconv.FormatInt(r.generation, 10),
+			lanes.EnvLaneID: r.lease.Lane, lanes.EnvGeneration: strconv.FormatInt(r.currentGeneration(), 10),
 			lanes.EnvWorkOrder: r.lease.WorkOrder, lanes.EnvLaneToken: token,
 			lanes.EnvWorkerSocket: r.rt.Socket, lanes.EnvSpool: r.rt.Spool,
 		},
 		Bracket: func(target string, perform func() error) (bool, error) {
-			effect := lanes.NewEffect(lanes.EffectWorktree, r.lease.Lane, r.generation, target, "")
+			effect := lanes.NewEffect(lanes.EffectWorktree, r.lease.Lane, r.currentGeneration(), target, "")
 			return r.w.bracket(ctx, effect, perform)
 		},
 	})
@@ -334,9 +364,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if err := r.w.journal.SaveLane(ctx, record); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
-	spawn := lanes.NewEffect(lanes.EffectSession, r.lease.Lane, r.generation, prepared.Worktree.Path, "")
+	spawn := lanes.NewEffect(lanes.EffectSession, r.lease.Lane, r.currentGeneration(), prepared.Worktree.Path, "")
 	ran, err := r.w.bracket(ctx, spawn, func() error {
-		handle, err := r.rt.Driver.Start(ctx, spec)
+		handle, err := r.launch(ctx, spec)
 		r.setHandle(handle)
 		return err
 	})
@@ -357,6 +387,22 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	return r.watch(ctx, events)
+}
+
+// launch starts a generation. A restart continues the session it replaces, and one that
+// has none, or a resume that never reached a ready state, starts from the brief.
+func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
+	if r.resumeFrom == "" {
+		return r.rt.Driver.Start(ctx, spec)
+	}
+	resumed := spec
+	resumed.Brief = lanes.Restarted
+	handle, err := r.rt.Driver.Resume(ctx, resumed, ports.ResumeRef{SessionID: r.resumeFrom, SessionTotalUSD: r.cost.SessionTotalUSD})
+	if errors.Is(err, ports.ErrResumeNotReady) {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return r.rt.Driver.Start(ctx, spec)
+	}
+	return handle, err
 }
 
 // spec builds a session from what the worker prepared, and refuses what the driver
@@ -383,11 +429,9 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 	r.state.degraded = capabilities.Degraded
 	r.state.mu.Unlock()
 	spec := ports.SessionSpec{
-		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.generation, Dir: prepared.Worktree.Path,
+		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
 		Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
-		Brief: lanes.Brief(lanes.BriefSpec{
-			WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
-		}),
+		Brief:     r.briefText(),
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
@@ -443,7 +487,8 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			if event.End != nil && event.End.Crashed {
-				r.signal(ctx, lanes.OnSessionGone)
+				r.crashed = true
+				r.signal(ctx, lanes.OnActivity, lanes.OnSessionGone)
 			}
 			return r.verdict(ctx, event.End)
 		}
@@ -455,7 +500,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 // turn, and a redelivered turn is dropped by its position.
 func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	r.cursor = cursor
-	progress := lanes.Progress{Cursor: cursor, Cost: r.cost, Usage: r.usage}
+	progress := lanes.Progress{Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown}
 	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
 		r.w.config.Report(err)
 	}
@@ -523,7 +568,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 
 // nudge is the one input a worker sends a lane on its own.
 func (r *laneRun) nudge() lanes.Effect {
-	return lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.generation, "", "nudge")
+	return lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", "nudge")
 }
 
 func (r *laneRun) reported(ctx context.Context) (workorders.Report, bool) {
@@ -556,10 +601,13 @@ func (r *laneRun) verdict(ctx context.Context, end *ports.SessionEnd) workorders
 // stop runs apart from the event loop, because a stop waits for the session to end and
 // the loop must keep reading its stream.
 func (r *laneRun) stop(ctx context.Context, how ports.StopMode) {
-	r.stopping.Do(func() {
+	r.handleLock.Lock()
+	once := r.stopOnce
+	r.handleLock.Unlock()
+	once.Do(func() {
 		r.stopped.Go(func() {
 			ctx := context.WithoutCancel(ctx)
-			effect := lanes.NewEffect(lanes.EffectStop, r.lease.Lane, r.generation, "", "")
+			effect := lanes.NewEffect(lanes.EffectStop, r.lease.Lane, r.currentGeneration(), "", "")
 			_, err := r.w.bracket(ctx, effect, func() error { return r.rt.Driver.Stop(ctx, r.sessionHandle(), how) })
 			if err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: stop: %w", r.lease.Lane, err))

@@ -18,12 +18,22 @@ const (
 // any hook runs, and a pane has no other way to tell a worker where its socket is.
 const EnvMessagingSocket = "CLAUDE_CODE_MESSAGING_SOCKET"
 
-// ToolLaneReport is the tool that ends a lane.
-const ToolLaneReport = "lane_report"
+// ToolLaneReport is the tool that ends a lane, and ToolLaneWait the one that says it is
+// waiting on something outside it.
+const (
+	ToolLaneReport = "lane_report"
+	ToolLaneWait   = "lane_wait"
+)
 
 // Tools are a lane's MCP tools. Generated settings allow exactly these, so a lane
 // reports its outcome with no prompt (ADR-0014).
-var Tools = []string{ToolLaneReport}
+var Tools = []string{ToolLaneReport, ToolLaneWait}
+
+// WaitDeclaration is a lane's word that it waits on an external process.
+type WaitDeclaration struct {
+	Reason  string `json:"reason,omitempty"`
+	Minutes int64  `json:"minutes"`
+}
 
 // SocketProtocol is the version of the worker socket's lines.
 const SocketProtocol = 1
@@ -43,6 +53,7 @@ type Request struct {
 	Token   string             `json:"token"`
 	Hook    *HookEvent         `json:"hook,omitempty"`
 	Report  *workorders.Report `json:"report,omitempty"`
+	Wait    *WaitDeclaration   `json:"wait,omitempty"`
 }
 
 // Reply is the one line that answers it.

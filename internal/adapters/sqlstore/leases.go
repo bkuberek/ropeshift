@@ -378,6 +378,14 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
 	stmtLaneRows = define("lane.rows",
 		`SELECT `+laneRowColumns+` FROM lanes WHERE workspace_id = :workspace_id ORDER BY id`)
 
+	stmtLaneResets = define("lane.resets",
+		`SELECT resets FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtLaneReset = define("lane.reset",
+		`UPDATE lanes SET resets = resets + 1
+ WHERE workspace_id = :workspace_id AND id = :id
+RETURNING resets`)
+
 	stmtNextGeneration = define("lane.next_generation",
 		`UPDATE lanes SET current_generation = current_generation + 1
  WHERE workspace_id = :workspace_id AND id = :id
@@ -486,6 +494,37 @@ func (t laneTx) Start(lane, workOrder string, fence int64) error {
 		"workspace_id": string(t.scope), "id": lane, "work_order_id": workOrder, "fence": fence,
 	})
 	return err
+}
+
+func (t laneTx) Resets(lane string) (int64, error) {
+	row, err := t.row(stmtLaneResets, params{"workspace_id": string(t.scope), "id": lane})
+	if err != nil {
+		return 0, err
+	}
+	var resets int64
+	if err := row.Scan(&resets); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("lane %s: %w", lane, ports.ErrNotFound)
+		}
+		return 0, err
+	}
+	return resets, nil
+}
+
+func (t laneTx) Reset(lane string) (int64, error) {
+	row, err := t.row(stmtLaneReset, params{"workspace_id": string(t.scope), "id": lane})
+	if err != nil {
+		return 0, err
+	}
+	var resets int64
+	if err := row.Scan(&resets); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("lane %s: %w", lane, ports.ErrNotFound)
+		}
+		return 0, err
+	}
+	t.changed = true
+	return resets, nil
 }
 
 func (t laneTx) NextGeneration(lane string) (int64, error) {

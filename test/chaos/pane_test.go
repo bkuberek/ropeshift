@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
+	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -36,7 +37,8 @@ type paneStep struct {
 	// noPane says the kill comes before a pane exists.
 	noPane bool
 	// noBrief says the kill comes before the brief was written, so nothing can tell a
-	// new worker whether it arrived, and it is not sent again.
+	// new worker whether it arrived. It is never sent blind: only a grace with no evidence
+	// retries it, as a new message.
 	noBrief bool
 }
 
@@ -49,7 +51,7 @@ var paneSteps = []paneStep{
 }
 
 // paneProfile runs a lane in a pane, with a short check, so a broken start ends quickly.
-const paneProfile = "run_mode = \"tmux\"\n[lifecycle]\nready_timeout = \"4s\"\n"
+const paneProfile = "run_mode = \"tmux\"\n[lifecycle]\nready_timeout = \"4s\"\nbrief_grace = \"2s\"\n"
 
 const paneFlagWait = 30 * time.Second
 
@@ -256,7 +258,8 @@ func runPaneCrash(r *paneRun, step paneStep) error {
 		return fmt.Errorf("the daemon did not reach %s: the work order reads %s: %s", step.name, r.state(id), r.stderr.String())
 	}
 	if !step.noPane {
-		if sessions := r.sessions(); sessions == 0 {
+		// A pane outlives the kill, and its process may still be starting.
+		if err := until("the pane's session, with its worker dead", func() (bool, error) { return r.sessions() != 0, nil }); err != nil {
 			return contract.Violatedf("no session after a kill at %s", step.name)
 		}
 	}
@@ -274,16 +277,12 @@ func runPaneCrash(r *paneRun, step paneStep) error {
 	}
 	if step.noBrief {
 		time.Sleep(time.Second)
-		if err := r.atMostOnce(); err != nil {
-			return err
-		}
 		if messages := r.log("messages"); len(messages) != 0 {
-			return contract.Violatedf("a brief that may have arrived was sent again")
+			return contract.Violatedf("a brief that may have arrived was sent again before its grace")
 		}
-		return nil
 	}
 	if err := until("the lane's outcome", func() (bool, error) { return settled(r.state(id)), nil }); err != nil {
-		return err
+		return fmt.Errorf("%w: %s", err, r.stderr.String())
 	}
 	if err := r.atMostOnce(); err != nil {
 		return err
@@ -373,6 +372,100 @@ func TestPaneRandomKills(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Logf("state %s, sessions %d, messages %d", r.state(id), r.sessions(), len(r.log("messages")))
+		})
+	}
+}
+
+// restartOp is the prefix of a crash restart's steps.
+const restartOp = "worker.restart"
+
+var restartSteps = []string{"charged", "next"}
+
+// restartProfile restarts a crashed session at once, so a kill falls inside the restart.
+const restartProfile = "[lifecycle]\nrestart_backoff = \"10ms\"\n"
+
+// runRestartCrash kills a daemon inside a crash restart, starts another, and reads the
+// breaker's charges from the journal. One crash costs one charge, however a kill falls.
+func runRestartCrash(t *testing.T, step string, extra ...string) error {
+	t.Helper()
+	r, err := newRestartRun(t, extra...)
+	if err != nil {
+		return err
+	}
+	if err := r.daemon(restartOp + "/" + step); err != nil {
+		return err
+	}
+	id, err := r.dispatch()
+	if err != nil {
+		return err
+	}
+	if err := until("the kill", func() (bool, error) {
+		select {
+		case <-r.exited:
+			return true, nil
+		default:
+			return settled(r.state(id)), nil
+		}
+	}); err != nil {
+		return err
+	}
+	if err := r.daemon(""); err != nil {
+		return err
+	}
+	if err := until("the lane's outcome", func() (bool, error) { return settled(r.state(id)), nil }); err != nil {
+		return fmt.Errorf("%w: %s", err, r.stderr.String())
+	}
+	if state := r.state(id); state != workorders.Acceptance {
+		return contract.Violatedf("the lane ended in %s after a kill at %s: %s", state, step, r.stderr.String())
+	}
+	journal, err := sqlite.OpenJournal(filepath.Join(r.paths.StateDir, api.JournalFileName))
+	if err != nil {
+		return err
+	}
+	defer journal.Close()
+	charges, err := journal.Restarts(r.w.rig.Ctx, "lane-1")
+	if err != nil {
+		return err
+	}
+	if len(charges) != 1 {
+		return contract.Violatedf("one crash cost %d charges", len(charges))
+	}
+	if sessions := r.sessions(); sessions != 2 {
+		return contract.Violatedf("%d sessions, want the first and its resume", sessions)
+	}
+	return nil
+}
+
+func newRestartRun(t *testing.T, extra ...string) (*paneRun, error) {
+	t.Helper()
+	binary, err := chaosDaemon()
+	if err != nil {
+		return nil, err
+	}
+	w := newWorld(t, "")
+	repo := gittest.NewIn(t, w.target.Dir)
+	repo.Commit(".ropeshift/profile.toml", restartProfile)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	r := &paneRun{
+		t: t, w: w, binary: binary, path: doubles.InstallFakeClaude(t, "crash-then-report"), repo: repo.Dir, extra: extra,
+		paths: api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(apitest.ShortDir(t), "run")},
+	}
+	r.client = api.NewUnixClient(r.paths.ControlSocket())
+	t.Cleanup(r.client.Close)
+	doubles.ReapShims(t, filepath.Join(r.paths.StateDir, "lanes", "lane-1"))
+	return r, nil
+}
+
+func TestCrashRestartChargesOnce(t *testing.T) {
+	for _, step := range restartSteps {
+		t.Run(step, func(t *testing.T) {
+			if err := runRestartCrash(t, step); err != nil {
+				var violation *contract.Violation
+				if errors.As(err, &violation) {
+					t.Fatalf("violation: %v", err)
+				}
+				t.Fatal(err)
+			}
 		})
 	}
 }

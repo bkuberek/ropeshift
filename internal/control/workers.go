@@ -342,6 +342,12 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, nil
 	}
 	lease.Lane, lease.Repository, lease.Branch, lease.Title = claim.Lane, row.RepositoryID, row.Branch, row.Title
+	lease.Deadline = row.Deadline
+	resets, err := tx.Lanes().Resets(claim.Lane)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return lease, err
+	}
+	lease.Resets = resets
 	if row.ContractVersion == 0 {
 		return lease, nil
 	}
@@ -461,6 +467,9 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return err
 	case ledger.UploadLaneStatus:
 		return reportLane(tx, worker, id, e)
+	case ledger.UploadGenerationStarted:
+		holder := workorders.Holder{Lease: lease, Lane: e.Lane, Generation: e.Generation - 1}
+		return nextGeneration(tx, holder, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {

@@ -50,6 +50,11 @@ type DriverScript struct {
 type AgentDriver struct {
 	mu       sync.Mutex
 	next     DriverScript
+	queue    []DriverScript
+	sent     []ports.Input
+	sends    int
+	started  int
+	unknown  bool
 	version  string
 	degraded bool
 	sessions map[string]*driverSession
@@ -129,6 +134,34 @@ func (d *AgentDriver) Play(script DriverScript) {
 	d.next = script
 }
 
+// PlayAfter sets what the sessions after the first one do, in order. The last repeats.
+func (d *AgentDriver) PlayAfter(scripts ...DriverScript) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.queue = append(d.queue, scripts...)
+}
+
+// ReadUnknown makes every Observe an incomplete read, until it is given false.
+func (d *AgentDriver) ReadUnknown(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.unknown = on
+}
+
+// Sent lists every input Send took, each with the ID the driver gave it.
+func (d *AgentDriver) Sent() []ports.Input {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]ports.Input{}, d.sent...)
+}
+
+// Resumed lists every resume, in order.
+func (d *AgentDriver) Resumed() []ports.ResumeRef {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]ports.ResumeRef{}, d.resumed...)
+}
+
 // SetVersion sets the installed version, and whether it is qualified.
 func (d *AgentDriver) SetVersion(version string, degraded bool) {
 	d.mu.Lock()
@@ -191,6 +224,10 @@ func (d *AgentDriver) Resume(ctx context.Context, spec ports.SessionSpec, from p
 func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.SessionHandle, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.started != 0 && len(d.queue) != 0 {
+		d.next, d.queue = d.queue[0], d.queue[1:]
+	}
+	d.started++
 	session := d.newSession(spec, lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD})
 	handle := ports.SessionHandle{ID: sessionID(spec.Lane, spec.Generation), PID: len(d.specs) + 1}
 	d.specs = append(d.specs, spec)
@@ -231,6 +268,7 @@ func (d *AgentDriver) Adopt(_ context.Context, h ports.SessionHandle, from ports
 	if _, ok := d.left[h.ID]; !ok {
 		return fmt.Errorf("%s: %w", h.ID, ports.ErrNoSession)
 	}
+	d.started++
 	session := d.newSession(ports.SessionSpec{}, from.Cost)
 	delete(d.left, h.ID)
 	d.adopted = append(d.adopted, from)
@@ -323,6 +361,12 @@ func (d *AgentDriver) Observe(_ context.Context, h ports.SessionHandle) (ports.O
 	if err != nil {
 		return ports.Observation{Liveness: ports.LivenessUnknown}, err
 	}
+	d.mu.Lock()
+	unknown := d.unknown
+	d.mu.Unlock()
+	if unknown {
+		return ports.Observation{Liveness: ports.LivenessUnknown}, nil
+	}
 	observation := ports.Observation{Liveness: ports.LivenessAlive, SessionID: session.script.SessionID, ModelResolved: session.script.Model}
 	select {
 	case <-session.done:
@@ -355,6 +399,13 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w", h.ID, ports.ErrNoSession)
 	default:
 	}
+	d.mu.Lock()
+	d.sends++
+	if in.ID == "" {
+		in.ID = fmt.Sprintf("input-%d", d.sends)
+	}
+	d.sent = append(d.sent, in)
+	d.mu.Unlock()
 	session.inputs <- in
 	return ports.SendReceipt{ID: in.ID, Path: ports.SendStdin}, nil
 }

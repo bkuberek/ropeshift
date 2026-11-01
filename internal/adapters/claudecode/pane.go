@@ -530,11 +530,12 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	}
 	switch event.Event {
 	case hookSessionStart:
-		s.bind(event)
+		s.note(event)
 	case hookUserPromptSubmit:
 		s.promptMs = max(s.promptMs, event.AtMs)
 		s.waiting = false
-		s.bind(event)
+		s.note(event)
+		s.push(ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: s.seen.SessionID, ModelResolved: s.seen.ModelResolved})
 		s.push(ports.DriverEvent{Kind: ports.EventInputAdmitted})
 	case hookStop:
 		s.endTurn(event, ports.TurnCompleted, "")
@@ -547,17 +548,17 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	}
 }
 
-// bind reads a session's identity from whatever carried it. A clear changes the session
-// under one process, so this runs on every hook that names one.
-func (s *paneSession) bind(event lanes.HookEvent) {
-	if event.SessionID == "" {
-		return
+// note reads a session's identity from whatever carried it. A clear changes the session
+// under one process, so this runs on every hook that names one. A worker hears of it with
+// the first prompt and not before: SessionStart fires with no prompt at all, so it is no
+// evidence that a brief arrived, and a binding is what moves a lane out of `briefing`.
+func (s *paneSession) note(event lanes.HookEvent) {
+	if event.SessionID != "" {
+		s.seen.SessionID = event.SessionID
 	}
 	if event.Model != "" {
 		s.seen.ModelResolved = event.Model
 	}
-	s.seen.SessionID = event.SessionID
-	s.push(ports.DriverEvent{Kind: ports.EventSessionBound, SessionID: event.SessionID, ModelResolved: s.seen.ModelResolved})
 }
 
 func (s *paneSession) endTurn(event lanes.HookEvent, status ports.TurnStatus, reason string) {

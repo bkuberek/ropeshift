@@ -100,8 +100,8 @@ func rs4Settings(record string) string {
 // goes to the real hook.
 func slowHook(real string) string {
 	return `#!/bin/sh
-case "$1" in
-hook)
+case "$1:$2" in
+hook:PreToolUse)
   input=$(cat)
   case "$input" in
   *` + rs4Slow + `*) sleep 30 ;;
@@ -252,7 +252,7 @@ func TestRS4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkInit(init, []string{"ropeshift"}, []string{"mcp__ropeshift__lane_report"}); err != nil {
+	if err := checkInit(init, []string{"ropeshift"}, laneTools); err != nil {
 		t.Fatalf("STOP: the lane's init: %v", err)
 	}
 	stream := string(raw)

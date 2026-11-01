@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,11 +28,18 @@ type laneRig struct {
 	id      string
 	grant   workorders.Grant
 	dir     string
+	// stopWorker ends the context the lanes run under.
+	stopWorker func()
 }
 
 func newLaneRig(t *testing.T) *laneRig {
 	t.Helper()
-	base := newRig(t)
+	return newLaneRigFor(t, newRig(t))
+}
+
+// newLaneRigFor builds on a rig a test has already set up.
+func newLaneRigFor(t *testing.T, base *rig) *laneRig {
+	t.Helper()
 	driver := fake.NewAgentDriver()
 	dir := t.TempDir()
 	config := &worker.LaneRuntime{
@@ -113,6 +121,9 @@ func completed(total float64) fake.DriverStep {
 	return fake.DriverStep{Turn: &fake.DriverTurn{Status: ports.TurnCompleted, TotalUSD: total}}
 }
 
+// noRestarts turns a crash into a lane's end.
+const noRestarts = "[lifecycle]\nmax_restarts = 0\n"
+
 func script(turns ...[]fake.DriverStep) fake.DriverScript {
 	return fake.DriverScript{SessionID: "session-1", Model: "resolved-model", Turns: turns}
 }
@@ -134,7 +145,7 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 	if spec.Model != "opus" || spec.PermissionMode != "default" || spec.Binary != "/state/bin/ropeshift" {
 		t.Errorf("spec %+v", spec)
 	}
-	if len(spec.Tools) != 1 || spec.Tools[0] != lanes.ToolLaneReport {
+	if !slices.Equal(spec.Tools, lanes.Tools) {
 		t.Errorf("tools %v", spec.Tools)
 	}
 	if !strings.Contains(spec.Brief, lanes.ToolLaneReport) || !strings.Contains(spec.Brief, r.id) {
@@ -213,7 +224,7 @@ func TestAFailedTurnIsAFailedLane(t *testing.T) {
 }
 
 func TestACrashBeforeAReportIsAFailedLane(t *testing.T) {
-	r := newLaneRig(t)
+	r := laneRigWith(t, noRestarts)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Crash: true}}))
 	if err := r.subject.Converge(t.Context()); err != nil {
 		t.Fatal(err)

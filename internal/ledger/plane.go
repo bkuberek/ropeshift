@@ -156,6 +156,11 @@ type DesiredLease struct {
 	Title      string   `json:"title,omitempty"`
 	Statement  string   `json:"statement,omitempty"`
 	Criteria   []string `json:"criteria,omitempty"`
+	// Deadline is the work order's, in database time. Zero means it has none.
+	Deadline int64 `json:"deadline,omitempty"`
+	// Resets counts the human resets of this lane's breaker, for a worker to compare with
+	// the count it has acted on.
+	Resets int64 `json:"resets,omitempty"`
 }
 
 // DesiredState is what the control plane wants of one worker. Unchanged says the
@@ -195,7 +200,9 @@ const (
 	UploadLaneStarted     = "lane_started"
 	UploadLaneEnded       = "lane_ended"
 	UploadGenerationBound = "generation_bound"
-	UploadLaneStatus      = "lane_status"
+	// UploadGenerationStarted moves a lane to its next generation after a crash.
+	UploadGenerationStarted = "generation_started"
+	UploadLaneStatus        = "lane_status"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

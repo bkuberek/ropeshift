@@ -104,7 +104,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 	case "ping":
 		out.Result = map[string]any{}
 	case "tools/list":
-		out.Result = map[string]any{"tools": []any{laneReportTool}}
+		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool}}
 	case "tools/call":
 		out.Result, out.Error = callTool(in.Params, call)
 	default:
@@ -151,6 +151,20 @@ var laneReportTool = map[string]any{
 	},
 }
 
+var laneWaitTool = map[string]any{
+	"name": lanes.ToolLaneWait,
+	"description": "Say that this lane is waiting on something outside it, such as a CI run, so that a quiet lane " +
+		"is not taken for a stuck one. A deadline still counts while it waits.",
+	"inputSchema": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"reason":  map[string]any{"type": "string", "description": "What the lane is waiting on."},
+			"minutes": map[string]any{"type": "integer", "minimum": 1, "description": "How long the wait may last."},
+		},
+		"required": []string{"minutes"},
+	},
+}
+
 func toolText(text string, failed bool) map[string]any {
 	return map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": failed}
 }
@@ -165,7 +179,11 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 	if err := json.Unmarshal(params, &request); err != nil {
 		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
 	}
-	if request.Name != lanes.ToolLaneReport {
+	switch request.Name {
+	case lanes.ToolLaneWait:
+		return callWait(request.Arguments, call), nil
+	case lanes.ToolLaneReport:
+	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
 	}
 	var report workorders.Report
@@ -183,4 +201,21 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		return toolText("the worker refused this report: "+answer.Message, true), nil
 	}
 	return toolText("The outcome is recorded. End your turn now.", false), nil
+}
+
+// callWait passes a lane's wait to its worker. A worker that is not there cannot watch the
+// lane anyway, so a failure here costs nothing but the lane's word.
+func callWait(arguments json.RawMessage, call Caller) map[string]any {
+	var wait lanes.WaitDeclaration
+	if err := json.Unmarshal(arguments, &wait); err != nil || wait.Minutes <= 0 {
+		return toolText("a wait needs a number of minutes", true)
+	}
+	answer, err := call(lanes.Request{Wait: &wait})
+	if err != nil {
+		return toolText("the worker did not answer, so the wait is not recorded: "+err.Error(), true)
+	}
+	if !answer.OK {
+		return toolText("the worker refused this wait: "+answer.Message, true)
+	}
+	return toolText("The wait is recorded.", false)
 }

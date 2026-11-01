@@ -47,10 +47,13 @@ type laneState struct {
 	ledger   reachSeen
 
 	unconfirmed bool
+	retried     bool
 	degraded    bool
 	warnTokens  int64
 	stallAfter  time.Duration
 	briefGrace  time.Duration
+	waitUntil   time.Time
+	limits      lanes.Breaker
 }
 
 func newLaneState(start lanes.ActualState, now time.Time) *laneState {
@@ -65,6 +68,19 @@ func (s *laneState) thresholds(profile lanes.Profile) {
 	s.stallAfter, _ = time.ParseDuration(profile.Lifecycle.StallAfter)
 	s.briefGrace, _ = time.ParseDuration(profile.Lifecycle.BriefGrace)
 	s.warnTokens = profile.Context.Roles[roleLane].WarnTokens
+	window, _ := time.ParseDuration(profile.Lifecycle.RestartWindow)
+	backoff, _ := time.ParseDuration(profile.Lifecycle.RestartBackoff)
+	s.limits = lanes.Breaker{
+		MaxRestarts: profile.Lifecycle.MaxRestarts, Window: window, MaxPerDay: profile.Lifecycle.MaxGenerationsPerDay, Backoff: backoff,
+	}
+}
+
+// newGeneration clears what one session left, and keeps what belongs to the lane.
+func (s *laneState) newGeneration(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tools, s.progress, s.since, s.context = map[string]bool{}, now, now, 0
+	s.unconfirmed, s.retried = false, false
 }
 
 // signal moves the lane and keeps where it stands, so an adopted run goes on from there.
@@ -184,6 +200,7 @@ func (r *laneRun) settleBrief(ctx context.Context) {
 // is unknown, never dead.
 func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 	r.settleBrief(ctx)
+	r.retryBrief(ctx)
 	liveness := lanes.LivenessUnknown
 	if handle := r.sessionHandle(); handle.ID != "" {
 		observation, err := r.rt.Driver.Observe(ctx, handle)
@@ -198,6 +215,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 	state := s.tracker.State()
 	facts := lanes.Facts{
 		State: state, SinceProgress: now.Sub(s.progress), StallAfter: s.stallAfter, ToolInFlight: len(s.tools) != 0,
+		WaitDeclared: now.Before(s.waitUntil), PastDeadline: r.lease.Deadline != 0 && now.UnixMilli() > r.lease.Deadline,
 		ContextTokens: s.context, WarnTokens: s.warnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
 	}
 	out := ledger.LaneStatus{

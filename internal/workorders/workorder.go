@@ -139,6 +139,9 @@ const EventReviewPassed = "work_order.review_passed"
 // worker reads it as desired state, and the lane's start moves the work order.
 const EventLaneDispatched = "work_order.lane_dispatched"
 
+// EventLaneRestarted records a lane's next generation after a crash, under the same claim.
+const EventLaneRestarted = "work_order.lane_restarted"
+
 // EventGenerationBound records what a generation runs on, which changes no state.
 const EventGenerationBound = "work_order.generation_bound"
 

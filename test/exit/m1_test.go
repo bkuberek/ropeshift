@@ -56,6 +56,7 @@ func TestM1WalkingSkeleton(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			in := newInstall(t)
 			repo := gittest.New(t)
+			repo.Commit(".ropeshift/profile.toml", "[lifecycle]\nmax_restarts = 0\n")
 			repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
 			in.path = doubles.InstallFakeClaude(t, tt.fixture)
 			d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)

@@ -86,4 +86,14 @@ type Journal interface {
 	SaveProgress(ctx context.Context, lane string, progress lanes.Progress) error
 	// SaveActual replaces where a lane's state stands.
 	SaveActual(ctx context.Context, lane string, state lanes.ActualState) error
+	// BeginGeneration moves a lane to its next generation and stores that event, together,
+	// so a crash leaves the lane on one generation or the other. The token of the last
+	// generation ends here, because its process has.
+	BeginGeneration(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// ChargeRestart keeps one charge and reports whether this was the first of its key.
+	ChargeRestart(ctx context.Context, lane string, charge lanes.Restart) (bool, error)
+	// Restarts lists a lane's charges, oldest first.
+	Restarts(ctx context.Context, lane string) ([]lanes.Restart, error)
+	// ClearRestarts drops a lane's charges and keeps how many resets it has acted on.
+	ClearRestarts(ctx context.Context, lane string, resets int64) error
 }

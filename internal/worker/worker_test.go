@@ -27,6 +27,8 @@ type rig struct {
 	link    *fake.WorkerLink
 	journal *fake.Journal
 	clock   *fake.Clock
+	// deadline is the next work order's, in Unix milliseconds.
+	deadline int64
 }
 
 func newRig(t *testing.T) *rig {
@@ -80,7 +82,7 @@ func (r *rig) claimFor(id, worker string) workorders.Grant {
 	r.t.Helper()
 	ctx := r.t.Context()
 	_, err := control.NewWorkOrders(r.store).Record(ctx, scope, control.LedgerWork{
-		Order:    workorders.WorkOrder{ID: id, Kind: workorders.KindChange, Title: "T"},
+		Order:    workorders.WorkOrder{ID: id, Kind: workorders.KindChange, Title: "T", Deadline: r.deadline},
 		Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
 	}, member)
 	if err != nil {

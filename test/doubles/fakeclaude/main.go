@@ -35,6 +35,8 @@ type fixture struct {
 	AgentsExit int              `json:"agents_exit,omitempty"`
 	// Pane is what a session does with no -p, in a terminal.
 	Pane paneScript `json:"pane,omitempty"`
+	// ResumeTurns replaces Turns for a session started with --resume.
+	ResumeTurns [][]step `json:"resume_turns,omitempty"`
 }
 
 // step is one thing the session does. Exactly one field is set.
@@ -119,6 +121,9 @@ func main() {
 		return
 	}
 	remember(self, os.Args[1:])
+	if opts.resume != "" && len(script.ResumeTurns) != 0 {
+		script.Turns = script.ResumeTurns
+	}
 	s := &session{opts: opts, script: script}
 	if opts.settings != "" {
 		if s.settings, err = readSettings(opts.settings); err != nil {

@@ -19,6 +19,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift source list` | Lists sources, their health, and the files they cannot read |
 | `ropeshift lane list` | Lists lanes. Each line states the lane's state, liveness, reachability, conditions, and whether the value is `observed` or `last_reported` |
 | `ropeshift lane show <lane>` | Shows one lane the same way. `--json` adds `as_of` and `reported_by_epoch` |
+| `ropeshift lane reset <work-order>` | Lets the lane its breaker stopped start again. Only a member can, because a tripped lane is waiting for a person |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 

@@ -35,6 +35,7 @@ func TestReadScreen(t *testing.T) {
 		{capture: "ready", want: screenReady},
 		{capture: "ready-placeholder", want: screenReady},
 		{capture: "ready-boxed", want: screenReady},
+		{capture: "ready-dashed", want: screenReady},
 		{capture: "resume", want: screenReady},
 		// Each of these holds a focused option or a prompt-like line, and none may read
 		// as a screen the check can act on.

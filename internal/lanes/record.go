@@ -32,6 +32,10 @@ type Record struct {
 	Progress Progress
 	// Actual is where the lane's state stood, so an adopted run goes on from there.
 	Actual ActualState
+	// ResumeSession is the session a restarted generation continues.
+	ResumeSession string
+	// ResetsSeen is how many human resets of the breaker this worker has acted on.
+	ResetsSeen int64
 }
 
 // Progress is how far a worker read a session, and what that reading added up to, so an
@@ -41,6 +45,10 @@ type Progress struct {
 	Cursor int64     `json:"cursor"`
 	Cost   CostMeter `json:"cost"`
 	Usage  Usage     `json:"usage"`
+	// PriorUSD and PriorUnknown are what earlier generations cost, because each generation
+	// has a meter of its own.
+	PriorUSD     float64 `json:"prior_usd,omitempty"`
+	PriorUnknown int64   `json:"prior_unknown,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

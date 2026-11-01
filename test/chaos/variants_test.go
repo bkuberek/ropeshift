@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
 )
@@ -407,6 +408,7 @@ func allVariants() []variant {
 		{name: "a reader that skips what it missed", check: "shim"},
 		{name: "a trust dialog confirmed where its focus stands", check: "pane", pane: claudecode.SabotageBlindConfirm, paneStep: "checked"},
 		{name: "a brief sent again after a crash", check: "pane", pane: claudecode.SabotageRepeatBrief, paneStep: "briefed"},
+		{name: "a crash charged again by the next worker", check: "restart"},
 		{
 			name:  retriesBlind,
 			check: "crash",
@@ -574,6 +576,8 @@ func runVariant(t *testing.T, v variant) error {
 		return checkShimGroundTruth(t)
 	case "pane":
 		return checkPaneVariant(t, v.pane, v.paneStep)
+	case "restart":
+		return runRestartCrash(t, "charged", worker.EnvSabotage+"="+worker.SabotageRecharge)
 	case "holder":
 		run := newRandomRun(newWorld(t, v.name), holderVariantKills)
 		run.holders = 1

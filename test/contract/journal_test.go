@@ -368,3 +368,85 @@ func checkJournalMigrate(t *testing.T, ctx context.Context, j ports.Journal) {
 		t.Errorf("%d pending: %v", len(pending), err)
 	}
 }
+
+func TestJournalChargesARestartOnce(t *testing.T) {
+	journal := openTestJournal(t)
+	ctx := t.Context()
+	charge := lanes.Restart{Key: "g2", AtMs: 1, NotBeforeMs: 31}
+	first, err := journal.ChargeRestart(ctx, "lane-1", charge)
+	if err != nil || !first {
+		t.Fatalf("first charge: %v, %v", first, err)
+	}
+	again, err := journal.ChargeRestart(ctx, "lane-1", lanes.Restart{Key: "g2", AtMs: 99, NotBeforeMs: 99})
+	if err != nil || again {
+		t.Fatalf("second charge: %v, %v", again, err)
+	}
+	charges, err := journal.Restarts(ctx, "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(charges) != 1 || charges[0] != charge {
+		t.Errorf("charges %+v", charges)
+	}
+}
+
+func TestJournalClearsChargesAndCountsTheReset(t *testing.T) {
+	journal := openTestJournal(t)
+	ctx := t.Context()
+	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning}
+	if err := journal.SaveLane(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.ChargeRestart(ctx, "lane-1", lanes.Restart{Key: "g2", AtMs: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.ClearRestarts(ctx, "lane-1", 3); err != nil {
+		t.Fatal(err)
+	}
+	charges, err := journal.Restarts(ctx, "lane-1")
+	if err != nil || len(charges) != 0 {
+		t.Errorf("charges %+v, %v", charges, err)
+	}
+	got, err := journal.Lane(ctx, "lane-1")
+	if err != nil || got.ResetsSeen != 3 {
+		t.Errorf("record %+v, %v", got, err)
+	}
+}
+
+func TestJournalBeginsAGenerationWithItsEvent(t *testing.T) {
+	journal := openTestJournal(t)
+	ctx := t.Context()
+	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning, TokenDigest: "d"}
+	if err := journal.SaveLane(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	record.Generation, record.ResumeSession = 2, "session-1"
+	event := ledger.UploadEvent{Type: ledger.UploadGenerationStarted, Lane: "lane-1", Generation: 2, WorkOrder: "wo", ClaimID: "c", Fence: 1, OccurredAt: 1}
+	if _, err := journal.BeginGeneration(ctx, record, event); err != nil {
+		t.Fatal(err)
+	}
+	got, err := journal.Lane(ctx, "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Generation != 2 || got.ResumeSession != "session-1" || got.SessionID != "" || got.TokenDigest != "" {
+		t.Errorf("record %+v", got)
+	}
+	pending, err := journal.Pending(ctx, 10)
+	if err != nil || len(pending) != 1 || pending[0].Type != ledger.UploadGenerationStarted {
+		t.Errorf("pending %+v, %v", pending, err)
+	}
+}
+
+func openTestJournal(t *testing.T) ports.Journal {
+	t.Helper()
+	journal, err := fake.NewJournal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = journal.Close() })
+	if err := journal.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return journal
+}
