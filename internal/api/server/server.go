@@ -36,6 +36,8 @@ type Config struct {
 	Protocol int
 	// HeartbeatMs is what a worker is told to beat at.
 	HeartbeatMs int64
+	// Knowledge is where documents are read from.
+	Knowledge []ports.KnowledgeSource
 }
 
 type handler struct {
@@ -61,6 +63,7 @@ func New(config Config) http.Handler {
 	}
 	mux := http.NewServeMux()
 	h.workerRoutes(mux)
+	h.planningRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.createWorkOrder)

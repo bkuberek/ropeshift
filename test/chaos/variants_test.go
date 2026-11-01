@@ -215,6 +215,106 @@ func (s splitIntake) Poll(ctx context.Context, scope ledger.WorkspaceID, source 
 	})
 }
 
+// splitRepin records a contract's new version in one transaction and pins its work in
+// another, so a kill between them leaves a digest that says the file is done and ready work
+// on the last version.
+type splitRepin struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitRepin) Poll(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource) (control.IntakeReport, error) {
+	batch, err := source.Poll(ctx, "")
+	if err != nil {
+		return control.IntakeReport{}, err
+	}
+	item := batch.Items[0]
+	var order workorders.WorkOrder
+	recorded := false
+	err = s.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
+		link, err := tx.Planning().Link(planning.SubjectContract, item.Key)
+		if err != nil {
+			return err
+		}
+		latest, err := tx.Planning().LatestContract(link.RecordID)
+		if err != nil {
+			return err
+		}
+		if latest.Digest == item.Digest {
+			recorded = true
+			return nil
+		}
+		rows, err := tx.WorkOrders().ByContract(latest.ID)
+		if err != nil {
+			return err
+		}
+		order = rows[0]
+		next := latest
+		next.Version, next.Digest = latest.Version+1, item.Digest
+		if err := tx.Planning().InsertContract(next); err != nil {
+			return err
+		}
+		event, err := planning.RecordEvent(planning.EventContractVersion, planning.SubjectContract, next.ID, next, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil || recorded {
+		return control.IntakeReport{}, err
+	}
+	crashpoint.Hit("intake.item", "split")
+	return control.IntakeReport{}, s.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
+		if err := tx.WorkOrders().Pin(order.ID, order.ContractVersion+1); err != nil {
+			return err
+		}
+		event, err := workorders.PinEvent(order.ID, order.ContractVersion+1, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Append(event); err != nil {
+			return err
+		}
+		return tx.WorkOrders().Reviewed(order.ID, "")
+	})
+}
+
+// pinsStarted moves a pin the way a poll must not: under a lane that already started.
+type pinsStarted struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (p pinsStarted) Poll(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource) (control.IntakeReport, error) {
+	report, err := p.Ops.Poll(ctx, scope, source)
+	if err != nil || report.Versions == 0 {
+		return report, err
+	}
+	return report, p.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
+		rows, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if row.State != workorders.Running {
+				continue
+			}
+			if err := tx.WorkOrders().Pin(row.ID, row.ContractVersion+1); err != nil {
+				return err
+			}
+			event, err := workorders.PinEvent(row.ID, row.ContractVersion+1, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Append(event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // outsideCheck compares the fence before its transaction, so a handover can pass
 // between the check and the write.
 type outsideCheck struct {
@@ -519,6 +619,45 @@ func allVariants() []variant {
 			sabotage: sqlstore.Sabotage{Rewrite: replace("contract.latest",
 				"plan_id, title, digest,", "plan_id, title, 'stale',")},
 			check: "I4",
+		},
+		{
+			name: "a new version leaves ready work where it was",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("work_order.by_contract",
+				"AND contract_id = :contract_id", "AND contract_id = :contract_id AND 1 = 0")},
+			check: "I16",
+		},
+		{
+			name: "a review carries over to a new version",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("work_order.pin",
+				", reviewed_by = NULL", "")},
+			check: "I17",
+		},
+		{
+			name: "a new version moves work that started",
+			ops: func(s ports.Store) contract.Ops {
+				return pinsStarted{Ops: contract.RealOps(s), store: s}
+			},
+			check: "I18",
+		},
+		{
+			name: "a new version and its pin in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitRepin{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return repinCase("split"), "split" },
+		},
+		{
+			name: "a requirement read at its first version",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("requirement.latest",
+				"ORDER BY version DESC", "ORDER BY version ASC")},
+			check: "I21",
+		},
+		{
+			name: "an unchanged requirement versions again",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("requirement.latest",
+				"SELECT id, version, requirement_key, text, source, digest", "SELECT id, version, requirement_key, text, source, 'stale'")},
+			check: "I20",
 		},
 		{
 			name: "the definition of ready sees no dependency",

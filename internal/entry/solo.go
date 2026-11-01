@@ -22,6 +22,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/machine"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
+	"ropeshift.dev/ropeshift/internal/adapters/repodocs"
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
 	"ropeshift.dev/ropeshift/internal/adapters/secrets"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
@@ -182,6 +183,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	httpServer := &http.Server{
 		Handler: server.New(server.Config{
 			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
+			Knowledge: soloKnowledge(opts),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -408,6 +410,16 @@ func keepStableBinary(ctx context.Context, paths api.Paths, runner ports.Process
 	}
 	_, err = process.Wait()
 	return err
+}
+
+// soloKnowledge reads documents from the repositories this daemon reads work from, at the
+// ref intake reads.
+func soloKnowledge(opts soloOptions) []ports.KnowledgeSource {
+	sources := make([]ports.KnowledgeSource, 0, len(opts.sources))
+	for _, path := range opts.sources {
+		sources = append(sources, repodocs.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
+	}
+	return sources
 }
 
 func soloTicks(store ports.Store, opts soloOptions) []control.Tick {

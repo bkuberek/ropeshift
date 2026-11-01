@@ -15,6 +15,14 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work claim <id> --worker W [--claim-id C]` | Claims a work order for a worker. A retry with the same claim ID returns the grant |
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |
+| `ropeshift work send-back <id> --reason R` | Returns a work order in review to `planning`, because its contract must change. It voids the review, and the contract's next version returns the work to review |
+| `ropeshift plan list` | Lists plans |
+| `ropeshift plan show <id>` | Shows one plan with its goal, each contract's newest version, and their work orders |
+| `ropeshift requirement list` | Lists each requirement's newest version |
+| `ropeshift requirement get <key>` | Shows one requirement's newest version, by the key a contract names |
+| `ropeshift document list` | Lists the Markdown documents of every source, at the commit intake reads |
+| `ropeshift document show <path> [--version V] [--instance I]` | Prints one document. `--version` names an earlier version, and `--instance` names the repository when two hold the path |
+| `ropeshift document versions <path> [--instance I]` | Lists the versions of one document, newest first |
 | `ropeshift lane start <work-order> [--lane L] [--profile F]` | Asks the worker holding the claim to run a lane. It returns when the ledger holds the request, and a retry with the same lane ID is the same request. `--profile` names a TOML file that is this lane's own profile layer, over the built-in, user, and repository layers. It cannot raise the permission mode or change what the machine admits |
 | `ropeshift source list` | Lists sources, their health, and the files they cannot read |
 | `ropeshift lane list` | Lists lanes. Each line states the lane's state, liveness, reachability, conditions, and whether the value is `observed` or `last_reported` |

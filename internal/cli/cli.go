@@ -37,6 +37,14 @@ const usage = `usage: ropeshift <command>
   work claim <id> --worker W [--claim-id C]          claim a work order
   work release <id> --claim-id C --fence N           give a claim back
   work reassign <id> --reason R                      end a lapsed holder's ownership
+  work send-back <id> --reason R                     return reviewed work to planning
+  plan list                                          list plans
+  plan show <id>                                     show a plan, its goal, contracts, and work
+  requirement list                                   list requirements
+  requirement get <key>                              show one requirement's newest version
+  document list                                      list documents, each with its digest
+  document show <path> [--version V]                 show one document
+  document versions <path>                           list one document's versions
   lane start <work-order> [--lane L] [--profile F]   run a lane on a claimed work order
   source list                                        list sources and their health
   lane list                                          list lanes, each with its freshness
@@ -57,7 +65,11 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 
 // IsCommand reports a first word this package handles.
 func IsCommand(word string) bool {
-	return word == "work" || word == "lane" || word == "source" || word == "worker" || word == "fleet"
+	switch word {
+	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document":
+		return true
+	}
+	return false
 }
 
 // Options is what a command needs from its process.
@@ -87,27 +99,35 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		return ExitUsage
 	}
 	commands := map[string]func(*invocation, []string) int{
-		"work create":   (*invocation).workCreate,
-		"work list":     (*invocation).workList,
-		"work show":     (*invocation).workShow,
-		"work review":   (*invocation).workReview,
-		"work claim":    (*invocation).workClaim,
-		"work release":  (*invocation).workRelease,
-		"work reassign": (*invocation).workReassign,
-		"lane start":    (*invocation).laneStart,
-		"lane reset":    (*invocation).laneReset,
-		"lane archive":  (*invocation).laneArchive,
-		"lane list":     (*invocation).laneList,
-		"lane show":     (*invocation).laneShow,
-		"source list":   (*invocation).sourceList,
-		"fleet show":    (*invocation).fleetShow,
-		"fleet run":     setsFleet(ledger.FleetRun),
-		"fleet pause":   setsFleet(ledger.FleetPause),
-		"fleet drain":   setsFleet(ledger.FleetDrain),
-		"fleet caps":    (*invocation).fleetCaps,
-		"worker doctor": (*invocation).workerDoctor,
-		"worker list":   (*invocation).workerList,
-		"worker token":  (*invocation).workerToken,
+		"work create":       (*invocation).workCreate,
+		"work list":         (*invocation).workList,
+		"work show":         (*invocation).workShow,
+		"work review":       (*invocation).workReview,
+		"work claim":        (*invocation).workClaim,
+		"work release":      (*invocation).workRelease,
+		"work reassign":     (*invocation).workReassign,
+		"work send-back":    (*invocation).workSendBack,
+		"plan list":         (*invocation).planList,
+		"plan show":         (*invocation).planShow,
+		"requirement list":  (*invocation).requirementList,
+		"requirement get":   (*invocation).requirementGet,
+		"document list":     (*invocation).documentList,
+		"document show":     (*invocation).documentShow,
+		"document versions": (*invocation).documentVersions,
+		"lane start":        (*invocation).laneStart,
+		"lane reset":        (*invocation).laneReset,
+		"lane archive":      (*invocation).laneArchive,
+		"lane list":         (*invocation).laneList,
+		"lane show":         (*invocation).laneShow,
+		"source list":       (*invocation).sourceList,
+		"fleet show":        (*invocation).fleetShow,
+		"fleet run":         setsFleet(ledger.FleetRun),
+		"fleet pause":       setsFleet(ledger.FleetPause),
+		"fleet drain":       setsFleet(ledger.FleetDrain),
+		"fleet caps":        (*invocation).fleetCaps,
+		"worker doctor":     (*invocation).workerDoctor,
+		"worker list":       (*invocation).workerList,
+		"worker token":      (*invocation).workerToken,
 	}
 	base.name = args[0] + " " + args[1]
 	command, ok := commands[base.name]

@@ -17,18 +17,22 @@ const (
 
 // The event subject kinds of this package.
 const (
-	SubjectPlan       = "plan"
-	SubjectContract   = "contract"
-	SubjectLink       = "external_link"
-	SubjectDependency = "dependency"
-	SubjectBinding    = "source_binding"
+	SubjectGoal        = "goal"
+	SubjectPlan        = "plan"
+	SubjectContract    = "contract"
+	SubjectRequirement = "requirement"
+	SubjectLink        = "external_link"
+	SubjectDependency  = "dependency"
+	SubjectBinding     = "source_binding"
 )
 
 // The events that record planning data. Each holds the whole record, so a replay
 // needs nothing else.
 const (
+	EventGoalRecorded       = "goal.recorded"
 	EventPlanRecorded       = "plan.recorded"
 	EventContractVersion    = "contract.version_recorded"
+	EventRequirementVersion = "requirement.version_recorded"
 	EventLinkRecorded       = "external_link.recorded"
 	EventDependencyRecorded = "dependency.recorded"
 	EventBindingChanged     = "source_binding.changed"
@@ -40,6 +44,34 @@ const (
 	DigestGitBlob = "gitblob:"
 	DigestSHA256  = "sha256:"
 )
+
+// Goal is what plans pursue.
+type Goal struct {
+	ID              string   `json:"id"`
+	Title           string   `json:"title"`
+	Status          string   `json:"status"`
+	SuccessMeasures []string `json:"success_measures,omitempty"`
+	Statement       string   `json:"statement,omitempty"`
+	Source          string   `json:"source,omitempty"`
+}
+
+// Requirement is one version of one requirement. Key is what a contract names, and ID
+// stays the same across versions.
+type Requirement struct {
+	ID      string `json:"id"`
+	Version int64  `json:"version"`
+	Key     string `json:"key"`
+	Text    string `json:"text"`
+	Source  string `json:"source,omitempty"`
+	Digest  string `json:"digest"`
+}
+
+// RequirementDigest identifies one requirement's content. A file holds many requirements,
+// so its blob hash would call all of them changed when one changed.
+func RequirementDigest(key, text string) string {
+	sum := sha256.Sum256([]byte(key + "\x00" + text))
+	return DigestSHA256 + hex.EncodeToString(sum[:])
+}
 
 // Plan is what one or more contracts belong to.
 type Plan struct {
@@ -151,13 +183,15 @@ func RecordEvent(eventType, subjectKind, subjectID string, record any, actor led
 
 // Book is what the planning events replay to.
 type Book struct {
+	Goals        map[string]Goal
 	Plans        map[string]Plan
 	Contracts    map[string]Contract
+	Requirements map[string]Requirement
 	Links        map[string]ledger.ExternalLink
 	Dependencies map[string]Dependency
 }
 
-// ContractKey identifies a contract version in a Book.
+// ContractKey identifies a contract or requirement version in a Book.
 func ContractKey(id string, version int64) string {
 	return fmt.Sprintf("%s@%d", id, version)
 }
@@ -180,8 +214,10 @@ var ErrReplay = errors.New("planning replay")
 // one contract must count up from 1, because a gap means a version was lost.
 func Replay(events []ledger.Event) (Book, error) {
 	book := Book{
+		Goals:        map[string]Goal{},
 		Plans:        map[string]Plan{},
 		Contracts:    map[string]Contract{},
+		Requirements: map[string]Requirement{},
 		Links:        map[string]ledger.ExternalLink{},
 		Dependencies: map[string]Dependency{},
 	}
@@ -195,6 +231,23 @@ func Replay(events []ledger.Event) (Book, error) {
 
 func (b Book) apply(e ledger.Event) error {
 	switch e.Type {
+	case EventGoalRecorded:
+		var goal Goal
+		if err := json.Unmarshal(e.Data, &goal); err != nil {
+			return err
+		}
+		b.Goals[goal.ID] = goal
+	case EventRequirementVersion:
+		var requirement Requirement
+		if err := json.Unmarshal(e.Data, &requirement); err != nil {
+			return err
+		}
+		if requirement.Version > 1 {
+			if _, ok := b.Requirements[ContractKey(requirement.ID, requirement.Version-1)]; !ok {
+				return fmt.Errorf("requirement %s version %d follows no version", requirement.Key, requirement.Version)
+			}
+		}
+		b.Requirements[ContractKey(requirement.ID, requirement.Version)] = requirement
 	case EventPlanRecorded:
 		var plan Plan
 		if err := json.Unmarshal(e.Data, &plan); err != nil {

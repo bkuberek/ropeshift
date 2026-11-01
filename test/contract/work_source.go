@@ -40,6 +40,45 @@ size = "small"
 ` + statement + "\n"
 }
 
+// GoalText renders a small goal file.
+func GoalText(id, title string) string {
+	return `+++
+kind = "goal"
+id = "` + id + `"
+title = "` + title + `"
+success_measures = ["It holds"]
++++
+
+Why.
+`
+}
+
+// PlanText renders a small plan file under a goal.
+func PlanText(id, title, goal string) string {
+	return `+++
+kind = "plan"
+id = "` + id + `"
+title = "` + title + `"
+goal = "` + goal + `"
++++
+
+How.
+`
+}
+
+// RequirementsText renders a requirements file with one requirement.
+func RequirementsText(id, key, text string) string {
+	return `+++
+kind = "requirements"
+id = "` + id + `"
+
+[[requirement]]
+id = "` + key + `"
+text = "` + text + `"
++++
+`
+}
+
 // RunWorkSource runs one contract on one source. The adapter and its fake both
 // pass it, so a fake cannot drift from the source it stands for.
 func RunWorkSource(t *testing.T, fresh func(*testing.T) SourceRig) {
@@ -53,6 +92,7 @@ func RunWorkSource(t *testing.T, fresh func(*testing.T) SourceRig) {
 		{"a changed file gets a new digest and keeps its key", checkPollChanged},
 		{"a moved file keeps its key", checkPollRenamed},
 		{"a bad file is a problem and stops no other file", checkPollBadFile},
+		{"every file kind is read, with goals first", checkPollKinds},
 		{"read returns one item by key", checkRead},
 		{"apply reports unsupported", checkApply},
 		{"no webhooks and no write capability", checkCapabilities},
@@ -162,6 +202,38 @@ func checkPollBadFile(t *testing.T, ctx context.Context, rig SourceRig) {
 	onlyItem(t, batch)
 	if len(batch.Problems) != 1 || batch.Problems[0].Path != "bad.md" {
 		t.Errorf("problems %+v", batch.Problems)
+	}
+}
+
+func checkPollKinds(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit("a-requirements.md", RequirementsText("payments", "PAY-12", "It retries"))
+	rig.Commit("b-plan.md", PlanText("checkout-plan", "The plan", "checkout-goal"))
+	rig.Commit("c-goal.md", GoalText("checkout-goal", "The goal"))
+	rig.Commit("d-contract.md", ContractText("alpha", "Alpha", "One."))
+	batch, err := rig.Source.Poll(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlyItem(t, batch)
+	if len(batch.Records) != 3 {
+		t.Fatalf("records %+v", batch.Records)
+	}
+	goal, plan, requirements := batch.Records[0], batch.Records[1], batch.Records[2]
+	if goal.Goal == nil || goal.Key.NativeID != "checkout-goal" || goal.Source == "" || goal.Statement != "Why.\n" {
+		t.Errorf("goal %+v", goal)
+	}
+	if plan.Plan == nil || plan.Plan.Goal != "checkout-goal" || plan.Key.NativeID != "checkout-plan" {
+		t.Errorf("plan %+v", plan)
+	}
+	if requirements.Requirements == nil || requirements.Requirements.Requirements[0].ID != "PAY-12" {
+		t.Errorf("requirements %+v", requirements)
+	}
+	description, err := rig.Source.Describe(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if goal.Key.Adapter != description.Adapter || goal.Key.Instance != description.Instance {
+		t.Errorf("key %+v under %+v", goal.Key, description)
 	}
 }
 

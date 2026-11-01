@@ -22,7 +22,9 @@ var intakeActor = ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
 type IntakeReport struct {
 	Versions   int
 	WorkOrders int
-	Problems   []planning.SourceProblem
+	// Records counts the goals, plans, and requirements a poll changed.
+	Records  int
+	Problems []planning.SourceProblem
 }
 
 // Intake records what a work source holds. A poll reads with no transaction, and
@@ -62,6 +64,22 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 	crashpoint.Hit("intake", "polled")
 	var report IntakeReport
 	report.Problems = slices.Clone(batch.Problems)
+	held := map[string]string{}
+	for _, item := range batch.Records {
+		if key, first := repeatedRequirement(item, held); key != "" {
+			detail := fmt.Sprintf("%v: requirement %s is already in %s", planning.ErrBadFile, key, first)
+			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: detail})
+			continue
+		}
+		outcome, err := i.recordFile(ctx, scope, item)
+		if err != nil {
+			return report, err
+		}
+		report.Records += outcome.records
+		if outcome.problem != "" {
+			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: outcome.problem})
+		}
+	}
 	for _, item := range batch.Items {
 		outcome, err := i.recordItem(ctx, scope, item)
 		if err != nil {
@@ -81,7 +99,24 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 		ID: id, Port: planning.PortWork, Adapter: description.Adapter, Instance: description.Instance,
 		Cursor: string(batch.Cursor), Health: health.State, Detail: health.Detail, Problems: report.Problems,
 	}
-	return report, i.settle(ctx, scope, binding, batch.Cursor == cursor, report.Versions > 0)
+	return report, i.settle(ctx, scope, binding, batch.Cursor == cursor, report.Versions+report.Records > 0)
+}
+
+// repeatedRequirement finds a key an earlier file in this batch holds, and otherwise marks
+// this file's keys as held. A key is one requirement, so two files cannot both define it.
+func repeatedRequirement(item ports.RecordItem, held map[string]string) (string, string) {
+	if item.Requirements == nil {
+		return "", ""
+	}
+	for _, spec := range item.Requirements.Requirements {
+		if first, repeated := held[spec.ID]; repeated {
+			return spec.ID, first
+		}
+	}
+	for _, spec := range item.Requirements.Requirements {
+		held[spec.ID] = item.Path
+	}
+	return "", ""
 }
 
 func (i *Intake) cursor(ctx context.Context, scope ledger.WorkspaceID, id string) (ports.Cursor, error) {
@@ -142,6 +177,7 @@ func sameBinding(a, b planning.SourceBinding) bool {
 type itemOutcome struct {
 	versions   int
 	workOrders int
+	records    int
 	problem    string
 }
 
@@ -176,8 +212,18 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 	if repeated != "" {
 		return itemOutcome{problem: fmt.Sprintf("%v: work order %s belongs to another contract", planning.ErrBadFile, repeated)}, nil
 	}
+	named, known, err := r.namedPlan()
+	if err != nil {
+		return itemOutcome{}, err
+	}
+	if !known {
+		return itemOutcome{problem: fmt.Sprintf("%v: plan %s is not known", planning.ErrBadFile, r.item.Contract.Plan)}, nil
+	}
+	if named != "" {
+		contract.PlanID = named
+	}
 	if isNew {
-		if err := r.recordNewContract(contract); err != nil {
+		if err := r.recordNewContract(contract, named != ""); err != nil {
 			return itemOutcome{}, err
 		}
 	}
@@ -185,6 +231,12 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 		return itemOutcome{}, err
 	}
 	crashpoint.Hit("intake.item", "versioned")
+	if !isNew {
+		if err := r.repin(contract); err != nil {
+			return itemOutcome{}, err
+		}
+		crashpoint.Hit("intake.item", "repinned")
+	}
 	created := 0
 	for _, spec := range r.item.Contract.WorkOrders {
 		made, err := r.recordOrder(contract, spec)
@@ -197,6 +249,58 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 	}
 	crashpoint.Hit("intake.item", "ordered")
 	return itemOutcome{versions: 1, workOrders: created}, nil
+}
+
+// namedPlan resolves the file's `plan` key. No key is known, because such a contract gets
+// a plan of its own.
+func (r *itemRecorder) namedPlan() (string, bool, error) {
+	if r.item.Contract.Plan == "" {
+		return "", true, nil
+	}
+	key := ledger.ExternalKey{Adapter: r.item.Key.Adapter, Instance: r.item.Key.Instance, NativeID: r.item.Contract.Plan}
+	link, err := r.tx.Planning().Link(planning.SubjectPlan, key)
+	if errors.Is(err, ports.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return link.RecordID, true, nil
+}
+
+// repin moves this contract's unstarted work to a new version. A review covers one
+// version, so ready work goes back to contract review, and work a person sent back for
+// this change returns to it. Started work keeps its pin (FR-PLAN-8).
+func (r *itemRecorder) repin(contract planning.Contract) error {
+	orders, err := r.tx.WorkOrders().ByContract(contract.ID)
+	if err != nil {
+		return err
+	}
+	for _, order := range orders {
+		if !workorders.TakesNewVersion(order.State) {
+			continue
+		}
+		if err := r.tx.WorkOrders().Pin(order.ID, contract.Version); err != nil {
+			return err
+		}
+		event, err := workorders.PinEvent(order.ID, contract.Version, intakeActor)
+		if err != nil {
+			return err
+		}
+		if _, err := r.tx.Append(event); err != nil {
+			return err
+		}
+		switch order.State {
+		case workorders.Ready:
+			err = takeEdge(r.tx, order.ID, workorders.TriggerBackToReview, intakeActor)
+		case workorders.Planning:
+			err = takeEdge(r.tx, order.ID, workorders.TriggerContractSubmitted, intakeActor)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // nextVersion builds the version to record, or a zero contract when the ledger
@@ -259,10 +363,12 @@ func (r *itemRecorder) orderKey(spec planning.WorkOrderSpec) ledger.ExternalKey 
 
 // recordNewContract gives a contract with no plan key a plan of its own, so one
 // file is enough for a first work order.
-func (r *itemRecorder) recordNewContract(contract planning.Contract) error {
-	plan := planning.Plan{ID: contract.PlanID, Title: contract.Title, Status: planning.StatusActive, Source: r.item.Contract.Plan}
-	if err := r.writer().plan(plan); err != nil {
-		return err
+func (r *itemRecorder) recordNewContract(contract planning.Contract, planned bool) error {
+	if !planned {
+		plan := planning.Plan{ID: contract.PlanID, Title: contract.Title, Status: planning.StatusActive}
+		if err := r.writer().plan(plan); err != nil {
+			return err
+		}
 	}
 	return r.writer().link(planning.SubjectContract, contract.ID, r.item.Key)
 }
@@ -291,6 +397,27 @@ func (w planningWriter) plan(plan planning.Plan) error {
 		return err
 	}
 	return w.append(planning.EventPlanRecorded, planning.SubjectPlan, plan.ID, plan)
+}
+
+func (w planningWriter) changedPlan(plan planning.Plan) error {
+	if err := w.tx.Planning().UpdatePlan(plan); err != nil {
+		return err
+	}
+	return w.append(planning.EventPlanRecorded, planning.SubjectPlan, plan.ID, plan)
+}
+
+func (w planningWriter) goal(goal planning.Goal) error {
+	if err := w.tx.Planning().SaveGoal(goal); err != nil {
+		return err
+	}
+	return w.append(planning.EventGoalRecorded, planning.SubjectGoal, goal.ID, goal)
+}
+
+func (w planningWriter) requirement(requirement planning.Requirement) error {
+	if err := w.tx.Planning().InsertRequirement(requirement); err != nil {
+		return err
+	}
+	return w.append(planning.EventRequirementVersion, planning.SubjectRequirement, requirement.ID, requirement)
 }
 
 func (w planningWriter) contract(contract planning.Contract) error {

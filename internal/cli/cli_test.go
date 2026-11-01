@@ -6,18 +6,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/cli"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.dev/ropeshift/test/contract"
 )
 
 type session struct {
@@ -290,5 +295,109 @@ func TestExitCodesAreDocumented(t *testing.T) {
 		cli.ExitFenced, cli.ExitLapsed, cli.ExitNotReady, cli.ExitForbidden, cli.ExitUnreachable})
 	if got := "[" + strings.Join(documented, " ") + "]"; got != want {
 		t.Errorf("documented %s, want %s", got, want)
+	}
+}
+
+// planned holds a goal, a plan, a requirement, and one contract in a session's ledger.
+func (s *session) planned() {
+	s.t.Helper()
+	source := fake.NewWorkSource()
+	source.Write("goal.md", []byte(contract.GoalText("a-goal", "The goal")))
+	source.Write("plan.md", []byte(contract.PlanText("a-plan", "The plan", "a-goal")))
+	source.Write("requirements.md", []byte(contract.RequirementsText("payments", "PAY-12", "It retries")))
+	report, err := control.NewIntake(s.daemon.Store).Poll(s.t.Context(), apitest.Scope, source)
+	if err != nil || len(report.Problems) != 0 {
+		s.t.Fatalf("report %+v: %v", report, err)
+	}
+}
+
+// TestPlanShowReturnsTheAPIRecord is the unit's check: the CLI prints what the API holds.
+func TestPlanShowReturnsTheAPIRecord(t *testing.T) {
+	s := newSession(t)
+	s.planned()
+	plans, err := s.daemon.Client.Plans(t.Context())
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans %+v: %v", plans, err)
+	}
+	want, err := s.daemon.Client.Plan(t.Context(), plans[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got api.PlanView
+	if err := json.Unmarshal([]byte(s.must("plan", "show", plans[0].ID, "--json")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the CLI printed %+v, and the API holds %+v", got, want)
+	}
+	if text := s.must("plan", "show", plans[0].ID); !strings.Contains(text, "The plan") || !strings.Contains(text, "The goal") {
+		t.Errorf("text %q", text)
+	}
+	if text := s.must("plan", "list"); !strings.Contains(text, plans[0].ID) {
+		t.Errorf("list %q", text)
+	}
+	if code, _, _ := s.run("plan", "show", "absent"); code != cli.ExitNotFound {
+		t.Errorf("exit %d", code)
+	}
+}
+
+func TestRequirementGetReturnsTheAPIRecord(t *testing.T) {
+	s := newSession(t)
+	s.planned()
+	want, err := s.daemon.Client.Requirement(t.Context(), "PAY-12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got planning.Requirement
+	if err := json.Unmarshal([]byte(s.must("requirement", "get", "PAY-12", "--json")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("the CLI printed %+v, and the API holds %+v", got, want)
+	}
+	if text := s.must("requirement", "get", "PAY-12"); !strings.Contains(text, "It retries") {
+		t.Errorf("text %q", text)
+	}
+	if code, _, _ := s.run("requirement", "get", "ABSENT"); code != cli.ExitNotFound {
+		t.Errorf("exit %d", code)
+	}
+}
+
+func TestWorkSendBack(t *testing.T) {
+	s := newSession(t)
+	s.create("wo")
+	if code, _, _ := s.run("work", "send-back", "wo"); code != cli.ExitUsage {
+		t.Errorf("no reason: exit %d", code)
+	}
+	s.must("work", "send-back", "wo", "--reason", "The criteria are wrong")
+	if text := s.must("work", "show", "wo"); !strings.Contains(text, "planning") {
+		t.Errorf("show %q", text)
+	}
+	if code, _, _ := s.run("work", "send-back", "wo", "--reason", "Again"); code != cli.ExitConflict {
+		t.Errorf("exit %d", code)
+	}
+}
+
+func TestDocumentCommands(t *testing.T) {
+	knowledge := fake.NewKnowledgeSource()
+	knowledge.Write("design.md", "# One\n")
+	knowledge.Write("design.md", "# Two\n")
+	daemon := apitest.StartWith(t, apitest.Options{Knowledge: []ports.KnowledgeSource{knowledge}})
+	s := &session{t: t, daemon: daemon}
+	if text := s.must("document", "list"); !strings.Contains(text, "design.md") || !strings.Contains(text, "Two") {
+		t.Errorf("list %q", text)
+	}
+	if text := s.must("document", "show", "design.md"); text != "# Two\n" {
+		t.Errorf("show %q", text)
+	}
+	versions := strings.Fields(s.must("document", "versions", "design.md"))
+	if len(versions) != 4 {
+		t.Fatalf("versions %v", versions)
+	}
+	if text := s.must("document", "show", "design.md", "--version", versions[2]); text != "# One\n" {
+		t.Errorf("earlier %q", text)
+	}
+	if code, _, _ := s.run("document", "show", "absent.md"); code != cli.ExitNotFound {
+		t.Errorf("exit %d", code)
 	}
 }

@@ -122,6 +122,8 @@ type Change struct {
 	Outcome    Outcome `json:"outcome,omitempty"`
 	Attempts   int64   `json:"attempts,omitempty"`
 	Payload    []byte  `json:"payload,omitempty"`
+	// ContractVersion is the version a pin moved to.
+	ContractVersion int64 `json:"contract_version,omitempty"`
 }
 
 // EventType names the event of a transition.
@@ -134,6 +136,10 @@ const EventFencedWrite = "work_order.fenced_write"
 // EventReviewPassed records a member's passed review, which changes no state. The
 // definition of ready decides the move.
 const EventReviewPassed = "work_order.review_passed"
+
+// EventContractPinned records that unstarted work pinned a new contract version, which
+// changes no state by itself and voids any review of the last version.
+const EventContractPinned = "work_order.contract_pinned"
 
 // EventLaneDispatched records a request to run a lane, which changes no state. The
 // worker reads it as desired state, and the lane's start moves the work order.
@@ -157,6 +163,11 @@ type GenerationBinding struct {
 	ProfileDigest  string `json:"profile_digest"`
 	DriverVersion  string `json:"driver_version"`
 	DegradedMode   bool   `json:"degraded_mode,omitempty"`
+}
+
+// PinEvent is the event of unstarted work taking a new contract version.
+func PinEvent(id string, version int64, actor ledger.Actor) (ledger.EventDraft, error) {
+	return ChangeEvent(EventContractPinned, id, Change{ContractVersion: version}, actor)
 }
 
 // ChangeEvent is the event of one change to a work order.
@@ -215,6 +226,10 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 	if err := json.Unmarshal(e.Data, &change); err != nil {
 		return current, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	if e.Type == EventContractPinned {
+		current.ContractVersion, current.ReviewedBy = change.ContractVersion, ""
+		return current, nil
+	}
 	if change.Guarded {
 		if change.Fence != current.Fence {
 			return current, fmt.Errorf("%w: a write with fence %d under fence %d", ErrInvalid, change.Fence, current.Fence)
@@ -259,6 +274,8 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 		}
 		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
 		w.Attempts = change.Attempts
+	case TriggerContractChange:
+		w.ReviewedBy = ""
 	}
 	w.State = edge.To
 	return w, nil

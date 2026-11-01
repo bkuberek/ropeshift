@@ -11,7 +11,11 @@ import (
 	"ropeshift.dev/ropeshift/internal/ports"
 )
 
-const contractColumns = `id, version, plan_id, title, digest, source, statement, criteria, requirements, decisions, status`
+const (
+	contractColumns    = `id, version, plan_id, title, digest, source, statement, criteria, requirements, decisions, status`
+	goalColumns        = `id, title, status, success_measures, statement, source`
+	requirementColumns = `id, version, requirement_key, text, source, digest`
+)
 
 var (
 	stmtInsertPlan = define("plan.insert",
@@ -22,6 +26,41 @@ VALUES (:workspace_id, :id, :goal_id, :title, :status, :source)`)
 		`SELECT id, goal_id, title, status, source FROM plans
  WHERE workspace_id = :workspace_id
  ORDER BY id`)
+
+	stmtReadPlan = define("plan.read",
+		`SELECT id, goal_id, title, status, source FROM plans
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtUpdatePlan = define("plan.update",
+		`UPDATE plans SET goal_id = :goal_id, title = :title, status = :status, source = :source
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtSaveGoal = define("goal.save",
+		`INSERT INTO goals (workspace_id, id, title, status, success_measures, statement, source)
+VALUES (:workspace_id, :id, :title, :status, :success_measures, :statement, :source)
+ON CONFLICT (workspace_id, id) DO UPDATE SET
+  title = :title, status = :status, success_measures = :success_measures, statement = :statement, source = :source`)
+
+	stmtReadGoal = define("goal.read",
+		`SELECT `+goalColumns+` FROM goals WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtListGoals = define("goal.list",
+		`SELECT `+goalColumns+` FROM goals WHERE workspace_id = :workspace_id ORDER BY id`)
+
+	stmtInsertRequirement = define("requirement.insert",
+		`INSERT INTO requirements (workspace_id, id, version, requirement_key, text, source, digest)
+VALUES (:workspace_id, :id, :version, :requirement_key, :text, :source, :digest)`)
+
+	stmtLatestRequirement = define("requirement.latest",
+		`SELECT `+requirementColumns+` FROM requirements
+ WHERE workspace_id = :workspace_id AND requirement_key = :requirement_key
+ ORDER BY version DESC
+ LIMIT 1`)
+
+	stmtListRequirements = define("requirement.list",
+		`SELECT `+requirementColumns+` FROM requirements
+ WHERE workspace_id = :workspace_id
+ ORDER BY requirement_key, version`)
 
 	stmtInsertContract = define("contract.insert",
 		`INSERT INTO contracts
@@ -110,6 +149,16 @@ func (t planningTx) InsertPlan(plan planning.Plan) error {
 	return err
 }
 
+func scanPlan(row scanner) (planning.Plan, error) {
+	var plan planning.Plan
+	var goal, source sql.NullString
+	if err := row.Scan(&plan.ID, &goal, &plan.Title, &plan.Status, &source); err != nil {
+		return planning.Plan{}, err
+	}
+	plan.GoalID, plan.Source = goal.String, source.String
+	return plan, nil
+}
+
 func (t planningTx) Plans() ([]planning.Plan, error) {
 	rows, err := t.rows(stmtListPlans, t.scoped(nil))
 	if err != nil {
@@ -118,13 +167,133 @@ func (t planningTx) Plans() ([]planning.Plan, error) {
 	defer rows.Close()
 	var out []planning.Plan
 	for rows.Next() {
-		var plan planning.Plan
-		var goal, source sql.NullString
-		if err := rows.Scan(&plan.ID, &goal, &plan.Title, &plan.Status, &source); err != nil {
+		plan, err := scanPlan(rows)
+		if err != nil {
 			return nil, err
 		}
-		plan.GoalID, plan.Source = goal.String, source.String
 		out = append(out, plan)
+	}
+	return out, rows.Err()
+}
+
+func (t planningTx) Plan(id string) (planning.Plan, error) {
+	row, err := t.row(stmtReadPlan, t.scoped(params{"id": id}))
+	if err != nil {
+		return planning.Plan{}, err
+	}
+	plan, err := scanPlan(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return planning.Plan{}, fmt.Errorf("plan %s: %w", id, ports.ErrNotFound)
+	}
+	return plan, err
+}
+
+func (t planningTx) UpdatePlan(plan planning.Plan) error {
+	_, err := t.exec(stmtUpdatePlan, t.scoped(params{
+		"id": plan.ID, "goal_id": nullText(plan.GoalID), "title": plan.Title,
+		"status": plan.Status, "source": nullText(plan.Source),
+	}))
+	return err
+}
+
+func (t planningTx) SaveGoal(goal planning.Goal) error {
+	measures, err := json.Marshal(nonNil(goal.SuccessMeasures))
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtSaveGoal, t.scoped(params{
+		"id": goal.ID, "title": goal.Title, "status": goal.Status, "success_measures": string(measures),
+		"statement": goal.Statement, "source": nullText(goal.Source),
+	}))
+	return err
+}
+
+func scanGoal(row scanner) (planning.Goal, error) {
+	var goal planning.Goal
+	var measures string
+	var source sql.NullString
+	if err := row.Scan(&goal.ID, &goal.Title, &goal.Status, &measures, &goal.Statement, &source); err != nil {
+		return planning.Goal{}, err
+	}
+	goal.Source = source.String
+	if err := json.Unmarshal([]byte(measures), &goal.SuccessMeasures); err != nil {
+		return planning.Goal{}, fmt.Errorf("goal %s: %w", goal.ID, err)
+	}
+	return goal, nil
+}
+
+func (t planningTx) Goal(id string) (planning.Goal, error) {
+	row, err := t.row(stmtReadGoal, t.scoped(params{"id": id}))
+	if err != nil {
+		return planning.Goal{}, err
+	}
+	goal, err := scanGoal(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return planning.Goal{}, fmt.Errorf("goal %s: %w", id, ports.ErrNotFound)
+	}
+	return goal, err
+}
+
+func (t planningTx) Goals() ([]planning.Goal, error) {
+	rows, err := t.rows(stmtListGoals, t.scoped(nil))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []planning.Goal
+	for rows.Next() {
+		goal, err := scanGoal(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, goal)
+	}
+	return out, rows.Err()
+}
+
+func (t planningTx) InsertRequirement(r planning.Requirement) error {
+	_, err := t.exec(stmtInsertRequirement, t.scoped(params{
+		"id": r.ID, "version": r.Version, "requirement_key": r.Key, "text": r.Text,
+		"source": nullText(r.Source), "digest": r.Digest,
+	}))
+	return err
+}
+
+func scanRequirement(row scanner) (planning.Requirement, error) {
+	var r planning.Requirement
+	var source sql.NullString
+	if err := row.Scan(&r.ID, &r.Version, &r.Key, &r.Text, &source, &r.Digest); err != nil {
+		return planning.Requirement{}, err
+	}
+	r.Source = source.String
+	return r, nil
+}
+
+func (t planningTx) Requirement(key string) (planning.Requirement, error) {
+	row, err := t.row(stmtLatestRequirement, t.scoped(params{"requirement_key": key}))
+	if err != nil {
+		return planning.Requirement{}, err
+	}
+	r, err := scanRequirement(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return planning.Requirement{}, fmt.Errorf("requirement %s: %w", key, ports.ErrNotFound)
+	}
+	return r, err
+}
+
+func (t planningTx) Requirements() ([]planning.Requirement, error) {
+	rows, err := t.rows(stmtListRequirements, t.scoped(nil))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []planning.Requirement
+	for rows.Next() {
+		r, err := scanRequirement(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
 	}
 	return out, rows.Err()
 }

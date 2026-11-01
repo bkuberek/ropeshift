@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
@@ -55,13 +56,61 @@ type WorkItem struct {
 	Statement string
 }
 
-// ChangeBatch is what a poll found. Cursor equals the cursor passed in when nothing
-// moved. A file a source cannot read is a problem in the batch and fails no other
-// file.
+// RecordItem is one goal, plan, or requirements file at one version. The field of its
+// kind is set, and Key's native ID is the file's own `id`.
+type RecordItem struct {
+	Key          ledger.ExternalKey
+	Source       string
+	Path         string
+	Goal         *planning.GoalFile
+	Plan         *planning.PlanFile
+	Requirements *planning.RequirementsFile
+	Statement    string
+}
+
+// ChangeBatch is what a poll found. Items are contracts, and Records are everything else,
+// goals before the plans that name them. Cursor equals the cursor passed in when nothing
+// moved. A file a source cannot read is a problem in the batch and fails no other file.
 type ChangeBatch struct {
 	Items    []WorkItem
+	Records  []RecordItem
 	Problems []planning.SourceProblem
 	Cursor   Cursor
+}
+
+// RecordOf builds the record item of a file that is not a contract, or reports false.
+func RecordOf(doc planning.Document, adapter, instance, path, source string) (RecordItem, bool) {
+	item := RecordItem{
+		Source: source, Path: path, Goal: doc.Goal, Plan: doc.Plan, Requirements: doc.Requirements, Statement: doc.Statement,
+	}
+	switch {
+	case doc.Goal != nil:
+		item.Key.NativeID = doc.Goal.ID
+	case doc.Plan != nil:
+		item.Key.NativeID = doc.Plan.ID
+	case doc.Requirements != nil:
+		item.Key.NativeID = doc.Requirements.ID
+	default:
+		return RecordItem{}, false
+	}
+	item.Key.Adapter, item.Key.Instance = adapter, instance
+	return item, true
+}
+
+// OrderRecords puts goals first and requirements last, so a plan finds its goal in one
+// batch. Within a kind, the source's own order stays.
+func OrderRecords(items []RecordItem) {
+	slices.SortStableFunc(items, func(a, b RecordItem) int { return recordRank(a) - recordRank(b) })
+}
+
+func recordRank(item RecordItem) int {
+	switch {
+	case item.Goal != nil:
+		return 0
+	case item.Plan != nil:
+		return 1
+	}
+	return 2
 }
 
 // InboundDelivery is one webhook delivery.

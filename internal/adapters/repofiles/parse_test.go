@@ -72,21 +72,54 @@ func TestParseFile(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "a goal",
+			fixture: "goal.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if doc.Kind != planning.FileGoal || doc.Goal == nil {
+					t.Fatalf("got %+v", doc)
+				}
+				if doc.Goal.ID != "reliable-checkout" || len(doc.Goal.SuccessMeasures) != 1 {
+					t.Errorf("goal %+v", doc.Goal)
+				}
+				if doc.Statement != "Why this matters.\n" {
+					t.Errorf("statement %q", doc.Statement)
+				}
+			},
+		},
+		{
+			name:    "a plan names its goal",
+			fixture: "plan.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if doc.Kind != planning.FilePlan || doc.Plan == nil {
+					t.Fatalf("got %+v", doc)
+				}
+				if doc.Plan.ID != "checkout-plan" || doc.Plan.Goal != "reliable-checkout" {
+					t.Errorf("plan %+v", doc.Plan)
+				}
+			},
+		},
+		{
+			name:    "requirements come from tables, and the body stays prose",
+			fixture: "requirements.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if doc.Kind != planning.FileRequirements || doc.Requirements == nil {
+					t.Fatalf("got %+v", doc)
+				}
+				tables := doc.Requirements.Requirements
+				if len(tables) != 2 || tables[0].ID != "PAY-12" || tables[1].Text != "A retry budget bounds every call" {
+					t.Errorf("requirements %+v", tables)
+				}
+			},
+		},
+		{name: "one requirement twice", fixture: "repeated-requirement.md", wantErr: planning.ErrBadFile},
+		{name: "a goal with no title", fixture: "untitled-goal.md", wantErr: planning.ErrBadFile},
 		{name: "an unknown kind", fixture: "unknown-kind.md", wantErr: planning.ErrUnknownKind},
 		{name: "bad TOML", fixture: "bad-toml.md", wantErr: planning.ErrBadFile},
 		{name: "a front matter with no end", fixture: "unclosed.md", wantErr: planning.ErrBadFile},
 		{name: "a size the format does not name", fixture: "bad-size.md", wantErr: planning.ErrBadFile},
 		{name: "one work order twice", fixture: "repeated-order.md", wantErr: planning.ErrBadFile},
 		{name: "a plain document", fixture: "no-front-matter.md", wantErr: planning.ErrNotOurs},
-		{
-			name:    "a kind read from a later unit",
-			fixture: "plan.md",
-			check: func(t *testing.T, doc planning.Document) {
-				if doc.Kind != planning.FilePlan || doc.Contract != nil {
-					t.Errorf("got %+v", doc)
-				}
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

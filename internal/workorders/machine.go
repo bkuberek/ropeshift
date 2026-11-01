@@ -125,3 +125,10 @@ func Next(from State, trigger Trigger) (Transition, bool) {
 	edge, ok := table[edgeKey{from, trigger}]
 	return edge, ok
 }
+
+// TakesNewVersion reports a state whose work has not started, so a new contract version can
+// replace its pin. A lane that started keeps what it pinned, and a later version reaches it
+// as a notice (FR-PLAN-8).
+func TakesNewVersion(s State) bool {
+	return s == Intake || s == Planning || s == ContractReview || s == Ready
+}

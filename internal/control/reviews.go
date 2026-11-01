@@ -64,6 +64,43 @@ func (r *Reviews) Pass(ctx context.Context, scope ledger.WorkspaceID, id string,
 	return result, nil
 }
 
+// SendBack returns a work order to `planning` because its contract must change. A member
+// or a reviewing orchestrator decides that, and the review of this version is void.
+func (r *Reviews) SendBack(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) error {
+	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+		return workorders.ErrForbidden
+	}
+	return r.store.Write(ctx, scope, "review.send_back", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		edge, err := workorders.Move(current, workorders.TriggerContractChange)
+		if err != nil {
+			return err
+		}
+		won, err := tx.WorkOrders().Move(id, edge.From, edge.To)
+		if err != nil {
+			return err
+		}
+		if !won {
+			return workorders.ErrIllegalMove
+		}
+		crashpoint.Hit("review.send_back", "moved")
+		if err := tx.WorkOrders().Reviewed(id, ""); err != nil {
+			return err
+		}
+		event, err := workorders.ChangeEvent(workorders.EventType(edge.Trigger), id, workorders.Change{
+			Trigger: edge.Trigger, Reason: reason,
+		}, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+}
+
 func recordReview(tx ports.WriteTx, id string, actor ledger.Actor) error {
 	if err := tx.WorkOrders().Reviewed(id, actor.ID); err != nil {
 		return err

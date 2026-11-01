@@ -35,6 +35,13 @@ var (
    AND lease_worker = :worker
  ORDER BY id`)
 
+	stmtWorkOrdersByContract = define("work_order.by_contract",
+		`SELECT `+workOrderColumns+`
+  FROM work_orders
+ WHERE workspace_id = :workspace_id
+   AND contract_id = :contract_id
+ ORDER BY id`)
+
 	stmtInsertWorkOrder = define("work_order.insert",
 		`INSERT INTO work_orders
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
@@ -62,6 +69,10 @@ VALUES
 	stmtReviewedWorkOrder = define("work_order.reviewed",
 		`UPDATE work_orders SET reviewed_by = :member
  WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtPinWorkOrder = define("work_order.pin",
+		`UPDATE work_orders SET contract_version = :version, reviewed_by = NULL
+ WHERE workspace_id = :workspace_id AND id = :id`)
 )
 
 // workOrderTx is the work order area of one transaction.
@@ -82,8 +93,9 @@ func (t workOrderTx) Get(id string) (workorders.WorkOrder, error) {
 	return w, err
 }
 
-func (t workOrderTx) List() ([]workorders.WorkOrder, error) {
-	rows, err := t.rows(stmtListWorkOrders, params{"workspace_id": string(t.scope)})
+func (t workOrderTx) list(st *statement, p params) ([]workorders.WorkOrder, error) {
+	p["workspace_id"] = string(t.scope)
+	rows, err := t.rows(st, p)
 	if err != nil {
 		return nil, err
 	}
@@ -99,21 +111,16 @@ func (t workOrderTx) List() ([]workorders.WorkOrder, error) {
 	return out, rows.Err()
 }
 
+func (t workOrderTx) List() ([]workorders.WorkOrder, error) {
+	return t.list(stmtListWorkOrders, params{})
+}
+
 func (t workOrderTx) HeldBy(worker string) ([]workorders.WorkOrder, error) {
-	rows, err := t.rows(stmtHeldBy, params{"workspace_id": string(t.scope), "worker": worker})
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []workorders.WorkOrder
-	for rows.Next() {
-		w, err := scanWorkOrder(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, w)
-	}
-	return out, rows.Err()
+	return t.list(stmtHeldBy, params{"worker": worker})
+}
+
+func (t workOrderTx) ByContract(contract string) ([]workorders.WorkOrder, error) {
+	return t.list(stmtWorkOrdersByContract, params{"contract_id": contract})
 }
 
 func (t workOrderTx) Expired(now int64) ([]string, error) {
@@ -142,7 +149,14 @@ func (t workOrderTx) Move(id string, from, to workorders.State) (bool, error) {
 
 func (t workOrderTx) Reviewed(id, member string) error {
 	_, err := t.exec(stmtReviewedWorkOrder, params{
-		"workspace_id": string(t.scope), "id": id, "member": member,
+		"workspace_id": string(t.scope), "id": id, "member": nullText(member),
+	})
+	return err
+}
+
+func (t workOrderTx) Pin(id string, version int64) error {
+	_, err := t.exec(stmtPinWorkOrder, params{
+		"workspace_id": string(t.scope), "id": id, "version": version,
 	})
 	return err
 }

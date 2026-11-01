@@ -1,7 +1,8 @@
 +++
 kind = "plan"
 id = "checkout-plan"
-title = "A kind intake reads from U20 on"
+title = "Make checkout survive a failed call"
+goal = "reliable-checkout"
 +++
 
 Body.

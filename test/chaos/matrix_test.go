@@ -133,7 +133,10 @@ func crashMatrix() []crashCase {
 		intakeCase("intake", []string{"polled"}),
 		intakeCase("intake.item", withSteps("versioned", "ordered")),
 		intakeCase("intake.settle", withSteps()),
+		intakeFilesCase(),
+		repinCase("repinned"),
 		reviewCase(),
+		sendBackCase(),
 		recordCase(),
 		workerStartCase(),
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
@@ -504,6 +507,101 @@ func recordCase() crashCase {
 				return err
 			}
 			return hasState(w, spec.WorkOrder, workorders.ContractReview)
+		},
+	}
+}
+
+// inReview polls one contract and returns its work order, in `contract_review`.
+func (w *world) inReview(key string) (workorders.WorkOrder, error) {
+	source := fake.NewWorkSource()
+	source.Write("contract.md", []byte(contract.ContractText(key, "Alpha", "One.")))
+	if _, err := w.rig.NewOps(w.store).Poll(w.rig.Ctx, w.rig.Scope, source); err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	rows, err := w.rows()
+	if err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	if len(rows) != 1 {
+		return workorders.WorkOrder{}, fmt.Errorf("%d rows", len(rows))
+	}
+	return rows[0], nil
+}
+
+// repinCase kills a poll of a contract's second version, while its work order is ready.
+func repinCase(step string) crashCase {
+	return crashCase{
+		name:  "a new version",
+		op:    "intake.item",
+		steps: []string{step},
+		prepare: func(w *world) (childSpec, error) {
+			key := w.rig.ID("alpha")
+			order, err := w.inReview(key)
+			if err != nil {
+				return childSpec{}, err
+			}
+			if _, err := w.rig.NewOps(w.store).Pass(w.rig.Ctx, w.rig.Scope, order.ID, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "intake-version", Key: key, WorkOrder: order.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			row, err := w.rig.WorkOrder(w.store, spec.WorkOrder)
+			if err != nil {
+				return err
+			}
+			if row.State != workorders.ContractReview || row.ContractVersion != 2 || row.ReviewedBy != "" {
+				return contract.Violatedf("a new version left %+v", row)
+			}
+			return countEvents(w, workorders.EventContractPinned, spec.WorkOrder, 1)
+		},
+	}
+}
+
+func intakeFilesCase() crashCase {
+	return crashCase{
+		name:  "goal, plan, and requirement files",
+		op:    "intake.file",
+		steps: withSteps("recorded"),
+		prepare: func(*world) (childSpec, error) {
+			return childSpec{Role: "intake-files"}, nil
+		},
+		settled: func(w *world, _ childSpec) error {
+			events, err := w.rig.Events(w.store, w.rig.Scope)
+			if err != nil {
+				return err
+			}
+			count := map[string]int{}
+			for _, e := range events {
+				count[e.Type]++
+			}
+			for _, eventType := range []string{planning.EventGoalRecorded, planning.EventPlanRecorded, planning.EventRequirementVersion} {
+				if count[eventType] != 1 {
+					return contract.Violatedf("%d %s events, want 1", count[eventType], eventType)
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func sendBackCase() crashCase {
+	return crashCase{
+		name:  "send back",
+		op:    "review.send_back",
+		steps: withSteps("moved"),
+		prepare: func(w *world) (childSpec, error) {
+			order, err := w.inReview(w.rig.ID("alpha"))
+			if err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "send-back", WorkOrder: order.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, workorders.EventType(workorders.TriggerContractChange), spec.WorkOrder, 1); err != nil {
+				return err
+			}
+			return hasState(w, spec.WorkOrder, workorders.Planning)
 		},
 	}
 }

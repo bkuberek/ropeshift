@@ -96,10 +96,15 @@ func (s *WorkSource) Poll(_ context.Context, cursor ports.Cursor) (ports.ChangeB
 			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: name, Detail: err.Error()})
 			continue
 		case doc.Contract == nil:
+			source := fmt.Sprintf("%s@%d", name, s.revision)
+			if record, ok := ports.RecordOf(doc, sourceAdapter, sourceInstance, name, source); ok {
+				batch.Records = append(batch.Records, record)
+			}
 			continue
 		}
 		batch.Items = append(batch.Items, s.item(name, doc))
 	}
+	ports.OrderRecords(batch.Records)
 	return batch, nil
 }
 

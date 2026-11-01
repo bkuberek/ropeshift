@@ -84,6 +84,9 @@ func (s *Source) Fields(context.Context, ports.ScopeRef) ([]ports.FieldSchema, e
 		{Name: "decisions", Type: "array"},
 		{Name: "criteria", Type: "array"},
 		{Name: "work_orders", Type: "array"},
+		{Name: "goal", Type: "string"},
+		{Name: "success_measures", Type: "array"},
+		{Name: "requirement", Type: "array"},
 	}, nil
 }
 
@@ -104,7 +107,7 @@ func (s *Source) Poll(ctx context.Context, cursor ports.Cursor) (ports.ChangeBat
 		return ports.ChangeBatch{Cursor: cursor}, nil
 	}
 	batch := ports.ChangeBatch{Cursor: ports.Cursor(commit)}
-	blobs, err := s.tree(ctx, commit)
+	blobs, err := s.Tree(ctx, commit)
 	if err != nil {
 		return ports.ChangeBatch{}, err
 	}
@@ -114,7 +117,7 @@ func (s *Source) Poll(ctx context.Context, cursor ports.Cursor) (ports.ChangeBat
 	}
 	seen := map[string]string{}
 	for _, blob := range blobs {
-		raw, err := s.git.Output(ctx, "cat-file", "blob", blob.hash)
+		raw, err := s.git.Output(ctx, "cat-file", "blob", blob.Hash)
 		if err != nil {
 			return ports.ChangeBatch{}, err
 		}
@@ -123,30 +126,34 @@ func (s *Source) Poll(ctx context.Context, cursor ports.Cursor) (ports.ChangeBat
 		case errors.Is(err, planning.ErrNotOurs):
 			continue
 		case err != nil:
-			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: blob.path, Detail: err.Error()})
+			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: blob.Path, Detail: err.Error()})
 			continue
 		case doc.Contract == nil:
+			if record, ok := ports.RecordOf(doc, description.Adapter, description.Instance, blob.Path, blob.Path+"@"+commit); ok {
+				batch.Records = append(batch.Records, record)
+			}
 			continue
 		}
 		if first, repeated := seen[doc.Contract.ID]; repeated {
 			batch.Problems = append(batch.Problems, planning.SourceProblem{
-				Path:   blob.path,
+				Path:   blob.Path,
 				Detail: fmt.Sprintf("%v: contract %s is already in %s", planning.ErrBadFile, doc.Contract.ID, first),
 			})
 			continue
 		}
-		seen[doc.Contract.ID] = blob.path
+		seen[doc.Contract.ID] = blob.Path
 		batch.Items = append(batch.Items, itemOf(description, doc, blob, commit))
 	}
+	ports.OrderRecords(batch.Records)
 	return batch, nil
 }
 
-func itemOf(description ports.SourceDescription, doc planning.Document, blob treeBlob, commit string) ports.WorkItem {
+func itemOf(description ports.SourceDescription, doc planning.Document, blob Blob, commit string) ports.WorkItem {
 	return ports.WorkItem{
 		Key:       ledger.ExternalKey{Adapter: description.Adapter, Instance: description.Instance, NativeID: doc.Contract.ID},
-		Digest:    planning.DigestGitBlob + blob.hash,
-		Source:    blob.path + "@" + commit,
-		Path:      blob.path,
+		Digest:    planning.DigestGitBlob + blob.Hash,
+		Source:    blob.Path + "@" + commit,
+		Path:      blob.Path,
 		Contract:  *doc.Contract,
 		Statement: doc.Statement,
 	}
@@ -248,14 +255,24 @@ func (s *Source) ref(ctx context.Context) (string, error) {
 	return s.git.Text(ctx, "symbolic-ref", "--quiet", "HEAD")
 }
 
-type treeBlob struct {
-	hash string
-	path string
+// Blob is one Markdown file of a commit.
+type Blob struct {
+	Hash string
+	Path string
 }
 
-// tree lists the Markdown blobs of a commit. The hash in the listing is the digest
+// Head returns the commit the ref stands at.
+func (s *Source) Head(ctx context.Context) (string, error) {
+	ref, err := s.ref(ctx)
+	if err != nil {
+		return "", err
+	}
+	return s.git.Commit(ctx, ref)
+}
+
+// Tree lists the Markdown blobs of a commit. The hash in the listing is the digest
 // of the file as written.
-func (s *Source) tree(ctx context.Context, commit string) ([]treeBlob, error) {
+func (s *Source) Tree(ctx context.Context, commit string) ([]Blob, error) {
 	args := []string{"ls-tree", "-r", "-z", "--full-tree", commit}
 	if dir := strings.Trim(s.config.Directory, "/"); dir != "" && dir != "." {
 		args = append(args, "--", dir)
@@ -264,14 +281,14 @@ func (s *Source) tree(ctx context.Context, commit string) ([]treeBlob, error) {
 	if err != nil {
 		return nil, err
 	}
-	var blobs []treeBlob
+	var blobs []Blob
 	for entry := range strings.SplitSeq(string(out), "\x00") {
 		meta, name, ok := strings.Cut(entry, "\t")
 		fields := strings.Fields(meta)
 		if !ok || len(fields) != 3 || fields[1] != "blob" || path.Ext(name) != ".md" {
 			continue
 		}
-		blobs = append(blobs, treeBlob{hash: fields[2], path: name})
+		blobs = append(blobs, Blob{Hash: fields[2], Path: name})
 	}
 	return blobs, nil
 }

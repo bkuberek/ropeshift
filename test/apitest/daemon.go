@@ -16,6 +16,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/ports"
 )
 
 // Scope is the workspace of every harness.
@@ -67,6 +68,8 @@ type Options struct {
 	Wrap func(http.Handler) http.Handler
 	// Clock wraps the dialect, which is how a test moves database time.
 	Clock func(sqlstore.Dialect) sqlstore.Dialect
+	// Knowledge is what the API reads documents from.
+	Knowledge []ports.KnowledgeSource
 }
 
 // Start serves the API until the test ends.
@@ -103,6 +106,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	}
 	handler := server.New(server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
+		Knowledge: options.Knowledge,
 	})
 	if options.Wrap != nil {
 		handler = options.Wrap(handler)

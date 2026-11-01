@@ -32,6 +32,9 @@ var childRoles = map[string]func(*child) error{
 	"lease-worker":      roleLeaseWorker,
 	"zombie-writer":     roleZombieWriter,
 	"intake":            roleIntake,
+	"intake-version":    roleIntakeVersion,
+	"intake-files":      roleIntakeFiles,
+	"send-back":         roleSendBack,
 	"review-pass":       roleReviewPass,
 	"record-work":       roleRecordWork,
 	"worker-upload":     roleWorkerUpload,
@@ -59,6 +62,43 @@ func roleIntake(c *child) error {
 	source.Write("contract.md", []byte(contract.ContractText(c.spec.Key, "Alpha", "One.")))
 	_, err := c.ops.Poll(c.ctx, c.scope, source)
 	return err
+}
+
+// roleIntakeVersion polls a contract's second version. The source is new, so it writes
+// the file twice, to pass the cursor the first version left.
+func roleIntakeVersion(c *child) error {
+	source := fake.NewWorkSource()
+	source.Write("contract.md", []byte(contract.ContractText(c.spec.Key, "Alpha", "One.")))
+	source.Write("contract.md", []byte(contract.ContractText(c.spec.Key, "Alpha", "Two.")))
+	_, err := c.ops.Poll(c.ctx, c.scope, source)
+	return err
+}
+
+// roleIntakeFiles polls one file of each kind that is not a contract.
+func roleIntakeFiles(c *child) error {
+	_, err := c.ops.Poll(c.ctx, c.scope, planningSource())
+	return err
+}
+
+func planningSource() *fake.WorkSource {
+	source := fake.NewWorkSource()
+	source.Write("goal.md", []byte(contract.GoalText("the-goal", "The goal")))
+	source.Write("plan.md", []byte(contract.PlanText("the-plan", "The plan", "the-goal")))
+	source.Write("requirements.md", []byte(contract.RequirementsText("payments", "PAY-12", "It retries")))
+	return source
+}
+
+// roleSendBack counts a retry that finds the work a first attempt moved.
+func roleSendBack(c *child) error {
+	err := c.ops.SendBack(c.ctx, c.scope, c.spec.WorkOrder, "the criteria are wrong", c.member())
+	if !errors.Is(err, workorders.ErrIllegalMove) {
+		return err
+	}
+	state, readErr := c.stateOf(c.spec.WorkOrder)
+	if readErr != nil || state != workorders.Planning {
+		return err
+	}
+	return nil
 }
 
 func roleReviewPass(c *child) error {

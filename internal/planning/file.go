@@ -69,12 +69,45 @@ type ContractFile struct {
 	WorkOrders   []WorkOrderSpec `toml:"work_orders" json:"work_orders,omitempty"`
 }
 
-// Document is one decoded repository file. Contract is set for a contract, and the
-// other kinds are read from a later unit.
+// GoalFile is the front matter of a goal file.
+type GoalFile struct {
+	Kind            FileKind `toml:"kind" json:"kind"`
+	ID              string   `toml:"id" json:"id"`
+	Title           string   `toml:"title" json:"title"`
+	SuccessMeasures []string `toml:"success_measures" json:"success_measures,omitempty"`
+}
+
+// PlanFile is the front matter of a plan file. Goal is the ID of a goal file.
+type PlanFile struct {
+	Kind  FileKind `toml:"kind" json:"kind"`
+	ID    string   `toml:"id" json:"id"`
+	Title string   `toml:"title" json:"title"`
+	Goal  string   `toml:"goal" json:"goal,omitempty"`
+}
+
+// RequirementSpec is one `[[requirement]]` table. Its ID is the key a contract names.
+type RequirementSpec struct {
+	ID   string `toml:"id" json:"id"`
+	Text string `toml:"text" json:"text"`
+}
+
+// RequirementsFile is the front matter of a requirements file. Requirements live in
+// tables, so the Markdown body stays free prose.
+type RequirementsFile struct {
+	Kind         FileKind          `toml:"kind" json:"kind"`
+	ID           string            `toml:"id" json:"id"`
+	Title        string            `toml:"title" json:"title"`
+	Requirements []RequirementSpec `toml:"requirement" json:"requirement,omitempty"`
+}
+
+// Document is one decoded repository file. The field of its kind is set.
 type Document struct {
-	Kind      FileKind
-	Contract  *ContractFile
-	Statement string
+	Kind         FileKind
+	Contract     *ContractFile
+	Goal         *GoalFile
+	Plan         *PlanFile
+	Requirements *RequirementsFile
+	Statement    string
 }
 
 var frontMatterFence = []byte("+++")
@@ -118,6 +151,42 @@ func CheckSize(size string) (string, error) {
 		return SizeUnknown, nil
 	}
 	return "", fmt.Errorf("size %q", size)
+}
+
+// Normalize refuses a goal file that cannot become a record.
+func (f GoalFile) Normalize() (GoalFile, error) {
+	return f, needsIdentity(f.ID, f.Title)
+}
+
+// Normalize refuses a plan file that cannot become a record.
+func (f PlanFile) Normalize() (PlanFile, error) {
+	return f, needsIdentity(f.ID, f.Title)
+}
+
+// Normalize refuses a requirements file that cannot become records. An ID appears once,
+// because it is the key a contract names.
+func (f RequirementsFile) Normalize() (RequirementsFile, error) {
+	if f.ID == "" {
+		return f, fmt.Errorf("%w: no id", ErrBadFile)
+	}
+	seen := map[string]bool{}
+	for _, requirement := range f.Requirements {
+		if requirement.ID == "" || requirement.Text == "" || seen[requirement.ID] {
+			return f, fmt.Errorf("%w: requirement %q needs a unique id and text", ErrBadFile, requirement.ID)
+		}
+		seen[requirement.ID] = true
+	}
+	return f, nil
+}
+
+func needsIdentity(id, title string) error {
+	if id == "" {
+		return fmt.Errorf("%w: no id", ErrBadFile)
+	}
+	if title == "" {
+		return fmt.Errorf("%w: %s has no title", ErrBadFile, id)
+	}
+	return nil
 }
 
 // Normalize fills the defaults of a contract file and refuses one that cannot

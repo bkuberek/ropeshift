@@ -3,6 +3,7 @@ package contract
 import (
 	"errors"
 	"slices"
+	"strings"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/control"
@@ -17,7 +18,7 @@ import (
 var IntakeChecks = []Check{
 	{"I1", "intake records a version, digest, work orders, dependencies, and keys", checkIntakeRecords},
 	{"I2", "a second poll with no change appends nothing", checkIntakeQuiet},
-	{"I3", "a changed file makes a new version and a pinned work order keeps its version", checkIntakeNewVersion},
+	{"I3", "a changed file makes a new version, and unstarted work pins it", checkIntakeNewVersion},
 	{"I4", "a change elsewhere in the source appends nothing", checkIntakeUnrelated},
 	{"I5", "a person records a passed review and the definition of ready moves the work order", checkReviewPasses},
 	{"I6", "only a member records a review", checkReviewMembersOnly},
@@ -30,6 +31,15 @@ var IntakeChecks = []Check{
 	{"I13", "one work order ID in two contracts is a problem", checkIntakeRepeatedOrder},
 	{"I14", "a poll that stopped between items finishes on the next poll", checkIntakeResumes},
 	{"I15", "a health change is recorded once", checkIntakeHealth},
+	{"I16", "a new version moves unstarted ready work back to review", checkNewVersionReopensReady},
+	{"I17", "a review of the last version does not cover a new one", checkNewVersionVoidsReview},
+	{"I18", "started work keeps the version it pinned", checkStartedWorkKeepsItsPin},
+	{"I19", "a contract that must change returns to planning, and its next version to review", checkContractMustChange},
+	{"I20", "goal, plan, and requirement files become records that replay", checkPlanningRecords},
+	{"I21", "a changed requirement is a new version, and the rest append nothing", checkRequirementVersions},
+	{"I22", "a contract joins the plan its file names, and an unknown plan is a problem", checkContractPlan},
+	{"I23", "a plan's unknown goal is a problem", checkPlanUnknownGoal},
+	{"I24", "one requirement in two files is a problem", checkRequirementInTwoFiles},
 }
 
 const intakeFile = "contract.md"
@@ -219,12 +229,12 @@ func checkIntakeNewVersion(r *Rig) error {
 	if len(contracts) != 2 || contracts[0].ID != contracts[1].ID || contracts[1].Version != 2 || contracts[0].Digest == contracts[1].Digest {
 		return Violatedf("contracts %+v", contracts)
 	}
-	kept, err := r.orderByTitle(s, "The work order of alpha")
+	moved, err := r.orderByTitle(s, "The work order of alpha")
 	if err != nil {
 		return err
 	}
-	if kept.ContractVersion != pinned.ContractVersion || kept.ContractVersion != 1 || kept.ID != pinned.ID {
-		return Violatedf("the pin moved: %+v", kept)
+	if moved.ContractVersion != 2 || moved.ID != pinned.ID {
+		return Violatedf("work in review stayed on an old version: %+v", moved)
 	}
 	return r.CheckProjection(s)
 }
@@ -253,6 +263,364 @@ func checkIntakeUnrelated(r *Rig) error {
 		return Violatedf("a change elsewhere moved the revision from %d to %d: %+v", before, after, report)
 	}
 	return nil
+}
+
+// passed is a work order a member passed, and the source holding its contract.
+func (r *Rig) passed(s ports.Store) (workorders.WorkOrder, *fake.WorkSource, error) {
+	source := fake.NewWorkSource()
+	source.Write(intakeFile, []byte(ContractText("alpha", "Alpha", "One.")))
+	if _, err := r.intake(s, source); err != nil {
+		return workorders.WorkOrder{}, nil, err
+	}
+	order, err := r.orderByTitle(s, "The work order of alpha")
+	if err != nil {
+		return workorders.WorkOrder{}, nil, err
+	}
+	result, err := r.NewOps(s).Pass(r.Ctx, r.Scope, order.ID, r.member())
+	if err != nil {
+		return workorders.WorkOrder{}, nil, err
+	}
+	if result.State != workorders.Ready {
+		return workorders.WorkOrder{}, nil, Violatedf("the review left %+v", result)
+	}
+	order, err = r.WorkOrder(s, order.ID)
+	return order, source, err
+}
+
+func checkNewVersionReopensReady(r *Rig) error {
+	s := r.Store()
+	order, source, err := r.passed(s)
+	if err != nil {
+		return err
+	}
+	source.Write(intakeFile, []byte(ContractText("alpha", "Alpha", "Two.")))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	row, err := r.WorkOrder(s, order.ID)
+	if err != nil {
+		return err
+	}
+	if row.State != workorders.ContractReview || row.ContractVersion != 2 {
+		return Violatedf("after a new version: %+v", row)
+	}
+	if err := r.CheckRevisions(s, r.Scope); err != nil {
+		return err
+	}
+	return r.CheckProjection(s)
+}
+
+func checkNewVersionVoidsReview(r *Rig) error {
+	s := r.Store()
+	order, source, err := r.passed(s)
+	if err != nil {
+		return err
+	}
+	source.Write(intakeFile, []byte(ContractText("alpha", "Alpha", "Two.")))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	moved, err := r.NewOps(s).Promote(r.Ctx, r.Scope, r.Actor)
+	if err != nil {
+		return err
+	}
+	row, err := r.WorkOrder(s, order.ID)
+	if err != nil {
+		return err
+	}
+	if len(moved) != 0 || row.State != workorders.ContractReview || row.ReviewedBy != "" {
+		return Violatedf("a review of version 1 carried over: moved %v, %+v", moved, row)
+	}
+	result, err := r.NewOps(s).Pass(r.Ctx, r.Scope, order.ID, r.member())
+	if err != nil {
+		return err
+	}
+	if result.State != workorders.Ready {
+		return Violatedf("a second review left %+v", result)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkStartedWorkKeepsItsPin(r *Rig) error {
+	s := r.Store()
+	order, source, err := r.passed(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.Running(s, order.ID, "worker-1"); err != nil {
+		return err
+	}
+	source.Write(intakeFile, []byte(ContractText("alpha", "Alpha", "Two.")))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	row, err := r.WorkOrder(s, order.ID)
+	if err != nil {
+		return err
+	}
+	if report.Versions != 1 || row.State != workorders.Running || row.ContractVersion != 1 {
+		return Violatedf("a running lane's work moved: %+v, %+v", report, row)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkContractMustChange(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write(intakeFile, []byte(ContractText("alpha", "Alpha", "One.")))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	order, err := r.orderByTitle(s, "The work order of alpha")
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	worker := ledger.Actor{Kind: ledger.ActorWorker, ID: "worker-1"}
+	if err := ops.SendBack(r.Ctx, r.Scope, order.ID, "the criteria are wrong", worker); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a worker sent work back: %v", err)
+	}
+	if _, err := ops.Pass(r.Ctx, r.Scope, order.ID, r.member()); err != nil {
+		return err
+	}
+	if err := ops.Move(r.Ctx, r.Scope, order.ID, workorders.TriggerBackToReview, r.member()); err != nil {
+		return err
+	}
+	if err := ops.SendBack(r.Ctx, r.Scope, order.ID, "the criteria are wrong", r.member()); err != nil {
+		return err
+	}
+	row, err := r.WorkOrder(s, order.ID)
+	if err != nil {
+		return err
+	}
+	if row.State != workorders.Planning || row.ReviewedBy != "" {
+		return Violatedf("after sending back: %+v", row)
+	}
+	source.Write(intakeFile, []byte(ContractText("alpha", "Alpha", "Two.")))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	if row, err = r.WorkOrder(s, order.ID); err != nil {
+		return err
+	}
+	if row.State != workorders.ContractReview || row.ContractVersion != 2 {
+		return Violatedf("after the next version: %+v", row)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkPlanningRecords(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("goal.md", []byte(GoalText("checkout-goal", "The goal")))
+	source.Write("plan.md", []byte(PlanText("checkout-plan", "The plan", "checkout-goal")))
+	source.Write("requirements.md", []byte(RequirementsText("payments", "PAY-12", "It retries")))
+	source.Write(intakeFile, []byte(strings.Replace(ContractText("alpha", "Alpha", "One."), `title = "Alpha"`, `title = "Alpha"
+plan = "checkout-plan"`, 1)))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Records != 3 || len(report.Problems) != 0 {
+		return Violatedf("report %+v", report)
+	}
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		goals, err := tx.Planning().Goals()
+		if err != nil {
+			return err
+		}
+		if len(goals) != 1 || goals[0].Title != "The goal" || goals[0].Statement != "Why.\n" || len(goals[0].SuccessMeasures) != 1 {
+			return Violatedf("goals %+v", goals)
+		}
+		plans, err := tx.Planning().Plans()
+		if err != nil {
+			return err
+		}
+		if len(plans) != 1 || plans[0].GoalID != goals[0].ID || plans[0].Title != "The plan" || plans[0].Source == "" {
+			return Violatedf("plans %+v", plans)
+		}
+		requirement, err := tx.Planning().Requirement("PAY-12")
+		if err != nil {
+			return err
+		}
+		if requirement.Version != 1 || requirement.Text != "It retries" || requirement.Digest == "" || requirement.Source == "" {
+			return Violatedf("requirement %+v", requirement)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	source.Write("notes.md", []byte("# Prose\n"))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	after, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if after != before {
+		return Violatedf("an unchanged file moved the revision from %d to %d", before, after)
+	}
+	source.Write("plan.md", []byte(PlanText("checkout-plan", "A new title", "checkout-goal")))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		plans, err := tx.Planning().Plans()
+		if err != nil {
+			return err
+		}
+		if len(plans) != 1 || plans[0].Title != "A new title" {
+			return Violatedf("a renamed plan: %+v", plans)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkRequirementVersions(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	two := func(first, second string) []byte {
+		return []byte(`+++
+kind = "requirements"
+id = "payments"
+
+[[requirement]]
+id = "PAY-12"
+text = "` + first + `"
+
+[[requirement]]
+id = "PAY-13"
+text = "` + second + `"
++++
+`)
+	}
+	source.Write("requirements.md", two("One", "Other"))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	source.Write("requirements.md", two("Two", "Other"))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		all, err := tx.Planning().Requirements()
+		if err != nil {
+			return err
+		}
+		if len(all) != 3 {
+			return Violatedf("versions %+v", all)
+		}
+		changed, err := tx.Planning().Requirement("PAY-12")
+		if err != nil {
+			return err
+		}
+		if changed.Version != 2 || changed.Text != "Two" || changed.ID != all[0].ID {
+			return Violatedf("the changed requirement: %+v of %+v", changed, all)
+		}
+		kept, err := tx.Planning().Requirement("PAY-13")
+		if err != nil {
+			return err
+		}
+		if kept.Version != 1 {
+			return Violatedf("the unchanged requirement: %+v", kept)
+		}
+		if _, err := tx.Planning().Requirement("ABSENT"); !errors.Is(err, ports.ErrNotFound) {
+			return Violatedf("an absent key: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkContractPlan(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	named := strings.Replace(ContractText("alpha", "Alpha", "One."), `title = "Alpha"`, `title = "Alpha"
+plan = "later-plan"`, 1)
+	source.Write(intakeFile, []byte(named))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Versions != 0 || len(report.Problems) != 1 || report.Problems[0].Path != intakeFile {
+		return Violatedf("a contract on an unknown plan: %+v", report)
+	}
+	source.Write("plan.md", []byte(PlanText("later-plan", "The plan", "")))
+	if report, err = r.intake(s, source); err != nil {
+		return err
+	}
+	if report.Versions != 1 || len(report.Problems) != 0 {
+		return Violatedf("after the plan arrived: %+v", report)
+	}
+	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		contracts, err := tx.Planning().Contracts()
+		if err != nil {
+			return err
+		}
+		plans, err := tx.Planning().Plans()
+		if err != nil {
+			return err
+		}
+		if len(contracts) != 1 || len(plans) != 1 || contracts[0].PlanID != plans[0].ID {
+			return Violatedf("contracts %+v under plans %+v", contracts, plans)
+		}
+		return nil
+	})
+}
+
+func checkPlanUnknownGoal(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText("a-plan", "The plan", "no-goal")))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Records != 0 || len(report.Problems) != 1 || report.Problems[0].Path != "plan.md" {
+		return Violatedf("a plan on an unknown goal: %+v", report)
+	}
+	return nil
+}
+
+func checkRequirementInTwoFiles(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("a.md", []byte(RequirementsText("a", "PAY-12", "One")))
+	source.Write("b.md", []byte(RequirementsText("b", "PAY-12", "Two")))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 1 || report.Problems[0].Path != "b.md" {
+		return Violatedf("one key in two files: %+v", report)
+	}
+	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		requirement, err := tx.Planning().Requirement("PAY-12")
+		if err != nil {
+			return err
+		}
+		if requirement.Text != "One" || requirement.Version != 1 {
+			return Violatedf("requirement %+v", requirement)
+		}
+		return nil
+	})
 }
 
 func (r *Rig) reviewed(s ports.Store) (workorders.WorkOrder, error) {
@@ -470,6 +838,35 @@ func (r *Rig) CheckPlanning(s ports.Store) error {
 		}
 		if len(plans) != len(book.Plans) {
 			return Violatedf("%d plans, the log replays to %d", len(plans), len(book.Plans))
+		}
+		for _, plan := range plans {
+			if want, ok := book.Plans[plan.ID]; !ok || want != plan {
+				return Violatedf("plan %s disagrees with its log", plan.ID)
+			}
+		}
+		goals, err := tx.Planning().Goals()
+		if err != nil {
+			return err
+		}
+		if len(goals) != len(book.Goals) {
+			return Violatedf("%d goals, the log replays to %d", len(goals), len(book.Goals))
+		}
+		for _, goal := range goals {
+			if want, ok := book.Goals[goal.ID]; !ok || want.Title != goal.Title || want.Source != goal.Source {
+				return Violatedf("goal %s disagrees with its log", goal.ID)
+			}
+		}
+		requirements, err := tx.Planning().Requirements()
+		if err != nil {
+			return err
+		}
+		if len(requirements) != len(book.Requirements) {
+			return Violatedf("%d requirement versions, the log replays to %d", len(requirements), len(book.Requirements))
+		}
+		for _, requirement := range requirements {
+			if want, ok := book.Requirements[planning.ContractKey(requirement.ID, requirement.Version)]; !ok || want != requirement {
+				return Violatedf("requirement %s version %d disagrees with its log", requirement.Key, requirement.Version)
+			}
 		}
 		links, err := tx.Planning().Links()
 		if err != nil {

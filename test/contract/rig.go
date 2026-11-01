@@ -102,6 +102,7 @@ type Ops interface {
 	Poll(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource) (control.IntakeReport, error)
 	Pass(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (control.ReviewResult, error)
 	Promote(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
+	SendBack(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) error
 }
 
 type realOps struct {

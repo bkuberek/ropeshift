@@ -17,19 +17,41 @@ func ParseFile(raw []byte) (planning.Document, error) {
 	if err != nil {
 		return planning.Document{}, err
 	}
-	var file planning.ContractFile
-	if _, err := toml.Decode(string(header), &file); err != nil {
+	var kind struct {
+		Kind planning.FileKind `toml:"kind"`
+	}
+	if _, err := toml.Decode(string(header), &kind); err != nil {
 		return planning.Document{}, fmt.Errorf("%w: %v", planning.ErrBadFile, err)
 	}
-	if err := planning.CheckKind(file.Kind); err != nil {
+	if err := planning.CheckKind(kind.Kind); err != nil {
 		return planning.Document{}, err
 	}
-	if file.Kind != planning.FileContract {
-		return planning.Document{Kind: file.Kind}, nil
+	doc := planning.Document{Kind: kind.Kind, Statement: string(body)}
+	switch kind.Kind {
+	case planning.FileGoal:
+		doc.Goal, err = decode[planning.GoalFile](header)
+	case planning.FilePlan:
+		doc.Plan, err = decode[planning.PlanFile](header)
+	case planning.FileRequirements:
+		doc.Requirements, err = decode[planning.RequirementsFile](header)
+	default:
+		doc.Contract, err = decode[planning.ContractFile](header)
 	}
-	file, err = file.Normalize()
 	if err != nil {
 		return planning.Document{}, err
 	}
-	return planning.Document{Kind: file.Kind, Contract: &file, Statement: string(body)}, nil
+	return doc, nil
+}
+
+// decode reads one kind's front matter and applies that kind's rules.
+func decode[F interface{ Normalize() (F, error) }](header []byte) (*F, error) {
+	var file F
+	if _, err := toml.Decode(string(header), &file); err != nil {
+		return nil, fmt.Errorf("%w: %v", planning.ErrBadFile, err)
+	}
+	normal, err := file.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	return &normal, nil
 }

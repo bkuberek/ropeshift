@@ -104,6 +104,8 @@ type WorkOrderReader interface {
 	List() ([]workorders.WorkOrder, error)
 	// HeldBy returns the work orders a worker holds a lease on.
 	HeldBy(worker string) ([]workorders.WorkOrder, error)
+	// ByContract returns the work orders of one contract.
+	ByContract(contract string) ([]workorders.WorkOrder, error)
 	// Expired lists the leases past their deadline at a time. A tick reads this
 	// with no lock, so each item must be checked again by a guarded statement.
 	Expired(now int64) ([]string, error)
@@ -119,8 +121,10 @@ type WorkOrderWriter interface {
 	// Move is a compare-and-set on the state of an unleased work order. It
 	// reports whether the row matched.
 	Move(id string, from, to workorders.State) (bool, error)
-	// Reviewed records who passed a work order's review.
+	// Reviewed records who passed a work order's review. An empty member voids it.
 	Reviewed(id, member string) error
+	// Pin moves unstarted work to a contract version, and voids its review.
+	Pin(id string, version int64) error
 }
 
 // LeaseWriter runs the statements that decide who holds a work order. Each is one
@@ -223,6 +227,16 @@ type PlanningReader interface {
 	Contracts() ([]planning.Contract, error)
 	// Plans returns every plan.
 	Plans() ([]planning.Plan, error)
+	// Plan returns one plan, or ErrNotFound.
+	Plan(id string) (planning.Plan, error)
+	// Goals returns every goal.
+	Goals() ([]planning.Goal, error)
+	// Goal returns one goal, or ErrNotFound.
+	Goal(id string) (planning.Goal, error)
+	// Requirement returns a requirement's newest version by its key, or ErrNotFound.
+	Requirement(key string) (planning.Requirement, error)
+	// Requirements returns every version, by key and then by version.
+	Requirements() ([]planning.Requirement, error)
 	// Link returns the record of one external key, or ErrNotFound.
 	Link(recordKind string, key ledger.ExternalKey) (ledger.ExternalLink, error)
 	// Links returns every link.
@@ -242,6 +256,12 @@ type PlanningWriter interface {
 	PlanningReader
 	// InsertPlan adds a plan.
 	InsertPlan(planning.Plan) error
+	// UpdatePlan replaces what a plan's file says.
+	UpdatePlan(planning.Plan) error
+	// SaveGoal creates or replaces a goal.
+	SaveGoal(planning.Goal) error
+	// InsertRequirement adds one requirement version.
+	InsertRequirement(planning.Requirement) error
 	// InsertContract adds one contract version.
 	InsertContract(planning.Contract) error
 	// InsertLink adds one external key.

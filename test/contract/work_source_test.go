@@ -239,7 +239,7 @@ func TestIntakeOnARealRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(orders) != 1 || orders[0].ContractVersion != 1 {
-		t.Errorf("the pin moved: %+v", orders)
+	if len(orders) != 1 || orders[0].ContractVersion != 2 {
+		t.Errorf("work in review stayed on an old version: %+v", orders)
 	}
 }
