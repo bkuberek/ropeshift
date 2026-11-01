@@ -1,0 +1,258 @@
+//go:build realsession
+
+package real
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/api/shimlink"
+	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/questions"
+	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.dev/ropeshift/test/gittest"
+)
+
+const (
+	rs5HeadlessLane = "rs5-headless"
+	rs5PaneLane     = "rs5-pane"
+	// rs5HeadlessQuestion and rs5PaneQuestion are what each session is told to ask, so the
+	// ledger shows the path a question took.
+	rs5HeadlessQuestion = "rs5 headless question"
+	rs5PaneQuestion     = "rs5 pane question"
+	// rs5Turns is what --max-turns allows a lane, and rs5Charge what a lane is charged.
+	rs5Turns  = 5
+	rs5Charge = 5
+	// rs5EndLimit bounds the end of a deferred session, and rs5EndPoll how often it is read.
+	rs5EndLimit = 10 * time.Second
+	rs5EndPoll  = 20 * time.Millisecond
+)
+
+func rs5Profile(mode string) string {
+	return `run_mode = "` + mode + `"
+
+[agent]
+model = "` + sessionModel + `"
+
+[lifecycle]
+ready_timeout = "60s"
+max_restarts = 0
+`
+}
+
+func rs5Contract(id, instructions string) string {
+	return `+++
+kind = "contract"
+id = "` + id + `"
+title = "Test the question tool"
+
+[[criteria]]
+id = "c1"
+text = "The question reaches the ledger"
+
+[[work_orders]]
+id = "` + id + `-order"
+title = "Test the question tool"
+size = "small"
++++
+
+This work order tests how a lane asks a question, and it has no other work.
+
+` + instructions + `
+`
+}
+
+// playRS5 gives a dry run the next lane's turn.
+func (s *suite) playRS5(steps []any) {
+	s.t.Helper()
+	if s.standIn == "" {
+		return
+	}
+	path := filepath.Join(filepath.SplitList(s.standIn)[0], doubles.FixtureFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	var fixture map[string]any
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		s.t.Fatal(err)
+	}
+	fixture["turns"].([]any)[1] = steps
+	if raw, err = json.Marshal(fixture); err != nil {
+		s.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+func (s *suite) questionNamed(text string) (questions.Question, bool) {
+	s.t.Helper()
+	var list api.QuestionList
+	if err := json.Unmarshal(s.cli("question", "list", "--json"), &list); err != nil {
+		s.t.Fatal(err)
+	}
+	for _, row := range list.Questions {
+		if strings.Contains(row.Text, text) {
+			return row, true
+		}
+	}
+	return questions.Question{}, false
+}
+
+// startRS5Lane reviews, claims, and starts one work order. It does not wait for an outcome,
+// because a deferred turn ends with none.
+func (s *suite) startRS5Lane(id, lane string) {
+	s.t.Helper()
+	var workers api.WorkerList
+	if err := json.Unmarshal(s.cli("worker", "list", "--json"), &workers); err != nil {
+		s.t.Fatal(err)
+	}
+	s.cli("work", "review", id)
+	s.cli("work", "claim", id, "--worker", workers.Workers[0].ID)
+	s.cli("lane", "start", id, "--lane", lane)
+}
+
+// endDeferred stops a session whose turn ended with a deferred call. Nothing parks it until a
+// later unit, and a shim outlives its daemon, so it stops here by the exact IDs its own state
+// file names.
+func (s *suite) endDeferred(lane string) {
+	s.t.Helper()
+	state, err := shimlink.ReadState(filepath.Join(s.paths.StateDir, "lanes", lane, "shim-1"))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	for _, pid := range []int{state.ChildPID, state.ShimPID} {
+		if pid > 0 {
+			_ = syscall.Kill(pid, syscall.SIGTERM)
+		}
+	}
+	for deadline := time.Now().Add(rs5EndLimit); time.Now().Before(deadline); time.Sleep(rs5EndPoll) {
+		if syscall.Kill(state.ShimPID, 0) != nil && syscall.Kill(state.ChildPID, 0) != nil {
+			return
+		}
+	}
+	s.t.Errorf("the deferred session of %s outlasted its signal", lane)
+}
+
+// TestRS5 runs a real session at each path `AskUserQuestion` can take, which the matrix lists
+// as documented only. On a headless lane the hook returns `defer`, the turn ends with
+// `tool_deferred`, and the question reaches the ledger. In a pane the hook denies, the denial
+// names `ask`, and the session asks there.
+func TestRS5(t *testing.T) {
+	s := start(t, "rs5")
+	t.Cleanup(s.killTerminal)
+	s.build()
+	s.probe()
+
+	headless := gittest.NewIn(t, s.subdirectory("h"))
+	headless.Commit(".ropeshift/profile.toml", rs5Profile(lanes.ProfileRunHeadless))
+	headless.Commit("contract.md", rs5Contract("rs5h", "Call the AskUserQuestion tool once, with one question: "+rs5HeadlessQuestion+
+		". Offer the options one and two. Then end your turn with the single word done."))
+
+	pane := gittest.NewIn(t, s.subdirectory("p"))
+	pane.Commit(".ropeshift/profile.toml", rs5Profile(lanes.ProfileRunTmux))
+	pane.Commit("contract.md", rs5Contract("rs5p", "Call the AskUserQuestion tool once, with one question: "+rs5PaneQuestion+
+		". If that is refused, the refusal names the tool to use instead: call that tool once with the same question. "+
+		"Then call the lane_report tool once, with outcome completed, and end your turn with the single word done."))
+
+	s.repo = headless.Dir
+	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs5HeadlessLane)
+	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs5PaneLane)
+	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
+	for _, lane := range []string{"headless", "pane"} {
+		if err := s.spend.charge(lane, rs5Charge); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	flags := []string{
+		"--setting-sources", "project", "--strict-mcp-config", "--tools", lanes.ToolQuestion,
+		"--max-budget-usd", budgetUSD, "--no-session-persistence", "--max-turns", fmt.Sprint(rs5Turns),
+	}
+	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
+	t.Cleanup(first.stop)
+	id := s.waitForWorkOrder(first.stop)
+	s.poll(first.stop, "the worker's session", func() bool {
+		var workers api.WorkerList
+		if err := json.Unmarshal(s.cli("worker", "list", "--json"), &workers); err != nil {
+			t.Fatal(err)
+		}
+		return len(workers.Workers) == 1 && workers.Workers[0].Epoch >= 1
+	})
+	s.startRS5Lane(id, rs5HeadlessLane)
+	var deferred questions.Question
+	s.poll(first.stop, "the deferred question", func() bool {
+		s.checkStream(first.stop)
+		var found bool
+		deferred, found = s.questionNamed(rs5HeadlessQuestion)
+		return found
+	})
+	first.stop()
+	s.endDeferred(rs5HeadlessLane)
+	stream, err := os.ReadFile(s.stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endedDeferred := strings.Contains(string(stream), "tool_deferred")
+	t.Logf("rs5: headless: status=%s blocking=%v options=%d subject=%s turn_ended_deferred=%v",
+		deferred.Status, deferred.Blocking, len(deferred.Options), deferred.SubjectKind, endedDeferred)
+	if !deferred.Blocking || deferred.SubjectID != id {
+		t.Errorf("the deferred question reads %+v", deferred)
+	}
+	if !endedDeferred {
+		t.Error("the stream holds no tool_deferred, so defer did not end the turn")
+	}
+
+	s.repo = pane.Dir
+	s.playRS5([]any{
+		map[string]any{"init": true},
+		map[string]any{"hook": "PreToolUse", "input": map[string]any{"tool_name": lanes.ToolQuestion, "tool_use_id": "toolu_pane"}},
+		map[string]any{"mcp": lanes.ToolAsk, "arguments": map[string]any{"text": rs5PaneQuestion}},
+		map[string]any{"mcp": lanes.ToolLaneReport, "arguments": map[string]any{
+			"outcome": "completed", "artifacts": []string{"none"}, "checks": []map[string]any{{"name": "stand-in", "passed": true}},
+		}},
+	})
+	second := s.startDaemonWith(map[string]any{
+		"args": []string{"--setting-sources", "project", "--strict-mcp-config", "--tools", lanes.ToolQuestion}, "env": paneEnv,
+	})
+	t.Cleanup(second.stop)
+	var paneID string
+	s.poll(second.stop, "the second work order", func() bool {
+		out, err := s.tryCLI("work", "list", "--json")
+		if err != nil {
+			return false
+		}
+		var list api.WorkOrderList
+		if err := json.Unmarshal(out, &list); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range list.WorkOrders {
+			if row.ID != id {
+				paneID = row.ID
+			}
+		}
+		return paneID != ""
+	})
+	screens := &screenLog{}
+	state := s.awaitLane(second, paneID, rs5PaneLane, func() { s.watchPane(second.stop, rs5PaneLane+"-g1", screens) })
+	asked, found := s.questionNamed(rs5PaneQuestion)
+	second.stop()
+	t.Logf("rs5: pane: state=%s screens=%v asked=%v", state, screens.names(), found)
+	if !found {
+		t.Error("the denial did not lead the session to ask")
+	} else if asked.AskedBy != rs5PaneLane {
+		t.Errorf("the question reads %+v", asked)
+	}
+	if state != workorders.Acceptance {
+		t.Fatalf("the pane lane ended in %s\n%s", state, second.stderr.String())
+	}
+}

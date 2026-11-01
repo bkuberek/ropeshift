@@ -10,10 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -104,7 +106,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 	case "ping":
 		out.Result = map[string]any{}
 	case "tools/list":
-		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool}}
+		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool, askTool}}
 	case "tools/call":
 		out.Result, out.Error = callTool(in.Params, call)
 	default:
@@ -165,6 +167,26 @@ var laneWaitTool = map[string]any{
 	},
 }
 
+var askTool = map[string]any{
+	"name": lanes.ToolAsk,
+	"description": "Ask a question this lane cannot answer from its contract. It records the question and returns at once: " +
+		"answered, with the answer and what it rests on; attached, because the same question is already open; or pending. " +
+		"Do not wait on it. Go on with any other useful work, and end your turn if nothing is left without the answer.",
+	"inputSchema": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"text": map[string]any{"type": "string", "description": "The question, as a person would read it."},
+			"categories": map[string]any{
+				"type": "array", "items": map[string]any{"type": "string"},
+				"description": "Which kinds of member could answer it, such as product, design, architecture, data, security, compliance, operations, or business.",
+			},
+			"blocking": map[string]any{"type": "boolean", "description": "True when this lane cannot finish without the answer."},
+			"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What you would choose between, when you know."},
+		},
+		"required": []string{"text"},
+	},
+}
+
 func toolText(text string, failed bool) map[string]any {
 	return map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": failed}
 }
@@ -182,6 +204,8 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 	switch request.Name {
 	case lanes.ToolLaneWait:
 		return callWait(request.Arguments, call), nil
+	case lanes.ToolAsk:
+		return callAsk(request.Arguments, call), nil
 	case lanes.ToolLaneReport:
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
@@ -201,6 +225,30 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		return toolText("the worker refused this report: "+answer.Message, true), nil
 	}
 	return toolText("The outcome is recorded. End your turn now.", false), nil
+}
+
+// callAsk passes a lane's question to its worker, and says what to do with the answer. A
+// worker that could not record it says so, because a lane must not believe it asked.
+func callAsk(arguments json.RawMessage, call Caller) map[string]any {
+	var ask lanes.AskRequest
+	if err := json.Unmarshal(arguments, &ask); err != nil {
+		return toolText("these arguments are not a question: "+err.Error(), true)
+	}
+	answer, err := call(lanes.Request{Ask: &ask})
+	if err != nil {
+		return toolText("the worker did not answer, so the question is not recorded: "+err.Error(), true)
+	}
+	if !answer.OK || answer.Ask == nil {
+		return toolText("the question is not recorded: "+answer.Message, true)
+	}
+	result := answer.Ask
+	switch result.Status {
+	case questions.AskAnswered:
+		return toolText(fmt.Sprintf("answered: %s\nIt rests on: %s", result.Answer, strings.Join(result.Citations, ", ")), false)
+	case questions.AskAttached:
+		return toolText("attached: the same question is already open as "+result.QuestionID+". Go on with other work, or end your turn.", false)
+	}
+	return toolText("pending: the question is recorded as "+result.QuestionID+". Go on with other work, or end your turn.", false)
 }
 
 // callWait passes a lane's wait to its worker. A worker that is not there cannot watch the

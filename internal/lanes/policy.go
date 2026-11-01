@@ -33,6 +33,8 @@ type PolicySpec struct {
 	DefaultBranches []string
 	// Writable are other directories a lane may write, such as its private temp.
 	Writable []string
+	// QuestionTool says what a call of the agent's own question tool becomes.
+	QuestionTool string
 }
 
 // CompilePolicy builds the file a generation's hook reads.
@@ -44,7 +46,9 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 	if spec.WorktreeReal != "" && spec.WorktreeReal != spec.Worktree {
 		roots = append(roots, spec.WorktreeReal)
 	}
-	return DenyPolicy{Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}}
+	return DenyPolicy{
+		Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, QuestionTool: spec.QuestionTool,
+	}
 }
 
 // ToolCall is the part of a tool call a policy reads.

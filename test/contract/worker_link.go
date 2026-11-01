@@ -14,6 +14,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -53,6 +54,7 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		run  func(*testing.T, context.Context, LinkBackend)
 	}{
 		{"registration exchanges a join token once", checkRegistration},
+		{"a worker asks for a lane it holds", checkWorkerAsk},
 		{"a retried registration replaces the credential", checkRegistrationRetry},
 		{"a wrong credential is refused", checkWrongCredential},
 		{"a session opens a new epoch and a stale epoch is refused", checkEpochs},
@@ -795,5 +797,57 @@ func checkWorkerClaim(t *testing.T, ctx context.Context, b LinkBackend) {
 	}
 	if _, err := r.Link.Claim(ctx, auth, workorders.ClaimRequest{WorkOrder: id, ClaimID: "c3"}); !errors.Is(err, workorders.ErrLost) {
 		t.Errorf("a lost claim: %v", err)
+	}
+}
+
+func checkWorkerAsk(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	id := r.readyOrder(t, ctx, "wo")
+	grant, err := r.Link.Claim(ctx, auth, workorders.ClaimRequest{WorkOrder: id, ClaimID: "c1", TTLMs: linkTTL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := questions.LaneAsk{
+		Auth: auth, Epoch: session.Epoch, WorkOrder: id, Fence: grant.Fence,
+		Ask: questions.Ask{ID: "q1", Text: "What is the retry budget?", Lane: "lane-1", Generation: 1},
+	}
+	first, err := r.Link.Ask(ctx, ask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Status != questions.AskPending || first.QuestionID != "q1" {
+		t.Errorf("first %+v", first)
+	}
+	ask.Ask.ID, ask.Ask.Lane = "q2", "lane-2"
+	second, err := r.Link.Ask(ctx, ask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Status != questions.AskAttached || second.QuestionID != "q1" {
+		t.Errorf("second %+v", second)
+	}
+	stale := ask
+	stale.Fence = grant.Fence + 1
+	var fenced *workorders.FencedError
+	if _, err := r.Link.Ask(ctx, stale); !errors.As(err, &fenced) {
+		t.Errorf("a stale fence: %v", err)
+	}
+	other := r.register(t, ctx, "b")
+	thief := ask
+	thief.Auth, thief.Epoch = other, r.session(t, ctx, other).Epoch
+	if _, err := r.Link.Ask(ctx, thief); !errors.As(err, &fenced) {
+		t.Errorf("a worker that holds nothing: %v", err)
+	}
+	wrong := ask
+	wrong.Auth.Credential = "wrong"
+	if _, err := r.Link.Ask(ctx, wrong); !errors.Is(err, ledger.ErrBadCredential) {
+		t.Errorf("a wrong credential: %v", err)
+	}
+	empty := ask
+	empty.Ask.ID, empty.Ask.Text = "q3", " ?! "
+	if _, err := r.Link.Ask(ctx, empty); !errors.Is(err, questions.ErrInvalid) {
+		t.Errorf("an empty question: %v", err)
 	}
 }

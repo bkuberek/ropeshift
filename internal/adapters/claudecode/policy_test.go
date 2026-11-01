@@ -27,6 +27,26 @@ func policySpec(t *testing.T) ports.SessionSpec {
 	}
 }
 
+// TestTheQuestionToolFollowsTheRunMode: only `-p` honors `defer`, so a pane is denied.
+func TestTheQuestionToolFollowsTheRunMode(t *testing.T) {
+	tests := []struct {
+		mode string
+		want string
+	}{
+		{ports.RunModeHeadless, lanes.QuestionToolDefer},
+		{ports.RunModeInteractive, lanes.QuestionToolDeny},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			spec := policySpec(t)
+			spec.RunMode = tt.mode
+			if got := compilePolicy(spec).QuestionTool; got != tt.want {
+				t.Errorf("question tool %q", got)
+			}
+		})
+	}
+}
+
 func TestEveryDenialIsADenyRuleToo(t *testing.T) {
 	rules := generateSettings(policySpec(t)).Permissions.Deny
 	for _, rule := range []string{

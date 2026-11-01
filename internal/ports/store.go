@@ -322,6 +322,8 @@ type QuestionReader interface {
 	ByHash(hash string) ([]questions.Question, error)
 	// Attachments returns one question's lanes, or every attachment for an empty ID.
 	Attachments(question string) ([]questions.Attachment, error)
+	// OpenBlocking counts the open blocking questions about a work order or its contract.
+	OpenBlocking(workOrder, contract string) (int64, error)
 	// Decision returns one decision, or ErrNotFound.
 	Decision(id string) (questions.Decision, error)
 	// Decisions returns the decisions a filter selects.
@@ -339,6 +341,9 @@ type QuestionWriter interface {
 	Save(questions.Question) error
 	// Attach joins a lane to a question and reports whether it was new.
 	Attach(questions.Attachment) (bool, error)
+	// Take is the compare-and-set on who works a question. It reports whether the row
+	// matched: an open question nobody holds, one whose hold passed, or this holder's own.
+	Take(id, holder string, ttlMs int64) (bool, error)
 	// InsertDecision adds a decision.
 	InsertDecision(questions.Decision) error
 	// AddCategory adds a category and reports whether it was new.

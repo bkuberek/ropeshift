@@ -6,10 +6,12 @@ package workerlink
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -112,6 +114,17 @@ func (l *HTTP) Claim(ctx context.Context, auth ledger.WorkerAuth, request workor
 		out.ContractID, out.ContractVersion, out.ContractDigest = grant.Contract.ID, grant.Contract.Version, grant.Contract.Digest
 	}
 	return out, nil
+}
+
+// Ask records a question for a lane. A refusal of the question itself comes back as what
+// it is, so a lane reads it and can ask again.
+func (l *HTTP) Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error) {
+	result, err := l.as(ask.Auth).Ask(ctx, ask.Auth.WorkerID, ask)
+	var refused *api.Error
+	if errors.As(err, &refused) && refused.Detail.Code == api.CodeInvalid {
+		return questions.AskResult{}, fmt.Errorf("%w: %s", questions.ErrInvalid, refused.Detail.Message)
+	}
+	return result, domainError(err)
 }
 
 var _ ports.WorkerLink = (*HTTP)(nil)

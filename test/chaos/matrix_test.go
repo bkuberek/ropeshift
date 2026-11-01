@@ -18,6 +18,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -142,6 +143,14 @@ func crashMatrix() []crashCase {
 		recordQuestionCase("indexed"),
 		recordDecisionCase(),
 		addCategoryCase(),
+		askCase("question.ask", withSteps("recorded", "attached")),
+		askCase("question.record", []string{"indexed"}),
+		takeCase(),
+		climbCase(),
+		escalateCase(),
+		resolveCase(),
+		mergeCase(),
+		dismissCase(),
 		recordCase(),
 		workerStartCase(),
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
@@ -658,6 +667,201 @@ func recordDecisionCase() crashCase {
 				return err
 			}
 			return findable(w, questions.KindDecision, spec.Key)
+		},
+	}
+}
+
+// askCase kills an ask on a ready work order. It must leave one question, the lane on it,
+// and the work back in review, or nothing at all.
+func askCase(op string, steps []string) crashCase {
+	return crashCase{
+		name:  "ask on " + op,
+		op:    op,
+		steps: steps,
+		prepare: func(w *world) (childSpec, error) {
+			order, err := w.inReview(w.rig.ID("alpha"))
+			if err != nil {
+				return childSpec{}, err
+			}
+			if _, err := w.rig.NewOps(w.store).Pass(w.rig.Ctx, w.rig.Scope, order.ID, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "ask", Key: w.rig.ID("q"), Lane: "lane-a", WorkOrder: order.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, questions.EventQuestionAttached, spec.Key, 1); err != nil {
+				return err
+			}
+			if err := findable(w, questions.KindQuestion, spec.Key); err != nil {
+				return err
+			}
+			return hasState(w, spec.WorkOrder, workorders.ContractReview)
+		},
+	}
+}
+
+// heldQuestion records a question and gives it to the orchestrator that a child acts as.
+func (w *world) heldQuestion(text string, rungs ...int64) (string, error) {
+	draft := questions.Question{ID: w.rig.ID("q"), Text: text, Categories: []string{questions.CategoryProduct}}
+	ops := w.rig.NewOps(w.store)
+	if _, err := ops.RecordQuestion(w.rig.Ctx, w.rig.Scope, draft, w.rig.Actor); err != nil {
+		return "", err
+	}
+	holder := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
+	if _, err := ops.Take(w.rig.Ctx, w.rig.Scope, draft.ID, longTTL, holder); err != nil {
+		return "", err
+	}
+	for _, rung := range rungs {
+		if _, err := ops.Climb(w.rig.Ctx, w.rig.Scope, draft.ID, questions.Step{Rung: rung}, holder); err != nil {
+			return "", err
+		}
+	}
+	return draft.ID, nil
+}
+
+func takeCase() crashCase {
+	return crashCase{
+		name:  "take a question",
+		op:    "question.take",
+		steps: withSteps("taken"),
+		prepare: func(w *world) (childSpec, error) {
+			draft := questions.Question{ID: w.rig.ID("q"), Text: "What is the retry budget?"}
+			if _, err := w.rig.NewOps(w.store).RecordQuestion(w.rig.Ctx, w.rig.Scope, draft, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "take", Key: draft.ID, TTLMs: longTTL}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			return w.questionIs(spec.Key, questions.StatusTriage, "orchestrator-1")
+		},
+	}
+}
+
+func (w *world) questionIs(id string, status questions.Status, holder string) error {
+	var row questions.Question
+	err := w.store.Read(w.rig.Ctx, w.rig.Scope, func(tx ports.ReadTx) error {
+		var err error
+		row, err = tx.Questions().Question(id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if row.Status != status || row.ClaimedBy != holder {
+		return contract.Violatedf("question %+v, want %s held by %q", row, status, holder)
+	}
+	return nil
+}
+
+func climbCase() crashCase {
+	return crashCase{
+		name:  "climb a rung",
+		op:    "question.climb",
+		steps: withSteps("stepped"),
+		prepare: func(w *world) (childSpec, error) {
+			id, err := w.heldQuestion("What is the retry budget?")
+			return childSpec{Role: "climb", Key: id}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			var row questions.Question
+			err := w.store.Read(w.rig.Ctx, w.rig.Scope, func(tx ports.ReadTx) error {
+				var err error
+				row, err = tx.Questions().Question(spec.Key)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			if row.Rung != questions.RungOpen || len(row.LadderTrace) != 1 {
+				return contract.Violatedf("question %+v", row)
+			}
+			return nil
+		},
+	}
+}
+
+func escalateCase() crashCase {
+	return crashCase{
+		name:  "escalate",
+		op:    "question.escalate",
+		steps: withSteps("passed"),
+		prepare: func(w *world) (childSpec, error) {
+			id, err := w.heldQuestion("May audit data leave the region?", questions.RungLookup, questions.RungOpen)
+			return childSpec{Role: "escalate", Key: id}, err
+		},
+		settled: func(w *world, spec childSpec) error {
+			return w.questionIs(spec.Key, questions.StatusNeedsHuman, "")
+		},
+	}
+}
+
+func resolveCase() crashCase {
+	return crashCase{
+		name:  "resolve",
+		op:    "question.resolve",
+		steps: withSteps("answered"),
+		prepare: func(w *world) (childSpec, error) {
+			id, err := w.heldQuestion("What is the retry budget?")
+			if err != nil {
+				return childSpec{}, err
+			}
+			decision := questions.Decision{ID: w.rig.ID("d"), Status: questions.DecisionDecided, Statement: "Three."}
+			if _, err := w.rig.NewOps(w.store).RecordDecision(w.rig.Ctx, w.rig.Scope, decision, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "resolve", Key: id, ClaimID: decision.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			return w.questionIs(spec.Key, questions.StatusAnswered, "")
+		},
+	}
+}
+
+func mergeCase() crashCase {
+	return crashCase{
+		name:  "merge",
+		op:    "question.merge",
+		steps: withSteps("moved"),
+		prepare: func(w *world) (childSpec, error) {
+			ops := w.rig.NewOps(w.store)
+			lane := ledger.Actor{Kind: ledger.ActorLane, ID: "lane-b"}
+			asked, err := ops.Ask(w.rig.Ctx, w.rig.Scope, questions.Ask{ID: w.rig.ID("q"), Text: "How many retries?", Lane: "lane-b", Generation: 1}, lane)
+			if err != nil {
+				return childSpec{}, err
+			}
+			holder := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
+			if _, err := ops.Take(w.rig.Ctx, w.rig.Scope, asked.QuestionID, longTTL, holder); err != nil {
+				return childSpec{}, err
+			}
+			target := questions.Question{ID: w.rig.ID("q"), Text: "What is the retry budget?"}
+			if _, err := ops.RecordQuestion(w.rig.Ctx, w.rig.Scope, target, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "merge", Key: asked.QuestionID, ClaimID: target.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := w.questionIs(spec.Key, questions.StatusDismissed, ""); err != nil {
+				return err
+			}
+			return countEvents(w, questions.EventQuestionAttached, spec.ClaimID, 1)
+		},
+	}
+}
+
+func dismissCase() crashCase {
+	return crashCase{
+		name:  "dismiss",
+		op:    "question.dismiss",
+		steps: withSteps(),
+		prepare: func(w *world) (childSpec, error) {
+			draft := questions.Question{ID: w.rig.ID("q"), Text: "What is the retry budget?"}
+			if _, err := w.rig.NewOps(w.store).RecordQuestion(w.rig.Ctx, w.rig.Scope, draft, w.rig.Actor); err != nil {
+				return childSpec{}, err
+			}
+			return childSpec{Role: "dismiss", Key: draft.ID}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			return w.questionIs(spec.Key, questions.StatusDismissed, "")
 		},
 	}
 }

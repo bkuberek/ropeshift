@@ -278,9 +278,13 @@ func TestMCPListsAndCallsLaneReport(t *testing.T) {
 	if err := json.Unmarshal(session.call("tools/list", map[string]any{}).Result, &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Tools) != 2 || listed.Tools[0].Name != "lane_report" || listed.Tools[1].Name != "lane_wait" ||
-		listed.Tools[0].InputSchema["type"] != "object" {
+	if len(listed.Tools) != len(lanes.Tools) {
 		t.Fatalf("tools %+v", listed.Tools)
+	}
+	for i, tool := range listed.Tools {
+		if tool.Name != lanes.Tools[i] || tool.Description == "" || tool.InputSchema["type"] != "object" {
+			t.Errorf("tool %d: %+v", i, tool)
+		}
 	}
 	result := session.report(map[string]any{
 		"outcome": "completed", "artifacts": []string{"branch"}, "checks": []map[string]any{{"name": "unit", "passed": true}},

@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -21,6 +22,9 @@ type WorkerLink struct {
 	DropHints atomic.Bool
 	// LoseUploadAnswer stores a batch and then loses the answer, once.
 	LoseUploadAnswer atomic.Bool
+	// HangAsk holds every ask until its deadline, as a control plane that took the
+	// connection and went quiet would.
+	HangAsk atomic.Bool
 }
 
 // Register calls the plane.
@@ -89,6 +93,15 @@ func (l *WorkerLink) Upload(ctx context.Context, batch ledger.UploadBatch) (ledg
 // Claim calls the plane.
 func (l *WorkerLink) Claim(ctx context.Context, auth ledger.WorkerAuth, request workorders.ClaimRequest) (workorders.Grant, error) {
 	return l.Plane.Claim(ctx, auth, request)
+}
+
+// Ask calls the plane, unless asks are hanging.
+func (l *WorkerLink) Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error) {
+	if l.HangAsk.Load() {
+		<-ctx.Done()
+		return questions.AskResult{}, ctx.Err()
+	}
+	return l.Plane.Ask(ctx, ask)
 }
 
 var _ ports.WorkerLink = (*WorkerLink)(nil)

@@ -39,6 +39,13 @@ var childRoles = map[string]func(*child) error{
 	"record-question":   roleRecordQuestion,
 	"record-decision":   roleRecordDecision,
 	"add-category":      roleAddCategory,
+	"ask":               roleAsk,
+	"take":              roleTake,
+	"climb":             roleClimb,
+	"escalate":          roleEscalate,
+	"resolve":           roleResolve,
+	"merge":             roleMerge,
+	"dismiss":           roleDismiss,
 	"review-pass":       roleReviewPass,
 	"record-work":       roleRecordWork,
 	"worker-upload":     roleWorkerUpload,
@@ -118,6 +125,70 @@ func roleRecordDecision(c *child) error {
 
 func roleAddCategory(c *child) error {
 	return c.ops.AddCategory(c.ctx, c.scope, c.spec.Key, c.member())
+}
+
+func roleAsk(c *child) error {
+	_, err := c.ops.Ask(c.ctx, c.scope, questions.Ask{
+		ID: c.spec.Key, Text: "What is the retry budget?", Blocking: true, Lane: c.spec.Lane, Generation: 1,
+		SubjectKind: workorders.SubjectKind, SubjectID: c.spec.WorkOrder,
+	}, ledger.Actor{Kind: ledger.ActorLane, ID: c.spec.Lane})
+	return err
+}
+
+// roleDismiss counts a retry that finds the question already closed.
+func roleDismiss(c *child) error {
+	err := c.ops.Dismiss(c.ctx, c.scope, c.spec.Key, c.member())
+	if errors.Is(err, questions.ErrInvalid) {
+		return nil
+	}
+	return err
+}
+
+func (c *child) orchestrator() ledger.Actor {
+	return ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
+}
+
+func roleTake(c *child) error {
+	_, err := c.ops.Take(c.ctx, c.scope, c.spec.Key, c.spec.TTLMs, c.orchestrator())
+	return err
+}
+
+// roleClimb counts a retry that finds the step a first attempt took.
+func roleClimb(c *child) error {
+	_, err := c.ops.Climb(c.ctx, c.scope, c.spec.Key, questions.Step{Rung: questions.RungLookup, Outcome: "no match"}, c.orchestrator())
+	if errors.Is(err, questions.ErrWrongRung) {
+		return nil
+	}
+	return err
+}
+
+// roleEscalate counts a retry that finds the question already with a human.
+func roleEscalate(c *child) error {
+	_, err := c.ops.Escalate(c.ctx, c.scope, c.spec.Key, questions.Escalation{
+		Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep",
+	}, c.orchestrator())
+	if errors.Is(err, questions.ErrNotHeld) {
+		return nil
+	}
+	return err
+}
+
+// roleResolve counts a retry that finds the question already answered.
+func roleResolve(c *child) error {
+	_, err := c.ops.Resolve(c.ctx, c.scope, c.spec.Key, c.spec.ClaimID, c.orchestrator())
+	if errors.Is(err, questions.ErrResolved) {
+		return nil
+	}
+	return err
+}
+
+// roleMerge counts a retry that finds the question already merged.
+func roleMerge(c *child) error {
+	err := c.ops.Merge(c.ctx, c.scope, c.spec.Key, c.spec.ClaimID, c.orchestrator())
+	if errors.Is(err, questions.ErrResolved) {
+		return nil
+	}
+	return err
 }
 
 func roleReviewPass(c *child) error {

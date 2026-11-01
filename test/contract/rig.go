@@ -108,6 +108,12 @@ type Ops interface {
 	RecordDecision(ctx context.Context, scope ledger.WorkspaceID, draft questions.Decision, actor ledger.Actor) (questions.Decision, error)
 	Dismiss(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) error
 	AddCategory(ctx context.Context, scope ledger.WorkspaceID, name string, actor ledger.Actor) error
+	Ask(ctx context.Context, scope ledger.WorkspaceID, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error)
+	Take(ctx context.Context, scope ledger.WorkspaceID, id string, ttlMs int64, actor ledger.Actor) (questions.Question, error)
+	Climb(ctx context.Context, scope ledger.WorkspaceID, id string, step questions.Step, actor ledger.Actor) (questions.Question, error)
+	Escalate(ctx context.Context, scope ledger.WorkspaceID, id string, escalation questions.Escalation, actor ledger.Actor) (questions.Question, error)
+	Resolve(ctx context.Context, scope ledger.WorkspaceID, id, decision string, actor ledger.Actor) (questions.Question, error)
+	Merge(ctx context.Context, scope ledger.WorkspaceID, id, into string, actor ledger.Actor) error
 }
 
 type realOps struct {

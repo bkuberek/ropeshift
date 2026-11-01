@@ -82,7 +82,9 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 	event.Lane, event.Generation, event.AtMs = cfg.lane, cfg.generation, time.Now().UnixMilli()
 	switch cfg.event {
 	case eventPreToolUse:
-		decide(cfg, input, stdout)
+		if !decide(cfg, input, stdout) {
+			event.Asked = nil
+		}
 	case eventSessionStart:
 		event.Socket = cfg.session
 		reground(cfg, event, stdout)
@@ -90,20 +92,21 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 	forward(cfg, event)
 }
 
-// decide comes first, so a denial never depends on the worker.
-func decide(cfg config, input []byte, stdout io.Writer) {
+// decide comes first, so a denial never depends on the worker. It reports whether it
+// deferred the agent's question tool, which is the one case that forwards tool input.
+func decide(cfg config, input []byte, stdout io.Writer) bool {
 	if cfg.policy == "" {
-		return
+		return false
 	}
 	raw, err := os.ReadFile(cfg.policy)
 	if err != nil {
 		deny(stdout, unavailablePolicy)
-		return
+		return false
 	}
 	var policy lanes.DenyPolicy
 	if json.Unmarshal(raw, &policy) != nil {
 		deny(stdout, unavailablePolicy)
-		return
+		return false
 	}
 	var call struct {
 		Tool  string `json:"tool_name"`
@@ -116,7 +119,17 @@ func decide(cfg config, input []byte, stdout io.Writer) {
 	}
 	if json.Unmarshal(input, &call) != nil {
 		deny(stdout, unavailablePolicy)
-		return
+		return false
+	}
+	if call.Tool == lanes.ToolQuestion {
+		switch policy.QuestionTool {
+		case lanes.QuestionToolDefer:
+			write(stdout, map[string]string{"hookEventName": eventPreToolUse, "permissionDecision": "defer"})
+			return true
+		case lanes.QuestionToolDeny:
+			deny(stdout, lanes.ReasonUseAsk)
+			return false
+		}
 	}
 	target := call.Input.File
 	if target == "" {
@@ -126,6 +139,7 @@ func decide(cfg config, input []byte, stdout io.Writer) {
 	if denied {
 		deny(stdout, reason)
 	}
+	return false
 }
 
 func deny(stdout io.Writer, reason string) {

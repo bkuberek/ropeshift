@@ -115,7 +115,7 @@ func recordReview(tx ports.WriteTx, id string, actor ledger.Actor) error {
 
 // settleReview runs the definition of ready on a reviewed work order.
 func settleReview(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.Actor) (ReviewResult, error) {
-	failures, err := readyFailures(tx.Planning(), tx.WorkOrders(), current)
+	failures, err := readyFailures(tx.Planning(), tx.WorkOrders(), tx.Questions(), current)
 	if err != nil {
 		return ReviewResult{}, err
 	}
@@ -128,10 +128,14 @@ func settleReview(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.A
 	return ReviewResult{State: workorders.Ready}, nil
 }
 
-// readyFailures gathers the facts and runs the pure function. Questions arrive as
-// ledger records in a later unit, so none can be open yet.
-func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, w workorders.WorkOrder) ([]workorders.ReadyFailure, error) {
+// readyFailures gathers the facts and runs the pure function.
+func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, asked ports.QuestionReader, w workorders.WorkOrder) ([]workorders.ReadyFailure, error) {
 	var facts workorders.ReadyFacts
+	open, err := asked.OpenBlocking(w.ID, w.ContractID)
+	if err != nil {
+		return nil, err
+	}
+	facts.OpenBlockingQuestions = int(open)
 	if w.ContractVersion != 0 {
 		contract, err := planned.Contract(w.ContractID, w.ContractVersion)
 		if err != nil {

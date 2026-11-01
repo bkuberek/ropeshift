@@ -1,6 +1,9 @@
 package lanes
 
-import "ropeshift.dev/ropeshift/internal/workorders"
+import (
+	"ropeshift.dev/ropeshift/internal/questions"
+	"ropeshift.dev/ropeshift/internal/workorders"
+)
 
 // The variables of a lane's process. A hook reads only these, because the CLI strips
 // other tags from what reaches a hook.
@@ -20,21 +23,30 @@ const (
 // any hook runs, and a pane has no other way to tell a worker where its socket is.
 const EnvMessagingSocket = "CLAUDE_CODE_MESSAGING_SOCKET"
 
-// ToolLaneReport is the tool that ends a lane, and ToolLaneWait the one that says it is
-// waiting on something outside it.
+// ToolLaneReport is the tool that ends a lane, ToolLaneWait the one that says it is
+// waiting on something outside it, and ToolAsk the one that asks a question.
 const (
 	ToolLaneReport = "lane_report"
 	ToolLaneWait   = "lane_wait"
+	ToolAsk        = "ask"
 )
 
 // Tools are a lane's MCP tools. Generated settings allow exactly these, so a lane
 // reports its outcome with no prompt (ADR-0014).
-var Tools = []string{ToolLaneReport, ToolLaneWait}
+var Tools = []string{ToolLaneReport, ToolLaneWait, ToolAsk}
 
 // WaitDeclaration is a lane's word that it waits on an external process.
 type WaitDeclaration struct {
 	Reason  string `json:"reason,omitempty"`
 	Minutes int64  `json:"minutes"`
+}
+
+// AskRequest is a lane's question. Options are what it would choose between, when it knows.
+type AskRequest struct {
+	Text       string   `json:"text"`
+	Categories []string `json:"categories,omitempty"`
+	Blocking   bool     `json:"blocking,omitempty"`
+	Options    []string `json:"options,omitempty"`
 }
 
 // SocketProtocol is the version of the worker socket's lines.
@@ -46,6 +58,7 @@ const (
 	CodeInvalid         = "invalid"
 	CodeAlreadyReported = "already_reported"
 	CodeUnavailable     = "unavailable"
+	CodeFenced          = "fenced"
 )
 
 // Request is one line on the worker socket. The token proves which process is
@@ -56,6 +69,7 @@ type Request struct {
 	Hook    *HookEvent         `json:"hook,omitempty"`
 	Report  *workorders.Report `json:"report,omitempty"`
 	Wait    *WaitDeclaration   `json:"wait,omitempty"`
+	Ask     *AskRequest        `json:"ask,omitempty"`
 }
 
 // Reply is the one line that answers it.
@@ -63,4 +77,6 @@ type Reply struct {
 	OK      bool   `json:"ok"`
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
+	// Ask is what `ask` found, set when OK.
+	Ask *questions.AskResult `json:"ask,omitempty"`
 }

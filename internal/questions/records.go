@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -157,13 +156,17 @@ type Decision struct {
 	PolicyVersion int64          `json:"policy_version,omitempty"`
 }
 
-// categoryName is what a category can be called. It has no mark a LIKE pattern reads, and
-// no capital, so one category cannot appear under two spellings.
-var categoryName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+// maxCategoryName bounds a name a person has to read in a list.
+const maxCategoryName = 63
 
-// CheckCategoryName accepts a name a workspace can add.
+// CheckCategoryName accepts a name a workspace can add. A name has no mark a LIKE pattern
+// reads, and no capital, so one category cannot appear under two spellings.
 func CheckCategoryName(name string) error {
-	if !categoryName.MatchString(name) {
+	valid := name != "" && len(name) <= maxCategoryName && name[0] >= 'a' && name[0] <= 'z'
+	for _, c := range []byte(name) {
+		valid = valid && (c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-')
+	}
+	if !valid {
 		return fmt.Errorf("%w: category %q must be lowercase words joined by hyphens", ErrInvalid, name)
 	}
 	return nil

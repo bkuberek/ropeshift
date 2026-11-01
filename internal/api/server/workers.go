@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/questions"
 )
 
 func (h *handler) workerRoutes(mux *http.ServeMux) {
@@ -26,6 +27,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
 	mux.HandleFunc("GET /v1/workers/{id}/watch", h.watch)
 	mux.HandleFunc("POST /v1/workers/{id}/events", h.events)
+	mux.HandleFunc("POST /v1/workers/{id}/ask", h.workerAsk)
 }
 
 func bearer(r *http.Request) string {
@@ -190,6 +192,20 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 
 // archiveLane asks the worker that ran a lane to take its worktree away. It goes through
 // the work order, as a lane's start does.
+func (h *handler) workerAsk(w http.ResponseWriter, r *http.Request) {
+	var in questions.LaneAsk
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	result, err := h.workers.Ask(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, result)
+}
+
 func (h *handler) archiveLane(w http.ResponseWriter, r *http.Request) {
 	var in api.ArchiveLane
 	if !decode(w, r, &in) {

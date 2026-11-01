@@ -190,6 +190,12 @@ func (w *Worker) Auth() ledger.WorkerAuth {
 	return ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
 }
 
+func (w *Worker) epoch() int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.identity.Epoch
+}
+
 // Session returns what the control plane decided for this epoch.
 func (w *Worker) Session() ledger.Session {
 	w.mu.Lock()

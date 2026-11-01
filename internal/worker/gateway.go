@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -24,6 +26,12 @@ const laneCallDeadline = 5 * time.Second
 
 // maxLaneLine bounds one line on the socket.
 const maxLaneLine = 1 << 20
+
+// askDeadline bounds one ask, under the deadline of the line that carries it.
+const askDeadline = 3 * time.Second
+
+// questionIDBytes sizes the ID a worker gives a question.
+const questionIDBytes = 16
 
 // ServeLanes answers the worker socket until the listener closes. Hooks and
 // `ropeshift mcp` reach the worker here, and each connection is one line and one
@@ -96,6 +104,8 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 			run.noteLedger(reachOfCall(reply))
 		}
 		return reply
+	case request.Ask != nil:
+		return w.takeAsk(ctx, lane, *request.Ask)
 	case request.Wait != nil:
 		if request.Wait.Minutes <= 0 {
 			return refused(lanes.CodeInvalid, "a wait needs a number of minutes")
@@ -115,7 +125,56 @@ func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 	if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation {
 		run.observeHook(ctx, event)
 		run.rt.Driver.TakeHook(ctx, event)
+		if len(event.Asked) != 0 {
+			go w.convertAsked(ctx, run.record(), event.Asked)
+		}
 	}
+}
+
+// convertAsked records what a deferred question tool call asked. It runs after the hook's
+// answer, because a hook has milliseconds and this reaches the control plane. A repeat
+// attaches to what the first wrote, and a call that failed fires its hook again on resume.
+func (w *Worker) convertAsked(ctx context.Context, lane lanes.Record, asked []lanes.AskedQuestion) {
+	for _, question := range asked {
+		reply := w.takeAsk(ctx, lane, lanes.AskRequest{Text: question.Text, Options: question.Options, Blocking: true})
+		if !reply.OK {
+			w.config.Report(fmt.Errorf("lane %s: the question tool's question stayed unrecorded: %s", lane.ID, reply.Message))
+		}
+	}
+}
+
+// takeAsk carries one question to the control plane and answers at once. The bound is the
+// rule that no call stays open: with the control plane away, a lane learns that and goes on.
+func (w *Worker) takeAsk(ctx context.Context, lane lanes.Record, request lanes.AskRequest) lanes.Reply {
+	id, err := newToken(questionIDBytes)
+	if err != nil {
+		return refused(lanes.CodeUnavailable, err.Error())
+	}
+	bounded, cancel := context.WithTimeout(ctx, askDeadline)
+	defer cancel()
+	result, err := w.link.Ask(bounded, questions.LaneAsk{
+		Auth: w.Auth(), Epoch: w.epoch(), WorkOrder: lane.WorkOrder, Fence: lane.Fence,
+		Ask: questions.Ask{
+			ID: id, Text: request.Text, Categories: request.Categories, Blocking: request.Blocking,
+			Options: request.Options, Lane: lane.ID, Generation: lane.Generation,
+		},
+	})
+	var fenced *workorders.FencedError
+	switch {
+	case err == nil:
+		if run := w.runOf(lane.ID); run != nil {
+			run.noteLedger(lanes.Reachable)
+		}
+		return lanes.Reply{OK: true, Ask: &result}
+	case errors.Is(err, questions.ErrInvalid):
+		return refused(lanes.CodeInvalid, err.Error())
+	case errors.As(err, &fenced):
+		return refused(lanes.CodeFenced, err.Error())
+	}
+	if run := w.runOf(lane.ID); run != nil {
+		run.noteLedger(lanes.Impaired)
+	}
+	return refused(lanes.CodeUnavailable, err.Error())
 }
 
 func (w *Worker) runOf(lane string) *laneRun {

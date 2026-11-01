@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -26,4 +27,6 @@ type WorkerLink interface {
 	Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.UploadReply, error)
 	// Claim requests a work order for this worker.
 	Claim(ctx context.Context, auth ledger.WorkerAuth, request workorders.ClaimRequest) (workorders.Grant, error)
+	// Ask records a question for a lane this worker holds, and answers at once.
+	Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error)
 }

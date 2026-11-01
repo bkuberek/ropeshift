@@ -2,8 +2,15 @@ package lanes
 
 import "encoding/json"
 
+// AskedQuestion is one question an agent put to its terminal's question tool, which is the
+// one tool input a hook forwards, because a question is what the ledger is for.
+type AskedQuestion struct {
+	Text    string   `json:"text"`
+	Options []string `json:"options,omitempty"`
+}
+
 // HookEvent is what a hook forwards. It holds only what the worker merges on, so no
-// prompt, tool input, or compaction summary leaves the session.
+// prompt, compaction summary, or tool input leaves the session, apart from Asked.
 type HookEvent struct {
 	Lane       string `json:"lane,omitempty"`
 	Generation int64  `json:"generation,omitempty"`
@@ -21,9 +28,11 @@ type HookEvent struct {
 	// because a pane has no stream to read it from.
 	Socket string `json:"socket,omitempty"`
 	// Status is what one run of the status line said.
-	Status    *StatusReport `json:"status,omitempty"`
-	AtMs      int64         `json:"at_ms"`
-	Malformed bool          `json:"malformed,omitempty"`
+	Status *StatusReport `json:"status,omitempty"`
+	// Asked is what a question tool call asked, on a lane that defers it.
+	Asked     []AskedQuestion `json:"asked,omitempty"`
+	AtMs      int64           `json:"at_ms"`
+	Malformed bool            `json:"malformed,omitempty"`
 }
 
 // EventStatusLine names a status line's report among hook events. The CLI has no hook of
@@ -50,6 +59,14 @@ type hookPayload struct {
 	NotificationType string `json:"notification_type"`
 	Error            string `json:"error"`
 	Model            string `json:"model"`
+	ToolInput        struct {
+		Questions []struct {
+			Question string `json:"question"`
+			Options  []struct {
+				Label string `json:"label"`
+			} `json:"options"`
+		} `json:"questions"`
+	} `json:"tool_input"`
 }
 
 // statusPayload names the fields of a status line's input a worker reads, and nothing
@@ -111,6 +128,15 @@ func NewHookEvent(event string, input []byte) HookEvent {
 	if out.Subject == "" {
 		out.Subject = payload.SessionID
 	}
+	if payload.ToolName == ToolQuestion {
+		for _, question := range payload.ToolInput.Questions {
+			asked := AskedQuestion{Text: question.Question}
+			for _, option := range question.Options {
+				asked.Options = append(asked.Options, option.Label)
+			}
+			out.Asked = append(out.Asked, asked)
+		}
+	}
 	return out
 }
 
@@ -145,4 +171,20 @@ type DenyPolicy struct {
 	Home string `json:"home,omitempty"`
 	// DefaultBranches are the branches no push may reach.
 	DefaultBranches []string `json:"default_branches,omitempty"`
+	// QuestionTool says what a call of the agent's own question tool becomes.
+	QuestionTool string `json:"question_tool,omitempty"`
 }
+
+// ToolQuestion is the vendor's tool that asks the terminal. A lane must not ask there,
+// because nobody may be watching and no ladder runs.
+const ToolQuestion = "AskUserQuestion"
+
+// What a question tool call becomes: a headless lane defers it and ends its turn, and an
+// interactive lane is denied and told to use `ask`.
+const (
+	QuestionToolDefer = "defer"
+	QuestionToolDeny  = "deny"
+)
+
+// ReasonUseAsk reaches the model, so it names the tool to use.
+const ReasonUseAsk = "ropeshift policy: this lane asks through the ask tool. It records the question for the workspace, and it answers at once when it can."

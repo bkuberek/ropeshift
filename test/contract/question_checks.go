@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -25,6 +27,20 @@ var QuestionChecks = []Check{
 	{"Q8", "a workspace extends its categories and cannot use an unknown one", checkCategories},
 	{"Q9", "a retry of a record returns what the first attempt wrote", checkRecordRetries},
 	{"Q10", "only a member or an orchestrator decides", checkDecisionActors},
+	{"Q11", "ask records a question and returns pending", checkAskPending},
+	{"Q12", "the same text attaches a second lane and asks nothing twice", checkAskAttaches},
+	{"Q13", "an answered question answers at once, with its citation", checkAskAnswered},
+	{"Q14", "a dismissed question or an overturned answer does not match", checkAskPastNoMatch},
+	{"Q15", "racing asks of one text make one question", checkAskRace},
+	{"Q16", "racing takers have one winner", checkTakeRace},
+	{"Q17", "a hold lapses in database time, and a holder keeps its own", checkTakeLapses},
+	{"Q18", "only the holder climbs, escalates, or resolves", checkHoldRequired},
+	{"Q19", "the gate refuses on the ledger, and names what is missing", checkGateOnLedger},
+	{"Q20", "a one-way category skips rungs 3 and 4 and keeps 1 and 2", checkOneWayRungs},
+	{"Q21", "an open blocking question holds work in review", checkBlockingHolds},
+	{"Q22", "a blocking question sends ready work back to review", checkBlockingReopens},
+	{"Q23", "an agent's match merges a question into an open one", checkMerge},
+	{"Q24", "a retried ask finds its first attempt", checkAskRetry},
 }
 
 func (r *Rig) question(s ports.Store, text string, change func(*questions.Question)) (questions.Question, error) {
@@ -164,6 +180,579 @@ func checkQuestionRecords(r *Rig) error {
 	}
 	if err := r.CheckRevisions(s, r.Scope); err != nil {
 		return err
+	}
+	return r.CheckQuestions(s)
+}
+
+func (r *Rig) orchestrator(id string) ledger.Actor {
+	return ledger.Actor{Kind: ledger.ActorOrchestrator, ID: id}
+}
+
+func (r *Rig) laneActor(lane string) ledger.Actor {
+	return ledger.Actor{Kind: ledger.ActorLane, ID: lane}
+}
+
+func (r *Rig) ask(s ports.Store, text, lane string, change func(*questions.Ask)) (questions.AskResult, error) {
+	ask := questions.Ask{
+		ID: r.ID("q"), Text: text, Categories: []string{questions.CategoryProduct}, Lane: lane, Generation: 1,
+	}
+	if change != nil {
+		change(&ask)
+	}
+	return r.NewOps(s).Ask(r.Ctx, r.Scope, ask, r.laneActor(lane))
+}
+
+func (r *Rig) attachments(s ports.Store, question string) ([]questions.Attachment, error) {
+	var out []questions.Attachment
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = tx.Questions().Attachments(question)
+		return err
+	})
+	return out, err
+}
+
+func (r *Rig) readQuestion(s ports.Store, id string) (questions.Question, error) {
+	var out questions.Question
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = tx.Questions().Question(id)
+		return err
+	})
+	return out, err
+}
+
+func checkAskPending(r *Rig) error {
+	s := r.Store()
+	result, err := r.ask(s, "What is the retry budget?", "lane-a", func(a *questions.Ask) { a.Blocking = true })
+	if err != nil {
+		return err
+	}
+	if result.Status != questions.AskPending || result.QuestionID == "" {
+		return Violatedf("result %+v", result)
+	}
+	row, err := r.readQuestion(s, result.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusOpen || !row.Blocking || row.AskedBy != "lane-a" {
+		return Violatedf("question %+v", row)
+	}
+	attached, err := r.attachments(s, result.QuestionID)
+	if err != nil {
+		return err
+	}
+	if len(attached) != 1 || attached[0].Lane != "lane-a" || attached[0].Generation != 1 || !attached[0].Blocking {
+		return Violatedf("attachments %+v", attached)
+	}
+	if _, err := r.ask(s, " ?! ", "lane-a", nil); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("an empty question: %v", err)
+	}
+	if _, err := r.ask(s, "A question", "lane-a", func(a *questions.Ask) { a.Categories = []string{"unknown"} }); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("an unknown category: %v", err)
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkAskAttaches(r *Rig) error {
+	s := r.Store()
+	first, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	second, err := r.ask(s, "what is the  RETRY budget", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	if second.Status != questions.AskAttached || second.QuestionID != first.QuestionID {
+		return Violatedf("the second ask: %+v", second)
+	}
+	attached, err := r.attachments(s, first.QuestionID)
+	if err != nil {
+		return err
+	}
+	if len(attached) != 2 {
+		return Violatedf("attachments %+v", attached)
+	}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	again, err := r.ask(s, "What is the retry budget?", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	if again.Status != questions.AskAttached {
+		return Violatedf("a repeat: %+v", again)
+	}
+	after, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if after != before {
+		return Violatedf("a repeated ask moved the revision from %d to %d", before, after)
+	}
+	rows, err := r.filterQuestions(s, ports.RecordFilter{})
+	if err != nil {
+		return err
+	}
+	if len(rows) != 1 {
+		return Violatedf("the same question was asked %d times", len(rows))
+	}
+	return r.CheckQuestions(s)
+}
+
+// answered takes a question through rung 1: an orchestrator judges that a decision answers it.
+func (r *Rig) answered(s ports.Store, text string) (questions.AskResult, questions.Decision, error) {
+	ops := r.NewOps(s)
+	asked, err := r.ask(s, text, "lane-a", nil)
+	if err != nil {
+		return questions.AskResult{}, questions.Decision{}, err
+	}
+	decided, err := r.decision(s, "Three calls.", func(d *questions.Decision) { d.Citations = []string{"PAY-12"} })
+	if err != nil {
+		return questions.AskResult{}, questions.Decision{}, err
+	}
+	holder := r.orchestrator("orchestrator-1")
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, holder); err != nil {
+		return questions.AskResult{}, questions.Decision{}, err
+	}
+	if _, err := ops.Resolve(r.Ctx, r.Scope, asked.QuestionID, decided.ID, holder); err != nil {
+		return questions.AskResult{}, questions.Decision{}, err
+	}
+	return asked, decided, nil
+}
+
+func checkAskAnswered(r *Rig) error {
+	s := r.Store()
+	asked, decided, err := r.answered(s, "What is the retry budget?")
+	if err != nil {
+		return err
+	}
+	row, err := r.readQuestion(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusAnswered || row.DecisionID != decided.ID || row.ClaimedBy != "" {
+		return Violatedf("question %+v", row)
+	}
+	result, err := r.ask(s, "What is the retry budget?", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	if result.Status != questions.AskAnswered || result.Answer != "Three calls." || result.DecisionID != decided.ID ||
+		!slices.Equal(result.Citations, []string{"PAY-12"}) || result.QuestionID != asked.QuestionID {
+		return Violatedf("result %+v", result)
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkAskPastNoMatch(r *Rig) error {
+	s := r.Store()
+	dismissed, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	if err := r.NewOps(s).Dismiss(r.Ctx, r.Scope, dismissed.QuestionID, r.Actor); err != nil {
+		return err
+	}
+	again, err := r.ask(s, "What is the retry budget?", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	if again.Status != questions.AskPending || again.QuestionID == dismissed.QuestionID {
+		return Violatedf("a dismissed question matched: %+v", again)
+	}
+	_, decided, err := r.answered(s, "Where does audit data live?")
+	if err != nil {
+		return err
+	}
+	if err := r.DB.Damage(r.T, "UPDATE decisions SET status = 'overturned' WHERE id = '"+decided.ID+"'"); err != nil {
+		return err
+	}
+	fresh, err := r.ask(s, "Where does audit data live?", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	if fresh.Status != questions.AskPending {
+		return Violatedf("an overturned answer still answers: %+v", fresh)
+	}
+	return nil
+}
+
+func checkAskRace(r *Rig) error {
+	s := r.Store()
+	const lanes = 8
+	var wg sync.WaitGroup
+	results := make([]questions.AskResult, lanes)
+	failures := make([]error, lanes)
+	for i := range lanes {
+		wg.Go(func() {
+			results[i], failures[i] = r.ask(s, "What is the retry budget?", fmt.Sprintf("lane-%d", i), nil)
+		})
+	}
+	wg.Wait()
+	if err := errors.Join(failures...); err != nil {
+		return err
+	}
+	pending := 0
+	for _, result := range results {
+		if result.Status == questions.AskPending {
+			pending++
+		}
+		if result.QuestionID != results[0].QuestionID {
+			return Violatedf("two questions: %+v", results)
+		}
+	}
+	if pending != 1 {
+		return Violatedf("%d lanes asked first: %+v", pending, results)
+	}
+	attached, err := r.attachments(s, results[0].QuestionID)
+	if err != nil {
+		return err
+	}
+	if len(attached) != lanes {
+		return Violatedf("%d attachments", len(attached))
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkTakeRace(r *Rig) error {
+	s := r.Store()
+	asked, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	const takers = 8
+	var wg sync.WaitGroup
+	failures := make([]error, takers)
+	for i := range takers {
+		wg.Go(func() {
+			_, failures[i] = ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, r.orchestrator(fmt.Sprintf("orchestrator-%d", i)))
+		})
+	}
+	wg.Wait()
+	won := 0
+	for _, err := range failures {
+		switch {
+		case err == nil:
+			won++
+		case !errors.Is(err, questions.ErrTaken):
+			return err
+		}
+	}
+	if won != 1 {
+		return Violatedf("%d takers won", won)
+	}
+	row, err := r.readQuestion(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusTriage || row.ClaimedBy == "" {
+		return Violatedf("question %+v", row)
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkTakeLapses(r *Rig) error {
+	s := r.Store()
+	asked, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	first, second := r.orchestrator("first"), r.orchestrator("second")
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, first); err != nil {
+		return err
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, first); err != nil {
+		return Violatedf("a holder could not keep its hold: %v", err)
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, second); !errors.Is(err, questions.ErrTaken) {
+		return Violatedf("a rival took a live hold: %v", err)
+	}
+	r.DB.ShiftClock(TTLMs + 1)
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, second); err != nil {
+		return Violatedf("a lapsed hold stayed held: %v", err)
+	}
+	if _, err := ops.Climb(r.Ctx, r.Scope, asked.QuestionID, questions.Step{Rung: questions.RungLookup}, first); !errors.Is(err, questions.ErrNotHeld) {
+		return Violatedf("the first holder worked on after it lapsed: %v", err)
+	}
+	return nil
+}
+
+func checkHoldRequired(r *Rig) error {
+	s := r.Store()
+	asked, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	stranger := r.orchestrator("stranger")
+	if _, err := ops.Climb(r.Ctx, r.Scope, asked.QuestionID, questions.Step{Rung: questions.RungLookup}, stranger); !errors.Is(err, questions.ErrNotHeld) {
+		return Violatedf("a climb with no hold: %v", err)
+	}
+	if _, err := ops.Escalate(r.Ctx, r.Scope, asked.QuestionID, questions.Escalation{}, stranger); !errors.Is(err, questions.ErrNotHeld) {
+		return Violatedf("an escalation with no hold: %v", err)
+	}
+	if _, err := ops.Resolve(r.Ctx, r.Scope, asked.QuestionID, "absent", stranger); !errors.Is(err, questions.ErrNotHeld) {
+		return Violatedf("an answer with no hold: %v", err)
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, r.laneActor("lane-a")); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a lane took its own question: %v", err)
+	}
+	holder := r.orchestrator("holder")
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, holder); err != nil {
+		return err
+	}
+	if _, err := ops.Climb(r.Ctx, r.Scope, asked.QuestionID, questions.Step{Rung: questions.RungOpen}, holder); !errors.Is(err, questions.ErrWrongRung) {
+		return Violatedf("a step past the next rung: %v", err)
+	}
+	if err := r.NewOps(s).Dismiss(r.Ctx, r.Scope, asked.QuestionID, r.Actor); err != nil {
+		return err
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, holder); !errors.Is(err, questions.ErrResolved) {
+		return Violatedf("a take of a closed question: %v", err)
+	}
+	return nil
+}
+
+// climbed takes a question to the top of rungs 1 and 2.
+func (r *Rig) climbed(s ports.Store, id string, holder ledger.Actor) error {
+	ops := r.NewOps(s)
+	if _, err := ops.Take(r.Ctx, r.Scope, id, TTLMs, holder); err != nil {
+		return err
+	}
+	for _, rung := range []int64{questions.RungLookup, questions.RungOpen} {
+		step := questions.Step{Rung: rung, Candidates: []string{"decision:d1"}, Outcome: "no match"}
+		if _, err := ops.Climb(r.Ctx, r.Scope, id, step, holder); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkGateOnLedger(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	holder := r.orchestrator("holder")
+	asked, err := r.ask(s, "May audit data leave the region?", "lane-a", func(a *questions.Ask) { a.Categories = []string{questions.CategoryData} })
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, holder); err != nil {
+		return err
+	}
+	full := questions.Escalation{Reason: questions.ReasonOneWay, Options: []string{"Keep", "Allow"}, Recommendation: "Keep"}
+	_, err = ops.Escalate(r.Ctx, r.Scope, asked.QuestionID, full, holder)
+	var gate *questions.GateError
+	if !errors.As(err, &gate) || len(gate.Failures) != 1 || gate.Failures[0].Check != questions.GateTrace {
+		return Violatedf("an escalation with no trace: %v", err)
+	}
+	if err := r.climbed(s, asked.QuestionID, holder); err != nil {
+		return err
+	}
+	_, err = ops.Escalate(r.Ctx, r.Scope, asked.QuestionID, questions.Escalation{Reason: "hard"}, holder)
+	if !errors.As(err, &gate) || len(gate.Failures) != 3 {
+		return Violatedf("an escalation with no reason, options, or recommendation: %v", err)
+	}
+	row, err := r.readQuestion(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status == questions.StatusNeedsHuman {
+		return Violatedf("a refused escalation reached a human: %+v", row)
+	}
+	escalated, err := ops.Escalate(r.Ctx, r.Scope, asked.QuestionID, full, holder)
+	if err != nil {
+		return err
+	}
+	if escalated.Status != questions.StatusNeedsHuman || escalated.Rung != questions.RungEscalate ||
+		escalated.EscalationReason != questions.ReasonOneWay || escalated.Recommendation != "Keep" || len(escalated.Options) != 2 {
+		return Violatedf("question %+v", escalated)
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkOneWayRungs(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	holder := r.orchestrator("holder")
+	oneWay, err := r.ask(s, "May audit data leave the region?", "lane-a", func(a *questions.Ask) { a.Categories = []string{questions.CategorySecurity} })
+	if err != nil {
+		return err
+	}
+	if err := r.climbed(s, oneWay.QuestionID, holder); err != nil {
+		return err
+	}
+	row, err := r.readQuestion(s, oneWay.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Rung != questions.RungEscalate {
+		return Violatedf("a one-way category stands on rung %d", row.Rung)
+	}
+	if _, err := ops.Climb(r.Ctx, r.Scope, oneWay.QuestionID, questions.Step{Rung: questions.RungDecide}, holder); !errors.Is(err, questions.ErrOneWay) {
+		return Violatedf("rung 3 on a one-way category: %v", err)
+	}
+	other, err := r.ask(s, "What color is the button?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	if err := r.climbed(s, other.QuestionID, holder); err != nil {
+		return err
+	}
+	row, err = r.readQuestion(s, other.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Rung != questions.RungDecide {
+		return Violatedf("another category stands on rung %d", row.Rung)
+	}
+	return nil
+}
+
+func checkBlockingHolds(r *Rig) error {
+	s := r.Store()
+	order, err := r.reviewed(s)
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(s)
+	asked, err := r.ask(s, "Is this the right budget?", "lane-a", func(a *questions.Ask) {
+		a.Blocking, a.SubjectKind, a.SubjectID = true, workorders.SubjectKind, order.ID
+	})
+	if err != nil {
+		return err
+	}
+	result, err := ops.Pass(r.Ctx, r.Scope, order.ID, r.member())
+	if err != nil {
+		return err
+	}
+	if result.State != workorders.ContractReview || len(result.Failures) != 1 || result.Failures[0].Check != workorders.CheckQuestions {
+		return Violatedf("a review past a blocking question: %+v", result)
+	}
+	moved, err := ops.Promote(r.Ctx, r.Scope, r.Actor)
+	if err != nil {
+		return err
+	}
+	if len(moved) != 0 {
+		return Violatedf("the tick moved %v past a blocking question", moved)
+	}
+	if err := ops.Dismiss(r.Ctx, r.Scope, asked.QuestionID, r.Actor); err != nil {
+		return err
+	}
+	if moved, err = ops.Promote(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	if len(moved) != 1 || moved[0] != order.ID {
+		return Violatedf("the tick moved %v after the question closed", moved)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkBlockingReopens(r *Rig) error {
+	s := r.Store()
+	order, _, err := r.passed(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.ask(s, "A question that does not block", "lane-a", func(a *questions.Ask) {
+		a.SubjectKind, a.SubjectID = workorders.SubjectKind, order.ID
+	}); err != nil {
+		return err
+	}
+	row, err := r.WorkOrder(s, order.ID)
+	if err != nil {
+		return err
+	}
+	if row.State != workorders.Ready {
+		return Violatedf("a question that blocks nothing moved work: %+v", row)
+	}
+	if _, err := r.ask(s, "Is this the right contract?", "lane-a", func(a *questions.Ask) {
+		a.Blocking, a.SubjectKind, a.SubjectID = true, planning.SubjectContract, order.ContractID
+	}); err != nil {
+		return err
+	}
+	if row, err = r.WorkOrder(s, order.ID); err != nil {
+		return err
+	}
+	if row.State != workorders.ContractReview || row.ReviewedBy == "" {
+		return Violatedf("a blocking question left %+v", row)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkMerge(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	holder := r.orchestrator("holder")
+	target, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	paraphrase, err := r.ask(s, "How many retries may a call make?", "lane-b", func(a *questions.Ask) { a.Blocking = true })
+	if err != nil {
+		return err
+	}
+	if err := ops.Merge(r.Ctx, r.Scope, paraphrase.QuestionID, target.QuestionID, holder); !errors.Is(err, questions.ErrNotHeld) {
+		return Violatedf("a merge with no hold: %v", err)
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, paraphrase.QuestionID, TTLMs, holder); err != nil {
+		return err
+	}
+	if err := ops.Merge(r.Ctx, r.Scope, paraphrase.QuestionID, paraphrase.QuestionID, holder); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("a merge into itself: %v", err)
+	}
+	if err := ops.Merge(r.Ctx, r.Scope, paraphrase.QuestionID, target.QuestionID, holder); err != nil {
+		return err
+	}
+	merged, err := r.readQuestion(s, paraphrase.QuestionID)
+	if err != nil {
+		return err
+	}
+	if merged.Status != questions.StatusDismissed {
+		return Violatedf("merged question %+v", merged)
+	}
+	into, err := r.readQuestion(s, target.QuestionID)
+	if err != nil {
+		return err
+	}
+	if !into.Blocking {
+		return Violatedf("a blocking lane joined a question that blocks nothing: %+v", into)
+	}
+	attached, err := r.attachments(s, target.QuestionID)
+	if err != nil {
+		return err
+	}
+	if len(attached) != 2 {
+		return Violatedf("attachments %+v", attached)
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkAskRetry(r *Rig) error {
+	s := r.Store()
+	id := r.ID("q")
+	same := func(a *questions.Ask) { a.ID = id }
+	first, err := r.ask(s, "What is the retry budget?", "lane-a", same)
+	if err != nil {
+		return err
+	}
+	again, err := r.ask(s, "What is the retry budget?", "lane-a", same)
+	if err != nil {
+		return err
+	}
+	if again.Status != questions.AskPending || again.QuestionID != first.QuestionID {
+		return Violatedf("a retry: %+v", again)
+	}
+	rows, err := r.filterQuestions(s, ports.RecordFilter{})
+	if err != nil {
+		return err
+	}
+	if len(rows) != 1 {
+		return Violatedf("%d questions", len(rows))
 	}
 	return r.CheckQuestions(s)
 }

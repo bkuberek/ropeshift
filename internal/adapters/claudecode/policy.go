@@ -53,7 +53,17 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	}
 	return lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Writable: writable,
+		QuestionTool: questionTool(spec),
 	})
+}
+
+// questionTool is what the agent's own question tool becomes. Only `-p` honors `defer`, so an
+// interactive session is denied and told to use `ask`.
+func questionTool(spec ports.SessionSpec) string {
+	if spec.RunMode == ports.RunModeInteractive {
+		return lanes.QuestionToolDeny
+	}
+	return lanes.QuestionToolDefer
 }
 
 // denyRules writes each denial as a deny rule too: a `Bash` rule for a command, and an

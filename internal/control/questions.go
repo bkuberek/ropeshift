@@ -15,12 +15,13 @@ import (
 // Questions holds the use cases of questions and decisions. The core stores, searches, and
 // validates, and an agent judges (ADR-0007).
 type Questions struct {
-	store ports.Store
+	store  ports.Store
+	policy questions.Policy
 }
 
 // NewQuestions returns the use cases over a Store.
 func NewQuestions(store ports.Store) *Questions {
-	return &Questions{store: store}
+	return &Questions{store: store, policy: questions.DefaultPolicy()}
 }
 
 // RecordQuestion keeps a question as it is, in `open`. The client generates its ID, so a
@@ -42,7 +43,10 @@ func (q *Questions) RecordQuestion(ctx context.Context, scope ledger.WorkspaceID
 		if err := checkCategories(tx.Questions(), record.Categories); err != nil {
 			return err
 		}
-		return insertQuestion(tx, record, actor)
+		if err := insertQuestion(tx, record, actor); err != nil {
+			return err
+		}
+		return holdBack(tx, record, actor)
 	})
 	if err != nil {
 		return questions.Question{}, err

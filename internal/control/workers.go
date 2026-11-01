@@ -15,6 +15,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -67,6 +68,8 @@ type Workers struct {
 	scope   ledger.WorkspaceID
 	options WorkerOptions
 	leases  *Leases
+	// questions records what a lane asks.
+	questions *Questions
 }
 
 // NewWorkers returns the plane over a Store, for one workspace.
@@ -80,7 +83,7 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 	if options.LeaseTTLMs == 0 {
 		options.LeaseTTLMs = defaultLeaseTTLMs
 	}
-	return &Workers{store: store, scope: scope, options: options, leases: NewLeases(store)}
+	return &Workers{store: store, scope: scope, options: options, leases: NewLeases(store), questions: NewQuestions(store)}
 }
 
 func newSecret() (string, error) {
@@ -725,6 +728,30 @@ func (w *Workers) Claim(ctx context.Context, auth ledger.WorkerAuth, request wor
 		request.TTLMs = w.options.LeaseTTLMs
 	}
 	return w.leases.Claim(ctx, w.scope, request, ledger.Actor{Kind: ledger.ActorWorker, ID: auth.WorkerID})
+}
+
+// Ask records a question for a lane this worker holds. A lane reaches the ledger only
+// through its worker, so the plane checks that this worker holds that work order at that
+// fence, and the question is about that work order.
+func (w *Workers) Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error) {
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		if err := w.checkSession(tx, ask.Auth, ask.Epoch); err != nil {
+			return err
+		}
+		order, err := tx.WorkOrders().Get(ask.WorkOrder)
+		if err != nil {
+			return err
+		}
+		if order.LeaseWorker != ask.Auth.WorkerID || order.Fence != ask.Fence {
+			return &workorders.FencedError{Current: order.Fence, State: order.State}
+		}
+		return nil
+	})
+	if err != nil {
+		return questions.AskResult{}, err
+	}
+	ask.Ask.SubjectKind, ask.Ask.SubjectID = workorders.SubjectKind, ask.WorkOrder
+	return w.questions.Ask(ctx, w.scope, ask.Ask, ledger.Actor{Kind: ledger.ActorLane, ID: ask.Ask.Lane})
 }
 
 // Offered lists the work a worker could claim now: ready work whose needs its manifest

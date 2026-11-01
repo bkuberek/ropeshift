@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/questions"
 )
 
 // More error codes, for the worker's side of the API.
@@ -87,6 +88,13 @@ func (c *Client) Desired(ctx context.Context, worker string, since int64) (ledge
 	var out ledger.DesiredState
 	path := workerPath(worker, "desired") + "?since=" + strconv.FormatInt(since, 10)
 	err := c.Do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}
+
+// Ask records a question for a lane this worker holds.
+func (c *Client) Ask(ctx context.Context, worker string, in questions.LaneAsk) (questions.AskResult, error) {
+	var out questions.AskResult
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "ask"), in, &out)
 	return out, err
 }
 

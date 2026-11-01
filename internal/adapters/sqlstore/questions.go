@@ -82,6 +82,24 @@ ON CONFLICT (workspace_id, question_id, lane_id) DO NOTHING`)
  WHERE workspace_id = :workspace_id AND (CAST(:question_id AS TEXT) = '' OR question_id = CAST(:question_id AS TEXT))
  ORDER BY question_id, lane_id`)
 
+	stmtOpenBlocking = define("question.open_blocking",
+		`SELECT count(*) FROM questions
+ WHERE workspace_id = :workspace_id
+   AND blocking = 1
+   AND status IN ('open', 'triage', 'needs_human')
+   AND ((subject_kind = 'work_order' AND subject_id = :work_order_id)
+     OR (subject_kind = 'contract' AND subject_id = :contract_id))`)
+
+	stmtTakeQuestion = define("question.take",
+		`UPDATE questions
+   SET claimed_by = :holder,
+       claim_until = CAST(:now AS BIGINT) + CAST(:ttl AS BIGINT),
+       status = 'triage'
+ WHERE workspace_id = :workspace_id
+   AND id = :id
+   AND status IN ('open', 'triage')
+   AND (claimed_by IS NULL OR claim_until <= :now OR claimed_by = :holder)`)
+
 	stmtInsertDecision = define("decision.insert",
 		`INSERT INTO decisions
   (workspace_id, id, status, statement, rationale, citations, scope, reversibility, categories,
@@ -269,6 +287,21 @@ func (t questionTx) Attach(a questions.Attachment) (bool, error) {
 		"blocking": flag(a.Blocking), "attached_at": t.now,
 	}))
 	return n > 0, err
+}
+
+func (t questionTx) Take(id, holder string, ttlMs int64) (bool, error) {
+	n, err := t.exec(stmtTakeQuestion, t.scoped(params{"id": id, "holder": holder, "now": t.now, "ttl": ttlMs}))
+	return n > 0, err
+}
+
+func (t questionTx) OpenBlocking(workOrder, contract string) (int64, error) {
+	row, err := t.row(stmtOpenBlocking, t.scoped(params{"work_order_id": workOrder, "contract_id": contract}))
+	if err != nil {
+		return 0, err
+	}
+	var count int64
+	err = row.Scan(&count)
+	return count, err
 }
 
 func (t questionTx) Attachments(question string) ([]questions.Attachment, error) {

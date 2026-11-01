@@ -357,6 +357,85 @@ func (s splitIndex) RecordQuestion(ctx context.Context, scope ledger.WorkspaceID
 	})
 }
 
+// splitAsk records a question in one transaction and attaches its lane in another, so a
+// kill between them leaves a lane that asked and waits on nothing.
+type splitAsk struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitAsk) Ask(ctx context.Context, scope ledger.WorkspaceID, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error) {
+	record, err := questions.New(questions.Question{ID: ask.ID, Text: ask.Text, Blocking: ask.Blocking, SubjectKind: ask.SubjectKind, SubjectID: ask.SubjectID})
+	if err != nil {
+		return questions.AskResult{}, err
+	}
+	recorded := false
+	err = s.store.Write(ctx, scope, "question.ask", func(tx ports.WriteTx) error {
+		if _, err := tx.Questions().Question(record.ID); err == nil {
+			recorded = true
+			return nil
+		}
+		if err := tx.Questions().Insert(record); err != nil {
+			return err
+		}
+		if err := tx.Index(questions.KindQuestion, record.ID, record.Text); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventQuestionChanged, questions.SubjectQuestion, record.ID, record, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil || recorded {
+		return questions.AskResult{Status: questions.AskPending, QuestionID: record.ID}, err
+	}
+	crashpoint.Hit("question.ask", "split")
+	return questions.AskResult{Status: questions.AskPending, QuestionID: record.ID}, s.store.Write(ctx, scope, "question.ask", func(tx ports.WriteTx) error {
+		attachment := questions.Attachment{QuestionID: record.ID, Lane: ask.Lane, Generation: ask.Generation, Blocking: ask.Blocking, AttachedAt: tx.Now()}
+		if _, err := tx.Questions().Attach(attachment); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventQuestionAttached, questions.SubjectQuestion, record.ID, attachment, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+}
+
+// openGate escalates with no gate, which is the one way past a member's attention.
+type openGate struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (o openGate) Escalate(ctx context.Context, scope ledger.WorkspaceID, id string, escalation questions.Escalation, actor ledger.Actor) (questions.Question, error) {
+	var record questions.Question
+	err := o.store.Write(ctx, scope, "question.escalate", func(tx ports.WriteTx) error {
+		var err error
+		if record, err = tx.Questions().Question(id); err != nil {
+			return err
+		}
+		if record.ClaimedBy != actor.ID {
+			return questions.ErrNotHeld
+		}
+		record.Status, record.EscalationReason, record.Options, record.Recommendation = questions.StatusNeedsHuman, escalation.Reason, escalation.Options, escalation.Recommendation
+		if err := tx.Questions().Save(record); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventQuestionChanged, questions.SubjectQuestion, id, record, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	return record, err
+}
+
 // outsideCheck compares the fence before its transaction, so a handover can pass
 // between the check and the write.
 type outsideCheck struct {
@@ -744,6 +823,57 @@ func allVariants() []variant {
 			},
 			check: "crash",
 			crash: func() (crashCase, string) { return recordQuestionCase("split"), "split" },
+		},
+		{
+			name: "one text asks twice",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.by_hash",
+				"AND normalized_hash = :normalized_hash", "AND normalized_hash = :normalized_hash AND 1 = 0")},
+			check: "Q12",
+		},
+		{
+			name: "racing asks make two questions",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.by_hash",
+				"AND normalized_hash = :normalized_hash", "AND normalized_hash = :normalized_hash AND 1 = 0")},
+			check: "Q15",
+		},
+		{
+			name: "a take with no compare-and-set",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.take",
+				"\n   AND (claimed_by IS NULL OR claim_until <= :now OR claimed_by = :holder)", "")},
+			check: "Q16",
+		},
+		{
+			name: "a hold never lapses",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.take",
+				"claim_until <= :now OR ", "")},
+			check: "Q17",
+		},
+		{
+			name: "the definition of ready sees no question",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.open_blocking",
+				"AND blocking = 1", "AND blocking = 2")},
+			check: "Q21",
+		},
+		{
+			name: "a closed question still holds work",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.open_blocking",
+				"AND status IN ('open', 'triage', 'needs_human')", "")},
+			check: "Q21",
+		},
+		{
+			name: "the gate lets anything through",
+			ops: func(s ports.Store) contract.Ops {
+				return openGate{Ops: contract.RealOps(s), store: s}
+			},
+			check: "Q19",
+		},
+		{
+			name: "an ask and its attachment in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitAsk{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return askCase("question.ask", nil), "split" },
 		},
 		{
 			name: "the definition of ready sees no dependency",
