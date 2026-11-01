@@ -24,11 +24,13 @@ const (
 	questionFilter = `
    AND (CAST(:status AS TEXT) = '' OR q.status = CAST(:status AS TEXT))
    AND (CAST(:scope AS TEXT) = '' OR q.subject_id = CAST(:scope AS TEXT))
-   AND (CAST(:category AS TEXT) = '' OR q.categories LIKE CAST(:category AS TEXT))`
+   AND (CAST(:category AS TEXT) = '' OR q.categories LIKE CAST(:category AS TEXT))
+   AND (CAST(:after AS TEXT) = '' OR q.id > CAST(:after AS TEXT))`
 	decisionFilter = `
    AND (CAST(:status AS TEXT) = '' OR d.status = CAST(:status AS TEXT))
    AND (CAST(:scope AS TEXT) = '' OR d.scope = CAST(:scope AS TEXT))
-   AND (CAST(:category AS TEXT) = '' OR d.categories LIKE CAST(:category AS TEXT))`
+   AND (CAST(:category AS TEXT) = '' OR d.categories LIKE CAST(:category AS TEXT))
+   AND (CAST(:after AS TEXT) = '' OR d.id > CAST(:after AS TEXT))`
 )
 
 var (
@@ -247,7 +249,7 @@ func recordFilter(filter ports.RecordFilter) params {
 	if limit <= 0 || limit > ports.MaxRecords {
 		limit = ports.MaxRecords
 	}
-	return params{"status": filter.Status, "scope": filter.Scope, "category": category, "limit": int64(limit)}
+	return params{"status": filter.Status, "scope": filter.Scope, "category": category, "after": filter.After, "limit": int64(limit)}
 }
 
 func questionParams(q questions.Question) (params, error) {

@@ -44,6 +44,78 @@ var QuestionChecks = []Check{
 	{"Q22", "a blocking question sends ready work back to review", checkBlockingReopens},
 	{"Q23", "an agent's match merges a question into an open one", checkMerge},
 	{"Q24", "a retried ask finds its first attempt", checkAskRetry},
+	{"Q25", "a read goes on from where the last one stopped", checkRecordsWalk},
+}
+
+// walk reads every record past the bound of one read, a page at a time. A page that does not
+// move on is a violation, because a reader would otherwise never end.
+func walk[T any](read func(ports.RecordFilter) ([]T, error), id func(T) string, page int) ([]T, error) {
+	var out []T
+	after := ""
+	for {
+		rows, err := read(ports.RecordFilter{Limit: page, After: after})
+		if err != nil {
+			return nil, err
+		}
+		if after != "" && len(rows) != 0 && id(rows[0]) <= after {
+			return nil, Violatedf("a page after %s starts at %s", after, id(rows[0]))
+		}
+		out = append(out, rows...)
+		if len(rows) < page {
+			return out, nil
+		}
+		after = id(rows[len(rows)-1])
+	}
+}
+
+func questionID(q questions.Question) string { return q.ID }
+
+func decisionID(d questions.Decision) string { return d.ID }
+
+func checkRecordsWalk(r *Rig) error {
+	s := r.Store()
+	var asked, decided []string
+	for i := range 5 {
+		question, err := r.question(s, fmt.Sprintf("Which of these is number %d?", i), nil)
+		if err != nil {
+			return err
+		}
+		asked = append(asked, question.ID)
+		decision, err := r.decision(s, fmt.Sprintf("Number %d stands.", i), nil)
+		if err != nil {
+			return err
+		}
+		decided = append(decided, decision.ID)
+	}
+	slices.Sort(asked)
+	slices.Sort(decided)
+	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		for _, page := range []int{1, 2, 5} {
+			rows, err := walk(tx.Questions().Questions, questionID, page)
+			if err != nil {
+				return err
+			}
+			if got := project(rows, questionID); !slices.Equal(got, asked) {
+				return Violatedf("pages of %d walked %v, want %v", page, got, asked)
+			}
+			records, err := walk(tx.Questions().Decisions, decisionID, page)
+			if err != nil {
+				return err
+			}
+			if got := project(records, decisionID); !slices.Equal(got, decided) {
+				return Violatedf("pages of %d walked %v, want %v", page, got, decided)
+			}
+		}
+		return nil
+	})
+}
+
+func project[T any](rows []T, id func(T) string) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, id(row))
+	}
+	return out
 }
 
 func (r *Rig) question(s ports.Store, text string, change func(*questions.Question)) (questions.Question, error) {
@@ -143,7 +215,7 @@ func (r *Rig) CheckQuestions(s ports.Store) error {
 		return err
 	}
 	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
-		rows, err := tx.Questions().Questions(ports.RecordFilter{})
+		rows, err := walk(tx.Questions().Questions, questionID, ports.MaxRecords)
 		if err != nil {
 			return err
 		}
@@ -175,7 +247,7 @@ func (r *Rig) CheckQuestions(s ports.Store) error {
 				return Violatedf("attachment %+v has no history", row)
 			}
 		}
-		decisions, err := tx.Questions().Decisions(ports.RecordFilter{})
+		decisions, err := walk(tx.Questions().Decisions, decisionID, ports.MaxRecords)
 		if err != nil {
 			return err
 		}

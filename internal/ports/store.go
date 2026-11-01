@@ -428,6 +428,8 @@ type RecordFilter struct {
 	Scope    string
 	Text     string
 	Limit    int
+	// After reads on from one record's ID, so a reader can walk past the bound of one read.
+	After string
 }
 
 // QuestionReader reads questions, decisions, and a workspace's added categories.

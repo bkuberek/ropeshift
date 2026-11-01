@@ -422,6 +422,12 @@ func resumeVariants() []variant {
 		{name: "a retried resume refused", control: control.Sabotage{RefusesResumeRetry: true}, check: "R15"},
 		{name: "a repeated parked commit refused", control: control.Sabotage{RefusesParkedRepeat: true}, check: "P6"},
 		{
+			name: "a read that cannot go on from the last",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.list",
+				"(CAST(:after AS TEXT) = '' OR q.id > CAST(:after AS TEXT))", "CAST(:after AS TEXT) = CAST(:after AS TEXT)")},
+			check: "Q25",
+		},
+		{
 			name:     "a parked commit that keeps the fence",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.park", "\n       fence = fence + 1,", "")}, check: "P9",
 		},
