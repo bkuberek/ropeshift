@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/control"
@@ -33,6 +34,7 @@ var AcceptanceChecks = []Check{
 	{"A13", "a tick adds no event while nothing changed, and reads a check run again", checkForgeRerun},
 	{"A14", "accepted and reworked work replays from the log", checkAcceptanceReplays},
 	{"A15", "what a forge said about one attempt does not land on the next", checkForgeKeepsItsAttempt},
+	{"A16", "racing moves out of acceptance leave one on record", checkAcceptanceRace},
 }
 
 const (
@@ -42,6 +44,8 @@ const (
 	reworkReason = "the criteria are not met"
 	// AcceptanceRepository is where Awaiting's work lives, for a forge to answer about.
 	AcceptanceRepository = "repo-a"
+	acceptanceRaces      = 5
+	acceptanceRacers     = 8
 )
 
 // LaneCheck is a check a lane reports for a criterion.
@@ -562,6 +566,50 @@ func checkForgeRerun(r *Rig) error {
 		return err
 	}
 	return r.stateIs(s, id, workorders.Ready)
+}
+
+// checkAcceptanceRace runs accepts against reworks, on a work order each may leave by. It
+// complements A9, which holds the statement itself: a race alone does not reliably catch a
+// compare-and-set that went missing.
+func checkAcceptanceRace(r *Rig) error {
+	s := r.Store()
+	for range acceptanceRaces {
+		id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
+		if err != nil {
+			return err
+		}
+		var group sync.WaitGroup
+		ops := r.NewOps(s)
+		for i := range acceptanceRacers {
+			group.Go(func() {
+				if i%2 == 0 {
+					_, _ = ops.Accept(r.Ctx, r.Scope, id, r.Actor)
+					return
+				}
+				_, _ = ops.Rework(r.Ctx, r.Scope, id, reworkReason, r.Actor)
+			})
+		}
+		group.Wait()
+		accepted, _, err := r.eventsAbout(s, id, workorders.EventType(workorders.TriggerAcceptancePassed))
+		if err != nil {
+			return err
+		}
+		reworked, _, err := r.eventsAbout(s, id, workorders.EventType(workorders.TriggerRework))
+		if err != nil {
+			return err
+		}
+		if accepted+reworked != 1 {
+			return Violatedf("%d acceptances and %d reworks of one attempt", accepted, reworked)
+		}
+		want := workorders.Done
+		if reworked == 1 {
+			want = workorders.Ready
+		}
+		if err := r.stateIs(s, id, want); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // racingForge runs a step while a tick waits for its answer, which is the one moment a later
