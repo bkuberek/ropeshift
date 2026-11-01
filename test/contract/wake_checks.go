@@ -48,6 +48,17 @@ var WakeChecks = []Check{
 	{"W24", "a lane holds one open wake", checkOneOpenWake},
 }
 
+// A timer stands an hour out and a check moves the clock to it, because real time passes under
+// load, and a timer that passes by itself fires at the parked commit, as it should.
+const (
+	aheadMs = int64(60 * 60 * 1000)
+	// marginMs is how far short of a timer a check stops, which is more than a check takes.
+	marginMs = int64(30_000)
+)
+
+// ErrFiredAtCommit means a wake that should have stayed false fired at the parked commit.
+var ErrFiredAtCommit = errors.New("fired at the parked commit")
+
 // atMs is a timer term.
 func atMs(ms int64) string { return fmt.Sprintf(`{"at":%d}`, ms) }
 
@@ -89,7 +100,7 @@ func (r *Rig) Parked(s ports.Store, expr string) (ParkRequest, error) {
 		return request, err
 	}
 	if fired != "" {
-		return request, fmt.Errorf("%s fired at the parked commit", request.Wake)
+		return request, fmt.Errorf("%s: %w", request.Wake, ErrFiredAtCommit)
 	}
 	return request, nil
 }
@@ -200,11 +211,11 @@ func checkFireOnce(r *Rig) error {
 		if err != nil {
 			return err
 		}
-		request, err := r.Parked(s, atMs(now+1000))
+		request, err := r.Parked(s, atMs(now+aheadMs))
 		if err != nil {
 			return err
 		}
-		r.DB.ShiftClock(1001)
+		r.DB.ShiftClock(aheadMs + 1)
 		var wins atomic.Int64
 		err = parallelly(firers, func(int) error {
 			fired, err := r.NewOps(s).FireDue(r.Ctx, r.Scope, request.Wake, r.Actor)
@@ -231,11 +242,11 @@ func (r *Rig) staleTicker(s ports.Store) error {
 	if err != nil {
 		return err
 	}
-	first, err := r.Parked(s, atMs(now+1000))
+	first, err := r.Parked(s, atMs(now+aheadMs))
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(1001)
+	r.DB.ShiftClock(aheadMs + 1)
 	ops := r.NewOps(s)
 	due, err := ops.DueWakes(r.Ctx, r.Scope)
 	if err != nil {
@@ -321,12 +332,12 @@ func checkTimerNeverEarly(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	due := now + 60_000
+	due := now + aheadMs
 	request, err := r.Parked(s, atMs(due))
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(55_000)
+	r.DB.ShiftClock(aheadMs - marginMs)
 	if _, err := r.wakeTick(s); err != nil {
 		return err
 	}
@@ -337,7 +348,7 @@ func checkTimerNeverEarly(r *Rig) error {
 	if !wake.Open() {
 		return Violatedf("a timer due at %d fired at %d", due, wake.FiredAt)
 	}
-	r.DB.ShiftClock(5_001)
+	r.DB.ShiftClock(marginMs + 1)
 	if _, err := r.wakeTick(s); err != nil {
 		return err
 	}
@@ -362,7 +373,7 @@ func checkTimerAfterDowntime(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	request, err := r.Parked(s, atMs(now+1000))
+	request, err := r.Parked(s, atMs(now+aheadMs))
 	if err != nil {
 		return err
 	}
@@ -524,11 +535,11 @@ func checkTimerDuringParking(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	request, err := r.Parking(s, atMs(now+1000))
+	request, err := r.Parking(s, atMs(now+aheadMs))
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(1001)
+	r.DB.ShiftClock(aheadMs + 1)
 	fired, err := r.wakeTick(s)
 	if err != nil {
 		return err
@@ -560,11 +571,11 @@ func checkComposite(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	both, err := r.Parked(s, fmt.Sprintf(`{"all_of":[%s,%s]}`, atMs(now+1000), askedTerm(question)))
+	both, err := r.Parked(s, fmt.Sprintf(`{"all_of":[%s,%s]}`, atMs(now+aheadMs), askedTerm(question)))
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(1001)
+	r.DB.ShiftClock(aheadMs + 1)
 	if fired, err := r.wakeTick(s); err != nil {
 		return err
 	} else if len(fired) != 0 {
@@ -687,7 +698,7 @@ func checkTerminalNotWoken(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	request, err := r.Parked(s, atMs(now+1000))
+	request, err := r.Parked(s, atMs(now+aheadMs))
 	if err != nil {
 		return err
 	}
@@ -695,7 +706,7 @@ func checkTerminalNotWoken(r *Rig) error {
 	if err := ops.Move(r.Ctx, r.Scope, request.WorkOrder, workorders.TriggerCanceled, r.Actor); err != nil {
 		return err
 	}
-	r.DB.ShiftClock(1001)
+	r.DB.ShiftClock(aheadMs + 1)
 	if _, err := r.wakeTick(s); err != nil {
 		return err
 	}
@@ -788,11 +799,11 @@ func checkUnknownTerm(r *Rig) error {
 	} else if fired != "" {
 		return Violatedf("an unreadable wake fired at its commit")
 	}
-	plain, err := r.Parked(s, atMs(now+1000))
+	plain, err := r.Parked(s, atMs(now+aheadMs))
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(1001)
+	r.DB.ShiftClock(aheadMs + 1)
 	fired, err := r.wakeTick(s)
 	if err != nil {
 		return Violatedf("one unreadable wake stopped the tick: %v", err)
@@ -874,11 +885,11 @@ func checkTickAnswerDeadlock(r *Rig) error {
 		if err != nil {
 			return err
 		}
-		request, err := r.Parked(ticker, fmt.Sprintf(`{"any_of":[%s,%s]}`, atMs(now+1000), askedTerm(question)))
+		request, err := r.Parked(ticker, fmt.Sprintf(`{"any_of":[%s,%s]}`, atMs(now+aheadMs), askedTerm(question)))
 		if err != nil {
 			return err
 		}
-		r.DB.ShiftClock(1001)
+		r.DB.ShiftClock(aheadMs + 1)
 		current.Store(newBarrier(2))
 		err = parallelly(2, func(i int) error {
 			if i == 0 {
@@ -912,11 +923,11 @@ func checkFalseEvaluation(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	request, err := r.Parked(s, fmt.Sprintf(`{"all_of":[{"any_of":[%s,%s]},%s]}`, atMs(now+1000), atMs(now+5000), askedTerm(question)))
+	request, err := r.Parked(s, fmt.Sprintf(`{"all_of":[{"any_of":[%s,%s]},%s]}`, atMs(now+aheadMs), atMs(now+2*aheadMs), askedTerm(question)))
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(1001)
+	r.DB.ShiftClock(aheadMs + 1)
 	before, err := r.Revision(s, r.Scope)
 	if err != nil {
 		return err
@@ -935,10 +946,10 @@ func checkFalseEvaluation(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if wake.NextEvalAt != now+5000 {
-		return Violatedf("next_eval_at %d, want the next time in the expression, %d", wake.NextEvalAt, now+5000)
+	if wake.NextEvalAt != now+2*aheadMs {
+		return Violatedf("next_eval_at %d, want the next time in the expression, %d", wake.NextEvalAt, now+2*aheadMs)
 	}
-	r.DB.ShiftClock(4000)
+	r.DB.ShiftClock(aheadMs)
 	if _, err := r.wakeTick(s); err != nil {
 		return err
 	}

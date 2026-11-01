@@ -27,10 +27,10 @@ import (
 )
 
 const (
-	// timerAheadMs puts a timer past a parked commit, so the commit leaves it false, and
-	// timerPassMs waits it out.
+	// timerAheadMs puts a timer past a parked commit, so the commit leaves it false.
 	timerAheadMs = int64(120)
-	timerPassMs  = 140 * time.Millisecond
+	// timerTries bounds how often a slow commit doubles that.
+	timerTries = 6
 	// killLimit bounds the killing, which KILLS=1500 stretches.
 	killLimit = 20 * time.Minute
 	// drainLimit bounds a drain, and a lost wake is a work order that never gets there.
@@ -147,18 +147,43 @@ func parkedCase() crashCase {
 	}
 }
 
+// parkedOnTimer parks a lane on a timer still ahead of its commit. A crash run keeps real time,
+// so a slow commit can find the timer passed and fire it, which is correct and of no use to a
+// test that needs a due wake, so it tries again with more room.
+func (w *world) parkedOnTimer(expr func(at int64) string) (contract.ParkRequest, int64, error) {
+	ahead := timerAheadMs
+	for range timerTries {
+		now, err := w.rig.Clock(w.store)
+		if err != nil {
+			return contract.ParkRequest{}, 0, err
+		}
+		request, err := w.rig.Parked(w.store, expr(now+ahead))
+		if !errors.Is(err, contract.ErrFiredAtCommit) {
+			return request, now + ahead, err
+		}
+		ahead *= 2
+	}
+	return contract.ParkRequest{}, 0, errors.New("every commit outran its timer")
+}
+
+// awaitClock waits for database time to pass a moment.
+func (w *world) awaitClock(at int64) error {
+	for {
+		now, err := w.rig.Clock(w.store)
+		if err != nil || now > at {
+			return err
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 // dueTimer leaves a parked work order with a timer that has passed and that nothing fired.
-func dueTimer(w *world, expr func(now int64) string) (childSpec, error) {
-	now, err := w.rig.Clock(w.store)
+func dueTimer(w *world, expr func(at int64) string) (childSpec, error) {
+	request, at, err := w.parkedOnTimer(expr)
 	if err != nil {
 		return childSpec{}, err
 	}
-	request, err := w.rig.Parked(w.store, expr(now+timerAheadMs))
-	if err != nil {
-		return childSpec{}, err
-	}
-	time.Sleep(timerPassMs)
-	return parkingSpec("wake-tick", request), nil
+	return parkingSpec("wake-tick", request), w.awaitClock(at)
 }
 
 // tickCase kills a tick at one step of a firing, and the next tick must fire it once.
@@ -180,8 +205,8 @@ func nextEvalCase() crashCase {
 			if err != nil {
 				return childSpec{}, err
 			}
-			return dueTimer(w, func(now int64) string {
-				return fmt.Sprintf(`{"all_of":[%s,%s]}`, timerExpr(now), askedExpr(question))
+			return dueTimer(w, func(at int64) string {
+				return fmt.Sprintf(`{"all_of":[%s,%s]}`, timerExpr(at), askedExpr(question))
 			})
 		},
 		settled: func(w *world, spec childSpec) error {
@@ -352,7 +377,7 @@ func wakeVariants() []variant {
 		{name: "a firing with no fired_at guard", sabotage: sqlstore.Sabotage{Rewrite: noFiredGuard}, check: "W1"},
 		{name: "a move with no state guard", sabotage: sqlstore.Sabotage{Rewrite: noStateGuard}, check: "W1"},
 		{name: "a firing with no guard at all", sabotage: sqlstore.Sabotage{Rewrite: chain(noFiredGuard, noStateGuard)}, control: spent, check: "W1"},
-		{name: "a timer evaluated early", control: control.Sabotage{EarlyMs: 5_000}, check: "W2"},
+		{name: "a timer evaluated early", control: control.Sabotage{EarlyMs: 60_000}, check: "W2"},
 		{name: "time read on the client", sabotage: sqlstore.Sabotage{ClientClock: true}, check: "W2"},
 		{
 			name:     "a tick that ignores what it missed",
@@ -405,28 +430,17 @@ func wakeVariants() []variant {
 func TestTickProcessesFireEachWakeOnce(t *testing.T) {
 	w := newWorld(t, "")
 	const wakes, processes = 40, 4
-	now, err := w.rig.Clock(w.store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	at := now + 3_000
+	var last int64
 	ids := make([]string, 0, wakes)
 	for range wakes {
-		request, err := w.rig.Parked(w.store, timerExpr(at))
+		request, at, err := w.parkedOnTimer(timerExpr)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ids = append(ids, request.Wake)
+		ids, last = append(ids, request.Wake), max(last, at)
 	}
-	for {
-		current, err := w.rig.Clock(w.store)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if current > at {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	if err := w.awaitClock(last); err != nil {
+		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
 	for slot := range processes {

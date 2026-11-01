@@ -38,8 +38,14 @@ func (r *laneRig) toldToGoOn() fake.DriverScript {
 }
 
 // atWork starts a lane whose first turn waits for a test, and whose next turn answers the
-// handoff's instruction with what follows.
+// handoff's instruction with what follows. The generation after it finishes the work.
 func atWork(t *testing.T, answer ...fake.DriverStep) *handoffRig {
+	t.Helper()
+	return atWorkBefore(t, (*laneRig).toldToGoOn, answer...)
+}
+
+// atWorkBefore names what the next generation does.
+func atWorkBefore(t *testing.T, next func(*laneRig) fake.DriverScript, answer ...fake.DriverStep) *handoffRig {
 	t.Helper()
 	r := &handoffRig{laneRig: laneRigWith(t, handoffProfile), release: make(chan struct{}), reached: make(chan struct{})}
 	t.Cleanup(func() {
@@ -51,7 +57,7 @@ func atWork(t *testing.T, answer ...fake.DriverStep) *handoffRig {
 		<-r.release
 	}}, completed(0.01)}
 	r.driver.Play(script(first, answer))
-	r.driver.PlayAfter(r.toldToGoOn())
+	r.driver.PlayAfter(next(r.laneRig))
 	r.start()
 	select {
 	case <-r.reached:
@@ -516,8 +522,8 @@ func TestAHandoffWhoseSessionWentFinishesOnTheNextPass(t *testing.T) {
 }
 
 func TestADegradedHandoffShowsOnTheLane(t *testing.T) {
-	r := atWork(t, fake.DriverStep{Crash: true})
-	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	stays := func(*laneRig) fake.DriverScript { return script([]fake.DriverStep{{Bound: true}, {Hold: true}}) }
+	r := atWorkBefore(t, stays, fake.DriverStep{Crash: true})
 	r.handOff(t)
 	r.eventually("the condition", func(view ledger.LaneView) bool {
 		return slices.Contains(view.Conditions, string(lanes.HandoffDegraded)) && view.Generation == 2
