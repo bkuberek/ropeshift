@@ -89,6 +89,70 @@ func (r *guardRig) survey() lanes.WorktreeFindings {
 	return found
 }
 
+// TestFetchBringsWhatAnotherMachinePushed is a lane that comes back on a machine that never ran
+// it: the branch and the snapshot arrive under their own names, and a worktree goes on from them.
+func TestFetchBringsWhatAnotherMachinePushed(t *testing.T) {
+	r := newGuardRig(t)
+	bare := r.remote()
+	work := filepath.Join(r.path, "work.txt")
+	if err := os.WriteFile(work, []byte("work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = dir, r.repo.Env()
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git(r.path, "add", "--", "work.txt")
+	git(r.path, "commit", "--quiet", "-m", "lane work")
+	head := git(r.path, "rev-parse", "HEAD")
+	const ref = "refs/ropeshift/checkpoints/one/1"
+	if err := os.WriteFile(filepath.Join(r.path, "dirty.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := r.worktrees.Snapshot(t.Context(), r.path, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pushed := range []string{lanes.HeadsRef(r.branch), ref} {
+		if err := r.worktrees.Push(t.Context(), r.path, "origin", pushed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	second := filepath.Join(filepath.Dir(r.repo.Dir), "second")
+	git(filepath.Dir(r.repo.Dir), "clone", "--quiet", bare, second)
+	refs := []string{lanes.HeadsRef(r.branch), ref, lanes.HeadsRef("lane/nothing-pushed")}
+	if err := r.worktrees.Fetch(t.Context(), second, refs); err != nil {
+		t.Fatal(err)
+	}
+	if got := git(second, "rev-parse", lanes.HeadsRef(r.branch)); got != head {
+		t.Errorf("the branch reads %s, want %s", got, head)
+	}
+	if got := git(second, "rev-parse", ref); got != snapshot {
+		t.Errorf("the snapshot reads %s, want %s", got, snapshot)
+	}
+	path := filepath.Join(filepath.Dir(r.repo.Dir), "second-lanes", "one")
+	created, err := r.worktrees.Create(t.Context(), ports.WorktreeSpec{Repository: second, Path: path, Branch: r.branch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Head != head {
+		t.Errorf("a worktree started at %s, want the work at %s", created.Head, head)
+	}
+}
+
+func TestFetchWithNoRemoteIsDone(t *testing.T) {
+	r := newGuardRig(t)
+	if err := r.worktrees.Fetch(t.Context(), r.repo.Dir, []string{lanes.HeadsRef(r.branch)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSurvey(t *testing.T) {
 	tests := []struct {
 		name    string
