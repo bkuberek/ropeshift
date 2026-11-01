@@ -160,9 +160,9 @@ func TestAnIdleSessionReadsReachabilityUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-reached
-	if view := r.read(); view.ActualState != string(lanes.Working) || view.ModelReach != string(lanes.Reachable) {
-		t.Errorf("a turn in progress reads %+v", view)
-	}
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool {
+		return view.ActualState == string(lanes.Working) && view.ModelReach == string(lanes.Reachable)
+	})
 	if got := lanes.ReadReach(lanes.Idle, lanes.ReachEvidence{Reach: lanes.Reachable, Seen: true}, time.Minute); got != lanes.ReachUnknown {
 		t.Errorf("an idle lane reads %s", got)
 	}
