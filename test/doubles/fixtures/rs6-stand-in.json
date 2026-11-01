@@ -15,7 +15,7 @@
     ],
     [
       {"mcp": "lane_handoff", "arguments": {"done": ["Asked the question"], "in_progress": [], "next_steps": ["Wait for the answer"], "risks": [], "carries_next_step": true}},
-      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+      {"hold": true}
     ]
   ]
 }

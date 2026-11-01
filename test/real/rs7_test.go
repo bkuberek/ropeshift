@@ -198,12 +198,14 @@ func standInAsk(text string) []any {
 	}
 }
 
+// standInHandoff holds its turn after the tool, because a worker stops a session as soon as it has
+// the narrative, which RS6's real run showed: that turn ends by SIGINT.
 func standInHandoff(carries bool) []any {
 	return []any{
 		map[string]any{"mcp": lanes.ToolLaneHandoff, "arguments": map[string]any{
 			"done": []string{"asked"}, "in_progress": []string{}, "next_steps": []string{"go on"}, "risks": []string{}, "carries_next_step": carries,
 		}},
-		standInResult(),
+		map[string]any{"hold": true},
 	}
 }
 
@@ -302,9 +304,13 @@ func TestRS7(t *testing.T) {
 	if state := s.awaitParked(first, id, rs7HeadlessLane, watch(first.stop)); state != workorders.Parked {
 		s.stopWith(first.stop, "the lane did not park: %s", state)
 	}
+	firstLeft := s.settleProcesses(rs7HeadlessLane)
 	s.cli("lane", "resume", id)
 	s.awaitState(first, id, rs7HeadlessLane, workorders.Parked, 2, watch(first.stop))
+	secondLeft := s.settleProcesses(rs7HeadlessLane)
 	first.stop()
+	s.reportPark("headless first", rs7HeadlessLane, 1, firstLeft)
+	s.reportPark("headless second", rs7HeadlessLane, 2, secondLeft)
 
 	s.playStandIn([]any{standInReport()}, nil)
 	second := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream, "expired_cache": true})
@@ -350,11 +356,33 @@ func TestRS7(t *testing.T) {
 	if state := s.awaitParked(third, paneID, rs7PaneLane, paneWatch); state != workorders.Parked {
 		s.stopWith(third.stop, "the pane did not park: %s", state)
 	}
+	paneLeft := s.settleProcesses(rs7PaneLane)
+	shown := s.capture(rs7PaneLane + "-g1")
 	s.cli("lane", "resume", paneID)
 	s.awaitState(third, paneID, rs7PaneLane, workorders.Acceptance, 2, paneWatch)
 	left := s.settleProcesses(rs7PaneLane)
 	third.stop()
+	s.reportPark("pane", rs7PaneLane, 1, paneLeft)
+	if shown != "" {
+		t.Error("pane: the terminal still showed a parked session")
+	}
 	s.reportPane(screens, left)
+}
+
+// reportPark holds what RS6 set out to show, for one parking: a narrative the session wrote, a
+// stop, and no process left. It keeps no text of a session's.
+func (s *suite) reportPark(name, lane string, generation int64, left int) {
+	s.t.Helper()
+	parked := s.readParked(lane, generation)
+	carries := parked.handoff.Narrative != nil && parked.handoff.Narrative.CarriesNextStep
+	s.t.Logf("rs7: park: %s: narrative=%v carries_next_step=%v generation_end=%s wake_closed=%v processes_left=%d",
+		name, parked.handoff.Narrative != nil, carries, parked.generation.EndReason, !parked.wake.Open(), left)
+	if parked.degraded || parked.handoff.Narrative == nil {
+		s.t.Errorf("%s: the session wrote no narrative", name)
+	}
+	if left != 0 {
+		s.t.Errorf("%s: a process of the session remains", name)
+	}
 }
 
 // reportHeadless checks the lane that walked both paths, and keeps no ID in what it logs.

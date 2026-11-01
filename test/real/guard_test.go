@@ -157,10 +157,12 @@ func withoutCanary(path string) string {
 
 // streamLine holds what a stop condition reads from one line of a session's stream.
 type streamLine struct {
-	Type      string `json:"type"`
-	Subtype   string `json:"subtype"`
-	IsError   bool   `json:"is_error"`
-	RateLimit *struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+	IsError bool   `json:"is_error"`
+	// TerminalReason says why a turn ended.
+	TerminalReason string `json:"terminal_reason"`
+	RateLimit      *struct {
 		Status  string `json:"status"`
 		Windows map[string]struct {
 			Status string `json:"status"`
@@ -168,9 +170,13 @@ type streamLine struct {
 	} `json:"rate_limit_info"`
 }
 
+// abortedStreaming is how a result reads when SIGINT ended its turn, which is how a worker stops
+// a session it parks.
+const abortedStreaming = "aborted_streaming"
+
 // stopSignals reads a stream and names every stop condition in it: a failed result, a
 // usage limit signal, a retry of the model API, or an authentication event. A routine
-// rate limit event with status allowed is not a signal.
+// rate limit event with status allowed is not a signal, and neither is a turn a stop ended.
 func stopSignals(stream []byte) []string {
 	var found []string
 	for line := range bytes.SplitSeq(stream, []byte("\n")) {
@@ -179,6 +185,7 @@ func stopSignals(stream []byte) []string {
 			continue
 		}
 		switch {
+		case event.Type == "result" && event.TerminalReason == abortedStreaming:
 		case event.Type == "result" && (event.IsError || event.Subtype != "success"):
 			found = append(found, "failed result: "+event.Subtype)
 		case event.Type == "auth_status":
@@ -505,6 +512,8 @@ func TestStopConditions(t *testing.T) {
 		{"a finished turn", `{"type":"result","subtype":"success","is_error":false}`, 0},
 		{"a routine rate limit event", `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"status":"allowed"}}}}`, 0},
 		{"a failed result", `{"type":"result","subtype":"error_max_budget_usd","is_error":true}`, 1},
+		{"a turn the worker's own stop ended", `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}`, 0},
+		{"a turn that failed on its own", `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"max_turns"}`, 1},
 		{"a warning", `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning"}}`, 1},
 		{"a window that is not allowed", `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"status":"rejected"}}}}`, 1},
 		{"a retry", `{"type":"system","subtype":"api_retry"}`, 1},
