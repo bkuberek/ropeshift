@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -62,6 +63,10 @@ type ReadTx interface {
 	Planning() PlanningReader
 	// Workers reads registered workers and join grants.
 	Workers() WorkerReader
+	// Questions reads questions, decisions, and a workspace's added categories.
+	Questions() QuestionReader
+	// Search returns lexical candidates, best first.
+	Search(query SearchQuery) ([]SearchHit, error)
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
@@ -94,6 +99,12 @@ type WriteTx interface {
 	Planning() PlanningWriter
 	// Workers reads and writes registered workers and join grants.
 	Workers() WorkerWriter
+	// Questions reads and writes questions, decisions, and added categories.
+	Questions() QuestionWriter
+	// Search returns lexical candidates, best first.
+	Search(query SearchQuery) ([]SearchHit, error)
+	// Index keeps one record's text for search, replacing what it held.
+	Index(kind, id, text string) error
 }
 
 // WorkOrderReader reads the work order projection.
@@ -270,6 +281,68 @@ type PlanningWriter interface {
 	InsertDependency(planning.Dependency) error
 	// SaveBinding creates or replaces a binding.
 	SaveBinding(planning.SourceBinding) error
+}
+
+// MaxRecords bounds one search or filter, so a broad one stays a short transaction.
+const MaxRecords = 500
+
+// SearchQuery asks for lexical candidates among some kinds of record. A question that is
+// resolved and a decision that was overturned or replaced are not candidates.
+type SearchQuery struct {
+	Text  string
+	Kinds []string
+	Limit int
+}
+
+// SearchHit is one candidate. A higher score is a better match within one search, and a
+// score means nothing across two.
+type SearchHit struct {
+	Kind     string
+	RecordID string
+	Score    float64
+}
+
+// RecordFilter narrows questions or decisions. An empty field does not filter, and Text
+// orders the result by rank.
+type RecordFilter struct {
+	Category string
+	Status   string
+	Scope    string
+	Text     string
+	Limit    int
+}
+
+// QuestionReader reads questions, decisions, and a workspace's added categories.
+type QuestionReader interface {
+	// Question returns one question, or ErrNotFound.
+	Question(id string) (questions.Question, error)
+	// Questions returns the questions a filter selects.
+	Questions(filter RecordFilter) ([]questions.Question, error)
+	// ByHash returns the questions with one normalized text.
+	ByHash(hash string) ([]questions.Question, error)
+	// Attachments returns one question's lanes, or every attachment for an empty ID.
+	Attachments(question string) ([]questions.Attachment, error)
+	// Decision returns one decision, or ErrNotFound.
+	Decision(id string) (questions.Decision, error)
+	// Decisions returns the decisions a filter selects.
+	Decisions(filter RecordFilter) ([]questions.Decision, error)
+	// Categories returns the categories this workspace added.
+	Categories() ([]string, error)
+}
+
+// QuestionWriter writes questions, decisions, and added categories.
+type QuestionWriter interface {
+	QuestionReader
+	// Insert adds a new question.
+	Insert(questions.Question) error
+	// Save replaces what can change on a question.
+	Save(questions.Question) error
+	// Attach joins a lane to a question and reports whether it was new.
+	Attach(questions.Attachment) (bool, error)
+	// InsertDecision adds a decision.
+	InsertDecision(questions.Decision) error
+	// AddCategory adds a category and reports whether it was new.
+	AddCategory(name string) (bool, error)
 }
 
 // WorkerReader reads the worker plane's records.

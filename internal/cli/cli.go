@@ -42,6 +42,18 @@ const usage = `usage: ropeshift <command>
   plan show <id>                                     show a plan, its goal, contracts, and work
   requirement list                                   list requirements
   requirement get <key>                              show one requirement's newest version
+  question list [--category C] [--status S] [--scope S] [--text T]
+                                                     find questions
+  question show <id>                                 show one question
+  question record --text T [--category C]... [flags] record a question as it is
+  question dismiss <id>                              close a question with no answer
+  decision list [--category C] [--status S] [--scope S] [--text T]
+                                                     find decisions
+  decision show <id>                                 show one decision
+  decision record --statement S [flags]              record a decision
+  category list                                      list the workspace's categories
+  category add <name>                                add a category
+  search <words> [--kind K]... [--limit N]           rank candidates for a question
   document list                                      list documents, each with its digest
   document show <path> [--version V]                 show one document
   document versions <path>                           list one document's versions
@@ -66,7 +78,8 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 // IsCommand reports a first word this package handles.
 func IsCommand(word string) bool {
 	switch word {
-	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document":
+	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
+		"question", "decision", "category", "search":
 		return true
 	}
 	return false
@@ -94,6 +107,10 @@ type invocation struct {
 // name.
 func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor}
+	if len(args) > 0 && args[0] == "search" {
+		base.name = args[0]
+		return base.search(args[1:])
+	}
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usage)
 		return ExitUsage
@@ -114,6 +131,15 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"document list":     (*invocation).documentList,
 		"document show":     (*invocation).documentShow,
 		"document versions": (*invocation).documentVersions,
+		"question list":     (*invocation).questionList,
+		"question show":     (*invocation).questionShow,
+		"question record":   (*invocation).questionRecord,
+		"question dismiss":  (*invocation).questionDismiss,
+		"decision list":     (*invocation).decisionList,
+		"decision show":     (*invocation).decisionShow,
+		"decision record":   (*invocation).decisionRecord,
+		"category list":     (*invocation).categoryList,
+		"category add":      (*invocation).categoryAdd,
 		"lane start":        (*invocation).laneStart,
 		"lane reset":        (*invocation).laneReset,
 		"lane archive":      (*invocation).laneArchive,

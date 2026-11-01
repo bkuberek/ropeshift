@@ -14,6 +14,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -38,6 +39,8 @@ type Config struct {
 	HeartbeatMs int64
 	// Knowledge is where documents are read from.
 	Knowledge []ports.KnowledgeSource
+	// Matcher produces candidates for the question ladder.
+	Matcher ports.Matcher
 }
 
 type handler struct {
@@ -45,6 +48,7 @@ type handler struct {
 	workOrders *control.WorkOrders
 	leases     *control.Leases
 	reviews    *control.Reviews
+	questions  *control.Questions
 	workers    *control.Workers
 	fleet      *control.Fleet
 }
@@ -56,6 +60,7 @@ func New(config Config) http.Handler {
 		workOrders: control.NewWorkOrders(config.Store),
 		leases:     control.NewLeases(config.Store),
 		reviews:    control.NewReviews(config.Store),
+		questions:  control.NewQuestions(config.Store),
 		fleet:      control.NewFleet(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL,
@@ -64,6 +69,7 @@ func New(config Config) http.Handler {
 	mux := http.NewServeMux()
 	h.workerRoutes(mux)
 	h.planningRoutes(mux)
+	h.questionRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.createWorkOrder)
@@ -121,7 +127,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, workorders.ErrForbidden):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: err.Error()})

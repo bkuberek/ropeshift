@@ -18,8 +18,14 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// migrationFiles are neutral: every database runs them. A change only one database can
+// express goes in dialectFiles, under a version the neutral files leave free.
+//
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
+
+//go:embed dialect_migrations/*.sql
+var dialectFiles embed.FS
 
 // busyMillis is how long a writer queues for the write lock. A transaction stays
 // short (R17), so a wait this long means something stopped inside one.
@@ -40,14 +46,44 @@ func (Dialect) ClockSQL() string {
 	return "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)"
 }
 
-// Migrations reads the embedded schema files.
-func (Dialect) Migrations() ([]sqlstore.Migration, error) {
-	return Migrations()
+// MatchSQL ranks with bm25, which returns lower for a better match.
+func (Dialect) MatchSQL() string {
+	return `SELECT d.workspace_id, d.kind, d.record_id, -bm25(search_fts) AS score
+  FROM search_fts
+  JOIN search_documents d ON d.rowid = search_fts.rowid
+ WHERE search_fts MATCH :query`
 }
 
-// Migrations lists the embedded schema files, in version order.
-func Migrations() ([]sqlstore.Migration, error) {
-	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
+// MatchQuery quotes each term, so a term is always a word and never an operator.
+func (Dialect) MatchQuery(terms []string) string {
+	quoted := make([]string, len(terms))
+	for i, term := range terms {
+		quoted[i] = `"` + term + `"`
+	}
+	return strings.Join(quoted, " OR ")
+}
+
+// Migrations reads the neutral schema and SQLite's own.
+func (Dialect) Migrations() ([]sqlstore.Migration, error) {
+	neutral, err := NeutralMigrations()
+	if err != nil {
+		return nil, err
+	}
+	own, err := ReadMigrations(dialectFiles, "dialect_migrations/*.sql")
+	if err != nil {
+		return nil, err
+	}
+	return sqlstore.MergeMigrations(neutral, own)
+}
+
+// NeutralMigrations lists the schema every database runs, in version order.
+func NeutralMigrations() ([]sqlstore.Migration, error) {
+	return ReadMigrations(migrationFiles, "migrations/*.sql")
+}
+
+// ReadMigrations lists the schema files a pattern names.
+func ReadMigrations(files fs.FS, pattern string) ([]sqlstore.Migration, error) {
+	names, err := fs.Glob(files, pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +99,7 @@ func Migrations() ([]sqlstore.Migration, error) {
 		if err != nil {
 			return nil, fmt.Errorf("migration %s: %w", name, err)
 		}
-		text, err := migrationFiles.ReadFile(name)
+		text, err := fs.ReadFile(files, name)
 		if err != nil {
 			return nil, err
 		}

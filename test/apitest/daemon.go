@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/lexical"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/api"
@@ -106,7 +107,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	}
 	handler := server.New(server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
-		Knowledge: options.Knowledge,
+		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store},
 	})
 	if options.Wrap != nil {
 		handler = options.Wrap(handler)

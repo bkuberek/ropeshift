@@ -68,9 +68,13 @@ func TestSchemaShape(t *testing.T) {
 // in _ref holds a reference, which is what NFR-SEC-4 asks for.
 var secretColumn = regexp.MustCompile(`(?i)(secret|password|passphrase|token|credential|api_?key)`)
 
+// searchIndexTables are FTS5's own, which index search_documents and hold no record.
+const searchIndexTables = "search_fts%"
+
 func checkSchemaShape(t *testing.T, db *sql.DB) {
 	t.Helper()
-	tables, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+	tables, err := db.Query(`SELECT name FROM sqlite_master
+ WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE ?1`, searchIndexTables)
 	if err != nil {
 		t.Fatal(err)
 	}

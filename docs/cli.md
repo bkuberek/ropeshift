@@ -20,6 +20,16 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift plan show <id>` | Shows one plan with its goal, each contract's newest version, and their work orders |
 | `ropeshift requirement list` | Lists each requirement's newest version |
 | `ropeshift requirement get <key>` | Shows one requirement's newest version, by the key a contract names |
+| `ropeshift question list [--category C] [--status S] [--scope S] [--text T]` | Finds questions. `--scope` names what a question is about, and `--text` ranks the best match first |
+| `ropeshift question show <id>` | Shows one question |
+| `ropeshift question record --text T [--category C]... [--subject ID] [--subject-kind K] [--blocking]` | Records a question as it is, in `open`. Categories come from `category list` |
+| `ropeshift question dismiss <id>` | Closes a question with no answer. It stays on record |
+| `ropeshift decision list [--category C] [--status S] [--scope S] [--text T]` | Finds decisions, and an overturned decision stays findable |
+| `ropeshift decision show <id>` | Shows one decision |
+| `ropeshift decision record --statement S [--rationale R] [--scope S] [--category C]... [--citation C]... [--reversibility R] [--question Q] [--assumed]` | Records a decision, or with `--assumed` a reversible assumption |
+| `ropeshift category list` | Lists the workspace's categories: the built-in ones and those it added |
+| `ropeshift category add <name>` | Adds a category. A name is lowercase words joined by hyphens, and a category cannot be removed |
+| `ropeshift search <words> [--kind K]... [--limit N]` | Ranks candidates for a question among decisions, requirements, contracts, and open questions. A score orders one search and means nothing else: a person or an agent judges a match |
 | `ropeshift document list` | Lists the Markdown documents of every source, at the commit intake reads |
 | `ropeshift document show <path> [--version V] [--instance I]` | Prints one document. `--version` names an earlier version, and `--instance` names the repository when two hold the path |
 | `ropeshift document versions <path> [--instance I]` | Lists the versions of one document, newest first |

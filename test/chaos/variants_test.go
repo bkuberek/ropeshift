@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
@@ -312,6 +313,47 @@ func (p pinsStarted) Poll(ctx context.Context, scope ledger.WorkspaceID, source 
 			}
 		}
 		return nil
+	})
+}
+
+// splitIndex records a question in one transaction and its search text in another, so a
+// kill between them leaves a question no search can find.
+type splitIndex struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitIndex) RecordQuestion(ctx context.Context, scope ledger.WorkspaceID, draft questions.Question, actor ledger.Actor) (questions.Question, error) {
+	record, err := questions.New(draft)
+	if err != nil {
+		return questions.Question{}, err
+	}
+	recorded := false
+	err = s.store.Write(ctx, scope, "question.record", func(tx ports.WriteTx) error {
+		if _, err := tx.Questions().Question(record.ID); err == nil {
+			recorded = true
+			return nil
+		}
+		if err := tx.Questions().Insert(record); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventQuestionChanged, questions.SubjectQuestion, record.ID, record, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil || recorded {
+		return record, err
+	}
+	crashpoint.Hit("question.record", "split")
+	return record, s.store.Write(ctx, scope, "question.record", func(tx ports.WriteTx) error {
+		if err := tx.Index(questions.KindQuestion, record.ID, record.Text); err != nil {
+			return err
+		}
+		_, err := tx.Append(noteEvent(actor))
+		return err
 	})
 }
 
@@ -658,6 +700,50 @@ func allVariants() []variant {
 			sabotage: sqlstore.Sabotage{Rewrite: replace("requirement.latest",
 				"SELECT id, version, requirement_key, text, source, digest", "SELECT id, version, requirement_key, text, source, 'stale'")},
 			check: "I20",
+		},
+		{
+			name: "search has no workspace scope",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("search.ranked",
+				"m.workspace_id = :workspace_id", "(:workspace_id = :workspace_id)")},
+			check: "Q4",
+		},
+		{
+			name: "a question search has no workspace scope",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.search",
+				"q.workspace_id = :workspace_id", "(:workspace_id = :workspace_id)")},
+			check: "Q4",
+		},
+		{
+			name: "search ranks the worse match first",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("search.ranked",
+				"ORDER BY m.score DESC", "ORDER BY m.score ASC")},
+			check: "Q2",
+		},
+		{
+			name: "search reads a kind nobody asked for",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("search.ranked",
+				"CAST(:kinds AS TEXT) LIKE '%,' || m.kind || ',%'", "CAST(:kinds AS TEXT) <> ''")},
+			check: "Q3",
+		},
+		{
+			name: "an overturned decision stays a candidate",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("search.ranked",
+				"d.status IN ('overturned', 'replaced')", "d.status IN ('nothing')")},
+			check: "Q5",
+		},
+		{
+			name: "a resolved question stays a candidate",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("search.ranked",
+				"q.status IN ('answered', 'dismissed')", "q.status IN ('nothing')")},
+			check: "Q5",
+		},
+		{
+			name: "a question and its search text in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitIndex{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return recordQuestionCase("split"), "split" },
 		},
 		{
 			name: "the definition of ready sees no dependency",

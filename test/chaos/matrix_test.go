@@ -19,6 +19,8 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
 )
@@ -137,6 +139,9 @@ func crashMatrix() []crashCase {
 		repinCase("repinned"),
 		reviewCase(),
 		sendBackCase(),
+		recordQuestionCase("indexed"),
+		recordDecisionCase(),
+		addCategoryCase(),
 		recordCase(),
 		workerStartCase(),
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
@@ -602,6 +607,71 @@ func sendBackCase() crashCase {
 				return err
 			}
 			return hasState(w, spec.WorkOrder, workorders.Planning)
+		},
+	}
+}
+
+// findable proves a record reached search as well as its table.
+func findable(w *world, kind, id string) error {
+	var hits []ports.SearchHit
+	err := w.store.Read(w.rig.Ctx, w.rig.Scope, func(tx ports.ReadTx) error {
+		var err error
+		hits, err = tx.Search(ports.SearchQuery{Text: "retry budget", Kinds: []string{kind}})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if len(hits) != 1 || hits[0].RecordID != id {
+		return contract.Violatedf("search found %+v, want %s", hits, id)
+	}
+	return nil
+}
+
+func recordQuestionCase(step string) crashCase {
+	return crashCase{
+		name:  "record a question",
+		op:    "question.record",
+		steps: withSteps(step),
+		prepare: func(w *world) (childSpec, error) {
+			return childSpec{Role: "record-question", Key: w.rig.ID("q")}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, questions.EventQuestionChanged, spec.Key, 1); err != nil {
+				return err
+			}
+			return findable(w, questions.KindQuestion, spec.Key)
+		},
+	}
+}
+
+func recordDecisionCase() crashCase {
+	return crashCase{
+		name:  "record a decision",
+		op:    "decision.record",
+		steps: withSteps("indexed"),
+		prepare: func(w *world) (childSpec, error) {
+			return childSpec{Role: "record-decision", Key: w.rig.ID("d")}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := countEvents(w, questions.EventDecisionRecorded, spec.Key, 1); err != nil {
+				return err
+			}
+			return findable(w, questions.KindDecision, spec.Key)
+		},
+	}
+}
+
+func addCategoryCase() crashCase {
+	return crashCase{
+		name:  "add a category",
+		op:    "category.add",
+		steps: withSteps(),
+		prepare: func(*world) (childSpec, error) {
+			return childSpec{Role: "add-category", Key: "pricing"}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			return countEvents(w, questions.EventCategoryAdded, spec.Key, 1)
 		},
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/clock"
 	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
 	"ropeshift.dev/ropeshift/internal/adapters/hookrun"
+	"ropeshift.dev/ropeshift/internal/adapters/lexical"
 	"ropeshift.dev/ropeshift/internal/adapters/machine"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
@@ -183,7 +184,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	httpServer := &http.Server{
 		Handler: server.New(server.Config{
 			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
-			Knowledge: soloKnowledge(opts),
+			Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -484,3 +484,33 @@ func TestOnlyAStatusReadTouchesASignIn(t *testing.T) {
 		t.Error("the doctor runs something other than the status read")
 	}
 }
+
+// networkPackages are what a package needs to reach a model or anything else off the machine.
+var networkPackages = []string{"net", "net/http", "crypto/tls"}
+
+func reachesNetwork(deps []string) []string {
+	var found []string
+	for _, dep := range deps {
+		if slices.Contains(networkPackages, dep) {
+			found = append(found, dep)
+		}
+	}
+	return found
+}
+
+// TestLexicalMatchingNeedsNoNetwork holds ADR-0007's default install: a question finds its
+// candidates with no model and no network, so the import closure cannot hold a way out.
+func TestLexicalMatchingNeedsNoNetwork(t *testing.T) {
+	command := exec.Command("go", "list", "-deps", "./internal/adapters/lexical", "./internal/questions")
+	command.Dir = repoRoot(t)
+	out, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found := reachesNetwork(strings.Fields(string(out))); len(found) != 0 {
+		t.Errorf("the lexical matcher reaches %v", found)
+	}
+	if len(reachesNetwork([]string{"strings", "net/http"})) != 1 {
+		t.Error("the rule cannot fail")
+	}
+}

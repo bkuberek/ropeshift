@@ -13,6 +13,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
 )
@@ -35,6 +36,9 @@ var childRoles = map[string]func(*child) error{
 	"intake-version":    roleIntakeVersion,
 	"intake-files":      roleIntakeFiles,
 	"send-back":         roleSendBack,
+	"record-question":   roleRecordQuestion,
+	"record-decision":   roleRecordDecision,
+	"add-category":      roleAddCategory,
 	"review-pass":       roleReviewPass,
 	"record-work":       roleRecordWork,
 	"worker-upload":     roleWorkerUpload,
@@ -99,6 +103,21 @@ func roleSendBack(c *child) error {
 		return err
 	}
 	return nil
+}
+
+func roleRecordQuestion(c *child) error {
+	_, err := c.ops.RecordQuestion(c.ctx, c.scope, questions.Question{ID: c.spec.Key, Text: "What is the retry budget?"}, c.member())
+	return err
+}
+
+func roleRecordDecision(c *child) error {
+	draft := questions.Decision{ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "The retry budget is three calls."}
+	_, err := c.ops.RecordDecision(c.ctx, c.scope, draft, c.member())
+	return err
+}
+
+func roleAddCategory(c *child) error {
+	return c.ops.AddCategory(c.ctx, c.scope, c.spec.Key, c.member())
 }
 
 func roleReviewPass(c *child) error {

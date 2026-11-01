@@ -26,7 +26,7 @@ type Statement struct {
 func Statements(dialect Dialect) []Statement {
 	out := make([]Statement, 0, len(every)+1)
 	for _, st := range every {
-		out = append(out, Statement{Name: st.name, Text: compile(st.text, dialect.Placeholder).text})
+		out = append(out, Statement{Name: st.name, Text: compile(expandMatch(st.text, dialect), dialect.Placeholder).text})
 	}
 	return append(out, Statement{Name: StatementReadClock, Text: dialect.ClockSQL()})
 }

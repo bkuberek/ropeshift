@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -417,6 +419,9 @@ func (w planningWriter) requirement(requirement planning.Requirement) error {
 	if err := w.tx.Planning().InsertRequirement(requirement); err != nil {
 		return err
 	}
+	if err := w.tx.Index(questions.KindRequirement, requirement.ID, requirement.Key+" "+requirement.Text); err != nil {
+		return err
+	}
 	return w.append(planning.EventRequirementVersion, planning.SubjectRequirement, requirement.ID, requirement)
 }
 
@@ -424,7 +429,19 @@ func (w planningWriter) contract(contract planning.Contract) error {
 	if err := w.tx.Planning().InsertContract(contract); err != nil {
 		return err
 	}
+	if err := w.tx.Index(questions.KindContract, contract.ID, contractText(contract)); err != nil {
+		return err
+	}
 	return w.append(planning.EventContractVersion, planning.SubjectContract, contract.ID, contract)
+}
+
+// contractText is what search reads of a contract, at its newest version.
+func contractText(contract planning.Contract) string {
+	parts := []string{contract.Title, contract.Statement}
+	for _, criterion := range contract.Criteria {
+		parts = append(parts, criterion.Text)
+	}
+	return strings.Join(parts, " ")
 }
 
 func (w planningWriter) link(kind, id string, key ledger.ExternalKey) error {

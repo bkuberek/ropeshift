@@ -67,7 +67,7 @@ func (s *Store) prepared(text string) compiled {
 	if c, ok := s.compiled.Load(text); ok {
 		return c.(compiled)
 	}
-	c := compile(text, s.dialect.Placeholder)
+	c := compile(expandMatch(text, s.dialect), s.dialect.Placeholder)
 	s.compiled.Store(text, c)
 	return c
 }
@@ -184,8 +184,8 @@ func (s *Store) apply(ctx context.Context, m Migration) error {
 	return tx.Commit()
 }
 
-// splitStatements cuts a migration file at each statement end. A migration holds
-// no semicolon inside a statement.
+// splitStatements cuts a migration file at each statement end. The one statement that
+// holds a semicolon is a trigger, whose body runs to its END.
 func splitStatements(text string) []string {
 	var kept []string
 	for line := range strings.SplitSeq(text, "\n") {
@@ -194,8 +194,15 @@ func splitStatements(text string) []string {
 		}
 	}
 	var out []string
+	open := ""
 	for part := range strings.SplitSeq(strings.Join(kept, "\n"), ";") {
-		if statement := strings.TrimSpace(part); statement != "" {
+		statement := strings.TrimSpace(open + part)
+		if strings.HasPrefix(statement, "CREATE TRIGGER") && !strings.HasSuffix(statement, "END") {
+			open = statement + ";"
+			continue
+		}
+		open = ""
+		if statement != "" {
 			out = append(out, statement)
 		}
 	}

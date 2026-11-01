@@ -1,6 +1,7 @@
 package sqlstore
 
 import (
+	"slices"
 	"strconv"
 	"testing"
 )
@@ -51,5 +52,27 @@ func TestBindRefusesAMissingName(t *testing.T) {
 	}
 	if args[0] != 1 || args[1] != 2 {
 		t.Errorf("args %v", args)
+	}
+}
+
+func TestSplitStatements(t *testing.T) {
+	text := `-- A comment; with a mark.
+CREATE TABLE a (id TEXT);
+
+CREATE TRIGGER a_insert AFTER INSERT ON a BEGIN
+  INSERT INTO b VALUES (new.id);
+  INSERT INTO c VALUES (new.id);
+END;
+
+CREATE INDEX a_id ON a (id);
+`
+	got := splitStatements(text)
+	want := []string{
+		"CREATE TABLE a (id TEXT)",
+		"CREATE TRIGGER a_insert AFTER INSERT ON a BEGIN\n  INSERT INTO b VALUES (new.id);\n  INSERT INTO c VALUES (new.id);\nEND",
+		"CREATE INDEX a_id ON a (id)",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q", got)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -103,6 +104,10 @@ type Ops interface {
 	Pass(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (control.ReviewResult, error)
 	Promote(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 	SendBack(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) error
+	RecordQuestion(ctx context.Context, scope ledger.WorkspaceID, draft questions.Question, actor ledger.Actor) (questions.Question, error)
+	RecordDecision(ctx context.Context, scope ledger.WorkspaceID, draft questions.Decision, actor ledger.Actor) (questions.Decision, error)
+	Dismiss(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) error
+	AddCategory(ctx context.Context, scope ledger.WorkspaceID, name string, actor ledger.Actor) error
 }
 
 type realOps struct {
@@ -110,11 +115,15 @@ type realOps struct {
 	*control.Leases
 	*control.Intake
 	*control.Reviews
+	*control.Questions
 }
 
 // RealOps are the production use cases.
 func RealOps(store ports.Store) Ops {
-	return realOps{control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store)}
+	return realOps{
+		control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
+		control.NewQuestions(store),
+	}
 }
 
 // NewRig prepares a rig on a fresh database.

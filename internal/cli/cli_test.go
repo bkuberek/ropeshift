@@ -20,6 +20,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/contract"
@@ -399,5 +400,65 @@ func TestDocumentCommands(t *testing.T) {
 	}
 	if code, _, _ := s.run("document", "show", "absent.md"); code != cli.ExitNotFound {
 		t.Errorf("exit %d", code)
+	}
+}
+
+func TestQuestionCommands(t *testing.T) {
+	s := newSession(t)
+	s.must("category", "add", "pricing")
+	if text := s.must("category", "list"); !strings.Contains(text, "pricing") || !strings.Contains(text, "security") {
+		t.Errorf("categories %q", text)
+	}
+	s.must("question", "record", "--id", "q1", "--text", "What is the retry budget?", "--category", "pricing", "--subject", "alpha")
+	s.must("question", "record", "--id", "q2", "--text", "Where does audit data live?", "--category", "data")
+	for _, tt := range []struct {
+		args []string
+		want string
+		not  string
+	}{
+		{[]string{"--category", "pricing"}, "q1", "q2"},
+		{[]string{"--status", "open", "--scope", "alpha"}, "q1", "q2"},
+		{[]string{"--text", "audit"}, "q2", "q1"},
+	} {
+		text := s.must(append([]string{"question", "list"}, tt.args...)...)
+		if !strings.Contains(text, tt.want) || strings.Contains(text, tt.not) {
+			t.Errorf("%v: %q", tt.args, text)
+		}
+	}
+	var want, got questions.Question
+	want, err := s.daemon.Client.Question(t.Context(), "q1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(s.must("question", "show", "q1", "--json")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the CLI printed %+v, and the API holds %+v", got, want)
+	}
+	s.must("question", "dismiss", "q2")
+	if code, _, _ := s.run("question", "record", "--id", "q3", "--text", "A", "--category", "unknown"); code != cli.ExitUsage {
+		t.Errorf("an unknown category: exit %d", code)
+	}
+	if code, _, _ := s.run("question", "show", "absent"); code != cli.ExitNotFound {
+		t.Errorf("exit %d", code)
+	}
+}
+
+func TestDecisionAndSearchCommands(t *testing.T) {
+	s := newSession(t)
+	s.must("decision", "record", "--id", "d1", "--statement", "The retry budget is three calls.", "--rationale", "It follows.",
+		"--scope", "checkout", "--category", "product", "--citation", "PAY-12", "--reversibility", "reversible")
+	if text := s.must("decision", "list", "--scope", "checkout", "--text", "retry"); !strings.Contains(text, "d1") {
+		t.Errorf("list %q", text)
+	}
+	if text := s.must("decision", "show", "d1"); !strings.Contains(text, "three calls") {
+		t.Errorf("show %q", text)
+	}
+	if text := s.must("search", "retry", "budget", "--kind", "decision"); !strings.Contains(text, "d1") {
+		t.Errorf("search %q", text)
+	}
+	if code, _, _ := s.run("decision", "record", "--id", "d2"); code != cli.ExitUsage {
+		t.Errorf("no statement: exit %d", code)
 	}
 }
