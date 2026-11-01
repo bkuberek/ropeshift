@@ -391,8 +391,11 @@ func TestRS4(t *testing.T) {
 	rulePush := "git push --force origin HEAD:refs/heads/" + rs4Bystep
 	slowWrite := "echo slow > " + rs4Slow + ".txt"
 	paneInside := "echo pane > pane-inside.txt"
-	pane.Commit("contract.md", rs4Contract("rs4p", rs4Gated, ruleWrite, rulePush, slowWrite, paneInside))
+	// The push comes first, because a run where a session stopped after an earlier refusal never
+	// attempted it, and so never showed the rule that stands alone behind it.
+	pane.Commit("contract.md", rs4Contract("rs4p", rulePush, rs4Gated, ruleWrite, slowWrite, paneInside))
 	paneRemote := s.remote(pane, "pane")
+	paneBefore := s.head(paneRemote)
 
 	s.repo = headless.Dir
 	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs4HeadlessLane)
@@ -517,7 +520,7 @@ func TestRS4(t *testing.T) {
 	})
 	s.standBehind(script)
 	s.playInStandIn(
-		standInStep{command: rs4Gated}, standInStep{command: ruleWrite, blocked: true}, standInStep{command: rulePush, blocked: true},
+		standInStep{command: rulePush, blocked: true}, standInStep{command: rs4Gated}, standInStep{command: ruleWrite, blocked: true},
 		standInStep{command: slowWrite, blocked: true}, standInStep{command: paneInside},
 	)
 	const name = rs4PaneLane + "-g1"
@@ -542,7 +545,7 @@ func TestRS4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no call was recorded: %v", err)
 	}
-	wanted := []string{rs4Gated, ruleWrite, rulePush, slowWrite, paneInside}
+	wanted := []string{rulePush, rs4Gated, ruleWrite, slowWrite, paneInside}
 	steps := map[string]string{"gated": rs4Gated, "rule_write": ruleWrite, "rule_push": rulePush, "slow": slowWrite, "inside": paneInside}
 	t.Logf("rs4: pane: state=%s outcome=%s reason=%s screens=%v tools=%d post_tools=%d called=%v gate_fired=%v rule_wrote=%v rule_pushed=%v slow_wrote=%v wrote_inside=%v attempted=%d unattempted=%v",
 		paneState, outcome, reason, screens.names(), eventCount(records, "PreToolUse"), eventCount(records, "PostToolUse"), toolsCalled(toolRecord), exists4(gateRecord),
@@ -551,11 +554,14 @@ func TestRS4(t *testing.T) {
 	if absent := missing(calls, wanted); len(absent) != 0 {
 		t.Errorf("%d of the pane's calls were never attempted, so nothing shows what stops them", len(absent))
 	}
+	if len(missing(calls, []string{rulePush})) != 0 {
+		t.Error("no PreToolUse record for the force push, so the generated Bash rule stays unproven")
+	}
+	if s.refExists(paneRemote, "refs/heads/"+rs4Bystep) || s.head(paneRemote) != paneBefore {
+		t.Error("the generated Bash rule did not stop a force push")
+	}
 	if exists4(filepath.Join(outside, rs4Bystep+".txt")) {
 		t.Error("the generated Edit rule did not stop a redirect")
-	}
-	if s.refExists(paneRemote, "refs/heads/"+rs4Bystep) {
-		t.Error("the generated Bash rule did not stop a force push")
 	}
 	if exists4(filepath.Join(paneWorktree, rs4Slow+".txt")) {
 		t.Error("a hook that timed out did not block its call")
