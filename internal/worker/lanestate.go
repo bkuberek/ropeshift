@@ -185,8 +185,8 @@ func (r *laneRun) settleBrief(ctx context.Context) {
 func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 	r.settleBrief(ctx)
 	liveness := lanes.LivenessUnknown
-	if r.handle.ID != "" {
-		observation, err := r.rt.Driver.Observe(ctx, r.handle)
+	if handle := r.sessionHandle(); handle.ID != "" {
+		observation, err := r.rt.Driver.Observe(ctx, handle)
 		if err == nil {
 			liveness = observation.Liveness
 		}

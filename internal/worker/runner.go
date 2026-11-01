@@ -50,8 +50,11 @@ type laneRun struct {
 	rt         *LaneRuntime
 	lease      ledger.DesiredLease
 	generation int64
-	handle     ports.SessionHandle
 	model      string
+
+	// handleLock guards the handle, because a heartbeat reads it while a start writes it.
+	handleLock sync.Mutex
+	handle     ports.SessionHandle
 
 	profileDigest string
 	version       string
@@ -75,6 +78,19 @@ func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration,
 		state: newLaneState(lanes.Pending, w.clock.Now()),
 	}
+}
+
+// sessionHandle returns the current session, which is empty before a start.
+func (r *laneRun) sessionHandle() ports.SessionHandle {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.handle
+}
+
+func (r *laneRun) setHandle(handle ports.SessionHandle) {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	r.handle = handle
 }
 
 // startRun runs one lane apart, so one stuck lane stops no other.
@@ -208,7 +224,8 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run := newRun(w, ledger.DesiredLease{
 		WorkOrder: record.WorkOrder, ClaimID: record.ClaimID, Fence: record.Fence, Lane: record.ID,
 	})
-	run.generation, run.handle = record.Generation, located.Handle
+	run.generation = record.Generation
+	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
 	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
 	run.state = newLaneState(record.Actual, w.clock.Now())
@@ -225,7 +242,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // adopt reads a session this process did not start, from where the journal says the
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
-	err := r.rt.Driver.Adopt(ctx, r.handle, ports.AdoptFrom{
+	err := r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
 		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost,
 	})
 	if err != nil {
@@ -233,7 +250,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		return r.finish(ctx, r.unattended(ctx))
 	}
 	crashpoint.Hit("worker.lane", "adopted")
-	events, err := r.rt.Driver.Events(ctx, r.handle)
+	events, err := r.rt.Driver.Events(ctx, r.sessionHandle())
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its session: %w", r.lease.Lane, err))
 		return r.finish(ctx, r.unattended(ctx))
@@ -300,8 +317,8 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	spawn := lanes.NewEffect(lanes.EffectSession, r.lease.Lane, r.generation, prepared.Worktree.Path, "")
 	ran, err := r.w.bracket(ctx, spawn, func() error {
-		var err error
-		r.handle, err = r.rt.Driver.Start(ctx, spec)
+		handle, err := r.rt.Driver.Start(ctx, spec)
+		r.setHandle(handle)
 		return err
 	})
 	if err != nil {
@@ -312,7 +329,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	crashpoint.Hit("worker.lane", "spawned")
 	r.signal(ctx, lanes.OnDriverReady)
-	events, err := r.rt.Driver.Events(ctx, r.handle)
+	events, err := r.rt.Driver.Events(ctx, r.sessionHandle())
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -445,7 +462,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 	if !r.nudged {
 		r.nudged = true
 		ran, err := r.w.bracket(ctx, r.nudge(), func() error {
-			_, err := r.rt.Driver.Send(ctx, r.handle, ports.Input{Text: lanes.Nudge})
+			_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: lanes.Nudge})
 			return err
 		})
 		if ran && err == nil {
@@ -497,7 +514,7 @@ func (r *laneRun) stop(ctx context.Context, how ports.StopMode) {
 		r.stopped.Go(func() {
 			ctx := context.WithoutCancel(ctx)
 			effect := lanes.NewEffect(lanes.EffectStop, r.lease.Lane, r.generation, "", "")
-			_, err := r.w.bracket(ctx, effect, func() error { return r.rt.Driver.Stop(ctx, r.handle, how) })
+			_, err := r.w.bracket(ctx, effect, func() error { return r.rt.Driver.Stop(ctx, r.sessionHandle(), how) })
 			if err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: stop: %w", r.lease.Lane, err))
 			}

@@ -328,3 +328,35 @@ func TestAdoptionKeepsTheLanesState(t *testing.T) {
 		t.Errorf("adoption moved the lane to %s", got)
 	}
 }
+
+// TestPublishReadsWhileASessionStarts holds the read a heartbeat makes against the write
+// a start makes, with no order between them. It has meaning under the race detector.
+func TestPublishReadsWhileASessionStarts(t *testing.T) {
+	for range 40 {
+		r := laneRigWith(t, "")
+		r.driver.Play(script([]fake.DriverStep{{Bound: true}}))
+		reading := make(chan struct{})
+		stop := make(chan struct{})
+		go func() {
+			defer close(reading)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					if err := r.subject.Publish(t.Context()); err != nil {
+						t.Error(err)
+						return
+					}
+				}
+			}
+		}()
+		if _, err := r.subject.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		r.driver.StopEverySession()
+		r.subject.Wait()
+		close(stop)
+		<-reading
+	}
+}
