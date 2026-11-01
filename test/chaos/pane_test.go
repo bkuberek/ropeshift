@@ -224,8 +224,10 @@ func (r *paneRun) state(id string) workorders.State {
 	return row.State
 }
 
+// settled says a lane will do no more by itself. A start no check could read parks, because a
+// person has to look.
 func settled(state workorders.State) bool {
-	return state == workorders.Acceptance || state == workorders.Blocked || state == workorders.Failed
+	return state == workorders.Acceptance || state == workorders.Blocked || state == workorders.Failed || state == workorders.Parked
 }
 
 func (r *paneRun) sessions() int {
