@@ -10,12 +10,9 @@
     ],
     [
       {"init": true},
-      {"hook": "PreToolUse", "input": {
-        "tool_name": "AskUserQuestion", "tool_use_id": "toolu_rs5",
-        "tool_input": {"questions": [{"question": "rs5 headless question", "options": [{"label": "One"}, {"label": "Two"}]}]}
-      }},
-      {"emit": {"type": "result", "subtype": "success", "is_error": false, "stop_reason": "tool_deferred", "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}},
-      {"hold": true}
+      {"mcp": "ask", "arguments": {"text": "rs5 headless question"}},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "stand-in", "passed": true}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
     ]
   ]
 }

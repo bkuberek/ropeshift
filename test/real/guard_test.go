@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/test/doubles"
 )
 
@@ -730,6 +731,30 @@ func TestHookRefusalsAreCountedByClass(t *testing.T) {
 	got := refusals(stream)
 	if got["hook"] != 1 || got["rule"] != 1 || got["other"] != 1 {
 		t.Errorf("refusals %v", got)
+	}
+}
+
+func TestInitOfAHeadlessLaneOffersNoQuestionTool(t *testing.T) {
+	const lane = "rs5-headless"
+	tests := []struct {
+		name   string
+		tools  []string
+		asked  questions.Question
+		found  bool
+		failed int
+	}{
+		{name: "the lane reached ask, and no tool was offered", tools: []string{"mcp__ropeshift__ask"}, asked: questions.Question{AskedBy: lane}, found: true},
+		{name: "the question tool was offered", tools: []string{lanes.ToolQuestion}, asked: questions.Question{AskedBy: lane}, found: true, failed: 1},
+		{name: "the lane never reached ask", failed: 1},
+		{name: "another lane asked", asked: questions.Question{AskedBy: "another"}, found: true, failed: 1},
+		{name: "offered, and never asked", tools: []string{lanes.ToolQuestion}, failed: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := headlessAskFailures(initLine{Tools: tt.tools}, tt.asked, tt.found, lane); len(got) != tt.failed {
+				t.Errorf("failures %v, want %d", got, tt.failed)
+			}
+		})
 	}
 }
 

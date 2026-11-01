@@ -32,7 +32,7 @@ const (
 	// rs5Turns is what --max-turns allows a lane, and rs5Charge what a lane is charged.
 	rs5Turns  = 5
 	rs5Charge = 5
-	// rs5EndLimit bounds the end of a deferred session, and rs5EndPoll how often it is read.
+	// rs5EndLimit bounds the end of a session a suite stopped, and rs5EndPoll how often it is read.
 	rs5EndLimit = 10 * time.Second
 	rs5EndPoll  = 200 * time.Millisecond
 )
@@ -109,19 +109,6 @@ func (s *suite) questionNamed(text string) (questions.Question, bool) {
 	return questions.Question{}, false
 }
 
-// startRS5Lane reviews, claims, and starts one work order. It does not wait for an outcome,
-// because a deferred turn ends with none.
-func (s *suite) startRS5Lane(id, lane string) {
-	s.t.Helper()
-	var workers api.WorkerList
-	if err := json.Unmarshal(s.cli("worker", "list", "--json"), &workers); err != nil {
-		s.t.Fatal(err)
-	}
-	s.cli("work", "review", id)
-	s.cli("work", "claim", id, "--worker", workers.Workers[0].ID)
-	s.cli("lane", "start", id, "--lane", lane)
-}
-
 // endSession stops what a shim started, by the exact IDs its state file recorded at the start,
 // and reports whether both ended. An ID is signaled only while the process holding it names
 // this suite's scratch path, because an ID outlives its process.
@@ -150,19 +137,6 @@ func (s *suite) shimState(lane string) (shimlink.State, error) {
 	return shimlink.ReadState(filepath.Join(s.paths.StateDir, "lanes", lane, "shim-1"))
 }
 
-// endDeferred stops a session whose turn ended with a deferred call. Nothing parks it until a
-// later unit, and a shim outlives its daemon.
-func (s *suite) endDeferred(lane string) {
-	s.t.Helper()
-	state, err := s.shimState(lane)
-	if err != nil {
-		s.t.Fatal(err)
-	}
-	if !s.endSession(state) {
-		s.t.Errorf("the deferred session of %s outlasted its signal", lane)
-	}
-}
-
 // reapLanes ends, when a suite stops early, the headless sessions its lanes left behind. A shim
 // outlives its daemon, and the IDs that name its session go with the scratch directory, so
 // nothing could stop them afterward. Register it before the daemons, so it runs after them.
@@ -181,10 +155,26 @@ func (s *suite) reapLanes(names ...string) {
 	})
 }
 
-// TestRS5 runs a real session at each path `AskUserQuestion` can take, which the matrix lists
-// as documented only. On a headless lane the hook returns `defer`, the turn ends with
-// `tool_deferred`, and the question reaches the ledger. In a pane the hook denies, the denial
-// names `ask`, and the session asks there.
+// headlessAskFailures names what a headless half failed to show. `-p` offers `AskUserQuestion`
+// only with a permission host, and the driver passes none, so the tool must be missing from the
+// session's init, and the question must reach the ledger through the lane's `ask`.
+func headlessAskFailures(init initLine, asked questions.Question, found bool, lane string) []string {
+	var failures []string
+	if slices.Contains(init.Tools, lanes.ToolQuestion) {
+		failures = append(failures, "a headless lane was offered "+lanes.ToolQuestion)
+	}
+	if !found {
+		failures = append(failures, "the lane did not reach "+lanes.ToolAsk)
+	} else if asked.AskedBy != lane {
+		failures = append(failures, "the question came from "+asked.AskedBy)
+	}
+	return failures
+}
+
+// TestRS5 runs a real session at each path a lane's question can take. On a headless lane `-p`
+// offers no `AskUserQuestion` without a permission host, so the session has only `ask`, and the
+// question reaches the ledger there. In a pane the tool is offered, the hook denies it, the
+// denial names `ask`, and the session asks there.
 func TestRS5(t *testing.T) {
 	s := start(t, "rs5")
 	t.Cleanup(s.killTerminal)
@@ -194,8 +184,8 @@ func TestRS5(t *testing.T) {
 
 	headless := gittest.NewIn(t, s.subdirectory("h"))
 	headless.Commit(".ropeshift/profile.toml", rs5Profile(lanes.ProfileRunHeadless))
-	headless.Commit("contract.md", rs5Contract("rs5h", "Call the AskUserQuestion tool once, with one question, in exactly these words: "+rs5HeadlessQuestion+
-		". Offer the options one and two. Then end your turn with the single word done."))
+	headless.Commit("contract.md", rs5Contract("rs5h", "Call the ask tool once, with this question, in exactly these words: "+rs5HeadlessQuestion+
+		". Then call the lane_report tool once, with outcome completed, and end your turn with the single word done."))
 
 	pane := gittest.NewIn(t, s.subdirectory("p"))
 	pane.Commit(".ropeshift/profile.toml", rs5Profile(lanes.ProfileRunTmux))
@@ -227,20 +217,9 @@ func TestRS5(t *testing.T) {
 		}
 		return len(workers.Workers) == 1 && workers.Workers[0].Epoch >= 1
 	})
-	s.startRS5Lane(id, rs5HeadlessLane)
-	// A lane that ends with no question has shown what it can show, so the pane still runs.
-	settled := map[workorders.State]bool{
-		workorders.Acceptance: true, workorders.Blocked: true, workorders.Failed: true, workorders.Ready: true,
-	}
-	var deferred questions.Question
-	s.poll(first.stop, "the deferred question or the end of the lane", func() bool {
-		s.checkStream(first.stop)
-		var found bool
-		deferred, found = s.questionNamed(rs5HeadlessQuestion)
-		return found || settled[s.workOrder(id).State]
-	})
+	headlessState := s.awaitLane(first, id, rs5HeadlessLane, func() { s.checkStream(first.stop) })
+	reached, found := s.questionNamed(rs5HeadlessQuestion)
 	first.stop()
-	s.endDeferred(rs5HeadlessLane)
 	stream, err := os.ReadFile(s.stream)
 	if err != nil {
 		t.Fatal(err)
@@ -253,15 +232,11 @@ func TestRS5(t *testing.T) {
 		t.Fatalf("STOP: the lane's init: %v", err)
 	}
 	headlessOutcome, headlessReason := s.outcomeOf(id)
-	endedDeferred := strings.Contains(string(stream), "tool_deferred")
-	t.Logf("rs5: headless: version=%s tool_offered=%v status=%s blocking=%v options=%d subject=%s asked_by=%s turn_ended_deferred=%v outcome=%s reason=%s",
-		init.Version, slices.Contains(init.Tools, lanes.ToolQuestion), deferred.Status, deferred.Blocking, len(deferred.Options), deferred.SubjectKind,
-		deferred.AskedBy, endedDeferred, headlessOutcome, headlessReason)
-	if !deferred.Blocking || deferred.SubjectID != id {
-		t.Errorf("the deferred question reads %+v", deferred)
-	}
-	if !endedDeferred {
-		t.Error("the stream holds no tool_deferred, so defer did not end the turn")
+	t.Logf("rs5: headless: version=%s tool_offered=%v state=%s outcome=%s reason=%s reached_ask=%v status=%s asked_by=%s",
+		init.Version, slices.Contains(init.Tools, lanes.ToolQuestion), headlessState, headlessOutcome, headlessReason, found, reached.Status, reached.AskedBy)
+	// A lane that shows neither has still left the pane its own half to run.
+	for _, failure := range headlessAskFailures(init, reached, found, rs5HeadlessLane) {
+		t.Error(failure)
 	}
 
 	s.repo = pane.Dir
