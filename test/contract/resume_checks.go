@@ -35,8 +35,14 @@ var ResumeChecks = []Check{
 	{"R15", "a retried resume returns the generation it already started", checkContinueRepeats},
 }
 
+// checkResumeWork parks two lanes, because a word that named no work order would still find the
+// one lane there is. Only the lane of the named work order may wake.
 func checkResumeWork(r *Rig) error {
 	s, _, err := parkedOn(r, true)
+	if err != nil {
+		return err
+	}
+	bystander, _, err := parkedOn(r, true)
 	if err != nil {
 		return err
 	}
@@ -60,12 +66,22 @@ func checkResumeWork(r *Rig) error {
 	if row.State != workorders.Ready || row.ResumeLaneID != s.lane {
 		return Violatedf("row %+v", row)
 	}
+	other, err := r.WorkOrder(s.store, bystander.grant.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if other.State != workorders.Parked {
+		return Violatedf("a word to one work order moved another: %+v", other)
+	}
 	if _, err := ops.ResumeWork(r.Ctx, r.Scope, id, r.Actor); !errors.Is(err, workorders.ErrIllegalMove) {
 		return Violatedf("a word to a lane that is not parked: %v", err)
 	}
 	return nil
 }
 
+// checkContinueRepeats retries a resume by both roads. The use case goes straight to the
+// transaction, and a new event of a worker that lost the answer does too, because only an event
+// it already stored is found by its ID.
 func checkContinueRepeats(r *Rig) error {
 	s, err := wokenOn(r, true)
 	if err != nil {
@@ -77,14 +93,17 @@ func checkContinueRepeats(r *Rig) error {
 	}
 	holder := workorders.Holder{Lease: grant.Lease, Lane: s.lane, Generation: 1}
 	ops := r.NewOps(s.store)
-	for range 2 {
+	for attempt := range 2 {
 		next, err := ops.ContinueLane(r.Ctx, r.Scope, holder, ledger.StartResume, r.Actor)
 		if err != nil {
-			return err
+			return Violatedf("attempt %d of a resume: %v", attempt, err)
 		}
 		if next != 2 {
 			return Violatedf("generation %d", next)
 		}
+	}
+	if err := accepted(s.resumeUpload(grant, 2, ledger.StartResume)); err != nil {
+		return err
 	}
 	generations, err := s.generations()
 	if err != nil {
@@ -475,7 +494,9 @@ func checkDesiredResume(r *Rig) error {
 		return err
 	}
 	r.DB.ShiftClock(5000)
-	if _, err := s.claim(); err != nil {
+	if _, err := s.claim(); errors.Is(err, workorders.ErrIneligible) {
+		return Violatedf("the worker the lane parked on cannot take it back: %v", err)
+	} else if err != nil {
 		return err
 	}
 	state, err := s.desired()
@@ -532,6 +553,9 @@ func checkLastResponse(r *Rig) error {
 	return nil
 }
 
+// checkResumeFences holds the fence and the generation apart, because each guards a write the
+// other lets through: the last claim naming the new generation stops only on its fence, and the
+// new claim naming the last generation stops only on its generation.
 func checkResumeFences(r *Rig) error {
 	s, err := wokenOn(r, true)
 	if err != nil {
@@ -545,14 +569,18 @@ func checkResumeFences(r *Rig) error {
 	if err := accepted(s.resumeUpload(grant, 2, ledger.StartResume)); err != nil {
 		return err
 	}
-	s.grant = old
-	reply, err := s.uploadAt(1, ledger.UploadAdmissionHeld, nil)
-	if err := refusedOnly(reply, err, ledger.UploadFenced); err != nil {
-		return err
+	writes := []struct {
+		grant      workorders.Grant
+		generation int64
+	}{{old, 1}, {old, 2}, {grant, 1}}
+	for _, write := range writes {
+		s.grant = write.grant
+		reply, err := s.uploadAt(write.generation, ledger.UploadAdmissionHeld, nil)
+		if err := refusedOnly(reply, err, ledger.UploadFenced); err != nil {
+			return err
+		}
 	}
-	s.grant = grant
-	reply, err = s.uploadAt(1, ledger.UploadAdmissionHeld, nil)
-	return refusedOnly(reply, err, ledger.UploadFenced)
+	return nil
 }
 
 func checkResumeTwice(r *Rig) error {
@@ -608,6 +636,9 @@ func checkResumeTwice(r *Rig) error {
 	return r.CheckWakes(s.store)
 }
 
+// checkResumeOthers holds a resume to the claim that took the lane. A claim nobody holds finds no
+// row, but the other two are real claims that the lease guard would pass, so only the resume's
+// own check stops them, and the lane must still be waiting afterwards.
 func checkResumeOthers(r *Rig) error {
 	s, err := wokenOn(r, true)
 	if err != nil {
@@ -620,11 +651,37 @@ func checkResumeOthers(r *Rig) error {
 	stale := grant
 	stale.ClaimID = "not-this-claim"
 	reply, err := s.resumeUpload(stale, 2, ledger.StartResume)
+	if err := refusedOnly(reply, err, ledger.UploadInvalid); err != nil {
+		return err
+	}
+	stranger, err := strangerOf(s)
 	if err != nil {
 		return err
 	}
-	if len(reply.Rejected) != 1 {
-		return Violatedf("a resume under a claim nobody holds: %+v", reply)
+	reply, err = stranger.resumeUpload(grant, 2, ledger.StartResume)
+	if err := refusedOnly(reply, err, ledger.UploadInvalid); err != nil {
+		return Violatedf("another worker's resume: %v", err)
+	}
+	lane := s.lane
+	s.lane = r.ID("another-lane")
+	reply, err = s.resumeUpload(grant, 2, ledger.StartResume)
+	s.lane = lane
+	if err := refusedOnly(reply, err, ledger.UploadInvalid); err != nil {
+		return Violatedf("a claim on another lane: %v", err)
+	}
+	row, err := r.WorkOrder(s.store, grant.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if row.State != workorders.Claimed || row.ResumeLaneID != s.lane {
+		return Violatedf("a refused resume moved the work order: %+v", row)
+	}
+	generations, err := s.generations()
+	if err != nil {
+		return err
+	}
+	if len(generations) != 1 {
+		return Violatedf("a refused resume started a generation: %+v", generations)
 	}
 	return nil
 }

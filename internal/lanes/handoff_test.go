@@ -3,8 +3,11 @@ package lanes_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -101,15 +104,33 @@ func TestSealingTwiceGivesOneDigest(t *testing.T) {
 	}
 }
 
+// A reader that kept only what a seal validates would seal to the same bytes as a stub that
+// never read at all, so the reading itself is held to the document, field by field, and to the
+// bytes of the one fixture no code here wrote.
 func TestADocumentReadsBack(t *testing.T) {
-	body, _ := sealed(t, document())
+	want := document()
+	body, _ := sealed(t, want)
 	read, err := lanes.ReadHandoff([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !reflect.DeepEqual(read, want) {
+		t.Errorf("read back as %+v, want %+v", read, want)
+	}
+	stored, err := os.ReadFile(filepath.Join("testdata", "handoff-full.golden"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := lanes.ReadHandoff(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fixture, want) {
+		t.Errorf("the fixture reads as %+v, want %+v", fixture, want)
+	}
 	again, _ := sealed(t, read)
 	if again != body {
-		t.Errorf("read back as %s", again)
+		t.Errorf("sealed again as %s", again)
 	}
 }
 
@@ -167,21 +188,39 @@ func TestANarrativeIsReadOrRefused(t *testing.T) {
 	}
 }
 
-// An absent statement means the handoff does not carry the next step (D11).
+// An absent statement means the handoff does not carry the next step (D11). Each statement is
+// held to what it says, because a parser that always answered false would pass the absent case,
+// and a document must state the answer it took, whichever way it fell.
 func TestAnAbsentStatementReadsAsFalse(t *testing.T) {
-	read, err := lanes.ParseNarrative([]byte(`{"next_steps":["c"]}`))
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"absent", `{"next_steps":["c"]}`, false},
+		{"false", `{"next_steps":["c"],"carries_next_step":false}`, false},
+		{"true", `{"next_steps":["c"],"carries_next_step":true}`, true},
 	}
-	if read.CarriesNextStep {
-		t.Error("an absent statement read as true")
-	}
-	raw, err := json.Marshal(read)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), `"carries_next_step":false`) {
-		t.Errorf("the statement was not written: %s", raw)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			read, err := lanes.ParseNarrative([]byte(tt.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read.CarriesNextStep != tt.want {
+				t.Errorf("read as %v", read.CarriesNextStep)
+			}
+			if !slices.Equal(read.NextSteps, []string{"c"}) {
+				t.Errorf("the rest of the narrative was not read: %+v", read)
+			}
+			raw, err := json.Marshal(read)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := fmt.Sprintf(`"carries_next_step":%v`, tt.want); !strings.Contains(string(raw), want) {
+				t.Errorf("the statement was not written: %s", raw)
+			}
+		})
 	}
 }
 

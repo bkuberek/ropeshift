@@ -22,3 +22,12 @@ func keepsNextEval() bool { return false }
 
 // keepsWakesOpen is false: ending a lane retires its wake.
 func keepsWakesOpen() bool { return false }
+
+// resumesAnyClaim is false: a lane resumes only under its own worker's claim on it.
+func resumesAnyClaim() bool { return false }
+
+// refusesResumeRetry is false: a retried resume returns the generation it started.
+func refusesResumeRetry() bool { return false }
+
+// refusesParkedRepeat is false: a repeated parked commit is done.
+func refusesParkedRepeat() bool { return false }

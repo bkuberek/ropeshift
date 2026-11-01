@@ -17,6 +17,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -329,6 +330,79 @@ func resumeVariants() []variant {
 		{
 			name:     "a claim that drops the lane's own layer",
 			sabotage: sqlstore.Sabotage{Rewrite: replace("claim.record", ":lane, :overrides", ":lane, ''")}, check: "R2",
+		},
+		{
+			name:     "a claim on woken work that runs no lane",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("claim.record", ":lane, :overrides", "'', :overrides")}, check: "R1",
+		},
+		{
+			name:     "a claim that forgets the lane it woke",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.grant", "SET state = 'claimed',", "SET state = 'claimed', resume_lane_id = NULL,")}, check: "R1",
+		},
+		{
+			name:     "work a claim took is still offered",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("work_order.woken", "AND state = 'ready'", "AND state IN ('ready', 'claimed')")}, check: "R1",
+		},
+		{
+			name:     "a generation that says one reason for every start",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("generation.start", ":start_reason, :handoff_in", "'resume', :handoff_in")}, check: "R3",
+		},
+		{
+			name:     "a resume that leaves its work order claimed",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.start", "SET state = 'running', resume_lane_id = NULL", "SET resume_lane_id = NULL")}, check: "R3",
+		},
+		{
+			name:     "a resume that rewrites how the last generation ended",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("generation.end", " AND ended_at IS NULL", "")}, check: "R3",
+		},
+		{
+			name:     "a released claim forgets the lane to resume",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.release", "SET state = 'ready',", "SET state = 'ready', resume_lane_id = NULL,")}, check: "R5",
+		},
+		{
+			name:     "a checkpoint that forgets what was in progress",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("checkpoint.insert", ":handoff_artifact_id, :pending_instruction, :now", ":handoff_artifact_id, '', :now")}, check: "R9",
+		},
+		{
+			name:     "a resume that names no worker",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lane.mark_parked", "resume_worker = :worker", "resume_worker = ''")}, check: "R9",
+		},
+		{
+			name:     "a resume that reads no document",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("handoff.find", "AND generation = :generation", "AND generation = :generation AND 1 = 0")}, check: "R9",
+		},
+		{
+			name:     "a resume with no cache clock",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("generation.responded", "last_response_at = :now", "last_response_at = NULL")}, check: "R9",
+		},
+		{
+			name: "a resume that leaves the last generation writing",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lane.generation",
+				"SELECT current_generation FROM lanes", "SELECT 1 FROM lanes")},
+			check: "R11",
+		},
+		{
+			name:     "a resume that leaves the last claim writing",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.guard", "\n   AND fence = :fence", "")}, check: "R11",
+		},
+		{
+			name:     "a second parking an old word wakes",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("wake.signaled", " AND rev > :after", " AND rev > 0 * :after")}, check: "R12",
+		},
+		{name: "a resume under any claim", control: control.Sabotage{ResumesAnyClaim: true}, check: "R13"},
+		{name: "a retried resume refused", control: control.Sabotage{RefusesResumeRetry: true}, check: "R15"},
+		{name: "a repeated parked commit refused", control: control.Sabotage{RefusesParkedRepeat: true}, check: "P6"},
+		{
+			name:     "a parked commit that keeps the fence",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("lease.park", "\n       fence = fence + 1,", "")}, check: "P9",
+		},
+		{
+			name:     "a wake that names no lane on its work order",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("wake.move", ", resume_lane_id = :lane_id", "")}, check: "P9",
+		},
+		{
+			name:     "an answer that reads no wake",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("wake.open", "AND fired_at IS NULL", "AND 1 = 0")}, check: "P9",
 		},
 	}
 }

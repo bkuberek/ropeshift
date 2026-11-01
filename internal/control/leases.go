@@ -800,7 +800,8 @@ func resumedAlready(tx ports.WriteTx, holder workorders.Holder) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if current.State == workorders.Running && current.Fence == holder.Fence && current.ClaimID == holder.ClaimID && generation == holder.Generation+1 {
+	repeat := current.State == workorders.Running && current.Fence == holder.Fence && current.ClaimID == holder.ClaimID && generation == holder.Generation+1
+	if repeat && !refusesResumeRetry() {
 		return generation, nil
 	}
 	return 0, workorders.Reject(current, holder.Lease)
@@ -813,7 +814,7 @@ func resumeUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp f
 	if err != nil {
 		return err
 	}
-	if claim.Worker != worker || claim.Lane != e.Lane {
+	if (claim.Worker != worker || claim.Lane != e.Lane) && !resumesAnyClaim() {
 		return fmt.Errorf("%w: claim %s does not run lane %s here", workorders.ErrInvalid, e.ClaimID, e.Lane)
 	}
 	holder := workorders.Holder{

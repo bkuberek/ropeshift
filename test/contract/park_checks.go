@@ -231,32 +231,106 @@ func checkParkedAfterLapse(r *Rig) error {
 	return r.ExpectParked(s.store, ParkRequest{Holder: workorders.Holder{Lease: s.grant.Lease}})
 }
 
+// checkParkedRepeat sends a parked commit again by each road a retry can take. The same event is
+// found by its ID and never reaches the commit, so that road alone proves nothing about the
+// commit. A new event and the use case both reach it, and only the ended claim can tell them
+// from a stranger. The first commit fired the wake, so a repeat has a fired wake to fire again.
 func checkParkedRepeat(r *Rig) error {
-	s, wake, err := parkingOn(r, `{"human_resume":true}`)
+	question, err := r.Asked(r.Store())
 	if err != nil {
+		return err
+	}
+	s, wake, err := parkingOn(r, askedTerm(question))
+	if err != nil {
+		return err
+	}
+	if _, err := r.answer(s.store, question, "Twice."); err != nil {
 		return err
 	}
 	if err := accepted(s.parkedUpload(wake, true)); err != nil {
 		return err
 	}
-	s.seq--
-	if err := accepted(s.parkedUpload(wake, true)); err != nil {
-		return Violatedf("the same event again: %v", err)
-	}
-	events, err := r.Events(s.store, r.Scope)
+	first, err := s.parkedFacts(wake)
 	if err != nil {
 		return err
 	}
-	parked := 0
-	for _, e := range events {
-		if e.Type == workorders.EventType(workorders.TriggerLaneParked) {
-			parked++
+	if first.parked != 1 || first.fired != 1 {
+		return Violatedf("the first commit left %+v", first)
+	}
+	retries := []struct {
+		name string
+		send func() error
+	}{
+		{"the same event", func() error {
+			s.seq--
+			return accepted(s.parkedUpload(wake, true))
+		}},
+		{"a new event", func() error { return accepted(s.parkedUpload(wake, true)) }},
+		{"the use case", func() error {
+			holder := workorders.Holder{Lease: s.grant.Lease, Lane: s.lane, Generation: 1}
+			fired, err := r.NewOps(s.store).CommitParked(r.Ctx, r.Scope, holder, PushedCommit(wake), r.worker("a"))
+			if err != nil {
+				return err
+			}
+			if fired != "" {
+				return Violatedf("a repeat fired %s", fired)
+			}
+			return nil
+		}},
+	}
+	for _, retry := range retries {
+		if err := retry.send(); err != nil {
+			return Violatedf("%s, after a lost answer: %v", retry.name, err)
+		}
+		after, err := s.parkedFacts(wake)
+		if err != nil {
+			return err
+		}
+		if after != first {
+			return Violatedf("%s stored something twice: %+v, then %+v", retry.name, first, after)
 		}
 	}
-	if parked != 1 {
-		return Violatedf("%d parked events", parked)
+	return r.CheckProjection(s.store)
+}
+
+// parkedFacts is what a parked commit stores once.
+type parkedFacts struct {
+	parked, fired int
+	fence, rev    int64
+	checkpointAt  int64
+	firedAt       int64
+}
+
+func (s *statusRig) parkedFacts(wake string) (parkedFacts, error) {
+	var out parkedFacts
+	events, err := s.r.Events(s.store, s.r.Scope)
+	if err != nil {
+		return out, err
 	}
-	return nil
+	for _, e := range events {
+		switch e.Type {
+		case workorders.EventType(workorders.TriggerLaneParked):
+			out.parked++
+		case workorders.EventType(workorders.TriggerWakeFired):
+			out.fired++
+		}
+	}
+	row, err := s.r.WorkOrder(s.store, s.grant.WorkOrder)
+	if err != nil {
+		return out, err
+	}
+	out.fence, out.rev = row.Fence, row.Rev
+	stored, err := s.wake(wake)
+	if err != nil {
+		return out, err
+	}
+	out.firedAt = stored.FiredAt
+	err = s.store.Read(s.r.Ctx, s.r.Scope, func(tx ports.ReadTx) error {
+		checkpoint, err := tx.Lanes().Checkpoint(s.lane, 1)
+		out.checkpointAt = checkpoint.CreatedAt
+		return err
+	})
+	return out, err
 }
 
 func checkParkingOthers(r *Rig) error {
@@ -347,6 +421,10 @@ func checkUploadAnswerRace(r *Rig) error {
 	return r.CheckWakes(parker)
 }
 
+// checkParkingReplays walks a lane through parking and back, and holds the log to each step: the
+// events alone must reach the row, and the row must be where that step leaves it. A log that
+// replays is not enough, because a step that did nothing replays too, so each step names what it
+// moved.
 func checkParkingReplays(r *Rig) error {
 	question, err := r.Asked(r.Store())
 	if err != nil {
@@ -356,15 +434,56 @@ func checkParkingReplays(r *Rig) error {
 	if err != nil {
 		return err
 	}
+	start := s.grant.Fence
+	if err := s.replaysTo("parking", workorders.Running, start, ""); err != nil {
+		return err
+	}
 	if err := accepted(s.parkedUpload(wake, false)); err != nil {
+		return err
+	}
+	if err := s.replaysTo("parked", workorders.Parked, start+1, ""); err != nil {
 		return err
 	}
 	answer := questions.Answer{DecisionID: r.ID("d"), Statement: "Twice.", Rationale: "It follows."}
 	if _, err := r.NewOps(s.store).Answer(r.Ctx, r.Scope, question, answer, r.Actor); err != nil {
 		return err
 	}
-	if err := r.CheckProjection(s.store); err != nil {
+	if err := s.replaysTo("woken", workorders.Ready, start+1, s.lane); err != nil {
+		return err
+	}
+	grant, err := s.claim()
+	if err != nil {
+		return err
+	}
+	if err := s.replaysTo("claimed", workorders.Claimed, start+2, s.lane); err != nil {
+		return err
+	}
+	if err := accepted(s.resumeUpload(grant, 2, ledger.StartResume)); err != nil {
+		return err
+	}
+	if err := s.replaysTo("resumed", workorders.Running, start+2, ""); err != nil {
 		return err
 	}
 	return r.CheckWakes(s.store)
+}
+
+// replaysTo reads a work order from its events alone, and holds it to where a step leaves it.
+func (s *statusRig) replaysTo(step string, state workorders.State, fence int64, resume string) error {
+	if err := s.r.CheckProjection(s.store); err != nil {
+		return Violatedf("%s: %v", step, err)
+	}
+	events, err := s.r.Events(s.store, s.r.Scope)
+	if err != nil {
+		return err
+	}
+	replayed, err := workorders.Replay(events)
+	if err != nil {
+		return err
+	}
+	row := replayed[s.grant.WorkOrder]
+	if row.State != state || row.Fence != fence || row.ResumeLaneID != resume {
+		return Violatedf("%s: the log reads %s at fence %d to resume %q, want %s at %d to resume %q",
+			step, row.State, row.Fence, row.ResumeLaneID, state, fence, resume)
+	}
+	return nil
 }

@@ -24,6 +24,12 @@ type Sabotage struct {
 	KeepsNextEval bool
 	// KeepsWakesOpen retires nothing when a lane ends.
 	KeepsWakesOpen bool
+	// ResumesAnyClaim starts a lane under a claim that is another worker's, or another lane's.
+	ResumesAnyClaim bool
+	// RefusesResumeRetry answers a retried resume as a stranger's, which a lost answer needs.
+	RefusesResumeRetry bool
+	// RefusesParkedRepeat answers a repeated parked commit as a stranger's.
+	RefusesParkedRepeat bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -51,3 +57,9 @@ func stopsOnUnreadable() bool { return current().UnreadableStops }
 func keepsNextEval() bool { return current().KeepsNextEval }
 
 func keepsWakesOpen() bool { return current().KeepsWakesOpen }
+
+func resumesAnyClaim() bool { return current().ResumesAnyClaim }
+
+func refusesResumeRetry() bool { return current().RefusesResumeRetry }
+
+func refusesParkedRepeat() bool { return current().RefusesParkedRepeat }

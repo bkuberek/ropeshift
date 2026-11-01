@@ -212,7 +212,7 @@ func parkedOrFenced(tx ports.WriteTx, holder workorders.Holder) error {
 	if err != nil {
 		return err
 	}
-	if claim.Ended() && claim.EndReason == workorders.EndParked {
+	if claim.Ended() && claim.EndReason == workorders.EndParked && !refusesParkedRepeat() {
 		return nil
 	}
 	current, err := tx.WorkOrders().Get(holder.WorkOrder)
