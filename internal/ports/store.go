@@ -7,6 +7,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -43,6 +44,10 @@ type Store interface {
 	// would otherwise wait for the workspace lock. A rejection reads the row in
 	// the same transaction and returns ErrExpired, ErrLapsed, or a FencedError.
 	Renew(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, ttlMs int64) error
+	// ScheduleWake says when the tick next reads an open wake, and zero says only an event can
+	// change its answer. Like Renew it takes no revision and appends no event: it runs after
+	// the transaction that evaluated, on one row, and it only schedules (FR-PARK-5).
+	ScheduleWake(ctx context.Context, scope ledger.WorkspaceID, id string, nextEvalAt int64) error
 	// Close releases the database.
 	Close() error
 }
@@ -75,6 +80,8 @@ type ReadTx interface {
 	Measures() MeasureReader
 	// Evidence reads what stays linked to a work order for its acceptance.
 	Evidence() EvidenceReader
+	// Wakes reads wake conditions and signals.
+	Wakes() WakeReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -119,6 +126,8 @@ type WriteTx interface {
 	Measures() MeasureWriter
 	// Evidence reads and writes what stays linked to a work order for its acceptance.
 	Evidence() EvidenceWriter
+	// Wakes reads and writes wake conditions and signals.
+	Wakes() WakeWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -182,6 +191,8 @@ type LeaseWriter interface {
 	Release(lease workorders.Lease) (bool, error)
 	// End closes a running lease by a lane's outcome, and moves the fence.
 	End(lease workorders.Lease, to workorders.State, attempts int64) (bool, error)
+	// Park releases a running lease with its process gone, and moves the fence.
+	Park(lease workorders.Lease) (bool, error)
 }
 
 // ClaimReader reads claims.
@@ -237,6 +248,10 @@ type LaneWriter interface {
 	Report(row ledger.LaneRow) error
 	// MarkEnded records a lane's end, which the ledger knows for itself.
 	MarkEnded(lane string) error
+	// MarkParking records that a lane began to park. An ended lane stays ended.
+	MarkParking(lane string) error
+	// MarkParked records that a lane parked, which the ledger knows for itself.
+	MarkParked(lane string) error
 	// Reset counts one human reset of a lane's breaker and returns the count.
 	Reset(lane string) (int64, error)
 	// Guarded keeps how a stop left a worktree. Work no remote holds withdraws a request
@@ -256,6 +271,38 @@ type LaneWriter interface {
 	EndGeneration(lane string, number int64, reason string) error
 	// SaveHandoff keeps one generation's handoff once, and names it on that generation.
 	SaveHandoff(record ledger.HandoffRecord) error
+}
+
+// WakeReader reads wake conditions and signals.
+type WakeReader interface {
+	// Get returns one wake, or ErrNotFound.
+	Get(id string) (parking.Wake, error)
+	// Open lists the wakes that have neither fired nor been retired. An event reads all of
+	// them, because an expression is opaque text and nothing maps a record to its wakes.
+	Open() ([]parking.Wake, error)
+	// All lists every wake.
+	All() ([]parking.Wake, error)
+	// Due lists the open wakes whose time has come. A tick reads this with no lock, so the
+	// guarded statements decide each one.
+	Due(now int64) ([]string, error)
+	// Signaled says a signal arrived after a revision.
+	Signaled(kind parking.Kind, key string, after int64) (bool, error)
+}
+
+// WakeWriter writes wake conditions and signals. Fire and MoveToReady are the two guards of a
+// firing, and each reports whether it matched a row.
+type WakeWriter interface {
+	WakeReader
+	// Insert stores a wake and reports whether it was new.
+	Insert(wake parking.Wake) (bool, error)
+	// Fire is the compare-and-set on `fired_at`.
+	Fire(id, cause string) (bool, error)
+	// MoveToReady is the compare-and-set on `parked`, and it names the lane to resume.
+	MoveToReady(workOrder, lane string) (bool, error)
+	// Retire closes what a work order's lanes left open, with no firing.
+	Retire(workOrder, cause string) error
+	// Signal records a fact under its event's revision.
+	Signal(signal parking.Signal, rev int64) error
 }
 
 // EvidenceReader reads what a work order's lanes left and what its checks said.

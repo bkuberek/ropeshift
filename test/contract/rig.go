@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -126,6 +127,13 @@ type Ops interface {
 	Rework(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) (workorders.State, error)
 	Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error)
 	Standing(ctx context.Context, scope ledger.WorkspaceID, id string) (workorders.AcceptanceView, error)
+	BeginParking(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, wake parking.Draft, actor ledger.Actor) error
+	CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, wake string, actor ledger.Actor) (string, error)
+	DueWakes(ctx context.Context, scope ledger.WorkspaceID) ([]string, error)
+	FireDue(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (bool, error)
+	WakeTick(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
+	Signal(ctx context.Context, scope ledger.WorkspaceID, signal parking.Signal, actor ledger.Actor) ([]string, error)
+	ResumeLane(ctx context.Context, scope ledger.WorkspaceID, lane string, actor ledger.Actor) ([]string, error)
 }
 
 type realOps struct {
@@ -136,6 +144,7 @@ type realOps struct {
 	*control.Reviews
 	*control.Questions
 	*control.Acceptances
+	*control.Wakes
 }
 
 // The limits a batch runs under here: a window long enough that a blocking question can
@@ -160,7 +169,7 @@ func RealOps(store ports.Store) Ops {
 	return realOps{
 		control.NewSessions(store, provenMember{}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
 		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
-		control.NewAcceptances(store),
+		control.NewAcceptances(store), control.NewWakes(store),
 	}
 }
 

@@ -71,7 +71,7 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		step := questions.Step{Rung: question.Rung, Candidates: record.Citations, Outcome: string(record.Status)}
 		question.LadderTrace = append(question.LadderTrace, step)
 		question.Status, question.DecisionID, question.ClaimedBy, question.ClaimUntil = questions.StatusAnswered, record.ID, "", 0
-		return saveQuestion(tx, question, actor)
+		return closeQuestion(tx, question, actor)
 	})
 	if err != nil {
 		return questions.Decision{}, err

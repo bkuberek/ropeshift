@@ -66,6 +66,7 @@ type soloOptions struct {
 	leaseTick  time.Duration
 	intakeTick time.Duration
 	batchTick  time.Duration
+	wakeTick   time.Duration
 	leaseTTL   time.Duration
 	heartbeat  time.Duration
 }
@@ -89,6 +90,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
+	flags.DurationVar(&opts.wakeTick, "wake-tick", time.Second, "how often due wakes are evaluated")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
 	if err := flags.Parse(args); err != nil {
@@ -448,6 +450,7 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 	intake := control.NewIntake(store)
 	reviews := control.NewReviews(store)
 	accepting := control.NewAcceptances(store)
+	wakes := control.NewWakes(store)
 	sources := make([]ports.WorkSource, 0, len(opts.sources))
 	for _, path := range opts.sources {
 		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
@@ -466,6 +469,14 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 			Every: opts.leaseTick,
 			Run: func(ctx context.Context) error {
 				_, err := leases.Sweep(ctx, soloScope, tickActor("lease-tick"))
+				return err
+			},
+		},
+		{
+			Name:  "wakes",
+			Every: opts.wakeTick,
+			Run: func(ctx context.Context) error {
+				_, err := wakes.WakeTick(ctx, soloScope, tickActor("wake-tick"))
 				return err
 			},
 		},

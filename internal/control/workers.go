@@ -668,7 +668,7 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 	if view.Generations, err = tx.Lanes().Generations(row.ID); err != nil {
 		return view, err
 	}
-	if row.Status.ActualState == ledger.StateEnded {
+	if row.Status.ActualState == ledger.StateEnded || row.Status.ActualState == ledger.StateParked {
 		view.Freshness = ledger.FreshnessObserved
 		return view, nil
 	}

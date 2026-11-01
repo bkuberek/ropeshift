@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -32,6 +33,8 @@ type variant struct {
 	name string
 	// sabotage breaks the adapter for this process.
 	sabotage sqlstore.Sabotage
+	// control breaks parking and waking for this process.
+	control control.Sabotage
 	// gitSabotage breaks the git adapter for this process.
 	gitSabotage gitcli.Sabotage
 	// ops replaces the use cases.
@@ -788,7 +791,7 @@ func allVariants() []variant {
 	noStateGuard := sqlstore.Sabotage{Rewrite: replace("lease.grant", stateGuard, "")}
 	noFencePredicate := sqlstore.Sabotage{Rewrite: replace("lease.guard", fenceGuard, "")}
 	memoryFences := sqlstore.Sabotage{Rewrite: fenceInMemory}
-	return append(handoffVariants(), []variant{
+	return append(slices.Concat(handoffVariants(), wakeVariants()), []variant{
 		{
 			name:     "revision taken last",
 			sabotage: sqlstore.Sabotage{RevisionLast: true},
@@ -1325,6 +1328,7 @@ func variantOps(name string, store ports.Store) (ports.Store, contract.Ops, erro
 		return nil, nil, fmt.Errorf("unknown variant %q", name)
 	}
 	sqlstore.Sabotaged(v.sabotage)
+	control.Sabotaged(v.control)
 	if v.wrap != nil {
 		store = v.wrap(store)
 	}
@@ -1372,6 +1376,8 @@ func runVariant(t *testing.T, v variant) error {
 		return checkSleep(newWorld(t, ""), false)
 	case "solo-sleep":
 		return checkSoloSleep(newWorld(t, ""), sqlstore.EnvCut+"="+sqlstore.OpRenew+"|"+deadlineGuard)
+	case "lifecycle":
+		return checkLostWake(newWorld(t, v.name))
 	case "random":
 		return runRandomVariant(t, v)
 	case "shim":
@@ -1394,6 +1400,8 @@ func runVariant(t *testing.T, v variant) error {
 	}
 	sqlstore.Sabotaged(v.sabotage)
 	defer sqlstore.Sabotaged(sqlstore.Sabotage{})
+	control.Sabotaged(v.control)
+	defer control.Sabotaged(control.Sabotage{})
 	rig := contract.NewRig(t, contract.SQLiteFile)
 	rig.Wrap = v.wrap
 	if v.ops != nil {

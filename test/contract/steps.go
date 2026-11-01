@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
 
@@ -16,6 +17,15 @@ const (
 	StepBefore   = "before"
 	StepGuarded  = "guarded"
 	StepEligible = "eligible"
+	// StepBeforeEval falls after a transaction's writes and before it reads a wake to evaluate.
+	StepBeforeEval = "before-eval"
+)
+
+// The operations a wake check holds at that step.
+const (
+	opParked = "lane.parked"
+	opAnswer = "question.answer"
+	opFire   = "wake.fire"
 )
 
 // Stepper is a Store handle that can report a named moment. A broken variant uses
@@ -52,6 +62,26 @@ type steppedTx struct {
 
 func (t steppedTx) Leases() ports.LeaseWriter {
 	return steppedLeases{LeaseWriter: t.WriteTx.Leases(), op: t.op, step: t.step}
+}
+
+func (t steppedTx) Wakes() ports.WakeWriter {
+	return steppedWakes{WakeWriter: t.WriteTx.Wakes(), op: t.op, step: t.step}
+}
+
+type steppedWakes struct {
+	ports.WakeWriter
+	op   string
+	step func(op, name string)
+}
+
+func (w steppedWakes) Open() ([]parking.Wake, error) {
+	w.step(w.op, StepBeforeEval)
+	return w.WakeWriter.Open()
+}
+
+func (w steppedWakes) Get(id string) (parking.Wake, error) {
+	w.step(w.op, StepBeforeEval)
+	return w.WakeWriter.Get(id)
 }
 
 type steppedLeases struct {

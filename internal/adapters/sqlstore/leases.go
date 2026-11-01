@@ -214,6 +214,25 @@ var (
    AND state = 'running'`)
 )
 
+// stmtParkLane releases a lease with its process gone. The fence moves here too, so the old
+// holder's token is stale at once.
+var stmtParkLane = define("lease.park",
+	`UPDATE work_orders
+   SET state = 'parked',
+       fence = fence + 1,
+       claim_id = NULL,
+       lease_worker = NULL,
+       lease_until = NULL
+ WHERE workspace_id = :workspace_id
+   AND id = :id
+   AND fence = :fence
+   AND claim_id = :claim_id
+   AND state = 'running'`)
+
+func (t leaseTx) Park(lease workorders.Lease) (bool, error) {
+	return t.matched(stmtParkLane, t.leaseParams(lease))
+}
+
 func (t leaseTx) End(lease workorders.Lease, to workorders.State, attempts int64) (bool, error) {
 	p := t.leaseParams(lease)
 	p["to_state"], p["attempts"] = string(to), attempts
@@ -396,6 +415,15 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
 	stmtLaneMarkEnded = define("lane.mark_ended",
 		`UPDATE lanes
    SET actual_state = 'ended', liveness = 'dead', reach_model = 'unknown', reach_ledger = 'unknown', reported_at = :now
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtLaneParking = define("lane.mark_parking",
+		`UPDATE lanes SET actual_state = 'parking', reported_at = :now
+ WHERE workspace_id = :workspace_id AND id = :id AND actual_state <> 'ended'`)
+
+	stmtLaneParked = define("lane.mark_parked",
+		`UPDATE lanes
+   SET actual_state = 'parked', liveness = 'dead', reach_model = 'unknown', reach_ledger = 'unknown', reported_at = :now
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtLaneGuarded = define("lane.guarded",
@@ -597,6 +625,24 @@ func (t laneTx) MarkEnded(lane string) error {
 		return err
 	}
 	_, err = t.exec(stmtLaneMarkEnded, params{"workspace_id": string(t.scope), "id": lane, "now": now})
+	return err
+}
+
+func (t laneTx) MarkParking(lane string) error {
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtLaneParking, params{"workspace_id": string(t.scope), "id": lane, "now": now})
+	return err
+}
+
+func (t laneTx) MarkParked(lane string) error {
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtLaneParked, params{"workspace_id": string(t.scope), "id": lane, "now": now})
 	return err
 }
 

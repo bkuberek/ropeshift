@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -152,7 +153,7 @@ func recordLedgerWork(tx ports.WriteTx, record workorders.WorkOrder, work Ledger
 // the state read, so a racing move loses instead of skipping an edge. The edges out of
 // `acceptance` answer to the evidence, so only Acceptances takes them.
 func (w *WorkOrders) Move(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, actor ledger.Actor) error {
-	if workorders.LeavesAcceptance(trigger) {
+	if workorders.LeavesAcceptance(trigger) || trigger == workorders.TriggerWakeFired {
 		return workorders.ErrForbidden
 	}
 	return w.store.Write(ctx, scope, "work_order.move", func(tx ports.WriteTx) error {
@@ -176,6 +177,11 @@ func takeEdge(tx ports.WriteTx, id string, trigger workorders.Trigger, actor led
 	}
 	if !won {
 		return workorders.ErrIllegalMove
+	}
+	if trigger == workorders.TriggerCanceled {
+		if err := retireWakes(tx, id, parking.RetiredCanceled); err != nil {
+			return err
+		}
 	}
 	event, err := workorders.ChangeEvent(workorders.EventType(trigger), id, workorders.Change{Trigger: trigger}, actor)
 	if err != nil {

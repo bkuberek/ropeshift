@@ -63,6 +63,9 @@ type LaneGuard struct {
 // StateEnded is a lane's last state, which the ledger records for itself.
 const StateEnded = "ended"
 
+// StateParked is a lane with no process, which the ledger also records for itself.
+const StateParked = "parked"
+
 // LaneStatus is what a worker says about a lane. Every field derives from what happened,
 // and no client of the API can write one (FR-LANE-5).
 type LaneStatus struct {

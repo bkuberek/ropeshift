@@ -8,6 +8,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -161,7 +162,19 @@ func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Ac
 	if err != nil {
 		return err
 	}
-	_, err = tx.Append(event)
+	if _, err := tx.Append(event); err != nil {
+		return err
+	}
+	_, err = fireWakes(tx, "decision:"+record.ID, actor, parking.DecisionRecorded)
+	return err
+}
+
+// closeQuestion saves a question an answer closed, and fires what waits on that answer.
+func closeQuestion(tx ports.WriteTx, record questions.Question, actor ledger.Actor) error {
+	if err := saveQuestion(tx, record, actor); err != nil {
+		return err
+	}
+	_, err := fireWakes(tx, "answer:"+record.ID, actor, parking.QuestionAnswered)
 	return err
 }
 

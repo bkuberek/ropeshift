@@ -165,6 +165,10 @@ const EventLaneRestarted = "work_order.lane_restarted"
 // EventLaneHandoff records a lane's next generation after a handoff, under the same claim.
 const EventLaneHandoff = "work_order.lane_handoff"
 
+// EventLaneParking records a lane beginning to park, which changes no state of the work
+// order: renewal keeps covering its lease until the process is gone.
+const EventLaneParking = "work_order.lane_parking"
+
 // EventGenerationBound records what a generation runs on, which changes no state.
 const EventGenerationBound = "work_order.generation_bound"
 
@@ -294,6 +298,13 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 		}
 		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
 		w.Attempts = change.Attempts
+	case TriggerLaneParked:
+		if change.Fence <= w.Fence {
+			return w, fmt.Errorf("%w: a lane parked at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
+		}
+		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
+	case TriggerWakeFired:
+		w.ResumeLaneID = change.Lane
 	case TriggerContractChange:
 		w.ReviewedBy = ""
 	}

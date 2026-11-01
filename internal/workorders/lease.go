@@ -104,6 +104,7 @@ func (c Claim) Ended() bool { return c.EndedAt != 0 }
 const (
 	EndReleased   = "released"
 	EndReassigned = "reassigned"
+	EndParked     = "parked"
 )
 
 // Reject turns a guarded statement's row count of 0 into an instruction, because

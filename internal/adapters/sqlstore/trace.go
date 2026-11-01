@@ -31,4 +31,5 @@ const (
 	StatementCreateWorkspace = "workspace.create"
 	StatementReadClock       = "clock.read"
 	OpRenew                  = "lease.renew"
+	OpWakeNextEval           = "wake.next_eval"
 )

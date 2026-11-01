@@ -310,7 +310,7 @@ func (q *Questions) Resolve(ctx context.Context, scope ledger.WorkspaceID, id, d
 		}
 		crashpoint.Hit("question.resolve", "answered")
 		record.Status, record.DecisionID, record.ClaimedBy, record.ClaimUntil = questions.StatusAnswered, decision, "", 0
-		return saveQuestion(tx, record, actor)
+		return closeQuestion(tx, record, actor)
 	})
 	if err != nil {
 		return questions.Question{}, err
@@ -368,7 +368,7 @@ func (q *Questions) Merge(ctx context.Context, scope ledger.WorkspaceID, id, int
 		}
 		crashpoint.Hit("question.merge", "moved")
 		record.Status, record.ClaimedBy, record.ClaimUntil = questions.StatusDismissed, "", 0
-		record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: "merged"})
+		record.LadderTrace = append(record.LadderTrace, questions.Step{Rung: questions.RungOpen, Candidates: []string{into}, Outcome: questions.OutcomeMerged})
 		if err := saveQuestion(tx, record, actor); err != nil {
 			return err
 		}

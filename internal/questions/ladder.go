@@ -3,6 +3,7 @@ package questions
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -71,6 +72,23 @@ func Gate(q Question) []GateFailure {
 		failed = append(failed, GateFailure{GateRecommendation, "no recommendation"})
 	}
 	return failed
+}
+
+// OutcomeMerged is the ladder step of a question closed in favor of one that stays.
+const OutcomeMerged = "merged"
+
+// MergedInto names the question that took this one's place, because whoever waits on this
+// one waits on that answer now.
+func (q Question) MergedInto() (string, bool) {
+	if q.Status != StatusDismissed {
+		return "", false
+	}
+	for _, step := range slices.Backward(q.LadderTrace) {
+		if step.Outcome == OutcomeMerged && len(step.Candidates) == 1 {
+			return step.Candidates[0], true
+		}
+	}
+	return "", false
 }
 
 // Ran reports a rung the ladder trace holds.

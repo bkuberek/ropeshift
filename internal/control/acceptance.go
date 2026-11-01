@@ -11,6 +11,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -122,7 +123,11 @@ func accept(tx ports.WriteTx, id string, assessment workorders.Assessment, actor
 	if err != nil {
 		return err
 	}
-	return leaveAcceptance(tx, id, workorders.Change{Trigger: workorders.TriggerAcceptancePassed, Payload: payload}, actor, moved)
+	if err := leaveAcceptance(tx, id, workorders.Change{Trigger: workorders.TriggerAcceptancePassed, Payload: payload}, actor, moved); err != nil {
+		return err
+	}
+	_, err = fireWakes(tx, "done:"+id, actor, parking.WorkOrderDone)
+	return err
 }
 
 // leaveAcceptance takes one edge out of `acceptance`. The compare-and-set repeats the state

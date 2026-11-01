@@ -3,15 +3,21 @@ package entry
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/control"
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/questions"
 )
 
@@ -110,6 +116,36 @@ func TestOneBinaryTwoNames(t *testing.T) {
 		if got.Command != want {
 			t.Errorf("started as %s, ran as %s", want, got.Command)
 		}
+	}
+}
+
+// A wake with a timer comes due with nothing to touch it, so the daemon has to run this tick.
+func TestTheDaemonRunsTheWakeTick(t *testing.T) {
+	opts, ok := parseSolo([]string{"--wake-tick", "250ms"}, io.Discard)
+	if !ok {
+		t.Fatal("the flag did not parse")
+	}
+	store, err := fake.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateWorkspace(t.Context(), ledger.Workspace{ID: soloScope}, tickActor("solo")); err != nil {
+		t.Fatal(err)
+	}
+	ticks := soloTicks(store, opts, questions.BatchPolicy{})
+	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "wakes" })
+	if at < 0 {
+		t.Fatalf("ticks %+v", ticks)
+	}
+	if ticks[at].Every != 250*time.Millisecond {
+		t.Errorf("every %v", ticks[at].Every)
+	}
+	if err := ticks[at].Run(t.Context()); err != nil {
+		t.Errorf("an empty tick: %v", err)
 	}
 }
 

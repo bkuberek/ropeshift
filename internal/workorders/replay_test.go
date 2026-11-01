@@ -53,7 +53,7 @@ func TestGeneratedEventSequences(t *testing.T) {
 			change := Change{Trigger: trigger, Fence: fence}
 			switch trigger {
 			case TriggerClaimGranted, TriggerClaimReleased, TriggerTakeover, TriggerLaneCompleted,
-				TriggerLaneBlocked, TriggerLaneFailedRetry, TriggerAttemptsExhausted:
+				TriggerLaneBlocked, TriggerLaneFailedRetry, TriggerAttemptsExhausted, TriggerLaneParked:
 				fence++
 				change.Fence = fence
 			}
@@ -70,11 +70,50 @@ func TestGeneratedEventSequences(t *testing.T) {
 	}
 }
 
+// A wake names the lane the next claim resumes, and a parked commit moves the fence.
+func TestAWokenWorkOrderReplaysWithItsLane(t *testing.T) {
+	events := []ledger.Event{createdEvent(t)}
+	rev := int64(2)
+	add := func(change Change) {
+		events = append(events, changeEvent(t, rev, change))
+		rev++
+	}
+	for _, trigger := range []Trigger{TriggerAccepted, TriggerContractSubmitted, TriggerReadyPassed} {
+		add(Change{Trigger: trigger})
+	}
+	add(Change{Trigger: TriggerClaimGranted, Fence: 1, ClaimID: "c1", Worker: "w"})
+	add(Change{Trigger: TriggerLaneStarted, Fence: 1})
+	add(Change{Trigger: TriggerLaneParked, Fence: 2})
+	add(Change{Trigger: TriggerWakeFired, Lane: "lane-1"})
+	book, err := Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := book[testID]
+	if got.State != Ready || got.ResumeLaneID != "lane-1" || got.Fence != 2 || got.ClaimID != "" || got.LeaseWorker != "" {
+		t.Errorf("replayed %+v", got)
+	}
+}
+
 func TestReplayRefusesWhatTheMachineForbids(t *testing.T) {
 	tests := []struct {
 		name   string
 		events func(t *testing.T) []ledger.Event
 	}{
+		{
+			name: "a parked commit that leaves the fence behind",
+			events: func(t *testing.T) []ledger.Event {
+				return []ledger.Event{
+					createdEvent(t),
+					changeEvent(t, 2, Change{Trigger: TriggerAccepted}),
+					changeEvent(t, 3, Change{Trigger: TriggerContractSubmitted}),
+					changeEvent(t, 4, Change{Trigger: TriggerReadyPassed}),
+					changeEvent(t, 5, Change{Trigger: TriggerClaimGranted, Fence: 1}),
+					changeEvent(t, 6, Change{Trigger: TriggerLaneStarted, Fence: 1}),
+					changeEvent(t, 7, Change{Trigger: TriggerLaneParked, Fence: 1}),
+				}
+			},
+		},
 		{
 			name: "an event before creation",
 			events: func(t *testing.T) []ledger.Event {

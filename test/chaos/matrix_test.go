@@ -167,7 +167,7 @@ func crashMatrix() []crashCase {
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
 		worktreeCase(),
-	}, slices.Concat(reconcileCases(), stopCases(), handoffCases())...)
+	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases())...)
 }
 
 const longTTL = int64(60_000)

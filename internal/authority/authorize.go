@@ -31,6 +31,8 @@ const (
 	ActionReassign        Action = "work_order.reassign"
 	ActionRecordDecision  Action = "decision.record"
 	ActionResetLane       Action = "lane.reset"
+	// ActionResumeLane is a person waking a parked lane, which no automatic step can do.
+	ActionResumeLane Action = "lane.resume"
 	// ActionRework sends completed work back for another attempt.
 	ActionRework        Action = "acceptance.rework"
 	ActionSendBack      Action = "review.send_back"
@@ -44,7 +46,7 @@ func Actions() []Action {
 		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAddCategory, ActionAnswerQuestion,
 		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
-		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRework, ActionSendBack,
+		ActionReassign, ActionRecordDecision, ActionResetLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSetPassphrase, ActionTakeQuestion,
 	}
 }

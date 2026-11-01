@@ -9,6 +9,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -381,6 +382,9 @@ func (l *Leases) Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrd
 		if err := tx.Claims().End(current.ClaimID, workorders.EndReassigned); err != nil {
 			return err
 		}
+		if err := retireWakes(tx, workOrder, parking.RetiredReassignment); err != nil {
+			return err
+		}
 		return appendOwnershipEnd(tx, workOrder, workorders.TriggerTakeover, current.ClaimID, reason, actor)
 	})
 }
@@ -548,6 +552,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 		return err
 	}
 	if err := tx.Lanes().EndGeneration(holder.Lane, holder.Generation, string(result.Outcome)); err != nil {
+		return err
+	}
+	if err := retireWakes(tx, holder.WorkOrder, parking.RetiredFinished); err != nil {
 		return err
 	}
 	if err := recordEvidence(tx, holder, current.Fence+1, result); err != nil {
