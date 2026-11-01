@@ -91,6 +91,11 @@ type Journal interface {
 	// so a crash leaves the lane on one generation or the other. The token of the last
 	// generation ends here, because its process has.
 	BeginGeneration(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// SaveHandoff replaces how far a lane's handoff got. Nil clears it.
+	SaveHandoff(ctx context.Context, lane string, progress *lanes.HandoffProgress) error
+	// StoreHandoff keeps a sealed handoff and the event that carries it to the ledger,
+	// together, so a crash cannot store it twice or lose it.
+	StoreHandoff(ctx context.Context, lane string, progress lanes.HandoffProgress, event ledger.UploadEvent) (ledger.UploadEvent, error)
 	// ChargeRestart keeps one charge and reports whether this was the first of its key.
 	ChargeRestart(ctx context.Context, lane string, charge lanes.Restart) (bool, error)
 	// Restarts lists a lane's charges, oldest first.

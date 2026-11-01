@@ -98,6 +98,13 @@ func (c *Client) Ask(ctx context.Context, worker string, in questions.LaneAsk) (
 	return out, err
 }
 
+// LaneFacts reads what a handoff states and only the ledger knows.
+func (c *Client) LaneFacts(ctx context.Context, worker string, in ledger.LaneFactsRequest) (ledger.LaneFacts, error) {
+	var out ledger.LaneFacts
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "lane-facts"), in, &out)
+	return out, err
+}
+
 // Rule carries what a worker's orchestrator decided or assumed.
 func (c *Client) Rule(ctx context.Context, worker string, in questions.WorkerRuling) (questions.Decision, error) {
 	var out questions.Decision

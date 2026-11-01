@@ -133,7 +133,7 @@ func crashMatrix() []crashCase {
 		laneEndCase(),
 		workerLaneCase(),
 		fencedWriteCase(),
-		handoffCase(),
+		laneHandoffCase(),
 		intakeCase("intake", []string{"polled"}),
 		intakeCase("intake.item", withSteps("versioned", "ordered")),
 		intakeCase("intake.settle", withSteps()),
@@ -167,7 +167,7 @@ func crashMatrix() []crashCase {
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
 		worktreeCase(),
-	}, append(reconcileCases(), stopCases()...)...)
+	}, slices.Concat(reconcileCases(), stopCases(), handoffCases())...)
 }
 
 const longTTL = int64(60_000)
@@ -553,7 +553,7 @@ func fencedWriteCase() crashCase {
 	}
 }
 
-func handoffCase() crashCase {
+func laneHandoffCase() crashCase {
 	return crashCase{
 		name:  "handoff",
 		op:    "lane.handoff",
@@ -1319,6 +1319,8 @@ func TestEveryNamedStepIsInTheMatrix(t *testing.T) {
 	for _, step := range restartSteps {
 		rows[restartOp+"/"+step] = true
 	}
+	// This step exists only in the broken variant that splits the write it names.
+	rows["worker.handoff/split"] = true
 	for _, step := range literal {
 		if !rows[step] {
 			t.Errorf("named step %s has no matrix row", step)

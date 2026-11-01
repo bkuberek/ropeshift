@@ -162,6 +162,9 @@ const EventLaneDispatched = "work_order.lane_dispatched"
 // EventLaneRestarted records a lane's next generation after a crash, under the same claim.
 const EventLaneRestarted = "work_order.lane_restarted"
 
+// EventLaneHandoff records a lane's next generation after a handoff, under the same claim.
+const EventLaneHandoff = "work_order.lane_handoff"
+
 // EventGenerationBound records what a generation runs on, which changes no state.
 const EventGenerationBound = "work_order.generation_bound"
 

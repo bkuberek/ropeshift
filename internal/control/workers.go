@@ -355,6 +355,7 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	}
 	lease.Lane, lease.Repository, lease.Branch, lease.Title = claim.Lane, row.RepositoryID, row.Branch, row.Title
 	lease.Deadline, lease.Overrides = row.Deadline, claim.Overrides
+	lease.Contract, lease.ContractVersion = row.ContractID, row.ContractVersion
 	resets, err := tx.Lanes().Resets(claim.Lane)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return lease, err
@@ -485,7 +486,12 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return reportArchived(tx, worker, id, e)
 	case ledger.UploadGenerationStarted:
 		holder := workorders.Holder{Lease: lease, Lane: e.Lane, Generation: e.Generation - 1}
-		return nextGeneration(tx, holder, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
+		_, err := nextGeneration(tx, holder, startReason(e), ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
+		return err
+	case ledger.UploadGenerationBound:
+		return bindGeneration(tx, worker, id, e)
+	case ledger.UploadHandoffStored:
+		return storeHandoff(tx, worker, id, e)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {
@@ -657,6 +663,9 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 		return view, err
 	}
 	if view.Artifacts, err = tx.Lanes().Artifacts(row.ID); err != nil {
+		return view, err
+	}
+	if view.Generations, err = tx.Lanes().Generations(row.ID); err != nil {
 		return view, err
 	}
 	if row.Status.ActualState == ledger.StateEnded {

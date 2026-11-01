@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -60,8 +61,20 @@ func (r *laneRun) mayRestart(ctx context.Context) bool {
 // the worker is going away, because a lane in `backoff` or `tripped` is not over, and the
 // next worker goes on from what the journal holds.
 func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (workorders.Report, bool) {
-	for r.mayRestart(ctx) {
-		if !r.backOff(ctx) {
+	for {
+		moved := false
+		switch {
+		case r.handedOff(ctx):
+			moved = r.handoffGeneration(ctx)
+		case r.mayRestart(ctx):
+			moved = r.backOff(ctx)
+		default:
+			if ctx.Err() != nil && (r.crashed || r.currentFlight() != nil) {
+				return report, false
+			}
+			return report, true
+		}
+		if !moved {
 			if ctx.Err() != nil {
 				return report, false
 			}
@@ -69,10 +82,6 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 		}
 		report = r.session(ctx)
 	}
-	if ctx.Err() != nil && r.crashed {
-		return report, false
-	}
-	return report, true
 }
 
 // settled is the outcome of a lane that lost its way to a next generation.
@@ -105,7 +114,7 @@ func (r *laneRun) backOff(ctx context.Context) bool {
 		return false
 	}
 	r.signal(ctx, lanes.OnDelayElapsed)
-	return r.nextGeneration(ctx, next)
+	return r.nextGeneration(ctx, next, ledger.StartCrashRestart)
 }
 
 // chargeFor finds a charge a crash left, or judges a new one, and a delay counts from the
@@ -205,8 +214,10 @@ func (r *laneRun) resetCounts(ctx context.Context) (resets, seen int64, err erro
 
 // nextGeneration moves the lane on, in the journal and in this run together, so a kill
 // here leaves one generation on record and a report of it on its way to the ledger. What
-// the last generation cost carries over, because each generation has a meter of its own.
-func (r *laneRun) nextGeneration(ctx context.Context, next int64) bool {
+// the last generation cost carries over, because each generation has a meter of its own. A
+// restart continues the session it replaces, and a handoff starts a new one, so its running
+// total starts over too.
+func (r *laneRun) nextGeneration(ctx context.Context, next int64, reason ledger.StartReason) bool {
 	record, err := r.w.journal.Lane(ctx, r.lease.Lane)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
@@ -216,12 +227,20 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64) bool {
 	if resume == "" {
 		resume = record.ResumeSession
 	}
+	meter := lanes.CostMeter{SessionTotalUSD: r.cost.SessionTotalUSD}
+	if reason == ledger.StartHandoff {
+		resume, meter = "", lanes.CostMeter{}
+		record.Handoff.Begun = true
+	}
+	payload, err := json.Marshal(ledger.GenerationStart{Reason: reason})
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return false
+	}
 	r.priorUSD, r.priorUnknown = r.priorUSD+r.cost.CostUSD, r.priorUnknown+r.cost.UnknownTurns
 	record.Generation, record.ResumeSession = next, resume
-	record.Progress = lanes.Progress{
-		Cost: lanes.CostMeter{SessionTotalUSD: r.cost.SessionTotalUSD}, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
-	}
-	event := r.w.event(ledger.UploadGenerationStarted, record, nil)
+	record.Progress = lanes.Progress{Cost: meter, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown}
+	event := r.w.event(ledger.UploadGenerationStarted, record, payload)
 	if _, err := r.w.journal.BeginGeneration(ctx, record, event); err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return false
@@ -231,6 +250,7 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64) bool {
 		r.w.config.Report(err)
 	}
 	r.enterGeneration(next, resume, record.Progress)
+	r.inheritedFrom(record.Handoff)
 	return true
 }
 
@@ -240,7 +260,12 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.generation = next
 	r.handle = ports.SessionHandle{}
 	r.stopOnce = newOnce()
+	r.resolved = ""
 	r.handleLock.Unlock()
+	r.flightLock.Lock()
+	r.flight, r.left = nil, nil
+	r.flightLock.Unlock()
+	r.sessionOver.Store(false)
 	r.resumeFrom = resume
 	r.bound, r.nudged, r.crashed, r.cursor = false, false, false, 0
 	r.cost = progress.Cost
@@ -288,6 +313,7 @@ func (r *laneRun) retryBrief(ctx context.Context) {
 func (r *laneRun) briefText() string {
 	return lanes.Brief(lanes.BriefSpec{
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
+		Handoff: r.inherited,
 	})
 }
 

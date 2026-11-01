@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -25,6 +26,8 @@ type WorkerLink struct {
 	// HangAsk holds every ask until its deadline, as a control plane that took the
 	// connection and went quiet would.
 	HangAsk atomic.Bool
+	// FailLaneFacts fails every read of a lane's facts, as a control plane that is away would.
+	FailLaneFacts atomic.Bool
 }
 
 // Register calls the plane.
@@ -103,5 +106,15 @@ func (l *WorkerLink) Ask(ctx context.Context, ask questions.LaneAsk) (questions.
 	}
 	return l.Plane.Ask(ctx, ask)
 }
+
+// LaneFacts calls the plane, unless it is away.
+func (l *WorkerLink) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (ledger.LaneFacts, error) {
+	if l.FailLaneFacts.Load() {
+		return ledger.LaneFacts{}, errPlaneAway
+	}
+	return l.Plane.LaneFacts(ctx, request)
+}
+
+var errPlaneAway = errors.New("the control plane is away")
 
 var _ ports.WorkerLink = (*WorkerLink)(nil)

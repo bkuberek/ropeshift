@@ -439,6 +439,78 @@ func TestJournalBeginsAGenerationWithItsEvent(t *testing.T) {
 	}
 }
 
+func TestJournalKeepsAHandoffThroughItsSteps(t *testing.T) {
+	journal := openTestJournal(t)
+	ctx := t.Context()
+	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning, TokenDigest: "d"}
+	if err := journal.SaveLane(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	progress := lanes.HandoffProgress{Reason: "r", DeadlineMs: 5, Narrative: &lanes.Narrative{NextSteps: []string{"go on"}, CarriesNextStep: true}}
+	if err := journal.SaveHandoff(ctx, "lane-1", &progress); err != nil {
+		t.Fatal(err)
+	}
+	got, err := journal.Lane(ctx, "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Handoff == nil || got.Handoff.DeadlineMs != 5 || !got.Handoff.Narrative.CarriesNextStep || !got.Handoff.Open() {
+		t.Fatalf("handoff %+v", got.Handoff)
+	}
+	progress.Document, progress.Digest = []byte(`{"schema":"x"}`), "sha256:x"
+	event := ledger.UploadEvent{Type: ledger.UploadHandoffStored, Lane: "lane-1", Generation: 1, WorkOrder: "wo", ClaimID: "c", Fence: 1, OccurredAt: 1}
+	if _, err := journal.StoreHandoff(ctx, "lane-1", progress, event); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := journal.Pending(ctx, 10)
+	if err != nil || len(pending) != 1 || pending[0].Type != ledger.UploadHandoffStored {
+		t.Errorf("pending %+v, %v", pending, err)
+	}
+	got, err = journal.Lane(ctx, "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Handoff == nil || got.Handoff.Digest != "sha256:x" || !got.Handoff.Open() {
+		t.Fatalf("a stored handoff %+v", got.Handoff)
+	}
+	got.Generation, got.Handoff.Begun = 2, true
+	if _, err := journal.BeginGeneration(ctx, got, event); err != nil {
+		t.Fatal(err)
+	}
+	after, err := journal.Lane(ctx, "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Handoff == nil || after.Handoff.Open() || string(after.Handoff.Document) != `{"schema":"x"}` {
+		t.Errorf("a begun handoff %+v", after.Handoff)
+	}
+	if err := journal.SaveHandoff(ctx, "lane-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if cleared, err := journal.Lane(ctx, "lane-1"); err != nil || cleared.Handoff != nil {
+		t.Errorf("a cleared handoff %+v, %v", cleared.Handoff, err)
+	}
+}
+
+func TestJournalKeepsWhichChargesWerePlanned(t *testing.T) {
+	journal := openTestJournal(t)
+	ctx := t.Context()
+	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning}
+	if err := journal.SaveLane(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.ChargeRestart(ctx, "lane-1", lanes.Restart{Key: "g2", AtMs: 1, Planned: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.ChargeRestart(ctx, "lane-1", lanes.Restart{Key: "g3", AtMs: 2}); err != nil {
+		t.Fatal(err)
+	}
+	charges, err := journal.Restarts(ctx, "lane-1")
+	if err != nil || len(charges) != 2 || !charges[0].Planned || charges[1].Planned {
+		t.Errorf("charges %+v, %v", charges, err)
+	}
+}
+
 func openTestJournal(t *testing.T) ports.Journal {
 	t.Helper()
 	journal, err := fake.NewJournal()

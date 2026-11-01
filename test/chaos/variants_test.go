@@ -788,7 +788,7 @@ func allVariants() []variant {
 	noStateGuard := sqlstore.Sabotage{Rewrite: replace("lease.grant", stateGuard, "")}
 	noFencePredicate := sqlstore.Sabotage{Rewrite: replace("lease.guard", fenceGuard, "")}
 	memoryFences := sqlstore.Sabotage{Rewrite: fenceInMemory}
-	return []variant{
+	return append(handoffVariants(), []variant{
 		{
 			name:     "revision taken last",
 			sabotage: sqlstore.Sabotage{RevisionLast: true},
@@ -1303,7 +1303,7 @@ func allVariants() []variant {
 			check: "crash",
 			crash: func() (crashCase, string) { return claimCase(), "split" },
 		},
-	}
+	}...)
 }
 
 func findVariant(name string) (variant, bool) {

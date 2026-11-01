@@ -314,6 +314,12 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 			return err
 		}
 		w.startRun(ctx, run, (*laneRun).adopt)
+	case lanes.ActionHandoff:
+		lease, ok := seen.leases[action.Lane]
+		if !ok || forgetsHandoff() {
+			return w.endUnattended(ctx, seen.records[action.Lane])
+		}
+		w.startRun(ctx, w.resumedRun(lease, seen.records[action.Lane]), (*laneRun).finishHandoff)
 	case lanes.ActionEnd:
 		return w.endUnattended(ctx, seen.records[action.Lane])
 	case lanes.ActionRelease:

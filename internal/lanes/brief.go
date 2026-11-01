@@ -1,6 +1,9 @@
 package lanes
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Nudge is the one message a lane that ended a turn with no outcome receives. An idle
 // lane with no outcome is an abnormality.
@@ -13,6 +16,8 @@ type BriefSpec struct {
 	Title     string
 	Statement string
 	Criteria  []string
+	// Handoff is what the last generation left, for a generation that follows one.
+	Handoff *Handoff
 }
 
 // Brief is a lane's first prompt until context packs replace it: the contract, and
@@ -29,9 +34,81 @@ func Brief(spec BriefSpec) string {
 			out.WriteString("- " + criterion + "\n")
 		}
 	}
+	if spec.Handoff != nil {
+		writeHandoff(&out, *spec.Handoff)
+	}
 	out.WriteString("\nWhen the work is done, or cannot go on, call the " + ToolLaneReport +
 		" tool once with its outcome, then end your turn.\n")
 	return out.String()
+}
+
+// writeHandoff tells a new generation what the last one left. It states a missing narrative
+// and does not paper over it, so the lane reads the work before it goes on.
+func writeHandoff(out *strings.Builder, doc Handoff) {
+	fmt.Fprintf(out, "\nYou take over from generation %d, which handed off (%s).\n", doc.Generation, doc.Reason)
+	if doc.Narrative == nil {
+		writeMissing(out, doc.Deterministic)
+	} else {
+		writeList(out, "Done", doc.Narrative.Done)
+		writeList(out, "In progress", doc.Narrative.InProgress)
+		writeList(out, "Next steps", doc.Narrative.NextSteps)
+		writeList(out, "Risks", doc.Narrative.Risks)
+	}
+	writeList(out, "Where the work stands", standing(doc.Deterministic))
+}
+
+func writeMissing(out *strings.Builder, facts HandoffFacts) {
+	out.WriteString("\nIt left no narrative, so nothing says what it was doing or what comes next. Read the work before you go on: ")
+	if facts.SnapshotRef != "" {
+		out.WriteString("a snapshot of it is at " + facts.SnapshotRef + ".\n")
+		return
+	}
+	fmt.Fprintf(out, "it is on branch %s at %s, with no snapshot.\n", facts.Branch, facts.Head)
+}
+
+func writeList(out *strings.Builder, title string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	out.WriteString("\n" + title + ":\n")
+	for _, item := range items {
+		out.WriteString("- " + item + "\n")
+	}
+}
+
+func standing(facts HandoffFacts) []string {
+	var lines []string
+	add := func(on bool, line string) {
+		if on {
+			lines = append(lines, line)
+		}
+	}
+	add(facts.Branch != "", fmt.Sprintf("Branch %s at %s, with %d commits not pushed", facts.Branch, facts.Head, facts.UnpushedCommits))
+	add(facts.SnapshotRef != "", "Snapshot: "+facts.SnapshotRef)
+	add(len(facts.DirtyPaths) != 0, "Changed files: "+strings.Join(facts.DirtyPaths, ", "))
+	add(len(facts.OpenQuestions) != 0, "Open questions: "+strings.Join(facts.OpenQuestions, ", "))
+	add(len(facts.OpenAssumptions) != 0, "Open assumptions: "+strings.Join(facts.OpenAssumptions, ", "))
+	var checks []string
+	for _, check := range facts.Checks {
+		checks = append(checks, check.Name+" "+check.Status)
+	}
+	add(len(checks) != 0, "Checks: "+strings.Join(checks, ", "))
+	return lines
+}
+
+// HandoffInstruction asks an agent for the part only it knows, and names what to leave out,
+// because the worker writes the rest.
+func HandoffInstruction() string {
+	return "Hand off now. This session is about to end, and a new generation takes this work order over from what " +
+		"you write here (" + HandoffSchema + ").\n\n" +
+		"Call the " + ToolLaneHandoff + " tool once, with only what you alone know. The worker records the branch, the " +
+		"commits, the changed files, the open questions, and the checks itself.\n\n" +
+		"- done: what you finished\n" +
+		"- in_progress: what you were part way through\n" +
+		"- next_steps: what the next generation should do first\n" +
+		"- risks: what could go wrong, and what you are unsure of\n" +
+		"- carries_next_step: true only if this holds everything the next step needs\n\n" +
+		"Then end your turn, and start nothing new.\n"
 }
 
 // Restarted is what a resumed generation is told, because a resume alone starts no turn.

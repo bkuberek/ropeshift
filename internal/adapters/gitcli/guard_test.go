@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,6 +123,23 @@ func TestSurvey(t *testing.T) {
 				t.Errorf("findings %+v", got)
 			}
 		})
+	}
+}
+
+// A handoff names what changed, so each thing git can say about a file reads as a path.
+func TestSurveyNamesWhatChanged(t *testing.T) {
+	r := newGuardRig(t)
+	r.commit("moved.txt", "moved\n")
+	r.write("README.txt", "changed\n")
+	r.write("deep/new file.txt", "new\n")
+	r.write("staged.txt", "new\n")
+	r.inWorktree("add", "--", "staged.txt")
+	r.inWorktree("mv", "moved.txt", "renamed.txt")
+	got := r.survey().DirtyPaths
+	slices.Sort(got)
+	want := []string{"README.txt", "deep/", "renamed.txt", "staged.txt"}
+	if !slices.Equal(got, want) {
+		t.Errorf("paths %q, want %q", got, want)
 	}
 }
 

@@ -82,11 +82,26 @@ type laneRun struct {
 	// at a clock looks past the moment the delay counts from.
 	crashed   bool
 	crashedAt time.Time
+	// sessionOver says this generation's session has ended, which a handoff waits on from
+	// beside the goroutine that reads the stream.
+	sessionOver atomic.Bool
 	// resumeFrom is the session a restarted generation continues. Empty starts fresh.
 	resumeFrom string
 	// priorUSD and priorUnknown are what earlier generations cost.
 	priorUSD     float64
 	priorUnknown int64
+	// resolved is the model the session said it runs, and handleLock guards it.
+	resolved string
+	// life is the context the run lives under, which outlasts whoever asked for a handoff.
+	life context.Context
+	// flight is the handoff this generation is following, sequence holds its goroutine, and
+	// left is what a journal held of one when this run began.
+	flightLock sync.Mutex
+	flight     *handoffFlight
+	sequence   sync.WaitGroup
+	left       *lanes.HandoffProgress
+	// inherited is the document this generation follows.
+	inherited *lanes.Handoff
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -109,6 +124,8 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	if record.Actual != "" {
 		run.state = newLaneState(record.Actual, w.clock.Now())
 	}
+	run.left = record.Handoff
+	run.inheritedFrom(record.Handoff)
 	return run
 }
 
@@ -132,6 +149,12 @@ func (r *laneRun) setHandle(handle ports.SessionHandle) {
 	r.handle = handle
 }
 
+func (r *laneRun) resolvedModel() string {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.resolved
+}
+
 // startRun runs one lane apart, so one stuck lane stops no other.
 func (w *Worker) startRun(ctx context.Context, run *laneRun, body func(*laneRun, context.Context) error) {
 	lane := run.lease.Lane
@@ -142,6 +165,7 @@ func (w *Worker) startRun(ctx context.Context, run *laneRun, body func(*laneRun,
 	}
 	w.running[lane] = run
 	w.mu.Unlock()
+	run.life = ctx
 	w.laneGroup.Go(func() {
 		defer func() {
 			w.mu.Lock()
@@ -263,6 +287,7 @@ func (r *laneRun) conclude(ctx context.Context, report workorders.Report) error 
 // finish records the end only after a stop in flight has its own end on record, so a
 // clean exit leaves no effect open.
 func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
+	r.sequence.Wait()
 	r.stopped.Wait()
 	r.signal(ctx, lanes.OnLaneEnding, lanes.OnSessionStopped)
 	if dir := r.rt.tempDir(r.lease.Lane); dir != "" {
@@ -282,6 +307,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
 	run.state = newLaneState(record.Actual, w.clock.Now())
+	run.inheritedFrom(record.Handoff)
 	run.loadProfile(ctx)
 	_, err := w.journal.Effect(ctx, run.nudge().Key)
 	switch {
@@ -310,19 +336,29 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: adopting its session: %w", r.lease.Lane, err))
-		return r.finish(ctx, r.unattended(ctx))
+		return r.unread(ctx)
 	}
 	crashpoint.Hit("worker.lane", "adopted")
 	r.signal(ctx, lanes.OnDriverReady)
 	events, err := r.rt.Driver.Events(ctx, r.sessionHandle())
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its session: %w", r.lease.Lane, err))
-		return r.finish(ctx, r.unattended(ctx))
+		return r.unread(ctx)
 	}
 	if _, ok := r.reported(ctx); ok {
 		r.stop(ctx, ports.StopAtRest)
 	}
+	r.resumeHandoff(ctx)
 	return r.conclude(ctx, r.watch(ctx, events))
+}
+
+// unread settles a lane whose session cannot be read. A handoff still finishes, because that
+// is the one failure with somewhere to go.
+func (r *laneRun) unread(ctx context.Context) error {
+	if r.left.Open() {
+		return r.finishHandoff(ctx)
+	}
+	return r.finish(ctx, r.unattended(ctx))
 }
 
 // unattended is the outcome of a lane whose session cannot be read.
@@ -501,6 +537,7 @@ func readyTimeout(profile lanes.Profile) time.Duration {
 // watch follows the session to its end. Lane state derives from driver events, and
 // no person marks anything (FR-LANE-5).
 func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) workorders.Report {
+	defer r.sessionOver.Store(true)
 	for event := range events {
 		if event.Seq != 0 && event.Seq <= r.cursor {
 			continue
@@ -541,6 +578,9 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 		return
 	}
 	r.bound = true
+	r.handleLock.Lock()
+	r.resolved = event.ModelResolved
+	r.handleLock.Unlock()
 	payload, err := json.Marshal(workorders.GenerationBinding{
 		SessionID: event.SessionID, ModelRequested: r.model, ModelResolved: event.ModelResolved,
 		ProfileDigest: r.profileDigest, DriverVersion: r.version, DegradedMode: r.degraded,
@@ -569,6 +609,9 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 	if _, ok := r.reported(ctx); ok {
 		r.signal(ctx, lanes.OnOutcomeReported)
 		r.stop(ctx, ports.StopAtRest)
+		return
+	}
+	if r.currentFlight() != nil {
 		return
 	}
 	if turn.Status != ports.TurnCompleted {

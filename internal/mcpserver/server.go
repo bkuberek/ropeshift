@@ -106,7 +106,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 	case "ping":
 		out.Result = map[string]any{}
 	case "tools/list":
-		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool, askTool}}
+		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool, askTool, laneHandoffTool}}
 	case "tools/call":
 		out.Result, out.Error = callTool(in.Params, call)
 	default:
@@ -188,6 +188,26 @@ var askTool = map[string]any{
 	},
 }
 
+var laneHandoffTool = map[string]any{
+	"name": lanes.ToolLaneHandoff,
+	"description": "Write this lane's part of a handoff, once, when the worker asks for it. Give only what you alone know, " +
+		"because the worker records the branch, the commits, the changed files, the open questions, and the checks. " +
+		"Then end your turn.",
+	"inputSchema": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"done":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What you finished."},
+			"in_progress": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What you were part way through."},
+			"next_steps":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What the next generation should do first."},
+			"risks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What could go wrong, and what you are unsure of."},
+			"carries_next_step": map[string]any{
+				"type": "boolean", "description": "True only if this holds everything the next step needs.",
+			},
+		},
+		"required": []string{"next_steps", "carries_next_step"},
+	},
+}
+
 func toolText(text string, failed bool) map[string]any {
 	return map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": failed}
 }
@@ -207,6 +227,8 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		return callWait(request.Arguments, call), nil
 	case lanes.ToolAsk:
 		return callAsk(request.Arguments, call), nil
+	case lanes.ToolLaneHandoff:
+		return callHandoff(request.Arguments, call), nil
 	case lanes.ToolLaneReport:
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
@@ -250,6 +272,20 @@ func callAsk(arguments json.RawMessage, call Caller) map[string]any {
 		return toolText("attached: the same question is already open as "+result.QuestionID+". Go on with other work, or end your turn.", false)
 	}
 	return toolText("pending: the question is recorded as "+result.QuestionID+". Go on with other work, or end your turn.", false)
+}
+
+// callHandoff passes a lane's part of a handoff to its worker as it was written, so the worker
+// judges what arrived. A lane that hears nothing back is told to end its turn either way,
+// because the handoff goes on without it.
+func callHandoff(arguments json.RawMessage, call Caller) map[string]any {
+	answer, err := call(lanes.Request{Handoff: arguments})
+	if err != nil {
+		return toolText("the worker did not answer, so the handoff goes on without this. End your turn: "+err.Error(), true)
+	}
+	if !answer.OK {
+		return toolText("the worker refused this: "+answer.Message+". End your turn.", true)
+	}
+	return toolText("The handoff is recorded. End your turn now.", false)
 }
 
 // callWait passes a lane's wait to its worker. A worker that is not there cannot watch the

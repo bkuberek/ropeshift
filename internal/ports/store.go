@@ -220,6 +220,10 @@ type LaneReader interface {
 	Artifacts(lane string) ([]ledger.Artifact, error)
 	// Archiving lists the lanes a worker should take away.
 	Archiving(worker string) ([]ledger.DesiredArchive, error)
+	// Generations lists a lane's generations, oldest first.
+	Generations(lane string) ([]ledger.Generation, error)
+	// Handoff returns what one generation left, or ErrNotFound.
+	Handoff(lane string, generation int64) (ledger.HandoffRecord, error)
 }
 
 // LaneWriter writes lanes.
@@ -244,6 +248,14 @@ type LaneWriter interface {
 	RequestArchive(lane string, forced bool) error
 	// Archived records that a lane's worktree went.
 	Archived(lane string) error
+	// StartGeneration records a generation's beginning and why.
+	StartGeneration(generation ledger.Generation) error
+	// BindSession records what the vendor calls a generation's session.
+	BindSession(lane string, number int64, session string) error
+	// EndGeneration records a generation's end, once.
+	EndGeneration(lane string, number int64, reason string) error
+	// SaveHandoff keeps one generation's handoff once, and names it on that generation.
+	SaveHandoff(record ledger.HandoffRecord) error
 }
 
 // EvidenceReader reads what a work order's lanes left and what its checks said.
@@ -370,6 +382,8 @@ type QuestionReader interface {
 	Overlapping(scope string) ([]questions.Decision, error)
 	// Assumptions counts the open assumptions about one work order.
 	Assumptions(workOrder string) (int64, error)
+	// OpenAssumptions names them, by ID.
+	OpenAssumptions(workOrder string) ([]string, error)
 	// Notices returns what one decision's end told lanes, or every notice for an empty ID.
 	Notices(decision string) ([]questions.Notice, error)
 	// Categories returns the categories this workspace added.

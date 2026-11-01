@@ -29,4 +29,7 @@ type WorkerLink interface {
 	Claim(ctx context.Context, auth ledger.WorkerAuth, request workorders.ClaimRequest) (workorders.Grant, error)
 	// Ask records a question for a lane this worker holds, and answers at once.
 	Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error)
+	// LaneFacts reads what a handoff states and only the ledger knows, for a lane this
+	// worker holds.
+	LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (ledger.LaneFacts, error)
 }

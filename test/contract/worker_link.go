@@ -55,6 +55,7 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 	}{
 		{"registration exchanges a join token once", checkRegistration},
 		{"a worker asks for a lane it holds", checkWorkerAsk},
+		{"a worker reads what the ledger holds about its lane", checkLaneFactsLink},
 		{"a retried registration replaces the credential", checkRegistrationRetry},
 		{"a wrong credential is refused", checkWrongCredential},
 		{"a session opens a new epoch and a stale epoch is refused", checkEpochs},
@@ -797,6 +798,50 @@ func checkWorkerClaim(t *testing.T, ctx context.Context, b LinkBackend) {
 	}
 	if _, err := r.Link.Claim(ctx, auth, workorders.ClaimRequest{WorkOrder: id, ClaimID: "c3"}); !errors.Is(err, workorders.ErrLost) {
 		t.Errorf("a lost claim: %v", err)
+	}
+}
+
+func checkLaneFactsLink(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	id := r.readyOrder(t, ctx, "wo")
+	grant, err := r.Link.Claim(ctx, auth, workorders.ClaimRequest{WorkOrder: id, ClaimID: "c1", TTLMs: linkTTL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ledger.LaneFactsRequest{Auth: auth, Epoch: session.Epoch, WorkOrder: id, Fence: grant.Fence, Lane: "lane-1"}
+	empty, err := r.Link.LaneFacts(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.OpenQuestions == nil || empty.OpenAssumptions == nil || empty.Checks == nil || len(empty.OpenQuestions) != 0 {
+		t.Errorf("a list read as empty must say so: %+v", empty)
+	}
+	_, err = r.Link.Ask(ctx, questions.LaneAsk{
+		Auth: auth, Epoch: session.Epoch, WorkOrder: id, Fence: grant.Fence,
+		Ask: questions.Ask{ID: "q1", Text: "What is the retry budget?", Lane: "lane-1", Generation: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := r.Link.LaneFacts(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts.OpenQuestions) != 1 || facts.OpenQuestions[0] != "q1" {
+		t.Errorf("facts %+v", facts)
+	}
+	other := request
+	other.Lane = "lane-2"
+	if facts, err := r.Link.LaneFacts(ctx, other); err != nil || len(facts.OpenQuestions) != 0 {
+		t.Errorf("another lane's question: %+v, %v", facts, err)
+	}
+	stale := request
+	stale.Fence = grant.Fence + 1
+	var fenced *workorders.FencedError
+	if _, err := r.Link.LaneFacts(ctx, stale); !errors.As(err, &fenced) {
+		t.Errorf("a stale fence: %v", err)
 	}
 }
 

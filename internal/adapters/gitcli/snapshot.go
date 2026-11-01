@@ -56,7 +56,33 @@ func (w Worktrees) Survey(ctx context.Context, path string) (lanes.WorktreeFindi
 	if err != nil {
 		return lanes.WorktreeFindings{}, err
 	}
-	return lanes.WorktreeFindings{Branch: branch, Head: head, Dirty: status != "", Remote: remote, Ahead: ahead}, nil
+	return lanes.WorktreeFindings{
+		Branch: branch, Head: head, Dirty: status != "", DirtyPaths: dirtyPaths(status), Remote: remote, Ahead: ahead,
+	}, nil
+}
+
+// statusColumns is what comes before a path on a line of `git status --porcelain`: two
+// letters and a space.
+const statusColumns = 3
+
+// dirtyPaths reads `git status --porcelain`. A rename shows where it went, and git quotes a
+// name it cannot print bare.
+func dirtyPaths(status string) []string {
+	var paths []string
+	for line := range strings.SplitSeq(status, "\n") {
+		if len(line) <= statusColumns {
+			continue
+		}
+		path := line[statusColumns:]
+		if _, renamed, ok := strings.Cut(path, " -> "); ok {
+			path = renamed
+		}
+		if unquoted, err := strconv.Unquote(path); err == nil {
+			path = unquoted
+		}
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 // remoteOf finds where a push goes: the branch's upstream, then the usual name, then the

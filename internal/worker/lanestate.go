@@ -55,6 +55,11 @@ type laneState struct {
 	briefGrace  time.Duration
 	waitUntil   time.Time
 	limits      lanes.Breaker
+	// handoffLimit is how long an agent has to write its part of a handoff, and
+	// handoffDegraded says the last handoff has only the worker's part. That stays until a
+	// later handoff has both, because it is what this generation was told.
+	handoffLimit    time.Duration
+	handoffDegraded bool
 }
 
 func newLaneState(start lanes.ActualState, now time.Time) *laneState {
@@ -74,6 +79,32 @@ func (s *laneState) thresholds(profile lanes.Profile) {
 	s.limits = lanes.Breaker{
 		MaxRestarts: profile.Lifecycle.MaxRestarts, Window: window, MaxPerDay: profile.Lifecycle.MaxGenerationsPerDay, Backoff: backoff,
 	}
+	s.handoffLimit, _ = time.ParseDuration(profile.Lifecycle.HandoffTimeout)
+}
+
+// handoffTimeout reads a profile's limit. A value it cannot read takes the default, because a
+// wait with no end would block a lane.
+func (s *laneState) handoffTimeout() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handoffLimit <= 0 {
+		return defaultHandoffTimeout
+	}
+	return s.handoffLimit
+}
+
+// noteHandoff keeps how the last handoff stands.
+func (s *laneState) noteHandoff(degraded bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handoffDegraded = degraded
+}
+
+// current reads where the lane stands.
+func (s *laneState) current() lanes.ActualState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tracker.State()
 }
 
 // newGeneration clears what one session left, and keeps what belongs to the lane.
@@ -218,7 +249,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		State: state, SinceProgress: now.Sub(s.progress), StallAfter: s.stallAfter, ToolInFlight: len(s.tools) != 0,
 		WaitDeclared: now.Before(s.waitUntil), PastDeadline: r.lease.Deadline != 0 && now.UnixMilli() > r.lease.Deadline,
 		ContextTokens: s.context, WarnTokens: s.warnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
-		UnpushedWork: s.unpushed,
+		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded,
 	}
 	out := ledger.LaneStatus{
 		ActualState: string(state), Liveness: string(liveness),

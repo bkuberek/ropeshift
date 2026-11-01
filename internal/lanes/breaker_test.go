@@ -55,6 +55,24 @@ func TestBreakerHoldsADailyCap(t *testing.T) {
 	}
 }
 
+// A handoff is a generation nothing crashed to cause, so it pays toward the day and adds
+// nothing to a crash loop.
+func TestAPlannedGenerationCountsTowardTheDayOnly(t *testing.T) {
+	now := time.UnixMilli(1_800_000_000_000)
+	breaker := Breaker{MaxRestarts: 2, Window: 10 * time.Minute, MaxPerDay: 3, Backoff: time.Second}
+	planned := []Restart{
+		{Key: "g2", AtMs: now.Add(-time.Minute).UnixMilli(), Planned: true},
+		{Key: "g3", AtMs: now.Add(-2 * time.Minute).UnixMilli(), Planned: true},
+	}
+	if got := breaker.Judge(planned, now); !got.Tripped {
+		t.Errorf("two generations and this one reach a cap of 3: %+v", got)
+	}
+	breaker.MaxPerDay = 4
+	if got := breaker.Judge(planned, now); got.Tripped || got.Delay != time.Second {
+		t.Errorf("handoffs read as a crash loop: %+v", got)
+	}
+}
+
 func TestBreakerDelayStopsAtTheWindow(t *testing.T) {
 	now := time.UnixMilli(1_800_000_000_000)
 	breaker := Breaker{MaxRestarts: 100, Window: time.Minute, Backoff: 30 * time.Second}

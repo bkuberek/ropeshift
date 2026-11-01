@@ -46,7 +46,7 @@ const (
 )
 
 // laneTools are the MCP tools a lane's init may list.
-var laneTools = []string{"mcp__ropeshift__lane_report", "mcp__ropeshift__lane_wait", "mcp__ropeshift__ask"}
+var laneTools = []string{"mcp__ropeshift__lane_report", "mcp__ropeshift__lane_wait", "mcp__ropeshift__ask", "mcp__ropeshift__lane_handoff"}
 
 // standInFixtures say what each suite's dry run plays.
 var standInFixtures = map[string]string{

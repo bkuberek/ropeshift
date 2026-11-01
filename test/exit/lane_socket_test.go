@@ -325,6 +325,28 @@ func TestMCPRefusesAWrongToken(t *testing.T) {
 	}
 }
 
+// The tool carries what a lane wrote to its worker, and a lane the worker is not following
+// reads why it was refused.
+func TestMCPCarriesAHandoffToItsWorker(t *testing.T) {
+	env := newHookEnv(t)
+	newLaneWorker(t, env)
+	session := startMCP(t, env)
+	session.open()
+	reply := session.call("tools/call", map[string]any{
+		"name": lanes.ToolLaneHandoff, "arguments": map[string]any{"next_steps": []string{"Fix the test"}, "carries_next_step": true},
+	})
+	if reply.Error != nil {
+		t.Fatalf("error %+v", reply.Error)
+	}
+	var result toolResult
+	if err := json.Unmarshal(reply.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, "nothing is following this lane") {
+		t.Errorf("result %+v", result)
+	}
+}
+
 func TestMCPRefusesWhatIsNotAReport(t *testing.T) {
 	env := newHookEnv(t)
 	newLaneWorker(t, env)

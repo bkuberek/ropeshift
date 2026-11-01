@@ -15,6 +15,8 @@ type WorktreeFindings struct {
 	Head   string
 	// Dirty says a tracked or an untracked file differs from HEAD.
 	Dirty bool
+	// DirtyPaths names those files.
+	DirtyPaths []string
 	// Remote names where a push goes, and empty means none is configured.
 	Remote string
 	// Ahead counts the commits only this branch holds: the remote lacks them, or with no

@@ -146,6 +146,9 @@ func (w *Worktrees) Discard(_ context.Context, _, path string) error {
 	return nil
 }
 
+// DirtyPath is the file a dirty worktree here says changed.
+const DirtyPath = "changed.txt"
+
 // Survey reads what a stop must account for.
 func (w *Worktrees) Survey(_ context.Context, path string) (lanes.WorktreeFindings, error) {
 	w.mu.Lock()
@@ -157,9 +160,13 @@ func (w *Worktrees) Survey(_ context.Context, path string) (lanes.WorktreeFindin
 	if !ok {
 		return lanes.WorktreeFindings{}, fmt.Errorf("worktree %s: %w", path, ports.ErrNotFound)
 	}
-	return lanes.WorktreeFindings{
+	found := lanes.WorktreeFindings{
 		Branch: entry.Branch, Head: entry.Head, Dirty: !entry.Clean, Remote: w.remote, Ahead: w.ahead[path],
-	}, nil
+	}
+	if found.Dirty {
+		found.DirtyPaths = []string{DirtyPath}
+	}
+	return found, nil
 }
 
 // Snapshot records which worktree a ref holds.

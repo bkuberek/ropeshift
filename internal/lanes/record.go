@@ -40,6 +40,9 @@ type Record struct {
 	ResetsSeen int64
 	// Guard is how the last stop left the worktree.
 	Guard GuardResult
+	// Handoff is how far the lane's last handoff got. Once its generation began, its
+	// document is what that generation was briefed from.
+	Handoff *HandoffProgress
 }
 
 // Progress is how far a worker read a session, and what that reading added up to, so an

@@ -426,6 +426,10 @@ func startLane(tx ports.WriteTx, lease workorders.Lease, lane string, actor ledg
 	if err := tx.Lanes().Start(lane, lease.WorkOrder, lease.Fence); err != nil {
 		return 0, err
 	}
+	first := ledger.Generation{Lane: lane, Number: 1, StartReason: ledger.StartInitial}
+	if err := tx.Lanes().StartGeneration(first); err != nil {
+		return 0, err
+	}
 	event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerLaneStarted), lease.WorkOrder, workorders.Change{
 		Trigger:    workorders.TriggerLaneStarted,
 		Fence:      lease.Fence,
@@ -543,6 +547,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if err := tx.Lanes().MarkEnded(holder.Lane); err != nil {
 		return err
 	}
+	if err := tx.Lanes().EndGeneration(holder.Lane, holder.Generation, string(result.Outcome)); err != nil {
+		return err
+	}
 	if err := recordEvidence(tx, holder, current.Fence+1, result); err != nil {
 		return err
 	}
@@ -643,25 +650,50 @@ func (l *Leases) Write(ctx context.Context, scope ledger.WorkspaceID, holder wor
 	return written, err
 }
 
-// nextGeneration moves a lane on after a crash, under the claim it holds, so what the last
-// generation still has in flight is refused.
-func nextGeneration(tx ports.WriteTx, holder workorders.Holder, actor ledger.Actor, stamp func(*ledger.EventDraft)) error {
-	if err := guardHolder(tx, "lane.restart", holder); err != nil {
-		return err
+// The operations and the events of a lane's move to its next generation.
+const (
+	opLaneRestart = "lane.restart"
+	opLaneHandoff = "lane.handoff"
+)
+
+// nextGeneration moves a lane on under the claim it holds, so what the last generation still
+// has in flight is refused. The move records why, and a handoff names the document the new
+// generation reads.
+func nextGeneration(tx ports.WriteTx, holder workorders.Holder, reason ledger.StartReason, actor ledger.Actor, stamp func(*ledger.EventDraft)) (int64, error) {
+	op, eventType := opLaneRestart, workorders.EventLaneRestarted
+	if reason == ledger.StartHandoff {
+		op, eventType = opLaneHandoff, workorders.EventLaneHandoff
+	}
+	if err := guardHolder(tx, op, holder); err != nil {
+		return 0, err
 	}
 	next, err := tx.Lanes().NextGeneration(holder.Lane)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	event, err := workorders.ChangeEvent(workorders.EventLaneRestarted, holder.WorkOrder, workorders.Change{
+	if err := tx.Lanes().EndGeneration(holder.Lane, holder.Generation, string(reason)); err != nil {
+		return 0, err
+	}
+	started := ledger.Generation{Lane: holder.Lane, Number: next, StartReason: reason}
+	left, err := tx.Lanes().Handoff(holder.Lane, holder.Generation)
+	switch {
+	case err == nil && reason == ledger.StartHandoff:
+		started.HandoffIn = left.ArtifactID
+	case err != nil && !errors.Is(err, ports.ErrNotFound):
+		return 0, err
+	}
+	if err := tx.Lanes().StartGeneration(started); err != nil {
+		return 0, err
+	}
+	event, err := workorders.ChangeEvent(eventType, holder.WorkOrder, workorders.Change{
 		Guarded: true, Fence: holder.Fence, ClaimID: holder.ClaimID, Lane: holder.Lane, Generation: next,
 	}, actor)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	stamp(&event)
 	_, err = tx.Append(event)
-	return err
+	return next, err
 }
 
 // ResetLane lets a work order's tripped lane start again. Only a person can, because the
@@ -732,22 +764,9 @@ func (l *Leases) ArchiveLane(ctx context.Context, scope ledger.WorkspaceID, work
 // previous generation cannot write after it.
 func (l *Leases) Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error) {
 	var next int64
-	err := l.Fenced(ctx, scope, "lane.handoff", holder, func(tx ports.WriteTx) error {
+	err := l.store.Write(ctx, scope, opLaneHandoff, func(tx ports.WriteTx) error {
 		var err error
-		if next, err = tx.Lanes().NextGeneration(holder.Lane); err != nil {
-			return err
-		}
-		event, err := workorders.ChangeEvent("work_order.lane_handoff", holder.WorkOrder, workorders.Change{
-			Guarded:    true,
-			Fence:      holder.Fence,
-			ClaimID:    holder.ClaimID,
-			Lane:       holder.Lane,
-			Generation: next,
-		}, actor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(event)
+		next, err = nextGeneration(tx, holder, ledger.StartHandoff, actor, func(*ledger.EventDraft) {})
 		return err
 	})
 	if err != nil {

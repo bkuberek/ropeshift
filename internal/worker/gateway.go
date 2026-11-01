@@ -106,6 +106,8 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		return reply
 	case request.Ask != nil:
 		return w.takeAsk(ctx, lane, *request.Ask)
+	case len(request.Handoff) != 0:
+		return w.takeHandoff(ctx, lane, request.Handoff)
 	case request.Wait != nil:
 		if request.Wait.Minutes <= 0 {
 			return refused(lanes.CodeInvalid, "a wait needs a number of minutes")

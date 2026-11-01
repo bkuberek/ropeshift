@@ -11,6 +11,12 @@ func running(id string) lanes.Record {
 	return lanes.Record{ID: id, Generation: 1, State: lanes.StateRunning}
 }
 
+func handingOff(id string) lanes.Record {
+	record := running(id)
+	record.Handoff = &lanes.HandoffProgress{Reason: "r"}
+	return record
+}
+
 func effectOf(kind lanes.EffectKind, state lanes.EffectState) lanes.Effect {
 	effect := lanes.NewEffect(kind, "lane", 1, "", "")
 	effect.State = state
@@ -38,6 +44,32 @@ func TestPlan(t *testing.T) {
 		{
 			name:  "a run owns the lane",
 			world: lanes.World{Lanes: []lanes.Actual{{Record: running("lane"), Held: true}}},
+		},
+		{
+			name:  "a handoff that lost its session finishes",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: handingOff("lane"), Session: deadSilent}}},
+			want:  []lanes.Action{{Kind: lanes.ActionHandoff, Lane: "lane"}},
+		},
+		{
+			name:  "a handoff that left no session to find finishes",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: handingOff("lane")}}},
+			want:  []lanes.Action{{Kind: lanes.ActionHandoff, Lane: "lane"}},
+		},
+		{
+			name:  "a handoff with a session to read adopts it",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: handingOff("lane"), Session: alive}}},
+			want:  []lanes.Action{{Kind: lanes.ActionAdopt, Lane: "lane"}},
+		},
+		{
+			name:  "a handoff waits out a read that did not finish",
+			world: lanes.World{Lanes: []lanes.Actual{{Record: handingOff("lane"), Session: unattached}}},
+		},
+		{
+			name: "a handoff whose generation began is over",
+			world: lanes.World{Lanes: []lanes.Actual{{
+				Record: lanes.Record{ID: "lane", Generation: 2, State: lanes.StateRunning, Handoff: &lanes.HandoffProgress{Begun: true}}, Session: deadSilent,
+			}}},
+			want: []lanes.Action{{Kind: lanes.ActionEnd, Lane: "lane"}},
 		},
 		{
 			name:  "an ended lane stays ended",

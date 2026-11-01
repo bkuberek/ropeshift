@@ -157,6 +157,10 @@ type DesiredLease struct {
 	Title      string   `json:"title,omitempty"`
 	Statement  string   `json:"statement,omitempty"`
 	Criteria   []string `json:"criteria,omitempty"`
+	// Contract and ContractVersion are the pin the lane works to, which holds across its
+	// generations whatever a later version of the contract says.
+	Contract        string `json:"contract,omitempty"`
+	ContractVersion int64  `json:"contract_version,omitempty"`
 	// Deadline is the work order's, in database time. Zero means it has none.
 	Deadline int64 `json:"deadline,omitempty"`
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with
@@ -212,9 +216,11 @@ const (
 	UploadLaneStarted     = "lane_started"
 	UploadLaneEnded       = "lane_ended"
 	UploadGenerationBound = "generation_bound"
-	// UploadGenerationStarted moves a lane to its next generation after a crash.
+	// UploadGenerationStarted moves a lane to its next generation.
 	UploadGenerationStarted = "generation_started"
-	UploadLaneStatus        = "lane_status"
+	// UploadHandoffStored keeps a generation's handoff document in the ledger.
+	UploadHandoffStored = "handoff_stored"
+	UploadLaneStatus    = "lane_status"
 	// UploadAdmissionHeld says a worker held a lane back. It is a fenced note.
 	UploadAdmissionHeld = "admission_held"
 	// UploadLaneGuarded says how a stop left a worktree, and passes no fence.

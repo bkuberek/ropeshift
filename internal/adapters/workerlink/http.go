@@ -127,4 +127,10 @@ func (l *HTTP) Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskRes
 	return result, domainError(err)
 }
 
+// LaneFacts reads what a handoff states and only the ledger knows.
+func (l *HTTP) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (ledger.LaneFacts, error) {
+	facts, err := l.as(request.Auth).LaneFacts(ctx, request.Auth.WorkerID, request)
+	return facts, domainError(err)
+}
+
 var _ ports.WorkerLink = (*HTTP)(nil)

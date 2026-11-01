@@ -180,6 +180,7 @@ var sessionless = map[string]string{
 	"POST /v1/workers/{id}/heartbeat":  "a worker's credential",
 	"POST /v1/workers/{id}/events":     "a worker's credential",
 	"POST /v1/workers/{id}/ask":        "a worker's credential",
+	"POST /v1/workers/{id}/lane-facts": "a worker's credential",
 	"POST /v1/workers/{id}/rulings":    "a worker's credential",
 }
 

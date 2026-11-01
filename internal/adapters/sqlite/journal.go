@@ -280,15 +280,15 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
 	var digest sql.NullString
-	var progress, guard []byte
+	var progress, guard, handoff []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff)
 	if err != nil {
 		return lane, err
 	}
@@ -299,7 +299,13 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 		}
 	}
 	if len(guard) != 0 {
-		err = json.Unmarshal(guard, &lane.Guard)
+		if err := json.Unmarshal(guard, &lane.Guard); err != nil {
+			return lane, err
+		}
+	}
+	if len(handoff) != 0 {
+		lane.Handoff = &lanes.HandoffProgress{}
+		err = json.Unmarshal(handoff, lane.Handoff)
 	}
 	return lane, err
 }
@@ -331,15 +337,57 @@ func (j *Journal) BeginGeneration(ctx context.Context, lane lanes.Record, event 
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}
+	handoff, err := handoffColumn(lane.Handoff)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
 	tx, err := j.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx, `UPDATE lanes
-   SET generation = ?2, token_digest = NULL, session_id = '', resume_session = ?3, progress = ?4 WHERE id = ?1`,
-		lane.ID, lane.Generation, lane.ResumeSession, progress)
+   SET generation = ?2, token_digest = NULL, session_id = '', resume_session = ?3, progress = ?4, handoff = ?5 WHERE id = ?1`,
+		lane.ID, lane.Generation, lane.ResumeSession, progress, handoff)
 	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	stored, err := insertEvent(ctx, tx, event)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return stored, tx.Commit()
+}
+
+func handoffColumn(progress *lanes.HandoffProgress) ([]byte, error) {
+	if progress == nil {
+		return nil, nil
+	}
+	return json.Marshal(progress)
+}
+
+// SaveHandoff replaces how far a lane's handoff got.
+func (j *Journal) SaveHandoff(ctx context.Context, lane string, progress *lanes.HandoffProgress) error {
+	raw, err := handoffColumn(progress)
+	if err != nil {
+		return err
+	}
+	_, err = j.db.ExecContext(ctx, `UPDATE lanes SET handoff = ?2 WHERE id = ?1`, lane, raw)
+	return err
+}
+
+// StoreHandoff keeps a sealed handoff and its event together.
+func (j *Journal) StoreHandoff(ctx context.Context, lane string, progress lanes.HandoffProgress, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	raw, err := handoffColumn(&progress)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET handoff = ?2 WHERE id = ?1`, lane, raw); err != nil {
 		return ledger.UploadEvent{}, err
 	}
 	stored, err := insertEvent(ctx, tx, event)
@@ -441,8 +489,12 @@ func (j *Journal) Release(ctx context.Context, lane string) error {
 
 // ChargeRestart keeps one charge once.
 func (j *Journal) ChargeRestart(ctx context.Context, lane string, charge lanes.Restart) (bool, error) {
-	result, err := j.db.ExecContext(ctx, `INSERT INTO lane_restarts (lane, key, at_ms, not_before_ms)
-VALUES (?1, ?2, ?3, ?4) ON CONFLICT (lane, key) DO NOTHING`, lane, charge.Key, charge.AtMs, charge.NotBeforeMs)
+	planned := 0
+	if charge.Planned {
+		planned = 1
+	}
+	result, err := j.db.ExecContext(ctx, `INSERT INTO lane_restarts (lane, key, at_ms, not_before_ms, planned)
+VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (lane, key) DO NOTHING`, lane, charge.Key, charge.AtMs, charge.NotBeforeMs, planned)
 	if err != nil {
 		return false, err
 	}
@@ -452,7 +504,7 @@ VALUES (?1, ?2, ?3, ?4) ON CONFLICT (lane, key) DO NOTHING`, lane, charge.Key, c
 
 // Restarts lists a lane's charges.
 func (j *Journal) Restarts(ctx context.Context, lane string) ([]lanes.Restart, error) {
-	rows, err := j.db.QueryContext(ctx, `SELECT key, at_ms, not_before_ms FROM lane_restarts WHERE lane = ?1 ORDER BY at_ms, key`, lane)
+	rows, err := j.db.QueryContext(ctx, `SELECT key, at_ms, not_before_ms, planned FROM lane_restarts WHERE lane = ?1 ORDER BY at_ms, key`, lane)
 	if err != nil {
 		return nil, err
 	}
@@ -460,9 +512,11 @@ func (j *Journal) Restarts(ctx context.Context, lane string) ([]lanes.Restart, e
 	var out []lanes.Restart
 	for rows.Next() {
 		var charge lanes.Restart
-		if err := rows.Scan(&charge.Key, &charge.AtMs, &charge.NotBeforeMs); err != nil {
+		var planned int64
+		if err := rows.Scan(&charge.Key, &charge.AtMs, &charge.NotBeforeMs, &planned); err != nil {
 			return nil, err
 		}
+		charge.Planned = planned != 0
 		out = append(out, charge)
 	}
 	return out, rows.Err()

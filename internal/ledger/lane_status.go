@@ -36,6 +36,8 @@ const (
 	ArtifactBranch = "branch"
 	// ArtifactReport is what a lane's report named.
 	ArtifactReport = "report"
+	// ArtifactHandoff is a handoff document, and its body lives in the ledger.
+	ArtifactHandoff = "handoff"
 )
 
 // Artifact is something a lane left. URI names it, and Digest pins its content. Fence names
@@ -104,4 +106,6 @@ type LaneView struct {
 	// Archived says its worktree went.
 	Archived  bool       `json:"archived,omitempty"`
 	Artifacts []Artifact `json:"artifacts,omitempty"`
+	// Generations lists each run of an agent in this lane, oldest first.
+	Generations []Generation `json:"generations,omitempty"`
 }

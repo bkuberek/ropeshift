@@ -13,6 +13,9 @@ type Restart struct {
 	// NotBeforeMs is when the act may run, so a new worker waits out what is left of a
 	// delay and does not start one again.
 	NotBeforeMs int64
+	// Planned pays for a generation nothing crashed to cause, such as a handoff. It counts
+	// toward the day and not toward the window, because it is no crash loop.
+	Planned bool
 }
 
 // Breaker counts crash restarts in a sliding window (FR-LANE-12). MaxPerDay caps a lane's
@@ -37,7 +40,7 @@ func (b Breaker) Judge(charges []Restart, now time.Time) BreakerVerdict {
 	var inWindow, inDay int64
 	for _, charge := range charges {
 		age := now.Sub(time.UnixMilli(charge.AtMs))
-		if age < b.Window {
+		if age < b.Window && !charge.Planned {
 			inWindow++
 		}
 		if age < oneDay {

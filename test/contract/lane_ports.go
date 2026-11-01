@@ -310,13 +310,16 @@ func checkWorktreeSurvey(t *testing.T, ctx context.Context, r WorktreeRig) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if clean.Dirty || clean.Branch != "lane/one" || clean.Head == "" {
+	if clean.Dirty || clean.Branch != "lane/one" || clean.Head == "" || len(clean.DirtyPaths) != 0 {
 		t.Errorf("a clean worktree reads %+v", clean)
 	}
 	r.Dirty(created.Path)
 	dirty, err := r.Worktrees.Survey(ctx, created.Path)
 	if err != nil || !dirty.Dirty {
 		t.Errorf("a dirty worktree reads %+v: %v", dirty, err)
+	}
+	if len(dirty.DirtyPaths) != 1 || dirty.DirtyPaths[0] == "" {
+		t.Errorf("a dirty worktree names %v", dirty.DirtyPaths)
 	}
 }
 

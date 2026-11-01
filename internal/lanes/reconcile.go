@@ -77,6 +77,8 @@ const (
 	ActionContinue ActionKind = "continue"
 	// ActionAdopt reads a session this process did not start.
 	ActionAdopt ActionKind = "adopt"
+	// ActionHandoff finishes a handoff whose session went with the worker that followed it.
+	ActionHandoff ActionKind = "handoff"
 	// ActionEnd accounts for a lane whose session is gone.
 	ActionEnd ActionKind = "end"
 	// ActionRelease gives back what an ended lane held.
@@ -168,12 +170,16 @@ func archives(world World) []Action {
 	return actions
 }
 
-// planLane decides one lane no run owns.
+// planLane decides one lane no run owns. A handoff comes before a lane's end, because a
+// session lost during one is its failure edge, and that edge leads to a next generation.
 func planLane(lane Actual) (Action, bool) {
 	id := lane.Record.ID
+	gone := !lane.Session.Found || lane.Session.Liveness == LivenessDead
 	switch {
 	case lane.Session.Readable:
 		return Action{Kind: ActionAdopt, Lane: id}, true
+	case gone && lane.Record.Handoff.Open():
+		return Action{Kind: ActionHandoff, Lane: id}, true
 	case lane.Session.Found && lane.Session.Liveness == LivenessDead:
 		return Action{Kind: ActionEnd, Lane: id}, true
 	case lane.Session.Found:

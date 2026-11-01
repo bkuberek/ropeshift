@@ -158,6 +158,14 @@ VALUES
  WHERE d.workspace_id = :workspace_id AND d.status = 'assumed'
    AND q.subject_kind = 'work_order' AND q.subject_id = :work_order_id`)
 
+	stmtOpenAssumptions = define("decision.open_assumptions",
+		`SELECT d.id
+  FROM decisions d
+  JOIN questions q ON q.workspace_id = d.workspace_id AND q.id = d.question_id
+ WHERE d.workspace_id = :workspace_id AND d.status = 'assumed'
+   AND q.subject_kind = 'work_order' AND q.subject_id = :work_order_id
+ ORDER BY d.id`)
+
 	stmtInsertNotice = define("decision_notice.insert",
 		`INSERT INTO decision_notices (workspace_id, decision_id, lane_id, generation, replaced_by, noticed_at)
 VALUES (:workspace_id, :decision_id, :lane_id, :generation, :replaced_by, :noticed_at)
@@ -519,6 +527,23 @@ func (t questionTx) Assumptions(workOrder string) (int64, error) {
 	var count int64
 	err = row.Scan(&count)
 	return count, err
+}
+
+func (t questionTx) OpenAssumptions(workOrder string) ([]string, error) {
+	rows, err := t.rows(stmtOpenAssumptions, t.scoped(params{"work_order_id": workOrder}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func (t questionTx) Notice(n questions.Notice) (bool, error) {

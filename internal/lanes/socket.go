@@ -1,6 +1,8 @@
 package lanes
 
 import (
+	"encoding/json"
+
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -24,16 +26,18 @@ const (
 const EnvMessagingSocket = "CLAUDE_CODE_MESSAGING_SOCKET"
 
 // ToolLaneReport is the tool that ends a lane, ToolLaneWait the one that says it is
-// waiting on something outside it, and ToolAsk the one that asks a question.
+// waiting on something outside it, ToolAsk the one that asks a question, and ToolLaneHandoff
+// the one that writes a lane's part of a handoff.
 const (
-	ToolLaneReport = "lane_report"
-	ToolLaneWait   = "lane_wait"
-	ToolAsk        = "ask"
+	ToolLaneReport  = "lane_report"
+	ToolLaneWait    = "lane_wait"
+	ToolAsk         = "ask"
+	ToolLaneHandoff = "lane_handoff"
 )
 
 // Tools are a lane's MCP tools. Generated settings allow exactly these, so a lane
 // reports its outcome with no prompt (ADR-0014).
-var Tools = []string{ToolLaneReport, ToolLaneWait, ToolAsk}
+var Tools = []string{ToolLaneReport, ToolLaneWait, ToolAsk, ToolLaneHandoff}
 
 // WaitDeclaration is a lane's word that it waits on an external process.
 type WaitDeclaration struct {
@@ -70,6 +74,8 @@ type Request struct {
 	Report  *workorders.Report `json:"report,omitempty"`
 	Wait    *WaitDeclaration   `json:"wait,omitempty"`
 	Ask     *AskRequest        `json:"ask,omitempty"`
+	// Handoff is a lane's narrative as it wrote it, so the worker judges what arrived.
+	Handoff json.RawMessage `json:"handoff,omitempty"`
 }
 
 // Reply is the one line that answers it.
