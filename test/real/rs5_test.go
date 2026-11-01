@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -101,7 +102,7 @@ func (s *suite) questionNamed(text string) (questions.Question, bool) {
 		s.t.Fatal(err)
 	}
 	for _, row := range list.Questions {
-		if strings.Contains(row.Text, text) {
+		if strings.Contains(strings.ToLower(row.Text), text) {
 			return row, true
 		}
 	}
@@ -193,12 +194,12 @@ func TestRS5(t *testing.T) {
 
 	headless := gittest.NewIn(t, s.subdirectory("h"))
 	headless.Commit(".ropeshift/profile.toml", rs5Profile(lanes.ProfileRunHeadless))
-	headless.Commit("contract.md", rs5Contract("rs5h", "Call the AskUserQuestion tool once, with one question: "+rs5HeadlessQuestion+
+	headless.Commit("contract.md", rs5Contract("rs5h", "Call the AskUserQuestion tool once, with one question, in exactly these words: "+rs5HeadlessQuestion+
 		". Offer the options one and two. Then end your turn with the single word done."))
 
 	pane := gittest.NewIn(t, s.subdirectory("p"))
 	pane.Commit(".ropeshift/profile.toml", rs5Profile(lanes.ProfileRunTmux))
-	pane.Commit("contract.md", rs5Contract("rs5p", "Call the AskUserQuestion tool once, with one question: "+rs5PaneQuestion+
+	pane.Commit("contract.md", rs5Contract("rs5p", "Call the AskUserQuestion tool once, with one question, in exactly these words: "+rs5PaneQuestion+
 		". If that is refused, the refusal names the tool to use instead: call that tool once with the same question. "+
 		"Then call the lane_report tool once, with outcome completed, and end your turn with the single word done."))
 
@@ -227,12 +228,16 @@ func TestRS5(t *testing.T) {
 		return len(workers.Workers) == 1 && workers.Workers[0].Epoch >= 1
 	})
 	s.startRS5Lane(id, rs5HeadlessLane)
+	// A lane that ends with no question has shown what it can show, so the pane still runs.
+	settled := map[workorders.State]bool{
+		workorders.Acceptance: true, workorders.Blocked: true, workorders.Failed: true, workorders.Ready: true,
+	}
 	var deferred questions.Question
-	s.poll(first.stop, "the deferred question", func() bool {
+	s.poll(first.stop, "the deferred question or the end of the lane", func() bool {
 		s.checkStream(first.stop)
 		var found bool
 		deferred, found = s.questionNamed(rs5HeadlessQuestion)
-		return found
+		return found || settled[s.workOrder(id).State]
 	})
 	first.stop()
 	s.endDeferred(rs5HeadlessLane)
@@ -240,9 +245,18 @@ func TestRS5(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	init, err := firstInit(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkInit(init, []string{"ropeshift"}, laneTools); err != nil {
+		t.Fatalf("STOP: the lane's init: %v", err)
+	}
+	headlessOutcome, headlessReason := s.outcomeOf(id)
 	endedDeferred := strings.Contains(string(stream), "tool_deferred")
-	t.Logf("rs5: headless: status=%s blocking=%v options=%d subject=%s turn_ended_deferred=%v",
-		deferred.Status, deferred.Blocking, len(deferred.Options), deferred.SubjectKind, endedDeferred)
+	t.Logf("rs5: headless: version=%s tool_offered=%v status=%s blocking=%v options=%d subject=%s asked_by=%s turn_ended_deferred=%v outcome=%s reason=%s",
+		init.Version, slices.Contains(init.Tools, lanes.ToolQuestion), deferred.Status, deferred.Blocking, len(deferred.Options), deferred.SubjectKind,
+		deferred.AskedBy, endedDeferred, headlessOutcome, headlessReason)
 	if !deferred.Blocking || deferred.SubjectID != id {
 		t.Errorf("the deferred question reads %+v", deferred)
 	}
@@ -284,7 +298,10 @@ func TestRS5(t *testing.T) {
 	state := s.awaitLane(second, paneID, rs5PaneLane, func() { s.watchPane(second.stop, rs5PaneLane+"-g1", screens) })
 	asked, found := s.questionNamed(rs5PaneQuestion)
 	second.stop()
-	t.Logf("rs5: pane: state=%s screens=%v asked=%v", state, screens.names(), found)
+	outcome, reason := s.outcomeOf(paneID)
+	records := s.hookRecords(rs5PaneLane)
+	t.Logf("rs5: pane: state=%s outcome=%s reason=%s screens=%v asked=%v status=%s blocking=%v tools=%d post_tools=%d",
+		state, outcome, reason, screens.names(), found, asked.Status, asked.Blocking, eventCount(records, "PreToolUse"), eventCount(records, "PostToolUse"))
 	if !found {
 		t.Error("the denial did not lead the session to ask")
 	} else if asked.AskedBy != rs5PaneLane {
