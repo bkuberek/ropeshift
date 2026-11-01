@@ -77,7 +77,8 @@ size = "small"
 +++
 
 This work order tests how a lane comes back from parking, and it has no other work. Change no
-file, and call no tool these steps do not name. Follow the first of these that applies.
+file, and call no tool these steps do not name. Read only the latest message you received, and
+follow the first of these that applies to it. An earlier message no longer applies.
 
 ` + instructions + `
 `
@@ -222,14 +223,20 @@ func standInReport() []any {
 // awaitState waits for a work order to reach a state, at a generation.
 func (s *suite) awaitState(d *daemon, id, lane string, state workorders.State, generation int64, watch func()) {
 	s.t.Helper()
-	failed := map[workorders.State]bool{workorders.Blocked: true, workorders.Failed: true}
+	ended := map[workorders.State]bool{workorders.Blocked: true, workorders.Failed: true, workorders.Acceptance: true}
 	s.poll(d.stop, fmt.Sprintf("lane %s to read %s in generation %d", lane, state, generation), func() bool {
 		watch()
 		row := s.workOrder(id)
-		if failed[row.State] {
-			s.stopWith(d.stop, "lane %s ended %s", lane, row.State)
+		view := s.laneView(lane)
+		if row.State == state && view.Generation == generation {
+			return true
 		}
-		return row.State == state && s.laneView(lane).Generation == generation
+		if ended[row.State] {
+			outcome, reason := s.outcomeOf(id)
+			s.stopWith(d.stop, "lane %s ended %s in generation %d, with %s %s, and this step wants %s in generation %d",
+				lane, row.State, view.Generation, outcome, reasonClass(reason), state, generation)
+		}
+		return false
 	})
 }
 
