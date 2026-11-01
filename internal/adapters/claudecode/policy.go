@@ -68,15 +68,17 @@ func denyRules(spec ports.SessionSpec) []string {
 
 // editRules names what lies beside the worktree at each level above it, because no rule
 // can say "everything but this directory", and a deny always beats an allow. Something
-// created later is the hook's to catch. A name a rule cannot hold is the hook's too.
+// created later is the hook's to catch. A name a rule cannot hold is the hook's too, and
+// so is a write through a link back to the worktree, which reads as outside.
 func editRules(worktree string) []string {
 	if worktree == "" {
 		return nil
 	}
-	dir, err := filepath.EvalSymlinks(worktree)
+	real, err := filepath.EvalSymlinks(worktree)
 	if err != nil {
-		dir = worktree
+		real = worktree
 	}
+	dir := real
 	var rules []string
 	for dir != string(filepath.Separator) && dir != "." {
 		parent := filepath.Dir(dir)
@@ -84,7 +86,7 @@ func editRules(worktree string) []string {
 		if err == nil {
 			for _, entry := range entries {
 				name := entry.Name()
-				if name == filepath.Base(dir) || strings.ContainsAny(name, "()[]{}*?!\\") {
+				if name == filepath.Base(dir) || strings.ContainsAny(name, "()[]{}*?!\\") || leadsToWorktree(filepath.Join(parent, name), real) {
 					continue
 				}
 				rules = append(rules, "Edit(/"+filepath.Join(parent, name)+")", "Edit(/"+filepath.Join(parent, name)+"/**)")
@@ -96,6 +98,26 @@ func editRules(worktree string) []string {
 		rules = rules[:maxEditRules]
 	}
 	return rules
+}
+
+// leadsToWorktree reports a link whose target holds the worktree or lies inside it. A deny
+// rule written through a link applies at the link's real location too, so a rule on one of
+// these would deny every write in the worktree. `/tmp` is such a link on macOS.
+func leadsToWorktree(path, worktree string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	return within(worktree, target) || within(target, worktree)
+}
+
+// within reports a path at or under a directory.
+func within(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
 }
 
 // askRules gates what a profile names, on a lane that would otherwise not ask.

@@ -39,6 +39,42 @@ func TestEveryDenialIsADenyRuleToo(t *testing.T) {
 	}
 }
 
+// A deny rule written through a link also applies at the link's real location, so a rule
+// on a sibling that leads back to the worktree denies every write in it. That is how `/tmp`
+// reads on macOS, where it is a link to `/private/tmp`.
+func TestEditRulesNameNoLinkToTheWorktree(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree := filepath.Join(root, "private", "work", "lane-1")
+	beside := filepath.Join(root, "private", "work", "lane-2")
+	for _, dir := range []string{filepath.Join(worktree, "src"), beside} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	links := map[string]string{
+		"above": filepath.Join(root, "private"), "same": worktree, "inside": filepath.Join(worktree, "src"), "beside": beside,
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules := editRules(worktree)
+	for _, name := range []string{"above", "same", "inside"} {
+		for _, rule := range rules {
+			if strings.Contains(rule, "/"+name+")") || strings.Contains(rule, "/"+name+"/") {
+				t.Errorf("a rule names the worktree by another path: %s", rule)
+			}
+		}
+	}
+	if !slices.Contains(rules, "Edit(/"+filepath.Join(root, "beside")+"/**)") {
+		t.Errorf("a link that leads elsewhere lost its rule: %v", rules[:4])
+	}
+}
+
 func TestEditRulesHoldEverythingBesideTheWorktree(t *testing.T) {
 	spec := policySpec(t)
 	real, err := filepath.EvalSymlinks(spec.Dir)
