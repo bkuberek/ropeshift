@@ -34,6 +34,8 @@ const (
 	// envStandIn runs a suite against a scripted CLI, so a dry run proves the harness and
 	// spends nothing.
 	envStandIn = "ROPESHIFT_REAL_STANDIN"
+	// envOnly runs one half of a suite that has two.
+	envOnly = "ROPESHIFT_REAL_ONLY"
 	// The ceiling of one run.
 	maxSessions = 3
 	maxTurns    = 20
@@ -674,6 +676,45 @@ func TestHookStandInHoldsOnlyACommand(t *testing.T) {
 			}
 			if got := exists4(reached); got != tt.reaches {
 				t.Errorf("reached the real hook: %v, want %v", got, tt.reaches)
+			}
+		})
+	}
+}
+
+func TestHookRecordCountsEveryToolAndNamesEveryStep(t *testing.T) {
+	record := filepath.Join(t.TempDir(), "record")
+	lines := `{"tool_name":"Bash","tool_input":{"command":"echo one"}}
+{"tool_name":"Bash","tool_input":{"command":"echo two"}}
+{"tool_name":"mcp__ropeshift__lane_report","tool_input":{"outcome":"completed"}}
+not a line of JSON
+`
+	if err := os.WriteFile(record, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	called := toolsCalled(record)
+	if called["Bash"] != 2 || called["mcp__ropeshift__lane_report"] != 1 || len(called) != 2 {
+		t.Errorf("called %v", called)
+	}
+	if got := toolsCalled(filepath.Join(t.TempDir(), "absent")); got != nil {
+		t.Errorf("an absent record counted %v", got)
+	}
+	commands := []string{"cd here && echo one", "echo two"}
+	got := unattempted(commands, map[string]string{"first": "echo one", "second": "echo two", "third": "echo three"})
+	if !slices.Equal(got, []string{"third"}) {
+		t.Errorf("unattempted %v", got)
+	}
+}
+
+func TestHookReasonsKeepACodeAndHideAReply(t *testing.T) {
+	tests := []struct{ name, reason, want string }{
+		{name: "no reason", reason: "", want: ""},
+		{name: "a worker's code", reason: "no_outcome", want: "no_outcome"},
+		{name: "a session's words", reason: "step four was refused at /tmp/rs4x", want: "the session's own"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := reasonClass(tt.reason); got != tt.want {
+				t.Errorf("class %q", got)
 			}
 		})
 	}

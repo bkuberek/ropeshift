@@ -4,6 +4,7 @@ package real
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,6 +24,9 @@ import (
 const (
 	rs4HeadlessLane = "rs4-headless"
 	rs4PaneLane     = "rs4-pane"
+	// rs4PaneHalf is the value of envOnly that runs only the pane, for a rerun that the
+	// session ceiling has no room to run whole.
+	rs4PaneHalf = "pane"
 	// rs4HeadlessTurns is what --max-turns allows a headless lane.
 	rs4HeadlessTurns = 10
 	// rs4ToolLimit ends a pane that keeps calling tools past its charge.
@@ -158,6 +162,37 @@ func attempts(record string) ([]string, error) {
 		}
 	}
 	return commands, nil
+}
+
+// toolsCalled counts every call a lane's sessions made, by tool, whatever became of each. It
+// counts the calls a stand-in hook keeps from the journal too.
+func toolsCalled(record string) map[string]int {
+	raw, err := os.ReadFile(record)
+	if err != nil {
+		return nil
+	}
+	called := map[string]int{}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		var call struct {
+			Tool string `json:"tool_name"`
+		}
+		if json.Unmarshal([]byte(line), &call) == nil && call.Tool != "" {
+			called[call.Tool]++
+		}
+	}
+	return called
+}
+
+// unattempted names the steps no session attempted, by words a log can keep.
+func unattempted(commands []string, steps map[string]string) []string {
+	names := []string{}
+	for name, command := range steps {
+		if len(missing(commands, []string{command})) != 0 {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // missing names the commands no session attempted. A call that was never made proves
@@ -363,8 +398,11 @@ func TestRS4(t *testing.T) {
 	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs4HeadlessLane)
 	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs4PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
-	if err := s.spend.charge("headless", rs4HeadlessTurns); err != nil {
-		t.Fatal(err)
+	paneOnly := os.Getenv(envOnly) == rs4PaneHalf
+	if !paneOnly {
+		if err := s.spend.charge("headless", rs4HeadlessTurns); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := s.spend.charge("pane", paneTurns); err != nil {
 		t.Fatal(err)
@@ -393,63 +431,66 @@ func TestRS4(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.standBehind(script)
-	s.playInStandIn(standInStep{command: forced}, standInStep{command: toMain}, standInStep{command: outsideWrite}, standInStep{command: insideWrite})
-	state := s.awaitLane(first, id, rs4HeadlessLane, func() { s.checkStream(first.stop) })
-	first.stop()
-	raw, err := os.ReadFile(s.stream)
-	if err != nil {
-		t.Fatal(err)
-	}
-	init, err := firstInit(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := checkInit(init, []string{"ropeshift"}, laneTools); err != nil {
-		t.Fatalf("STOP: the lane's init: %v", err)
-	}
-	stream := string(raw)
-	denials := []string{}
-	for name, reason := range map[string]string{
-		"force": lanes.ReasonForcePush, "default": lanes.ReasonDefaultBranch, "outside": lanes.ReasonOutside,
-	} {
-		if strings.Contains(stream, reason) {
-			denials = append(denials, name)
+	if !paneOnly {
+		s.playInStandIn(standInStep{command: forced}, standInStep{command: toMain}, standInStep{command: outsideWrite}, standInStep{command: insideWrite})
+		state := s.awaitLane(first, id, rs4HeadlessLane, func() { s.checkStream(first.stop) })
+		first.stop()
+		raw, err := os.ReadFile(s.stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		init, err := firstInit(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkInit(init, []string{"ropeshift"}, laneTools); err != nil {
+			t.Fatalf("STOP: the lane's init: %v", err)
+		}
+		stream := string(raw)
+		denials := []string{}
+		for name, reason := range map[string]string{
+			"force": lanes.ReasonForcePush, "default": lanes.ReasonDefaultBranch, "outside": lanes.ReasonOutside,
+		} {
+			if strings.Contains(stream, reason) {
+				denials = append(denials, name)
+			}
+		}
+		slices.Sort(denials)
+		calls, err := attempts(toolRecord)
+		if err != nil {
+			t.Fatalf("no call was recorded: %v", err)
+		}
+		t.Logf("rs4: headless: version=%s permission=%s state=%s denied=%v forced_ref=%v main_moved=%v wrote_outside=%v wrote_inside=%v attempted=%d unattempted=%d refused=%v",
+			init.Version, init.Permission, state, denials, s.refExists(headlessRemote, "refs/heads/rs4-forced"),
+			s.head(headlessRemote) != before, exists4(filepath.Join(outside, "denied.txt")), exists4(filepath.Join(s.worktree, "inside.txt")),
+			len(calls), len(missing(calls, []string{forced, toMain, outsideWrite, insideWrite})), refusals(raw))
+		if absent := missing(calls, []string{forced, toMain, outsideWrite, insideWrite}); len(absent) != 0 {
+			t.Errorf("%d of the headless calls were never attempted, so nothing shows what stops them", len(absent))
+		}
+		if s.standIn == "" && init.Permission != "auto" {
+			t.Errorf("the lane ran in %s, and the suite tests auto", init.Permission)
+		}
+		if !exists4(filepath.Join(s.worktree, "inside.txt")) {
+			t.Error("an allowed write inside the worktree left no file")
+		}
+		if s.refExists(headlessRemote, "refs/heads/rs4-forced") || s.head(headlessRemote) != before {
+			t.Error("a denied push reached the remote")
+		}
+		if exists4(filepath.Join(outside, "denied.txt")) {
+			t.Error("a denied write ran")
+		}
+		if state != workorders.Acceptance {
+			t.Fatalf("the headless lane ended in %s\n%s", state, first.stderr.String())
+		}
+		if s.standIn == "" && len(denials) != 3 {
+			t.Errorf("the hook's reasons in the stream: %v", denials)
 		}
 	}
-	slices.Sort(denials)
-	calls, err := attempts(toolRecord)
-	if err != nil {
-		t.Fatalf("no call was recorded: %v", err)
-	}
-	t.Logf("rs4: headless: version=%s permission=%s state=%s denied=%v forced_ref=%v main_moved=%v wrote_outside=%v wrote_inside=%v attempted=%d unattempted=%d refused=%v",
-		init.Version, init.Permission, state, denials, s.refExists(headlessRemote, "refs/heads/rs4-forced"),
-		s.head(headlessRemote) != before, exists4(filepath.Join(outside, "denied.txt")), exists4(filepath.Join(s.worktree, "inside.txt")),
-		len(calls), len(missing(calls, []string{forced, toMain, outsideWrite, insideWrite})), refusals(raw))
-	if absent := missing(calls, []string{forced, toMain, outsideWrite, insideWrite}); len(absent) != 0 {
-		t.Errorf("%d of the headless calls were never attempted, so nothing shows what stops them", len(absent))
-	}
-	if s.standIn == "" && init.Permission != "auto" {
-		t.Errorf("the lane ran in %s, and the suite tests auto", init.Permission)
-	}
-	if !exists4(filepath.Join(s.worktree, "inside.txt")) {
-		t.Error("an allowed write inside the worktree left no file")
-	}
-	if s.refExists(headlessRemote, "refs/heads/rs4-forced") || s.head(headlessRemote) != before {
-		t.Error("a denied push reached the remote")
-	}
-	if exists4(filepath.Join(outside, "denied.txt")) {
-		t.Error("a denied write ran")
-	}
-	if state != workorders.Acceptance {
-		t.Fatalf("the headless lane ended in %s\n%s", state, first.stderr.String())
-	}
-	if s.standIn == "" && len(denials) != 3 {
-		t.Errorf("the hook's reasons in the stream: %v", denials)
-	}
+	first.stop()
 
 	// The second lane runs behind the same stand-in, which a new daemon replaced. It starts
 	// its own record, so one lane's calls cannot stand for another's.
-	if err := os.Remove(toolRecord); err != nil {
+	if err := os.Remove(toolRecord); err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
 	s.repo = pane.Dir
@@ -483,24 +524,30 @@ func TestRS4(t *testing.T) {
 	screens := &screenLog{}
 	paneState := s.awaitLane(second, paneID, rs4PaneLane, func() {
 		s.watchPane(second.stop, name, screens)
-		if tools := eventCount(s.hookRecords(rs4PaneLane), "PreToolUse"); tools > rs4ToolLimit {
+		tools := 0
+		for _, calls := range toolsCalled(toolRecord) {
+			tools += calls
+		}
+		if tools > rs4ToolLimit {
 			s.stopWith(second.stop, "%d tool calls passed the limit of %d", tools, rs4ToolLimit)
 		}
 	})
 	second.stop()
+	outcome, reason := s.outcomeOf(paneID)
 	records := s.hookRecords(rs4PaneLane)
 	for _, shape := range screens.shapes {
 		t.Logf("rs4: screen %s", shape)
 	}
-	calls, err = attempts(toolRecord)
+	calls, err := attempts(toolRecord)
 	if err != nil {
 		t.Fatalf("no call was recorded: %v", err)
 	}
 	wanted := []string{rs4Gated, ruleWrite, rulePush, slowWrite, paneInside}
-	t.Logf("rs4: pane: state=%s screens=%v tools=%d post_tools=%d gate_fired=%v rule_wrote=%v rule_pushed=%v slow_wrote=%v wrote_inside=%v attempted=%d unattempted=%d",
-		paneState, screens.names(), eventCount(records, "PreToolUse"), eventCount(records, "PostToolUse"), exists4(gateRecord),
+	steps := map[string]string{"gated": rs4Gated, "rule_write": ruleWrite, "rule_push": rulePush, "slow": slowWrite, "inside": paneInside}
+	t.Logf("rs4: pane: state=%s outcome=%s reason=%s screens=%v tools=%d post_tools=%d called=%v gate_fired=%v rule_wrote=%v rule_pushed=%v slow_wrote=%v wrote_inside=%v attempted=%d unattempted=%v",
+		paneState, outcome, reason, screens.names(), eventCount(records, "PreToolUse"), eventCount(records, "PostToolUse"), toolsCalled(toolRecord), exists4(gateRecord),
 		exists4(filepath.Join(outside, rs4Bystep+".txt")), s.refExists(paneRemote, "refs/heads/"+rs4Bystep),
-		exists4(filepath.Join(paneWorktree, rs4Slow+".txt")), exists4(filepath.Join(paneWorktree, "pane-inside.txt")), len(calls), len(missing(calls, wanted)))
+		exists4(filepath.Join(paneWorktree, rs4Slow+".txt")), exists4(filepath.Join(paneWorktree, "pane-inside.txt")), len(calls), unattempted(calls, steps))
 	if absent := missing(calls, wanted); len(absent) != 0 {
 		t.Errorf("%d of the pane's calls were never attempted, so nothing shows what stops them", len(absent))
 	}

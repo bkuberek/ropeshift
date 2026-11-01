@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -489,8 +490,8 @@ func (s *suite) checkStream(stop func()) {
 	}
 }
 
-// report states the evidence by name, and holds no session ID, path, prompt, or reply.
-func (s *suite) report(id string, init initLine, raw []byte) {
+// eventsOf reads a work order's events from the ledger, which a stopped daemon has left.
+func (s *suite) eventsOf(id string) []ledger.Event {
 	s.t.Helper()
 	store, err := sqlite.Open(filepath.Join(s.paths.StateDir, api.LedgerFileName), sqlstore.Options{})
 	if err != nil {
@@ -510,6 +511,42 @@ func (s *suite) report(id string, init initLine, raw []byte) {
 	if err != nil {
 		s.t.Fatal(err)
 	}
+	return events
+}
+
+// outcomeOf says how a work order's lane ended. A reason the worker wrote is a code. A reason a
+// session wrote is a reply, so a log keeps only that there was one.
+func (s *suite) outcomeOf(id string) (workorders.Outcome, string) {
+	s.t.Helper()
+	var ended workorders.Change
+	for _, event := range s.eventsOf(id) {
+		var change workorders.Change
+		if json.Unmarshal(event.Data, &change) == nil && change.Outcome != "" {
+			ended = change
+		}
+	}
+	return ended.Outcome, reasonClass(ended.Reason)
+}
+
+// reasonClass keeps a worker's code and hides anything a session wrote.
+func reasonClass(reason string) string {
+	if reason == "" || slices.Contains(workerReasons, reason) {
+		return reason
+	}
+	return "the session's own"
+}
+
+// workerReasons are the reasons a worker records for a lane that did not report for itself.
+var workerReasons = []string{
+	workorders.ReasonNoOutcome, workorders.ReasonCrashed, workorders.ReasonSpawnFailed, workorders.ReasonNoRepository,
+	workorders.ReasonWorkerRestarted, workorders.ReasonFenced, workorders.ReasonUnknownScreen, workorders.ReasonHookFailed,
+	workorders.ReasonHookUnknown,
+}
+
+// report states the evidence by name, and holds no session ID, path, prompt, or reply.
+func (s *suite) report(id string, init initLine, raw []byte) {
+	s.t.Helper()
+	events := s.eventsOf(id)
 	last := events[len(events)-1]
 	var ended workorders.Change
 	if err := json.Unmarshal(last.Data, &ended); err != nil {
