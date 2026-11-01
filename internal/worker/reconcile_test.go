@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -167,6 +169,77 @@ func TestReconcileTwiceNoActions(t *testing.T) {
 		}
 	}
 	t.Logf("actions over %d worlds: %v", generatedWorlds, seen)
+}
+
+// lanesRead runs a function once, after a pass reads the lanes and before it goes on, which
+// is the moment a pass and a lane that is starting can cross.
+type lanesRead struct {
+	ports.Journal
+	then atomic.Pointer[func()]
+}
+
+func (j *lanesRead) Lanes(ctx context.Context) ([]lanes.Record, error) {
+	records, err := j.Journal.Lanes(ctx)
+	if then := j.then.Swap(nil); then != nil {
+		(*then)()
+	}
+	return records, err
+}
+
+// A lane that starts while a pass reads holds resources the pass finds with no record of
+// the lane behind them. Those resources are a running lane's, and they are not free.
+func TestAPassLeavesAStartingLanesResourcesAlone(t *testing.T) {
+	base := newRig(t)
+	read := &lanesRead{Journal: base.journal}
+	base.workerJournal = read
+	r := newLaneRigFor(t, base)
+	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", "[resources]\nports_per_lane = 10\n")
+	r.dispatched()
+	r.holdEverySession()
+	t.Cleanup(func() {
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+	start := func() {
+		if _, err := r.subject.Reconcile(t.Context()); err != nil {
+			t.Error(err)
+		}
+		r.awaitAllocation(t)
+	}
+	read.then.Store(&start)
+	actions, err := r.subject.Reconcile(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range actions {
+		if action.Kind == lanes.ActionRelease {
+			t.Errorf("a pass released a running lane's resources: %+v", actions)
+		}
+	}
+	allocations, err := r.journal.Allocations(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allocations) != 1 {
+		t.Errorf("allocations %+v", allocations)
+	}
+}
+
+func (r *laneRig) awaitAllocation(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		allocations, err := r.journal.Allocations(t.Context())
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if len(allocations) != 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Error("the lane never took its resources")
 }
 
 func TestAStartedEffectIsUnknownAfterACrash(t *testing.T) {

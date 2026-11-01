@@ -153,6 +153,13 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	if err != nil {
 		return lanes.World{}, seen, err
 	}
+	// Allocations come before the lanes. A lane journals its start before it takes anything,
+	// so whatever this finds has its record in the next read, and a lane that starts between
+	// the two reads cannot look like resources nobody holds.
+	allocations, err := w.journal.Allocations(ctx)
+	if err != nil {
+		return lanes.World{}, seen, err
+	}
 	records, err := w.journal.Lanes(ctx)
 	if err != nil {
 		return lanes.World{}, seen, err
@@ -195,10 +202,6 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 		if lease.Lane != "" && lease.State == string(workorders.Claimed) && !recorded && !w.held(lease.Lane) {
 			world.Wanted = append(world.Wanted, lease.Lane)
 		}
-	}
-	allocations, err := w.journal.Allocations(ctx)
-	if err != nil {
-		return lanes.World{}, seen, err
 	}
 	for _, allocation := range allocations {
 		world.Allocations = append(world.Allocations, allocation.Lane)
