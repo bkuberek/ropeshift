@@ -576,6 +576,41 @@ func TestRedactKeepsShapeAndNoWord(t *testing.T) {
 	}
 }
 
+// TestHookRecordFindsACallNeverMade holds RS4's strongest claim to something that can fail:
+// a call the record does not hold is reported, however quiet its effect was.
+func TestHookRecordFindsACallNeverMade(t *testing.T) {
+	record := filepath.Join(t.TempDir(), "record")
+	lines := `{"tool_name":"Bash","tool_input":{"command":"git push --force origin HEAD:refs/heads/a"}}
+{"tool_name":"mcp__ropeshift__lane_report","tool_input":{"outcome":"completed"}}
+not a line of JSON
+{"tool_name":"Bash","tool_input":{"command":"cd here && echo inside > inside.txt"}}
+`
+	if err := os.WriteFile(record, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := attempts(record)
+	if err != nil || len(calls) != 2 {
+		t.Fatalf("calls %v: %v", calls, err)
+	}
+	got := missing(calls, []string{"git push --force origin HEAD:refs/heads/a", "echo inside > inside.txt", "echo slow > slow.txt"})
+	if !slices.Equal(got, []string{"echo slow > slow.txt"}) {
+		t.Errorf("missing %v", got)
+	}
+}
+
+func TestHookRefusalsAreCountedByClass(t *testing.T) {
+	stream := []byte(`{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"ropeshift policy: a force push is denied"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"Permission to edit this path has been denied."}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","is_error":false,"content":"ok"}]}}
+{"type":"user","message":{"content":"a plain prompt"}}
+{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"exit 1"}]}}
+`)
+	got := refusals(stream)
+	if got["hook"] != 1 || got["rule"] != 1 || got["other"] != 1 {
+		t.Errorf("refusals %v", got)
+	}
+}
+
 func TestHookEventsAreCounted(t *testing.T) {
 	stream := []byte(`{"type":"system","subtype":"hook_started"}` + "\n" + `{"type":"system","subtype":"init"}`)
 	if got := hookEvents(stream); got != 1 {

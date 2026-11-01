@@ -349,8 +349,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Allocate: r.allocate, RunHook: r.runHook,
-		Overrides: r.lease.Overrides,
+		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Overrides: r.lease.Overrides,
+		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
+		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
 		Tags: map[string]string{
 			lanes.EnvLaneID: r.lease.Lane, lanes.EnvGeneration: strconv.FormatInt(r.currentGeneration(), 10),
 			lanes.EnvWorkOrder: r.lease.WorkOrder, lanes.EnvLaneToken: token,

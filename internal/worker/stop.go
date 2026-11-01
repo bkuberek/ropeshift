@@ -36,8 +36,8 @@ func (rt *LaneRuntime) portPool() lanes.PortPool {
 
 // allocate gives a lane its block. The same lane gets the same block back, whichever
 // process and generation asks.
-func (r *laneRun) allocate(settings lanes.ResourceSettings) (lanes.Allocation, error) {
-	allocation, err := r.w.journal.Allocate(context.Background(), lanes.AllocationRequest{
+func (r *laneRun) allocate(ctx context.Context, settings lanes.ResourceSettings) (lanes.Allocation, error) {
+	allocation, err := r.w.journal.Allocate(ctx, lanes.AllocationRequest{
 		Lane: r.lease.Lane, Ports: settings.PortsPerLane, Pool: r.rt.portPool(),
 		ComposeProject: lanes.ComposeProject(settings.ComposeProjectPrefix, r.lease.Lane),
 	})
@@ -59,8 +59,7 @@ func (w *Worker) release(ctx context.Context, lane string) error {
 // runHook runs a lane's setup once for good, whichever generation gets here first. It has
 // no second attempt: a hook that failed stays failed, and one a crash cut short waits for a
 // person.
-func (r *laneRun) runHook(target string, perform func() error) error {
-	ctx := context.Background()
+func (r *laneRun) runHook(ctx context.Context, target string, perform func() error) error {
 	effect := lanes.NewEffect(lanes.EffectHook, r.lease.Lane, firstGeneration, target, lanes.HookLaneCreated)
 	ran, err := r.w.bracket(ctx, effect, perform)
 	if ran || err != nil {
