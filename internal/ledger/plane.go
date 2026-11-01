@@ -227,6 +227,10 @@ const (
 	UploadLaneGuarded = "lane_guarded"
 	// UploadLaneArchived says a worktree went.
 	UploadLaneArchived = "lane_archived"
+	// UploadLaneParking stores a lane's wake as it begins to park.
+	UploadLaneParking = "lane_parking"
+	// UploadLaneParked commits `parked`, once its process is gone.
+	UploadLaneParked = "lane_parked"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

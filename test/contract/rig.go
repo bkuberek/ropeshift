@@ -128,7 +128,7 @@ type Ops interface {
 	Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error)
 	Standing(ctx context.Context, scope ledger.WorkspaceID, id string) (workorders.AcceptanceView, error)
 	BeginParking(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, wake parking.Draft, actor ledger.Actor) error
-	CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, wake string, actor ledger.Actor) (string, error)
+	CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, commit ledger.ParkedCommit, actor ledger.Actor) (string, error)
 	DueWakes(ctx context.Context, scope ledger.WorkspaceID) ([]string, error)
 	FireDue(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (bool, error)
 	WakeTick(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)

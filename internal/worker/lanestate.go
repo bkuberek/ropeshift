@@ -60,6 +60,10 @@ type laneState struct {
 	// later handoff has both, because it is what this generation was told.
 	handoffLimit    time.Duration
 	handoffDegraded bool
+	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
+	// draining fleet lets a turn run.
+	askLimit   time.Duration
+	drainLimit time.Duration
 }
 
 func newLaneState(start lanes.ActualState, now time.Time) *laneState {
@@ -80,6 +84,29 @@ func (s *laneState) thresholds(profile lanes.Profile) {
 		MaxRestarts: profile.Lifecycle.MaxRestarts, Window: window, MaxPerDay: profile.Lifecycle.MaxGenerationsPerDay, Backoff: backoff,
 	}
 	s.handoffLimit, _ = time.ParseDuration(profile.Lifecycle.HandoffTimeout)
+	s.askLimit, _ = time.ParseDuration(profile.Lifecycle.AskWait)
+	s.drainLimit, _ = time.ParseDuration(profile.Lifecycle.DrainDeadline)
+}
+
+// askWait reads a profile's limit. A value it cannot read takes the default, because a lane must
+// not hold a process on a person's time.
+func (s *laneState) askWait() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.askLimit <= 0 {
+		return defaultAskWait
+	}
+	return s.askLimit
+}
+
+// drainDeadline reads a profile's limit, the same way.
+func (s *laneState) drainDeadline() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.drainLimit <= 0 {
+		return defaultDrainDeadline
+	}
+	return s.drainLimit
 }
 
 // handoffTimeout reads a profile's limit. A value it cannot read takes the default, because a

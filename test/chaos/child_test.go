@@ -77,6 +77,11 @@ type childSpec struct {
 	// Script says what a stopping lane's session does, and Profile is the user's layer.
 	Script  string `json:"script,omitempty"`
 	Profile string `json:"profile,omitempty"`
+	// Question is what a parking lane waits on, and Decision the answer's ID. AnswerFirst has
+	// a worker answer it at the step where it dies, so the answer lands ahead of the crash.
+	Question    string `json:"question,omitempty"`
+	Decision    string `json:"decision,omitempty"`
+	AnswerFirst bool   `json:"answer_first,omitempty"`
 }
 
 type child struct {
@@ -160,6 +165,11 @@ func runChild(spec childSpec) error {
 	}
 	crashpoint.Arm(func(op, step string) {
 		if op == spec.KillOp && step == spec.KillStep {
+			if spec.AnswerFirst && spec.Role == "worker-park" {
+				if _, err := c.ops.Answer(c.ctx, c.scope, spec.Question, answerOf(spec.Decision), c.member()); err != nil {
+					fmt.Fprintln(os.Stderr, "the answer before the kill:", err)
+				}
+			}
 			_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL)
 			// The signal can land after this returns. A bare select would trip the
 			// runtime's deadlock check first, and a timer does not.

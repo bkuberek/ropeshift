@@ -47,7 +47,13 @@ func atWork(t *testing.T, answer ...fake.DriverStep) *handoffRig {
 // atWorkBefore names what the next generation does.
 func atWorkBefore(t *testing.T, next func(*laneRig) fake.DriverScript, answer ...fake.DriverStep) *handoffRig {
 	t.Helper()
-	r := &handoffRig{laneRig: laneRigWith(t, handoffProfile), release: make(chan struct{}), reached: make(chan struct{})}
+	return atWorkOn(t, handoffProfile, next, answer...)
+}
+
+// atWorkOn names the profile too.
+func atWorkOn(t *testing.T, profile string, next func(*laneRig) fake.DriverScript, answer ...fake.DriverStep) *handoffRig {
+	t.Helper()
+	r := &handoffRig{laneRig: laneRigWith(t, profile), release: make(chan struct{}), reached: make(chan struct{})}
 	t.Cleanup(func() {
 		r.driver.StopEverySession()
 		r.subject.Wait()

@@ -235,6 +235,8 @@ type LaneReader interface {
 	Generations(lane string) ([]ledger.Generation, error)
 	// Handoff returns what one generation left, or ErrNotFound.
 	Handoff(lane string, generation int64) (ledger.HandoffRecord, error)
+	// Checkpoint returns what one parked generation left, or ErrNotFound.
+	Checkpoint(lane string, generation int64) (ledger.Checkpoint, error)
 }
 
 // LaneWriter writes lanes.
@@ -250,8 +252,11 @@ type LaneWriter interface {
 	MarkEnded(lane string) error
 	// MarkParking records that a lane began to park. An ended lane stays ended.
 	MarkParking(lane string) error
-	// MarkParked records that a lane parked, which the ledger knows for itself.
-	MarkParked(lane string) error
+	// MarkParked records that a lane parked, which the ledger knows for itself, and where it
+	// can resume.
+	MarkParked(lane string, hold ledger.ResumeHold) error
+	// SaveCheckpoint keeps what a parked generation left.
+	SaveCheckpoint(checkpoint ledger.Checkpoint) error
 	// Reset counts one human reset of a lane's breaker and returns the count.
 	Reset(lane string) (int64, error)
 	// Guarded keeps how a stop left a worktree. Work no remote holds withdraws a request

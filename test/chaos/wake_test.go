@@ -52,7 +52,7 @@ func roleBeginParking(c *child) error {
 }
 
 func roleCommitParked(c *child) error {
-	_, err := c.ops.CommitParked(c.ctx, c.scope, c.holder(), c.spec.Key, c.actor)
+	_, err := c.ops.CommitParked(c.ctx, c.scope, c.holder(), contract.PushedCommit(c.spec.Key), c.actor)
 	return err
 }
 
@@ -343,7 +343,7 @@ type splitParked struct {
 	store ports.Store
 }
 
-func (s splitParked) CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, wake string, actor ledger.Actor) (string, error) {
+func (s splitParked) CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, commit ledger.ParkedCommit, actor ledger.Actor) (string, error) {
 	var before workorders.State
 	err := s.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		row, err := tx.WorkOrders().Get(holder.WorkOrder)
@@ -353,18 +353,18 @@ func (s splitParked) CommitParked(ctx context.Context, scope ledger.WorkspaceID,
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.Ops.CommitParked(ctx, scope, holder, wake, actor); err != nil {
+	if _, err := s.Ops.CommitParked(ctx, scope, holder, commit, actor); err != nil {
 		return "", err
 	}
 	if before == workorders.Parked {
 		return "", nil
 	}
 	crashpoint.Hit("lane.parked", "split")
-	fired, err := s.FireDue(ctx, scope, wake, actor)
+	fired, err := s.FireDue(ctx, scope, commit.Wake, actor)
 	if !fired {
 		return "", err
 	}
-	return wake, err
+	return commit.Wake, err
 }
 
 // wakeVariants are the broken builds of a wake. Each must fail the check it names, or that
@@ -558,7 +558,7 @@ func (c *child) runningRound(row workorders.WorkOrder) error {
 	if err := c.ops.BeginParking(c.ctx, c.scope, holder, parking.Draft{ID: wake, Expr: expr}, c.actor); err != nil {
 		return err
 	}
-	_, err = c.ops.CommitParked(c.ctx, c.scope, holder, wake, c.actor)
+	_, err = c.ops.CommitParked(c.ctx, c.scope, holder, contract.PushedCommit(wake), c.actor)
 	return err
 }
 

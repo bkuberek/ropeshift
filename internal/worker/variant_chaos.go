@@ -30,6 +30,12 @@ const (
 	SabotageResendsHandoff = "resends-handoff"
 	// SabotageSplitsHandoff keeps a document and its upload in two journal writes.
 	SabotageSplitsHandoff = "splits-handoff"
+	// SabotageParksFirst commits `parked` ahead of the stop.
+	SabotageParksFirst = "parks-first"
+	// SabotageForgetsWake ends a lane whose parking lost its session.
+	SabotageForgetsWake = "forgets-wake"
+	// SabotageSplitsPark keeps a parked commit and its upload in two journal writes.
+	SabotageSplitsPark = "splits-park"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -45,6 +51,12 @@ func storesAgain() bool { return sabotaged(SabotageStoresAgain) }
 func forgetsHandoff() bool { return sabotaged(SabotageForgetsHandoff) }
 
 func splitsHandoff() bool { return sabotaged(SabotageSplitsHandoff) }
+
+func parksFirst() bool { return sabotaged(SabotageParksFirst) }
+
+func forgetsWake() bool { return sabotaged(SabotageForgetsWake) }
+
+func splitsPark() bool { return sabotaged(SabotageSplitsPark) }
 
 func instructionLabel() string {
 	if !sabotaged(SabotageResendsHandoff) {

@@ -37,6 +37,20 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 VALUES (:workspace_id, :lane_id, :generation, :artifact_id, :digest, :degraded, :body, :now)
 ON CONFLICT (workspace_id, lane_id, generation) DO NOTHING`)
 
+	// stmtInsertCheckpoint keeps one row per generation, because a lane parks at most once in
+	// each, and a repeat of the same commit is the same checkpoint.
+	stmtInsertCheckpoint = define("checkpoint.insert",
+		`INSERT INTO checkpoints (workspace_id, lane_id, generation, branch, head_sha, snapshot_ref, pushed,
+  handoff_artifact_id, pending_instruction, created_at)
+VALUES (:workspace_id, :lane_id, :generation, :branch, :head_sha, :snapshot_ref, :pushed,
+  :handoff_artifact_id, :pending_instruction, :now)
+ON CONFLICT (workspace_id, lane_id, generation) DO NOTHING`)
+
+	stmtFindCheckpoint = define("checkpoint.find",
+		`SELECT lane_id, generation, branch, head_sha, snapshot_ref, pushed, handoff_artifact_id, pending_instruction, created_at
+  FROM checkpoints
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
+
 	stmtFindHandoff = define("handoff.find",
 		`SELECT artifact_id, lane_id, generation, digest, degraded, body, created_at
   FROM handoffs
@@ -129,5 +143,37 @@ func (t laneTx) Handoff(lane string, generation int64) (ledger.HandoffRecord, er
 		return ledger.HandoffRecord{}, fmt.Errorf("handoff %s/%d: %w", lane, generation, ports.ErrNotFound)
 	}
 	out.Degraded, out.Body = degraded != 0, []byte(body)
+	return out, err
+}
+
+func (t laneTx) SaveCheckpoint(checkpoint ledger.Checkpoint) error {
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	pushed := int64(0)
+	if checkpoint.Pushed {
+		pushed = 1
+	}
+	p := t.generationParams(checkpoint.Lane, checkpoint.Generation)
+	p["branch"], p["head_sha"], p["snapshot_ref"], p["pushed"] = checkpoint.Branch, checkpoint.Head, checkpoint.SnapshotRef, pushed
+	p["handoff_artifact_id"], p["pending_instruction"], p["now"] = checkpoint.HandoffArtifact, checkpoint.PendingInstruction, now
+	_, err = t.exec(stmtInsertCheckpoint, p)
+	return err
+}
+
+func (t laneTx) Checkpoint(lane string, generation int64) (ledger.Checkpoint, error) {
+	row, err := t.row(stmtFindCheckpoint, t.generationParams(lane, generation))
+	if err != nil {
+		return ledger.Checkpoint{}, err
+	}
+	var out ledger.Checkpoint
+	var pushed int64
+	err = row.Scan(&out.Lane, &out.Generation, &out.Branch, &out.Head, &out.SnapshotRef, &pushed,
+		&out.HandoffArtifact, &out.PendingInstruction, &out.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ledger.Checkpoint{}, fmt.Errorf("checkpoint %s/%d: %w", lane, generation, ports.ErrNotFound)
+	}
+	out.Pushed = pushed != 0
 	return out, err
 }

@@ -492,6 +492,10 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return bindGeneration(tx, worker, id, e)
 	case ledger.UploadHandoffStored:
 		return storeHandoff(tx, worker, id, e)
+	case ledger.UploadLaneParking:
+		return parkingUpload(tx, worker, e, stamp)
+	case ledger.UploadLaneParked:
+		return parkedUpload(tx, worker, e, stamp)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {

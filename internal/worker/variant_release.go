@@ -23,5 +23,14 @@ func forgetsHandoff() bool { return false }
 // splitsHandoff is false: a normal build keeps a document and its upload together.
 func splitsHandoff() bool { return false }
 
+// parksFirst is false: a normal build stops a process before it gives its lease up.
+func parksFirst() bool { return false }
+
+// forgetsWake is false: a normal build finishes parking that lost its session.
+func forgetsWake() bool { return false }
+
+// splitsPark is false: a normal build keeps a parked commit and its upload together.
+func splitsPark() bool { return false }
+
 // instructionLabel is the one label, so a generation sends its instruction once.
 func instructionLabel() string { return handoffInput }

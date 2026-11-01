@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -427,20 +426,4 @@ type startRefusal struct {
 
 func (d startRefusal) Start(context.Context, ports.SessionSpec) (ports.SessionHandle, error) {
 	return ports.SessionHandle{}, d.err
-}
-
-// A person has to look at an unknown screen, so the lane does not fail and retry. It ends
-// blocked until a lane can park with a human_resume wake.
-func TestAnUnknownScreenBlocksTheLane(t *testing.T) {
-	r := newLaneRig(t)
-	r.config.Driver = startRefusal{AgentDriver: r.driver, err: fmt.Errorf("check: %w", ports.ErrUnknownScreen)}
-	r.dispatched()
-	if _, err := r.subject.Reconcile(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	r.subject.Wait()
-	change := r.outcome()
-	if change.Outcome != workorders.OutcomeBlocked || change.Reason != workorders.ReasonUnknownScreen {
-		t.Errorf("outcome %+v", change)
-	}
 }

@@ -28,6 +28,8 @@ type WorkerLink struct {
 	HangAsk atomic.Bool
 	// FailLaneFacts fails every read of a lane's facts, as a control plane that is away would.
 	FailLaneFacts atomic.Bool
+	// FailUpload refuses every upload, as a control plane that is away would.
+	FailUpload atomic.Bool
 }
 
 // Register calls the plane.
@@ -86,6 +88,9 @@ func (errAnswerLost) Error() string { return "the answer was lost" }
 
 // Upload calls the plane.
 func (l *WorkerLink) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.UploadReply, error) {
+	if l.FailUpload.Load() {
+		return ledger.UploadReply{}, errPlaneAway
+	}
 	reply, err := l.Plane.Upload(ctx, batch)
 	if err == nil && l.LoseUploadAnswer.CompareAndSwap(true, false) {
 		return ledger.UploadReply{}, ErrAnswerLost

@@ -439,6 +439,53 @@ func TestJournalBeginsAGenerationWithItsEvent(t *testing.T) {
 	}
 }
 
+func TestJournalKeepsParkingThroughItsSteps(t *testing.T) {
+	journal := openTestJournal(t)
+	ctx := t.Context()
+	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning, TokenDigest: "d"}
+	if err := journal.SaveLane(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	parking := lanes.ParkProgress{Wake: "lane-1/g1", Expr: lanes.HumanWake(), Trigger: lanes.ParkFleetDrain}
+	begun := ledger.UploadEvent{Type: ledger.UploadLaneParking, Lane: "lane-1", Generation: 1, WorkOrder: "wo", ClaimID: "c", Fence: 1, OccurredAt: 1}
+	handoff := lanes.HandoffProgress{Reason: string(lanes.ParkFleetDrain), DeadlineMs: 5}
+	if _, err := journal.BeginParking(ctx, "lane-1", parking, handoff, begun); err != nil {
+		t.Fatal(err)
+	}
+	got, err := journal.Lane(ctx, "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Parking.Open() || got.Parking.Wake != parking.Wake || got.State != lanes.StateRunning || got.TokenDigest != "d" {
+		t.Fatalf("record %+v", got)
+	}
+	if got.Handoff == nil || got.Handoff.DeadlineMs != 5 {
+		t.Fatalf("handoff %+v", got.Handoff)
+	}
+	if err := journal.SaveBlocking(ctx, "lane-1", []string{"q1"}); err != nil {
+		t.Fatal(err)
+	}
+	parking.Pending = "Finish the retry"
+	committed := ledger.UploadEvent{Type: ledger.UploadLaneParked, Lane: "lane-1", Generation: 1, WorkOrder: "wo", ClaimID: "c", Fence: 1, OccurredAt: 2}
+	stored, err := journal.CommitParked(ctx, "lane-1", parking, committed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err = journal.Lane(ctx, "lane-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got.State != lanes.StateParked || got.TokenDigest != "" || got.Parking.Seq != stored.Seq || got.Parking.Pending != "Finish the retry" {
+		t.Errorf("record %+v, parking %+v", got, got.Parking)
+	}
+	if !slices.Equal(got.Blocking, []string{"q1"}) {
+		t.Errorf("blocking %v", got.Blocking)
+	}
+	pending, err := journal.Pending(ctx, 10)
+	if err != nil || len(pending) != 2 || pending[0].Type != ledger.UploadLaneParking || pending[1].Type != ledger.UploadLaneParked {
+		t.Errorf("pending %+v, %v", pending, err)
+	}
+}
+
 func TestJournalKeepsAHandoffThroughItsSteps(t *testing.T) {
 	journal := openTestJournal(t)
 	ctx := t.Context()

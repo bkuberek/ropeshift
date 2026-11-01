@@ -57,6 +57,37 @@ type GenerationStart struct {
 	Reason StartReason `json:"reason"`
 }
 
+// ParkingStart is a worker's wake on its way to the ledger. The worker generates the ID, so
+// storing it twice stores it once.
+type ParkingStart struct {
+	Wake string `json:"wake"`
+	Expr string `json:"expr"`
+}
+
+// Checkpoint is what a parked generation left. Pushed says the work is on a remote, which
+// decides where the lane can resume.
+type Checkpoint struct {
+	Lane       string `json:"lane_id"`
+	Generation int64  `json:"generation"`
+	Branch     string `json:"branch,omitempty"`
+	Head       string `json:"head_sha,omitempty"`
+	// SnapshotRef holds what no commit does.
+	SnapshotRef string `json:"snapshot_ref,omitempty"`
+	Pushed      bool   `json:"pushed,omitempty"`
+	// HandoffArtifact names the document this generation left.
+	HandoffArtifact string `json:"handoff_artifact_id,omitempty"`
+	// PendingInstruction is what the generation was doing when it stopped. A stopped turn is
+	// not continued, so the resume prompt states it again.
+	PendingInstruction string `json:"pending_instruction,omitempty"`
+	CreatedAt          int64  `json:"created_at,omitempty"`
+}
+
+// ParkedCommit is a worker's report that a lane's process is gone.
+type ParkedCommit struct {
+	Wake       string     `json:"wake"`
+	Checkpoint Checkpoint `json:"checkpoint"`
+}
+
 // LaneFactsRequest asks what the ledger holds about a lane a worker is handing off.
 type LaneFactsRequest struct {
 	Auth      WorkerAuth `json:"-"`

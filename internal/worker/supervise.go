@@ -62,6 +62,10 @@ func (r *laneRun) mayRestart(ctx context.Context) bool {
 // next worker goes on from what the journal holds.
 func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (workorders.Report, bool) {
 	for {
+		if r.parks(ctx) {
+			r.commitParked(ctx)
+			return report, false
+		}
 		moved := false
 		switch {
 		case r.handedOff(ctx):

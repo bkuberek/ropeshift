@@ -1,0 +1,83 @@
+package lanes
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"ropeshift.dev/ropeshift/internal/parking"
+)
+
+// ParkTrigger says why a lane parks.
+type ParkTrigger string
+
+// The triggers this build wires. The wake each stores comes from the design's table.
+const (
+	// ParkBlockingQuestion is a lane at rest that waited out `ask_wait`.
+	ParkBlockingQuestion ParkTrigger = "blocking_question"
+	// ParkFleetDrain is a lane a draining fleet stopped.
+	ParkFleetDrain ParkTrigger = "fleet_drain"
+	// ParkUnknownScreen is a tmux start no check could read.
+	ParkUnknownScreen ParkTrigger = "unknown_screen"
+)
+
+// ParkRequest asks a lane to park.
+type ParkRequest struct {
+	Trigger ParkTrigger
+	// Expr is the wake it stores.
+	Expr string
+	// SkipNarrative leaves the agent's part out, because the agent cannot write it.
+	SkipNarrative bool
+}
+
+// ParkProgress is how far a lane's parking got, in the worker's journal. A stored wake decides
+// what a restarted worker does: it finishes parking, whatever it would otherwise do next.
+type ParkProgress struct {
+	// Wake and Expr are what the ledger stores.
+	Wake string `json:"wake"`
+	Expr string `json:"expr"`
+	// Trigger says why.
+	Trigger ParkTrigger `json:"trigger"`
+	// SkipNarrative says the agent is not asked for its part.
+	SkipNarrative bool `json:"skip_narrative,omitempty"`
+	// Seq is the journal position of the parked commit, so a refusal can be matched to it.
+	Seq int64 `json:"seq,omitempty"`
+	// Pending is what the last generation was doing when it stopped.
+	Pending string `json:"pending,omitempty"`
+	// Begun says the next generation exists, so nothing is left to finish.
+	Begun bool `json:"begun,omitempty"`
+}
+
+// Open says a lane has parking left to finish.
+func (p *ParkProgress) Open() bool { return p != nil && !p.Begun }
+
+// WakeID names the wake of one generation. A lane parks at most once in a generation, so a
+// restart that begins parking again asks for the same wake, and the ledger stores it once.
+func WakeID(lane string, generation int64) string {
+	return fmt.Sprintf("%s/g%d", lane, generation)
+}
+
+// QuestionWake is what a lane waits on after a blocking question: every answer, or a person,
+// because a dismissed question leaves the rest false.
+func QuestionWake(questions []string) string {
+	terms := make([]map[parking.Kind]string, 0, len(questions))
+	for _, id := range questions {
+		terms = append(terms, map[parking.Kind]string{parking.QuestionAnswered: id})
+	}
+	raw, err := json.Marshal(map[string]any{"any_of": []any{
+		map[string]any{"all_of": terms},
+		map[parking.Kind]bool{parking.HumanResume: true},
+	}})
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}
+
+// HumanWake is what only a person can end.
+func HumanWake() string {
+	raw, err := json.Marshal(map[parking.Kind]bool{parking.HumanResume: true})
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}

@@ -96,6 +96,14 @@ type Journal interface {
 	// StoreHandoff keeps a sealed handoff and the event that carries it to the ledger,
 	// together, so a crash cannot store it twice or lose it.
 	StoreHandoff(ctx context.Context, lane string, progress lanes.HandoffProgress, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// BeginParking keeps a lane's wake, its handoff's start, and the event that carries the wake
+	// to the ledger, together, so a stored wake is one a restart finishes and the ledger hears of.
+	BeginParking(ctx context.Context, lane string, parking lanes.ParkProgress, handoff lanes.HandoffProgress, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// CommitParked marks a lane parked, ends its token, and stores the commit's event, together.
+	// A worker with no connection commits here and uploads on return.
+	CommitParked(ctx context.Context, lane string, parking lanes.ParkProgress, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// SaveBlocking replaces the questions a lane cannot go on without.
+	SaveBlocking(ctx context.Context, lane string, questions []string) error
 	// ChargeRestart keeps one charge and reports whether this was the first of its key.
 	ChargeRestart(ctx context.Context, lane string, charge lanes.Restart) (bool, error)
 	// Restarts lists a lane's charges, oldest first.

@@ -280,15 +280,15 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
 	var digest sql.NullString
-	var progress, guard, handoff []byte
+	var progress, guard, handoff, parking, blocking []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking)
 	if err != nil {
 		return lane, err
 	}
@@ -305,7 +305,18 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	}
 	if len(handoff) != 0 {
 		lane.Handoff = &lanes.HandoffProgress{}
-		err = json.Unmarshal(handoff, lane.Handoff)
+		if err := json.Unmarshal(handoff, lane.Handoff); err != nil {
+			return lane, err
+		}
+	}
+	if len(parking) != 0 {
+		lane.Parking = &lanes.ParkProgress{}
+		if err := json.Unmarshal(parking, lane.Parking); err != nil {
+			return lane, err
+		}
+	}
+	if len(blocking) != 0 {
+		err = json.Unmarshal(blocking, &lane.Blocking)
 	}
 	return lane, err
 }
@@ -395,6 +406,66 @@ func (j *Journal) StoreHandoff(ctx context.Context, lane string, progress lanes.
 		return ledger.UploadEvent{}, err
 	}
 	return stored, tx.Commit()
+}
+
+// BeginParking keeps a lane's wake, its handoff's start, and the event that carries the wake to
+// the ledger, together.
+func (j *Journal) BeginParking(ctx context.Context, lane string, parking lanes.ParkProgress, handoff lanes.HandoffProgress, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	progress, err := json.Marshal(parking)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	document, err := handoffColumn(&handoff)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET parking = ?2, handoff = ?3 WHERE id = ?1`, lane, progress, document); err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	stored, err := insertEvent(ctx, tx, event)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return stored, tx.Commit()
+}
+
+// CommitParked marks a lane parked, ends its token, and stores the commit's event, together. The
+// parking record keeps the event's position, so a refusal can be matched to it.
+func (j *Journal) CommitParked(ctx context.Context, lane string, parking lanes.ParkProgress, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stored, err := insertEvent(ctx, tx, event)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	parking.Seq = stored.Seq
+	progress, err := json.Marshal(parking)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE lanes SET state = ?2, token_digest = NULL, parking = ?3 WHERE id = ?1`, lane, lanes.StateParked, progress)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return stored, tx.Commit()
+}
+
+// SaveBlocking replaces the questions a lane cannot go on without.
+func (j *Journal) SaveBlocking(ctx context.Context, lane string, questions []string) error {
+	raw, err := json.Marshal(questions)
+	if err != nil {
+		return err
+	}
+	_, err = j.db.ExecContext(ctx, `UPDATE lanes SET blocking = ?2 WHERE id = ?1`, lane, raw)
+	return err
 }
 
 // SaveGuard keeps how the last stop left a lane's worktree.

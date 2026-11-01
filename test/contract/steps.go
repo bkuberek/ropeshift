@@ -26,6 +26,7 @@ const (
 	opParked = "lane.parked"
 	opAnswer = "question.answer"
 	opFire   = "wake.fire"
+	opUpload = "plane.upload"
 )
 
 // Stepper is a Store handle that can report a named moment. A broken variant uses

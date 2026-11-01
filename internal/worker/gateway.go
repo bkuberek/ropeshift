@@ -166,6 +166,9 @@ func (w *Worker) takeAsk(ctx context.Context, lane lanes.Record, request lanes.A
 	case err == nil:
 		if run := w.runOf(lane.ID); run != nil {
 			run.noteLedger(lanes.Reachable)
+			if request.Blocking {
+				run.noteAsked(ctx, result)
+			}
 		}
 		return lanes.Reply{OK: true, Ask: &result}
 	case errors.Is(err, questions.ErrInvalid):

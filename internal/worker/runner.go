@@ -102,6 +102,16 @@ type laneRun struct {
 	left       *lanes.HandoffProgress
 	// inherited is the document this generation follows.
 	inherited *lanes.Handoff
+	// parking is the sequence this generation follows, and flightLock guards it.
+	parking *lanes.ParkProgress
+	// instruction is what the session was told and has not finished, blocking the questions it
+	// cannot go on without, and drainingSince when a draining fleet first reached it. The
+	// handle's lock guards all three.
+	instruction   string
+	blocking      []string
+	drainingSince time.Time
+	// waiting says a goroutine holds this lane for `ask_wait`.
+	waiting atomic.Bool
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -124,7 +134,8 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	if record.Actual != "" {
 		run.state = newLaneState(record.Actual, w.clock.Now())
 	}
-	run.left = record.Handoff
+	run.left, run.parking = record.Handoff, record.Parking
+	run.instruction, run.blocking = record.Progress.Instruction, record.Blocking
 	run.inheritedFrom(record.Handoff)
 	return run
 }
@@ -348,13 +359,17 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	if _, ok := r.reported(ctx); ok {
 		r.stop(ctx, ports.StopAtRest)
 	}
+	r.resumeParking(ctx)
 	r.resumeHandoff(ctx)
 	return r.conclude(ctx, r.watch(ctx, events))
 }
 
-// unread settles a lane whose session cannot be read. A handoff still finishes, because that
-// is the one failure with somewhere to go.
+// unread settles a lane whose session cannot be read. Parking and a handoff still finish,
+// because those are the failures with somewhere to go.
 func (r *laneRun) unread(ctx context.Context) error {
+	if r.parkingOf().Open() {
+		return r.finishParking(ctx)
+	}
 	if r.left.Open() {
 		return r.finishHandoff(ctx)
 	}
@@ -424,6 +439,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if err := r.w.journal.SaveLane(ctx, record); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
+	if r.resumeFrom == "" {
+		r.setInstruction(spec.Brief)
+	}
 	spawn := lanes.NewEffect(lanes.EffectSession, r.lease.Lane, r.currentGeneration(), prepared.Worktree.Path, "")
 	ran, err := r.w.bracket(ctx, spawn, func() error {
 		handle, err := r.launch(ctx, spec)
@@ -432,7 +450,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	})
 	if errors.Is(err, ports.ErrUnknownScreen) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		return workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonUnknownScreen}
+		return r.parkOnScreen(ctx)
 	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
@@ -441,6 +459,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return failed(workorders.ReasonWorkerRestarted)
 	}
 	crashpoint.Hit("worker.lane", "spawned")
+	r.saveProgress(ctx, r.cursor)
 	r.signal(ctx, lanes.OnDriverReady)
 	events, err := r.rt.Driver.Events(ctx, r.sessionHandle())
 	if err != nil {
@@ -548,6 +567,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.bind(ctx, event)
 		case ports.EventTurnEnded:
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.finishTurn(event.Turn)
 			r.afterTurn(ctx, event.Turn)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
@@ -565,7 +585,10 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 // turn, and a redelivered turn is dropped by its position.
 func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	r.cursor = cursor
-	progress := lanes.Progress{Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown}
+	progress := lanes.Progress{
+		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
+		Instruction: r.instructionInProgress(),
+	}
 	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
 		r.w.config.Report(err)
 	}
@@ -621,6 +644,14 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 		r.stop(ctx, ports.StopAtRest)
 		return
 	}
+	if len(r.blockingQuestions()) != 0 {
+		r.awaitAnswer(ctx)
+		return
+	}
+	if r.draining(ctx) {
+		r.parkDrained(ctx)
+		return
+	}
 	if !r.nudged {
 		r.nudged = true
 		ran, err := r.w.bracket(ctx, r.nudge(), func() error {
@@ -628,6 +659,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 			return err
 		})
 		if ran && err == nil {
+			r.setInstruction(lanes.Nudge)
 			r.signal(ctx, lanes.OnInputHanded)
 			return
 		}

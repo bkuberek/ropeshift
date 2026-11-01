@@ -12,6 +12,9 @@ const (
 	StateEnded   = "ended"
 	// StateArchived says a lane's worktree went at a member's request.
 	StateArchived = "archived"
+	// StateParked says a lane's process is gone and its commit is on the way to the ledger,
+	// or there. A wake brings it back.
+	StateParked = "parked"
 )
 
 // Record is what a worker keeps about one lane, so a restart works from its journal
@@ -43,6 +46,10 @@ type Record struct {
 	// Handoff is how far the lane's last handoff got. Once its generation began, its
 	// document is what that generation was briefed from.
 	Handoff *HandoffProgress
+	// Parking is how far the lane's last parking got.
+	Parking *ParkProgress
+	// Blocking names the questions this lane cannot go on without.
+	Blocking []string
 }
 
 // Progress is how far a worker read a session, and what that reading added up to, so an
@@ -56,6 +63,9 @@ type Progress struct {
 	// has a meter of its own.
 	PriorUSD     float64 `json:"prior_usd,omitempty"`
 	PriorUnknown int64   `json:"prior_unknown,omitempty"`
+	// Instruction is what the session was told and has not finished, because a stopped turn
+	// is not continued. Empty means the last turn ended.
+	Instruction string `json:"instruction,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

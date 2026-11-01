@@ -42,99 +42,161 @@ func NewWakes(store ports.Store) *Wakes { return &Wakes{store: store} }
 // process is gone. A wake already stored decides what a restarted worker does, so a retry is
 // done whatever has happened since.
 func (w *Wakes) BeginParking(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, draft parking.Draft, actor ledger.Actor) error {
-	expr, err := parking.Parse(draft.Expr, holder.Lane)
-	if err != nil {
+	if _, err := parking.Parse(draft.Expr, holder.Lane); err != nil {
 		return err
 	}
 	return w.store.Write(ctx, scope, opLaneParking, func(tx ports.WriteTx) error {
-		_, err := tx.Wakes().Get(draft.ID)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, ports.ErrNotFound) {
-			return err
-		}
-		if err := guardHolder(tx, opLaneParking, holder); err != nil {
-			return err
-		}
-		current, err := tx.WorkOrders().Get(holder.WorkOrder)
-		if err != nil {
-			return err
-		}
-		if current.State != workorders.Running {
-			return workorders.Reject(current, holder.Lease)
-		}
-		event, err := workorders.ChangeEvent(workorders.EventLaneParking, holder.WorkOrder, workorders.Change{
-			Guarded: true, Fence: holder.Fence, ClaimID: holder.ClaimID, Lane: holder.Lane, Generation: holder.Generation,
-			Reason: draft.ID, Payload: []byte(draft.Expr),
-		}, actor)
-		if err != nil {
-			return err
-		}
-		appended, err := tx.Append(event)
-		if err != nil {
-			return err
-		}
-		crashpoint.Hit("lane.parking", "recorded")
-		first, _ := expr.FirstTime()
-		wake := parking.Wake{ID: draft.ID, Lane: holder.Lane, Expr: draft.Expr, NextEvalAt: first, StoredRev: appended.Rev}
-		if _, err := tx.Wakes().Insert(wake); err != nil {
-			return err
-		}
-		return tx.Lanes().MarkParking(holder.Lane)
+		return beginParking(tx, holder, draft, actor, noStamp)
 	})
+}
+
+// noStamp leaves an event the identity the ledger gives it.
+func noStamp(*ledger.EventDraft) {}
+
+// beginParking runs inside a write transaction, because a worker's upload stores a wake in the
+// same transaction that stores its event. An expression this build cannot read is kept, because
+// it may come from a newer worker, and it stays out of evaluation.
+func beginParking(tx ports.WriteTx, holder workorders.Holder, draft parking.Draft, actor ledger.Actor, stamp func(*ledger.EventDraft)) error {
+	_, err := tx.Wakes().Get(draft.ID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	if err := guardHolder(tx, opLaneParking, holder); err != nil {
+		return err
+	}
+	current, err := tx.WorkOrders().Get(holder.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if current.State != workorders.Running {
+		return workorders.Reject(current, holder.Lease)
+	}
+	event, err := workorders.ChangeEvent(workorders.EventLaneParking, holder.WorkOrder, workorders.Change{
+		Guarded: true, Fence: holder.Fence, ClaimID: holder.ClaimID, Lane: holder.Lane, Generation: holder.Generation,
+		Reason: draft.ID, Payload: []byte(draft.Expr),
+	}, actor)
+	if err != nil {
+		return err
+	}
+	stamp(&event)
+	appended, err := tx.Append(event)
+	if err != nil {
+		return err
+	}
+	crashpoint.Hit("lane.parking", "recorded")
+	wake := parking.Wake{ID: draft.ID, Lane: holder.Lane, Expr: draft.Expr, StoredRev: appended.Rev}
+	if expr, err := parking.Parse(draft.Expr, holder.Lane); err == nil {
+		wake.NextEvalAt, _ = expr.FirstTime()
+	} else if !errors.Is(err, parking.ErrUnreadable) {
+		return err
+	}
+	if _, err := tx.Wakes().Insert(wake); err != nil {
+		return err
+	}
+	return tx.Lanes().MarkParking(holder.Lane)
 }
 
 // CommitParked records that a lane's process is gone: the work order parks, the lease is
 // released, and the fence moves. The wake is evaluated in this same transaction, so a fact
 // that arrived during parking fires it here, and nothing can land between the two. It returns
 // the wake that fired, or nothing.
-func (w *Wakes) CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, wakeID string, actor ledger.Actor) (string, error) {
+func (w *Wakes) CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, commit ledger.ParkedCommit, actor ledger.Actor) (string, error) {
 	fired := ""
 	err := w.store.Write(ctx, scope, opLaneParked, func(tx ports.WriteTx) error {
-		generation, err := tx.Lanes().Generation(holder.Lane)
-		if err != nil {
-			return err
-		}
-		if generation != holder.Generation {
-			return parkedOrFenced(tx, holder)
-		}
-		won, err := tx.Leases().Park(holder.Lease)
-		if err != nil {
-			return err
-		}
-		if !won {
-			return parkedOrFenced(tx, holder)
-		}
-		crashpoint.Hit("lane.parked", "parked")
-		if err := recordParked(tx, holder, actor); err != nil {
-			return err
-		}
-		crashpoint.Hit("lane.parked", "recorded")
-		if skipsParkedEvaluation() {
-			return nil
-		}
-		wake, err := tx.Wakes().Get(wakeID)
-		if err != nil {
-			return err
-		}
-		expr, err := parking.Parse(wake.Expr, wake.Lane)
-		if errors.Is(err, parking.ErrUnreadable) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		outcome, err := fire(tx, wake, expr, parking.CauseParked, actor)
-		if outcome.fired {
-			fired = wake.ID
-		}
+		var err error
+		fired, err = commitParked(tx, holder, commit, actor, noStamp)
 		return err
 	})
 	if err != nil {
 		return "", err
 	}
 	return fired, nil
+}
+
+// commitParked runs inside a write transaction, because a worker's upload commits `parked` in
+// the same transaction that stores its event.
+func commitParked(tx ports.WriteTx, holder workorders.Holder, commit ledger.ParkedCommit, actor ledger.Actor, stamp func(*ledger.EventDraft)) (string, error) {
+	generation, err := tx.Lanes().Generation(holder.Lane)
+	if err != nil {
+		return "", err
+	}
+	if generation != holder.Generation {
+		return "", parkedOrFenced(tx, holder)
+	}
+	won, err := tx.Leases().Park(holder.Lease)
+	if err != nil {
+		return "", err
+	}
+	if !won {
+		return "", parkedOrFenced(tx, holder)
+	}
+	crashpoint.Hit("lane.parked", "parked")
+	if err := recordParked(tx, holder, commit.Checkpoint, actor, stamp); err != nil {
+		return "", err
+	}
+	crashpoint.Hit("lane.parked", "recorded")
+	if skipsParkedEvaluation() {
+		return "", nil
+	}
+	wake, err := tx.Wakes().Get(commit.Wake)
+	if err != nil {
+		return "", err
+	}
+	expr, err := parking.Parse(wake.Expr, wake.Lane)
+	if errors.Is(err, parking.ErrUnreadable) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	outcome, err := fire(tx, wake, expr, parking.CauseParked, actor)
+	if outcome.fired {
+		return wake.ID, err
+	}
+	return "", err
+}
+
+// uploadedHolder reads who an event says it comes from, and refuses a worker that never held
+// that claim.
+func uploadedHolder(tx ports.WriteTx, worker string, e ledger.UploadEvent) (workorders.Holder, error) {
+	if err := ranLane(tx, worker, e); err != nil {
+		return workorders.Holder{}, err
+	}
+	return workorders.Holder{
+		Lease: workorders.Lease{WorkOrder: e.WorkOrder, ClaimID: e.ClaimID, Fence: e.Fence},
+		Lane:  e.Lane, Generation: e.Generation,
+	}, nil
+}
+
+// parkingUpload stores what a worker's lane waits on, as the lane begins to park.
+func parkingUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp func(*ledger.EventDraft)) error {
+	var start ledger.ParkingStart
+	if err := json.Unmarshal(e.Payload, &start); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	holder, err := uploadedHolder(tx, worker, e)
+	if err != nil {
+		return err
+	}
+	actor := ledger.Actor{Kind: ledger.ActorWorker, ID: worker}
+	return beginParking(tx, holder, parking.Draft{ID: start.Wake, Expr: start.Expr}, actor, stamp)
+}
+
+// parkedUpload commits `parked` with what a worker's lane left.
+func parkedUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp func(*ledger.EventDraft)) error {
+	var commit ledger.ParkedCommit
+	if err := json.Unmarshal(e.Payload, &commit); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	holder, err := uploadedHolder(tx, worker, e)
+	if err != nil {
+		return err
+	}
+	_, err = commitParked(tx, holder, commit, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
+	return err
 }
 
 // parkedOrFenced answers a commit that matched nothing. A parked commit whose answer was lost
@@ -154,14 +216,29 @@ func parkedOrFenced(tx ports.WriteTx, holder workorders.Holder) error {
 	return workorders.Reject(current, holder.Lease)
 }
 
-func recordParked(tx ports.WriteTx, holder workorders.Holder, actor ledger.Actor) error {
+func recordParked(tx ports.WriteTx, holder workorders.Holder, checkpoint ledger.Checkpoint, actor ledger.Actor, stamp func(*ledger.EventDraft)) error {
+	claim, err := tx.Claims().Find(holder.ClaimID)
+	if err != nil {
+		return err
+	}
 	if err := tx.Claims().End(holder.ClaimID, workorders.EndParked); err != nil {
 		return err
 	}
-	if err := tx.Lanes().MarkParked(holder.Lane); err != nil {
+	if err := tx.Lanes().MarkParked(holder.Lane, ledger.HoldOf(checkpoint, claim.Worker)); err != nil {
 		return err
 	}
 	if err := tx.Lanes().EndGeneration(holder.Lane, holder.Generation, workorders.EndParked); err != nil {
+		return err
+	}
+	checkpoint.Lane, checkpoint.Generation = holder.Lane, holder.Generation
+	left, err := tx.Lanes().Handoff(holder.Lane, holder.Generation)
+	switch {
+	case err == nil:
+		checkpoint.HandoffArtifact = left.ArtifactID
+	case !errors.Is(err, ports.ErrNotFound):
+		return err
+	}
+	if err := tx.Lanes().SaveCheckpoint(checkpoint); err != nil {
 		return err
 	}
 	event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerLaneParked), holder.WorkOrder, workorders.Change{
@@ -170,6 +247,7 @@ func recordParked(tx ports.WriteTx, holder workorders.Holder, actor ledger.Actor
 	if err != nil {
 		return err
 	}
+	stamp(&event)
 	_, err = tx.Append(event)
 	return err
 }

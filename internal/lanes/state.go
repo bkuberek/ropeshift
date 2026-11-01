@@ -133,7 +133,7 @@ var transitions = map[edge]ActualState{
 // to `retiring`, and a lane must still end.
 var endingStates = []ActualState{
 	Pending, Provisioning, Starting, Briefing, Working, Idle, NeedsDecision, Compacting,
-	HandingOff, Backoff, Tripped,
+	HandingOff, Parking, Backoff, Tripped,
 }
 
 func init() {

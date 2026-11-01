@@ -101,7 +101,7 @@ func (r *laneRun) resumeHandoff(ctx context.Context) {
 	}
 	r.flightLock.Lock()
 	defer r.flightLock.Unlock()
-	if r.flight != nil {
+	if r.flight != nil || r.parking.Open() {
 		return
 	}
 	r.signal(ctx, lanes.OnHandoffThreshold)
@@ -284,7 +284,7 @@ func (r *laneRun) handoffFacts(ctx context.Context, record lanes.Record, guard l
 // handedOff waits for a handoff in flight to finish, and says a next generation follows it.
 func (r *laneRun) handedOff(ctx context.Context) bool {
 	flight := r.currentFlight()
-	if flight == nil {
+	if flight == nil || r.parkingOf().Open() {
 		return false
 	}
 	r.sequence.Wait()

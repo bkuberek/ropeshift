@@ -423,7 +423,8 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
 
 	stmtLaneParked = define("lane.mark_parked",
 		`UPDATE lanes
-   SET actual_state = 'parked', liveness = 'dead', reach_model = 'unknown', reach_ledger = 'unknown', reported_at = :now
+   SET actual_state = 'parked', liveness = 'dead', reach_model = 'unknown', reach_ledger = 'unknown', reported_at = :now,
+       resume_affinity = :affinity, resume_worker = :worker
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtLaneGuarded = define("lane.guarded",
@@ -476,7 +477,8 @@ RETURNING current_generation`)
 )
 
 const laneRowColumns = `id, work_order_id, worker_id, current_generation, actual_state, conditions, liveness,
-       reach_model, reach_ledger, reported_at, reported_by_epoch, started_fence, unpushed_work, archived`
+       reach_model, reach_ledger, reported_at, reported_by_epoch, started_fence, unpushed_work, archived,
+       resume_affinity, resume_worker`
 
 // The values of `archive_request`. Empty means nobody asked.
 const (
@@ -493,7 +495,7 @@ func scanLaneRow(row interface{ Scan(...any) error }) (ledger.LaneRow, error) {
 	var unpushed, archived int64
 	err := row.Scan(&out.ID, &out.WorkOrder, &out.WorkerID, &out.Generation, &out.Status.ActualState, &conditions,
 		&out.Status.Liveness, &out.Status.ModelReach, &out.Status.LedgerReach, &out.ReportedAt, &out.ReportedByEpoch,
-		&out.StartedFence, &unpushed, &archived)
+		&out.StartedFence, &unpushed, &archived, &out.Hold.Affinity, &out.Hold.Worker)
 	if conditions != "" {
 		out.Status.Conditions = strings.Split(conditions, conditionSeparator)
 	}
@@ -637,12 +639,14 @@ func (t laneTx) MarkParking(lane string) error {
 	return err
 }
 
-func (t laneTx) MarkParked(lane string) error {
+func (t laneTx) MarkParked(lane string, hold ledger.ResumeHold) error {
 	now, err := t.readClock()
 	if err != nil {
 		return err
 	}
-	_, err = t.exec(stmtLaneParked, params{"workspace_id": string(t.scope), "id": lane, "now": now})
+	_, err = t.exec(stmtLaneParked, params{
+		"workspace_id": string(t.scope), "id": lane, "now": now, "affinity": hold.Affinity, "worker": hold.Worker,
+	})
 	return err
 }
 

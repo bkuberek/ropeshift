@@ -94,6 +94,33 @@ type LaneRow struct {
 	UnpushedWork bool
 	// Archived says its worktree went.
 	Archived bool
+	// Hold says where a parked lane can resume.
+	Hold ResumeHold
+}
+
+// The values of a lane's `resume_affinity`.
+const (
+	// AffinityRequired names work that exists only on one machine.
+	AffinityRequired = "required"
+	// AffinityPreferred names a machine that holds the session, and a delay lets any other
+	// capable worker take the lane.
+	AffinityPreferred = "preferred"
+)
+
+// ResumeHold is where a parked lane can resume: the worker that holds its session, and how
+// strongly that binds it.
+type ResumeHold struct {
+	Affinity string
+	Worker   string
+}
+
+// HoldOf reads a checkpoint for what binds a lane to its worker. Work no remote holds exists
+// only on that machine.
+func HoldOf(checkpoint Checkpoint, worker string) ResumeHold {
+	if checkpoint.Pushed {
+		return ResumeHold{Affinity: AffinityPreferred, Worker: worker}
+	}
+	return ResumeHold{Affinity: AffinityRequired, Worker: worker}
 }
 
 // LaneView is a lane as a client reads it: its status, and how much to believe it.

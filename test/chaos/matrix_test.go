@@ -43,6 +43,8 @@ type crashCase struct {
 	steps []string
 	// prepare builds the state before the operation, in the parent.
 	prepare func(*world) (childSpec, error)
+	// between runs after the kill and before the retry, for what lands while nothing runs.
+	between func(*world, childSpec) error
 	// settled checks the end state after the retry.
 	settled func(*world, childSpec) error
 }
@@ -100,6 +102,11 @@ func runCrashCase(w *world, c crashCase, step string) error {
 	}
 	if err := w.verify(); err != nil {
 		return err
+	}
+	if c.between != nil {
+		if err := c.between(w, spec); err != nil {
+			return err
+		}
 	}
 	spec.KillOp, spec.KillStep = "", ""
 	code, signaled, stderr, err = runToEnd(spec)
@@ -167,7 +174,7 @@ func crashMatrix() []crashCase {
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
 		worktreeCase(),
-	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases())...)
+	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases(), parkCases())...)
 }
 
 const longTTL = int64(60_000)
@@ -1319,8 +1326,9 @@ func TestEveryNamedStepIsInTheMatrix(t *testing.T) {
 	for _, step := range restartSteps {
 		rows[restartOp+"/"+step] = true
 	}
-	// This step exists only in the broken variant that splits the write it names.
+	// These steps exist only in the broken variants that split the write they name.
 	rows["worker.handoff/split"] = true
+	rows["worker.park/split"] = true
 	for _, step := range literal {
 		if !rows[step] {
 			t.Errorf("named step %s has no matrix row", step)

@@ -791,7 +791,7 @@ func allVariants() []variant {
 	noStateGuard := sqlstore.Sabotage{Rewrite: replace("lease.grant", stateGuard, "")}
 	noFencePredicate := sqlstore.Sabotage{Rewrite: replace("lease.guard", fenceGuard, "")}
 	memoryFences := sqlstore.Sabotage{Rewrite: fenceInMemory}
-	return append(slices.Concat(handoffVariants(), wakeVariants()), []variant{
+	return append(slices.Concat(handoffVariants(), wakeVariants(), parkVariants()), []variant{
 		{
 			name:     "revision taken last",
 			sabotage: sqlstore.Sabotage{RevisionLast: true},
@@ -1358,6 +1358,11 @@ func runVariant(t *testing.T, v variant) error {
 	case "plane":
 		sqlstore.Sabotaged(v.sabotage)
 		defer sqlstore.Sabotaged(sqlstore.Sabotage{})
+		c, step := v.crash()
+		return runCrashCase(newWorld(t, ""), c, step)
+	case "plane-control":
+		control.Sabotaged(v.control)
+		defer control.Sabotaged(control.Sabotage{})
 		c, step := v.crash()
 		return runCrashCase(newWorld(t, ""), c, step)
 	case "worktree":

@@ -71,6 +71,11 @@ type ParkRequest struct {
 	Wake string
 }
 
+// PushedCommit is the report of a lane whose work reached a remote, which binds it to nothing.
+func PushedCommit(wake string) ledger.ParkedCommit {
+	return ledger.ParkedCommit{Wake: wake, Checkpoint: ledger.Checkpoint{Pushed: true}}
+}
+
 // Parking claims a work order, starts its lane, and stores a wake, so its lease is still held.
 func (r *Rig) Parking(s ports.Store, expr string) (ParkRequest, error) {
 	id, err := r.Ready(s)
@@ -95,7 +100,7 @@ func (r *Rig) Parked(s ports.Store, expr string) (ParkRequest, error) {
 	if err != nil {
 		return request, err
 	}
-	fired, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, request.Wake, r.worker("a"))
+	fired, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a"))
 	if err != nil {
 		return request, err
 	}
@@ -268,7 +273,7 @@ func (r *Rig) staleTicker(s ports.Store) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ops.CommitParked(r.Ctx, r.Scope, second.Holder, second.Wake, r.worker("a")); err != nil {
+	if _, err := ops.CommitParked(r.Ctx, r.Scope, second.Holder, PushedCommit(second.Wake), r.worker("a")); err != nil {
 		return err
 	}
 	if _, err := ops.FireDue(r.Ctx, r.Scope, first.Wake, r.Actor); err != nil {
@@ -406,7 +411,7 @@ func checkAnswerOrders(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
 	commit := func(request ParkRequest) error {
-		_, err := ops.CommitParked(r.Ctx, r.Scope, request.Holder, request.Wake, r.worker("a"))
+		_, err := ops.CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a"))
 		return err
 	}
 	// The answer arrives before the wake condition is stored.
@@ -504,7 +509,7 @@ func checkAnswerParkRace(r *Rig) error {
 		}
 		err = parallelly(2, func(i int) error {
 			if i == 0 {
-				_, err := r.NewOps(parker).CommitParked(r.Ctx, r.Scope, request.Holder, request.Wake, r.worker("a"))
+				_, err := r.NewOps(parker).CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a"))
 				return err
 			}
 			_, err := r.answer(answerer, question, "Twice.")
@@ -552,7 +557,7 @@ func checkTimerDuringParking(r *Rig) error {
 	} else if !slices.Contains(due, request.Wake) {
 		return Violatedf("a tick during parking moved a wake's time on")
 	}
-	if _, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, request.Wake, r.worker("a")); err != nil {
+	if _, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a")); err != nil {
 		return err
 	}
 	if err := r.ExpectWoken(s, request); err != nil {
@@ -674,7 +679,7 @@ func checkStaleWake(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ops.CommitParked(r.Ctx, r.Scope, request.Holder, request.Wake, r.worker("a")); err != nil {
+	if _, err := ops.CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a")); err != nil {
 		return err
 	}
 	if _, err := r.answer(s, old, "Twice."); err != nil {
@@ -794,7 +799,7 @@ func checkUnknownTerm(r *Rig) error {
 		return err
 	}
 	ops := r.NewOps(s)
-	if fired, err := ops.CommitParked(r.Ctx, r.Scope, holder, future, r.worker("a")); err != nil {
+	if fired, err := ops.CommitParked(r.Ctx, r.Scope, holder, PushedCommit(future), r.worker("a")); err != nil {
 		return Violatedf("an unreadable wake stopped a parked commit: %v", err)
 	} else if fired != "" {
 		return Violatedf("an unreadable wake fired at its commit")
@@ -987,7 +992,7 @@ func checkParkingRepeats(r *Rig) error {
 		return Violatedf("storing a wake twice took a revision")
 	}
 	for range 2 {
-		if _, err := ops.CommitParked(r.Ctx, r.Scope, request.Holder, request.Wake, r.worker("a")); err != nil {
+		if _, err := ops.CommitParked(r.Ctx, r.Scope, request.Holder, PushedCommit(request.Wake), r.worker("a")); err != nil {
 			return Violatedf("a parked commit whose answer was lost must read as done: %v", err)
 		}
 	}
@@ -1075,7 +1080,7 @@ func checkSignalAfterWake(r *Rig) error {
 	if _, err := ops.Signal(r.Ctx, r.Scope, signal, r.Actor); err != nil {
 		return err
 	}
-	if fired, err := ops.CommitParked(r.Ctx, r.Scope, during.Holder, during.Wake, r.worker("a")); err != nil {
+	if fired, err := ops.CommitParked(r.Ctx, r.Scope, during.Holder, PushedCommit(during.Wake), r.worker("a")); err != nil {
 		return err
 	} else if fired != during.Wake {
 		return Violatedf("a signal during parking fired %q at the commit", fired)
@@ -1116,7 +1121,7 @@ func checkWakeStored(r *Rig) error {
 	if err := ops.BeginParking(r.Ctx, r.Scope, holder, draft, r.worker("a")); err != nil {
 		return err
 	}
-	if _, err := ops.CommitParked(r.Ctx, r.Scope, stale, draft.ID, r.worker("a")); !errors.As(err, &fenced) {
+	if _, err := ops.CommitParked(r.Ctx, r.Scope, stale, PushedCommit(draft.ID), r.worker("a")); !errors.As(err, &fenced) {
 		return Violatedf("a stale holder parked a lane: %v", err)
 	}
 	if err := ops.Renew(r.Ctx, r.Scope, holder.Lease, TTLMs); err != nil {
@@ -1240,7 +1245,7 @@ func checkAnswerStands(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, overturned.Holder, overturned.Wake, r.worker("a")); err != nil {
+	if _, err := r.NewOps(s).CommitParked(r.Ctx, r.Scope, overturned.Holder, PushedCommit(overturned.Wake), r.worker("a")); err != nil {
 		return err
 	}
 	if err := r.ExpectWoken(s, overturned); err != nil {

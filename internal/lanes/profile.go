@@ -56,6 +56,7 @@ type LifecycleSettings struct {
 	RestartWindow        string `toml:"restart_window" json:"restart_window"`
 	MaxGenerationsPerDay int64  `toml:"max_generations_per_day" json:"max_generations_per_day"`
 	AskWait              string `toml:"ask_wait" json:"ask_wait"`
+	DrainDeadline        string `toml:"drain_deadline" json:"drain_deadline"`
 	WakeDebounce         string `toml:"wake_debounce" json:"wake_debounce"`
 	WakeMinInterval      string `toml:"wake_min_interval" json:"wake_min_interval"`
 	HandoffTimeout       string `toml:"handoff_timeout" json:"handoff_timeout"`

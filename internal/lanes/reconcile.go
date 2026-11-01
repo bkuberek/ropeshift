@@ -45,6 +45,8 @@ type Actual struct {
 	Session Session
 	// Effects are this lane's effects, as the journal holds them.
 	Effects []Effect
+	// ParkRefused says the ledger fenced this lane's parked commit, so no wake can reach it.
+	ParkRefused bool
 }
 
 // World is everything one reconcile pass knows.
@@ -79,6 +81,8 @@ const (
 	ActionAdopt ActionKind = "adopt"
 	// ActionHandoff finishes a handoff whose session went with the worker that followed it.
 	ActionHandoff ActionKind = "handoff"
+	// ActionPark finishes parking whose session went with the worker that followed it.
+	ActionPark ActionKind = "park"
 	// ActionEnd accounts for a lane whose session is gone.
 	ActionEnd ActionKind = "end"
 	// ActionRelease gives back what an ended lane held.
@@ -128,6 +132,10 @@ func Plan(world World) []Action {
 		}
 	}
 	for _, lane := range world.Lanes {
+		if !lane.Held && lane.ParkRefused && lane.Record.State == StateParked {
+			actions = append(actions, Action{Kind: ActionEnd, Lane: lane.Record.ID})
+			continue
+		}
 		if lane.Held || lane.Record.State != StateRunning || held[lane.Record.ID] {
 			continue
 		}
@@ -170,14 +178,17 @@ func archives(world World) []Action {
 	return actions
 }
 
-// planLane decides one lane no run owns. A handoff comes before a lane's end, because a
-// session lost during one is its failure edge, and that edge leads to a next generation.
+// planLane decides one lane no run owns. Parking comes first, because a stored wake decides
+// what a restarted worker does. A handoff comes before a lane's end, because a session lost
+// during one is its failure edge, and that edge leads to a next generation.
 func planLane(lane Actual) (Action, bool) {
 	id := lane.Record.ID
 	gone := !lane.Session.Found || lane.Session.Liveness == LivenessDead
 	switch {
 	case lane.Session.Readable:
 		return Action{Kind: ActionAdopt, Lane: id}, true
+	case gone && lane.Record.Parking.Open():
+		return Action{Kind: ActionPark, Lane: id}, true
 	case gone && lane.Record.Handoff.Open():
 		return Action{Kind: ActionHandoff, Lane: id}, true
 	case lane.Session.Found && lane.Session.Liveness == LivenessDead:

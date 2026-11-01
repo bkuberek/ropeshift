@@ -168,6 +168,14 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	if err != nil {
 		return lanes.World{}, seen, err
 	}
+	rejected, err := w.journal.Rejected(ctx)
+	if err != nil {
+		return lanes.World{}, seen, err
+	}
+	refused := map[int64]bool{}
+	for _, result := range rejected {
+		refused[result.Seq] = true
+	}
 	byLane := map[string][]lanes.Effect{}
 	for _, effect := range effects {
 		byLane[effect.Lane] = append(byLane[effect.Lane], effect)
@@ -177,6 +185,7 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	for _, record := range records {
 		seen.records[record.ID] = record
 		actual := lanes.Actual{Record: record, Held: w.held(record.ID), Effects: byLane[record.ID]}
+		actual.ParkRefused = record.State == lanes.StateParked && record.Parking != nil && refused[record.Parking.Seq]
 		if !actual.Held && (record.State == lanes.StateRunning || hasUnknown(byLane[record.ID])) {
 			located, err := w.config.Lanes.Driver.Find(ctx, w.sessionSpec(record))
 			if err != nil {
@@ -284,6 +293,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 			w.config.Report(fmt.Errorf("lane %s: %s: %w", action.Lane, action.Kind, err))
 		}
 	}
+	w.drainLanes(ctx)
 	return actions, nil
 }
 
@@ -320,6 +330,12 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 			return w.endUnattended(ctx, seen.records[action.Lane])
 		}
 		w.startRun(ctx, w.resumedRun(lease, seen.records[action.Lane]), (*laneRun).finishHandoff)
+	case lanes.ActionPark:
+		lease, ok := seen.leases[action.Lane]
+		if !ok || forgetsWake() {
+			return w.endUnattended(ctx, seen.records[action.Lane])
+		}
+		w.startRun(ctx, w.resumedRun(lease, seen.records[action.Lane]), (*laneRun).finishParking)
 	case lanes.ActionEnd:
 		return w.endUnattended(ctx, seen.records[action.Lane])
 	case lanes.ActionRelease:

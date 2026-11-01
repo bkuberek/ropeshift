@@ -348,8 +348,7 @@ func checkInFlightWrite(r *Rig) error {
 }
 
 // checkWriteAfterRevocation tries the old holder's token after each way ownership
-// ends. It reports them all, so a variant shows each path can fail. Parking joins
-// these paths in U29.
+// ends. It reports them all, so a variant shows each path can fail.
 func checkWriteAfterRevocation(r *Rig) error {
 	s := r.Store()
 	ops := r.NewOps(s)
@@ -396,6 +395,14 @@ func checkWriteAfterRevocation(r *Rig) error {
 		return err
 	}
 	if err := stale("release", workorders.Holder{Lease: grant.Lease}); err != nil {
+		return err
+	}
+
+	parked, err := r.Parked(s, `{"human_resume":true}`)
+	if err != nil {
+		return err
+	}
+	if err := stale("parking", parked.Holder); err != nil {
 		return err
 	}
 	if len(accepted) > 0 {
