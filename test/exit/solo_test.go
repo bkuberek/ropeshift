@@ -121,6 +121,17 @@ func (d *daemon) kill() {
 	}
 }
 
+// stop ends a daemon the way a service manager does, so it ends the git it started. A kill leaves
+// that process running, and a fetch still writing to a repository fails the removal of it.
+func (d *daemon) stop() {
+	_ = d.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case err := <-d.exited:
+		d.exited <- err
+	case <-time.After(30 * time.Second):
+	}
+}
+
 // waitReady waits for the daemon's own answer. A connection proves only that something
 // is bound, and the kernel takes one before the socket has its mode, so only a reply
 // shows the daemon finished setting the socket up.

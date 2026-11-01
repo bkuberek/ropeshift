@@ -26,6 +26,7 @@ func runLaneThatLeavesWork(t *testing.T, in *install, repo *gittest.Repo) string
 	t.Helper()
 	in.path = doubles.InstallFakeClaude(t, "lane-leaves-work")
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
+	t.Cleanup(d.stop)
 	in.waitReady(d)
 	in.waitFor("the worker's session", func() bool { return len(in.workers()) == 1 })
 	id := in.onlyWorkOrder()
