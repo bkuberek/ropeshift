@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
 )
@@ -204,18 +206,33 @@ func (r *randomRun) execute() error {
 	})
 	wg.Wait()
 	if refused != nil {
-		return refused
+		return r.judged(refused)
 	}
 	r.mu.Lock()
 	failures := slices.Clone(r.failures)
 	r.mu.Unlock()
 	if len(failures) > 0 {
-		return fmt.Errorf("harness: %v", failures)
+		return r.judged(fmt.Errorf("harness: %v", failures))
 	}
 	if err := r.drain(); err != nil {
-		return err
+		return r.judged(err)
 	}
 	return r.world.verify()
+}
+
+// judged decides a run that stopped short, once its workers are gone. A defect can show
+// first as an error a worker has no rule for, and whether it does depends on the schedule,
+// so the ledger and the witness are read before a stop counts as the harness's own. A stop
+// they do not explain stays what it was, so an unrelated error cannot pass as a catch.
+func (r *randomRun) judged(stopped error) error {
+	var violation *contract.Violation
+	if errors.As(stopped, &violation) {
+		return stopped
+	}
+	if found := r.world.verify(); errors.As(found, &violation) {
+		return fmt.Errorf("%w, and the run stopped on: %v", found, stopped)
+	}
+	return stopped
 }
 
 // pauseHolder is the pause no schedule can miss. A worker stops itself just after a
@@ -511,4 +528,84 @@ func TestPausedWorkerIsFenced(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("paused workers fenced: %d of %d", w.stats.fencedWrites, pausedRounds)
+}
+
+// repeatFence walks the defect of a fence kept in process memory to where it first shows.
+// Two holders share a fence, and the one whose lane never started asks to start it while
+// the other's runs. It returns the error that worker exits on, which no healthy ledger
+// gives, because a healthy fence names one holder.
+func repeatFence(t *testing.T, w *world) error {
+	t.Helper()
+	memoryFence.Store(0)
+	id, err := w.rig.Ready(w.store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := w.rig.NewOps(w.store)
+	first, err := ops.Claim(w.rig.Ctx, w.rig.Scope, workorders.ClaimRequest{
+		WorkOrder: id, ClaimID: w.rig.ID("first"), Worker: "first", TTLMs: 1,
+	}, w.rig.Actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := handOver(w, id); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(rivalLease)
+	if _, err := ops.Sweep(w.rig.Ctx, w.rig.Scope, w.rig.Actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.Reassign(w.rig.Ctx, w.rig.Scope, id, "next", w.rig.Actor); err != nil {
+		t.Fatal(err)
+	}
+	memoryFence.Store(0)
+	second, err := ops.Claim(w.rig.Ctx, w.rig.Scope, workorders.ClaimRequest{
+		WorkOrder: id, ClaimID: w.rig.ID("second"), Worker: "second", TTLMs: 60_000,
+	}, w.rig.Actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Fence != first.Fence {
+		t.Fatalf("fences %d and %d, and this walk needs one fence twice", first.Fence, second.Fence)
+	}
+	if _, err := ops.StartLane(w.rig.Ctx, w.rig.Scope, second.Lease, "lane-second", w.rig.Actor); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ops.StartLane(w.rig.Ctx, w.rig.Scope, first.Lease, "lane-first", w.rig.Actor)
+	return err
+}
+
+// TestAStoppedRunIsJudgedByTheLedger holds the verdict of a run a worker's error ended. A
+// defect can show first as an error a worker has no rule for, and that depends on the
+// schedule, so a broken variant would be caught in one run and a harness error in the next.
+// Only what the ledger and the witness show is a catch: a stop they do not explain stays a
+// harness error, so an unrelated failure still cannot pass.
+func TestAStoppedRunIsJudgedByTheLedger(t *testing.T) {
+	t.Run("the ledger explains the stop", func(t *testing.T) {
+		sqlstore.Sabotaged(sqlstore.Sabotage{Rewrite: fenceInMemory})
+		defer sqlstore.Sabotaged(sqlstore.Sabotage{})
+		run := newRandomRun(newWorld(t, ""), 0)
+		stopped := repeatFence(t, run.world)
+		if !errors.Is(stopped, ports.ErrNotFound) {
+			t.Fatalf("the worker's error: %v", stopped)
+		}
+		run.fail("worker exited %d: %v", exitBroken, stopped)
+		err := run.execute()
+		var violation *contract.Violation
+		if !errors.As(err, &violation) {
+			t.Errorf("a run on a repeated fence ended in: %v", err)
+		}
+	})
+	t.Run("the ledger does not explain the stop", func(t *testing.T) {
+		run := newRandomRun(newWorld(t, ""), 0)
+		if err := run.seedWork(1); err != nil {
+			t.Fatal(err)
+		}
+		run.fail("worker exited %d: a full disk", exitBroken)
+		err := run.execute()
+		var violation *contract.Violation
+		if err == nil || errors.As(err, &violation) {
+			t.Errorf("a stop on a sound ledger ended in: %v", err)
+		}
+	})
 }
