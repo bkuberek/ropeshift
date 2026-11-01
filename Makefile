@@ -12,9 +12,14 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check vet lint test licenses cross bench check-postgres chaos canary real
+.PHONY: check format vet lint test licenses cross bench check-postgres chaos canary real
 
-check: vet lint test licenses canary
+check: format vet lint test licenses canary
+
+# The list goes through a variable, because gofmt exits 0 when it finds a file to change.
+format:
+	@unformatted="$$(gofmt -l .)"; \
+	if [ -n "$$unformatted" ]; then echo "gofmt would change:"; echo "$$unformatted"; exit 1; fi
 
 # The mark the canary leaves stops a run after the tests that hid it.
 canary:

@@ -1,8 +1,8 @@
 package contract
 
 import (
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"

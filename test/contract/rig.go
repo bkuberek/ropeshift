@@ -63,11 +63,11 @@ type Check struct {
 type Rig struct {
 	// MaxAttempts is what a new work order allows, zero for the default.
 	MaxAttempts int64
-	T     testing.TB
-	Ctx   context.Context
-	DB    Database
-	Scope ledger.WorkspaceID
-	Actor ledger.Actor
+	T           testing.TB
+	Ctx         context.Context
+	DB          Database
+	Scope       ledger.WorkspaceID
+	Actor       ledger.Actor
 	// Wrap decorates every Store handle, which is how a variant breaks one
 	// behavior from outside the adapter.
 	Wrap func(ports.Store) ports.Store

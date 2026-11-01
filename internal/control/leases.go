@@ -621,4 +621,3 @@ func (l *Leases) Handoff(ctx context.Context, scope ledger.WorkspaceID, holder w
 	}
 	return next, nil
 }
-
