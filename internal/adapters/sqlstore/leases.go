@@ -400,8 +400,8 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
 
 	stmtLaneGuarded = define("lane.guarded",
 		`UPDATE lanes
-   SET unpushed_work = :unpushed,
-       archive_request = CASE WHEN :unpushed = 1 AND archive_request = 'plain' THEN '' ELSE archive_request END
+   SET unpushed_work = CAST(:unpushed AS BIGINT),
+       archive_request = CASE WHEN CAST(:unpushed AS BIGINT) = 1 AND archive_request = 'plain' THEN '' ELSE archive_request END
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtInsertArtifact = define("artifact.insert",
