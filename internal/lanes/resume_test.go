@@ -1,6 +1,7 @@
 package lanes_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -148,30 +149,21 @@ func TestATokenEstimateCountsAPartToken(t *testing.T) {
 
 func TestAResumePromptRestatesWhatWasInProgress(t *testing.T) {
 	prompt := lanes.ResumePrompt("Finish the retry budget.")
-	if !contains(prompt, "Finish the retry budget.") || !contains(prompt, lanes.ToolLaneReport) {
+	if !strings.Contains(prompt, "Finish the retry budget.") || !strings.Contains(prompt, lanes.ToolLaneReport) {
 		t.Errorf("prompt %q", prompt)
 	}
 	idle := lanes.ResumePrompt("")
-	if contains(idle, "still open") || !contains(idle, lanes.ToolLaneReport) {
+	if strings.Contains(idle, "still open") || !strings.Contains(idle, lanes.ToolLaneReport) {
 		t.Errorf("prompt %q", idle)
 	}
 }
 
 func TestAFreshBriefRestatesWhatWasInProgress(t *testing.T) {
 	brief := lanes.Brief(lanes.BriefSpec{WorkOrder: "wo", Title: "T", Pending: "Finish the retry budget."})
-	if !contains(brief, "Finish the retry budget.") {
+	if !strings.Contains(brief, "Finish the retry budget.") {
 		t.Errorf("brief %q", brief)
 	}
-	if contains(lanes.Brief(lanes.BriefSpec{WorkOrder: "wo", Title: "T"}), "still open") {
+	if strings.Contains(lanes.Brief(lanes.BriefSpec{WorkOrder: "wo", Title: "T"}), "still open") {
 		t.Error("a brief with nothing pending states something pending")
 	}
-}
-
-func contains(text, part string) bool {
-	for i := 0; i+len(part) <= len(text); i++ {
-		if text[i:i+len(part)] == part {
-			return true
-		}
-	}
-	return false
 }
