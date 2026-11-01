@@ -264,6 +264,10 @@ func (w *Worker) Publish(ctx context.Context) error {
 		w.mu.Unlock()
 		if held {
 			status = run.status(ctx)
+			// The stamp is read after the status, and the record above may be older than
+			// both. A status under a generation the ledger has moved past is refused, and
+			// a refused status is never sent again, because it reads here as sent.
+			record.Generation = run.currentGeneration()
 		}
 		if err := w.publishOne(ctx, record, status); err != nil {
 			return err

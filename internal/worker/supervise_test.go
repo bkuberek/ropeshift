@@ -306,6 +306,44 @@ func TestAHumanResetLeavesTripped(t *testing.T) {
 	}
 }
 
+// A status read under one generation must not go out under another. The ledger refuses a
+// stamp it has moved past, and a status it refused would never be sent again, because the
+// worker remembers it as sent.
+func TestAStatusGoesOutUnderTheGenerationItWasReadIn(t *testing.T) {
+	base := newRig(t)
+	read := &lanesRead{Journal: base.journal}
+	base.workerJournal = read
+	r := newLaneRigFor(t, base)
+	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", restarts)
+	r.dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script(crashed()))
+	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.start()
+	r.laneState(lanes.Backoff)
+	r.awaitCharge(t)
+	moved := func() {
+		r.clock.Advance(31 * time.Second)
+		r.awaitGeneration(t, 2)
+		<-g.reached
+	}
+	read.then.Store(&moved)
+	if err := r.subject.Publish(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.subject.Upload(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	refused, err := r.journal.Rejected(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refused) != 0 {
+		t.Errorf("the ledger refused a status: %+v", refused)
+	}
+}
+
 func TestOnlyAMemberResetsABreaker(t *testing.T) {
 	r := newLaneRig(t)
 	worker := ledger.Actor{Kind: ledger.ActorWorker, ID: "w"}
