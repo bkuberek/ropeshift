@@ -95,3 +95,11 @@ func (t *readTx) Questions() ports.QuestionReader {
 func (t *writeTx) Questions() ports.QuestionWriter {
 	return questionTx{session: t.session, scope: t.scope, now: t.now}
 }
+
+func (t *readTx) Members() ports.MemberReader {
+	return memberTx{session: t.session, scope: t.scope}
+}
+
+func (t *writeTx) Members() ports.MemberWriter {
+	return memberTx{session: t.session, scope: t.scope}
+}

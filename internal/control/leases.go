@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -358,7 +359,7 @@ func appendOwnershipEnd(tx ports.WriteTx, id string, trigger workorders.Trigger,
 // decision (D14), through the revocation statement. The work order returns to
 // `ready`, and the actor and reason stay on record.
 func (l *Leases) Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrder, reason string, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+	if !authority.Allowed(actor, authority.ActionReassign) {
 		return workorders.ErrForbidden
 	}
 	return l.store.Write(ctx, scope, "reassign", func(tx ports.WriteTx) error {
@@ -451,7 +452,7 @@ func (l *Leases) Dispatch(ctx context.Context, scope ledger.WorkspaceID, workOrd
 // DispatchWith is a dispatch with a profile layer of the lane's own. It stays TOML here, and
 // the worker that reads it decides what it may change.
 func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane, overrides string, actor ledger.Actor) (workorders.Lease, error) {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+	if !authority.Allowed(actor, authority.ActionDispatchLane) {
 		return workorders.Lease{}, workorders.ErrForbidden
 	}
 	if lane == "" {
@@ -664,7 +665,7 @@ func nextGeneration(tx ports.WriteTx, holder workorders.Holder, actor ledger.Act
 // as a lane's start does: a person asks, and the lane's state still derives from what
 // happens next.
 func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorMember {
+	if !authority.Allowed(actor, authority.ActionResetLane) {
 		return workorders.ErrForbidden
 	}
 	return l.store.Write(ctx, scope, "lane.reset", func(tx ports.WriteTx) error {
@@ -692,7 +693,7 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 // ArchiveLane asks the worker that ran a lane to take its worktree away. Only a member can
 // force that past work no remote holds, and nobody can remove a worktree a lane still uses.
 func (l *Leases) ArchiveLane(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane string, forced bool, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorMember && (forced || actor.Kind != ledger.ActorOrchestrator) {
+	if !authority.Allowed(actor, authority.ActionArchiveLane) || (forced && !authority.Allowed(actor, authority.ActionForceArchive)) {
 		return workorders.ErrForbidden
 	}
 	return l.store.Write(ctx, scope, "lane.archive", func(tx ports.WriteTx) error {

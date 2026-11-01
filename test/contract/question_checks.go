@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -74,6 +75,31 @@ func (r *Rig) questionBook(s ports.Store) (questions.Book, error) {
 		return questions.Book{}, Violatedf("the log does not replay: %v", err)
 	}
 	return book, nil
+}
+
+// CheckSessions proves a session and its record commit together: no token can sign a
+// member in without the ledger saying so.
+func (r *Rig) CheckSessions(s ports.Store) error {
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	signedIn := 0
+	for _, event := range events {
+		if event.Type == control.EventSignedIn {
+			signedIn++
+		}
+	}
+	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		sessions, err := tx.Members().Sessions()
+		if err != nil {
+			return err
+		}
+		if len(sessions) > signedIn {
+			return Violatedf("%d sessions, and %d records of a sign-in", len(sessions), signedIn)
+		}
+		return nil
+	})
 }
 
 // CheckQuestions compares question and decision tables with what the log replays to.

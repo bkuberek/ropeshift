@@ -179,6 +179,9 @@ func (r *paneRun) dispatch() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if _, err := apitest.SignIn(ctx, r.client); err != nil {
+		return "", err
+	}
 	if _, err := r.client.Review(ctx, id); err != nil {
 		return "", err
 	}

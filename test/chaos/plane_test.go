@@ -32,6 +32,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/contract"
 	"ropeshift.dev/ropeshift/test/doubles"
 )
@@ -50,6 +51,7 @@ func (w *world) servePlane(heartbeat, ttl time.Duration) string {
 	httpServer := &http.Server{
 		Handler: server.New(server.Config{
 			Scope: w.rig.Scope, Store: w.store, LeaseTTL: ttl.Milliseconds(), HeartbeatMs: heartbeat.Milliseconds(),
+			Identity: fake.NewIdentityProvider(),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -182,6 +184,9 @@ func roleWorkerLane(c *child) error {
 	if err := subject.Start(c.ctx); err != nil {
 		return err
 	}
+	if _, err := apitest.SignIn(c.ctx, client); err != nil {
+		return err
+	}
 	_, err = client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
 		ClaimID: c.spec.ClaimID, WorkerID: subject.Auth().WorkerID, TTLMs: longTTL,
 	})
@@ -248,7 +253,9 @@ func rolePlaneServer(c *child) error {
 	if err != nil {
 		return err
 	}
-	handler := server.New(server.Config{Scope: c.scope, Store: c.store, LeaseTTL: longTTL, HeartbeatMs: 15_000})
+	handler := server.New(server.Config{
+		Scope: c.scope, Store: c.store, LeaseTTL: longTTL, HeartbeatMs: 15_000, Identity: fake.NewIdentityProvider(),
+	})
 	fmt.Println("AT ready")
 	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	return httpServer.Serve(listener)
@@ -575,6 +582,9 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	}
 	workers, err := client.Workers(ctx)
 	if err != nil {
+		return err
+	}
+	if _, err := apitest.SignIn(ctx, client); err != nil {
 		return err
 	}
 	if _, err := client.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "wo", Title: "T", Criteria: criterion()}); err != nil {

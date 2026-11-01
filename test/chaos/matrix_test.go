@@ -152,6 +152,7 @@ func crashMatrix() []crashCase {
 		mergeCase(),
 		dismissCase(),
 		recordCase(),
+		signInCase(),
 		workerStartCase(),
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
@@ -508,6 +509,20 @@ func intakeSettled(w *world, id string) error {
 }
 
 // recordCase is ledger work: a contract and its work order in one transaction.
+// signInCase kills a sign-in at each step. A retry opens a session of its own, because a
+// token dies with the process that held it, and each session keeps its record.
+func signInCase() crashCase {
+	return crashCase{
+		name:  "sign in",
+		op:    "member.sign_in",
+		steps: withSteps("issued"),
+		prepare: func(*world) (childSpec, error) {
+			return childSpec{Role: "sign-in"}, nil
+		},
+		settled: func(w *world, _ childSpec) error { return w.rig.CheckSessions(w.store) },
+	}
+}
+
 func recordCase() crashCase {
 	return crashCase{
 		name:  "record ledger work",

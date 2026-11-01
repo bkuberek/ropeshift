@@ -17,10 +17,12 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/doubles"
 	"ropeshift.dev/ropeshift/test/gittest"
 )
@@ -62,6 +64,8 @@ type suite struct {
 	scratch string
 	binDir  string
 	paths   api.Paths
+	// session is a member's session, once the daemon has answered.
+	session string
 	spend   *spendLedger
 	repo    string
 	stream  string
@@ -204,8 +208,24 @@ func (s *suite) cli(args ...string) []byte {
 func (s *suite) tryCLI(args ...string) ([]byte, error) {
 	s.t.Helper()
 	cmd := exec.Command(filepath.Join(s.binDir, "ropeshift"), args...)
-	cmd.Env = s.environment(s.daemonTags()...)
+	cmd.Env = s.environment(append(s.daemonTags(), s.memberSession()...)...)
 	return cmd.Output()
+}
+
+// memberSession signs in once the daemon answers, and is empty until then. The token goes
+// only to a member's command, never to the daemon, and so never toward a lane.
+func (s *suite) memberSession() []string {
+	s.t.Helper()
+	if s.session == "" {
+		client := api.NewUnixClient(s.paths.ControlSocket())
+		defer client.Close()
+		token, err := apitest.SignIn(s.t.Context(), client)
+		if err != nil {
+			return nil
+		}
+		s.session = token
+	}
+	return []string{authority.EnvMemberToken + "=" + s.session}
 }
 
 func (s *suite) workOrder(id string) workorders.WorkOrder {

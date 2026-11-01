@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -65,6 +66,8 @@ type ReadTx interface {
 	Workers() WorkerReader
 	// Questions reads questions, decisions, and a workspace's added categories.
 	Questions() QuestionReader
+	// Members reads who can sign in and who has.
+	Members() MemberReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -101,6 +104,8 @@ type WriteTx interface {
 	Workers() WorkerWriter
 	// Questions reads and writes questions, decisions, and added categories.
 	Questions() QuestionWriter
+	// Members reads and writes who can sign in and who has.
+	Members() MemberWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -348,6 +353,30 @@ type QuestionWriter interface {
 	InsertDecision(questions.Decision) error
 	// AddCategory adds a category and reports whether it was new.
 	AddCategory(name string) (bool, error)
+}
+
+// MemberReader reads who can sign in and who has.
+type MemberReader interface {
+	// Member returns one member and the hash a passphrase is checked against, or ErrNotFound.
+	Member(id string) (authority.MemberRecord, error)
+	// CountMembers counts the members of this workspace.
+	CountMembers() (int64, error)
+	// Session returns a session by the digest of its token, or ErrNotFound. It may have
+	// expired, and the caller judges that against database time.
+	Session(digest string) (authority.Session, error)
+	// Sessions returns every session the ledger still holds.
+	Sessions() ([]authority.Session, error)
+}
+
+// MemberWriter writes who can sign in and who has.
+type MemberWriter interface {
+	MemberReader
+	// SaveMember adds a member, or replaces the hash of one that exists.
+	SaveMember(authority.MemberRecord) error
+	// InsertSession adds a session.
+	InsertSession(authority.Session) error
+	// DropSessions removes the sessions that ended by a time.
+	DropSessions(before int64) error
 }
 
 // WorkerReader reads the worker plane's records.

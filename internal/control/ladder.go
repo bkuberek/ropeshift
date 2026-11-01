@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
@@ -181,7 +182,7 @@ func saveQuestion(tx ports.WriteTx, record questions.Question, actor ledger.Acto
 // compare-and-set as a claim, so two never work one question. A holder takes again to keep
 // its hold, and a hold past its deadline is free.
 func (q *Questions) Take(ctx context.Context, scope ledger.WorkspaceID, id string, ttlMs int64, actor ledger.Actor) (questions.Question, error) {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+	if !authority.Allowed(actor, authority.ActionTakeQuestion) {
 		return questions.Question{}, workorders.ErrForbidden
 	}
 	var record questions.Question

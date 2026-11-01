@@ -28,6 +28,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/contract"
 	"ropeshift.dev/ropeshift/test/gittest"
 )
@@ -195,6 +196,9 @@ func roleWorkerStop(c *child) error {
 		},
 	})
 	if err := subject.Start(c.ctx); err != nil {
+		return err
+	}
+	if _, err := apitest.SignIn(c.ctx, client); err != nil {
 		return err
 	}
 	grant, err := client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{

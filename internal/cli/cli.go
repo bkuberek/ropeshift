@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 )
 
@@ -67,6 +68,8 @@ const usage = `usage: ropeshift <command>
   fleet run|pause|drain                              set the fleet's mode
   fleet caps [--wip N] [--per-repository N] [--per-worker N]
                                                      set what a claim is held to
+  login                                              print a session for this shell, for eval
+  passphrase set                                     set the passphrase, on the terminal
   worker doctor                                      report which agent CLIs are usable here
   worker list                                        list registered workers
   worker token                                       make a join token
@@ -79,7 +82,7 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
-		"question", "decision", "category", "search":
+		"question", "decision", "category", "search", "login", "passphrase":
 		return true
 	}
 	return false
@@ -90,26 +93,39 @@ type Options struct {
 	Socket string
 	// Doctor asks this machine what it can run. It reaches no daemon.
 	Doctor func(context.Context) (ledger.Manifest, error)
+	// Session is the member's session this shell holds, if any.
+	Session string
+	// ReadPassphrase asks a person on their terminal. Nil means there is no terminal.
+	ReadPassphrase func(prompt string) (string, error)
 }
 
 // invocation is one running command.
 type invocation struct {
-	doctor func(context.Context) (ledger.Manifest, error)
-	ctx    context.Context
-	stdout io.Writer
-	stderr io.Writer
-	name   string
-	socket string
-	asJSON bool
+	doctor         func(context.Context) (ledger.Manifest, error)
+	readPassphrase func(prompt string) (string, error)
+	ctx            context.Context
+	stdout         io.Writer
+	stderr         io.Writer
+	name           string
+	socket         string
+	session        string
+	asJSON         bool
 }
 
 // Run runs one command and returns its exit code. args starts after the program
 // name.
 func Run(args []string, stdout, stderr io.Writer, opts Options) int {
-	base := &invocation{ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor}
+	base := &invocation{
+		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
+		session: opts.Session, readPassphrase: opts.ReadPassphrase,
+	}
 	if len(args) > 0 && args[0] == "search" {
 		base.name = args[0]
 		return base.search(args[1:])
+	}
+	if len(args) > 0 && args[0] == "login" {
+		base.name = args[0]
+		return base.login(args[1:])
 	}
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usage)
@@ -151,6 +167,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"fleet pause":       setsFleet(ledger.FleetPause),
 		"fleet drain":       setsFleet(ledger.FleetDrain),
 		"fleet caps":        (*invocation).fleetCaps,
+		"passphrase set":    (*invocation).passphraseSet,
 		"worker doctor":     (*invocation).workerDoctor,
 		"worker list":       (*invocation).workerList,
 		"worker token":      (*invocation).workerToken,
@@ -196,8 +213,20 @@ func (c *invocation) usageError(format string, args ...any) int {
 	return ExitUsage
 }
 
+// client returns the API client. A command that changes something and has no session asks
+// for the passphrase here, so a read never asks.
 func (c *invocation) client() *api.Client {
-	return api.NewUnixClient(c.socket)
+	client := api.NewUnixClient(c.socket)
+	client.UseSession(c.session)
+	client.AskSession(func(ctx context.Context) (string, error) {
+		passphrase, err := c.askPassphrase("Passphrase: ")
+		if err != nil {
+			return "", err
+		}
+		session, err := client.SignIn(ctx, api.SignIn{Passphrase: passphrase, TTLMs: authority.CommandTTLMs})
+		return session.Token, err
+	})
+	return client
 }
 
 // finish prints a result, or explains a failure and maps it to its exit code.
@@ -243,7 +272,7 @@ func exitOf(refused *api.Error) int {
 	switch refused.Detail.Code {
 	case api.CodeNotFound:
 		return ExitNotFound
-	case api.CodeForbidden:
+	case api.CodeForbidden, api.CodeSessionRequired, api.CodeBadPassphrase, api.CodeNotEnrolled:
 		return ExitForbidden
 	case api.CodeFenced:
 		return ExitFenced

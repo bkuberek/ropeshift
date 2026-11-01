@@ -34,6 +34,8 @@ type Client struct {
 	http       *http.Client
 	base       string
 	credential string
+	session    string
+	askSession func(context.Context) (string, error)
 }
 
 // NewUnixClient returns a client on a unix socket. A daemon on the local machine
@@ -51,8 +53,30 @@ func NewUnixClient(socket string) *Client {
 // Close releases idle connections.
 func (c *Client) Close() { c.http.CloseIdleConnections() }
 
+// UseSession sends a member's session with each call.
+func (c *Client) UseSession(token string) { c.session = token }
+
+// AskSession says how to get a session when the server asks for one. A refusal changes
+// nothing on the server, so the one retry cannot repeat a change, and a call that needs no
+// session never asks.
+func (c *Client) AskSession(ask func(context.Context) (string, error)) { c.askSession = ask }
+
 // Do runs one call. A nil out discards the body.
 func (c *Client) Do(ctx context.Context, method, path string, in, out any) error {
+	err := c.send(ctx, method, path, in, out)
+	var refused *Error
+	if c.askSession == nil || !errors.As(err, &refused) || refused.Detail.Code != CodeSessionRequired {
+		return err
+	}
+	token, err := c.askSession(ctx)
+	if err != nil {
+		return err
+	}
+	c.session = token
+	return c.send(ctx, method, path, in, out)
+}
+
+func (c *Client) send(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		raw, err := json.Marshal(in)
@@ -70,6 +94,9 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	}
 	if c.credential != "" {
 		request.Header.Set("Authorization", "Bearer "+c.credential)
+	}
+	if c.session != "" {
+		request.Header.Set(HeaderSession, c.session)
 	}
 	response, err := c.http.Do(request)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -110,7 +111,7 @@ func workerEvent(eventType, id string, actor ledger.Actor) ledger.EventDraft {
 // CreateJoinToken makes a single-use token for one worker. The ledger keeps only its
 // digest, so the answer is the one time anyone sees it.
 func (w *Workers) CreateJoinToken(ctx context.Context, actor ledger.Actor) (string, error) {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorSystem {
+	if !authority.Allowed(actor, authority.ActionCreateJoinToken) {
 		return "", workorders.ErrForbidden
 	}
 	secret, err := newSecret()

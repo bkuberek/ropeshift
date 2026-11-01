@@ -20,7 +20,7 @@ func (h *handler) planningRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/plans/{id}", h.showPlan)
 	mux.HandleFunc("GET /v1/requirements", h.listRequirements)
 	mux.HandleFunc("GET /v1/requirements/{key}", h.showRequirement)
-	mux.HandleFunc("POST /v1/work-orders/{id}/send-back", h.sendBack)
+	mux.HandleFunc("POST /v1/work-orders/{id}/send-back", h.member(h.sendBack))
 	mux.HandleFunc("GET /v1/documents", h.listDocuments)
 	mux.HandleFunc("GET /v1/documents/read", h.readDocument)
 	mux.HandleFunc("GET /v1/documents/versions", h.documentVersions)
@@ -130,7 +130,7 @@ func (h *handler) showRequirement(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, requirement)
 }
 
-func (h *handler) sendBack(w http.ResponseWriter, r *http.Request) {
+func (h *handler) sendBack(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.SendBack
 	if !decode(w, r, &in) {
 		return
@@ -139,7 +139,7 @@ func (h *handler) sendBack(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "sending work back needs a reason")
 		return
 	}
-	if err := h.reviews.SendBack(r.Context(), h.Scope, r.PathValue("id"), in.Reason, localMember); err != nil {
+	if err := h.reviews.SendBack(r.Context(), h.Scope, r.PathValue("id"), in.Reason, actor); err != nil {
 		fail(w, err)
 		return
 	}

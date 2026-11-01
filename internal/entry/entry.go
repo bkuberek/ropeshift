@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"ropeshift.dev/ropeshift/internal/adapters/localauth"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/cli"
 	"ropeshift.dev/ropeshift/internal/hook"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -77,14 +79,14 @@ func Main(args []string, stdout, stderr io.Writer) int {
 // cliOptions finds the local control plane. A path that does not resolve leaves the
 // socket empty, and the command reports it cannot reach anything.
 func cliOptions() cli.Options {
+	opts := cli.Options{Session: os.Getenv(authority.EnvMemberToken), ReadPassphrase: localauth.ReadPassphrase}
 	paths, err := installationPaths()
 	if err != nil {
-		return cli.Options{}
+		return opts
 	}
-	return cli.Options{
-		Socket: paths.ControlSocket(),
-		Doctor: func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx, paths) },
-	}
+	opts.Socket = paths.ControlSocket()
+	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx, paths) }
+	return opts
 }
 
 // commandName maps the started name to a command. A renamed binary acts as the

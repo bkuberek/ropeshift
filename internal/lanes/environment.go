@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"ropeshift.dev/ropeshift/internal/authority"
 )
 
 // TagPrefix starts every variable ropeshift sets on a lane. A lane's children
@@ -50,9 +52,10 @@ var (
 	ErrRelativePath = errors.New("a spawn names an absolute path")
 )
 
-// sessionVariable reports a name that belongs to an agent session.
+// sessionVariable reports a name that belongs to an agent session, or to the member who
+// could approve what one asks (D26).
 func sessionVariable(name string) bool {
-	return name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_")
+	return name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_") || name == authority.EnvMemberToken
 }
 
 // EnvironmentSpec is what a lane's environment is built from.
@@ -89,6 +92,9 @@ func BuildEnvironment(spec EnvironmentSpec) ([]string, error) {
 	for name, value := range spec.Tags {
 		if !strings.HasPrefix(name, TagPrefix) {
 			return nil, fmt.Errorf("%w: %s", ErrBadTag, name)
+		}
+		if sessionVariable(name) {
+			return nil, fmt.Errorf("%w: %s", ErrSessionVariable, name)
 		}
 		values[name] = value
 	}

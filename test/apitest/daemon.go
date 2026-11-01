@@ -4,6 +4,7 @@ package apitest
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -11,11 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/lexical"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
+	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
@@ -29,11 +32,16 @@ const LeaseTTL = int64(60_000)
 // HeartbeatMs is the heartbeat of every harness.
 const HeartbeatMs = int64(15_000)
 
+// Passphrase is the passphrase of every harness.
+const Passphrase = "a passphrase only a person knows"
+
 // Daemon is one served API.
 type Daemon struct {
 	Socket string
 	Store  *sqlstore.Store
-	Client *api.Client
+	// Client calls as the harness's member, and Session is what it presents.
+	Client  *api.Client
+	Session string
 }
 
 // maxShortBase keeps a socket under the 104-byte limit with a directory, a run
@@ -60,6 +68,23 @@ func ShortDir(t testing.TB) string {
 	return resolved
 }
 
+// SignIn gives a client a session on a server this harness did not start, over the API,
+// which is the path a person's own client takes. It sets the harness's passphrase if nobody
+// has, and it returns the token for a process the client cannot hand it to.
+func SignIn(ctx context.Context, client *api.Client) (string, error) {
+	err := client.SetPassphrase(ctx, api.SetPassphrase{Passphrase: Passphrase})
+	var refused *api.Error
+	if err != nil && (!errors.As(err, &refused) || refused.Detail.Code != api.CodeSessionRequired) {
+		return "", err
+	}
+	session, err := client.SignIn(ctx, api.SignIn{Passphrase: Passphrase})
+	if err != nil {
+		return "", err
+	}
+	client.UseSession(session.Token)
+	return session.Token, nil
+}
+
 // Options changes what a harness serves.
 type Options struct {
 	// Protocol is the control plane's protocol version, zero for this build's.
@@ -71,6 +96,8 @@ type Options struct {
 	Clock func(sqlstore.Dialect) sqlstore.Dialect
 	// Knowledge is what the API reads documents from.
 	Knowledge []ports.KnowledgeSource
+	// NoMember leaves the daemon with no passphrase and the client with no session.
+	NoMember bool
 }
 
 // Start serves the API until the test ends.
@@ -105,9 +132,10 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	if err != nil {
 		t.Fatal(err)
 	}
+	identity := fake.NewIdentityProvider()
 	handler := server.New(server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
-		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store},
+		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity,
 	})
 	if options.Wrap != nil {
 		handler = options.Wrap(handler)
@@ -124,5 +152,26 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	})
 	client := api.NewUnixClient(socket)
 	t.Cleanup(client.Close)
-	return &Daemon{Socket: socket, Store: store, Client: client}
+	daemon := &Daemon{Socket: socket, Store: store, Client: client}
+	if !options.NoMember {
+		daemon.signIn(t, identity)
+	}
+	return daemon
+}
+
+// signIn enrolls the harness's member and gives the client a session, in process, so that a
+// Wrap that breaks the wire cannot break the harness.
+func (d *Daemon) signIn(t testing.TB, identity ports.IdentityProvider) {
+	t.Helper()
+	sessions := control.NewSessions(d.Store, identity)
+	ctx := context.Background()
+	if err := sessions.Enroll(ctx, Scope, ports.Proof{Passphrase: Passphrase}, ""); err != nil {
+		t.Fatal(err)
+	}
+	grant, err := sessions.SignIn(ctx, Scope, ports.Proof{Passphrase: Passphrase}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Session = grant.Token
+	d.Client.UseSession(grant.Token)
 }

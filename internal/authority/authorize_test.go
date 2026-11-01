@@ -1,0 +1,44 @@
+package authority_test
+
+import (
+	"testing"
+
+	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.dev/ropeshift/internal/ledger"
+)
+
+func TestAMemberMayDoEverything(t *testing.T) {
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "any"}
+	for _, action := range authority.Actions() {
+		if !authority.Allowed(member, action) {
+			t.Errorf("a member may not %s", action)
+		}
+	}
+}
+
+func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
+	tests := []struct {
+		name   string
+		kind   ledger.ActorKind
+		action authority.Action
+		want   bool
+	}{
+		{"an orchestrator may decide within policy", ledger.ActorOrchestrator, authority.ActionRecordDecision, true},
+		{"an orchestrator may work a question", ledger.ActorOrchestrator, authority.ActionTakeQuestion, true},
+		{"an orchestrator cannot pass a review", ledger.ActorOrchestrator, authority.ActionPassReview, false},
+		{"an orchestrator cannot reset a breaker", ledger.ActorOrchestrator, authority.ActionResetLane, false},
+		{"an orchestrator cannot force an archive", ledger.ActorOrchestrator, authority.ActionForceArchive, false},
+		{"an orchestrator cannot give a human's answer", ledger.ActorOrchestrator, authority.ActionAnswerQuestion, false},
+		{"a tick may make the solo join token", ledger.ActorSystem, authority.ActionCreateJoinToken, true},
+		{"a tick decides nothing", ledger.ActorSystem, authority.ActionRecordDecision, false},
+		{"a lane decides nothing", ledger.ActorLane, authority.ActionRecordDecision, false},
+		{"a worker decides nothing", ledger.ActorWorker, authority.ActionRecordDecision, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := authority.Allowed(ledger.Actor{Kind: tt.kind, ID: "x"}, tt.action); got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

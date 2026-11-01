@@ -12,16 +12,16 @@ import (
 )
 
 func (h *handler) workerRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/workers/tokens", h.createJoinToken)
+	mux.HandleFunc("POST /v1/workers/tokens", h.member(h.createJoinToken))
 	mux.HandleFunc("POST /v1/workers/register", h.register)
 	mux.HandleFunc("GET /v1/workers", h.listWorkers)
 	mux.HandleFunc("GET /v1/lanes", h.listLanes)
 	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
-	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.resetLane)
-	mux.HandleFunc("POST /v1/work-orders/{id}/lane-archive", h.archiveLane)
+	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.member(h.resetLane))
+	mux.HandleFunc("POST /v1/work-orders/{id}/lane-archive", h.member(h.archiveLane))
 	mux.HandleFunc("GET /v1/fleet", h.showFleet)
-	mux.HandleFunc("PUT /v1/fleet/mode", h.setFleetMode)
-	mux.HandleFunc("PUT /v1/fleet/caps", h.setFleetCaps)
+	mux.HandleFunc("PUT /v1/fleet/mode", h.member(h.setFleetMode))
+	mux.HandleFunc("PUT /v1/fleet/caps", h.member(h.setFleetCaps))
 	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
 	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
 	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
@@ -40,8 +40,8 @@ func authOf(r *http.Request) ledger.WorkerAuth {
 	return ledger.WorkerAuth{WorkerID: r.PathValue("id"), Credential: bearer(r)}
 }
 
-func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request) {
-	token, err := h.workers.CreateJoinToken(r.Context(), localMember)
+func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	token, err := h.workers.CreateJoinToken(r.Context(), actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -206,7 +206,7 @@ func (h *handler) workerAsk(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, result)
 }
 
-func (h *handler) archiveLane(w http.ResponseWriter, r *http.Request) {
+func (h *handler) archiveLane(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.ArchiveLane
 	if !decode(w, r, &in) {
 		return
@@ -215,7 +215,7 @@ func (h *handler) archiveLane(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "an archive needs a lane_id")
 		return
 	}
-	if err := h.leases.ArchiveLane(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, in.Force, localMember); err != nil {
+	if err := h.leases.ArchiveLane(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, in.Force, actor); err != nil {
 		fail(w, err)
 		return
 	}
@@ -233,24 +233,24 @@ func (h *handler) answerFleet(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) showFleet(w http.ResponseWriter, r *http.Request) { h.answerFleet(w, r) }
 
-func (h *handler) setFleetMode(w http.ResponseWriter, r *http.Request) {
+func (h *handler) setFleetMode(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.SetFleetMode
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := h.fleet.SetMode(r.Context(), h.Scope, in.Mode, localMember); err != nil {
+	if err := h.fleet.SetMode(r.Context(), h.Scope, in.Mode, actor); err != nil {
 		fail(w, err)
 		return
 	}
 	h.answerFleet(w, r)
 }
 
-func (h *handler) setFleetCaps(w http.ResponseWriter, r *http.Request) {
+func (h *handler) setFleetCaps(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in ledger.Caps
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := h.fleet.SetCaps(r.Context(), h.Scope, in, localMember); err != nil {
+	if err := h.fleet.SetCaps(r.Context(), h.Scope, in, actor); err != nil {
 		fail(w, err)
 		return
 	}
@@ -258,8 +258,8 @@ func (h *handler) setFleetCaps(w http.ResponseWriter, r *http.Request) {
 }
 
 // resetLane lets a member start the lane a work order's breaker stopped.
-func (h *handler) resetLane(w http.ResponseWriter, r *http.Request) {
-	if err := h.leases.ResetLane(r.Context(), h.Scope, r.PathValue("id"), localMember); err != nil {
+func (h *handler) resetLane(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if err := h.leases.ResetLane(r.Context(), h.Scope, r.PathValue("id"), actor); err != nil {
 		fail(w, err)
 		return
 	}

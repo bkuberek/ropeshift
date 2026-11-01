@@ -85,6 +85,7 @@ const defaultMaxAttempts = 3
 
 // Ops are the use cases the checks drive.
 type Ops interface {
+	SignIn(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, ttlMs int64) (control.SessionGrant, error)
 	Create(ctx context.Context, scope ledger.WorkspaceID, draft workorders.WorkOrder, actor ledger.Actor) (workorders.WorkOrder, error)
 	Move(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, actor ledger.Actor) error
 	Rebuild(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) error
@@ -117,6 +118,7 @@ type Ops interface {
 }
 
 type realOps struct {
+	*control.Sessions
 	*control.WorkOrders
 	*control.Leases
 	*control.Intake
@@ -124,10 +126,20 @@ type realOps struct {
 	*control.Questions
 }
 
+// provenMember signs anyone in, so a run tests a session's write and not a slow hash.
+type provenMember struct {
+	ports.IdentityProvider
+}
+
+// Authenticate names the same member for any proof.
+func (provenMember) Authenticate(context.Context, ledger.WorkspaceID, ports.Proof) (string, error) {
+	return "member-1", nil
+}
+
 // RealOps are the production use cases.
 func RealOps(store ports.Store) Ops {
 	return realOps{
-		control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
+		control.NewSessions(store, provenMember{}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
 		control.NewQuestions(store),
 	}
 }

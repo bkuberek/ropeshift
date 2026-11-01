@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -86,7 +87,7 @@ func appendQuestion(tx ports.WriteTx, record questions.Question, actor ledger.Ac
 // Dismiss closes a question with no answer. A member or an orchestrator decides that, and
 // it stays on record.
 func (q *Questions) Dismiss(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+	if !authority.Allowed(actor, authority.ActionDismissQuestion) {
 		return workorders.ErrForbidden
 	}
 	return q.store.Write(ctx, scope, "question.dismiss", func(tx ports.WriteTx) error {
@@ -108,7 +109,7 @@ func (q *Questions) Dismiss(ctx context.Context, scope ledger.WorkspaceID, id st
 // RecordDecision keeps a decision. The client generates its ID, so a retry returns what the
 // first attempt wrote. A member or an orchestrator decides, and a lane never does.
 func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID, draft questions.Decision, actor ledger.Actor) (questions.Decision, error) {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+	if !authority.Allowed(actor, authority.ActionRecordDecision) {
 		return questions.Decision{}, workorders.ErrForbidden
 	}
 	record, err := questions.NewDecision(draft)
@@ -154,7 +155,7 @@ func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Ac
 
 // AddCategory extends a workspace's categories. Only a member can, and a repeat is done.
 func (q *Questions) AddCategory(ctx context.Context, scope ledger.WorkspaceID, name string, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorMember {
+	if !authority.Allowed(actor, authority.ActionAddCategory) {
 		return workorders.ErrForbidden
 	}
 	if err := questions.CheckCategoryName(name); err != nil {

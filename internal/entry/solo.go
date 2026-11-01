@@ -20,6 +20,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
 	"ropeshift.dev/ropeshift/internal/adapters/hookrun"
 	"ropeshift.dev/ropeshift/internal/adapters/lexical"
+	"ropeshift.dev/ropeshift/internal/adapters/localauth"
 	"ropeshift.dev/ropeshift/internal/adapters/machine"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
@@ -185,6 +186,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Handler: server.New(server.Config{
 			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 			Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
+			Identity: localauth.New(store, localauth.DefaultParams),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -283,9 +285,6 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 	return done, nil
 }
 
-// soloMember is the one member of solo mode, until sign-in arrives.
-const soloMember = "local"
-
 // soloManifest is what this worker says of itself. A user's layer that does not parse
 // leaves capacity unstated, and a lane that reads it reports the fault.
 func soloManifest(paths api.Paths) ledger.Manifest {
@@ -295,7 +294,7 @@ func soloManifest(paths api.Paths) ledger.Manifest {
 			maxLanes = profile.Admission.MaxLanes
 		}
 	}
-	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: soloMember}, maxLanes)
+	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: localauth.Member}, maxLanes)
 }
 
 // soloDriver is the agent CLI, as this machine would start it.

@@ -14,6 +14,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -402,6 +403,34 @@ func (s splitAsk) Ask(ctx context.Context, scope ledger.WorkspaceID, ask questio
 			return err
 		}
 		_, err = tx.Append(event)
+		return err
+	})
+}
+
+// splitSignIn issues a session in one transaction and records it in another, so a kill
+// between them leaves a token that signs in with no record.
+type splitSignIn struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitSignIn) SignIn(ctx context.Context, scope ledger.WorkspaceID, _ ports.Proof, _ int64) (control.SessionGrant, error) {
+	err := s.store.Write(ctx, scope, "member.sign_in", func(tx ports.WriteTx) error {
+		if err := tx.Members().InsertSession(authority.Session{Digest: "split", Member: "member-1", ExpiresAt: tx.Now() + longTTL}); err != nil {
+			return err
+		}
+		_, err := tx.Append(noteEvent(ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}))
+		return err
+	})
+	if err != nil {
+		return control.SessionGrant{}, err
+	}
+	crashpoint.Hit("member.sign_in", "split")
+	return control.SessionGrant{}, s.store.Write(ctx, scope, "member.sign_in", func(tx ports.WriteTx) error {
+		_, err := tx.Append(ledger.EventDraft{
+			Type: control.EventSignedIn, Actor: ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"},
+			Subject: ledger.Subject{Kind: "member", ID: "member-1"},
+		})
 		return err
 	})
 }
@@ -874,6 +903,14 @@ func allVariants() []variant {
 			},
 			check: "crash",
 			crash: func() (crashCase, string) { return askCase("question.ask", nil), "split" },
+		},
+		{
+			name: "a sign-in and its record in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitSignIn{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) { return signInCase(), "split" },
 		},
 		{
 			name: "the definition of ready sees no dependency",

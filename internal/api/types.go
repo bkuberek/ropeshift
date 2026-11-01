@@ -20,6 +20,13 @@ const (
 	// CodeUnpushedWork refuses a removal that could lose work no remote holds.
 	CodeUnpushedWork = "unpushed_work"
 	CodeUnavailable  = "unavailable"
+	// CodeSessionRequired means a call needs an authenticated member, and came with none
+	// that is live.
+	CodeSessionRequired = "session_required"
+	// CodeBadPassphrase means a sign-in's passphrase does not match.
+	CodeBadPassphrase = "bad_passphrase"
+	// CodeNotEnrolled means nobody can sign in, because no passphrase is set.
+	CodeNotEnrolled = "not_enrolled"
 )
 
 // ErrorBody is every error response.

@@ -7,20 +7,21 @@ import (
 	"strings"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 )
 
 func (h *handler) questionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/questions", h.listQuestions)
-	mux.HandleFunc("POST /v1/questions", h.recordQuestion)
+	mux.HandleFunc("POST /v1/questions", h.member(h.recordQuestion))
 	mux.HandleFunc("GET /v1/questions/{id}", h.showQuestion)
-	mux.HandleFunc("POST /v1/questions/{id}/dismiss", h.dismissQuestion)
+	mux.HandleFunc("POST /v1/questions/{id}/dismiss", h.member(h.dismissQuestion))
 	mux.HandleFunc("GET /v1/decisions", h.listDecisions)
-	mux.HandleFunc("POST /v1/decisions", h.recordDecision)
+	mux.HandleFunc("POST /v1/decisions", h.member(h.recordDecision))
 	mux.HandleFunc("GET /v1/decisions/{id}", h.showDecision)
 	mux.HandleFunc("GET /v1/categories", h.listCategories)
-	mux.HandleFunc("POST /v1/categories", h.addCategory)
+	mux.HandleFunc("POST /v1/categories", h.member(h.addCategory))
 	mux.HandleFunc("GET /v1/candidates", h.candidates)
 }
 
@@ -47,15 +48,15 @@ func (h *handler) listQuestions(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, list)
 }
 
-func (h *handler) recordQuestion(w http.ResponseWriter, r *http.Request) {
+func (h *handler) recordQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.RecordQuestion
 	if !decode(w, r, &in) {
 		return
 	}
 	record, err := h.questions.RecordQuestion(r.Context(), h.Scope, questions.Question{
 		ID: in.ID, Text: in.Text, Categories: in.Categories, Blocking: in.Blocking,
-		SubjectKind: in.SubjectKind, SubjectID: in.SubjectID, AskedBy: localMember.ID,
-	}, localMember)
+		SubjectKind: in.SubjectKind, SubjectID: in.SubjectID, AskedBy: actor.ID,
+	}, actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -77,8 +78,8 @@ func (h *handler) showQuestion(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, row)
 }
 
-func (h *handler) dismissQuestion(w http.ResponseWriter, r *http.Request) {
-	if err := h.questions.Dismiss(r.Context(), h.Scope, r.PathValue("id"), localMember); err != nil {
+func (h *handler) dismissQuestion(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if err := h.questions.Dismiss(r.Context(), h.Scope, r.PathValue("id"), actor); err != nil {
 		fail(w, err)
 		return
 	}
@@ -101,7 +102,7 @@ func (h *handler) listDecisions(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, list)
 }
 
-func (h *handler) recordDecision(w http.ResponseWriter, r *http.Request) {
+func (h *handler) recordDecision(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.RecordDecision
 	if !decode(w, r, &in) {
 		return
@@ -110,7 +111,7 @@ func (h *handler) recordDecision(w http.ResponseWriter, r *http.Request) {
 		ID: in.ID, Status: in.Status, Statement: in.Statement, Rationale: in.Rationale, Citations: in.Citations,
 		Scope: in.Scope, Reversibility: in.Reversibility, Categories: in.Categories, Supersedes: in.Supersedes,
 		QuestionID: in.QuestionID,
-	}, localMember)
+	}, actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -147,12 +148,12 @@ func (h *handler) listCategories(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, list)
 }
 
-func (h *handler) addCategory(w http.ResponseWriter, r *http.Request) {
+func (h *handler) addCategory(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.AddCategory
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := h.questions.AddCategory(r.Context(), h.Scope, in.Name, localMember); err != nil {
+	if err := h.questions.AddCategory(r.Context(), h.Scope, in.Name, actor); err != nil {
 		fail(w, err)
 		return
 	}

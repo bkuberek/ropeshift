@@ -40,6 +40,52 @@ func TestDependencyDirection(t *testing.T) {
 
 // TestDependencyDirectionFixtures proves that each rule can fail: every fixture
 // is a small tree that breaks exactly one rule.
+// TestOneAuthorizationFunction holds FR-AUTH-9: every check passes through one function,
+// so optional roles can arrive with no change to the data model.
+func TestOneAuthorizationFunction(t *testing.T) {
+	found, err := CheckOneAuthorization(repoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range found {
+		t.Error(v)
+	}
+}
+
+func TestOneAuthorizationFunctionCanFail(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "internal", "control")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package control
+
+import "ropeshift.dev/ropeshift/internal/ledger"
+
+var member = ledger.Actor{Kind: ledger.ActorMember}
+
+func check(actor ledger.Actor) bool { return actor.Kind == ledger.ActorMember }
+
+func other(actor ledger.Actor) bool {
+	switch actor.Kind {
+	case ledger.ActorLane:
+		return true
+	}
+	return false
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "check.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found, err := CheckOneAuthorization(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 2 {
+		t.Fatalf("found %v, want the comparison and the case, and not the literal", found)
+	}
+}
+
 func TestDependencyDirectionFixtures(t *testing.T) {
 	tests := []struct {
 		name    string

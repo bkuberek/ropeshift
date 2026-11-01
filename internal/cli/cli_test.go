@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/cli"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -45,7 +47,9 @@ func newSession(t *testing.T) *session {
 
 func (s *session) run(args ...string) (int, string, string) {
 	s.t.Helper()
-	return run(s.t, s.daemon.Socket, args...)
+	var stdout, stderr bytes.Buffer
+	code := cli.Run(args, &stdout, &stderr, cli.Options{Socket: s.daemon.Socket, Session: s.daemon.Session})
+	return code, stdout.String(), stderr.String()
 }
 
 func (s *session) must(args ...string) string {
@@ -460,5 +464,103 @@ func TestDecisionAndSearchCommands(t *testing.T) {
 	}
 	if code, _, _ := s.run("decision", "record", "--id", "d2"); code != cli.ExitUsage {
 		t.Errorf("no statement: exit %d", code)
+	}
+}
+
+// asked counts each prompt a command shows, and answers with one passphrase.
+type asked struct {
+	passphrase string
+	prompts    []string
+}
+
+func (a *asked) read(prompt string) (string, error) {
+	a.prompts = append(a.prompts, prompt)
+	return a.passphrase, nil
+}
+
+// runAs runs one command in a shell with this session and this terminal.
+func (s *session) runAs(token string, terminal func(string) (string, error), args ...string) (int, string, string) {
+	s.t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := cli.Run(args, &stdout, &stderr, cli.Options{Socket: s.daemon.Socket, Session: token, ReadPassphrase: terminal})
+	return code, stdout.String(), stderr.String()
+}
+
+func TestLoginPrintsOneExportForEval(t *testing.T) {
+	s := newSession(t)
+	terminal := &asked{passphrase: apitest.Passphrase}
+	code, stdout, stderr := s.runAs("", terminal.read, "login")
+	if code != cli.ExitOK || stderr != "" {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	token, found := strings.CutPrefix(strings.TrimSpace(stdout), "export "+authority.EnvMemberToken+"=")
+	if !found || strings.ContainsAny(token, " '\"\n") || token == "" {
+		t.Fatalf("stdout %q cannot go through eval", stdout)
+	}
+	if code, _, stderr := s.runAs(token, nil, "category", "add", "pricing"); code != cli.ExitOK {
+		t.Fatalf("the session it printed: exit %d, %s", code, stderr)
+	}
+}
+
+func TestAChangeAsksOnceAndARefusalExplainsItself(t *testing.T) {
+	s := newSession(t)
+	terminal := &asked{passphrase: apitest.Passphrase}
+	if code, _, stderr := s.runAs("", terminal.read, "category", "add", "pricing"); code != cli.ExitOK {
+		t.Fatalf("exit %d, %s", code, stderr)
+	}
+	if len(terminal.prompts) != 1 {
+		t.Fatalf("asked %v", terminal.prompts)
+	}
+	if code, _, _ := s.runAs("", terminal.read, "category", "list"); code != cli.ExitOK || len(terminal.prompts) != 1 {
+		t.Fatalf("a read asked: exit %d, prompts %v", code, terminal.prompts)
+	}
+	wrong := &asked{passphrase: "not the passphrase"}
+	if code, _, stderr := s.runAs("", wrong.read, "category", "add", "other"); code != cli.ExitForbidden || !strings.Contains(stderr, "does not match") {
+		t.Fatalf("a wrong passphrase: exit %d, %s", code, stderr)
+	}
+	code, _, stderr := s.runAs("", nil, "category", "add", "other")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, "ropeshift login") {
+		t.Fatalf("no terminal: exit %d, %s", code, stderr)
+	}
+	code, _, stderr = s.runAs("", func(string) (string, error) { return "", errors.New("no tty") }, "category", "add", "other")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, "no tty") {
+		t.Fatalf("a terminal that fails: exit %d, %s", code, stderr)
+	}
+}
+
+func TestAnExpiredSessionAsksAgainOnATerminal(t *testing.T) {
+	s := newSession(t)
+	stale, err := s.daemon.Client.SignIn(s.t.Context(), api.SignIn{Passphrase: apitest.Passphrase, TTLMs: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if code, _, stderr := s.runAs(stale.Token, nil, "category", "add", "pricing"); code != cli.ExitForbidden {
+		t.Fatalf("no terminal: exit %d, %s", code, stderr)
+	}
+	terminal := &asked{passphrase: apitest.Passphrase}
+	if code, _, stderr := s.runAs(stale.Token, terminal.read, "category", "add", "pricing"); code != cli.ExitOK || len(terminal.prompts) != 1 {
+		t.Fatalf("exit %d, %s, prompts %v", code, stderr, terminal.prompts)
+	}
+}
+
+func TestPassphraseSetNeedsTwoThatMatch(t *testing.T) {
+	daemon := apitest.StartWith(t, apitest.Options{NoMember: true})
+	s := &session{t: t, daemon: daemon}
+	answers := []string{apitest.Passphrase, "something else"}
+	typed := func(string) (string, error) {
+		answer := answers[0]
+		answers = answers[1:]
+		return answer, nil
+	}
+	if code, _, stderr := s.runAs("", typed, "passphrase", "set"); code != cli.ExitUsage || !strings.Contains(stderr, "differ") {
+		t.Fatalf("exit %d, %s", code, stderr)
+	}
+	same := &asked{passphrase: apitest.Passphrase}
+	if code, stdout, stderr := s.runAs("", same.read, "passphrase", "set"); code != cli.ExitOK || !strings.Contains(stdout, "set") {
+		t.Fatalf("exit %d, %s", code, stderr)
+	}
+	if code, _, stderr := s.runAs("", same.read, "login"); code != cli.ExitOK {
+		t.Fatalf("exit %d, %s", code, stderr)
 	}
 }

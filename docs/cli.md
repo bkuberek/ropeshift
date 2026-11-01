@@ -2,6 +2,8 @@
 
 `ropeshift` is a client of the versioned API, so it reaches the ledger the same way every other surface does. It finds the control plane's socket from the installation's paths, or from `--socket`.
 
+A command that changes something needs a member's session, and a read on the local socket does not. With no session, the command asks for the passphrase on the terminal, for that one command. `eval "$(ropeshift login)"` holds a short-lived session in one shell instead. No file holds it, and no lane inherits it. The passphrase comes only from the controlling terminal, never from stdin, a flag, or a variable, so a process with no terminal cannot sign in.
+
 Every command takes `--json`. With it, a result is one JSON document on stdout, and a failure is `{"error": {...}}` on stderr with the same exit code.
 
 ## Commands
@@ -42,6 +44,8 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift fleet show` | Shows the fleet's mode and the caps a claim is held to |
 | `ropeshift fleet run`, `pause`, `drain` | Sets the mode for the whole fleet. `pause` takes no new claims and starts no new lanes, and a running lane that crashes still restarts. `drain` also stops new generations. Each lane already running goes on |
 | `ropeshift fleet caps [--wip N] [--per-repository N] [--per-worker N]` | Sets what a claim is held to. A flag left out keeps its value, and 0 means no limit. A claim already granted stays |
+| `ropeshift login` | Asks for the passphrase on the terminal and prints a session for `eval`. It lasts an hour |
+| `ropeshift passphrase set` | Sets the passphrase on the terminal. The first needs no session, and a later one asks for the current passphrase. A passphrase has at least 8 bytes |
 | `ropeshift worker doctor` | Reports each agent CLI on this machine: whether it is present, its version, whether that version is qualified, and the kind of its sign-in. It uses the vendor's status command, reads no credential, and needs no daemon. It exits 1 when no CLI is usable |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
@@ -68,5 +72,5 @@ Three commands are for ropeshift or an agent CLI to run, and a person does not n
 | 5 | The fence is stale: another holder owns this work | Stop, and read the current fence in the message |
 | 6 | The lease lapsed and this holder can return | Return, then retry |
 | 7 | The review is recorded, and the definition of ready names what still holds the work back | Resolve what it names. The work order moves on its own |
-| 8 | This actor may not take this step | Use an actor that may |
+| 8 | This actor may not take this step, or the step needs a member's session and has none | Use an actor that may, or sign in on a terminal |
 | 9 | Nothing answered on the socket | Start the daemon, or check `--socket` |

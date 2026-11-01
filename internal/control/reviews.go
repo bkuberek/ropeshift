@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
@@ -33,7 +34,7 @@ func NewReviews(store ports.Store) *Reviews {
 // check keeps the review on record, so the work order moves as soon as what held it
 // back resolves. A repeated review changes nothing.
 func (r *Reviews) Pass(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (ReviewResult, error) {
-	if actor.Kind != ledger.ActorMember {
+	if !authority.Allowed(actor, authority.ActionPassReview) {
 		return ReviewResult{}, workorders.ErrForbidden
 	}
 	var result ReviewResult
@@ -67,7 +68,7 @@ func (r *Reviews) Pass(ctx context.Context, scope ledger.WorkspaceID, id string,
 // SendBack returns a work order to `planning` because its contract must change. A member
 // or a reviewing orchestrator decides that, and the review of this version is void.
 func (r *Reviews) SendBack(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+	if !authority.Allowed(actor, authority.ActionSendBack) {
 		return workorders.ErrForbidden
 	}
 	return r.store.Write(ctx, scope, "review.send_back", func(tx ports.WriteTx) error {

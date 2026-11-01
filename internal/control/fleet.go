@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -56,7 +57,7 @@ func (f *Fleet) SetCaps(ctx context.Context, scope ledger.WorkspaceID, caps ledg
 }
 
 func (f *Fleet) change(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor, next func(ledger.Workspace) (ledger.FleetMode, ledger.Caps)) error {
-	if actor.Kind != ledger.ActorMember {
+	if !authority.Allowed(actor, authority.ActionChangeFleet) {
 		return workorders.ErrForbidden
 	}
 	return f.store.Write(ctx, scope, "fleet.change", func(tx ports.WriteTx) error {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
@@ -20,11 +21,6 @@ import (
 
 // maxBody bounds one request. Every body is a small JSON document.
 const maxBody = 1 << 20
-
-// localMember is the actor of a call that arrives with no credential. The socket
-// admits only the owning user (NFR-SEC-2), and member sign-in arrives in a later
-// unit.
-var localMember = ledger.Actor{Kind: ledger.ActorMember, ID: "local"}
 
 // Config is what the handlers run on.
 type Config struct {
@@ -41,6 +37,8 @@ type Config struct {
 	Knowledge []ports.KnowledgeSource
 	// Matcher produces candidates for the question ladder.
 	Matcher ports.Matcher
+	// Identity authenticates humans.
+	Identity ports.IdentityProvider
 }
 
 type handler struct {
@@ -51,6 +49,7 @@ type handler struct {
 	questions  *control.Questions
 	workers    *control.Workers
 	fleet      *control.Fleet
+	sessions   *control.Sessions
 }
 
 // New returns the versioned API.
@@ -62,6 +61,7 @@ func New(config Config) http.Handler {
 		reviews:    control.NewReviews(config.Store),
 		questions:  control.NewQuestions(config.Store),
 		fleet:      control.NewFleet(config.Store),
+		sessions:   control.NewSessions(config.Store, config.Identity),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL,
 		}),
@@ -70,17 +70,18 @@ func New(config Config) http.Handler {
 	h.workerRoutes(mux)
 	h.planningRoutes(mux)
 	h.questionRoutes(mux)
+	h.sessionRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
-	mux.HandleFunc("POST /v1/work-orders", h.createWorkOrder)
+	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
 	mux.HandleFunc("GET /v1/work-orders", h.listWorkOrders)
 	mux.HandleFunc("GET /v1/work-orders/{id}", h.showWorkOrder)
-	mux.HandleFunc("POST /v1/work-orders/{id}/review", h.review)
+	mux.HandleFunc("POST /v1/work-orders/{id}/review", h.member(h.review))
 	mux.HandleFunc("POST /v1/work-orders/{id}/claims", h.claim)
-	mux.HandleFunc("POST /v1/work-orders/{id}/claims/{claim}/release", h.release)
-	mux.HandleFunc("POST /v1/work-orders/{id}/reassign", h.reassign)
-	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.startLane)
-	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.write)
+	mux.HandleFunc("POST /v1/work-orders/{id}/claims/{claim}/release", h.member(h.release))
+	mux.HandleFunc("POST /v1/work-orders/{id}/reassign", h.member(h.reassign))
+	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.member(h.startLane))
+	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.member(h.write))
 	return mux
 }
 
@@ -123,11 +124,17 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadCredential, Message: err.Error()})
 	case errors.Is(err, ledger.ErrBadJoinToken):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadJoinToken, Message: err.Error()})
+	case errors.Is(err, authority.ErrNoSession):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeSessionRequired, Message: err.Error()})
+	case errors.Is(err, authority.ErrBadProof):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadPassphrase, Message: err.Error()})
+	case errors.Is(err, authority.ErrNotEnrolled):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeNotEnrolled, Message: err.Error()})
 	case errors.Is(err, ledger.ErrStaleEpoch):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, workorders.ErrForbidden):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: err.Error()})
@@ -182,7 +189,7 @@ func (h *handler) sources(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, list)
 }
 
-func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request) {
+func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.CreateWorkOrder
 	if !decode(w, r, &in) {
 		return
@@ -199,7 +206,7 @@ func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request) {
 		Statement: in.Statement,
 		Criteria:  in.Criteria,
 		DependsOn: in.DependsOn,
-	}, localMember)
+	}, actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -253,8 +260,8 @@ func (h *handler) showWorkOrder(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, row)
 }
 
-func (h *handler) review(w http.ResponseWriter, r *http.Request) {
-	result, err := h.reviews.Pass(r.Context(), h.Scope, r.PathValue("id"), localMember)
+func (h *handler) review(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	result, err := h.reviews.Pass(r.Context(), h.Scope, r.PathValue("id"), actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -263,7 +270,7 @@ func (h *handler) review(w http.ResponseWriter, r *http.Request) {
 }
 
 // claim serves both claimants: a worker names itself with its credential, and a
-// member with no credential chooses the worker (FR-WO-9).
+// member with a session chooses the worker (FR-WO-9).
 func (h *handler) claim(w http.ResponseWriter, r *http.Request) {
 	var in api.ClaimRequest
 	if !decode(w, r, &in) {
@@ -283,7 +290,10 @@ func (h *handler) claim(w http.ResponseWriter, r *http.Request) {
 	if credential := bearer(r); credential != "" {
 		grant, err = h.workers.Claim(r.Context(), ledger.WorkerAuth{WorkerID: in.WorkerID, Credential: credential}, request)
 	} else {
-		grant, err = h.leases.Claim(r.Context(), h.Scope, request, localMember)
+		var actor ledger.Actor
+		if actor, err = h.sessions.Member(r.Context(), h.Scope, sessionOf(r)); err == nil {
+			grant, err = h.leases.Claim(r.Context(), h.Scope, request, actor)
+		}
 	}
 	if err != nil {
 		fail(w, err)
@@ -303,25 +313,25 @@ func grantBody(grant workorders.Grant) api.Grant {
 	return body
 }
 
-func (h *handler) release(w http.ResponseWriter, r *http.Request) {
+func (h *handler) release(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.ReleaseRequest
 	if !decode(w, r, &in) {
 		return
 	}
 	lease := workorders.Lease{WorkOrder: r.PathValue("id"), ClaimID: r.PathValue("claim"), Fence: in.Fence}
-	if err := h.leases.Release(r.Context(), h.Scope, lease, localMember); err != nil {
+	if err := h.leases.Release(r.Context(), h.Scope, lease, actor); err != nil {
 		fail(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *handler) reassign(w http.ResponseWriter, r *http.Request) {
+func (h *handler) reassign(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.ReassignRequest
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := h.leases.Reassign(r.Context(), h.Scope, r.PathValue("id"), in.Reason, localMember); err != nil {
+	if err := h.leases.Reassign(r.Context(), h.Scope, r.PathValue("id"), in.Reason, actor); err != nil {
 		fail(w, err)
 		return
 	}
@@ -330,7 +340,7 @@ func (h *handler) reassign(w http.ResponseWriter, r *http.Request) {
 
 // startLane records a member's request to run a lane (FR-WO-9). The worker holding the
 // claim reads it as desired state, so this answers before anything has started.
-func (h *handler) startLane(w http.ResponseWriter, r *http.Request) {
+func (h *handler) startLane(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.StartLane
 	if !decode(w, r, &in) {
 		return
@@ -339,7 +349,7 @@ func (h *handler) startLane(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "a lane needs a lane_id")
 		return
 	}
-	lease, err := h.leases.DispatchWith(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, in.Overrides, localMember)
+	lease, err := h.leases.DispatchWith(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, in.Overrides, actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -347,7 +357,7 @@ func (h *handler) startLane(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, api.LaneDispatched{LaneID: in.LaneID, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence})
 }
 
-func (h *handler) write(w http.ResponseWriter, r *http.Request) {
+func (h *handler) write(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
 	var in api.WriteRequest
 	if !decode(w, r, &in) {
 		return
@@ -360,7 +370,7 @@ func (h *handler) write(w http.ResponseWriter, r *http.Request) {
 		Lease: workorders.Lease{WorkOrder: r.PathValue("id"), ClaimID: in.ClaimID, Fence: in.Fence},
 		Lane:  in.Lane, Generation: in.Generation,
 	}
-	event, err := h.leases.Write(r.Context(), h.Scope, holder, in.WriteID, in.Payload, localMember)
+	event, err := h.leases.Write(r.Context(), h.Scope, holder, in.WriteID, in.Payload, actor)
 	if err != nil {
 		fail(w, err)
 		return

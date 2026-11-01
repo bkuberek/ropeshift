@@ -38,6 +38,7 @@ var childRoles = map[string]func(*child) error{
 	"send-back":         roleSendBack,
 	"record-question":   roleRecordQuestion,
 	"record-decision":   roleRecordDecision,
+	"sign-in":           roleSignIn,
 	"add-category":      roleAddCategory,
 	"ask":               roleAsk,
 	"take":              roleTake,
@@ -146,6 +147,11 @@ func roleDismiss(c *child) error {
 
 func (c *child) orchestrator() ledger.Actor {
 	return ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
+}
+
+func roleSignIn(c *child) error {
+	_, err := c.ops.SignIn(c.ctx, c.scope, ports.Proof{}, 0)
+	return err
 }
 
 func roleTake(c *child) error {

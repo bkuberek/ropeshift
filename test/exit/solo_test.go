@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/cli"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -56,6 +57,12 @@ type install struct {
 	home string
 	// path is the PATH of every process, with the canary or fakeclaude first.
 	path string
+	// session is what a command presents once the daemon has answered.
+	session string
+	// member says a test wants that session, and false leaves the first sign-in to it.
+	member bool
+	// daemonEnv is what the daemon's own shell holds on top.
+	daemonEnv []string
 }
 
 func newInstall(t *testing.T) *install {
@@ -66,7 +73,7 @@ func newInstall(t *testing.T) *install {
 	if binaries.err != nil {
 		t.Fatal(binaries.err)
 	}
-	return &install{t: t, home: apitest.ShortDir(t), path: doubles.InstallFakeClaude(t, "no-session")}
+	return &install{t: t, home: apitest.ShortDir(t), path: doubles.InstallFakeClaude(t, "no-session"), member: true}
 }
 
 func (in *install) env() []string {
@@ -94,7 +101,7 @@ type daemon struct {
 func (in *install) start(args ...string) *daemon {
 	in.t.Helper()
 	cmd := exec.Command(binaries.daemon, append([]string{"solo"}, args...)...)
-	cmd.Env = in.env()
+	cmd.Env = append(in.env(), in.daemonEnv...)
 	d := &daemon{cmd: cmd, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, exited: make(chan error, 1)}
 	cmd.Stdout, cmd.Stderr = d.stdout, d.stderr
 	if err := cmd.Start(); err != nil {
@@ -132,6 +139,7 @@ func (in *install) waitReady(d *daemon) {
 		_, err := client.Health(in.t.Context())
 		var refused *api.Error
 		if err == nil || errors.As(err, &refused) {
+			in.signIn(client)
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -139,10 +147,26 @@ func (in *install) waitReady(d *daemon) {
 	in.t.Fatalf("no answer at %s\n%s", socket, d.stderr.String())
 }
 
+// signIn holds one session for the whole install, which outlives a restart of the daemon.
+func (in *install) signIn(client *api.Client) {
+	in.t.Helper()
+	if in.session != "" || !in.member {
+		return
+	}
+	token, err := apitest.SignIn(in.t.Context(), client)
+	if err != nil {
+		in.t.Fatal(err)
+	}
+	in.session = token
+}
+
 func (in *install) run(args ...string) (int, string, string) {
 	in.t.Helper()
 	cmd := exec.Command(binaries.cli, args...)
 	cmd.Env = in.env()
+	if in.session != "" {
+		cmd.Env = append(cmd.Env, authority.EnvMemberToken+"="+in.session)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
