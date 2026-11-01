@@ -416,6 +416,10 @@ func TestALaneResetReachesTheCLI(t *testing.T) {
 	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
 	in.must("lane", "start", id, "--lane", "lane-1")
 	doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", "lane-1"))
+	in.waitFor("the lane on record", func() bool {
+		code, _, _ := in.run("lane", "show", "lane-1")
+		return code == 0
+	})
 	if text := in.must("lane", "reset", id); !strings.Contains(text, "reset the lane of "+id) {
 		t.Errorf("reset said %q", text)
 	}

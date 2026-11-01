@@ -5,4 +5,4 @@
  ❯ No, continue without these permissions
    Yes, I trust this folder
 
- Enter to select · Esc to exit
+ Enter to confirm · Esc to cancel

@@ -220,7 +220,7 @@ func TestRS4(t *testing.T) {
 	s.repo = headless.Dir
 	s.worktree = filepath.Join(filepath.Dir(headless.Dir), filepath.Base(headless.Dir)+"-lanes", rs4HeadlessLane)
 	paneWorktree := filepath.Join(filepath.Dir(pane.Dir), filepath.Base(pane.Dir)+"-lanes", rs4PaneLane)
-	s.others = []string{pane.Dir, paneWorktree}
+	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneWorktree}
 	if err := s.spend.charge("headless", rs4HeadlessTurns); err != nil {
 		t.Fatal(err)
 	}

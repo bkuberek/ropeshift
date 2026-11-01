@@ -110,7 +110,7 @@ var paneStop = regexp.MustCompile(`(?i)login expired|not logged in|please run /l
 // knownWords survive redact, because each one is a word the check depends on, and none is
 // an identity.
 var knownWords = []string{
-	"Accessing workspace:", "Yes, I trust this folder", "No, exit", "Enter to select", "Esc to exit", "for shortcuts",
+	"Accessing workspace:", "Yes, I trust this folder", "No, exit", "Enter to confirm", "for shortcuts",
 	"auto mode", "Security guide",
 }
 

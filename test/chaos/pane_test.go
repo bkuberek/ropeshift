@@ -140,6 +140,31 @@ func (r *paneRun) daemon(kill string) error {
 	return nil
 }
 
+// adoptionSettle is longer than a worker's first pass over what it finds.
+const adoptionSettle = time.Second
+
+// restart starts a new daemon and holds the session's turn until that daemon has adopted
+// it, so whatever a broken adoption writes lands while the session can still take it.
+func (r *paneRun) restart() error {
+	ctx := r.w.rig.Ctx
+	var before int64
+	if workers, err := r.client.Workers(ctx); err == nil && len(workers) == 1 {
+		before = workers[0].Epoch
+	}
+	if err := r.daemon(""); err != nil {
+		return err
+	}
+	err := until("the new daemon's epoch", func() (bool, error) {
+		workers, err := r.client.Workers(ctx)
+		return err == nil && len(workers) == 1 && workers[0].Epoch > before, nil
+	})
+	if err != nil {
+		return err
+	}
+	time.Sleep(adoptionSettle)
+	return nil
+}
+
 func (r *paneRun) dispatch() (string, error) {
 	ctx := r.w.rig.Ctx
 	var id string
@@ -263,13 +288,7 @@ func runPaneCrash(r *paneRun, step paneStep) error {
 			return contract.Violatedf("no session after a kill at %s", step.name)
 		}
 	}
-	if err := r.daemon(""); err != nil {
-		return err
-	}
-	if err := until("the new daemon", func() (bool, error) {
-		workers, err := r.client.Workers(r.w.rig.Ctx)
-		return err == nil && len(workers) == 1, nil
-	}); err != nil {
+	if err := r.restart(); err != nil {
 		return err
 	}
 	if err := r.release(); err != nil {

@@ -15,8 +15,8 @@ import (
 	"syscall"
 )
 
-// paneScript says how a session behaves in a terminal. The screens follow the shapes the
-// qualification matrix records. Source names them, and RS3 corrects them.
+// paneScript says how a session behaves in a terminal. The screens follow what RS3 read on
+// 2.1.316, with the trust dialog's focus and wording as the build shows them.
 type paneScript struct {
 	// Trust starts on the trust dialog, once per directory.
 	Trust bool `json:"trust,omitempty"`
@@ -41,7 +41,7 @@ const (
  ❯ No, exit
    Yes, I trust this folder
 
- Enter to select · Esc to exit
+ Enter to confirm · Esc to cancel
 `
 	screenTrustAccept = `────────────────────────────────────────────────────────────────────────────────
  Accessing workspace:
@@ -53,7 +53,7 @@ const (
    No, exit
  ❯ Yes, I trust this folder
 
- Enter to select · Esc to exit
+ Enter to confirm · Esc to cancel
 `
 	screenReady = ` fakeclaude
 
@@ -197,6 +197,9 @@ func listen(lines chan<- string) string {
 				scanner := bufio.NewScanner(conn)
 				scanner.Buffer(make([]byte, 1<<16), 1<<24)
 				for scanner.Scan() {
+					// A message counts when the socket takes it, so a repeat shows even if
+					// the session ends before a turn would have reached it.
+					witness("messages", messageID(scanner.Text()))
 					lines <- scanner.Text()
 				}
 			}()
@@ -291,7 +294,6 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 			}
 			os.Exit(0)
 		case line := <-messages:
-			witness("messages", messageID(line))
 			take(messageText(line))
 		case key, open := <-keys:
 			if !open {
