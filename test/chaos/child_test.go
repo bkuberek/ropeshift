@@ -25,6 +25,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.dev/ropeshift/test/doubles"
 )
 
 const childEnv = "ROPESHIFT_CHAOS_CHILD"
@@ -104,7 +105,7 @@ func TestMain(m *testing.M) {
 	if raw := os.Getenv(envReader); raw != "" {
 		os.Exit(shimReaderMain(raw))
 	}
-	code := m.Run()
+	code := doubles.Main(m)
 	if err := afterTests(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		code = 1
