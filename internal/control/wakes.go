@@ -416,15 +416,23 @@ func questionAnswered(reader ports.QuestionReader, id string) (bool, error) {
 	return false, nil
 }
 
-// decisionRecorded is true when a decision in force names exactly this scope.
+// decisionRecorded is true when a decision in force names exactly this scope. A scope can hold
+// more ended decisions than one read returns, so it reads on until it has seen them all.
 func decisionRecorded(reader ports.QuestionReader, scope string) (bool, error) {
-	decisions, err := reader.Decisions(ports.RecordFilter{Scope: scope, Limit: ports.MaxRecords})
-	if err != nil {
-		return false, err
+	after := ""
+	for {
+		page, err := reader.Decisions(ports.RecordFilter{Scope: scope, Limit: ports.MaxRecords, After: after})
+		if err != nil {
+			return false, err
+		}
+		found := slices.ContainsFunc(page, func(decision questions.Decision) bool {
+			return decision.Scope == scope && decision.Status.InForce()
+		})
+		if found || len(page) < ports.MaxRecords || readsOnePage() {
+			return found, nil
+		}
+		after = page[len(page)-1].ID
 	}
-	return slices.ContainsFunc(decisions, func(decision questions.Decision) bool {
-		return decision.Scope == scope && decision.Status.InForce()
-	}), nil
 }
 
 // DueWakes lists the open wakes whose time has come. It takes no lock, so a stale list is

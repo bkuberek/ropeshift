@@ -46,6 +46,7 @@ var WakeChecks = []Check{
 	{"W22", "only a member resumes a lane", checkResumeIsAMembers},
 	{"W23", "a question merged into another wakes with it", checkMergedQuestion},
 	{"W24", "a lane holds one open wake", checkOneOpenWake},
+	{"W25", "a decision in force past one read's bound still fires a wake", checkDecisionPastAPage},
 }
 
 // A timer stands an hour out and a check moves the clock to it, because real time passes under
@@ -1301,6 +1302,64 @@ func checkMergedQuestion(r *Rig) error {
 		return err
 	}
 	if _, err := r.answer(s, stays, "Twice."); err != nil {
+		return err
+	}
+	if err := r.ExpectWoken(s, request); err != nil {
+		return err
+	}
+	return r.CheckWakes(s)
+}
+
+// endedDecisions fills a scope with one read's worth of decisions that answer nothing, each ahead
+// of any later ID, so what is in force sits past the first page.
+func (r *Rig) endedDecisions(s ports.Store, scope string) error {
+	return s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
+		for i := range ports.MaxRecords {
+			record := questions.Decision{
+				ID: fmt.Sprintf("a-%04d", i), Status: questions.DecisionReplaced, Statement: "Stripe.", Rationale: "It followed.", Scope: scope,
+			}
+			if err := tx.Questions().InsertDecision(record); err != nil {
+				return err
+			}
+			event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, r.Actor)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Append(event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// checkDecisionPastAPage needs its bound: with one read's worth of ended decisions ahead of it, the
+// one in force is not on the first page, which the setup proves before it asks for the wake.
+func checkDecisionPastAPage(r *Rig) error {
+	s := r.Store()
+	const scope = "payments"
+	if err := r.endedDecisions(s, scope); err != nil {
+		return err
+	}
+	request, err := r.Parked(s, fmt.Sprintf(`{%q:%q}`, parking.DecisionRecorded, scope))
+	if err != nil {
+		return err
+	}
+	draft := questions.Decision{ID: "z-in-force", Status: questions.DecisionDecided, Statement: "Stripe.", Rationale: "It follows.", Scope: scope}
+	if _, err := r.NewOps(s).RecordDecision(r.Ctx, r.Scope, draft, r.Actor); err != nil {
+		return err
+	}
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		page, err := tx.Questions().Decisions(ports.RecordFilter{Scope: scope, Limit: ports.MaxRecords})
+		if err != nil {
+			return err
+		}
+		if len(page) != ports.MaxRecords || slices.ContainsFunc(page, func(d questions.Decision) bool { return d.ID == draft.ID }) {
+			return fmt.Errorf("this setup needs the decision past the first page, and that page holds %d", len(page))
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	if err := r.ExpectWoken(s, request); err != nil {

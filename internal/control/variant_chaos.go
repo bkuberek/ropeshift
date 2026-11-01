@@ -30,6 +30,8 @@ type Sabotage struct {
 	RefusesResumeRetry bool
 	// RefusesParkedRepeat answers a repeated parked commit as a stranger's.
 	RefusesParkedRepeat bool
+	// ReadsOnePage stops a wake's read of a scope at its first page.
+	ReadsOnePage bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -63,3 +65,5 @@ func resumesAnyClaim() bool { return current().ResumesAnyClaim }
 func refusesResumeRetry() bool { return current().RefusesResumeRetry }
 
 func refusesParkedRepeat() bool { return current().RefusesParkedRepeat }
+
+func readsOnePage() bool { return current().ReadsOnePage }

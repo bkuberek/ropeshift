@@ -31,3 +31,6 @@ func refusesResumeRetry() bool { return false }
 
 // refusesParkedRepeat is false: a repeated parked commit is done.
 func refusesParkedRepeat() bool { return false }
+
+// readsOnePage is false: a wake reads on past one read's bound.
+func readsOnePage() bool { return false }

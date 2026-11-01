@@ -391,6 +391,7 @@ func wakeVariants() []variant {
 		{name: "an answer moves a running work order", sabotage: sqlstore.Sabotage{Rewrite: noStateGuard}, control: spent, check: "W4"},
 		{name: "a tick fires during parking", sabotage: sqlstore.Sabotage{Rewrite: noStateGuard}, control: spent, check: "W6"},
 		{name: "no statement moves next_eval_at", control: control.Sabotage{KeepsNextEval: true}, check: "W7"},
+		{name: "a wake that reads one page of a scope", control: control.Sabotage{ReadsOnePage: true}, check: "W25"},
 		{name: "a reassignment leaves a wake armed", control: control.Sabotage{KeepsWakesOpen: true}, check: "W8"},
 		{name: "an ended lane keeps its wake", control: control.Sabotage{KeepsWakesOpen: true}, check: "W9"},
 		{name: "an unreadable wake stops the tick", control: control.Sabotage{UnreadableStops: true}, check: "W10"},
