@@ -373,6 +373,7 @@ func awaitShim(ctx context.Context, process ports.Process, socket string) (*shim
 		cancel()
 		if err == nil {
 			if client.PID() != process.PID() {
+				endRefused(ctx, process, exited)
 				return nil, ErrSessionExists
 			}
 			return client, nil
@@ -389,6 +390,18 @@ func awaitShim(ctx context.Context, process ports.Process, socket string) (*shim
 		}
 	}
 	return nil, errors.New("the shim did not answer")
+}
+
+// endRefused ends the shim of a refused start before the refusal returns. It has not
+// reached its lock yet, and left alone it would reach it after the holder has gone, then
+// hold the generation and start a session nobody follows.
+func endRefused(ctx context.Context, process ports.Process, exited <-chan ports.ExitStatus) {
+	_ = process.Signal(ports.SignalKill)
+	select {
+	case <-exited:
+	case <-ctx.Done():
+	case <-time.After(shimDialDeadline):
+	}
 }
 
 // follow attaches after a cursor and starts the one reader of a session's stream.

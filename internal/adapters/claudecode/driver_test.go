@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -429,6 +430,41 @@ func TestASecondStartOfOneGenerationIsRefused(t *testing.T) {
 	_, err = restarted(path).Start(t.Context(), spec)
 	if !errors.Is(err, claudecode.ErrSessionExists) {
 		t.Errorf("second start: %v", err)
+	}
+}
+
+// countingRunner remembers the last process it started.
+type countingRunner struct {
+	ports.ProcessRunner
+	mu   sync.Mutex
+	last ports.Process
+}
+
+func (r *countingRunner) Start(ctx context.Context, spec ports.ProcessSpec) (ports.Process, error) {
+	process, err := r.ProcessRunner.Start(ctx, spec)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.last = process
+	return process, err
+}
+
+// TestARefusedStartLeavesNoShimRunning holds the shim a refused start launched to the end
+// of that start. One left running reaches its lock after the holder has gone, and then it
+// holds the generation and starts a session nobody follows.
+func TestARefusedStartLeavesNoShimRunning(t *testing.T) {
+	driver, path, spec := session(t, "stopped-turn", nil)
+	handle, err := driver.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = driver.Stop(context.Background(), handle, ports.StopNow) }()
+	runner := &countingRunner{ProcessRunner: osexec.Runner{}}
+	second := claudecode.New(runner, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second})
+	if _, err := second.Start(t.Context(), spec); !errors.Is(err, claudecode.ErrSessionExists) {
+		t.Fatalf("second start: %v", err)
+	}
+	if err := syscall.Kill(runner.last.PID(), 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("the refused shim %d is still running: %v", runner.last.PID(), err)
 	}
 }
 
