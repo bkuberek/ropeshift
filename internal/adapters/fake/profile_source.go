@@ -36,12 +36,12 @@ func (s *ProfileSource) PutUser(text string) {
 	s.user = text
 }
 
-// Load resolves one repository's profile.
-func (s *ProfileSource) Load(_ context.Context, repository string) (lanes.Profile, error) {
+// Load resolves one lane's profile.
+func (s *ProfileSource) Load(_ context.Context, repository, overrides string) (lanes.Profile, error) {
 	s.mu.Lock()
 	text, user := s.layers[repository], s.user
 	s.mu.Unlock()
-	return profiles.ResolveRepository(user, text)
+	return profiles.ResolveLayers(user, text, overrides)
 }
 
 var _ ports.ProfileSource = (*ProfileSource)(nil)

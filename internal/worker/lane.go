@@ -30,6 +30,8 @@ type LaneRequest struct {
 	// RunHook runs a profile's hook once, as an external effect. Nil runs it with no
 	// record.
 	RunHook func(target string, perform func() error) error
+	// Overrides is this lane's own profile layer.
+	Overrides string
 }
 
 // PreparedLane is everything a lane starts from, and nothing it inherited.
@@ -57,7 +59,7 @@ type Provisioner struct {
 // Prepare resolves the profile first, because a bad profile should stop a lane
 // before it leaves anything on disk, and a retry converges on the same worktree.
 func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (PreparedLane, error) {
-	profile, err := p.Profiles.Load(ctx, request.Repository)
+	profile, err := p.Profiles.Load(ctx, request.Repository, request.Overrides)
 	if err != nil {
 		return PreparedLane{}, err
 	}

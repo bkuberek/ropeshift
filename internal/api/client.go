@@ -129,6 +129,13 @@ func (c *Client) WorkOrders(ctx context.Context, state workorders.State) ([]work
 	return out.WorkOrders, err
 }
 
+// Offered lists the work a worker could claim now.
+func (c *Client) Offered(ctx context.Context, worker string) ([]workorders.WorkOrder, error) {
+	var out WorkOrderList
+	err := c.Do(ctx, http.MethodGet, "/v1/work-orders?offered_to="+url.QueryEscape(worker), nil, &out)
+	return out.WorkOrders, err
+}
+
 // WorkOrder reads one work order.
 func (c *Client) WorkOrder(ctx context.Context, id string) (workorders.WorkOrder, error) {
 	var out workorders.WorkOrder

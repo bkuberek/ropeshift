@@ -155,8 +155,27 @@ func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest) error {
 			return err
 		}
 	}
+	limit := workspace.WorkerLimit
+	record, err := tx.Workers().Find(request.Worker)
+	switch {
+	case err == nil:
+		if runs, why := record.Manifest.Runs(order.Needs); !runs {
+			return fmt.Errorf("%w: worker %s has %s", workorders.ErrIneligible, request.Worker, why)
+		}
+		limit = tighter(limit, record.Manifest.Capacity.MaxLanes)
+	case !errors.Is(err, ports.ErrNotFound):
+		return err
+	}
 	count := func() (int64, error) { return tx.Leases().HeldByWorker(request.Worker) }
-	return underCap(workspace.WorkerLimit, "lanes on this worker", count)
+	return underCap(limit, "lanes on this worker", count)
+}
+
+// tighter picks the smaller of two limits, where zero means none.
+func tighter(a, b int64) int64 {
+	if a == 0 || (b != 0 && b < a) {
+		return b
+	}
+	return a
 }
 
 // underCap reads a count only when a cap is set, because most workspaces set none.
@@ -426,6 +445,12 @@ func startLane(tx ports.WriteTx, lease workorders.Lease, lane string, actor ledg
 // the worker holding the claim reads it and converges. A retry of the same lane is
 // done, and a claim runs one lane.
 func (l *Leases) Dispatch(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane string, actor ledger.Actor) (workorders.Lease, error) {
+	return l.DispatchWith(ctx, scope, workOrder, lane, "", actor)
+}
+
+// DispatchWith is a dispatch with a profile layer of the lane's own. It stays TOML here, and
+// the worker that reads it decides what it may change.
+func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane, overrides string, actor ledger.Actor) (workorders.Lease, error) {
 	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
 		return workorders.Lease{}, workorders.ErrForbidden
 	}
@@ -455,7 +480,7 @@ func (l *Leases) Dispatch(ctx context.Context, scope ledger.WorkspaceID, workOrd
 		if _, err := tx.Leases().Guard(workOrder, current.Fence); err != nil {
 			return err
 		}
-		if err := tx.Claims().Dispatch(current.ClaimID, lane); err != nil {
+		if err := tx.Claims().Dispatch(current.ClaimID, lane, overrides); err != nil {
 			return err
 		}
 		crashpoint.Hit("lane.dispatch", "recorded")

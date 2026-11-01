@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/rand"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -81,6 +82,7 @@ func orderLine(w workorders.WorkOrder) string {
 func (c *invocation) workList(args []string) int {
 	set := c.flags()
 	state := set.String("state", "", "only this state")
+	worker := set.String("worker", "", "only ready work this worker can run")
 	positional, ok := parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -90,7 +92,13 @@ func (c *invocation) workList(args []string) int {
 	}
 	client := c.client()
 	defer client.Close()
-	rows, err := client.WorkOrders(c.ctx, workorders.State(*state))
+	var rows []workorders.WorkOrder
+	var err error
+	if *worker != "" {
+		rows, err = client.Offered(c.ctx, *worker)
+	} else {
+		rows, err = client.WorkOrders(c.ctx, workorders.State(*state))
+	}
 	if rows == nil {
 		rows = []workorders.WorkOrder{}
 	}
@@ -248,6 +256,7 @@ func (c *invocation) laneStart(args []string) int {
 	set := c.flags()
 	var request api.StartLane
 	set.StringVar(&request.LaneID, "lane", "", "a client-generated ID, so a retry names the same lane")
+	layer := set.String("profile", "", "a TOML file, this lane's own profile layer")
 	positional, ok := parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -255,6 +264,13 @@ func (c *invocation) laneStart(args []string) int {
 	id, ok := c.oneID(positional)
 	if !ok {
 		return ExitUsage
+	}
+	if *layer != "" {
+		raw, err := os.ReadFile(*layer)
+		if err != nil {
+			return c.usageError("%v", err)
+		}
+		request.Overrides = string(raw)
 	}
 	if request.LaneID == "" {
 		generated, err := newID()
@@ -494,4 +510,57 @@ func (c *invocation) fleetCaps(args []string) int {
 	}
 	fleet, err := client.SetFleetCaps(c.ctx, caps)
 	return c.finish(err, fleet, func() string { return fleetLine(fleet) })
+}
+
+// doctorLine states one driver the way a person reads it: usable or not, and why.
+func doctorLine(driver ledger.DriverManifest) string {
+	if !driver.Present {
+		return fmt.Sprintf("%s\tabsent\t%s\n", driver.Driver, driver.Detail)
+	}
+	qualified := "qualified"
+	if !driver.Qualified {
+		qualified = "unqualified"
+	}
+	kind := driver.SignIn.Kind
+	if kind == "" {
+		kind = "-"
+	}
+	return fmt.Sprintf("%s\t%s\t%s\tsign-in %s\t%s\n", driver.Driver, driver.Version, qualified, kind, driver.SignIn.Status)
+}
+
+// workerDoctor reports this machine. Only what could leave it is printed, which is a kind
+// and a status, and never who is signed in.
+func (c *invocation) workerDoctor(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	if c.doctor == nil {
+		return c.usageError("this build has no doctor")
+	}
+	manifest, err := c.doctor(c.ctx)
+	code := c.finish(err, manifest, func() string {
+		var out strings.Builder
+		for _, driver := range manifest.Drivers {
+			out.WriteString(doctorLine(driver))
+		}
+		return out.String()
+	})
+	if code == ExitOK && !anyUsable(manifest) {
+		return ExitError
+	}
+	return code
+}
+
+func anyUsable(manifest ledger.Manifest) bool {
+	for _, driver := range manifest.Drivers {
+		if runs, _ := manifest.Runs(map[string]string{ledger.NeedDriver: driver.Driver}); runs {
+			return true
+		}
+	}
+	return false
 }

@@ -36,7 +36,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return
 	}
-	profile, err := r.rt.Provisioner.Profiles.Load(ctx, repository)
+	profile, err := r.rt.Provisioner.Profiles.Load(ctx, repository, r.lease.Overrides)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return

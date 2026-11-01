@@ -420,3 +420,67 @@ func TestFixturesStayOutOfTheBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// credentialFiles are what NFR-SEC-1 keeps out of the code: the places a CLI keeps a sign-in.
+var credentialFiles = []string{".credentials.json", "credentials.json", "/.claude.json", "oauthAccount"}
+
+// TestNoCredentialFileReads finds no read of a place a CLI keeps a sign-in.
+func TestNoCredentialFileReads(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, credentialFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range found {
+		t.Error(hit)
+	}
+}
+
+// signInCommands are the words of a command that changes a sign-in, which no code here runs.
+var signInCommands = []string{`"logout"`, `"setup-token"`, `"/login"`, `"/logout"`}
+
+// refusedList is the file that names these words in order to refuse them.
+const refusedList = "internal/lanes/override_real.go"
+
+// outsideRefusedList drops what that one file holds.
+func outsideRefusedList(found []string) []string {
+	var kept []string
+	for _, hit := range found {
+		if !strings.Contains(hit, refusedList) {
+			kept = append(kept, hit)
+		}
+	}
+	return kept
+}
+
+// signInRead finds the one vendor command that touches a sign-in.
+var signInRead = []string{`"auth"`}
+
+// signInFile is the one file that may run it, and it runs only `auth status`.
+const signInFile = "internal/adapters/claudecode/doctor.go"
+
+// TestOnlyAStatusReadTouchesASignIn holds the doctor to reading. A command that changes a
+// sign-in would disturb every session on this login.
+func TestOnlyAStatusReadTouchesASignIn(t *testing.T) {
+	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, signInCommands)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range outsideRefusedList(found) {
+		t.Error(hit)
+	}
+	reads, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, signInRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads = outsideRefusedList(reads)
+	if len(reads) != 1 || !strings.Contains(reads[0], signInFile) {
+		t.Errorf("the status read is at %v, and only %s may hold it", reads, signInFile)
+	}
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), signInFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `[]string{"auth", "status"}`) {
+		t.Error("the doctor runs something other than the status read")
+	}
+}

@@ -66,7 +66,7 @@ func newInstall(t *testing.T) *install {
 	if binaries.err != nil {
 		t.Fatal(binaries.err)
 	}
-	return &install{t: t, home: apitest.ShortDir(t), path: doubles.CanaryPath(t)}
+	return &install{t: t, home: apitest.ShortDir(t), path: doubles.InstallFakeClaude(t, "no-session")}
 }
 
 func (in *install) env() []string {

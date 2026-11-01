@@ -37,20 +37,32 @@ func newLaneRig(t *testing.T) *laneRig {
 	return newLaneRigFor(t, newRig(t))
 }
 
+// newLaneRigOn sets a driver up before its worker asks the doctor what it can run.
+func newLaneRigOn(t *testing.T, setup func(*fake.AgentDriver)) *laneRig {
+	t.Helper()
+	return newLaneRigWith(t, newRig(t), setup)
+}
+
 // newLaneRigFor builds on a rig a test has already set up.
 func newLaneRigFor(t *testing.T, base *rig) *laneRig {
 	t.Helper()
+	return newLaneRigWith(t, base, func(*fake.AgentDriver) {})
+}
+
+func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *laneRig {
+	t.Helper()
 	driver := fake.NewAgentDriver()
+	setup(driver)
 	dir := t.TempDir()
 	config := &worker.LaneRuntime{
-		Driver:      driver,
+		Driver: driver,
 		Provisioner: worker.Provisioner{
 			Profiles: fake.NewProfileSource(), Worktrees: fake.NewWorktrees(), Hooks: fake.NewHookRunner(),
 			Lookup: func(string) (string, bool) { return "", false },
 		},
-		Secrets:     fake.SecretResolver{},
-		Repository:  func(context.Context, string) (string, error) { return "/repository", nil },
-		Socket:      "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
+		Secrets:    fake.SecretResolver{},
+		Repository: func(context.Context, string) (string, error) { return "/repository", nil },
+		Socket:     "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
 		StateDir: dir, RunDir: dir,
 	}
 	r := &laneRig{rig: base, driver: driver, config: config, dir: dir}
@@ -280,7 +292,7 @@ func TestLaneFailuresBeforeASession(t *testing.T) {
 
 type badProfile struct{}
 
-func (badProfile) Load(context.Context, string) (lanes.Profile, error) {
+func (badProfile) Load(context.Context, string, string) (lanes.Profile, error) {
 	return lanes.Profile{}, lanes.ErrBadProfile
 }
 

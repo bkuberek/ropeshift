@@ -69,7 +69,8 @@ type GuardResult struct {
 // counts only once it left this machine.
 func SettleGuard(after WorktreeFindings, acts GuardActs) GuardResult {
 	saved := acts.Ref != "" && acts.SnapshotPushed
-	commitsLeft := after.Ahead > 0 && !(saved && (acts.Fenced || acts.Plan.Snapshot && after.Branch == ""))
+	commitsHeld := saved && (acts.Fenced || acts.Plan.Snapshot && after.Branch == "")
+	commitsLeft := after.Ahead > 0 && !commitsHeld
 	return GuardResult{
 		Unpushed: commitsLeft || (after.Dirty && !saved),
 		Ref:      acts.Ref, Commit: acts.Commit, Pushed: acts.SnapshotPushed, Detail: acts.Detail,

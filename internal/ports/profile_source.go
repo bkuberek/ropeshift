@@ -8,7 +8,8 @@ import (
 
 // ProfileSource loads and layers TOML profiles.
 type ProfileSource interface {
-	// Load resolves the profile of one repository: built-in defaults, then the
-	// repository's layer. A repository with no layer gets the defaults.
-	Load(ctx context.Context, repository string) (lanes.Profile, error)
+	// Load resolves the profile of one lane: built-in defaults, the user's layer, the
+	// repository's, and the lane's own overrides, later over earlier. A layer that is not
+	// there changes nothing.
+	Load(ctx context.Context, repository, overrides string) (lanes.Profile, error)
 }

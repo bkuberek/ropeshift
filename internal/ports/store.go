@@ -167,8 +167,8 @@ type ClaimWriter interface {
 	Record(workorders.Claim) error
 	// End closes an open claim.
 	End(id, reason string) error
-	// Dispatch names the lane a claim should run.
-	Dispatch(id, lane string) error
+	// Dispatch names the lane a claim should run, and that lane's own profile layer.
+	Dispatch(id, lane, overrides string) error
 }
 
 // LaneReader reads lanes.

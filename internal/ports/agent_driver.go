@@ -59,13 +59,18 @@ type Capabilities struct {
 }
 
 // DoctorReport says what is present and usable. It uses vendor status commands and
-// never reads credentials. SignIn stays empty until the doctor unit reads it.
+// never reads credentials, and it holds a kind and a status, never an identity.
 type DoctorReport struct {
+	// Driver names the driver a work order can ask for.
+	Driver    string
 	Present   bool
 	Version   string
 	Qualified bool
-	SignIn    string
-	Detail    string
+	// SignIn is the kind of sign-in, empty when there is none or it could not be read.
+	SignIn string
+	// SignInStatus says whether it is signed in, as far as the vendor's command said.
+	SignInStatus string
+	Detail       string
 }
 
 // PreflightReport says whether a spec can start. An empty list passes.
@@ -96,6 +101,9 @@ type SessionSpec struct {
 	Binary string
 	// Tools are this caller's ropeshift MCP tools, which the settings allow.
 	Tools []string
+	// Repository is the checkout the worktree came from, whose local settings a worktree
+	// session shares.
+	Repository string
 	// Credential binds an API key to the CLI, for a lane that has one.
 	Credential SecretBinding
 	// TempDir is a short private directory for the session's sockets. Empty leaves

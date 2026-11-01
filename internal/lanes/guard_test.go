@@ -1,6 +1,7 @@
 package lanes_test
 
 import (
+	"strings"
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -175,10 +176,8 @@ func TestComposeProject(t *testing.T) {
 			if tt.lane != "lane-1" && got == lanes.ComposeProject(tt.prefix, "lane-1") {
 				t.Errorf("%q and lane-1 share a project", tt.lane)
 			}
-			for _, c := range got {
-				if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
-					t.Errorf("project %q holds %q", got, c)
-				}
+			if strings.Trim(got, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
+				t.Errorf("project %q holds a character compose refuses", got)
 			}
 		})
 	}

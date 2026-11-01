@@ -37,6 +37,9 @@ type fixture struct {
 	Pane paneScript `json:"pane,omitempty"`
 	// ResumeTurns replaces Turns for a session started with --resume.
 	ResumeTurns [][]step `json:"resume_turns,omitempty"`
+	// AuthMethod is what `claude auth status` reports. Empty reports an API key, so a lane
+	// with no run mode in its profile stays headless.
+	AuthMethod string `json:"auth_method,omitempty"`
 }
 
 // step is one thing the session does. Exactly one field is set.
@@ -70,6 +73,9 @@ type step struct {
 	Tool    string `json:"tool,omitempty"`
 	Command string `json:"command,omitempty"`
 	File    string `json:"file,omitempty"`
+	// Blocked stands for what stops a call after its hook: a deny rule, or a hook that timed
+	// out with `onFailure: block`. This double has neither, so it runs the hook and stops.
+	Blocked bool `json:"blocked,omitempty"`
 }
 
 // A session's flags, as the real CLI takes them.
@@ -111,6 +117,10 @@ func main() {
 		listAgents(self, script)
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "auth" {
+		authStatus(script, os.Args[2:])
+		return
+	}
 	opts := parse(os.Args[1:])
 	if opts.version {
 		version := script.Version
@@ -135,6 +145,30 @@ func main() {
 		return
 	}
 	s.run()
+}
+
+// authStatus answers `claude auth status`, and refuses every other form. It prints fields
+// that name a person, as the real command does, so a test can show none of them travels.
+func authStatus(script fixture, args []string) {
+	if len(args) != 1 || args[0] != "status" {
+		fail("refused: auth %v", args)
+	}
+	method := script.AuthMethod
+	if method == "" {
+		method = "api_key"
+	}
+	answer, err := json.Marshal(map[string]any{
+		"loggedIn": method != "none", "authMethod": method, "apiProvider": "firstParty",
+		"email": "person@example.invalid", "orgId": "org-fixture", "orgName": "Fixture Organization",
+		"subscriptionType": "fixture-plan", "configDirectory": "/fixture/config",
+	})
+	if err != nil {
+		fail("%v", err)
+	}
+	fmt.Println(string(answer))
+	if method == "none" {
+		os.Exit(1)
+	}
 }
 
 // listAgents answers `claude agents --json --cwd <dir>`, which starts no session. It
@@ -441,6 +475,10 @@ func (s *session) callBuiltin(st step) {
 			witness("denied", decision.Specific.Reason)
 			return
 		}
+	}
+	if st.Blocked {
+		witness("blocked", st.Tool)
+		return
 	}
 	if st.Command != "" {
 		cmd := exec.Command("/bin/sh", "-c", st.Command)

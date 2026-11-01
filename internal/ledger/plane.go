@@ -78,9 +78,10 @@ type WorkerCredential struct {
 
 // SessionRequest opens a new epoch.
 type SessionRequest struct {
-	Auth         WorkerAuth        `json:"-"`
-	Protocol     int               `json:"protocol"`
-	Capabilities map[string]string `json:"capabilities,omitempty"`
+	Auth     WorkerAuth `json:"-"`
+	Protocol int        `json:"protocol"`
+	// Manifest is what this worker advertises, for this epoch.
+	Manifest Manifest `json:"manifest"`
 }
 
 // Session is what the control plane decided for one epoch.
@@ -161,6 +162,8 @@ type DesiredLease struct {
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with
 	// the count it has acted on.
 	Resets int64 `json:"resets,omitempty"`
+	// Overrides is this lane's own profile layer, as TOML.
+	Overrides string `json:"overrides,omitempty"`
 }
 
 // DesiredArchive is a lane whose worktree should go.
@@ -257,12 +260,12 @@ type UploadReply struct {
 
 // Worker is one registered worker, as a client sees it.
 type Worker struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Epoch           int64             `json:"epoch"`
-	Protocol        int               `json:"protocol"`
-	Capabilities    map[string]string `json:"capabilities,omitempty"`
-	LastHandshakeAt int64             `json:"last_handshake_at,omitempty"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Epoch           int64    `json:"epoch"`
+	Protocol        int      `json:"protocol"`
+	Manifest        Manifest `json:"manifest"`
+	LastHandshakeAt int64    `json:"last_handshake_at,omitempty"`
 }
 
 // WorkerRecord is a worker as the ledger holds it. ProofDigest is the digest of its

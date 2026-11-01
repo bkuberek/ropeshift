@@ -31,13 +31,13 @@ const (
 const usage = `usage: ropeshift <command>
 
   work create --title T [--criterion C]... [flags]   record a work order
-  work list [--state S]                              list work orders
+  work list [--state S] [--worker W]                 list work orders, or what a worker can run
   work show <id>                                     show one work order
   work review <id>                                   record a passed review
   work claim <id> --worker W [--claim-id C]          claim a work order
   work release <id> --claim-id C --fence N           give a claim back
   work reassign <id> --reason R                      end a lapsed holder's ownership
-  lane start <work-order> [--lane L]                 run a lane on a claimed work order
+  lane start <work-order> [--lane L] [--profile F]   run a lane on a claimed work order
   source list                                        list sources and their health
   lane list                                          list lanes, each with its freshness
   lane show <lane>                                   show one lane, with its freshness
@@ -47,6 +47,7 @@ const usage = `usage: ropeshift <command>
   fleet run|pause|drain                              set the fleet's mode
   fleet caps [--wip N] [--per-repository N] [--per-worker N]
                                                      set what a claim is held to
+  worker doctor                                      report which agent CLIs are usable here
   worker list                                        list registered workers
   worker token                                       make a join token
   version                                            print the version
@@ -62,10 +63,13 @@ func IsCommand(word string) bool {
 // Options is what a command needs from its process.
 type Options struct {
 	Socket string
+	// Doctor asks this machine what it can run. It reaches no daemon.
+	Doctor func(context.Context) (ledger.Manifest, error)
 }
 
 // invocation is one running command.
 type invocation struct {
+	doctor func(context.Context) (ledger.Manifest, error)
 	ctx    context.Context
 	stdout io.Writer
 	stderr io.Writer
@@ -77,7 +81,7 @@ type invocation struct {
 // Run runs one command and returns its exit code. args starts after the program
 // name.
 func Run(args []string, stdout, stderr io.Writer, opts Options) int {
-	base := &invocation{ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket}
+	base := &invocation{ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor}
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usage)
 		return ExitUsage
@@ -101,6 +105,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"fleet pause":   setsFleet(ledger.FleetPause),
 		"fleet drain":   setsFleet(ledger.FleetDrain),
 		"fleet caps":    (*invocation).fleetCaps,
+		"worker doctor": (*invocation).workerDoctor,
 		"worker list":   (*invocation).workerList,
 		"worker token":  (*invocation).workerToken,
 	}

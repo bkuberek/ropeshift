@@ -273,7 +273,7 @@ func TestAWorktreeMadeBeforeACrashIsNotMadeAgain(t *testing.T) {
 	w.desire("lane-1")
 	w.record("lane-1", lanes.StateRunning)
 	w.effect(lanes.EffectWorktree, "lane-1", lanes.EffectCompleted)
-	profile, err := w.config.Provisioner.Profiles.Load(t.Context(), "/repository")
+	profile, err := w.config.Provisioner.Profiles.Load(t.Context(), "/repository", "")
 	if err != nil {
 		t.Fatal(err)
 	}

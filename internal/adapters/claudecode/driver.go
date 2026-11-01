@@ -207,17 +207,23 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 	}, nil
 }
 
-// Doctor reports presence and version. Sign-in waits for the doctor unit, and it will
-// use the vendor's status command and never a credential.
+// DriverName is what a work order's needs call this driver.
+const DriverName = "claude-code"
+
+// Doctor reports presence, version, qualification, and sign-in. It runs the vendor's status
+// command and reads no credential, and only the kind leaves this function.
 func (d *Driver) Doctor(ctx context.Context) (ports.DoctorReport, error) {
 	version, err := d.version(ctx, d.versionEnv())
 	if errors.Is(err, ErrNoBinary) {
-		return ports.DoctorReport{Detail: err.Error()}, nil
+		return ports.DoctorReport{Driver: DriverName, SignInStatus: lanes.SignInUnknown, Detail: err.Error()}, nil
 	}
 	if err != nil {
 		return ports.DoctorReport{}, err
 	}
-	return ports.DoctorReport{Present: true, Version: version, Qualified: Qualified(version)}, nil
+	kind, status := d.signIn(ctx)
+	return ports.DoctorReport{
+		Driver: DriverName, Present: true, Version: version, Qualified: Qualified(version), SignIn: kind, SignInStatus: status,
+	}, nil
 }
 
 // Preflight checks a spec before anything starts.
@@ -246,6 +252,9 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	}
 	if spec.RunMode == ports.RunModeInteractive && d.terminal == nil {
 		problem("no terminal for an interactive session")
+	}
+	for _, found := range inboundProblems(spec) {
+		problem("%s", found)
 	}
 	if len(spec.TempDir)+len(socketTail) > maxSocketPath {
 		problem("a session's socket under %s passes the %d-byte limit", spec.TempDir, maxSocketPath)

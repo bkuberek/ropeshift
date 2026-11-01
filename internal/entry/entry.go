@@ -4,6 +4,7 @@
 package entry
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/cli"
 	"ropeshift.dev/ropeshift/internal/hook"
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/mcpserver"
 	"ropeshift.dev/ropeshift/internal/shim"
 )
@@ -79,7 +81,10 @@ func cliOptions() cli.Options {
 	if err != nil {
 		return cli.Options{}
 	}
-	return cli.Options{Socket: paths.ControlSocket()}
+	return cli.Options{
+		Socket: paths.ControlSocket(),
+		Doctor: func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx, paths) },
+	}
 }
 
 // commandName maps the started name to a command. A renamed binary acts as the

@@ -68,7 +68,7 @@ func newStatusRig(r *Rig) (*statusRig, error) {
 }
 
 func (s *statusRig) open() error {
-	session, err := s.plane.OpenSession(s.r.Ctx, ledger.SessionRequest{Auth: s.auth, Protocol: ledger.ProtocolVersion})
+	session, err := s.plane.OpenSession(s.r.Ctx, ledger.SessionRequest{Auth: s.auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest})
 	s.epoch = session.Epoch
 	return err
 }

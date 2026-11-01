@@ -19,7 +19,7 @@ const (
 	CodeIllegalMove = "illegal_move"
 	// CodeUnpushedWork refuses a removal that could lose work no remote holds.
 	CodeUnpushedWork = "unpushed_work"
-	CodeUnavailable = "unavailable"
+	CodeUnavailable  = "unavailable"
 )
 
 // ErrorBody is every error response.
@@ -105,6 +105,8 @@ type Grant struct {
 // LaneID, so a retry names the same lane.
 type StartLane struct {
 	LaneID string `json:"lane_id"`
+	// Overrides is this lane's own profile layer, as TOML.
+	Overrides string `json:"overrides,omitempty"`
 }
 
 // LaneDispatched says which lease a lane will run under.

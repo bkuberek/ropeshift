@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/clock"
 	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
 	"ropeshift.dev/ropeshift/internal/adapters/hookrun"
+	"ropeshift.dev/ropeshift/internal/adapters/machine"
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
@@ -252,9 +253,9 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		JoinToken: func(ctx context.Context) (string, error) {
 			return plane.CreateJoinToken(ctx, tickActor("solo"))
 		},
-		Capabilities: map[string]string{"mode": "solo"},
-		Spool:        paths.Spool(),
-		Lanes:        runtime,
+		Manifest: soloManifest(paths),
+		Spool:    paths.Spool(),
+		Lanes:    runtime,
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},
@@ -279,6 +280,36 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 	return done, nil
 }
 
+// soloMember is the one member of solo mode, until sign-in arrives.
+const soloMember = "local"
+
+// soloManifest is what this worker says of itself. A user's layer that does not parse
+// leaves capacity unstated, and a lane that reads it reports the fault.
+func soloManifest(paths api.Paths) ledger.Manifest {
+	var maxLanes int64
+	if raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile)); err == nil || errors.Is(err, os.ErrNotExist) {
+		if profile, err := profiles.Resolve(string(raw)); err == nil {
+			maxLanes = profile.Admission.MaxLanes
+		}
+	}
+	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: soloMember}, maxLanes)
+}
+
+// soloDriver is the agent CLI, as this machine would start it.
+func soloDriver(terminal ports.Terminal, env []string) *claudecode.Driver {
+	return claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: terminal})
+}
+
+// runDoctor is `ropeshift worker doctor`. It needs no daemon, because a person runs it
+// when nothing works yet.
+func runDoctor(ctx context.Context, paths api.Paths) (ledger.Manifest, error) {
+	env, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: os.LookupEnv})
+	if err != nil {
+		return ledger.Manifest{}, err
+	}
+	return worker.BuildManifest(ctx, soloDriver(nil, env), soloManifest(paths))
+}
+
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this
 // daemon reads work from, and the worker's own paths.
 func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
@@ -295,13 +326,14 @@ func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
 		return nil, err
 	}
 	return &worker.LaneRuntime{
-		Driver: claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: terminal}),
+		Driver: soloDriver(terminal, env),
 		Provisioner: worker.Provisioner{
 			Profiles:  profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)},
 			Worktrees: gitcli.Worktrees{},
 			Hooks:     hookrun.Runner{Processes: osexec.Runner{}},
 		},
 		Secrets:    secrets.Resolver{},
+		Machine:    machine.Reader{Processes: osexec.Runner{}},
 		Repository: checkouts(opts),
 		Socket:     paths.WorkerSocket(),
 		Spool:      paths.Spool(),

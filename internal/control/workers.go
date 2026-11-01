@@ -213,7 +213,7 @@ func (w *Workers) OpenSession(ctx context.Context, request ledger.SessionRequest
 			return err
 		}
 		next := record.Worker
-		next.Protocol, next.Capabilities = session.Protocol, request.Capabilities
+		next.Protocol, next.Manifest = session.Protocol, request.Manifest
 		if session.Epoch, err = tx.Workers().OpenEpoch(next); err != nil {
 			return err
 		}
@@ -348,7 +348,7 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, nil
 	}
 	lease.Lane, lease.Repository, lease.Branch, lease.Title = claim.Lane, row.RepositoryID, row.Branch, row.Title
-	lease.Deadline = row.Deadline
+	lease.Deadline, lease.Overrides = row.Deadline, claim.Overrides
 	resets, err := tx.Lanes().Resets(claim.Lane)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return lease, err
@@ -725,6 +725,29 @@ func (w *Workers) Claim(ctx context.Context, auth ledger.WorkerAuth, request wor
 		request.TTLMs = w.options.LeaseTTLMs
 	}
 	return w.leases.Claim(ctx, w.scope, request, ledger.Actor{Kind: ledger.ActorWorker, ID: auth.WorkerID})
+}
+
+// Offered lists the work a worker could claim now: ready work whose needs its manifest
+// meets (FR-WO-6).
+func (w *Workers) Offered(ctx context.Context, worker string) ([]workorders.WorkOrder, error) {
+	offered := []workorders.WorkOrder{}
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		record, err := tx.Workers().Find(worker)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if runs, _ := record.Manifest.Runs(row.Needs); runs && row.State == workorders.Ready {
+				offered = append(offered, row)
+			}
+		}
+		return nil
+	})
+	return offered, err
 }
 
 // List returns every registered worker.

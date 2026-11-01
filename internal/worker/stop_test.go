@@ -287,7 +287,6 @@ func (r *laneRig) eventuallyUp() {
 	r.t.Fatal("the ledger never held the lane")
 }
 
-
 func TestAFencedLaneStopsThroughTheGuard(t *testing.T) {
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")

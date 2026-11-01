@@ -637,6 +637,50 @@ func TestGeneratedSettings(t *testing.T) {
 	}
 }
 
+// TestPreflightReadsTheInboundPolicy covers the one way a lane's generated `accept` can lose:
+// the vendor honors a stricter value from a project's settings over `--settings`, which
+// would silently stop a pane's brief and every message to a lane.
+func TestPreflightReadsTheInboundPolicy(t *testing.T) {
+	tests := []struct {
+		name, file, body, want string
+	}{
+		{"nothing set", "", "", ""},
+		{"accept passes", ".claude/settings.json", `{"crossSessionInbound":"accept"}`, ""},
+		{"a shared file that holds", ".claude/settings.json", `{"crossSessionInbound":"hold"}`, "hold"},
+		{"a shared file that refuses", ".claude/settings.json", `{"crossSessionInbound":"refuse"}`, "refuse"},
+		{"a local file that refuses", ".claude/settings.local.json", `{"crossSessionInbound":"refuse"}`, "refuse"},
+		{"the checkout's local file", "checkout/.claude/settings.local.json", `{"crossSessionInbound":"hold"}`, "hold"},
+		{"a file the CLI would skip", ".claude/settings.json", `{not json`, ""},
+		{"another key entirely", ".claude/settings.json", `{"model":"haiku"}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			driver, _, spec := session(t, "two-turns", nil)
+			spec.Repository = filepath.Join(spec.Dir, "checkout")
+			if tt.file != "" {
+				path := filepath.Join(spec.Dir, tt.file)
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(tt.body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			report, err := driver.Preflight(t.Context(), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			problems := strings.Join(report.Problems, ";")
+			if tt.want == "" && problems != "" {
+				t.Errorf("problems %v", report.Problems)
+			}
+			if tt.want != "" && !strings.Contains(problems, "crossSessionInbound to "+tt.want) {
+				t.Errorf("problems %v", report.Problems)
+			}
+		})
+	}
+}
+
 func TestPreflightRefusesWhatCannotStart(t *testing.T) {
 	driver, _, spec := session(t, "two-turns", nil)
 	tests := []struct {
@@ -649,6 +693,7 @@ func TestPreflightRefusesWhatCannotStart(t *testing.T) {
 		{"no agent on PATH", func(s *ports.SessionSpec) { s.Env = []string{"PATH=" + t.TempDir()} }, "not on PATH"},
 		{"a parent session's marker", func(s *ports.SessionSpec) { s.Env = append(s.Env, "CLAUDE_CODE_CHILD_SESSION=1") }, "session variable"},
 		{"a socket past the limit", func(s *ports.SessionSpec) { s.TempDir = "/" + strings.Repeat("d", 90) }, "byte limit"},
+		{"a shim's socket past the limit", func(s *ports.SessionSpec) { s.TempDir, s.ConfigDir = "", "/"+strings.Repeat("d", 110) }, "byte limit"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

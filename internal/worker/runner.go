@@ -350,6 +350,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
 		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Allocate: r.allocate, RunHook: r.runHook,
+		Overrides: r.lease.Overrides,
 		Tags: map[string]string{
 			lanes.EnvLaneID: r.lease.Lane, lanes.EnvGeneration: strconv.FormatInt(r.currentGeneration(), 10),
 			lanes.EnvWorkOrder: r.lease.WorkOrder, lanes.EnvLaneToken: token,
@@ -372,7 +373,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.state.thresholds(prepared.Profile)
-	spec, err := r.spec(ctx, prepared)
+	spec, err := r.spec(ctx, prepared, repository)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -424,12 +425,12 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 
 // spec builds a session from what the worker prepared, and refuses what the driver
 // cannot run before a process starts.
-func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.SessionSpec, error) {
+func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository string) (ports.SessionSpec, error) {
 	capabilities, err := r.rt.Driver.Capabilities(ctx)
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
-	mode, err := runMode(prepared.Profile.RunMode)
+	mode, err := runMode(prepared.Profile.RunMode, r.w.signInKind(), slices.Contains(capabilities.RunModes, ports.RunModeInteractive))
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
@@ -447,7 +448,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 	r.state.mu.Unlock()
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
-		Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
+		Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
 		Brief:     r.briefText(),
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
@@ -469,12 +470,16 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane) (ports.Sessio
 	return spec, nil
 }
 
-// runMode reads a profile's value in the driver's terms.
-func runMode(value string) (string, error) {
+// runMode reads a profile's value in the driver's terms. A profile that says nothing takes
+// what the sign-in calls for.
+func runMode(value, signIn string, interactive bool) (string, error) {
+	if value == "" {
+		value = lanes.DefaultRunMode(signIn, interactive)
+	}
 	switch value {
 	case lanes.ProfileRunTmux:
 		return ports.RunModeInteractive, nil
-	case lanes.ProfileRunHeadless, "":
+	case lanes.ProfileRunHeadless:
 		return ports.RunModeHeadless, nil
 	}
 	return "", fmt.Errorf("%w: run mode %q", lanes.ErrBadProfile, value)

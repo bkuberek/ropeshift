@@ -62,14 +62,14 @@ func (t workerTx) scoped(p params) params {
 
 func scanWorker(row scanner) (ledger.WorkerRecord, error) {
 	var w ledger.WorkerRecord
-	var capabilities string
+	var manifest string
 	var handshake sql.NullInt64
-	err := row.Scan(&w.ID, &w.Name, &w.Epoch, &w.Protocol, &capabilities, &w.ProofDigest, &handshake)
+	err := row.Scan(&w.ID, &w.Name, &w.Epoch, &w.Protocol, &manifest, &w.ProofDigest, &handshake)
 	if err != nil {
 		return ledger.WorkerRecord{}, err
 	}
 	w.LastHandshakeAt = handshake.Int64
-	if err := json.Unmarshal([]byte(capabilities), &w.Capabilities); err != nil {
+	if err := json.Unmarshal([]byte(manifest), &w.Manifest); err != nil {
 		return ledger.WorkerRecord{}, fmt.Errorf("worker %s: %w", w.ID, err)
 	}
 	return w, nil
@@ -115,11 +115,7 @@ func (t workerTx) ReplaceProof(id, digest string) error {
 }
 
 func (t workerTx) OpenEpoch(w ledger.Worker) (int64, error) {
-	capabilities := w.Capabilities
-	if capabilities == nil {
-		capabilities = map[string]string{}
-	}
-	raw, err := json.Marshal(capabilities)
+	raw, err := json.Marshal(w.Manifest)
 	if err != nil {
 		return 0, err
 	}

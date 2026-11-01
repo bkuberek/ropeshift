@@ -453,7 +453,7 @@ func RunProfileSource(t *testing.T, fresh func(*testing.T) ProfileRig) {
 }
 
 func checkProfileDefaults(t *testing.T, ctx context.Context, r ProfileRig) {
-	profile, err := r.Source.Load(ctx, r.Repository)
+	profile, err := r.Source.Load(ctx, r.Repository, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func checkProfileDefaults(t *testing.T, ctx context.Context, r ProfileRig) {
 
 func checkProfileLayer(t *testing.T, ctx context.Context, r ProfileRig) {
 	r.Layer("run_mode = \"headless\"\n\n[agent]\nmodel = \"haiku\"\n\n[context.roles.writer]\nwarn_tokens = 1000\n")
-	profile, err := r.Source.Load(ctx, r.Repository)
+	profile, err := r.Source.Load(ctx, r.Repository, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,20 +491,20 @@ func checkProfileLayer(t *testing.T, ctx context.Context, r ProfileRig) {
 
 func checkProfileUnknownKey(t *testing.T, ctx context.Context, r ProfileRig) {
 	r.Layer("[lifecycle]\nstall_aftr = \"1m\"\n")
-	if _, err := r.Source.Load(ctx, r.Repository); !errors.Is(err, lanes.ErrBadProfile) {
+	if _, err := r.Source.Load(ctx, r.Repository, ""); !errors.Is(err, lanes.ErrBadProfile) {
 		t.Errorf("got %v", err)
 	}
 }
 
 func checkProfileBadTOML(t *testing.T, ctx context.Context, r ProfileRig) {
 	r.Layer("name = unquoted\n")
-	if _, err := r.Source.Load(ctx, r.Repository); !errors.Is(err, lanes.ErrBadProfile) {
+	if _, err := r.Source.Load(ctx, r.Repository, ""); !errors.Is(err, lanes.ErrBadProfile) {
 		t.Errorf("got %v", err)
 	}
 }
 
 func checkProfileDigest(t *testing.T, ctx context.Context, r ProfileRig) {
-	first, err := r.Source.Load(ctx, r.Repository)
+	first, err := r.Source.Load(ctx, r.Repository, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +513,7 @@ func checkProfileDigest(t *testing.T, ctx context.Context, r ProfileRig) {
 		t.Fatal(err)
 	}
 	r.Layer("[agent]\nmodel = \"haiku\"\n")
-	second, err := r.Source.Load(ctx, r.Repository)
+	second, err := r.Source.Load(ctx, r.Repository, "")
 	if err != nil {
 		t.Fatal(err)
 	}

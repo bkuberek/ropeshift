@@ -9,6 +9,9 @@ import (
 	"ropeshift.dev/ropeshift/internal/ports"
 )
 
+// FakeDriverName stands for the one driver phase 1 has.
+const FakeDriverName = "claude-code"
+
 // DriverTurn ends a scripted turn.
 type DriverTurn struct {
 	Status ports.TurnStatus
@@ -66,6 +69,8 @@ type AgentDriver struct {
 	stopped  bool
 	hooks    []lanes.HookEvent
 	onStop   func()
+	signIn   string
+	present  bool
 }
 
 type driverSession struct {
@@ -83,7 +88,10 @@ type driverSession struct {
 
 // NewAgentDriver returns a driver with an empty script.
 func NewAgentDriver() *AgentDriver {
-	return &AgentDriver{version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{}}
+	return &AgentDriver{
+		version: "1.0.0", sessions: map[string]*driverSession{}, left: map[string]ports.Located{},
+		signIn: ports.SignInAPIKey, present: true,
+	}
 }
 
 func sessionID(lane string, generation int64) string { return fmt.Sprintf("%s/%d", lane, generation) }
@@ -119,6 +127,20 @@ func (s *driverSession) stop() {
 	case s.stops <- ports.StopNow:
 	default:
 	}
+}
+
+// SetSignIn sets the kind the doctor reports.
+func (d *AgentDriver) SetSignIn(kind string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.signIn = kind
+}
+
+// SetAbsent makes the doctor report no CLI on this machine.
+func (d *AgentDriver) SetAbsent() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.present = false
 }
 
 // OnStop runs a function when a stop reaches the driver, as a session that writes once
@@ -202,7 +224,9 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 func (d *AgentDriver) Doctor(context.Context) (ports.DoctorReport, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return ports.DoctorReport{Present: true, Version: d.version, Qualified: !d.degraded}, nil
+	return ports.DoctorReport{
+		Driver: FakeDriverName, Present: d.present, Version: d.version, Qualified: !d.degraded, SignIn: d.signIn, SignInStatus: lanes.SignedIn,
+	}, nil
 }
 
 // Preflight applies the checks a spec must pass on every driver.

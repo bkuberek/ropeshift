@@ -93,6 +93,8 @@ type Claim struct {
 	EndReason string
 	// Lane is the lane a member or an orchestrator asked to run under this claim.
 	Lane string
+	// Overrides is that lane's own profile layer, as TOML.
+	Overrides string
 }
 
 // Ended reports a claim that no longer holds anything.

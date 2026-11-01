@@ -230,6 +230,11 @@ func (r *Rig) NewWorkOrder(s ports.Store) (workorders.WorkOrder, error) {
 	}, r.Actor)
 }
 
+// UsableManifest is a worker that can run what NewWorkOrder needs.
+var UsableManifest = ledger.Manifest{Drivers: []ledger.DriverManifest{{
+	Driver: "claude-code", Present: true, Qualified: true, SignIn: ledger.SignIn{Kind: ledger.SignInAPIKey, Status: ledger.SignedIn},
+}}}
+
 // CheckProjection compares the projection with what the log replays to.
 func (r *Rig) CheckProjection(s ports.Store) error {
 	events, err := r.Events(s, r.Scope)

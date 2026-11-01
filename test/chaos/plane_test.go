@@ -98,6 +98,7 @@ func (c *child) newWorker() (*worker.Worker, *sqlite.Journal, func(), error) {
 		Name:      "child",
 		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },
+		Manifest:  contract.UsableManifest,
 	})
 	return subject, journal, func() {
 		client.Close()
@@ -548,7 +549,7 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	paths := api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(w.target.Dir, "run")}
 	daemon := exec.Command(binary, "solo", "--heartbeat", "40ms", "--lease-ttl", "500ms", "--lease-tick", "40ms")
 	daemon.Env = append([]string{
-		"HOME=" + w.target.Dir, "PATH=" + doubles.CanaryPath(w.t),
+		"HOME=" + w.target.Dir, "PATH=" + doubles.InstallFakeClaude(w.t, "no-session"),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir,
 		crashpoint.EnvPause + "=sweep/candidates-read=150ms",
 	}, sabotage...)

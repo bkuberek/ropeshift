@@ -154,3 +154,53 @@ func TestAPausedFleetHoldsWhatItCan(t *testing.T) {
 		t.Errorf("a flag left out lost its value: %+v", fleet)
 	}
 }
+
+// TestTheDoctorAndTheManifestAgree runs the doctor by hand and through the daemon, on a
+// sign-in the fixture states: only a kind is printed, and only a kind reaches the ledger.
+func TestTheDoctorAndTheManifestAgree(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	out := in.must("worker", "doctor", "--json")
+	var manifest ledger.Manifest
+	if err := json.Unmarshal([]byte(out), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Drivers) != 1 || manifest.Drivers[0].SignIn.Kind != ledger.SignInAPIKey || !manifest.Drivers[0].Present {
+		t.Fatalf("the doctor says %s", out)
+	}
+	if strings.Contains(out, "example.invalid") {
+		t.Errorf("the doctor printed an identity: %s", out)
+	}
+	if text := in.must("worker", "doctor"); !strings.Contains(text, "sign-in api_key") {
+		t.Errorf("the doctor says %q", text)
+	}
+	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
+	in.waitReady(d)
+	in.waitFor("the worker's session", func() bool {
+		workers := in.workers()
+		return len(workers) == 1 && len(workers[0].Manifest.Drivers) == 1
+	})
+	listed := in.workers()[0].Manifest
+	if listed.Drivers[0].SignIn != manifest.Drivers[0].SignIn || listed.Labels["os"] == "" || listed.Capacity.MaxLanes == 0 {
+		t.Errorf("the ledger holds %+v", listed)
+	}
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	var offered api.WorkOrderList
+	if err := json.Unmarshal([]byte(in.must("work", "list", "--worker", in.workers()[0].ID, "--json")), &offered); err != nil {
+		t.Fatal(err)
+	}
+	if len(offered.WorkOrders) != 1 || offered.WorkOrders[0].ID != id {
+		t.Errorf("offered %+v", offered)
+	}
+}
+
+func TestTheDoctorWithNoCLIExitsOne(t *testing.T) {
+	in := newInstall(t)
+	in.path = doubles.CanaryPathWithout(t)
+	code, stdout, _ := in.run("worker", "doctor")
+	if code != cli.ExitError || !strings.Contains(stdout, "absent") {
+		t.Errorf("exit %d: %s", code, stdout)
+	}
+}

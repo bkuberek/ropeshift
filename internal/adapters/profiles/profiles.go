@@ -54,24 +54,31 @@ func Resolve(layers ...string) (lanes.Profile, error) {
 	return profile, nil
 }
 
-// ResolveRepository folds a user's layer and a repository's. A repository is code from
-// somewhere else, so its layer can narrow what a lane may do and can never widen it. Any
-// file it names is the user's to trust.
+// ResolveRepository folds a user's layer and a repository's.
 func ResolveRepository(user, repository string) (lanes.Profile, error) {
+	return ResolveLayers(user, repository, "")
+}
+
+// ResolveLayers folds every layer over the built-in defaults, later over earlier. Only the
+// user's layer can widen what a lane may do. A repository is code from somewhere else, and a
+// lane's overrides can come from an orchestrator, so either can narrow it and neither can
+// raise the permission mode or change what this machine admits. Any file a repository
+// names is the user's to trust.
+func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	below, err := Resolve(user)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	profile, err := Resolve(user, repository)
+	profile, err := Resolve(user, repository, overrides)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	if profile.Admission != below.Admission {
-		return lanes.Profile{}, fmt.Errorf("%w: a repository cannot change what this machine admits", lanes.ErrBadProfile)
-	}
 	if lanes.RaisesPermission(below.Agent.PermissionMode, profile.Agent.PermissionMode) {
-		return lanes.Profile{}, fmt.Errorf("%w: a repository cannot raise the permission mode from %s to %s",
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot raise the permission mode from %s to %s",
 			lanes.ErrBadProfile, below.Agent.PermissionMode, profile.Agent.PermissionMode)
+	}
+	if profile.Admission != below.Admission {
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change what this machine admits", lanes.ErrBadProfile)
 	}
 	return profile, nil
 }
@@ -93,9 +100,9 @@ func readLayer(path string) (string, error) {
 	return string(raw), err
 }
 
-// Load resolves one repository's profile. A repository with no layer gets the defaults,
-// and a layer that cannot be read stops the lane.
-func (f Filesystem) Load(_ context.Context, repository string) (lanes.Profile, error) {
+// Load resolves one lane's profile. A repository with no layer gets the defaults, and a
+// layer that cannot be read stops the lane.
+func (f Filesystem) Load(_ context.Context, repository, overrides string) (lanes.Profile, error) {
 	user, err := readLayer(f.User)
 	if err != nil {
 		return lanes.Profile{}, err
@@ -104,7 +111,7 @@ func (f Filesystem) Load(_ context.Context, repository string) (lanes.Profile, e
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	return ResolveRepository(user, layer)
+	return ResolveLayers(user, layer, overrides)
 }
 
 var _ ports.ProfileSource = Filesystem{}

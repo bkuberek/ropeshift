@@ -273,3 +273,10 @@ func SeenEnv(t testing.TB, path, name string) string {
 	}
 	return ""
 }
+
+// CanaryPathWithout is a PATH with no agent CLI on it at all, not even the canary, for a
+// machine that has none.
+func CanaryPathWithout(t testing.TB) string {
+	t.Helper()
+	return t.TempDir()
+}

@@ -2,6 +2,9 @@
 
 package lanes
 
+// ReadsVendorStatus is true in a normal build. A real-session build reads no status.
+const ReadsVendorStatus = true
+
 // SessionOverride is empty in a normal build. The guard flags of a real-session
 // suite exist only under the realsession tag, so a release holds no way to change
 // what a session starts with.

@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -10,8 +11,11 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -245,4 +249,140 @@ func TestTheDailyCapChargesGenerations(t *testing.T) {
 	}
 	r.stopWorker()
 	r.subject.Wait()
+}
+
+func TestTheDefaultRunModeFollowsTheSignIn(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    string
+		profile string
+		want    string
+	}{
+		{"a subscription runs in a terminal", ports.SignInSubscription, "", ports.RunModeInteractive},
+		{"an API key runs headless", ports.SignInAPIKey, "", ports.RunModeHeadless},
+		{"a profile that says so wins", ports.SignInSubscription, "run_mode = \"headless\"\n", ports.RunModeHeadless},
+		{"a profile wins the other way", ports.SignInAPIKey, "run_mode = \"tmux\"\n", ports.RunModeInteractive},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newLaneRigOn(t, func(driver *fake.AgentDriver) { driver.SetSignIn(tt.kind) })
+			if tt.profile != "" {
+				r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", tt.profile)
+			}
+			r.dispatched()
+			r.runWith()
+			if got := r.driver.Specs()[0].RunMode; got != tt.want {
+				t.Errorf("run mode %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestALanesOwnLayerReachesItsSession(t *testing.T) {
+	r := newLaneRig(t)
+	id := "wo-2"
+	r.claimFor(id, r.subject.Auth().WorkerID)
+	if _, err := control.NewLeases(r.store).DispatchWith(t.Context(), scope, id, "lane-2", "[agent]\nmodel = \"from-lane\"\n", member); err != nil {
+		t.Fatal(err)
+	}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.1)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var models []string
+	for _, spec := range r.driver.Specs() {
+		models = append(models, spec.Lane+"="+spec.Model)
+	}
+	if !slices.Contains(models, "lane-2=from-lane") {
+		t.Errorf("models %v", models)
+	}
+}
+
+func TestWorkIsOfferedOnlyToAWorkerThatCanRunIt(t *testing.T) {
+	tests := []struct {
+		name  string
+		needs map[string]string
+		setup func(*fake.AgentDriver)
+		want  bool
+	}{
+		{name: "no needs", want: true},
+		{name: "the driver it has", needs: map[string]string{ledger.NeedDriver: fake.FakeDriverName}, want: true},
+		{name: "a driver it lacks", needs: map[string]string{ledger.NeedDriver: "codex"}},
+		{
+			name: "a CLI that is not there", needs: map[string]string{ledger.NeedDriver: fake.FakeDriverName},
+			setup: func(driver *fake.AgentDriver) { driver.SetAbsent() },
+		},
+		{name: "the sign-in it has", needs: map[string]string{ledger.NeedSignIn: ledger.SignInAPIKey}, want: true},
+		{name: "a sign-in it lacks", needs: map[string]string{ledger.NeedSignIn: ledger.SignInSubscription}},
+		{name: "a label it lacks", needs: map[string]string{"os": "plan9"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newLaneRigOn(t, func(driver *fake.AgentDriver) {
+				if tt.setup != nil {
+					tt.setup(driver)
+				}
+			})
+			ctx := t.Context()
+			_, err := control.NewWorkOrders(r.store).Record(ctx, scope, control.LedgerWork{
+				Order:    workorders.WorkOrder{ID: "needs", Kind: workorders.KindChange, Title: "T", Needs: tt.needs},
+				Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
+			}, member)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := control.NewReviews(r.store).Pass(ctx, scope, "needs", member); err != nil {
+				t.Fatal(err)
+			}
+			worker := r.subject.Auth().WorkerID
+			offered, err := r.plane.Offered(ctx, worker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			listed := slices.ContainsFunc(offered, func(row workorders.WorkOrder) bool { return row.ID == "needs" })
+			if listed != tt.want {
+				t.Errorf("offered %v, want %v", listed, tt.want)
+			}
+			_, err = control.NewLeases(r.store).Claim(ctx, scope, workorders.ClaimRequest{
+				WorkOrder: "needs", ClaimID: "claim-needs", Worker: worker, TTLMs: 60_000,
+			}, member)
+			if claimed := err == nil; claimed != tt.want {
+				t.Errorf("claim: %v, want claimed=%v", err, tt.want)
+			}
+			if !tt.want && !errors.Is(err, workorders.ErrIneligible) {
+				t.Errorf("a refused claim said %v", err)
+			}
+		})
+	}
+}
+
+func TestACapacityAdvertisedHoldsAtClaim(t *testing.T) {
+	base := newRig(t)
+	driver := fake.NewAgentDriver()
+	config := &worker.LaneRuntime{Driver: driver}
+	subject := worker.New(base.link, base.journal, base.clock, worker.Config{
+		Name: "test", Lanes: config, Manifest: ledger.Manifest{Capacity: ledger.Capacity{MaxLanes: 1}},
+		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
+	})
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	base.claimFor("one", subject.Auth().WorkerID)
+	ctx := t.Context()
+	_, err := control.NewWorkOrders(base.store).Record(ctx, scope, control.LedgerWork{
+		Order:    workorders.WorkOrder{ID: "two", Kind: workorders.KindChange, Title: "T"},
+		Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
+	}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.NewReviews(base.store).Pass(ctx, scope, "two", member); err != nil {
+		t.Fatal(err)
+	}
+	_, err = control.NewLeases(base.store).Claim(ctx, scope, workorders.ClaimRequest{
+		WorkOrder: "two", ClaimID: "claim-two", Worker: subject.Auth().WorkerID, TTLMs: 60_000,
+	}, member)
+	if !errors.Is(err, workorders.ErrIneligible) {
+		t.Errorf("a full worker took a claim: %v", err)
+	}
 }

@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+// ReadsVendorStatus is false here, so a build that runs real sessions never runs a sign-in
+// command in any form, whatever a test does. Other sessions share this login.
+const ReadsVendorStatus = false
+
 // refusedArguments never reach a session, whatever a suite asks for.
 var refusedArguments = []string{
 	"--bare", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions",

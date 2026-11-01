@@ -201,6 +201,16 @@ func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request) {
 func (h *handler) listWorkOrders(w http.ResponseWriter, r *http.Request) {
 	state := workorders.State(r.URL.Query().Get("state"))
 	list := api.WorkOrderList{WorkOrders: []workorders.WorkOrder{}}
+	if worker := r.URL.Query().Get("offered_to"); worker != "" {
+		offered, err := h.workers.Offered(r.Context(), worker)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		list.WorkOrders = offered
+		reply(w, http.StatusOK, list)
+		return
+	}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		rows, err := tx.WorkOrders().List()
 		if err != nil {
@@ -320,7 +330,7 @@ func (h *handler) startLane(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "a lane needs a lane_id")
 		return
 	}
-	lease, err := h.leases.Dispatch(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, localMember)
+	lease, err := h.leases.DispatchWith(r.Context(), h.Scope, r.PathValue("id"), in.LaneID, in.Overrides, localMember)
 	if err != nil {
 		fail(w, err)
 		return

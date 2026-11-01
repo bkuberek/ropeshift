@@ -9,13 +9,13 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | Command | Does |
 |---------|------|
 | `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review` |
-| `ropeshift work list [--state S]` | Lists work orders |
+| `ropeshift work list [--state S] [--worker W]` | Lists work orders. With `--worker`, it lists only ready work that worker's manifest can run |
 | `ropeshift work show <id>` | Shows one work order |
 | `ropeshift work review <id>` | Records a passed review, and the definition of ready decides the move to `ready` |
 | `ropeshift work claim <id> --worker W [--claim-id C]` | Claims a work order for a worker. A retry with the same claim ID returns the grant |
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |
-| `ropeshift lane start <work-order> [--lane L]` | Asks the worker holding the claim to run a lane. It returns when the ledger holds the request, and a retry with the same lane ID is the same request |
+| `ropeshift lane start <work-order> [--lane L] [--profile F]` | Asks the worker holding the claim to run a lane. It returns when the ledger holds the request, and a retry with the same lane ID is the same request. `--profile` names a TOML file that is this lane's own profile layer, over the built-in, user, and repository layers. It cannot raise the permission mode or change what the machine admits |
 | `ropeshift source list` | Lists sources, their health, and the files they cannot read |
 | `ropeshift lane list` | Lists lanes. Each line states the lane's state, liveness, reachability, conditions, and whether the value is `observed` or `last_reported` |
 | `ropeshift lane show <lane>` | Shows one lane the same way. `--json` adds `as_of` and `reported_by_epoch` |
@@ -24,6 +24,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift fleet show` | Shows the fleet's mode and the caps a claim is held to |
 | `ropeshift fleet run`, `pause`, `drain` | Sets the mode for the whole fleet. `pause` takes no new claims and starts no new lanes, and a running lane that crashes still restarts. `drain` also stops new generations. Each lane already running goes on |
 | `ropeshift fleet caps [--wip N] [--per-repository N] [--per-worker N]` | Sets what a claim is held to. A flag left out keeps its value, and 0 means no limit. A claim already granted stays |
+| `ropeshift worker doctor` | Reports each agent CLI on this machine: whether it is present, its version, whether that version is qualified, and the kind of its sign-in. It uses the vendor's status command, reads no credential, and needs no daemon. It exits 1 when no CLI is usable |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 

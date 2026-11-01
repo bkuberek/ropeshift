@@ -50,7 +50,7 @@ func (w *Worker) limits(ctx context.Context, lease ledger.DesiredLease) lanes.Ad
 	if err != nil {
 		return lanes.Admission{}
 	}
-	profile, err := rt.Provisioner.Profiles.Load(ctx, repository)
+	profile, err := rt.Provisioner.Profiles.Load(ctx, repository, lease.Overrides)
 	if err != nil {
 		return lanes.Admission{}
 	}

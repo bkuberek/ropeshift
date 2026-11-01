@@ -283,12 +283,12 @@ type claimTx struct {
 
 var (
 	stmtFindClaim = define("claim.find",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides
   FROM claims
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtListClaims = define("claim.list",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides
   FROM claims
  WHERE workspace_id = :workspace_id
  ORDER BY work_order_id, fence`)
@@ -302,7 +302,7 @@ VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at)`)
  WHERE workspace_id = :workspace_id AND id = :id AND ended_at IS NULL`)
 
 	stmtDispatchClaim = define("claim.dispatch",
-		`UPDATE claims SET lane_id = :lane
+		`UPDATE claims SET lane_id = :lane, lane_overrides = :overrides
  WHERE workspace_id = :workspace_id AND id = :id AND ended_at IS NULL`)
 )
 
@@ -310,7 +310,7 @@ func scanClaim(row scanner) (workorders.Claim, error) {
 	var c workorders.Claim
 	var endedAt sql.NullInt64
 	var reason, lane sql.NullString
-	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason, &lane); err != nil {
+	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason, &lane, &c.Overrides); err != nil {
 		return workorders.Claim{}, err
 	}
 	c.EndedAt, c.EndReason, c.Lane = endedAt.Int64, reason.String, lane.String
@@ -354,8 +354,8 @@ func (t claimTx) Record(c workorders.Claim) error {
 	return err
 }
 
-func (t claimTx) Dispatch(id, lane string) error {
-	_, err := t.exec(stmtDispatchClaim, params{"workspace_id": string(t.scope), "id": id, "lane": lane})
+func (t claimTx) Dispatch(id, lane, overrides string) error {
+	_, err := t.exec(stmtDispatchClaim, params{"workspace_id": string(t.scope), "id": id, "lane": lane, "overrides": overrides})
 	return err
 }
 

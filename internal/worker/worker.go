@@ -30,8 +30,8 @@ type Config struct {
 	JoinToken func(context.Context) (string, error)
 	// Protocol is the version this worker speaks. Zero means this build's.
 	Protocol int
-	// Capabilities is the manifest it advertises.
-	Capabilities map[string]string
+	// Manifest is what it advertises beyond its drivers: its owner, capacity, and labels.
+	Manifest ledger.Manifest
 	// BatchSize bounds one upload.
 	BatchSize int
 	// Spool is the file hooks append to when the worker is down.
@@ -54,6 +54,8 @@ type Worker struct {
 	identity   ledger.WorkerIdentity
 	session    ledger.Session
 	desiredRev int64
+	// advertised is the manifest this epoch opened with.
+	advertised ledger.Manifest
 	deadlines  map[string]time.Time
 	running    map[string]*laneRun
 	published  map[string]ledger.LaneStatus
@@ -112,10 +114,11 @@ func (w *Worker) Start(ctx context.Context) error {
 			return err
 		}
 	}
+	manifest := w.manifest(ctx)
 	session, err := w.link.OpenSession(ctx, ledger.SessionRequest{
-		Auth:         ledger.WorkerAuth{WorkerID: identity.WorkerID, Credential: identity.Credential},
-		Protocol:     w.config.Protocol,
-		Capabilities: w.config.Capabilities,
+		Auth:     ledger.WorkerAuth{WorkerID: identity.WorkerID, Credential: identity.Credential},
+		Protocol: w.config.Protocol,
+		Manifest: manifest,
 	})
 	if err != nil {
 		return err
@@ -133,8 +136,32 @@ func (w *Worker) Start(ctx context.Context) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.identity, w.session, w.desiredRev = identity, session, cached.Rev
+	w.identity, w.session, w.desiredRev, w.advertised = identity, session, cached.Rev, manifest
 	return nil
+}
+
+// manifest asks the driver what this machine can run. A doctor that fails advertises no
+// driver and stops nothing, because a worker must still hold what it holds.
+func (w *Worker) manifest(ctx context.Context) ledger.Manifest {
+	if w.config.Lanes == nil {
+		return w.config.Manifest
+	}
+	manifest, err := BuildManifest(ctx, w.config.Lanes.Driver, w.config.Manifest)
+	if err != nil {
+		w.config.Report(fmt.Errorf("the doctor: %w", err))
+		return w.config.Manifest
+	}
+	return manifest
+}
+
+// signInKind says how the driver this epoch advertised is signed in.
+func (w *Worker) signInKind() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.advertised.Drivers) == 0 {
+		return ""
+	}
+	return w.advertised.Drivers[0].SignIn.Kind
 }
 
 func (w *Worker) register(ctx context.Context, identity *ledger.WorkerIdentity) error {
