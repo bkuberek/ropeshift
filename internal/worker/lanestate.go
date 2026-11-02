@@ -283,10 +283,15 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		r.signal(ctx, lanes.OnActivity)
 	case ports.EventUsage:
 		r.progressed()
+		_, waiting, _ := s.compactionAsked()
 		baseline := s.noteContext(event.ContextTokens)
 		r.noteModel(lanes.Reachable)
 		r.signal(ctx, lanes.OnActivity)
 		r.recordBaseline(ctx, baseline)
+		// A figure can come after the turn it belongs to, and no save follows that.
+		if _, pending, _ := s.compactionAsked(); waiting && !pending {
+			r.saveProgress(ctx, r.cursor)
+		}
 		r.evaluateContext(ctx)
 	case ports.EventTurnEnded:
 		r.progressed()

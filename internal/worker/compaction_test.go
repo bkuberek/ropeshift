@@ -149,6 +149,29 @@ func TestATurnsEndClosesACompactionWithNoEnd(t *testing.T) {
 	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
 }
 
+// A figure can come after the turn it belongs to, and nothing saves a turn that has ended. A verdict
+// has to be kept where it lands, or a restart reads a compaction still waiting on a call that came.
+func TestAVerdictThatComesAfterItsTurnIsKept(t *testing.T) {
+	r := contextRig(t,
+		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
+		aCompactionsEnd(),
+		[]fake.DriverStep{completed(0.03), tokens(40), {Hold: true}},
+	)
+	deadline := time.Now().Add(20 * time.Second)
+	var progress lanes.Progress
+	for time.Now().Before(deadline) {
+		record, err := r.journal.Lane(t.Context(), "lane-1")
+		if err == nil {
+			progress = record.Progress
+		}
+		if progress.Compactions == 1 && !progress.CompactPending && progress.ContextTokens == 40 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Errorf("the journal holds %+v", progress)
+}
+
 // aCompactionsEnd is a compaction's boundary and the end of the turn it ran as, the way a pane's
 // driver reads both from its last hook.
 func aCompactionsEnd() []fake.DriverStep {
