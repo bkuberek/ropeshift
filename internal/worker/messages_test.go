@@ -256,11 +256,7 @@ func TestASpooledHookAdmitsAMessage(t *testing.T) {
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
-	raw, err := json.Marshal(lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "UserPromptSubmit", Subject: "s", Message: m.ID, AtMs: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.spoolLine(t, raw)
+	r.spoolLine(t, sealedLine(t, r.token(t), lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "UserPromptSubmit", Subject: "s", Message: m.ID, AtMs: 1}))
 	if err := r.subject.DrainSpool(t.Context()); err != nil {
 		t.Fatal(err)
 	}

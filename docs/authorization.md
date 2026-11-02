@@ -13,6 +13,8 @@ Ropeshift's aim is that an agent cannot grant itself authority. This page says h
 
 A lane or orchestrator token works only on the worker's local socket. It ends when its process ends. A `clear` keeps the process, so the token goes on, and it acts as the lane's current generation.
 
+A hook that cannot reach the worker appends to a spool, and that is a file anything this user runs can write. Taken at its word, a line could end another lane's request or give it a generation, so a line carries a seal, keyed from the token of the lane it names. The line holds neither the token nor its digest, so reading the spool gives a lane nothing to speak with. A line with no seal, a seal from any other token, a line changed after its seal, and a line whose token has ended all count for nothing, and the worker reports how many it dropped. A lane can copy a sealed line and append it again, which says only what that session already said, and a repeat merges by meaning.
+
 ## A request binds to what it asks
 
 When a call needs a person, its hook reports the tool and its input to the worker, and the worker works out the rest. The digest covers the tool's name, the canonical form of its input, and the path the call lands on, and what a reviewer reads comes from those same facts. A lane's own words reach neither.
@@ -75,9 +77,8 @@ A lane with a shell can, as that user:
 - Read another lane's token or a member's session from a process's environment, where the platform shows it.
 - Read the worker's credential, and act as that worker's orchestrator for whatever a member delegated.
 - Connect to any socket the user can reach, which includes the private terminal server, so a lane in a pane can press the key that answers its own prompt.
-- Read and write the ledger and journal files directly. A database check stops a statement that breaks it, and it does not stop one that names a member as the decider. The event log would then disagree with the row, which a replay shows.
+- Read and write the ledger and journal files directly. A database check stops a statement that breaks it, and it does not stop one that names a member as the decider. The event log would then disagree with the row, which a replay shows. The journal holds each token's digest, which is what a spool line's seal is keyed from.
 - Read the stored passphrase hash, and guess at it offline.
 - Change the generated settings and hook commands, past the guardrails that deny that write. A hook is a guardrail and not a sandbox.
-- Write to the spool, which carries no token, so a line in it can say anything about any lane. A spooled hook can close a request as `answered`, and it cannot allow a call.
 
 Strong separation needs a boundary an agent cannot cross: another operating system user, a container, a virtual machine, or a worker on another machine. Run a lane on untrusted work only behind one of these.

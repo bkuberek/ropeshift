@@ -27,6 +27,8 @@ import (
 type laneWorker struct {
 	journal ports.Journal
 	subject *worker.Worker
+	// reports holds what the worker said it could not do, in the order it said it.
+	reports chan error
 }
 
 func newLaneWorker(t *testing.T, env hookEnv) *laneWorker {
@@ -48,14 +50,20 @@ func newLaneWorker(t *testing.T, env hookEnv) *laneWorker {
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject := worker.New(&fake.WorkerLink{}, journal, clock.System{}, worker.Config{Spool: env.spool})
+	reports := make(chan error, 16)
+	subject := worker.New(&fake.WorkerLink{}, journal, clock.System{}, worker.Config{Spool: env.spool, Report: func(err error) {
+		select {
+		case reports <- err:
+		default:
+		}
+	}})
 	listener, err := net.Listen("unix", env.socket)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 	go func() { _ = subject.ServeLanes(ctx, listener) }()
-	return &laneWorker{journal: journal, subject: subject}
+	return &laneWorker{journal: journal, subject: subject, reports: reports}
 }
 
 func (w *laneWorker) hooks(t *testing.T) []lanes.HookRecord {
@@ -127,7 +135,11 @@ func TestSpoolDrainsAndEmpties(t *testing.T) {
 	runHook(t, down, "Stop", `{"session_id":"s1"}`)
 	runHook(t, down, "PostToolUse", toolPayload)
 	leftover := env.spool + worker.DrainingSuffix
-	if err := os.WriteFile(leftover, []byte(`{"event":"Notification","lane":"lane-1","generation":3,"subject":"s1","at_ms":1}`+"\n"+"not a line\n"), 0o600); err != nil {
+	line, err := lanes.SealHook(env.token, lanes.HookEvent{Event: "Notification", Lane: "lane-1", Generation: 3, Subject: "s1", AtMs: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(leftover, append(line, []byte("\nnot a line\n")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.subject.DrainSpool(t.Context()); err != nil {
@@ -140,6 +152,32 @@ func TestSpoolDrainsAndEmpties(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("%s remains: %v", path, err)
 		}
+	}
+	select {
+	case err := <-w.reports:
+		if !strings.Contains(err.Error(), "1 lines") {
+			t.Errorf("the worker said %v", err)
+		}
+	default:
+		t.Error("a line that proves nothing went unreported")
+	}
+}
+
+// A process that can reach the spool and holds no token of the lane writes a line that names it, and
+// the worker takes nothing from it, on a real hook's real file.
+func TestAForgedLineInARealSpoolIsDropped(t *testing.T) {
+	env := newHookEnv(t)
+	w := newLaneWorker(t, env)
+	down := hookEnv{socket: env.socket + ".absent", spool: env.spool, token: "not-the-lanes-token"}
+	runHook(t, down, "PostToolUse", toolPayload)
+	if err := w.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if records := w.hooks(t); len(records) != 0 {
+		t.Errorf("records %+v", records)
+	}
+	if _, err := os.Stat(env.spool); !os.IsNotExist(err) {
+		t.Errorf("the spool remains: %v", err)
 	}
 }
 

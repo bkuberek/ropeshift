@@ -169,7 +169,7 @@ func awaitDecision(cfg config, event lanes.HookEvent, input []byte, stdout io.Wr
 		time.Sleep(approvalPoll)
 	}
 	if line.Hook != nil {
-		spool(cfg.spool, event)
+		spool(cfg, event)
 	}
 	answerPermission(stdout, lanes.ApprovalDeny, reason)
 }
@@ -332,21 +332,22 @@ func forward(cfg config, event lanes.HookEvent) int64 {
 			return reply.Generation
 		}
 	}
-	spool(cfg.spool, event)
+	spool(cfg, event)
 	return 0
 }
 
-// spool appends one line with one write, so parallel hooks cannot interleave. The
-// line holds no token: only the session's environment does.
-func spool(path string, event lanes.HookEvent) {
-	if path == "" {
+// spool appends one line with one write, so parallel hooks cannot interleave. The line holds no
+// token, because only the session's environment does, and it carries a seal from that token, because
+// a worker takes nothing from a file on its word. A hook with no token has nothing to seal with.
+func spool(cfg config, event lanes.HookEvent) {
+	if cfg.spool == "" {
 		return
 	}
-	line, err := json.Marshal(event)
+	line, err := lanes.SealHook(cfg.token, event)
 	if err != nil {
 		return
 	}
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(cfg.spool, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}

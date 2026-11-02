@@ -198,10 +198,7 @@ func TestASpooledHookAfterAClearReachesTheRun(t *testing.T) {
 	r, _ := aLaneAtWork(t)
 	r.cleared(t, clearedSession)
 	path := filepath.Join(r.dir, "spool")
-	line, err := json.Marshal(lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: clearedSession, AtMs: 3})
-	if err != nil {
-		t.Fatal(err)
-	}
+	line := sealedLine(t, r.token(t), lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: clearedSession, AtMs: 3})
 	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}

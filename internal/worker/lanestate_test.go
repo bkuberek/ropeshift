@@ -375,10 +375,7 @@ func TestASpooledHookReachesALiveRun(t *testing.T) {
 	r.finishLater(g)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.atGate(g)
-	line, err := json.Marshal(lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: "s", AtMs: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	line := sealedLine(t, r.token(t), lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: "s", AtMs: 1})
 	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}

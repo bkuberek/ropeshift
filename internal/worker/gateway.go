@@ -254,7 +254,9 @@ func (w *Worker) takeReport(ctx context.Context, lane lanes.Record, report worko
 // and a hook that missed its ack under load spools with the worker alive, which a pane
 // with no stream would otherwise never tell again, so a live worker drains on every tick.
 // A crash during a drain leaves the file aside, and the next start finishes it. Delivery
-// is at-least-once, and a repeat merges by meaning, so reading a line twice is safe.
+// is at-least-once, and a repeat merges by meaning, so reading a line twice is safe. A
+// spool is a file anything this user runs can write, so a line counts only if its seal
+// comes from the token of the lane it names, as a call on the socket does.
 func (w *Worker) DrainSpool(ctx context.Context) error {
 	path := w.config.Spool
 	if path == "" {
@@ -281,10 +283,19 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
+	dropped := 0
+	digestOf := func(lane string) (string, error) { return w.tokenDigestOf(ctx, lane) }
 	for line := range bytes.SplitSeq(raw, []byte("\n")) {
-		var event lanes.HookEvent
-		if json.Unmarshal(line, &event) != nil || event.Event == "" {
+		if len(line) == 0 {
 			continue
+		}
+		event, err := lanes.OpenHook(line, digestOf)
+		if errors.Is(err, lanes.ErrSpoolLine) {
+			dropped++
+			continue
+		}
+		if err != nil {
+			return err
 		}
 		event = w.ofItsGeneration(ctx, event)
 		if err := w.journal.MergeHook(ctx, event); err != nil {
@@ -293,12 +304,25 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
 	}
+	if dropped != 0 {
+		w.config.Report(fmt.Errorf("the spool held %d lines that prove no lane, and they count for nothing", dropped))
+	}
 	return os.Remove(path)
 }
 
+// tokenDigestOf reads what a line's seal must come from. A lane this journal does not hold has
+// none, and neither does one whose process ended, because its token ended with it (ADR-0016).
+func (w *Worker) tokenDigestOf(ctx context.Context, lane string) (string, error) {
+	record, err := w.journal.Lane(ctx, lane)
+	if errors.Is(err, ports.ErrNotFound) {
+		return "", nil
+	}
+	return record.TokenDigest, err
+}
+
 // ofItsGeneration reads a spooled line against the process it came from. Its tags are the ones that
-// process started with, and a line carries no token that could correct them after a clear. A
-// generation this journal does not hold stays as it reads.
+// process started with, and a seal proves the lane, which is all a token could say of a generation
+// after a clear. A generation this journal does not hold stays as it reads.
 func (w *Worker) ofItsGeneration(ctx context.Context, event lanes.HookEvent) lanes.HookEvent {
 	record, err := w.journal.Lane(ctx, event.Lane)
 	if err == nil && event.Generation == record.ProcessGeneration() {

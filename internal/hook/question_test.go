@@ -15,6 +15,8 @@ import (
 const askUserInput = `{"session_id":"s1","tool_name":"AskUserQuestion","tool_use_id":"toolu_1","tool_input":{"questions":[
   {"question":"Which retry budget?","options":[{"label":"Three"},{"label":"Five"}]}]}}`
 
+const questionToken = "a-lanes-token"
+
 // questionHook runs one PreToolUse hook on a compiled policy, with the worker down, and
 // returns what it printed and what it spooled.
 func questionHook(t *testing.T, policy lanes.DenyPolicy, input string) (string, []lanes.HookEvent) {
@@ -29,7 +31,7 @@ func questionHook(t *testing.T, policy lanes.DenyPolicy, input string) (string, 
 		t.Fatal(err)
 	}
 	spool := filepath.Join(dir, "spool")
-	env := map[string]string{api.EnvPolicy: path, api.EnvSpool: spool}
+	env := map[string]string{api.EnvPolicy: path, api.EnvSpool: spool, api.EnvLaneToken: questionToken, api.EnvLaneID: "lane-1", api.EnvGeneration: "1"}
 	var out bytes.Buffer
 	if code := Main([]string{eventPreToolUse}, strings.NewReader(input), &out, func(name string) string { return env[name] }); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -39,9 +41,10 @@ func questionHook(t *testing.T, policy lanes.DenyPolicy, input string) (string, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	digestOf := func(string) (string, error) { return lanes.TokenDigest(questionToken), nil }
 	for line := range bytes.SplitSeq(bytes.TrimSpace(spooled), []byte("\n")) {
-		var event lanes.HookEvent
-		if err := json.Unmarshal(line, &event); err != nil {
+		event, err := lanes.OpenHook(line, digestOf)
+		if err != nil {
 			t.Fatal(err)
 		}
 		events = append(events, event)

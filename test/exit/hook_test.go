@@ -28,6 +28,9 @@ type hookRun struct {
 	elapsed time.Duration
 }
 
+// hookToken is the token a hook here runs with.
+const hookToken = "a-token"
+
 // hookEnv is the environment a lane's process gives its hooks.
 type hookEnv struct {
 	socket, spool, token, policy string
@@ -65,7 +68,7 @@ func runHook(t *testing.T, env hookEnv, event, input string) hookRun {
 func newHookEnv(t *testing.T) hookEnv {
 	t.Helper()
 	dir := apitest.ShortDir(t)
-	return hookEnv{socket: filepath.Join(dir, "w.sock"), spool: filepath.Join(dir, "spool.jsonl"), token: "a-token"}
+	return hookEnv{socket: filepath.Join(dir, "w.sock"), spool: filepath.Join(dir, "spool.jsonl"), token: hookToken}
 }
 
 func spoolLines(t *testing.T, path string) []lanes.HookEvent {
@@ -78,9 +81,10 @@ func spoolLines(t *testing.T, path string) []lanes.HookEvent {
 		t.Fatal(err)
 	}
 	var out []lanes.HookEvent
+	digestOf := func(string) (string, error) { return lanes.TokenDigest(hookToken), nil }
 	for line := range bytes.SplitSeq(bytes.TrimSpace(raw), []byte("\n")) {
-		var event lanes.HookEvent
-		if err := json.Unmarshal(line, &event); err != nil {
+		event, err := lanes.OpenHook(line, digestOf)
+		if err != nil {
 			t.Fatalf("a corrupt spool line %q: %v", line, err)
 		}
 		out = append(out, event)
@@ -106,7 +110,7 @@ func TestHookExitsZeroWithTheWorkerDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), env.token) || strings.Contains(string(raw), "must not forward") {
+	if strings.Contains(string(raw), env.token) || strings.Contains(string(raw), lanes.TokenDigest(env.token)) || strings.Contains(string(raw), "must not forward") {
 		t.Errorf("the spool holds a secret or tool input: %s", raw)
 	}
 }

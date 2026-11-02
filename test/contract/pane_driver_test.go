@@ -114,9 +114,9 @@ func (r *paneRig) serveHooks(socket, spool string) {
 			if err != nil {
 				continue
 			}
+			digestOf := func(string) (string, error) { return lanes.TokenDigest(paneTestToken), nil }
 			for line := range strings.SplitSeq(string(raw), "\n") {
-				var event lanes.HookEvent
-				if json.Unmarshal([]byte(line), &event) == nil && event.Event != "" {
+				if event, err := lanes.OpenHook([]byte(line), digestOf); err == nil {
 					take(event)
 				}
 			}
