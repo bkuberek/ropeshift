@@ -185,7 +185,7 @@ func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 // what it held.
 func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 	in := newInstall(t)
-	_, repo, d := in.runningLane("lane-edits-a-file", "[lifecycle]\napproval_wait = \"60s\"\nhandoff_timeout = \"2s\"\nmax_restarts = 0\n", "docs/notes.md")
+	id, repo, d := in.runningLane("lane-edits-a-file", "[lifecycle]\napproval_wait = \"60s\"\nhandoff_timeout = \"2s\"\nmax_restarts = 0\n", "docs/notes.md")
 	defer d.kill()
 	a := in.awaitRequest(authority.ApprovalPending)
 	if a.Path != "docs/notes.md" {
@@ -219,6 +219,7 @@ func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 	if kept, err := os.ReadFile(secret); err != nil || string(kept) != "kept" {
 		t.Errorf("the file behind the link reads %q: %v", kept, err)
 	}
+	in.waitFor("the lane's outcome, so its session ends with it", func() bool { return in.show(id).State == workorders.Acceptance })
 }
 
 // TestExitE7DigestVoid holds a decision to what its reviewer saw, across a park and a resume: a lane
