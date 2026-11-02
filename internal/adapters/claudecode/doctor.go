@@ -28,7 +28,7 @@ func (d *Driver) signIn(ctx context.Context) (kind, status string) {
 	if !lanes.ReadsVendorStatus {
 		return "", lanes.SignInUnknown
 	}
-	out, err := d.vendorOutput(ctx, "auth", "status")
+	out, err := d.vendorOutput(ctx, []string{"auth", "status"})
 	if err != nil {
 		return "", lanes.SignInUnknown
 	}
@@ -47,13 +47,13 @@ func (d *Driver) ReadUsage(ctx context.Context, spec ports.SessionSpec) (string,
 	if spec.RunMode == ports.RunModeInteractive || !lanes.ReadsVendorStatus {
 		return "", ports.ErrUnsupported
 	}
-	out, err := d.vendorOutput(ctx, "-p", usageCommand)
+	out, err := d.vendorOutput(ctx, []string{"-p", usageCommand})
 	return string(out), err
 }
 
 // vendorOutput runs one bounded vendor command under the clean environment, and keeps a bounded
 // part of what it printed. A status command can exit 1 with the answer on stdout.
-func (d *Driver) vendorOutput(ctx context.Context, args ...string) ([]byte, error) {
+func (d *Driver) vendorOutput(ctx context.Context, args []string) ([]byte, error) {
 	env := d.versionEnv()
 	binary, err := findBinary(env)
 	if err != nil {

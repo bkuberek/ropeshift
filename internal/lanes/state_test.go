@@ -252,6 +252,7 @@ func TestModelReachability(t *testing.T) {
 		{"a turn in progress with fresh success", lanes.Working, fresh(lanes.Reachable), lanes.Reachable},
 		{"a retry", lanes.Working, fresh(lanes.Impaired), lanes.Impaired},
 		{"a sign-in failure", lanes.Working, fresh(lanes.Unreachable), lanes.Unreachable},
+		{"a lane a sign-in failure parks still says why", lanes.Parking, fresh(lanes.Unreachable), lanes.Unreachable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -302,7 +302,7 @@ func ReadReach(state ActualState, evidence ReachEvidence, window time.Duration) 
 		return ReachUnknown
 	}
 	switch state {
-	case Working, Compacting, NeedsDecision, HandingOff, Briefing:
+	case Working, Compacting, NeedsDecision, HandingOff, Briefing, Parking:
 		return evidence.Reach
 	}
 	return ReachUnknown
