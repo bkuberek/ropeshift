@@ -4,6 +4,9 @@ package lanes
 // starts every lane as a writer until planning and review lanes arrive.
 const RoleWriter = "writer"
 
+// RoleOrchestrator names an orchestrator's thresholds.
+const RoleOrchestrator = "orchestrator"
+
 // ContextPolicy is what one role's lane is held to (FR-LANE-8). The thresholds are absolute,
 // because a fraction of a window would mean five times as much on one model as on another.
 type ContextPolicy struct {

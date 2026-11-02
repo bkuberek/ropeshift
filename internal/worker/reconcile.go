@@ -131,6 +131,9 @@ func (w *Worker) desired(ctx context.Context) (ledger.DesiredState, error) {
 	if errors.Is(err, ports.ErrNotFound) {
 		return ledger.DesiredState{}, nil
 	}
+	if err == nil && state.Orchestrator != nil {
+		state.Leases = append(state.Leases, orchestratorLease(*state.Orchestrator))
+	}
 	return state, err
 }
 
@@ -310,6 +313,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.tendSignIn(ctx)
 	w.deliverMessages(ctx)
 	w.parkOnPolicy(ctx)
+	w.tendOrchestrator(ctx)
 	return actions, nil
 }
 
@@ -317,7 +321,7 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 	switch action.Kind {
 	case lanes.ActionStart:
 		lease := seen.leases[action.Lane]
-		if reason := w.admission(ctx, lease, false); reason != "" {
+		if reason := w.admission(ctx, lease, false); lease.WorkOrder != "" && reason != "" {
 			return w.hold(ctx, lease, reason)
 		}
 		w.startRun(ctx, newRun(w, lease), (*laneRun).begin)

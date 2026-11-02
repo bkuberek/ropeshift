@@ -46,6 +46,9 @@ const (
 	ActionTakeQuestion  Action = "question.take"
 	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
 	ActionDecideApproval Action = "approval.decide"
+	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the
+	// first passphrase needs no session, which is safe only while no agent runs unasked.
+	ActionRunOrchestrator Action = "orchestrator.run"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -55,7 +58,7 @@ func Actions() []Action {
 		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
-		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval,
+		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
 	}
 }
 

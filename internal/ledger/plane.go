@@ -279,6 +279,8 @@ type DesiredState struct {
 	// Woken lists the woken lanes offered to this worker, which claims them, because a wake
 	// must bring a lane back with nobody there to dispatch it.
 	Woken []DesiredWoken `json:"woken,omitempty"`
+	// Orchestrator is the session this worker should run, which only a member can ask for.
+	Orchestrator *DesiredOrchestrator `json:"orchestrator,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.

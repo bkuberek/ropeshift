@@ -471,12 +471,8 @@ func (w *Workers) LaneContext(ctx context.Context, request ledger.LaneContextReq
 		if err := w.checkSession(tx, request.Auth, request.Epoch); err != nil {
 			return err
 		}
-		order, err := tx.WorkOrders().Get(request.WorkOrder)
-		if err != nil {
+		if err := readsAsHolder(tx, request); err != nil {
 			return err
-		}
-		if order.LeaseWorker != request.Auth.WorkerID || order.Fence != request.Fence {
-			return &workorders.FencedError{Current: order.Fence, State: order.State}
 		}
 		sources, err := readRecords(tx).reach(request)
 		if err != nil {
@@ -493,6 +489,26 @@ func (w *Workers) LaneContext(ctx context.Context, request ledger.LaneContextReq
 		return ledger.LaneContext{}, err
 	}
 	return found, nil
+}
+
+// readsAsHolder holds a read to the session it speaks for: a lane that this worker holds at this
+// fence, or this worker's own orchestrator, which has no work order to hold.
+func readsAsHolder(tx ports.ReadTx, request ledger.LaneContextRequest) error {
+	if request.WorkOrder == "" {
+		row, err := tx.Workers().Orchestrator(request.Auth.WorkerID)
+		if errors.Is(err, ports.ErrNotFound) || (err == nil && !row.Belongs(request.Lane)) {
+			return fmt.Errorf("%w: %s is not this worker's orchestrator", workorders.ErrInvalid, request.Lane)
+		}
+		return err
+	}
+	order, err := tx.WorkOrders().Get(request.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if order.LeaseWorker != request.Auth.WorkerID || order.Fence != request.Fence {
+		return &workorders.FencedError{Current: order.Fence, State: order.State}
+	}
+	return nil
 }
 
 // defaultSearch is how many records one search reads when a lane names no limit.

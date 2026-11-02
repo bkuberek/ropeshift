@@ -156,3 +156,11 @@ func (l *WorkerLink) DecideApproval(ctx context.Context, decision authority.Work
 	}
 	return l.Plane.DecideApproval(ctx, decision)
 }
+
+// WakeDigest calls the plane, unless it is away.
+func (l *WorkerLink) WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error) {
+	if l.FailLaneFacts.Load() {
+		return ledger.WakeDigest{}, errPlaneAway
+	}
+	return l.Plane.WakeDigest(ctx, request)
+}

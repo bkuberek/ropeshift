@@ -33,9 +33,15 @@ func (w *Worker) runningLanes(ctx context.Context) (int64, error) {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	count := int64(len(w.running))
+	// An orchestrator holds no lane's place, or it could keep the work it claims from starting.
+	var count int64
+	for _, run := range w.running {
+		if !run.orchestrating() {
+			count++
+		}
+	}
 	for _, record := range records {
-		if _, held := w.running[record.ID]; !held && record.State == lanes.StateRunning {
+		if _, held := w.running[record.ID]; !held && record.State == lanes.StateRunning && record.Owner != lanes.OwnerOrchestrator {
 			count++
 		}
 	}

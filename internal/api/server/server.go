@@ -89,6 +89,7 @@ func New(config Config) http.Handler {
 	h.messageRoutes(mux)
 	h.sessionRoutes(mux)
 	h.approvalRoutes(mux)
+	h.orchestratorRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))

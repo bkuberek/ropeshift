@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"ropeshift.dev/ropeshift/internal/ledger"
 )
 
 // HandoffSchema names the contract a handoff follows (FR-LANE-9).
@@ -127,7 +129,7 @@ func (h Handoff) validate() error {
 		return fmt.Errorf("%w: generation %d", ErrBadHandoff, h.Generation)
 	case h.Reason == "":
 		return fmt.Errorf("%w: no reason", ErrBadHandoff)
-	case h.Deterministic.WorkOrder == "":
+	case h.Deterministic.WorkOrder == "" && !ledger.IsOrchestratorLane(h.Lane):
 		return fmt.Errorf("%w: no work order", ErrBadHandoff)
 	}
 	if h.Narrative != nil {

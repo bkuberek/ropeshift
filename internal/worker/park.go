@@ -65,7 +65,7 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	r.flightLock.Lock()
 	defer r.flightLock.Unlock()
 	state := r.state.current()
-	if r.flight != nil || r.fenced.Load() || !parksFrom(state, request) {
+	if r.orchestrating() || r.flight != nil || r.fenced.Load() || !parksFrom(state, request) {
 		return fmt.Errorf("%w: lane %s is %s, lost its lease, or has a handoff under way", ErrNoParking, r.lease.Lane, state)
 	}
 	record := r.record()

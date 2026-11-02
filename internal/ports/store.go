@@ -693,11 +693,15 @@ type WorkerReader interface {
 	List() ([]ledger.Worker, error)
 	// JoinGrant returns one join grant, or ErrNotFound.
 	JoinGrant(id string) (ledger.JoinGrant, error)
+	// Orchestrator returns one worker's orchestrator, or ErrNotFound.
+	Orchestrator(worker string) (ledger.Orchestrator, error)
 }
 
 // WorkerWriter writes the worker plane's records.
 type WorkerWriter interface {
 	WorkerReader
+	// SaveOrchestrator writes an orchestrator's projection.
+	SaveOrchestrator(ledger.Orchestrator) error
 	// InsertJoinGrant records a join token by its digest.
 	InsertJoinGrant(ledger.JoinGrant) error
 	// SpendJoinGrant marks a grant used by a worker.

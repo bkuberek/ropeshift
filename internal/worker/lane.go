@@ -35,6 +35,9 @@ type LaneRequest struct {
 	// Fetch names what a remote holds and this machine must bring before a worktree exists,
 	// for a lane another machine ran.
 	Fetch []string
+	// Private says this session has no work: Repository is a directory of its own, with no
+	// worktree in it, no ports, and no hook of a repository's to run.
+	Private bool
 }
 
 // PreparedLane is everything a lane starts from, and nothing it inherited.
@@ -79,7 +82,7 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 		refs = append(refs, ref)
 	}
 	var allocation lanes.Allocation
-	if request.Allocate != nil {
+	if request.Allocate != nil && !request.Private {
 		if allocation, err = request.Allocate(profile.Resources); err != nil {
 			return PreparedLane{}, err
 		}
@@ -87,6 +90,9 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	environment, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: lookup, SecretRefs: refs, Tags: request.Tags, Allocation: allocation})
 	if err != nil {
 		return PreparedLane{}, err
+	}
+	if request.Private {
+		return PreparedLane{Worktree: ports.Worktree{Path: request.Repository}, Environment: environment, Profile: profile, ProfileDigest: digest}, nil
 	}
 	place, err := lanes.Place(profile.Worktree, request.Repository, request.Lane, request.Branch)
 	if err != nil {

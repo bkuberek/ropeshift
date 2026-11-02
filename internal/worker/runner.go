@@ -135,6 +135,9 @@ type laneRun struct {
 	// holds, which a later version does not change. The handle's lock guards both.
 	pack     *ledger.DesiredPack
 	packRead *lanes.PackRef
+	// wake is what an orchestrator's session was started on, which counts as told once its turn ends,
+	// and the handle's lock guards it.
+	wake []ledger.WakeItem
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -318,10 +321,14 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workor
 }
 
 func (r *laneRun) record() lanes.Record {
-	return lanes.Record{
+	record := lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence,
 		Generation: r.currentGeneration(), State: lanes.StateRunning, Process: r.processGeneration(),
 	}
+	if r.orchestrating() {
+		record.Owner = lanes.OwnerOrchestrator
+	}
+	return record
 }
 
 // begin takes one lane from its start to its outcome. The start is journaled first, so
@@ -337,6 +344,9 @@ func (r *laneRun) begin(ctx context.Context) error {
 		r.w.config.Report(err)
 	}
 	r.signal(ctx, lanes.OnClaimGranted)
+	if r.orchestrating() {
+		r.loadProfile(ctx)
+	}
 	return r.proceed(ctx)
 }
 
@@ -462,7 +472,10 @@ func (r *laneRun) failStart(reason string, err error) workorders.Report {
 // session provisions and runs the session, and returns the lane's outcome. The token
 // exists only in the session's environment, and the journal keeps its digest.
 func (r *laneRun) session(ctx context.Context) workorders.Report {
-	repository, err := r.rt.Repository(ctx, r.lease.Repository)
+	if r.orchestrating() && !r.awaitWake(ctx) {
+		return failed(workorders.ReasonWorkerRestarted)
+	}
+	repository, err := r.repository(ctx)
 	if err != nil {
 		return r.failStart(workorders.ReasonNoRepository, err)
 	}
@@ -471,7 +484,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Overrides: r.lease.Overrides, Fetch: r.fetchNames(),
+		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
 		Tags: map[string]string{
@@ -495,9 +508,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
-	r.state.thresholds(prepared.Profile)
+	r.state.thresholds(prepared.Profile, r.role())
 	r.readFacts(ctx)
-	packFile, err := r.writePack(ctx, prepared.Worktree.Path)
+	packFile, err := r.writePrompt(ctx, prepared.Worktree.Path)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -608,7 +621,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
 		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
 		Brief: r.briefText(), SystemPromptFile: packFile,
-		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
+		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
@@ -676,7 +689,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			r.expireToken(ctx)
-			if event.End != nil && event.End.Crashed {
+			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {
 				r.crashed, r.crashedAt = true, r.w.clock.Now()
 				r.signal(ctx, lanes.OnActivity, lanes.OnSessionGone)
 			}
@@ -749,6 +762,10 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
 // it did not (FR-LANE-2). A turn that failed has nothing to nudge.
 func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
+	if r.orchestrating() {
+		r.orchestratorRests(ctx, turn)
+		return
+	}
 	if _, ok := r.reported(ctx); ok {
 		r.signal(ctx, lanes.OnOutcomeReported)
 		r.stop(ctx, ports.StopAtRest)

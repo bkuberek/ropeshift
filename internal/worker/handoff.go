@@ -135,9 +135,11 @@ func (r *laneRun) abandons(ctx context.Context) bool {
 func (r *laneRun) runHandoff(ctx context.Context) {
 	flight := r.currentFlight()
 	if len(flight.read().Document) == 0 || storesAgain() {
-		r.requestNarrative(ctx, flight)
-		crashpoint.Hit("worker.handoff", "requested")
-		r.awaitNarrative(ctx, flight)
+		if !r.orchestrating() {
+			r.requestNarrative(ctx, flight)
+			crashpoint.Hit("worker.handoff", "requested")
+			r.awaitNarrative(ctx, flight)
+		}
 		if r.abandons(ctx) {
 			return
 		}
@@ -265,6 +267,9 @@ func (r *laneRun) handoffFacts(ctx context.Context, record lanes.Record, guard l
 		facts.Contract = &lanes.ContractRef{ID: r.lease.Contract, Version: r.lease.ContractVersion}
 	}
 	facts.ContextPack = r.readPack()
+	if r.orchestrating() {
+		return facts
+	}
 	found, err := r.rt.Provisioner.Worktrees.Survey(ctx, record.Worktree)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: the handoff's survey: %w", record.ID, err))

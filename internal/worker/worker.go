@@ -51,6 +51,10 @@ type Worker struct {
 	clock   ports.Clock
 	config  Config
 
+	// wakeLock guards wakes, which a pass and an orchestrator's run both read.
+	wakeLock sync.Mutex
+	wakes    lanes.WakeBatch
+
 	mu         sync.Mutex
 	identity   ledger.WorkerIdentity
 	session    ledger.Session

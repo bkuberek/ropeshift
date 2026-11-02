@@ -76,6 +76,9 @@ type laneState struct {
 	// approvalLimit is how long a call waits on a decision, and approvals how many it has open.
 	approvalLimit time.Duration
 	approvals     int
+	// wakeDebounce and wakeFloor batch an orchestrator's wakes.
+	wakeDebounce time.Duration
+	wakeFloor    time.Duration
 }
 
 func newLaneState(start lanes.ActualState, now time.Time) *laneState {
@@ -111,12 +114,13 @@ func (s *laneState) compactionHolds(now time.Time) bool {
 
 // thresholds reads what a profile sets. A duration that does not parse leaves its check
 // off, because a bad profile value must not stop a running lane.
-func (s *laneState) thresholds(profile lanes.Profile) {
+func (s *laneState) thresholds(profile lanes.Profile, role string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stallAfter, _ = time.ParseDuration(profile.Lifecycle.StallAfter)
 	s.briefGrace, _ = time.ParseDuration(profile.Lifecycle.BriefGrace)
-	s.policy = lanes.PolicyFor(profile.Context, lanes.RoleWriter)
+	s.policy = lanes.PolicyFor(profile.Context, role)
+	s.wakeDebounce, s.wakeFloor = lanes.WakeBounds(profile.Lifecycle)
 	window, _ := time.ParseDuration(profile.Lifecycle.RestartWindow)
 	backoff, _ := time.ParseDuration(profile.Lifecycle.RestartBackoff)
 	s.limits = lanes.Breaker{
@@ -127,6 +131,13 @@ func (s *laneState) thresholds(profile lanes.Profile) {
 	s.usageBase, _ = time.ParseDuration(profile.Lifecycle.UsageBackoff)
 	s.drainLimit, _ = time.ParseDuration(profile.Lifecycle.DrainDeadline)
 	s.approvalLimit, _ = time.ParseDuration(profile.Lifecycle.ApprovalWait)
+}
+
+// wakeBounds reads the two settings that batch an orchestrator's wakes, once a profile named them.
+func (s *laneState) wakeBounds() (debounce, floor time.Duration, known bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.wakeDebounce, s.wakeFloor, s.wakeFloor != 0
 }
 
 // usageBackoff reads how long a limit with no known reset waits first. Zero takes the default.

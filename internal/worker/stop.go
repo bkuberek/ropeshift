@@ -131,7 +131,7 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 // guardPass runs one pass as an effect and keeps its result. A pass that does not run is
 // the same stop reaching a settled record, and the last result stands.
 func (w *Worker) guardPass(ctx context.Context, record lanes.Record, fenced bool, label string) (lanes.GuardResult, error) {
-	if record.Worktree == "" || w.config.Lanes == nil {
+	if record.Worktree == "" || w.config.Lanes == nil || record.Owner == lanes.OwnerOrchestrator {
 		return lanes.GuardResult{}, nil
 	}
 	ref := lanes.CheckpointRef(record.ID, record.Generation)
@@ -198,7 +198,7 @@ func (w *Worker) finalBranch(ctx context.Context, record lanes.Record) (string, 
 		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
 		return "", ""
 	}
-	if stored.Worktree == "" {
+	if stored.Worktree == "" || stored.Owner == lanes.OwnerOrchestrator {
 		return "", ""
 	}
 	found, err := w.config.Lanes.Provisioner.Worktrees.Inspect(ctx, stored.Worktree)
@@ -232,7 +232,11 @@ func (w *Worker) leaseGone(ctx context.Context, record lanes.Record) bool {
 		return false
 	}
 	for _, lease := range state.Leases {
-		if lease.ClaimID == record.ClaimID {
+		// An orchestrator has no claim, and each of its starts is a lane of its own.
+		if record.Owner == lanes.OwnerOrchestrator && lease.Lane == record.ID {
+			return false
+		}
+		if record.Owner != lanes.OwnerOrchestrator && lease.ClaimID == record.ClaimID {
 			return false
 		}
 	}

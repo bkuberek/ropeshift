@@ -225,6 +225,9 @@ func (r *laneRun) pendingInstruction() string {
 // resumePrompt is what a session is told on the native path, because a resume alone starts no
 // turn.
 func (r *laneRun) resumePrompt() string {
+	if r.orchestrating() {
+		return r.briefOrchestrator()
+	}
 	parking := r.woken()
 	if parking == nil {
 		return lanes.RestartPrompt(r.factsOwed()...)

@@ -116,6 +116,12 @@ type Request struct {
 	Who bool `json:"who,omitempty"`
 }
 
+// LaneOnly says a line asks for what only a lane does. An orchestrator has no work to report on, no
+// lane to ask for, and no message to answer.
+func (r Request) LaneOnly() bool {
+	return r.Report != nil || r.Wait != nil || r.Ask != nil || r.Reply != nil
+}
+
 // ContextRequest is one read of the Context group. A search reads Query, and a lookup reads Kind
 // and Ref.
 type ContextRequest struct {

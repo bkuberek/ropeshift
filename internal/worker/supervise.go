@@ -32,7 +32,7 @@ func (s *laneState) breaker() lanes.Breaker {
 // loadProfile gives an adopted lane the thresholds its profile sets, because a restart
 // leaves nothing of them. A lane whose profile cannot be read runs without its checks.
 func (r *laneRun) loadProfile(ctx context.Context) {
-	repository, err := r.rt.Repository(ctx, r.lease.Repository)
+	repository, err := r.repository(ctx)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return
@@ -42,7 +42,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 		return
 	}
-	r.state.thresholds(profile)
+	r.state.thresholds(profile, r.role())
 }
 
 // mayRestart says a generation ended in a way a new one could mend: it crashed, nothing
@@ -75,7 +75,7 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 		case r.mayRestart(ctx):
 			moved = r.backOff(ctx)
 		default:
-			if ctx.Err() != nil && (r.crashed || r.currentFlight() != nil) {
+			if ctx.Err() != nil && (r.crashed || r.currentFlight() != nil || r.orchestrating()) {
 				return report, false
 			}
 			return report, true
@@ -106,7 +106,7 @@ func (r *laneRun) settled(ctx context.Context, report workorders.Report) workord
 // the next one finishes, and the crash still costs one restart. It reports false when
 // the lane has no next generation.
 func (r *laneRun) backOff(ctx context.Context) bool {
-	if !r.w.admitsRestart(ctx) {
+	if !r.orchestrating() && !r.w.admitsRestart(ctx) {
 		return false
 	}
 	next := r.currentGeneration() + 1
@@ -333,6 +333,9 @@ func (r *laneRun) retryBrief(ctx context.Context) {
 }
 
 func (r *laneRun) briefText() string {
+	if r.orchestrating() {
+		return r.briefOrchestrator()
+	}
 	return lanes.FirstCall(r.callsOwed(), lanes.Brief(lanes.BriefSpec{
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
 		Pack: r.readPack() != nil, Handoff: r.inherited, Pending: r.pendingInstruction(), Facts: r.factsOwed(),

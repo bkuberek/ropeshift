@@ -342,6 +342,9 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 		if state.Archives, err = tx.Lanes().Archiving(request.Auth.WorkerID); err != nil {
 			return err
 		}
+		if state.Orchestrator, err = desiredOrchestrator(tx, request.Auth.WorkerID); err != nil {
+			return err
+		}
 		state.Woken, err = wokenFor(tx, request.Auth.WorkerID)
 		return err
 	})
@@ -583,6 +586,9 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 // applyUpload stores one event inside its transaction. A lane's start and end change
 // the work order, so they run the same statements as the use cases.
 func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	if e.WorkOrder == "" && ledger.IsOrchestratorLane(e.Lane) {
+		return orchestratorUpload(tx, worker, id, e)
+	}
 	stamp := func(draft *ledger.EventDraft) { draft.ID, draft.OccurredAt = id, e.OccurredAt }
 	lease := workorders.Lease{WorkOrder: e.WorkOrder, ClaimID: e.ClaimID, Fence: e.Fence}
 	switch e.Type {

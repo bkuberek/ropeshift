@@ -89,6 +89,9 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 	if err != nil {
 		return refused(lanes.CodeUnavailable, err.Error())
 	}
+	if lane.Owner == lanes.OwnerOrchestrator && request.LaneOnly() {
+		return refused(lanes.CodeForbidden, "an orchestrator's token cannot do this")
+	}
 	switch {
 	case request.Who:
 		return lanes.Reply{OK: true, Owner: lane.Owner}

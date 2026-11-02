@@ -168,3 +168,9 @@ func (l *HTTP) DecideApproval(ctx context.Context, decision authority.WorkerDeci
 	record, err := l.as(decision.Auth).DecideDelegated(ctx, decision.Auth.WorkerID, decision)
 	return record, domainError(err)
 }
+
+// WakeDigest reads what this worker's orchestrator could judge now.
+func (l *HTTP) WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error) {
+	digest, err := l.as(request.Auth).WakeDigest(ctx, request.Auth.WorkerID, request)
+	return digest, domainError(err)
+}
