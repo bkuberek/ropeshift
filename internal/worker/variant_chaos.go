@@ -55,6 +55,10 @@ const (
 	SabotageHoldsNoTools = "holds-no-tools"
 	// SabotageResendsCompaction gives each process its own request, and its own word to go on after.
 	SabotageResendsCompaction = "resends-compaction"
+	// SabotageSplitsClear keeps a clear and what tells the ledger in two journal writes.
+	SabotageSplitsClear = "splits-clear"
+	// SabotageResendsBrief gives each process its own brief for a cleared session.
+	SabotageResendsBrief = "resends-brief"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -90,6 +94,17 @@ func splitsSignal() bool { return sabotaged(SabotageSplitsSignal) }
 func forgetsLimit() bool { return sabotaged(SabotageForgetsLimit) }
 
 func holdsNoTools() bool { return sabotaged(SabotageHoldsNoTools) }
+
+func splitsClear() bool { return sabotaged(SabotageSplitsClear) }
+
+func clearedKey() string {
+	if !sabotaged(SabotageResendsBrief) {
+		return clearedInput
+	}
+	raw := make([]byte, 4)
+	_, _ = rand.Read(raw)
+	return clearedInput + "/" + hex.EncodeToString(raw)
+}
 
 func compactionKey(label string, n int64) string {
 	key := label + strconv.FormatInt(n, 10)

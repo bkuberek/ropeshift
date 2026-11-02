@@ -67,7 +67,7 @@ type laneRun struct {
 	degraded      bool
 
 	bound   bool
-	nudged  bool
+	nudged  atomic.Bool
 	cursor  int64
 	decided *workorders.Report
 	cost    lanes.CostMeter
@@ -114,6 +114,13 @@ type laneRun struct {
 	drainingSince time.Time
 	// waiting says a goroutine holds this lane for `ask_wait`.
 	waiting atomic.Bool
+	// process is the generation whose process runs now, which a clear does not move. The handle's
+	// lock guards it.
+	process int64
+	// respawnAsked is the request this run is acting on, as the ledger counts them.
+	respawnAsked atomic.Int64
+	// owesBrief says a clear left this generation's session with no idea of its work.
+	owesBrief atomic.Bool
 	// fellBack says this generation meant to resume and started from its handoff.
 	fellBack bool
 	// facts are what this generation's first prompt owes, and carried names them, which is all a
@@ -148,7 +155,8 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	}
 	run.left, run.parking = record.Handoff, record.Parking
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
-	run.packRead = record.Progress.Pack
+	run.packRead, run.process = record.Progress.Pack, record.Process
+	run.owesBrief.Store(record.Progress.OwesBrief)
 	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
 	return run
@@ -301,7 +309,7 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workor
 func (r *laneRun) record() lanes.Record {
 	return lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence,
-		Generation: r.currentGeneration(), State: lanes.StateRunning,
+		Generation: r.currentGeneration(), State: lanes.StateRunning, Process: r.processGeneration(),
 	}
 }
 
@@ -370,7 +378,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	_, err := w.journal.Effect(ctx, run.nudge().Key)
 	switch {
 	case err == nil:
-		run.nudged = true
+		run.nudged.Store(true)
 	case !errors.Is(err, ports.ErrNotFound):
 		return nil, err
 	}
@@ -487,7 +495,8 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	record := r.record()
 	record.TokenDigest, record.Worktree, record.Branch = lanes.TokenDigest(token), prepared.Worktree.Path, prepared.Worktree.Branch
-	record.RunMode = spec.RunMode
+	record.RunMode, record.Process = spec.RunMode, record.Generation
+	r.setProcess(record.Generation)
 	if err := r.w.journal.SaveLane(ctx, record); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -575,15 +584,17 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
+	r.handleLock.Lock()
 	r.model, r.profileDigest = prepared.Profile.Agent.Model, prepared.ProfileDigest
 	r.version, r.degraded = capabilities.Version, capabilities.Degraded
+	r.handleLock.Unlock()
 	r.state.mu.Lock()
 	r.state.degraded = capabilities.Degraded
 	r.state.mu.Unlock()
 	r.state.noteCapabilities(capabilities)
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
-		Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
+		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
 		Brief: r.briefText(), SystemPromptFile: packFile,
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
@@ -652,6 +663,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.afterTurn(ctx, event.Turn)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
+			r.expireToken(ctx)
 			if event.End != nil && event.End.Crashed {
 				r.crashed, r.crashedAt = true, r.w.clock.Now()
 				r.signal(ctx, lanes.OnActivity, lanes.OnSessionGone)
@@ -662,13 +674,25 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 	return failed(workorders.ReasonCrashed)
 }
 
+// expireToken ends a token with its process, so nothing left behind can act for the lane while it
+// waits on a next generation (ADR-0016). A worker on its way out reads nothing of a session's end:
+// the session outlives it, and the worker after it takes that session over with its token.
+func (r *laneRun) expireToken(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	if err := r.w.journal.ExpireToken(ctx, r.lease.Lane); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	}
+}
+
 // saveProgress keeps how far this run read, so a kill costs at most one redelivered
 // turn, and a redelivered turn is dropped by its position.
 func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	r.cursor = cursor
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
-		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(),
+		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
 	}
 	r.state.journalContext(&progress)
 	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
@@ -686,14 +710,8 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	r.handleLock.Lock()
 	r.resolved = event.ModelResolved
 	r.handleLock.Unlock()
-	binding := workorders.GenerationBinding{
-		SessionID: event.SessionID, ModelRequested: r.model, ModelResolved: event.ModelResolved,
-		ProfileDigest: r.profileDigest, DriverVersion: r.version, DegradedMode: r.degraded, FellBack: r.fellBack,
-		Carried: r.carriedIDs(),
-	}
-	if read := r.readPack(); read != nil {
-		binding.PackID, binding.PackVersion = read.ID, read.Version
-	}
+	binding := r.binding(event.SessionID, event.ModelResolved)
+	binding.FellBack = r.fellBack
 	payload, err := json.Marshal(binding)
 	if err != nil {
 		r.w.config.Report(err)
@@ -734,6 +752,9 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 		r.stop(ctx, ports.StopAtRest)
 		return
 	}
+	if r.owesBrief.Load() {
+		return
+	}
 	if len(r.blockingQuestions()) != 0 {
 		r.awaitAnswer(ctx)
 		return
@@ -745,8 +766,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 	if r.contextAtRest(ctx) {
 		return
 	}
-	if !r.nudged {
-		r.nudged = true
+	if r.nudged.CompareAndSwap(false, true) {
 		ran, err := r.w.bracket(ctx, r.nudge(), func() error {
 			_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: lanes.Nudge})
 			return err

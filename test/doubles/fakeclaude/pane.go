@@ -322,6 +322,8 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 			draw(fmt.Sprintf(screenReady, ""))
 			switch text {
 			case "":
+			case "/clear":
+				s.clear()
 			case "/compact":
 				s.compact()
 			default:
@@ -348,11 +350,7 @@ func (s *session) admitsPane(line string) bool {
 	return true
 }
 
-func (s *session) compact() {
-	s.hook("PreCompact", map[string]any{"trigger": "manual"})
-	s.hook("SessionStart", map[string]any{"source": "compact", "model": s.modelName()})
-	s.hook("PostCompact", map[string]any{"trigger": "manual"})
-}
+func (s *session) compact() { s.compactBy("manual") }
 
 type socketLine struct {
 	UUID    string `json:"uuid"`

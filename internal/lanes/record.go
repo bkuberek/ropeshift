@@ -55,6 +55,20 @@ type Record struct {
 	Blocking []string
 	// RunMode is the mode the lane's session started in, which a resume stays in.
 	RunMode string
+	// Process is the generation whose process runs now. A clear moves Generation and not this,
+	// because what a session left on this machine is named by the generation it started in.
+	Process int64
+	// RespawnsSeen is how many of a member's requests for a new generation this worker acted on.
+	RespawnsSeen int64
+}
+
+// ProcessGeneration is the generation that names this lane's session. A generation no process has
+// started in yet is its own.
+func (r Record) ProcessGeneration() int64 {
+	if r.Process != 0 {
+		return r.Process
+	}
+	return r.Generation
 }
 
 // Progress is how far a worker read a session, and what that reading added up to, so an
@@ -85,6 +99,8 @@ type Progress struct {
 	Compactions    int64 `json:"compactions,omitempty"`
 	CompactPending bool  `json:"compact_pending,omitempty"`
 	CompactSeen    bool  `json:"compact_seen,omitempty"`
+	// OwesBrief says a clear left this generation with a session that does not know its work.
+	OwesBrief bool `json:"owes_brief,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

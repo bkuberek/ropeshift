@@ -166,6 +166,8 @@ type DesiredLease struct {
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with
 	// the count it has acted on.
 	Resets int64 `json:"resets,omitempty"`
+	// Respawns counts the requests for this lane's next generation, the same way.
+	Respawns int64 `json:"respawns,omitempty"`
 	// Overrides is this lane's own profile layer, as TOML.
 	Overrides string `json:"overrides,omitempty"`
 	// Resume says this claim brings a parked lane back, and what from.

@@ -2,8 +2,10 @@ package lanes
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"ropeshift.dev/ropeshift/internal/messages"
 )
@@ -180,9 +182,39 @@ type HookRecord struct {
 	Count   int64
 }
 
+// SourceClear is the source of a SessionStart a clear ran, which names the new session.
+const SourceClear = "clear"
+
 // Regrounds reports the sources after which a session has lost its place.
 func Regrounds(source string) bool {
-	return source == "compact" || source == "clear" || source == "resume"
+	return source == "compact" || source == SourceClear || source == "resume"
+}
+
+// Grounding is what a hook tells a session about its work once it has lost its place. A worker
+// writes it, and a hook reads it with no worker.
+type Grounding struct {
+	Contract        string `json:"contract,omitempty"`
+	ContractVersion int64  `json:"contract_version,omitempty"`
+	// Pack is where this generation's context pack is on disk.
+	Pack string `json:"pack,omitempty"`
+}
+
+// Text says who a session is. A generation of zero is one nobody can name.
+func (g Grounding) Text(lane, workOrder string, generation int64) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "You are working in ropeshift lane %s", lane)
+	if generation != 0 {
+		fmt.Fprintf(&out, ", generation %d", generation)
+	}
+	fmt.Fprintf(&out, ", on work order %s", workOrder)
+	if g.Contract != "" {
+		fmt.Fprintf(&out, ", under contract %s version %d", g.Contract, g.ContractVersion)
+	}
+	out.WriteString(".")
+	if g.Pack != "" {
+		fmt.Fprintf(&out, " Your context pack is at %s.", g.Pack)
+	}
+	return out.String()
 }
 
 // DenyRule denies one tool call before it runs.
@@ -210,6 +242,8 @@ type DenyPolicy struct {
 	Hold string `json:"hold,omitempty"`
 	// OwnTools is the prefix of the lane's own tools, which a hold leaves open.
 	OwnTools string `json:"own_tools,omitempty"`
+	// Ground is what a session that lost its place is told of its work.
+	Ground Grounding `json:"ground,omitzero"`
 }
 
 // ToolQuestion is the vendor's tool that asks the terminal. A lane must not ask there,

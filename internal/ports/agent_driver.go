@@ -94,6 +94,9 @@ type SessionSpec struct {
 	Lane       string
 	WorkOrder  string
 	Generation int64
+	// Contract and ContractVersion name the contract this work order pins.
+	Contract        string
+	ContractVersion int64
 	// Dir is the lane's worktree.
 	Dir string
 	// Env is the lane's environment from the allowlist.

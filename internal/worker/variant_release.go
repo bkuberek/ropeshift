@@ -61,5 +61,11 @@ func instructionLabel() string { return handoffInput }
 // holdsNoTools is false: a running turn is held before it is told.
 func holdsNoTools() bool { return false }
 
+// splitsClear stands for no write that could leave a clear the ledger never hears of.
+func splitsClear() bool { return false }
+
+// clearedKey is one key per generation, so a restart does not tell a session its work twice.
+func clearedKey() string { return clearedInput }
+
 // compactionKey is one key per compaction, so a restart sends neither of its inputs twice.
 func compactionKey(label string, n int64) string { return label + strconv.FormatInt(n, 10) }

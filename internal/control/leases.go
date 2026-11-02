@@ -875,6 +875,34 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 	})
 }
 
+// RespawnLane asks for the next generation of a work order's running lane (FR-LANE-10). A person
+// or an orchestrator asks, and the lane's state still derives from what happens next.
+func (l *Leases) RespawnLane(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionRespawnLane) {
+		return workorders.ErrForbidden
+	}
+	return l.store.Write(ctx, scope, "lane.respawn", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(workOrder)
+		if err != nil {
+			return err
+		}
+		if current.State != workorders.Running {
+			return fmt.Errorf("%w: work order %s is %s, so it has no session to replace", workorders.ErrIllegalMove, workOrder, current.State)
+		}
+		claim, err := tx.Claims().Find(current.ClaimID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Lanes().Respawn(claim.Lane); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: ledger.EventLaneRespawn, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: claim.Lane},
+		})
+		return err
+	})
+}
+
 // ArchiveLane asks the worker that ran a lane to take its worktree away. Only a member can
 // force that past work no remote holds, and nobody can remove a worktree a lane still uses.
 func (l *Leases) ArchiveLane(ctx context.Context, scope ledger.WorkspaceID, workOrder, lane string, forced bool, actor ledger.Actor) error {

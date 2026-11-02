@@ -334,7 +334,8 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 	records := slices.Clone(from.Hooks)
 	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
 	for _, record := range records {
-		if record.Generation != spec.Generation {
+		// A clear moves a lane's generation under this process, and no later generation has one.
+		if record.Generation < spec.Generation {
 			continue
 		}
 		event := record.HookEvent

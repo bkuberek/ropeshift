@@ -56,6 +56,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	return lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Writable: writable,
 		QuestionTool: questionTool(spec), OwnTools: toolRule(""),
+		Ground: lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 	})
 }
 

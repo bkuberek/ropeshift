@@ -69,6 +69,7 @@ const usage = `usage: ropeshift <command>
   lane list                                          list lanes, each with its freshness
   lane show <lane>                                   show one lane, with its freshness
   lane reset <work-order>                            let a lane its breaker stopped start again
+  lane respawn <work-order>                          ask for a running lane's next generation
   lane resume <work-order>                           give a parked lane a member's word
   lane archive <lane> [--force]                      remove a lane's worktree, which keeps its branch
   message send <lane> --body B [--kind K] [--id I] [--reply-to R] [--generation G]
@@ -178,6 +179,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"category add":      (*invocation).categoryAdd,
 		"lane start":        (*invocation).laneStart,
 		"lane reset":        (*invocation).laneReset,
+		"lane respawn":      (*invocation).laneRespawn,
 		"lane resume":       (*invocation).laneResume,
 		"lane archive":      (*invocation).laneArchive,
 		"lane list":         (*invocation).laneList,

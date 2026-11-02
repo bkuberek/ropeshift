@@ -1333,6 +1333,7 @@ func TestEveryNamedStepIsInTheMatrix(t *testing.T) {
 	rows["worker.resume/split"] = true
 	rows["worker.message/split"] = true
 	rows["worker.limit/split"] = true
+	rows["worker.clear/split"] = true
 	for _, step := range literal {
 		if !rows[step] {
 			t.Errorf("named step %s has no matrix row", step)

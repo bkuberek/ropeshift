@@ -33,6 +33,8 @@ const (
 	ActionReassign        Action = "work_order.reassign"
 	ActionRecordDecision  Action = "decision.record"
 	ActionResetLane       Action = "lane.reset"
+	// ActionRespawnLane asks for a running lane's next generation.
+	ActionRespawnLane Action = "lane.respawn"
 	// ActionResumeLane is a person waking a parked lane, which no automatic step can do.
 	ActionResumeLane Action = "lane.resume"
 	// ActionRework sends completed work back for another attempt.
@@ -50,7 +52,7 @@ func Actions() []Action {
 		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAddCategory, ActionAddPackItem, ActionAnswerQuestion,
 		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
-		ActionReassign, ActionRecordDecision, ActionResetLane, ActionResumeLane, ActionRework, ActionSendBack,
+		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion,
 	}
 }
@@ -60,7 +62,7 @@ func Actions() []Action {
 var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
 		ActionAccept: true, ActionAcceptLaneChecks: true, ActionAddPackItem: true, ActionArchiveLane: true, ActionDismissQuestion: true,
-		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRework: true,
+		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRespawnLane: true, ActionRework: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},
 	ledger.ActorSystem: {ActionAccept: true, ActionCreateJoinToken: true, ActionRework: true},

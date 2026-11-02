@@ -19,6 +19,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-resume", h.member(h.resumeLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-reset", h.member(h.resetLane))
+	mux.HandleFunc("POST /v1/work-orders/{id}/lane-respawn", h.member(h.respawnLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-archive", h.member(h.archiveLane))
 	mux.HandleFunc("GET /v1/fleet", h.showFleet)
 	mux.HandleFunc("PUT /v1/fleet/mode", h.member(h.setFleetMode))
@@ -316,6 +317,15 @@ func (h *handler) resumeLane(w http.ResponseWriter, r *http.Request, actor ledge
 		return
 	}
 	reply(w, http.StatusOK, api.LaneResumed{WorkOrder: r.PathValue("id"), Fired: fired})
+}
+
+// respawnLane asks for the next generation of a work order's running lane.
+func (h *handler) respawnLane(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if err := h.leases.RespawnLane(r.Context(), h.Scope, r.PathValue("id"), actor); err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.LaneReset{WorkOrder: r.PathValue("id")})
 }
 
 // resetLane lets a member start the lane a work order's breaker stopped.

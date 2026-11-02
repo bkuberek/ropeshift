@@ -446,6 +446,11 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, err
 	}
 	lease.Resets = resets
+	respawns, err := tx.Lanes().Respawns(claim.Lane)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return lease, err
+	}
+	lease.Respawns = respawns
 	if lease.Pack, err = desiredPack(tx.Packs(), claim.PackID); err != nil {
 		return lease, err
 	}

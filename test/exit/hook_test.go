@@ -233,7 +233,11 @@ func TestSessionStartRegroundsAfterALossOfContext(t *testing.T) {
 			if err := json.Unmarshal([]byte(run.stdout), &output); err != nil {
 				t.Fatalf("%q: %v", run.stdout, err)
 			}
-			for _, part := range []string{"lane-1", "3", "wo"} {
+			parts := []string{"lane-1", "wo"}
+			if source != lanes.SourceClear {
+				parts = append(parts, "generation 3")
+			}
+			for _, part := range parts {
 				if !strings.Contains(output.Specific.Context, part) {
 					t.Errorf("context %q", output.Specific.Context)
 				}

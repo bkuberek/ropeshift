@@ -70,6 +70,8 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 		switch {
 		case r.handedOff(ctx):
 			moved = r.handoffGeneration(ctx)
+		case r.respawning(ctx):
+			moved = r.respawnGeneration(ctx)
 		case r.mayRestart(ctx):
 			moved = r.backOff(ctx)
 		default:
@@ -118,7 +120,11 @@ func (r *laneRun) backOff(ctx context.Context) bool {
 		return false
 	}
 	r.signal(ctx, lanes.OnDelayElapsed)
-	return r.nextGeneration(ctx, next, ledger.StartCrashRestart)
+	reason := ledger.StartCrashRestart
+	if charge.Reset {
+		reason = ledger.StartReset
+	}
+	return r.nextGeneration(ctx, next, reason)
 }
 
 // chargeFor finds a charge a crash left, or judges a new one, and a delay counts from the
@@ -143,7 +149,7 @@ func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, boo
 			verdict.Delay = 0
 		}
 		if !verdict.Tripped {
-			charge := lanes.Restart{Key: chargeKey(key), AtMs: from.UnixMilli(), NotBeforeMs: from.Add(verdict.Delay).UnixMilli()}
+			charge := lanes.Restart{Key: chargeKey(key), AtMs: from.UnixMilli(), NotBeforeMs: from.Add(verdict.Delay).UnixMilli(), Reset: reset}
 			if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 				return lanes.Restart{}, false
@@ -232,9 +238,16 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64, reason ledger.
 		resume = record.ResumeSession
 	}
 	meter := lanes.CostMeter{SessionTotalUSD: r.cost.SessionTotalUSD}
-	if reason == ledger.StartHandoff {
+	switch reason {
+	case ledger.StartHandoff:
 		resume, meter = "", lanes.CostMeter{}
 		record.Handoff.Begun = true
+	case ledger.StartReset:
+		resume, meter = "", lanes.CostMeter{}
+		record.Handoff, r.inherited = nil, nil
+	}
+	if asked := r.respawnAsked.Load(); asked != 0 {
+		record.RespawnsSeen = asked
 	}
 	payload, err := json.Marshal(ledger.GenerationStart{Reason: reason})
 	if err != nil {
@@ -264,7 +277,7 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64, reason ledger.
 // enterGeneration resets what belongs to one generation.
 func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Progress) {
 	r.handleLock.Lock()
-	r.generation = next
+	r.generation, r.process = next, 0
 	r.handle = ports.SessionHandle{}
 	r.stopOnce = newOnce()
 	r.resolved = ""
@@ -274,7 +287,9 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.flightLock.Unlock()
 	r.sessionOver.Store(false)
 	r.resumeFrom = resume
-	r.bound, r.nudged, r.crashed, r.cursor, r.fellBack = false, false, false, 0, false
+	r.bound, r.crashed, r.cursor, r.fellBack = false, false, 0, false
+	r.nudged.Store(false)
+	r.owesBrief.Store(false)
 	r.cost = progress.Cost
 	r.state.newGeneration(r.w.clock.Now(), progress.BaselineTokens)
 }

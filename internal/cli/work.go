@@ -485,6 +485,23 @@ func (c *invocation) laneReset(args []string) int {
 	return c.finish(err, reset, func() string { return "reset the lane of " + reset.WorkOrder + "\n" })
 }
 
+// laneRespawn asks for a running lane's next generation.
+func (c *invocation) laneRespawn(args []string) int {
+	set := c.flags()
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	asked, err := client.RespawnLane(c.ctx, id)
+	return c.finish(err, asked, func() string { return "asked for a new generation of the lane of " + asked.WorkOrder + "\n" })
+}
+
 // laneResume gives a work order's parked lane a member's word.
 func (c *invocation) laneResume(args []string) int {
 	set := c.flags()

@@ -110,6 +110,10 @@ type step struct {
 	AwaitHold string `json:"await_hold,omitempty"`
 	// Status runs the status line once, with this payload merged in, as a reply does.
 	Status map[string]any `json:"status,omitempty"`
+	// Clear runs the native command: SessionEnd under the old session, and SessionStart under a new
+	// one, in the same process. Compact runs a compaction with this trigger, in the middle of a turn.
+	Clear   bool   `json:"clear,omitempty"`
+	Compact string `json:"compact,omitempty"`
 	// Tool calls a built-in tool: the PreToolUse hook decides, and a command that passes
 	// runs through a shell, in the session's directory.
 	Tool    string `json:"tool,omitempty"`
@@ -148,6 +152,8 @@ type session struct {
 	socket string
 	// failedTurn says a turn ended on StopFailure, which has no Stop after it.
 	failedTurn bool
+	// clears counts the clears this process ran, which each begin a new session.
+	clears int
 	// peers is what the socket read, which a turn can take between its tool calls.
 	peers chan string
 }
@@ -391,6 +397,10 @@ func (s *session) run() {
 			}
 			witness("prompts", strconv.Quote(messageText(line)))
 			s.replay(line)
+			if messageText(line) == "/clear" {
+				s.clearOnStream()
+				continue
+			}
 			if messageText(line) == "/compact" {
 				s.compactOnStream()
 				continue
@@ -582,6 +592,10 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 			}
 		case st.AwaitHold != "":
 			awaitHold(st.AwaitHold)
+		case st.Clear:
+			s.clear()
+		case st.Compact != "":
+			s.compactBy(st.Compact)
 		case st.WaitFile != "":
 			awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.WaitFile))
 		case st.SleepMs != 0:
@@ -675,7 +689,7 @@ func (s *session) emit(line map[string]any) {
 		return
 	}
 	if line["session_id"] == nil {
-		line["session_id"] = sessionID
+		line["session_id"] = s.currentSession()
 	}
 	raw, err := json.Marshal(line)
 	if err != nil {
@@ -755,6 +769,9 @@ func (s *session) hook(event string, input map[string]any) [][]byte {
 			}
 			if len(bytes.TrimSpace(out)) != 0 {
 				outputs = append(outputs, out)
+				if event == "SessionStart" {
+					witness("grounding", string(bytes.TrimSpace(out)))
+				}
 				s.emit(map[string]any{"type": "system", "subtype": "hook_output", "hook": event, "output": string(out)})
 			}
 		}
@@ -763,10 +780,38 @@ func (s *session) hook(event string, input map[string]any) [][]byte {
 }
 
 func (s *session) currentSession() string {
+	base := sessionID
 	if s.pane {
-		return s.paneSessionID()
+		base = s.paneSessionID()
 	}
-	return sessionID
+	if s.clears == 0 {
+		return base
+	}
+	return base[:len(base)-1] + strconv.Itoa(s.clears)
+}
+
+// clear is the command as T2 observed it: one process, the old session's end, and a new session's
+// start under the same tags.
+func (s *session) clear() {
+	s.hook("SessionEnd", map[string]any{"reason": "clear"})
+	s.clears++
+	s.hook("SessionStart", map[string]any{"source": "clear", "model": s.modelName()})
+}
+
+// clearOnStream is the command in stream-json input, which ends with a result of its own.
+func (s *session) clearOnStream() {
+	s.clear()
+	s.emit(map[string]any{
+		"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": s.costUSD,
+		"usage": map[string]any{"input_tokens": 0, "output_tokens": 0},
+	})
+}
+
+// compactBy runs a compaction's three hooks in the order T3 observed, whoever started it.
+func (s *session) compactBy(trigger string) {
+	s.hook("PreCompact", map[string]any{"trigger": trigger})
+	s.hook("SessionStart", map[string]any{"source": "compact", "model": s.modelName()})
+	s.hook("PostCompact", map[string]any{"trigger": trigger, "compact_summary": "a summary that must stay in the hook"})
 }
 
 // mcpConfig is a generated MCP configuration.

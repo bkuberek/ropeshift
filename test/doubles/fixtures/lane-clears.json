@@ -1,0 +1,24 @@
+{
+  "source": "RS10, and T2 and T3 of the hooks spike: an automatic compaction in a turn, then a clear, then the brief the worker owes the session it left",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"compact": "auto"},
+      {"emit": {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto", "post_tokens": 1}}},
+      {"status": {"context_window": {"current_usage": {"input_tokens": 90}}}},
+      {"clear": true},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief again"}},
+      {"status": {"context_window": {"current_usage": {"input_tokens": 70}}}},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

@@ -18,11 +18,12 @@ const reachWindow = time.Minute
 
 // The hooks that say something about a lane's state.
 const (
-	hookPreCompact  = "PreCompact"
-	hookPostCompact = "PostCompact"
-	hookPreToolUse  = "PreToolUse"
-	hookPostToolUse = "PostToolUse"
-	hookStopFailure = "StopFailure"
+	hookPreCompact   = "PreCompact"
+	hookPostCompact  = "PostCompact"
+	hookPreToolUse   = "PreToolUse"
+	hookPostToolUse  = "PostToolUse"
+	hookStopFailure  = "StopFailure"
+	hookSessionStart = "SessionStart"
 )
 
 // reachSeen is the last thing seen about one target.
@@ -316,6 +317,10 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		r.signal(ctx, lanes.OnCompactionStarted)
 	case hookPostCompact:
 		r.signal(ctx, lanes.OnCompactionFinished)
+	case hookSessionStart:
+		if event.Detail == lanes.SourceClear {
+			r.cleared(ctx, event.SessionID)
+		}
 	case hookPreToolUse:
 		r.progressed()
 		s.mu.Lock()

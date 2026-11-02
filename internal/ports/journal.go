@@ -93,6 +93,10 @@ type Journal interface {
 	// so a crash leaves the lane on one generation or the other. The token of the last
 	// generation ends here, because its process has.
 	BeginGeneration(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// ClearGeneration moves a lane to the generation a clear began, under the process and the token
+	// it has, and stores what the ledger must hear, together. A repeat reports false, and changes
+	// nothing.
+	ClearGeneration(ctx context.Context, lane lanes.Record, started, bound ledger.UploadEvent) (bool, error)
 	// SaveHandoff replaces how far a lane's handoff got. Nil clears it.
 	SaveHandoff(ctx context.Context, lane string, progress *lanes.HandoffProgress) error
 	// StoreHandoff keeps a sealed handoff and the event that carries it to the ledger,

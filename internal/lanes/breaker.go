@@ -16,6 +16,8 @@ type Restart struct {
 	// Planned pays for a generation nothing crashed to cause, such as a handoff. It counts
 	// toward the day and not toward the window, because it is no crash loop.
 	Planned bool
+	// Reset says a person's reset led to this generation, which starts from the pinned brief.
+	Reset bool
 }
 
 // Breaker counts crash restarts in a sliding window (FR-LANE-12). MaxPerDay caps a lane's

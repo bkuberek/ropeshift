@@ -37,6 +37,8 @@ type PolicySpec struct {
 	QuestionTool string
 	// OwnTools is the prefix of the lane's own tools.
 	OwnTools string
+	// Ground is what a session that lost its place is told of its work.
+	Ground Grounding
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -61,7 +63,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		roots = append(roots, spec.WorktreeReal)
 	}
 	return DenyPolicy{
-		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, QuestionTool: spec.QuestionTool,
+		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 	}
 }
 

@@ -157,6 +157,13 @@ func (c *Client) ResetLane(ctx context.Context, workOrder string) (LaneReset, er
 	return out, err
 }
 
+// RespawnLane asks for the next generation of a work order's running lane.
+func (c *Client) RespawnLane(ctx context.Context, workOrder string) (LaneReset, error) {
+	var out LaneReset
+	err := c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-respawn", nil, &out)
+	return out, err
+}
+
 // LaneResumed says what a member's word to a parked lane fired. A lane that waits on more than a
 // person fires nothing yet.
 type LaneResumed struct {

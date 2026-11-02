@@ -175,6 +175,7 @@ func roleWorkerHandoff(c *child) error {
 func runHandoffWorker(c *child, session func(*handoffDriver) ports.AgentDriver) error {
 	applyHandoffVariant(c.spec.Variant)
 	applyContextVariant(c.spec.Variant)
+	applyClearVariant(c.spec.Variant)
 	journal, err := sqlite.OpenJournal(c.spec.Journal)
 	if err != nil {
 		return err
@@ -328,7 +329,7 @@ func handoffCases() []crashCase {
 		handoffCase("a handoff's instruction", "effect.input", "", "started", "performed", "finished"),
 		handoffCase("a handoff's stop", "effect.stop", "", "started", "performed", "finished"),
 		handoffCase("a handoff's next generation", "worker.restart", "", "next"),
-	}, contextCases()...)
+	}, append(contextCases(), clearCases()...)...)
 }
 
 func handoffVariants() []variant {
@@ -340,5 +341,5 @@ func handoffVariants() []variant {
 		{name: sabotageForgets, check: "crash", crash: crash("a forgotten handoff", "worker.handoff", laneDied, "requested")},
 		{name: sabotageResends, check: "crash", crash: crash("a second instruction", "effect.input", "", "performed")},
 		{name: sabotageSplits, check: "crash", crash: crash("a split store", "worker.handoff", "", "split")},
-	}, contextVariants()...)
+	}, append(contextVariants(), clearVariants()...)...)
 }

@@ -6,7 +6,6 @@ package hook
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -87,7 +86,8 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 		}
 	case eventSessionStart:
 		event.Socket = cfg.session
-		reground(cfg, event, stdout)
+		reground(cfg, event, forward(cfg, event), stdout)
+		return
 	}
 	forward(cfg, event)
 }
@@ -152,16 +152,24 @@ func deny(stdout io.Writer, reason string) {
 	})
 }
 
-// reground tells a session that lost its place who it is. SessionStart is the one
-// event that can add context after a compaction.
-func reground(cfg config, event lanes.HookEvent, stdout io.Writer) {
+// reground tells a session that lost its place who it is. SessionStart is the one event that can
+// add context after a compaction. Its work comes from the file a denial reads, so this needs no
+// worker. Its generation comes from the worker, because the tags of a process that was cleared are
+// out of date, and with no worker a clear names none rather than a wrong one.
+func reground(cfg config, event lanes.HookEvent, generation int64, stdout io.Writer) {
 	if !lanes.Regrounds(event.Detail) {
 		return
 	}
+	if generation == 0 && event.Detail != lanes.SourceClear {
+		generation = cfg.generation
+	}
+	var policy lanes.DenyPolicy
+	if raw, err := os.ReadFile(cfg.policy); err == nil {
+		_ = json.Unmarshal(raw, &policy)
+	}
 	write(stdout, map[string]string{
-		"hookEventName": eventSessionStart,
-		"additionalContext": fmt.Sprintf("You are working in ropeshift lane %s, generation %d, on work order %s.",
-			cfg.lane, cfg.generation, cfg.workOrder),
+		"hookEventName":     eventSessionStart,
+		"additionalContext": policy.Ground.Text(cfg.lane, cfg.workOrder, generation),
 	})
 }
 
@@ -172,17 +180,18 @@ func write(stdout io.Writer, specific map[string]string) {
 	}
 }
 
-// forward sends one short request. A refusal is an answer, so it spools nothing, and
-// a hook that missed its ack spools an event the worker may have, which is safe
-// because the worker merges by meaning.
-func forward(cfg config, event lanes.HookEvent) {
+// forward sends one short request, and says which generation the worker has the lane in. A refusal
+// is an answer, so it spools nothing, and a hook that missed its ack spools an event the worker may
+// have, which is safe because the worker merges by meaning.
+func forward(cfg config, event lanes.HookEvent) int64 {
 	if cfg.socket != "" {
 		request := lanes.Request{Version: lanes.SocketProtocol, Token: cfg.token, Hook: &event}
-		if _, err := api.CallLane(cfg.socket, request, dialDeadline, ackDeadline); err == nil {
-			return
+		if reply, err := api.CallLane(cfg.socket, request, dialDeadline, ackDeadline); err == nil {
+			return reply.Generation
 		}
 	}
 	spool(cfg.spool, event)
+	return 0
 }
 
 // spool appends one line with one write, so parallel hooks cannot interleave. The

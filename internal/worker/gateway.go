@@ -98,7 +98,11 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		}
 		w.deliverHook(ctx, event)
 		w.takeAdmission(ctx, event)
-		return lanes.Reply{OK: true}
+		reply := lanes.Reply{OK: true, Generation: lane.Generation}
+		if run := w.runOf(lane.ID); run != nil {
+			reply.Generation = run.currentGeneration()
+		}
+		return reply
 	case request.Reply != nil:
 		return w.takeReply(ctx, lane, *request.Reply)
 	case request.Report != nil:
@@ -127,10 +131,12 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 }
 
 // deliverHook hands one event to the run that holds its lane, if a run does. An event of an
-// earlier generation says nothing about the session this run follows.
+// earlier generation says nothing about the session this run follows. A driver knows a session by
+// its process, which a clear does not change.
 func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 	if run := w.runOf(event.Lane); run != nil && run.currentGeneration() == event.Generation {
 		run.observeHook(ctx, event)
+		event.Generation = run.processGeneration()
 		run.rt.Driver.TakeHook(ctx, event)
 		if len(event.Asked) != 0 {
 			go w.convertAsked(ctx, run.record(), event.Asked)
@@ -266,6 +272,7 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		if json.Unmarshal(line, &event) != nil || event.Event == "" {
 			continue
 		}
+		event = w.ofItsGeneration(ctx, event)
 		if err := w.journal.MergeHook(ctx, event); err != nil {
 			return err
 		}
@@ -273,4 +280,15 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 		w.takeAdmission(ctx, event)
 	}
 	return os.Remove(path)
+}
+
+// ofItsGeneration reads a spooled line against the process it came from. Its tags are the ones that
+// process started with, and a line carries no token that could correct them after a clear. A
+// generation this journal does not hold stays as it reads.
+func (w *Worker) ofItsGeneration(ctx context.Context, event lanes.HookEvent) lanes.HookEvent {
+	record, err := w.journal.Lane(ctx, event.Lane)
+	if err == nil && event.Generation == record.ProcessGeneration() {
+		event.Generation = record.Generation
+	}
+	return event
 }

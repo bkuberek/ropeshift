@@ -138,7 +138,7 @@ func (w *Worker) desired(ctx context.Context) (ledger.DesiredState, error) {
 func (w *Worker) sessionSpec(record lanes.Record) ports.SessionSpec {
 	rt := w.config.Lanes
 	return ports.SessionSpec{
-		Lane: record.ID, WorkOrder: record.WorkOrder, Generation: record.Generation, Dir: record.Worktree,
+		Lane: record.ID, WorkOrder: record.WorkOrder, Generation: record.ProcessGeneration(), Dir: record.Worktree,
 		ConfigDir: rt.configDir(record.ID), TempDir: rt.tempDir(record.ID), Binary: rt.Binary, Override: rt.Override,
 	}
 }
@@ -305,6 +305,8 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 		}
 	}
 	w.drainLanes(ctx)
+	w.briefCleared(ctx)
+	w.respawnLanes(ctx)
 	w.tendSignIn(ctx)
 	w.deliverMessages(ctx)
 	w.parkOnPolicy(ctx)

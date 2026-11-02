@@ -116,6 +116,9 @@ type Reply struct {
 	OK      bool   `json:"ok"`
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
+	// Generation is the one this lane is in now, on an answer to a hook, because a clear moves it
+	// under a process whose tags cannot change.
+	Generation int64 `json:"generation,omitempty"`
 	// Ask is what `ask` found, set when OK.
 	Ask *questions.AskResult `json:"ask,omitempty"`
 	// Context is what a read of the Context group found, set when OK.

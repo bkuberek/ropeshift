@@ -17,6 +17,9 @@ const EventLaneStatus = "lane.status"
 // EventLaneReset records a member resetting a lane's breaker.
 const EventLaneReset = "lane.reset"
 
+// EventLaneRespawn records a request for a lane's next generation.
+const EventLaneRespawn = "lane.respawn"
+
 // EventLaneAffinityEased records that a preferred worker's first claim on a woken lane ran out,
 // so any capable worker can take it. Its revision is how those workers hear of that.
 const EventLaneAffinityEased = "lane.affinity_eased"

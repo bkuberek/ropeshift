@@ -32,6 +32,7 @@ var designEdges = []struct {
 	{lanes.Idle, lanes.OnCompactionStarted, lanes.Compacting},
 	{lanes.Compacting, lanes.OnFinishedInTurn, lanes.Working},
 	{lanes.Compacting, lanes.OnFinishedAtRest, lanes.Idle},
+	{lanes.Compacting, lanes.OnCompactionFailed, lanes.Working},
 	{lanes.Working, lanes.OnHandoffThreshold, lanes.HandingOff},
 	{lanes.Idle, lanes.OnHandoffThreshold, lanes.HandingOff},
 	{lanes.HandingOff, lanes.OnHandoffWritten, lanes.Retiring},

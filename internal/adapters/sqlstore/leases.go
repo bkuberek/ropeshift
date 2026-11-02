@@ -509,6 +509,12 @@ VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :fence, :now)`)
 	stmtLaneResets = define("lane.resets",
 		`SELECT resets FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
 
+	stmtLaneRespawns = define("lane.respawns",
+		`SELECT respawns FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtLaneRespawn = define("lane.respawn",
+		`UPDATE lanes SET respawns = respawns + 1 WHERE workspace_id = :workspace_id AND id = :id`)
+
 	stmtLaneReset = define("lane.reset",
 		`UPDATE lanes SET resets = resets + 1
  WHERE workspace_id = :workspace_id AND id = :id
@@ -784,6 +790,26 @@ func (t laneTx) Resets(lane string) (int64, error) {
 		return 0, err
 	}
 	return resets, nil
+}
+
+func (t laneTx) Respawns(lane string) (int64, error) {
+	row, err := t.row(stmtLaneRespawns, params{"workspace_id": string(t.scope), "id": lane})
+	if err != nil {
+		return 0, err
+	}
+	var respawns int64
+	if err := row.Scan(&respawns); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("lane %s: %w", lane, ports.ErrNotFound)
+		}
+		return 0, err
+	}
+	return respawns, nil
+}
+
+func (t laneTx) Respawn(lane string) error {
+	_, err := t.exec(stmtLaneRespawn, params{"workspace_id": string(t.scope), "id": lane})
+	return err
 }
 
 func (t laneTx) Reset(lane string) (int64, error) {
