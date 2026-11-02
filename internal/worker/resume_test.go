@@ -363,6 +363,41 @@ func (r *laneRig) awaitRest(t *testing.T, generation int64) {
 	r.clock.Advance(2 * time.Second)
 }
 
+// TestANewGenerationSaysWhatTheLastOneSaid keeps a status that matches the one a worker sent before
+// a lane parked: the ledger reads the new generation as provisioning until it hears otherwise, and
+// a worker that thought it had said so already would leave it reading that for good.
+func TestANewGenerationSaysWhatTheLastOneSaid(t *testing.T) {
+	r := laneRigWith(t, restingProfile)
+	r.driver.Play(r.asksThenNarrates("The first question?", notCarried))
+	r.driver.PlayAfter(r.asksThenNarrates("The second question?", notCarried), r.toldToGoOn())
+	r.start()
+	r.awaitRest(t, 1)
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	r.wake(t)
+	r.pass(t)
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		record, err := r.journal.Lane(t.Context(), "lane-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Generation == 2 && record.Actual == lanes.Idle {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the lane reads %s in generation %d", record.Actual, record.Generation)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if view := r.read(); view.Generation != 2 || view.ActualState != string(lanes.Idle) {
+		t.Errorf("the ledger reads %s in generation %d", view.ActualState, view.Generation)
+	}
+	r.clock.Advance(2 * time.Second)
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+}
+
 // TestAResumedLaneAsksAndParksAgain walks a lane through two parkings, which is what RS7 asks of
 // a real session: the second question belongs to the generation that came back, and it must
 // reach the ledger, hold the lane at rest, and park it with a wake of its own.

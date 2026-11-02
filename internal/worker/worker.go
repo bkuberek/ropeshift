@@ -59,7 +59,7 @@ type Worker struct {
 	advertised ledger.Manifest
 	deadlines  map[string]time.Time
 	running    map[string]*laneRun
-	published  map[string]ledger.LaneStatus
+	published  map[string]publishedStatus
 	// holding names what each lane was last held back by, so a note goes out once.
 	holding map[string]string
 
@@ -87,7 +87,7 @@ func New(link ports.WorkerLink, journal ports.Journal, clock ports.Clock, config
 	}
 	return &Worker{
 		link: link, journal: journal, clock: clock, config: config,
-		deadlines: map[string]time.Time{}, running: map[string]*laneRun{}, published: map[string]ledger.LaneStatus{},
+		deadlines: map[string]time.Time{}, running: map[string]*laneRun{}, published: map[string]publishedStatus{},
 		holding: map[string]string{},
 	}
 }

@@ -387,7 +387,7 @@ func (w *Worker) publishOne(ctx context.Context, record lanes.Record, status led
 	w.mu.Lock()
 	last, sent := w.published[record.ID]
 	w.mu.Unlock()
-	if sent && sameStatus(last, status) {
+	if sent && last.generation == record.Generation && sameStatus(last.status, status) {
 		return nil
 	}
 	payload, err := json.Marshal(status)
@@ -399,6 +399,13 @@ func (w *Worker) publishOne(ctx context.Context, record lanes.Record, status led
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.published[record.ID] = status
+	w.published[record.ID] = publishedStatus{generation: record.Generation, status: status}
 	return nil
+}
+
+// publishedStatus is the last thing a worker said of a lane. A new generation has said nothing, and
+// the ledger reads it as starting until it does, so a status counts as sent for one generation.
+type publishedStatus struct {
+	generation int64
+	status     ledger.LaneStatus
 }
