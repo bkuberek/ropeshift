@@ -5,11 +5,14 @@ package chaos
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
@@ -31,6 +34,26 @@ type world struct {
 	stats   runStats
 	// socket is where this world serves its control plane, once one is serving.
 	socket string
+	// planeConns counts the connections that plane holds. Only children connect to it.
+	planeConns atomic.Int64
+}
+
+// settleBound is how long a plane may take over what a dead child asked of it.
+const settleBound = 10 * time.Second
+
+// settle waits for the plane in this process to finish what a dead child sent. It outlives the
+// child, so a write can commit after the kill, and each check reads the log and what it projects in
+// two transactions, which a commit between them would show as a ledger that disagrees with itself. A
+// connection closes only after its last request ran.
+func (w *world) settle() error {
+	deadline := time.Now().Add(settleBound)
+	for w.planeConns.Load() != 0 {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the plane still holds %d connections", w.planeConns.Load())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return nil
 }
 
 // runStats counts what the witness shows.
@@ -99,6 +122,9 @@ func (w *world) rows() ([]workorders.WorkOrder, error) {
 
 // verify checks the ledger against itself and against the witness.
 func (w *world) verify() error {
+	if err := w.settle(); err != nil {
+		return err
+	}
 	if err := w.rig.CheckRevisions(w.store, w.rig.Scope); err != nil {
 		return err
 	}

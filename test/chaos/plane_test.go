@@ -54,6 +54,14 @@ func (w *world) servePlane(heartbeat, ttl time.Duration) string {
 			Identity: fake.NewIdentityProvider(),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				w.planeConns.Add(1)
+			case http.StateClosed, http.StateHijacked:
+				w.planeConns.Add(-1)
+			}
+		},
 	}
 	done := make(chan struct{})
 	go func() {
