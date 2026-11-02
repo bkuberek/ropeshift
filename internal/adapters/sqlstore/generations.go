@@ -18,6 +18,14 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 		`UPDATE generations SET session_id = :session_id
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
 
+	stmtReadPackOf = define("generation.pack",
+		`UPDATE generations SET pack_id = :pack_id, pack_version = :pack_version
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
+
+	stmtBaseline = define("generation.baseline",
+		`UPDATE generations SET baseline_size = :baseline_size
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation`)
+
 	stmtEndGeneration = define("generation.end",
 		`UPDATE generations SET end_reason = :end_reason, ended_at = :now
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id AND generation = :generation AND ended_at IS NULL`)
@@ -36,7 +44,7 @@ VALUES (:workspace_id, :lane_id, :generation, :start_reason, :handoff_in, :now)`
 
 	stmtListGenerations = define("generation.list",
 		`SELECT lane_id, generation, start_reason, end_reason, session_id, handoff_in, handoff_out, started_at, ended_at,
-       last_response_at
+       last_response_at, pack_id, pack_version, baseline_size
   FROM generations
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id
  ORDER BY generation`)
@@ -88,6 +96,20 @@ func (t laneTx) BindSession(lane string, number int64, session string) error {
 	return err
 }
 
+func (t laneTx) ReadPack(lane string, number int64, pack string, version int64) error {
+	p := t.generationParams(lane, number)
+	p["pack_id"], p["pack_version"] = pack, version
+	_, err := t.exec(stmtReadPackOf, p)
+	return err
+}
+
+func (t laneTx) Baseline(lane string, number, tokens int64) error {
+	p := t.generationParams(lane, number)
+	p["baseline_size"] = tokens
+	_, err := t.exec(stmtBaseline, p)
+	return err
+}
+
 func (t laneTx) EndGeneration(lane string, number int64, reason string) error {
 	now, err := t.readClock()
 	if err != nil {
@@ -110,7 +132,8 @@ func (t laneTx) Generations(lane string) ([]ledger.Generation, error) {
 		var g ledger.Generation
 		var reason string
 		var ended, responded sql.NullInt64
-		if err := rows.Scan(&g.Lane, &g.Number, &reason, &g.EndReason, &g.SessionID, &g.HandoffIn, &g.HandoffOut, &g.StartedAt, &ended, &responded); err != nil {
+		if err := rows.Scan(&g.Lane, &g.Number, &reason, &g.EndReason, &g.SessionID, &g.HandoffIn, &g.HandoffOut, &g.StartedAt, &ended, &responded,
+			&g.PackID, &g.PackVersion, &g.BaselineTokens); err != nil {
 			return nil, err
 		}
 		g.StartReason, g.EndedAt, g.LastResponseAt = ledger.StartReason(reason), ended.Int64, responded.Int64

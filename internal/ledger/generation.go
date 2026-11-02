@@ -34,6 +34,12 @@ type Generation struct {
 	// response was recorded. It can run late and never early, and a late value can only choose
 	// a costlier path.
 	LastResponseAt int64 `json:"last_response_at,omitempty"`
+	// PackID and PackVersion name the context pack this generation read.
+	PackID      string `json:"pack_id,omitempty"`
+	PackVersion int64  `json:"pack_version,omitempty"`
+	// BaselineTokens is what the session held at its first call: instructions, the pack, and the
+	// brief. It is what a pack's size is judged by, because an estimate is only an estimate.
+	BaselineTokens int64 `json:"baseline_tokens,omitempty"`
 }
 
 // HandoffRecord is a handoff document in the ledger, so a later generation on another machine
@@ -59,6 +65,11 @@ type HandoffUpload struct {
 // restart, which is what every journal held before handoffs.
 type GenerationStart struct {
 	Reason StartReason `json:"reason"`
+}
+
+// GenerationBaseline is what a generation held at its first call, on its way to the ledger.
+type GenerationBaseline struct {
+	Tokens int64 `json:"tokens"`
 }
 
 // ParkingStart is a worker's wake on its way to the ledger. The worker generates the ID, so
@@ -115,6 +126,38 @@ type LaneFacts struct {
 	Checks          []CheckState `json:"checks"`
 	// Facts are what this generation's first prompt owes, read after the ledger moved to it.
 	Facts []MessageFact `json:"facts,omitempty"`
+	// Pack is the newest version of the pack this claim pinned, for the generation about to start.
+	Pack *DesiredPack `json:"pack,omitempty"`
+}
+
+// LaneContextRequest is one read of what a workspace holds, for a lane a worker holds. A search
+// reads Query, and a lookup reads Kind and Ref.
+type LaneContextRequest struct {
+	Auth      WorkerAuth `json:"-"`
+	Epoch     int64      `json:"epoch"`
+	WorkOrder string     `json:"work_order"`
+	Fence     int64      `json:"fence"`
+	Lane      string     `json:"lane"`
+	Tool      string     `json:"tool"`
+	Kind      string     `json:"kind,omitempty"`
+	Ref       string     `json:"ref,omitempty"`
+	Query     string     `json:"query,omitempty"`
+	Limit     int        `json:"limit,omitempty"`
+}
+
+// ContextRecord is one record as a lane reads it. Text is what a pack would have said of it, with
+// the same fence around anything from outside the workspace.
+type ContextRecord struct {
+	Kind  string `json:"kind"`
+	Ref   string `json:"ref"`
+	Trust string `json:"trust"`
+	Text  string `json:"text"`
+}
+
+// LaneContext is what one read found. Nothing found is an empty list, not an error, because a
+// lane reads that and goes on.
+type LaneContext struct {
+	Records []ContextRecord `json:"records"`
 }
 
 // HandoffURI names a handoff in the ledger, where its body lives.

@@ -237,7 +237,7 @@ func claimCase() crashCase {
 	return crashCase{
 		name:  "claim",
 		op:    "claim",
-		steps: withSteps("eligible", "granted", "recorded"),
+		steps: withSteps("eligible", "granted", "packed", "recorded"),
 		prepare: func(w *world) (childSpec, error) {
 			id, err := w.rig.Ready(w.store)
 			if err != nil {

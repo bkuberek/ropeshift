@@ -64,6 +64,8 @@ type WorkerOptions struct {
 	Batches questions.BatchPolicy
 	// Windows says how long what a ruling sends a lane stays useful.
 	Windows messages.Windows
+	// PackTokens is the budget of the pack a claim pins. Zero takes the default.
+	PackTokens int64
 }
 
 // Workers is the control plane's side of the plane protocol. It has the shape of
@@ -89,7 +91,10 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 	if options.LeaseTTLMs == 0 {
 		options.LeaseTTLMs = defaultLeaseTTLMs
 	}
-	return &Workers{store: store, scope: scope, options: options, leases: NewLeases(store), questions: NewQuestions(store, options.Batches).Telling(options.Windows)}
+	return &Workers{
+		store: store, scope: scope, options: options, leases: NewLeases(store).Budgeted(options.PackTokens),
+		questions: NewQuestions(store, options.Batches).Telling(options.Windows),
+	}
 }
 
 func newSecret() (string, error) {
@@ -441,6 +446,9 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, err
 	}
 	lease.Resets = resets
+	if lease.Pack, err = desiredPack(tx.Packs(), claim.PackID); err != nil {
+		return lease, err
+	}
 	now, err := tx.Now()
 	if err != nil {
 		return lease, err
@@ -592,6 +600,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return resumeUpload(tx, worker, e, stamp)
 	case ledger.UploadGenerationResponded:
 		return respondGeneration(tx, worker, id, e)
+	case ledger.UploadGenerationBaseline:
+		return recordBaseline(tx, worker, id, e)
 	case ledger.UploadMessage:
 		return messageUpload(tx, worker, id, e)
 	case ledger.UploadWakeSignal:

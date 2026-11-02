@@ -75,6 +75,8 @@ type Progress struct {
 	// at its first, which every path carries, so the difference is the conversation.
 	ContextTokens  int64 `json:"context_tokens,omitempty"`
 	BaselineTokens int64 `json:"baseline_tokens,omitempty"`
+	// Pack names the context pack version this generation holds, which a handoff states.
+	Pack *PackRef `json:"pack,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

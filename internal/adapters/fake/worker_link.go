@@ -28,6 +28,8 @@ type WorkerLink struct {
 	HangAsk atomic.Bool
 	// FailLaneFacts fails every read of a lane's facts, as a control plane that is away would.
 	FailLaneFacts atomic.Bool
+	// StripPacks takes the pack off every lease, as a claim from before packs reads.
+	StripPacks atomic.Bool
 	// FailUpload refuses every upload, as a control plane that is away would.
 	FailUpload atomic.Bool
 }
@@ -53,7 +55,13 @@ func (l *WorkerLink) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledg
 
 // Desired calls the plane.
 func (l *WorkerLink) Desired(ctx context.Context, request ledger.DesiredRequest) (ledger.DesiredState, error) {
-	return l.Plane.Desired(ctx, request)
+	state, err := l.Plane.Desired(ctx, request)
+	if l.StripPacks.Load() {
+		for i := range state.Leases {
+			state.Leases[i].Pack = nil
+		}
+	}
+	return state, err
 }
 
 // Watch relays hints, unless they are being dropped.
@@ -110,6 +118,14 @@ func (l *WorkerLink) Ask(ctx context.Context, ask questions.LaneAsk) (questions.
 		return questions.AskResult{}, ctx.Err()
 	}
 	return l.Plane.Ask(ctx, ask)
+}
+
+// LaneContext calls the plane, unless it is away.
+func (l *WorkerLink) LaneContext(ctx context.Context, request ledger.LaneContextRequest) (ledger.LaneContext, error) {
+	if l.FailLaneFacts.Load() {
+		return ledger.LaneContext{}, errPlaneAway
+	}
+	return l.Plane.LaneContext(ctx, request)
 }
 
 // LaneFacts calls the plane, unless it is away.

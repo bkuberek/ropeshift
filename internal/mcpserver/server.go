@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -106,7 +107,9 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 	case "ping":
 		out.Result = map[string]any{}
 	case "tools/list":
-		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool, askTool, laneHandoffTool, replyTool}}
+		out.Result = map[string]any{"tools": []any{
+			laneReportTool, laneWaitTool, askTool, laneHandoffTool, replyTool, contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
+		}}
 	case "tools/call":
 		out.Result, out.Error = callTool(in.Params, call)
 	default:
@@ -222,6 +225,56 @@ var replyTool = map[string]any{
 	},
 }
 
+var contextGetTool = map[string]any{
+	"name": lanes.ToolContextGet,
+	"description": "Read one record of this workspace as it stands now, by the kind and the name your context pack gives it. " +
+		"Use it for what the pack lists under Not included, and to check a record the pack holds.",
+	"inputSchema": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"kind": map[string]any{
+				"type": "string", "enum": []string{
+					string(contextpacks.KindContract), string(contextpacks.KindRequirement), string(contextpacks.KindDecision),
+					string(contextpacks.KindGoal), string(contextpacks.KindKnowledge),
+				},
+			},
+			"ref": map[string]any{"type": "string", "description": "The record's name, as the pack writes it after its kind."},
+		},
+		"required": []string{"kind", "ref"},
+	},
+}
+
+var requirementGetTool = map[string]any{
+	"name":        lanes.ToolRequirementGet,
+	"description": "Read one requirement of this workspace as it stands now, by the key a contract cites.",
+	"inputSchema": map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"key": map[string]any{"type": "string", "description": "The requirement's key."}},
+		"required":   []string{"key"},
+	},
+}
+
+func searchTool(name, description string) map[string]any {
+	return map[string]any{
+		"name":        name,
+		"description": description,
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "The words to look for."},
+				"limit": map[string]any{"type": "integer", "minimum": 1, "description": "How many records to read at most."},
+			},
+			"required": []string{"query"},
+		},
+	}
+}
+
+var decisionSearchTool = searchTool(lanes.ToolDecisionSearch, "Look for decisions of this workspace, best match first, whatever their status. "+
+	"Each one says how it stands, so check that before you rest on it.")
+
+var questionSearchTool = searchTool(lanes.ToolQuestionSearch, "Look for questions of this workspace, best match first, before you ask one. "+
+	"Each one says how it stands and which decision answered it.")
+
 func toolText(text string, failed bool) map[string]any {
 	return map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": failed}
 }
@@ -245,6 +298,8 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		return callHandoff(request.Arguments, call), nil
 	case lanes.ToolReply:
 		return callReply(request.Arguments, call), nil
+	case lanes.ToolContextGet, lanes.ToolDecisionSearch, lanes.ToolRequirementGet, lanes.ToolQuestionSearch:
+		return callContext(request.Name, request.Arguments, call), nil
 	case lanes.ToolLaneReport:
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
@@ -319,6 +374,40 @@ func callReply(arguments json.RawMessage, call Caller) map[string]any {
 		return toolText("the worker refused this reply: "+answer.Message, true)
 	}
 	return toolText("The reply is recorded.", false)
+}
+
+// callContext passes one read to the worker, and a lane that hears nothing back knows it read
+// nothing, which is not the same as nothing being there.
+func callContext(tool string, arguments json.RawMessage, call Caller) map[string]any {
+	var read struct {
+		Kind  string `json:"kind"`
+		Ref   string `json:"ref"`
+		Key   string `json:"key"`
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	if err := json.Unmarshal(arguments, &read); err != nil {
+		return toolText("these arguments are not a read: "+err.Error(), true)
+	}
+	request := lanes.ContextRequest{Tool: tool, Kind: read.Kind, Ref: read.Ref, Query: read.Query, Limit: read.Limit}
+	if tool == lanes.ToolRequirementGet {
+		request.Ref = read.Key
+	}
+	answer, err := call(lanes.Request{Context: &request})
+	if err != nil {
+		return toolText("the worker did not answer, so this read found nothing either way: "+err.Error(), true)
+	}
+	if !answer.OK {
+		return toolText("the worker refused this read: "+answer.Message, true)
+	}
+	if len(answer.Context) == 0 {
+		return toolText("Nothing on record matches this.", false)
+	}
+	var out strings.Builder
+	for _, record := range answer.Context {
+		out.WriteString(record.Text)
+	}
+	return toolText(out.String(), false)
 }
 
 // callWait passes a lane's wait to its worker. A worker that is not there cannot watch the

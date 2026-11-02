@@ -20,6 +20,16 @@ func NoticeText(ended string, replacement Decision) string {
 	return fmt.Sprintf("Decision %s no longer stands, and decision %s replaces it.\n%s", ended, replacement.ID, decisionLines(replacement))
 }
 
+// DecisionText is what a pack or a read says of a decision, with how it stands, because a contract
+// can cite one that no longer does.
+func DecisionText(decision Decision) string {
+	text := "Status: " + string(decision.Status) + "\n" + decisionLines(decision)
+	if decision.Scope != "" {
+		text += "Scope: " + decision.Scope + "\n"
+	}
+	return text
+}
+
 func decisionLines(decision Decision) string {
 	var out strings.Builder
 	out.WriteString("Statement: " + decision.Statement + "\n")

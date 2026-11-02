@@ -187,6 +187,11 @@ func (w lastingWorktrees) Push(context.Context, string, string, string) error {
 // Fetch has nothing to bring, because a stand-in worktree has no remote.
 func (w lastingWorktrees) Fetch(context.Context, string, []string) error { return nil }
 
+// WriteContext names a file nothing reads, because a stand-in session holds no prompt.
+func (w lastingWorktrees) WriteContext(_ context.Context, path, _ string) (string, error) {
+	return filepath.Join(path, lanes.PackFile), nil
+}
+
 // roleWorkerReconcile runs one lane through a real worker, on a session and a worktree
 // that survive a kill. The claim and the dispatch are safe to repeat.
 func roleWorkerReconcile(c *child) error {

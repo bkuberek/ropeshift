@@ -204,6 +204,7 @@ func RunWorktrees(t *testing.T, fresh func(*testing.T) WorktreeRig) {
 		{"a snapshot of nothing is an error", checkWorktreeSnapshotAbsent},
 		{"a push with no remote is an error", checkWorktreePushNoRemote},
 		{"a discard removes a dirty worktree and repeats", checkWorktreeDiscard},
+		{"a pack left in a worktree is nothing git sees", checkWorktreeContext},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -320,6 +321,35 @@ func checkWorktreeSurvey(t *testing.T, ctx context.Context, r WorktreeRig) {
 	}
 	if len(dirty.DirtyPaths) != 1 || dirty.DirtyPaths[0] == "" {
 		t.Errorf("a dirty worktree names %v", dirty.DirtyPaths)
+	}
+}
+
+func checkWorktreeContext(t *testing.T, ctx context.Context, r WorktreeRig) {
+	created := r.create(t, ctx, "one", "lane/one")
+	path, err := r.Worktrees.WriteContext(ctx, created.Path, "the pack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(path, created.Path) || !strings.HasSuffix(path, lanes.PackFile) {
+		t.Errorf("a pack at %s", path)
+	}
+	again, err := r.Worktrees.WriteContext(ctx, created.Path, "the pack, a later version")
+	if err != nil || again != path {
+		t.Errorf("a repeat wrote to %s: %v", again, err)
+	}
+	survey, err := r.Worktrees.Survey(ctx, created.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if survey.Dirty || len(survey.DirtyPaths) != 0 {
+		t.Errorf("a pack reads as a change: %+v", survey)
+	}
+	got, err := r.Worktrees.Inspect(ctx, created.Path)
+	if err != nil || !got.Clean {
+		t.Errorf("a pack dirtied the worktree: %+v: %v", got, err)
+	}
+	if err := r.Worktrees.Remove(ctx, r.Repository, created.Path); err != nil {
+		t.Errorf("a pack held a worktree back: %v", err)
 	}
 }
 

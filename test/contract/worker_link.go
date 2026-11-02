@@ -10,7 +10,9 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/clock"
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/control"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -56,6 +58,7 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"registration exchanges a join token once", checkRegistration},
 		{"a worker asks for a lane it holds", checkWorkerAsk},
 		{"a worker reads what the ledger holds about its lane", checkLaneFactsLink},
+		{"a worker reads what a lane may reach, under its fence", checkLaneContextLink},
 		{"a retried registration replaces the credential", checkRegistrationRetry},
 		{"a wrong credential is refused", checkWrongCredential},
 		{"a session opens a new epoch and a stale epoch is refused", checkEpochs},
@@ -842,6 +845,49 @@ func checkLaneFactsLink(t *testing.T, ctx context.Context, b LinkBackend) {
 	var fenced *workorders.FencedError
 	if _, err := r.Link.LaneFacts(ctx, stale); !errors.As(err, &fenced) {
 		t.Errorf("a stale fence: %v", err)
+	}
+}
+
+func checkLaneContextLink(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	id := r.readyOrder(t, ctx, "wo")
+	grant, err := r.Link.Claim(ctx, auth, workorders.ClaimRequest{WorkOrder: id, ClaimID: "c1", TTLMs: linkTTL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft := questions.Decision{ID: "d-1", Status: questions.DecisionDecided, Statement: "Use two retries."}
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	if _, err := control.NewQuestions(r.Store, questions.BatchPolicy{}).RecordDecision(ctx, r.Scope, draft, member); err != nil {
+		t.Fatal(err)
+	}
+	request := ledger.LaneContextRequest{
+		Auth: auth, Epoch: session.Epoch, WorkOrder: id, Fence: grant.Fence, Lane: "lane-1",
+		Tool: lanes.ToolContextGet, Kind: string(contextpacks.KindDecision), Ref: draft.ID,
+	}
+	found, err := r.Link.LaneContext(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Records) != 1 || !strings.Contains(found.Records[0].Text, draft.Statement) {
+		t.Errorf("found %+v", found)
+	}
+	missing := request
+	missing.Ref = "d-none"
+	if none, err := r.Link.LaneContext(ctx, missing); err != nil || none.Records == nil || len(none.Records) != 0 {
+		t.Errorf("a miss must say so: %+v, %v", none, err)
+	}
+	stale := request
+	stale.Fence = grant.Fence + 1
+	var fenced *workorders.FencedError
+	if _, err := r.Link.LaneContext(ctx, stale); !errors.As(err, &fenced) {
+		t.Errorf("a stale fence: %v", err)
+	}
+	unknown := request
+	unknown.Tool = "lane_delete"
+	if _, err := r.Link.LaneContext(ctx, unknown); !errors.Is(err, workorders.ErrInvalid) {
+		t.Errorf("a tool nobody named: %v", err)
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"sync"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -25,14 +27,52 @@ type Worktrees struct {
 	pushed    []string
 	fetched   []string
 	snapshots map[string]string
+	contexts  map[string][]string
+	context   error
 }
 
 // NewWorktrees returns an empty store.
 func NewWorktrees() *Worktrees {
 	return &Worktrees{
 		byPath: map[string]ports.Worktree{}, branches: map[string]string{}, ahead: map[string]int64{},
-		snapshots: map[string]string{},
+		snapshots: map[string]string{}, contexts: map[string][]string{},
 	}
+}
+
+// FailContext makes every WriteContext fail, until it is given nil.
+func (w *Worktrees) FailContext(err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.context = err
+}
+
+// Context reads the last pack text left in a worktree.
+func (w *Worktrees) Context(path string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	writes := w.contexts[path]
+	if len(writes) == 0 {
+		return ""
+	}
+	return writes[len(writes)-1]
+}
+
+// ContextWrites lists every pack text left in a worktree, oldest first.
+func (w *Worktrees) ContextWrites(path string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.contexts[path])
+}
+
+// WriteContext keeps the text, and git sees none of it, so a survey reads no change.
+func (w *Worktrees) WriteContext(_ context.Context, path, text string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.context != nil {
+		return "", w.context
+	}
+	w.contexts[path] = append(w.contexts[path], text)
+	return filepath.Join(path, lanes.PackFile), nil
 }
 
 // UseRemote gives every worktree a remote.

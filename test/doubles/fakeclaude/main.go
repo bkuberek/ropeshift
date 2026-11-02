@@ -81,6 +81,8 @@ type step struct {
 	MCP       string         `json:"mcp,omitempty"`
 	Arguments map[string]any `json:"arguments,omitempty"`
 	Refusable bool           `json:"refusable,omitempty"`
+	// KeepAnswer keeps what the call answered, for a test to read.
+	KeepAnswer bool `json:"keep_answer,omitempty"`
 	// Hold waits for a signal, as a turn in progress does.
 	Hold bool `json:"hold,omitempty"`
 	// Exit ends the process at once, with no result.
@@ -281,6 +283,13 @@ func parse(args []string) options {
 	return o
 }
 
+func flagValue(args []string, name string) string {
+	if at := slices.Index(args, name); at >= 0 && at+1 < len(args) {
+		return args[at+1]
+	}
+	return ""
+}
+
 // remember leaves what this process saw for a test to read.
 func remember(self string, args []string) {
 	env := map[string]string{}
@@ -288,7 +297,15 @@ func remember(self string, args []string) {
 		name, value, _ := strings.Cut(entry, "=")
 		env[name] = value
 	}
-	raw, err := json.Marshal(map[string]any{"args": args, "env": env})
+	seen := map[string]any{"args": args, "env": env}
+	if file := flagValue(args, "--append-system-prompt-file"); file != "" {
+		text, err := os.ReadFile(file)
+		if err != nil {
+			fail("the system prompt file: %v", err)
+		}
+		seen["system_prompt"] = string(text)
+	}
+	raw, err := json.Marshal(seen)
 	if err != nil {
 		fail("%v", err)
 	}
@@ -494,7 +511,10 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 		case st.Raw != "":
 			writeLine([]byte(st.Raw))
 		case st.MCP != "":
-			s.callTool(st.MCP, st.Arguments, st.Refusable)
+			answer := s.callTool(st.MCP, st.Arguments, st.Refusable)
+			if st.KeepAnswer {
+				witness("tool", answer)
+			}
 		case st.Witness != "":
 			witness(st.Witness, fmt.Sprintf("%s %d", st.Line, time.Now().UnixMilli()))
 		case st.FirstTime != "":
@@ -841,7 +861,7 @@ func (c *mcpClient) close() {
 
 // callTool refuses a call the settings do not allow, because a headless session has
 // nobody to answer a prompt, and that is what the allow rule exists to prevent.
-func (s *session) callTool(name string, arguments map[string]any, refusable bool) {
+func (s *session) callTool(name string, arguments map[string]any, refusable bool) string {
 	if !slices.Contains(s.settings.Permissions.Allow, "mcp__ropeshift__"+name) {
 		fail("%s would wait on a permission prompt", name)
 	}
@@ -857,7 +877,7 @@ func (s *session) callTool(name string, arguments map[string]any, refusable bool
 	if !found {
 		fail("the server does not list %s", name)
 	}
-	s.hook("PreToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_fixture", "tool_input": arguments})
+	s.hook("PreToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_" + name, "tool_input": arguments})
 	s.emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
 		{"type": "tool_use", "name": "mcp__ropeshift__" + name},
 	}}})
@@ -869,5 +889,6 @@ func (s *session) callTool(name string, arguments map[string]any, refusable bool
 	s.emit(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
 		{"type": "tool_result", "is_error": isError},
 	}}})
-	s.hook("PostToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_fixture"})
+	s.hook("PostToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_" + name})
+	return fmt.Sprint(result["content"])
 }

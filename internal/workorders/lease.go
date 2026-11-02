@@ -95,6 +95,9 @@ type Claim struct {
 	Lane string
 	// Overrides is that lane's own profile layer, as TOML.
 	Overrides string
+	// PackID names the context pack this claim pinned. A lane keeps it across generations and
+	// across the claims that bring it back.
+	PackID string
 }
 
 // Ended reports a claim that no longer holds anything.

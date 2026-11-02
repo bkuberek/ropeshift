@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
 
@@ -192,6 +193,39 @@ func (w Worktrees) DefaultBranch(ctx context.Context, repository string) (string
 		return strings.TrimPrefix(head, "origin/"), nil
 	}
 	return git.Text(ctx, "symbolic-ref", "--quiet", "--short", "HEAD")
+}
+
+// contextIgnore is what keeps a pack's directory out of git. It lives in that directory, so it
+// needs no entry in a file a repository or its other worktrees share.
+const contextIgnore = "*\n"
+
+// WriteContext leaves a pack's text where a session reads it. A rename means a session never reads
+// half a pack, and the directory ignores itself, so git sees nothing there.
+func (w Worktrees) WriteContext(_ context.Context, path, text string) (string, error) {
+	file := filepath.Join(path, lanes.PackFile)
+	dir := filepath.Dir(file)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(contextIgnore), 0o600); err != nil {
+		return "", err
+	}
+	scratch, err := os.CreateTemp(dir, "pack-*.md")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(scratch.Name())
+	if _, err := scratch.WriteString(text); err != nil {
+		_ = scratch.Close()
+		return "", err
+	}
+	if err := scratch.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(scratch.Name(), file); err != nil {
+		return "", err
+	}
+	return file, nil
 }
 
 var _ ports.Worktrees = Worktrees{}

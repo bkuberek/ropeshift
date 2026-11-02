@@ -64,4 +64,8 @@ type Worktrees interface {
 	// DefaultBranch names the branch a repository's work lands on. It reads an upstream's
 	// default first, and a repository with none has its current branch.
 	DefaultBranch(ctx context.Context, repository string) (string, error)
+	// WriteContext leaves a pack's text in a directory git does not see, and returns its path. It
+	// repeats safely, and a survey, a snapshot, and a removal all read the worktree as if it were
+	// not there.
+	WriteContext(ctx context.Context, path, text string) (string, error)
 }

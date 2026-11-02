@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/measures"
 	"ropeshift.dev/ropeshift/internal/messages"
@@ -85,6 +86,8 @@ type ReadTx interface {
 	Wakes() WakeReader
 	// Messages reads messages to lanes.
 	Messages() MessageReader
+	// Packs reads context packs.
+	Packs() PackReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -133,6 +136,8 @@ type WriteTx interface {
 	Wakes() WakeWriter
 	// Messages reads and writes messages to lanes.
 	Messages() MessageWriter
+	// Packs reads and writes context packs.
+	Packs() PackWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -295,6 +300,10 @@ type LaneWriter interface {
 	StartGeneration(generation ledger.Generation) error
 	// BindSession records what the vendor calls a generation's session.
 	BindSession(lane string, number int64, session string) error
+	// ReadPack records the context pack version a generation read.
+	ReadPack(lane string, number int64, pack string, version int64) error
+	// Baseline records what a generation held at its first call.
+	Baseline(lane string, number, tokens int64) error
 	// EndGeneration records a generation's end, once.
 	EndGeneration(lane string, number int64, reason string) error
 	// SaveHandoff keeps one generation's handoff once, and names it on that generation.
@@ -365,6 +374,36 @@ type MessageWriter interface {
 	// Save is the compare-and-set of the delivery table: it replaces what can change on a message
 	// that still stands in the state its caller read, and reports whether it did.
 	Save(message messages.Message, from messages.State) (bool, error)
+}
+
+// PackReader reads context packs. No read here stops at a page, because each one decides who hears
+// of a change.
+type PackReader interface {
+	// Pack returns one version, or ErrNotFound.
+	Pack(id string, version int64) (contextpacks.Pack, error)
+	// Latest returns a pack's newest version, or ErrNotFound.
+	Latest(id string) (contextpacks.Pack, error)
+	// All lists every version, by pack and then by version.
+	All() ([]contextpacks.Pack, error)
+	// Pinning names the packs whose newest version holds a record, through the item index.
+	Pinning(kind contextpacks.Kind, record string) ([]string, error)
+	// Lanes names the lanes a pack's claims ran.
+	Lanes(pack string) ([]string, error)
+	// Additions lists what was added to a work order's next pack, oldest first.
+	Additions(workOrder string) ([]contextpacks.Addition, error)
+	// AllAdditions lists what was added to every work order, oldest first.
+	AllAdditions() ([]contextpacks.Addition, error)
+	// Samples reads what fresh generations measured, for the ratio an estimate uses.
+	Samples() ([]contextpacks.Sample, error)
+}
+
+// PackWriter writes context packs. A version never changes once it is written.
+type PackWriter interface {
+	PackReader
+	// Insert adds a version and its items.
+	Insert(contextpacks.Pack) error
+	// Add keeps one addition, and reports whether it was new.
+	Add(contextpacks.Addition) (bool, error)
 }
 
 // EvidenceReader reads what a work order's lanes left and what its checks said.
@@ -489,7 +528,8 @@ type QuestionReader interface {
 	Decisions(filter RecordFilter) ([]questions.Decision, error)
 	// AnsweredBy returns the questions one decision answered.
 	AnsweredBy(decision string) ([]questions.Question, error)
-	// Overlapping returns the decisions in force whose scope overlaps one, by ID.
+	// Overlapping returns every decision in force whose scope overlaps one, by ID. It stops at no
+	// page, because a recording decision states how it stands to each, and a pack selects from them.
 	Overlapping(scope string) ([]questions.Decision, error)
 	// Assumptions counts the open assumptions about one work order.
 	Assumptions(workOrder string) (int64, error)

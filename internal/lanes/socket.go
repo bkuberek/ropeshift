@@ -3,6 +3,8 @@ package lanes
 import (
 	"encoding/json"
 
+	"ropeshift.dev/ropeshift/internal/contextpacks"
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -36,9 +38,20 @@ const (
 	ToolReply       = "reply"
 )
 
+// The Context group: a lane reaches the same knowledge a pack holds, so a pack is where a lane
+// starts and not where it stops (FR-CTX-2).
+const (
+	ToolContextGet     = contextpacks.ToolGet
+	ToolDecisionSearch = "decision_search"
+	ToolRequirementGet = "requirement_get"
+	ToolQuestionSearch = "question_search"
+)
+
 // Tools are a lane's MCP tools. Generated settings allow exactly these, so a lane
 // reports its outcome with no prompt (ADR-0014).
-var Tools = []string{ToolLaneReport, ToolLaneWait, ToolAsk, ToolLaneHandoff, ToolReply}
+var Tools = []string{
+	ToolLaneReport, ToolLaneWait, ToolAsk, ToolLaneHandoff, ToolReply, ToolContextGet, ToolDecisionSearch, ToolRequirementGet, ToolQuestionSearch,
+}
 
 // WaitDeclaration is a lane's word that it waits on an external process.
 type WaitDeclaration struct {
@@ -85,6 +98,17 @@ type Request struct {
 	// Handoff is a lane's narrative as it wrote it, so the worker judges what arrived.
 	Handoff json.RawMessage `json:"handoff,omitempty"`
 	Reply   *ReplyRequest   `json:"reply,omitempty"`
+	Context *ContextRequest `json:"context,omitempty"`
+}
+
+// ContextRequest is one read of the Context group. A search reads Query, and a lookup reads Kind
+// and Ref.
+type ContextRequest struct {
+	Tool  string `json:"tool"`
+	Kind  string `json:"kind,omitempty"`
+	Ref   string `json:"ref,omitempty"`
+	Query string `json:"query,omitempty"`
+	Limit int    `json:"limit,omitempty"`
 }
 
 // Reply is the one line that answers it.
@@ -94,4 +118,6 @@ type Reply struct {
 	Message string `json:"message,omitempty"`
 	// Ask is what `ask` found, set when OK.
 	Ask *questions.AskResult `json:"ask,omitempty"`
+	// Context is what a read of the Context group found, set when OK.
+	Context []ledger.ContextRecord `json:"context,omitempty"`
 }

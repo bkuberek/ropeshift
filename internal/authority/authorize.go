@@ -17,6 +17,8 @@ const (
 	ActionAddCategory     Action = "category.add"
 	ActionAnswerQuestion  Action = "question.answer"
 	ActionArchiveLane     Action = "lane.archive"
+	// ActionAddPackItem adds a record to a work order's next context pack.
+	ActionAddPackItem     Action = "pack.add_item"
 	ActionChangeFleet     Action = "fleet.change"
 	ActionCreateJoinToken Action = "worker.join_token"
 	// ActionDecideUnbound decides outside the decision policy: a one-way choice, or with no
@@ -45,7 +47,7 @@ const (
 // Actions lists every action, so a test can hold each one to the function.
 func Actions() []Action {
 	return []Action{
-		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAddCategory, ActionAnswerQuestion,
+		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAddCategory, ActionAddPackItem, ActionAnswerQuestion,
 		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionResumeLane, ActionRework, ActionSendBack,
@@ -57,7 +59,7 @@ func Actions() []Action {
 // none of these.
 var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
-		ActionAccept: true, ActionAcceptLaneChecks: true, ActionArchiveLane: true, ActionDismissQuestion: true,
+		ActionAccept: true, ActionAcceptLaneChecks: true, ActionAddPackItem: true, ActionArchiveLane: true, ActionDismissQuestion: true,
 		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRework: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},

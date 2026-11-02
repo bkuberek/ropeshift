@@ -109,6 +109,8 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		return reply
 	case request.Ask != nil:
 		return w.takeAsk(ctx, lane, *request.Ask)
+	case request.Context != nil:
+		return w.takeContext(ctx, lane, *request.Context)
 	case len(request.Handoff) != 0:
 		return w.takeHandoff(ctx, lane, request.Handoff)
 	case request.Wait != nil:

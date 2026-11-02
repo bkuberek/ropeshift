@@ -102,6 +102,9 @@ type SessionSpec struct {
 	PermissionMode string
 	// Brief is the first prompt.
 	Brief string
+	// SystemPromptFile is the context pack, which a session holds in its system prompt on a start
+	// and on a resume. Empty holds none.
+	SystemPromptFile string
 	// ConfigDir receives the generated settings, with a new name per generation.
 	ConfigDir string
 	// Binary is the stable path of the ropeshift binary (D18).

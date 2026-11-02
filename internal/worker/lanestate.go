@@ -16,9 +16,6 @@ import (
 // reachWindow is how long a piece of reachability evidence stays fresh.
 const reachWindow = time.Minute
 
-// roleLane names a lane's thresholds in a profile.
-const roleLane = "lane"
-
 // The hooks that say something about a lane's state.
 const (
 	hookPreCompact  = "PreCompact"
@@ -51,11 +48,14 @@ type laneState struct {
 	retried     bool
 	degraded    bool
 	unpushed    bool
-	warnTokens  int64
-	stallAfter  time.Duration
-	briefGrace  time.Duration
-	waitUntil   time.Time
-	limits      lanes.Breaker
+	// policy is what a role's lane is held to, and baselined says this generation's baseline went
+	// on its way to the ledger.
+	policy     lanes.ContextPolicy
+	baselined  bool
+	stallAfter time.Duration
+	briefGrace time.Duration
+	waitUntil  time.Time
+	limits     lanes.Breaker
 	// handoffLimit is how long an agent has to write its part of a handoff, and
 	// handoffDegraded says the last handoff has only the worker's part. That stays until a
 	// later handoff has both, because it is what this generation was told.
@@ -80,7 +80,7 @@ func (s *laneState) thresholds(profile lanes.Profile) {
 	defer s.mu.Unlock()
 	s.stallAfter, _ = time.ParseDuration(profile.Lifecycle.StallAfter)
 	s.briefGrace, _ = time.ParseDuration(profile.Lifecycle.BriefGrace)
-	s.warnTokens = profile.Context.Roles[roleLane].WarnTokens
+	s.policy = lanes.PolicyFor(profile.Context, lanes.RoleWriter)
 	window, _ := time.ParseDuration(profile.Lifecycle.RestartWindow)
 	backoff, _ := time.ParseDuration(profile.Lifecycle.RestartBackoff)
 	s.limits = lanes.Breaker{
@@ -151,18 +151,23 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tools, s.progress, s.since, s.context, s.baseline = map[string]bool{}, now, now, 0, baseline
-	s.unconfirmed, s.retried = false, false
+	s.unconfirmed, s.retried, s.baselined = false, false, false
 }
 
 // noteContext keeps the context of one API call. The first of a session is what every path
-// carries.
-func (s *laneState) noteContext(tokens int64) {
+// carries. It says what to record of a generation that has recorded nothing, and zero otherwise.
+func (s *laneState) noteContext(tokens int64) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.context = tokens
 	if s.baseline == 0 {
 		s.baseline = tokens
 	}
+	if s.baselined {
+		return 0
+	}
+	s.baselined = true
+	return s.baseline
 }
 
 // contextRead reads what the session held at its last call, and at its first.
@@ -237,9 +242,10 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		r.signal(ctx, lanes.OnActivity)
 	case ports.EventUsage:
 		r.progressed()
-		s.noteContext(event.ContextTokens)
+		baseline := s.noteContext(event.ContextTokens)
 		r.noteModel(lanes.Reachable)
 		r.signal(ctx, lanes.OnActivity)
+		r.recordBaseline(ctx, baseline)
 	case ports.EventTurnEnded:
 		r.progressed()
 		if event.Turn.Status == ports.TurnFailed {
@@ -324,8 +330,8 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 	facts := lanes.Facts{
 		State: state, SinceProgress: now.Sub(s.progress), StallAfter: s.stallAfter, ToolInFlight: len(s.tools) != 0,
 		WaitDeclared: now.Before(s.waitUntil), PastDeadline: r.lease.Deadline != 0 && now.UnixMilli() > r.lease.Deadline,
-		ContextTokens: s.context, WarnTokens: s.warnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
-		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded,
+		ContextTokens: s.context, WarnTokens: s.policy.WarnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
+		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded, PackOversized: s.policy.Oversized(s.baseline),
 	}
 	out := ledger.LaneStatus{
 		ActualState: string(state), Liveness: string(liveness),

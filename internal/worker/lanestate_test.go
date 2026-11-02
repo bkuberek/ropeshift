@@ -247,7 +247,7 @@ func TestStopFailureSetsReachability(t *testing.T) {
 }
 
 func TestContextCrossingTheWarningIsNearBudget(t *testing.T) {
-	r := laneRigWith(t, "[context.roles.lane]\nwarn_tokens = 100\n")
+	r := laneRigWith(t, "[context.roles.writer]\nwarn_tokens = 100\n")
 	g := newGate()
 	r.finishLater(g)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Context: &lanes.Usage{InputTokens: 101}}, g.step()}))

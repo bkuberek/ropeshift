@@ -19,11 +19,19 @@ import (
 // change hands between a check and a commit.
 type Leases struct {
 	store ports.Store
+	// packTokens is the budget of the pack a claim pins. Zero takes the default.
+	packTokens int64
 }
 
 // NewLeases returns the use cases over a Store.
 func NewLeases(store ports.Store) *Leases {
 	return &Leases{store: store}
+}
+
+// Budgeted sets the budget of the packs these claims pin.
+func (l *Leases) Budgeted(tokens int64) *Leases {
+	l.packTokens = tokens
+	return l
 }
 
 // Claim grants a work order. A retry with the same claim ID returns the original
@@ -68,6 +76,9 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		if err := continuesLane(tx, current, &claim); err != nil {
 			return err
 		}
+		if err := l.pinPack(tx, current, &claim, actor); err != nil {
+			return err
+		}
 		if err := tx.Claims().Record(claim); err != nil {
 			return err
 		}
@@ -110,7 +121,7 @@ func continuesLane(tx ports.WriteTx, order workorders.WorkOrder, claim *workorde
 	if errors.Is(err, ports.ErrNotFound) {
 		return nil
 	}
-	claim.Overrides = last.Overrides
+	claim.Overrides, claim.PackID = last.Overrides, last.PackID
 	return err
 }
 

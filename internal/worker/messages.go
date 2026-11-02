@@ -330,6 +330,7 @@ func (r *laneRun) readFacts(ctx context.Context) {
 	switch {
 	case err == nil:
 		r.setFacts(held.Facts)
+		r.setPack(held.Pack)
 	case r.lease.Resume != nil:
 		r.w.config.Report(fmt.Errorf("lane %s: what its prompt owes: %w", r.lease.Lane, err))
 		r.setFacts(r.lease.Resume.Facts)

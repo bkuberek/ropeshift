@@ -128,7 +128,7 @@ func writePaneState(spec ports.SessionSpec, state paneState) error {
 func paneArgs(spec ports.SessionSpec) []string {
 	settings, mcp := generatedPaths(spec)
 	out := []string{"--permission-mode", spec.PermissionMode, "--model", spec.Model, "--settings", settings, "--mcp-config", mcp}
-	return append(out, spec.Override.Args()...)
+	return append(append(out, packArgs(spec)...), spec.Override.Args()...)
 }
 
 // paneName is the pane's name on the terminal server. A lane ID holds no character tmux

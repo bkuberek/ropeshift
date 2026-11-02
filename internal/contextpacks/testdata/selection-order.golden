@@ -1,0 +1,7 @@
+contract c1@4
+requirement FR-B
+requirement FR-A
+decision d9
+decision d1
+goal g1
+knowledge wiki:12@7

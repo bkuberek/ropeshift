@@ -105,6 +105,13 @@ func (c *Client) LaneFacts(ctx context.Context, worker string, in ledger.LaneFac
 	return out, err
 }
 
+// LaneContext reads what a workspace holds, for a lane this worker holds.
+func (c *Client) LaneContext(ctx context.Context, worker string, in ledger.LaneContextRequest) (ledger.LaneContext, error) {
+	var out ledger.LaneContext
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "lane-context"), in, &out)
+	return out, err
+}
+
 // Rule carries what a worker's orchestrator decided or assumed.
 func (c *Client) Rule(ctx context.Context, worker string, in questions.WorkerRuling) (questions.Decision, error) {
 	var out questions.Decision

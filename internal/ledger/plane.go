@@ -173,6 +173,18 @@ type DesiredLease struct {
 	// Messages are what no worker has acknowledged for this lane. The control plane offers them
 	// until one does, and the worker deduplicates by ID (FR-MSG-3).
 	Messages []DesiredMessage `json:"messages,omitempty"`
+	// Pack is the newest version of the context pack this lane pinned.
+	Pack *DesiredPack `json:"pack,omitempty"`
+}
+
+// DesiredPack is what a generation reads of its pack. Text crosses as it was built and is never
+// rendered again, so it stays byte-identical across generations.
+type DesiredPack struct {
+	ID             string `json:"id"`
+	Version        int64  `json:"version"`
+	Digest         string `json:"digest"`
+	TokensEstimate int64  `json:"tokens_estimate"`
+	Text           string `json:"text"`
 }
 
 // DesiredMessage is one message on its way to a worker. Durations cross the wire, because the
@@ -308,6 +320,8 @@ const (
 	// UploadGenerationResponded says a generation's model answered, which the ledger stamps
 	// with its own time, for the resume table's cache clock.
 	UploadGenerationResponded = "generation_responded"
+	// UploadGenerationBaseline keeps what a generation held at its first call.
+	UploadGenerationBaseline = "generation_baseline"
 	// UploadMessage is a worker's word on one message. It passes no fence, because what happened
 	// to a message stays true after its lane moved on.
 	UploadMessage = "message_report"

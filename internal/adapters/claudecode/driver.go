@@ -263,6 +263,11 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	if spec.Binary == "" {
 		problem("no ropeshift binary to run the shim")
 	}
+	if spec.SystemPromptFile != "" {
+		if _, err := os.Stat(spec.SystemPromptFile); err != nil {
+			problem("no context pack at %s", spec.SystemPromptFile)
+		}
+	}
 	if spec.RunMode == ports.RunModeInteractive && d.terminal == nil {
 		problem("no terminal for an interactive session")
 	}
@@ -294,7 +299,16 @@ func args(spec ports.SessionSpec) []string {
 		"--permission-mode", spec.PermissionMode, "--model", spec.Model,
 		"--settings", settings, "--mcp-config", mcp,
 	}
-	return append(out, spec.Override.Args()...)
+	return append(append(out, packArgs(spec)...), spec.Override.Args()...)
+}
+
+// packArgs puts a generation's pack in its system prompt, which every start and every resume
+// states, so generations of one version share a cache.
+func packArgs(spec ports.SessionSpec) []string {
+	if spec.SystemPromptFile == "" {
+		return nil
+	}
+	return []string{"--append-system-prompt-file", spec.SystemPromptFile}
 }
 
 // StartArgs is the command of a new session.

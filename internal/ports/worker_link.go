@@ -32,4 +32,6 @@ type WorkerLink interface {
 	// LaneFacts reads what a handoff states and only the ledger knows, for a lane this
 	// worker holds.
 	LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (ledger.LaneFacts, error)
+	// LaneContext reads what a workspace holds, for a lane this worker holds.
+	LaneContext(ctx context.Context, request ledger.LaneContextRequest) (ledger.LaneContext, error)
 }

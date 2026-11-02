@@ -150,8 +150,7 @@ VALUES
    AND (d.scope = CAST(:scope AS TEXT)
      OR substr(d.scope, 1, length(CAST(:scope AS TEXT)) + 1) = CAST(:scope AS TEXT) || '/'
      OR substr(CAST(:scope AS TEXT), 1, length(d.scope) + 1) = d.scope || '/')
- ORDER BY d.id
- LIMIT :limit`)
+ ORDER BY d.id`)
 
 	stmtAssumptions = define("decision.assumptions",
 		`SELECT count(*)
@@ -518,7 +517,7 @@ func (t questionTx) Overlapping(scope string) ([]questions.Decision, error) {
 	if scope == "" {
 		return nil, nil
 	}
-	return t.listDecisions(stmtOverlapping, params{"scope": scope, "limit": int64(ports.MaxRecords)})
+	return t.listDecisions(stmtOverlapping, params{"scope": scope})
 }
 
 func (t questionTx) Assumptions(workOrder string) (int64, error) {

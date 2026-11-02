@@ -16,6 +16,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/messages"
@@ -186,6 +187,26 @@ func TestMessageWindowsComeFromTheUserLayer(t *testing.T) {
 	}
 	if got := soloWindows(paths).For(messages.KindAnswer); got != messages.DefaultWindow {
 		t.Errorf("window %+v", got)
+	}
+}
+
+func TestAPackBudgetComesFromTheUserLayer(t *testing.T) {
+	dir := t.TempDir()
+	paths := api.Paths{StateDir: dir}
+	if got := soloPackTokens(paths); got != contextpacks.DefaultBudgetTokens {
+		t.Errorf("no layer gives a budget of %d", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, profiles.UserFile), []byte("[context]\npack_budget_tokens = 1234\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := soloPackTokens(paths); got != 1234 {
+		t.Errorf("a budget of %d", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, profiles.UserFile), []byte("not toml ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := soloPackTokens(paths); got != 0 {
+		t.Errorf("a layer that does not parse gives %d, and the default is the control plane's", got)
 	}
 }
 

@@ -44,6 +44,8 @@ type Config struct {
 	Batches questions.BatchPolicy
 	// Windows says how long a message stays useful, per kind.
 	Windows messages.Windows
+	// PackTokens is the budget of the pack a claim pins. Zero takes the default.
+	PackTokens int64
 }
 
 type handler struct {
@@ -65,7 +67,7 @@ func New(config Config) http.Handler {
 	h := &handler{
 		Config:     config,
 		workOrders: control.NewWorkOrders(config.Store),
-		leases:     control.NewLeases(config.Store),
+		leases:     control.NewLeases(config.Store).Budgeted(config.PackTokens),
 		reviews:    control.NewReviews(config.Store),
 		accepting:  control.NewAcceptances(config.Store),
 		questions:  control.NewQuestions(config.Store, config.Batches).Telling(config.Windows),
@@ -75,6 +77,7 @@ func New(config Config) http.Handler {
 		sessions:   control.NewSessions(config.Store, config.Identity),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
+			PackTokens: config.PackTokens,
 		}),
 	}
 	mux := http.NewServeMux()

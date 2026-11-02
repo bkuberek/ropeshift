@@ -13,12 +13,17 @@ import (
 const Nudge = "You ended your turn with no outcome. Call the " + ToolLaneReport +
 	" tool now, once, with the outcome of this lane."
 
+// PackFile is where a pack sits in a worktree, in a directory git does not see.
+const PackFile = ".ropeshift/context/pack.md"
+
 // BriefSpec is what a first prompt is built from.
 type BriefSpec struct {
 	WorkOrder string
 	Title     string
 	Statement string
 	Criteria  []string
+	// Pack says this generation holds a context pack.
+	Pack bool
 	// Handoff is what the last generation left, for a generation that follows one.
 	Handoff *Handoff
 	// Pending is what a stopped generation was doing, because a stopped turn is not continued.
@@ -27,8 +32,7 @@ type BriefSpec struct {
 	Facts []ledger.MessageFact
 }
 
-// Brief is a lane's first prompt until context packs replace it: the contract, and
-// how the lane ends.
+// Brief is a lane's first prompt: the contract, where its context pack is, and how the lane ends.
 func Brief(spec BriefSpec) string {
 	var out strings.Builder
 	out.WriteString("You are working in a ropeshift lane on work order " + spec.WorkOrder + ": " + spec.Title + ".\n")
@@ -40,6 +44,11 @@ func Brief(spec BriefSpec) string {
 		for _, criterion := range spec.Criteria {
 			out.WriteString("- " + criterion + "\n")
 		}
+	}
+	if spec.Pack {
+		out.WriteString("\nYour system prompt holds this lane's context pack, which is also at " + PackFile + ". It is where you start " +
+			"and not a limit: the " + ToolContextGet + ", " + ToolDecisionSearch + ", " + ToolRequirementGet + ", and " + ToolQuestionSearch +
+			" tools read the rest of what this workspace holds.\n")
 	}
 	if spec.Handoff != nil {
 		writeHandoff(&out, *spec.Handoff)

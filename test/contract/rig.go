@@ -17,6 +17,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/messages"
@@ -141,6 +142,7 @@ type Ops interface {
 	ReadMessage(ctx context.Context, scope ledger.WorkspaceID, id string) (messages.Message, error)
 	LaneMessages(ctx context.Context, scope ledger.WorkspaceID, lane string) ([]messages.Message, error)
 	ExpireMessages(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
+	AddPackItem(ctx context.Context, scope ledger.WorkspaceID, addition contextpacks.Addition, actor ledger.Actor) error
 }
 
 type realOps struct {
@@ -153,6 +155,7 @@ type realOps struct {
 	*control.Acceptances
 	*control.Wakes
 	*control.Messages
+	*control.Packs
 }
 
 // The limits a batch runs under here: a window long enough that a blocking question can
@@ -182,7 +185,7 @@ func RealOps(store ports.Store) Ops {
 	return realOps{
 		control.NewSessions(store, provenMember{}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
 		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
-		control.NewAcceptances(store), control.NewWakes(store), control.NewMessages(store, nil),
+		control.NewAcceptances(store), control.NewWakes(store), control.NewMessages(store, nil), control.NewPacks(store),
 	}
 }
 

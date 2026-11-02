@@ -30,6 +30,7 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workers/{id}/events", h.events)
 	mux.HandleFunc("POST /v1/workers/{id}/ask", h.workerAsk)
 	mux.HandleFunc("POST /v1/workers/{id}/lane-facts", h.workerLaneFacts)
+	mux.HandleFunc("POST /v1/workers/{id}/lane-context", h.workerLaneContext)
 	mux.HandleFunc("POST /v1/workers/{id}/rulings", h.workerRule)
 }
 
@@ -217,6 +218,21 @@ func (h *handler) workerLaneFacts(w http.ResponseWriter, r *http.Request) {
 	}
 	in.Auth = authOf(r)
 	result, err := h.workers.LaneFacts(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, result)
+}
+
+// workerLaneContext is what a lane reads past its pack, through the worker that holds it.
+func (h *handler) workerLaneContext(w http.ResponseWriter, r *http.Request) {
+	var in ledger.LaneContextRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	result, err := h.workers.LaneContext(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return

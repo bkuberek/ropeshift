@@ -42,6 +42,9 @@ func bindGeneration(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 			return err
 		}
 	}
+	if err := tx.Lanes().ReadPack(e.Lane, e.Generation, binding.PackID, binding.PackVersion); err != nil {
+		return err
+	}
 	if err := carryMessages(tx, worker, e.Lane, e.Generation, binding.Carried); err != nil {
 		return err
 	}
@@ -67,6 +70,24 @@ func respondGeneration(tx ports.WriteTx, worker, id string, e ledger.UploadEvent
 		return err
 	}
 	if err := tx.Lanes().Responded(e.Lane, e.Generation); err != nil {
+		return err
+	}
+	_, err = tx.Append(draft)
+	return err
+}
+
+// recordBaseline keeps what a generation held at its first call, which is what a pack's size is
+// judged by and what the ratio of the next estimate follows.
+func recordBaseline(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	var baseline ledger.GenerationBaseline
+	if err := json.Unmarshal(e.Payload, &baseline); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	draft, err := uploadedDraft(tx, worker, id, e)
+	if err != nil {
+		return err
+	}
+	if err := tx.Lanes().Baseline(e.Lane, e.Generation, baseline.Tokens); err != nil {
 		return err
 	}
 	_, err = tx.Append(draft)
@@ -134,6 +155,15 @@ func (w *Workers) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest
 		}
 		for _, check := range checks {
 			facts.Checks = append(facts.Checks, ledger.CheckState{Name: check.Name, Status: string(check.Status)})
+		}
+		claim, err := tx.Claims().Find(order.ClaimID)
+		switch {
+		case err == nil:
+			if facts.Pack, err = desiredPack(tx.Packs(), claim.PackID); err != nil {
+				return err
+			}
+		case !errors.Is(err, ports.ErrNotFound):
+			return err
 		}
 		generation, err := tx.Lanes().Generation(request.Lane)
 		if errors.Is(err, ports.ErrNotFound) {

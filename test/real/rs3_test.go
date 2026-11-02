@@ -60,7 +60,7 @@ permission_mode = "default"
 ready_timeout = "60s"
 max_restarts = 0
 
-[context.roles.lane]
+[context.roles.writer]
 warn_tokens = 1
 `
 	// rs3Settings is a person's project settings: a status line of their own, and a hook

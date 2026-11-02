@@ -304,22 +304,22 @@ type claimTx struct {
 
 var (
 	stmtFindClaim = define("claim.find",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id
   FROM claims
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtListClaims = define("claim.list",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id
   FROM claims
  WHERE workspace_id = :workspace_id
  ORDER BY work_order_id, fence`)
 
 	stmtRecordClaim = define("claim.record",
-		`INSERT INTO claims (workspace_id, id, work_order_id, worker_id, fence, granted_at, lane_id, lane_overrides)
-VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at, :lane, :overrides)`)
+		`INSERT INTO claims (workspace_id, id, work_order_id, worker_id, fence, granted_at, lane_id, lane_overrides, pack_id)
+VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at, :lane, :overrides, :pack_id)`)
 
 	stmtClaimOfLane = define("claim.of_lane",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id
   FROM claims
  WHERE workspace_id = :workspace_id AND lane_id = :lane
  ORDER BY fence DESC
@@ -337,11 +337,11 @@ VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at, :la
 func scanClaim(row scanner) (workorders.Claim, error) {
 	var c workorders.Claim
 	var endedAt sql.NullInt64
-	var reason, lane sql.NullString
-	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason, &lane, &c.Overrides); err != nil {
+	var reason, lane, pack sql.NullString
+	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason, &lane, &c.Overrides, &pack); err != nil {
 		return workorders.Claim{}, err
 	}
-	c.EndedAt, c.EndReason, c.Lane = endedAt.Int64, reason.String, lane.String
+	c.EndedAt, c.EndReason, c.Lane, c.PackID = endedAt.Int64, reason.String, lane.String, pack.String
 	return c, nil
 }
 
@@ -378,7 +378,7 @@ func (t claimTx) Record(c workorders.Claim) error {
 	_, err := t.exec(stmtRecordClaim, params{
 		"workspace_id": string(t.scope), "id": c.ID, "work_order_id": c.WorkOrder,
 		"worker_id": c.Worker, "fence": c.Fence, "granted_at": c.GrantedAt,
-		"lane": nullText(c.Lane), "overrides": c.Overrides,
+		"lane": nullText(c.Lane), "overrides": c.Overrides, "pack_id": nullText(c.PackID),
 	})
 	return err
 }

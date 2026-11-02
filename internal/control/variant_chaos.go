@@ -42,6 +42,10 @@ type Sabotage struct {
 	LeavesAnswers bool
 	// SignalsAnyKey takes a worker's word on any sign-in, and SignalsAnyKind any word at all.
 	SignalsAnyKey, SignalsAnyKind bool
+	// DropsPackEvent stores a pack the log never hears of.
+	DropsPackEvent bool
+	// RebuildsPack gives a claim that brings a lane back a new pack.
+	RebuildsPack bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -89,3 +93,7 @@ func leavesAnswers() bool { return current().LeavesAnswers }
 func signalsAnyKey() bool { return current().SignalsAnyKey }
 
 func signalsAnyKind() bool { return current().SignalsAnyKind }
+
+func dropsPackEvent() bool { return current().DropsPackEvent }
+
+func rebuildsPack() bool { return current().RebuildsPack }

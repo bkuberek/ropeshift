@@ -260,6 +260,7 @@ func (r *laneRun) handoffFacts(ctx context.Context, record lanes.Record, guard l
 	if r.lease.Contract != "" {
 		facts.Contract = &lanes.ContractRef{ID: r.lease.Contract, Version: r.lease.ContractVersion}
 	}
+	facts.ContextPack = r.readPack()
 	found, err := r.rt.Provisioner.Worktrees.Survey(ctx, record.Worktree)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: the handoff's survey: %w", record.ID, err))

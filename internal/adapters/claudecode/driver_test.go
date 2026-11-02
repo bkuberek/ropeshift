@@ -71,6 +71,28 @@ func TestResumeFlags(t *testing.T) {
 	}
 }
 
+// A pack sits in the system prompt on a start and on a resume, because no flag survives a resume by
+// itself, and a session with none takes no flag.
+func TestAPackGoesInTheSystemPrompt(t *testing.T) {
+	spec := goldenSpec()
+	for name, got := range map[string][]string{
+		"a start": claudecode.StartArgs(spec), "a resume": claudecode.ResumeArgs(spec, ports.ResumeRef{SessionID: "s"}),
+	} {
+		if slices.Contains(got, "--append-system-prompt-file") {
+			t.Errorf("%s with no pack: %v", name, got)
+		}
+	}
+	spec.SystemPromptFile = "/lanes/one/pack.md"
+	for name, got := range map[string][]string{
+		"a start": claudecode.StartArgs(spec), "a resume": claudecode.ResumeArgs(spec, ports.ResumeRef{SessionID: "s"}),
+	} {
+		at := slices.Index(got, "--append-system-prompt-file")
+		if at < 0 || got[at+1] != spec.SystemPromptFile {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}
+
 func TestNoBareFlagAndAnExplicitPermissionMode(t *testing.T) {
 	got := claudecode.StartArgs(goldenSpec())
 	if slices.Contains(got, "--bare") {
@@ -730,6 +752,7 @@ func TestPreflightRefusesWhatCannotStart(t *testing.T) {
 		{"a parent session's marker", func(s *ports.SessionSpec) { s.Env = append(s.Env, "CLAUDE_CODE_CHILD_SESSION=1") }, "session variable"},
 		{"a socket past the limit", func(s *ports.SessionSpec) { s.TempDir = "/" + strings.Repeat("d", 90) }, "byte limit"},
 		{"a shim's socket past the limit", func(s *ports.SessionSpec) { s.TempDir, s.ConfigDir = "", "/"+strings.Repeat("d", 110) }, "byte limit"},
+		{"a pack that is not there", func(s *ports.SessionSpec) { s.SystemPromptFile = "/nowhere/pack.md" }, "no context pack"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

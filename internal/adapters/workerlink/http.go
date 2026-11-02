@@ -133,4 +133,15 @@ func (l *HTTP) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (
 	return facts, domainError(err)
 }
 
+// LaneContext reads what a workspace holds, for a lane this worker holds. A refusal of the read
+// itself comes back as what it is, so a lane reads it and can ask again.
+func (l *HTTP) LaneContext(ctx context.Context, request ledger.LaneContextRequest) (ledger.LaneContext, error) {
+	found, err := l.as(request.Auth).LaneContext(ctx, request.Auth.WorkerID, request)
+	var refused *api.Error
+	if errors.As(err, &refused) && refused.Detail.Code == api.CodeInvalid {
+		return ledger.LaneContext{}, fmt.Errorf("%w: %s", workorders.ErrInvalid, refused.Detail.Message)
+	}
+	return found, domainError(err)
+}
+
 var _ ports.WorkerLink = (*HTTP)(nil)

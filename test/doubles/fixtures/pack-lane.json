@@ -1,0 +1,14 @@
+{
+  "source": "RS9: a pack in the system prompt, and a tool of the Context group through ropeshift mcp",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"mcp": "requirement_get", "arguments": {"key": "PK-1"}, "keep_answer": true},
+      {"mcp": "decision_search", "arguments": {"query": "nothing on record here"}, "keep_answer": true},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}},
+      {"hook": "Stop", "input": {}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}}}
+    ]
+  ]
+}

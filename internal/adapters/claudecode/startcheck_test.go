@@ -65,6 +65,19 @@ func TestTrustFocusAboveAccept(t *testing.T) {
 	}
 }
 
+func TestAPaneHoldsItsPack(t *testing.T) {
+	spec := ports.SessionSpec{Lane: "lane-1", Generation: 1, Model: "opus", PermissionMode: "default", ConfigDir: "/state"}
+	if slices.Contains(paneArgs(spec), "--append-system-prompt-file") {
+		t.Errorf("a pane with no pack: %v", paneArgs(spec))
+	}
+	spec.SystemPromptFile = "/lanes/one/pack.md"
+	got := paneArgs(spec)
+	at := slices.Index(got, "--append-system-prompt-file")
+	if at < 0 || got[at+1] != spec.SystemPromptFile {
+		t.Errorf("args %v", got)
+	}
+}
+
 func TestStartCheck(t *testing.T) {
 	trust, accepted, ready := pane(t, "trust-focus-cancel"), pane(t, "trust-focus-accept"), pane(t, "ready")
 	moves := map[string]map[string]string{

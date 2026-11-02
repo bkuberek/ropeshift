@@ -120,6 +120,10 @@ type laneRun struct {
 	// restarted worker keeps. The handle's lock guards both.
 	facts   []ledger.MessageFact
 	carried []string
+	// pack is the newest version this run has heard of, and packRead the one this generation
+	// holds, which a later version does not change. The handle's lock guards both.
+	pack     *ledger.DesiredPack
+	packRead *lanes.PackRef
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -128,7 +132,7 @@ func newOnce() *sync.Once { return &sync.Once{} }
 func newRun(w *Worker, lease ledger.DesiredLease) *laneRun {
 	return &laneRun{
 		w: w, rt: w.config.Lanes, lease: lease, generation: firstGeneration, stopOnce: newOnce(),
-		state: newLaneState(lanes.Pending, w.clock.Now()),
+		state: newLaneState(lanes.Pending, w.clock.Now()), pack: lease.Pack,
 	}
 }
 
@@ -144,6 +148,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	}
 	run.left, run.parking = record.Handoff, record.Parking
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
+	run.packRead = record.Progress.Pack
 	run.state.keepContext(record.Progress.ContextTokens, record.Progress.BaselineTokens)
 	run.inheritedFrom(record.Handoff)
 	return run
@@ -445,7 +450,11 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.state.thresholds(prepared.Profile)
 	r.readFacts(ctx)
-	spec, err := r.spec(ctx, prepared, repository)
+	packFile, err := r.writePack(ctx, prepared.Worktree.Path)
+	if err != nil {
+		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
+	spec, err := r.spec(ctx, prepared, repository, packFile)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -458,8 +467,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if r.resumeFrom == "" {
 		r.setInstruction(spec.Brief)
 	}
-	// Before the process, so a kill right after it leaves a lane able to answer what it was told.
-	if len(r.carriedIDs()) != 0 {
+	// Before the process, so a kill right after it leaves a lane able to answer what it was told,
+	// and able to say which pack it read.
+	if len(r.carriedIDs()) != 0 || r.readPack() != nil {
 		r.saveProgress(ctx, r.cursor)
 	}
 	spawn := lanes.NewEffect(lanes.EffectSession, r.lease.Lane, r.currentGeneration(), prepared.Worktree.Path, "")
@@ -518,7 +528,7 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 // spec builds a session from what the worker prepared, and refuses what the driver cannot run
 // before a process starts. A session that goes on stays in the mode it started in, whatever the
 // profile says by now, because a session resumed in the other mode is untested.
-func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository string) (ports.SessionSpec, error) {
+func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, packFile string) (ports.SessionSpec, error) {
 	capabilities, err := r.rt.Driver.Capabilities(ctx)
 	if err != nil {
 		return ports.SessionSpec{}, err
@@ -546,7 +556,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository st
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
 		Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
-		Brief:     r.briefText(),
+		Brief: r.briefText(), SystemPromptFile: packFile,
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
@@ -624,7 +634,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	r.cursor = cursor
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
-		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(),
+		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(),
 	}
 	progress.ContextTokens, progress.BaselineTokens = r.state.contextRead()
 	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
@@ -642,11 +652,15 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	r.handleLock.Lock()
 	r.resolved = event.ModelResolved
 	r.handleLock.Unlock()
-	payload, err := json.Marshal(workorders.GenerationBinding{
+	binding := workorders.GenerationBinding{
 		SessionID: event.SessionID, ModelRequested: r.model, ModelResolved: event.ModelResolved,
 		ProfileDigest: r.profileDigest, DriverVersion: r.version, DegradedMode: r.degraded, FellBack: r.fellBack,
 		Carried: r.carriedIDs(),
-	})
+	}
+	if read := r.readPack(); read != nil {
+		binding.PackID, binding.PackVersion = read.ID, read.Version
+	}
+	payload, err := json.Marshal(binding)
 	if err != nil {
 		r.w.config.Report(err)
 		return

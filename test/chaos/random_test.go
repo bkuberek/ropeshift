@@ -80,7 +80,7 @@ type randomRun struct {
 
 // randomSteps are the steps a kill aims at, beside the kills at random delays.
 var randomSteps = [][2]string{
-	{"claim", "begun"}, {"claim", "eligible"}, {"claim", "granted"}, {"claim", "recorded"},
+	{"claim", "begun"}, {"claim", "eligible"}, {"claim", "granted"}, {"claim", "packed"}, {"claim", "recorded"},
 	{"claim", "before-commit"}, {"claim", "committed"},
 	{"lane.start", "started"}, {"lane.start", "committed"},
 	{"fenced_write", "guarded"}, {"fenced_write", "before-commit"}, {"fenced_write", "committed"},

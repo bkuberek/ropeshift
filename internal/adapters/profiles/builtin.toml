@@ -11,6 +11,7 @@ instructions_file = "AGENTS.md"
 
 [context]
 min_headroom_tokens = 40000
+pack_budget_tokens = 20000
 
 [context.roles.writer]
 warn_tokens = 120000

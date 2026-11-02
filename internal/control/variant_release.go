@@ -52,3 +52,9 @@ func signalsAnyKey() bool { return false }
 
 // signalsAnyKind is false: a worker says only what a sign-in can say.
 func signalsAnyKind() bool { return false }
+
+// dropsPackEvent is false: every pack is on the log.
+func dropsPackEvent() bool { return false }
+
+// rebuildsPack is false: a lane keeps its pack.
+func rebuildsPack() bool { return false }

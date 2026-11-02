@@ -54,6 +54,8 @@ const (
 type Seen struct {
 	Args []string          `json:"args"`
 	Env  map[string]string `json:"env"`
+	// SystemPrompt is what the file `--append-system-prompt-file` names held at the start.
+	SystemPrompt string `json:"system_prompt,omitempty"`
 }
 
 var built struct {

@@ -193,7 +193,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Handler: server.New(server.Config{
 			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 			Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
-			Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows,
+			Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -443,6 +443,20 @@ func soloBatches(paths api.Paths) questions.BatchPolicy {
 	window, _ := time.ParseDuration(profile.Lifecycle.HumanBatchWindow)
 	maxWait, _ := time.ParseDuration(profile.Lifecycle.HumanBatchMaxWait)
 	return questions.BatchPolicy{WindowMs: window.Milliseconds(), MaxWaitMs: maxWait.Milliseconds()}
+}
+
+// soloPackTokens reads a pack's budget from the user's layer. A layer that does not parse leaves
+// the control plane's default, and a lane that reads it reports the fault.
+func soloPackTokens(paths api.Paths) int64 {
+	raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	profile, err := profiles.Resolve(string(raw))
+	if err != nil {
+		return 0
+	}
+	return profile.Context.PackBudgetTokens
 }
 
 // soloWindows reads how long a message stays useful from the user's layer. A layer that does not

@@ -182,6 +182,9 @@ const EventAdmissionHeld = "work_order.admission_held"
 // clock and changes no state.
 const EventGenerationResponded = "work_order.generation_responded"
 
+// EventGenerationBaseline records what a generation held at its first call, which changes no state.
+const EventGenerationBaseline = "work_order.generation_baseline"
+
 // GenerationBinding is the payload of EventGenerationBound. It records the resolved
 // model and not only the alias, because aliases drift (FR-DRV-10).
 type GenerationBinding struct {
@@ -197,6 +200,9 @@ type GenerationBinding struct {
 	// Carried names the messages this generation's first prompt stated. A binding shows that
 	// prompt reached a turn, so a generation that never got there leaves them for the next.
 	Carried []string `json:"carried,omitempty"`
+	// PackID and PackVersion name the context pack this generation read.
+	PackID      string `json:"pack_id,omitempty"`
+	PackVersion int64  `json:"pack_version,omitempty"`
 }
 
 // PinEvent is the event of unstarted work taking a new contract version.

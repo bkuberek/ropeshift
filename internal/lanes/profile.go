@@ -49,6 +49,9 @@ type RoleThresholds struct {
 type ContextSettings struct {
 	Roles             map[string]RoleThresholds `toml:"roles" json:"roles"`
 	MinHeadroomTokens int64                     `toml:"min_headroom_tokens" json:"min_headroom_tokens"`
+	// PackBudgetTokens is how much of a context pack carries its text, as the control plane
+	// estimates it. Only the user layer reaches a claim.
+	PackBudgetTokens int64 `toml:"pack_budget_tokens" json:"pack_budget_tokens"`
 }
 
 // MessageWindow is one kind's window, as a profile says it.
