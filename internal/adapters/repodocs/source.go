@@ -62,9 +62,22 @@ func (s *Source) document(ctx context.Context, key ledger.ExternalKey, blob repo
 		return ports.KnowledgeDocument{}, err
 	}
 	return ports.KnowledgeDocument{
-		Key: key, Title: title(blob.Path, raw), Version: commit, Digest: planning.DigestGitBlob + blob.Hash,
+		Key: key, Title: title(blob.Path, raw), Kind: kindOf(blob.Path, raw), Version: commit, Digest: planning.DigestGitBlob + blob.Hash,
 		Source: blob.Path + "@" + commit, Body: string(raw),
 	}, nil
+}
+
+// kindOf takes a repository file's own word for what it is, and reads any other document's kind from
+// its path. A plan or a contract is a record first, so it is no document a person looks for by kind.
+func kindOf(path string, raw []byte) planning.DocumentKind {
+	doc, err := repofiles.ParseFile(raw)
+	switch {
+	case err != nil:
+		return planning.KindOfPath(path)
+	case doc.Requirements != nil:
+		return planning.DocumentRequirements
+	}
+	return planning.DocumentOther
 }
 
 // title reads a document's first heading, or else its front matter's title, or else

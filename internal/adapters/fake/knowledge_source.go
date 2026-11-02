@@ -53,7 +53,7 @@ func (s *KnowledgeSource) document(path string, at documentVersion) ports.Knowle
 	version := strconv.Itoa(at.revision)
 	return ports.KnowledgeDocument{
 		Key:   ledger.ExternalKey{Adapter: knowledgeAdapter, Instance: sourceInstance, NativeID: path},
-		Title: documentTitle(path, at.body), Version: version, Digest: documentDigest(at.body),
+		Title: documentTitle(path, at.body), Kind: planning.KindOfPath(path), Version: version, Digest: documentDigest(at.body),
 		Source: path + "@" + version, Body: at.body,
 	}
 }

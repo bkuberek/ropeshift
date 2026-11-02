@@ -4,14 +4,16 @@ import (
 	"context"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 )
 
 // KnowledgeDocument is one document at one version. Key's native ID is where the source
-// keeps it, Version names the source's own version, and Digest identifies the content.
-// A list leaves Body empty.
+// keeps it, Kind says what it is to a person, Version names the source's own version, and
+// Digest identifies the content. A list leaves Body empty.
 type KnowledgeDocument struct {
 	Key     ledger.ExternalKey
 	Title   string
+	Kind    planning.DocumentKind
 	Version string
 	Digest  string
 	Source  string

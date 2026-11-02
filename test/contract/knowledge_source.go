@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
 
@@ -30,6 +31,7 @@ func RunKnowledgeSource(t *testing.T, fresh func(*testing.T) KnowledgeRig) {
 		{"versions come newest first, one per change", checkKnowledgeVersions},
 		{"another document's commit is not a version of this one", checkKnowledgeOtherCommit},
 		{"an absent document or version is not found", checkKnowledgeAbsent},
+		{"a document says what kind it is", checkKnowledgeKinds},
 		{"health answers", checkKnowledgeHealth},
 	}
 	for _, check := range checks {
@@ -153,6 +155,34 @@ func checkKnowledgeAbsent(t *testing.T, ctx context.Context, rig KnowledgeRig) {
 	climbing.NativeID = "../design.md"
 	if _, err := rig.Source.Read(ctx, climbing, ""); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a path that climbs out of the source: %v", err)
+	}
+}
+
+func checkKnowledgeKinds(t *testing.T, ctx context.Context, rig KnowledgeRig) {
+	want := map[string]planning.DocumentKind{
+		"docs/design.md":       planning.DocumentDesign,
+		"docs/requirements.md": planning.DocumentRequirements,
+		"docs/specs/retry.md":  planning.DocumentSpec,
+		"notes.md":             planning.DocumentOther,
+	}
+	for path := range want {
+		rig.Commit(path, "# A document\n")
+	}
+	list, err := rig.Source.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, document := range list {
+		if document.Kind != want[document.Key.NativeID] {
+			t.Errorf("%s lists as %q", document.Key.NativeID, document.Kind)
+		}
+	}
+	read, err := rig.Source.Read(ctx, knowledgeKey(t, ctx, rig, "docs/specs/retry.md"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Kind != planning.DocumentSpec {
+		t.Errorf("a read says %q", read.Kind)
 	}
 }
 

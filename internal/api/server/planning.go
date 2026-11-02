@@ -189,7 +189,7 @@ func (h *handler) unblock(trigger workorders.Trigger) func(http.ResponseWriter, 
 
 func documentBody(d ports.KnowledgeDocument) api.Document {
 	return api.Document{
-		Adapter: d.Key.Adapter, Instance: d.Key.Instance, Path: d.Key.NativeID, Title: d.Title,
+		Adapter: d.Key.Adapter, Instance: d.Key.Instance, Path: d.Key.NativeID, Title: d.Title, Kind: d.Kind,
 		Version: d.Version, Digest: d.Digest, Source: d.Source, Body: d.Body,
 	}
 }

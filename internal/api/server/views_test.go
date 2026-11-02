@@ -14,6 +14,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -279,6 +280,14 @@ func TestDocumentsListWithNoBody(t *testing.T) {
 	d, _, _ := aWorld(t)
 	view := readView[api.Documents](t, d, api.ViewDocuments, "")
 	if len(view.Documents) != 1 || view.Documents[0].Path != "design.md" || view.Documents[0].Body != "" {
+		t.Errorf("documents %+v", view.Documents)
+	}
+}
+
+func TestDocumentsSayWhatKindEachIs(t *testing.T) {
+	d, _, _ := aWorld(t)
+	view := readView[api.Documents](t, d, api.ViewDocuments, "")
+	if len(view.Documents) != 1 || view.Documents[0].Kind != planning.DocumentDesign {
 		t.Errorf("documents %+v", view.Documents)
 	}
 }

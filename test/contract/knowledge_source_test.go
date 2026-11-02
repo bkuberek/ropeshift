@@ -9,6 +9,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/repodocs"
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/test/gittest"
 )
@@ -66,6 +67,27 @@ func TestADirectoryLimitsWhatIsRead(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Key.NativeID != "docs/design.md" {
 		t.Errorf("list %+v", list)
+	}
+}
+
+// TestAFileSaysWhatItIsBeforeItsPathDoes holds a repository file's own word over where it sits.
+func TestAFileSaysWhatItIsBeforeItsPathDoes(t *testing.T) {
+	repo := gittest.New(t)
+	repo.Commit("docs/notes.md", "+++\nkind = \"requirements\"\nid = \"reqs\"\ntitle = \"Requirements\"\n\n[[requirement]]\nid = \"R-1\"\ntext = \"One.\"\n+++\n")
+	repo.Commit("docs/design/plan.md", "+++\nkind = \"plan\"\nid = \"plan-1\"\ntitle = \"The plan\"\n+++\n")
+	source := repodocs.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()})
+	list, err := source.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]planning.DocumentKind{"docs/notes.md": planning.DocumentRequirements, "docs/design/plan.md": planning.DocumentOther}
+	if len(list) != len(want) {
+		t.Fatalf("list %+v", list)
+	}
+	for _, document := range list {
+		if document.Kind != want[document.Key.NativeID] {
+			t.Errorf("%s lists as %q", document.Key.NativeID, document.Kind)
+		}
 	}
 }
 
