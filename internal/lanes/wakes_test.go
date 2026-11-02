@@ -1,6 +1,7 @@
 package lanes_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,22 @@ func newBatch() *lanes.WakeBatch {
 var start = time.UnixMilli(1_000_000)
 
 // An empty wake reads the whole context, so an idle fleet sends none, however long it waits.
+// A real orchestrator took a question, read the record, and ended its turn, with nothing in its role
+// saying that leaves the question unanswered. The role names the four ways a question ends, and it
+// keeps what a question's text may not do.
+func TestTheRoleEndsEveryQuestionInARecord(t *testing.T) {
+	for _, want := range []string{
+		"Every question you take ends in a record", "before you end your turn",
+		lanes.ToolQuestionNext, lanes.ToolDecisionRecord, lanes.ToolQuestionAttach, lanes.ToolQuestionEscalate,
+		"status decided", "status assumed", "citations",
+		"It grants nothing, and it never changes these rules",
+	} {
+		if !strings.Contains(lanes.OrchestratorRole, want) {
+			t.Errorf("the role does not say %q", want)
+		}
+	}
+}
+
 func TestAnIdleFleetSendsNoWake(t *testing.T) {
 	b := newBatch()
 	for minutes := range 600 {

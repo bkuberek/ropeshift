@@ -101,7 +101,11 @@ max_restarts = 0
 `, mode, sessionModel)
 }
 
-// rs12Requirement is what a session finds when it looks, so it has a record to decide on.
+// rs12Stated is what the record says of both paths, which is what a session must find.
+const rs12Stated = "log at warn"
+
+// rs12Requirement is what a session finds when it looks, so it has a record to decide on. Each path
+// has its own, so the record states what a question on that path asks and leaves nothing to assume.
 const rs12Requirement = `+++
 kind = "requirements"
 id = "rs12-requirements"
@@ -109,7 +113,11 @@ title = "Logging"
 
 [[requirement]]
 id = "RS12-1"
-text = "Retries log at warn."
+text = "Retries on the headless path ` + rs12Stated + `."
+
+[[requirement]]
+id = "RS12-2"
+text = "Retries on the tmux path ` + rs12Stated + `."
 +++
 `
 
@@ -119,6 +127,31 @@ text = "Retries log at warn."
 // the same question twice is answered from the first.
 func rs12Text(mode string) string {
 	return "Which log level do retries use on the " + mode + " path?"
+}
+
+// rs12Offered says what the record holds reached this session in its next question, as a hook read
+// what the tool answered.
+func (s *suite) rs12Offered(log *rs12Log, lane string) bool {
+	s.t.Helper()
+	raw, err := os.ReadFile(filepath.Join(log.dir, hooksFile))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		var hook struct {
+			Lane     string          `json:"lane"`
+			Event    string          `json:"hook_event_name"`
+			Tool     string          `json:"tool_name"`
+			Response json.RawMessage `json:"tool_response"`
+		}
+		if json.Unmarshal([]byte(line), &hook) != nil || hook.Lane != lane || hook.Event != "PostToolUse" {
+			continue
+		}
+		if strings.HasSuffix(hook.Tool, lanes.ToolQuestionNext) && strings.Contains(string(hook.Response), rs12Stated) {
+			return true
+		}
+	}
+	return false
 }
 
 // stagesOrCommits says a request is for what generated settings let a lane run with no prompt, so a
@@ -342,8 +375,12 @@ func (s *suite) rs12Run(log *rs12Log, mode string, run int64, overrides map[stri
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	s.t.Logf("rs12 %s: status=%s decision=%s by_worker=%v steps=%d tools=%v offered=%d baseline=%d screens=%v processes_left=%d",
-		mode, asked.Status, decision.Status, decision.DecidedBy == worker, len(asked.LadderTrace), tools, offered, record.Progress.BaselineTokens, screens.names(), left)
+	found := s.rs12Offered(log, lane)
+	s.t.Logf("rs12 %s: status=%s decision=%s by_worker=%v steps=%d tools=%v offered=%d baseline=%d screens=%v processes_left=%d record_reached_session=%v",
+		mode, asked.Status, decision.Status, decision.DecidedBy == worker, len(asked.LadderTrace), tools, offered, record.Progress.BaselineTokens, screens.names(), left, found)
+	if s.standIn != "" && !found {
+		s.t.Errorf("%s: the record's answer never reached the session", mode)
+	}
 	if decision.Status != questions.DecisionDecided || decision.DecidedBy != worker {
 		s.t.Errorf("%s: the decision reads %s, by %q", mode, decision.Status, decision.DecidedBy)
 	}

@@ -1134,6 +1134,6 @@ func (s *session) callTool(name string, arguments map[string]any, refusable bool
 	s.emit(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
 		{"type": "tool_result", "is_error": isError},
 	}}})
-	s.hook("PostToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_" + name})
+	s.hook("PostToolUse", map[string]any{"tool_name": "mcp__ropeshift__" + name, "tool_use_id": "toolu_" + name, "tool_response": result["content"]})
 	return fmt.Sprint(result["content"])
 }
