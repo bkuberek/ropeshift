@@ -311,7 +311,7 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 		}
 		// A turn that ended on StopFailure has no Stop.
 		if !s.failedTurn {
-			s.hook("Stop", map[string]any{})
+			s.hook("Stop", s.stopInput())
 		}
 		s.failedTurn = false
 	}

@@ -84,6 +84,8 @@ type suite struct {
 	daemons []*daemon
 	// limits are the readings this run has printed.
 	limits []string
+	// keep runs first in cleanup, while everything a run left still stands.
+	keep func()
 }
 
 // start refuses to run without the explicit start, and takes the settings digest before
@@ -125,6 +127,9 @@ func start(t *testing.T, name string) *suite {
 // not edit.
 func (s *suite) finish() {
 	s.t.Helper()
+	if s.keep != nil {
+		s.keep()
+	}
 	s.reportEvidence()
 	after, err := settingsDigest(s.home)
 	if err != nil {

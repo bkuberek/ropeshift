@@ -48,11 +48,11 @@ const (
 	rs12PlanLimit = 4 * time.Minute
 	// rs12PlanFile is what a dry run's planning lane commits.
 	rs12PlanFile = "plans/rs12.md"
-	// rs12ProjectSettings let a planning lane write and commit, and nothing else, in this scratch
-	// repository alone. A headless session has nobody to answer a prompt.
-	rs12ProjectSettings = `{"permissions":{"allow":["Write","Edit","Bash(mkdir:*)","Bash(git add:*)","Bash(git commit:*)"]}}
-`
 )
+
+// rs12ProjectAllows let a planning lane write and commit, and nothing else, in this scratch
+// repository alone. A headless session has nobody to answer a prompt.
+var rs12ProjectAllows = []string{"Write", "Edit", "Bash(mkdir:*)", "Bash(git add:*)", "Bash(git commit:*)"}
 
 // rs12PlanStatement is the trial: a session that holds the format only as its brief states it. It
 // names no file and no key, because what a planning agent makes of the format is the question.
@@ -266,7 +266,7 @@ func (s *suite) rs12Worker(d *daemon) string {
 
 // rs12Run wakes one orchestrator on one question, in one run mode, and reads what it did. Each
 // start is a run of its own, so the second lane has a name of its own.
-func (s *suite) rs12Run(mode string, run int64, overrides map[string]any) {
+func (s *suite) rs12Run(log *rs12Log, mode string, run int64, overrides map[string]any) {
 	s.t.Helper()
 	question, scope := "rs12-"+mode, "rs12-logging-"+mode
 	s.playStandIn([]any{standInOrchestrator(question, scope)}, nil)
@@ -287,9 +287,11 @@ func (s *suite) rs12Run(mode string, run int64, overrides map[string]any) {
 		return err == nil
 	})
 	s.rs12Ask(question, rs12Text(mode))
-	s.cli("orchestrator", "start", worker)
 	lane := ledger.Orchestrator{ID: ledger.OrchestratorOf(worker), Run: run}.Lane()
-	s.others = append(s.others, filepath.Join(s.paths.StateDir, "lanes", lane, "session"))
+	dir := filepath.Join(s.paths.StateDir, "lanes", lane, "session")
+	s.watch(log, dir)
+	s.others = append(s.others, dir)
+	s.cli("orchestrator", "start", worker)
 	screens := &screenLog{}
 	var asked questions.Question
 	offered := 0
@@ -501,17 +503,23 @@ func TestRS12(t *testing.T) {
 	t.Cleanup(s.killTerminal)
 	s.reapLanes(rs12PlanLane)
 	s.build()
+	log := s.openLog()
+	s.keep = func() { s.keepRecord(log) }
 	repo := gittest.NewIn(t, s.scratch)
 	for _, setting := range [][]string{{"user.name", "RS12"}, {"user.email", "rs12@example.invalid"}, {"commit.gpgsign", "false"}, {"core.hooksPath", "/dev/null"}} {
 		repo.Git("config", setting[0], setting[1])
 	}
-	repo.Commit(".claude/settings.json", rs12ProjectSettings)
+	settings, err := log.settings(rs12ProjectAllows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Commit(".claude/settings.json", string(settings))
 	repo.Commit("requirements.md", rs12Requirement)
 	s.repo = repo.Dir
 	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", rs12PlanLane)
 	flags := append(slices.Clone(guardFlags), "--max-turns", rs12MaxTurns)
-	s.rs12Run(lanes.ProfileRunHeadless, 1, map[string]any{"args": flags, "stream_log": s.stream})
-	s.rs12Run(lanes.ProfileRunTmux, 2, map[string]any{"args": rs12PaneFlags, "env": paneEnv})
+	s.rs12Run(log, lanes.ProfileRunHeadless, 1, map[string]any{"args": flags, "stream_log": s.stream})
+	s.rs12Run(log, lanes.ProfileRunTmux, 2, map[string]any{"args": rs12PaneFlags, "env": paneEnv})
 	s.rs12Plan([]string{
 		"--setting-sources", "project", "--strict-mcp-config", "--tools", "Write,Edit,Bash",
 		"--max-budget-usd", budgetUSD, "--no-session-persistence", "--max-turns", rs12PlanTurns,

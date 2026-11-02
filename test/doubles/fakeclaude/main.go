@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -50,6 +51,12 @@ type fixture struct {
 	Matrix string `json:"matrix,omitempty"`
 	// UsageText is what `/usage` prints.
 	UsageText string `json:"usage_text,omitempty"`
+	// ProjectHooks runs the hooks of the project settings in the session's directory too, as a run
+	// on the real CLI does, for a suite that keeps a log through them.
+	ProjectHooks bool `json:"project_hooks,omitempty"`
+	// StopText is what a turn ended on, which the Stop hook carries. Set, a headless turn runs that
+	// hook too, as the real CLI does.
+	StopText string `json:"stop_text,omitempty"`
 }
 
 // usageCommand reads a sign-in's usage, which takes no tokens and starts no turn.
@@ -215,6 +222,9 @@ func main() {
 			fail("settings: %v", err)
 		}
 	}
+	if script.ProjectHooks {
+		s.settings.addProjectHooks()
+	}
 	if !opts.print {
 		s.runPane()
 		return
@@ -373,6 +383,33 @@ func readSettings(path string) (settings, error) {
 	return out, json.Unmarshal(raw, &out)
 }
 
+// stopInput is what a turn's Stop hook reads of how the turn ended.
+func (s *session) stopInput() map[string]any {
+	if s.script.StopText == "" {
+		return map[string]any{}
+	}
+	return map[string]any{"last_assistant_message": s.script.StopText}
+}
+
+// addProjectHooks adds the hooks of this directory's project settings to what `--settings` said.
+// A directory with none adds nothing.
+func (s *settings) addProjectHooks() {
+	project, err := readSettings(filepath.Join(".claude", "settings.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		fail("project settings: %v", err)
+	}
+	if s.Hooks == nil {
+		s.Hooks = project.Hooks
+		return
+	}
+	for event, groups := range project.Hooks {
+		s.Hooks[event] = append(s.Hooks[event], groups...)
+	}
+}
+
 func (s *session) run() {
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, syscall.SIGINT)
@@ -395,6 +432,9 @@ func (s *session) run() {
 		if turn < len(s.script.Turns) {
 			s.play(s.script.Turns[turn], interrupts)
 			turn++
+			if s.script.StopText != "" {
+				s.hook("Stop", s.stopInput())
+			}
 		}
 	}
 	for {
