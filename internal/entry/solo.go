@@ -462,7 +462,7 @@ func soloWindows(paths api.Paths) messages.Windows {
 func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
 	leases := control.NewLeases(store)
 	delivering := control.NewMessages(store, windows)
-	asked := control.NewQuestions(store, batches)
+	asked := control.NewQuestions(store, batches).Telling(windows)
 	intake := control.NewIntake(store)
 	reviews := control.NewReviews(store)
 	accepting := control.NewAcceptances(store)

@@ -213,8 +213,11 @@ func parkSpec(w *world, script string, first bool) (childSpec, error) {
 	return spec, err
 }
 
+// answerStatement is what a parked lane must hear of its answer.
+const answerStatement = "Twice."
+
 func answerOf(decision string) questions.Answer {
-	return questions.Answer{DecisionID: decision, Statement: "Twice.", Rationale: "It follows."}
+	return questions.Answer{DecisionID: decision, Statement: answerStatement, Rationale: "It follows."}
 }
 
 // answerLate answers after the kill and before the retry, unless the child answered before it.

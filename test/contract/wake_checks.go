@@ -187,6 +187,16 @@ func (r *Rig) Asked(s ports.Store) (string, error) {
 	return record.ID, err
 }
 
+// Attached adds a lane to an open question, as that lane's own ask would.
+func (r *Rig) Attached(s ports.Store, question, lane string) error {
+	record, err := r.readQuestion(s, question)
+	if err != nil {
+		return err
+	}
+	_, err = r.ask(s, record.Text, lane, nil)
+	return err
+}
+
 func (r *Rig) wakeTick(s ports.Store) ([]string, error) {
 	return r.NewOps(s).WakeTick(r.Ctx, r.Scope, r.Actor)
 }

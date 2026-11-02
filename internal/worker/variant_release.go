@@ -41,6 +41,9 @@ func leavesParked() bool { return false }
 // splitsMessage is false: a normal build keeps a message's write and what it proves together.
 func splitsMessage() bool { return false }
 
+// dropsFacts is false: a generation's first prompt states what it inherited.
+func dropsFacts() bool { return false }
+
 // messageKey is one key per message, so a restart cannot write one twice.
 func messageKey(id string) string { return messageLabel + id }
 

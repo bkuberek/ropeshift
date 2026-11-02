@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -259,8 +260,61 @@ func answerFiresCase() crashCase {
 	}
 }
 
+// answerTellsCase kills an answer on its way to the lanes that wait on it: one parked, whose next
+// generation must hear of it, and one still running, which holds a message. All of it lands, or
+// none of it.
+func answerTellsCase(name string, steps ...string) crashCase {
+	return crashCase{
+		name: name, op: "question.answer", steps: steps,
+		prepare: func(w *world) (childSpec, error) {
+			question, err := w.rig.Asked(w.store)
+			if err != nil {
+				return childSpec{}, err
+			}
+			parked, err := w.rig.Parked(w.store, askedExpr(question))
+			if err != nil {
+				return childSpec{}, err
+			}
+			running, err := w.rig.Parking(w.store, `{"human_resume":true}`)
+			if err != nil {
+				return childSpec{}, err
+			}
+			for _, lane := range []string{parked.Lane, running.Lane} {
+				if err := w.rig.Attached(w.store, question, lane); err != nil {
+					return childSpec{}, err
+				}
+			}
+			spec := childSpec{Role: "answer", Key: question, ClaimID: w.rig.ID("d"), Current: parked.Wake}
+			spec.Lane, spec.Script = parked.Lane, running.Lane
+			return spec, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := w.woken(spec.Current); err != nil {
+				return err
+			}
+			if err := w.answerReads(spec.Lane, spec.Key, messages.Expired, messages.ReasonLedgerFact); err != nil {
+				return err
+			}
+			return w.answerReads(spec.Script, spec.Key, messages.Queued, "")
+		},
+	}
+}
+
+// answerReads holds a lane to one answer, in one state.
+func (w *world) answerReads(lane, question string, state messages.State, reason string) error {
+	rows, err := w.rig.NewOps(w.store).LaneMessages(w.rig.Ctx, w.rig.Scope, lane)
+	if err != nil {
+		return err
+	}
+	if len(rows) != 1 || rows[0].ReplyTo != question || rows[0].State != state || rows[0].Reason != reason {
+		return contract.Violatedf("lane %s holds %+v, want one answer reading %s", lane, rows, state)
+	}
+	return nil
+}
+
 func wakeCases() []crashCase {
 	return []crashCase{
+		answerTellsCase("an answer on its way to its lanes", withSteps("decided", "told")...),
 		beginParkingCase(),
 		parkedCase(),
 		tickCase("fire a wake", "wake.fire", withSteps()...),

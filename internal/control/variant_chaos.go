@@ -38,6 +38,8 @@ type Sabotage struct {
 	ExpiresSettled bool
 	// ReadsAnyLane lets a worker speak for a message to a lane it does not name.
 	ReadsAnyLane bool
+	// LeavesAnswers closes a question and tells no lane.
+	LeavesAnswers bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -79,3 +81,5 @@ func leavesMessages() bool { return current().LeavesMessages }
 func expiresSettled() bool { return current().ExpiresSettled }
 
 func readsAnyLane() bool { return current().ReadsAnyLane }
+
+func leavesAnswers() bool { return current().LeavesAnswers }

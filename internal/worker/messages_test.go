@@ -551,6 +551,53 @@ func TestAReplyCanNameAFactItsPromptStated(t *testing.T) {
 	}
 }
 
+// settledIn reads a fact as its generation's binding left it.
+func (r *laneRig) settledIn(t *testing.T, id string, generation int64) {
+	t.Helper()
+	r.eventually("the fact settled", func(ledger.LaneView) bool {
+		r.beat(t)
+		return r.message(t, id).CarriedIn == generation
+	})
+}
+
+// TestAFactReachesTheFirstPromptOfAResume is the native path: the session keeps its conversation,
+// and only its first prompt can say what arrived while it was parked.
+func TestAFactReachesTheFirstPromptOfAResume(t *testing.T) {
+	r := parkedWithAFact(t, (*laneRig).toldToGoOn)
+	r.pass(t)
+	r.awaitOrder(t, workorders.Acceptance)
+	if got := r.driver.Resumed(); len(got) != 1 {
+		t.Fatalf("resumed %+v", got)
+	}
+	if brief := r.driver.Specs()[1].Brief; !strings.Contains(brief, "Use two retries.") || !strings.Contains(brief, messages.NotConsent) {
+		t.Errorf("the first prompt:\n%s", brief)
+	}
+	r.settledIn(t, "m-1", 2)
+	r.subject.Wait()
+}
+
+// TestAFactReachesTheBriefOfAFreshGeneration is the path with no conversation to keep.
+func TestAFactReachesTheBriefOfAFreshGeneration(t *testing.T) {
+	var r *handoffRig
+	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}, completed(0.02))
+	r.driver.SetResumeCosts(lanes.ResumeCosts{})
+	r.park(t, humanPark())
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	r.send(t, "m-1", messages.KindAnswer, nil)
+	r.wake(t)
+	r.pass(t)
+	r.awaitOrder(t, workorders.Acceptance)
+	if got := r.driver.Resumed(); len(got) != 0 {
+		t.Fatalf("a fresh start resumed %+v", got)
+	}
+	if brief := r.driver.Specs()[1].Brief; !strings.Contains(brief, "Use two retries.") {
+		t.Errorf("the brief:\n%s", brief)
+	}
+	r.settledIn(t, "m-1", 2)
+	r.subject.Wait()
+}
+
 // TestAStatedFactTakesAReplyAfterTheWorkerRestarts: the first prompt was read once, and a worker
 // that starts again finds no row for what it stated.
 func TestAStatedFactTakesAReplyAfterTheWorkerRestarts(t *testing.T) {

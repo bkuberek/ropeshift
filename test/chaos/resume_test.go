@@ -4,11 +4,13 @@ package chaos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/clock"
@@ -40,28 +42,78 @@ const (
 	// sabotageLeavesParked journals a resume with its lane still reading `parked`, so a kill after
 	// that write leaves a generation with no way to rest, park, or hand off.
 	sabotageLeavesParked = "a resume that leaves its lane reading parked"
+	// sabotageDropsFacts starts the next generation with nothing it inherited.
+	sabotageDropsFacts = "a first prompt that states no answer"
 	// witnessStranded records a session that found its lane still reading `parked`.
 	witnessStranded = "stranded"
+	// witnessTold records a session whose first prompt held the answer it parked on.
+	witnessTold = "told"
 )
 
 // resumeDriver is a parked session's lane, and the generation that follows it.
 type resumeDriver struct {
 	*parkDriver
 	carries bool
+	// member is who answers, and decision what the answer records.
+	member   *api.Client
+	decision string
 }
 
 func (d *resumeDriver) Start(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
 	if spec.Generation == 1 {
-		d.Play(d.parksCarrying(d.carries))
+		d.Play(d.asksFirst(d.parksCarrying(d.carries)))
 	} else {
 		d.Play(d.goesOn())
+		if err := d.noteTold(spec); err != nil {
+			return ports.SessionHandle{}, err
+		}
 	}
 	return d.lastingDriver.Start(ctx, spec)
+}
+
+// noteTold keeps what only a prompt can show: an answer that reached no prompt is lost for good,
+// and nothing on the record would say so.
+func (d *resumeDriver) noteTold(spec ports.SessionSpec) error {
+	if !strings.Contains(spec.Brief, answerStatement) {
+		return nil
+	}
+	return d.witness(witnessTold, handleOf(spec))
+}
+
+// asksFirst has the session attach to its question and hear it answered, before it parks. What
+// that answer becomes depends on where a kill leaves the message, and every path ends in a prompt.
+func (d *resumeDriver) asksFirst(script fake.DriverScript) fake.DriverScript {
+	ask := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		if err := d.asks(spec); err != nil {
+			fmt.Fprintln(os.Stderr, "session:", err)
+		}
+	}}
+	script.Turns[0] = slices.Insert(script.Turns[0], 1, ask)
+	return script
+}
+
+func (d *resumeDriver) asks(spec ports.SessionSpec) error {
+	question, err := d.member.Question(d.ctx, d.question)
+	if err != nil {
+		return err
+	}
+	line, err := json.Marshal(lanes.Request{Version: lanes.SocketProtocol, Token: tokenOf(spec), Ask: &lanes.AskRequest{Text: question.Text}})
+	if err != nil {
+		return err
+	}
+	if reply := d.subject.AnswerLane(d.ctx, line); !reply.OK {
+		return errors.New(reply.Message)
+	}
+	_, err = d.member.AnswerQuestion(d.ctx, d.question, api.AnswerQuestion{ID: d.decision, Answer: answerStatement, Rationale: "It follows."})
+	return err
 }
 
 // Resume stands for a new process on an earlier session, which the witness counts as a spawn.
 func (d *resumeDriver) Resume(ctx context.Context, spec ports.SessionSpec, from ports.ResumeRef) (ports.SessionHandle, error) {
 	d.Play(d.goesOn())
+	if err := d.noteTold(spec); err != nil {
+		return ports.SessionHandle{}, err
+	}
 	if err := d.witness(witnessSpawn, handleOf(spec)); err != nil {
 		return ports.SessionHandle{}, err
 	}
@@ -116,7 +168,10 @@ func roleWorkerResume(c *child) error {
 	defer client.Close()
 	dir := filepath.Dir(c.spec.Journal)
 	lasting := &lastingDriver{AgentDriver: fake.NewAgentDriver(), dir: dir, log: c.log, journal: journal}
-	driver := &resumeDriver{parkDriver: &parkDriver{lastingDriver: lasting, ctx: c.ctx, question: c.spec.Question}, carries: c.spec.Script == pathFresh}
+	driver := &resumeDriver{
+		parkDriver: &parkDriver{lastingDriver: lasting, ctx: c.ctx, question: c.spec.Question},
+		carries:    c.spec.Script == pathFresh, member: client, decision: c.spec.Decision,
+	}
 	if c.spec.Script == pathFresh {
 		driver.SetResumeCosts(lanes.ResumeCosts{})
 	}
@@ -179,23 +234,20 @@ func applyResumeVariant(variant string) {
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageSplitsResume)
 	case sabotageLeavesParked:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageLeavesParked)
+	case sabotageDropsFacts:
+		_ = os.Setenv(worker.EnvSabotage, worker.SabotageDropsFacts)
 	}
 }
 
+// resumeSpec leaves the answer to the session's first turn, so the parked commit fires the wake,
+// and the child goes on to the claim and the resume by itself.
 func resumeSpec(w *world, path string) (childSpec, error) {
 	spec, err := parkSpec(w, path, false)
 	if err != nil {
 		return childSpec{}, err
 	}
 	spec.Role = "worker-resume"
-	return spec, answerLateFor(w, spec)
-}
-
-// answerLateFor answers before the child starts, so the parked commit fires the wake, and the
-// child goes on to the claim and the resume by itself.
-func answerLateFor(w *world, spec childSpec) error {
-	_, err := w.rig.NewOps(w.store).Answer(w.rig.Ctx, w.rig.Scope, spec.Question, answerOf(spec.Decision), w.rig.Actor)
-	return err
+	return spec, nil
 }
 
 // resumedOut is the oracle of a resume. The ledger holds one parking and one wake, the lane ended
@@ -248,6 +300,7 @@ func sessionsApart(w *world, spec childSpec) error {
 	first, second := spec.Lane+"/1", spec.Lane+"/2"
 	spawned := map[string]int{}
 	var order []string
+	told := false
 	for _, record := range records {
 		switch {
 		case record.Op == witnessSpawn:
@@ -257,10 +310,15 @@ func sessionsApart(w *world, spec childSpec) error {
 			order = append(order, "ended "+record.Key)
 		case record.Op == witnessStranded:
 			return contract.Violatedf("session %s found its lane still reading parked", record.Key)
+		case record.Op == witnessTold:
+			told = told || record.Key == second
 		}
 	}
 	if spawned[first] != 1 || spawned[second] != 1 {
 		return contract.Violatedf("sessions %v", spawned)
+	}
+	if !told {
+		return contract.Violatedf("session %s started with no word of its answer", second)
 	}
 	ended, started := slices.Index(order, "ended "+first), slices.Index(order, "spawn "+second)
 	if ended < 0 || started < ended {
@@ -335,6 +393,10 @@ func resumeVariants() []variant {
 		{
 			name: sabotageLeavesParked, check: "crash",
 			crash: func() (crashCase, string) { return resumeCase(pathNative, "worker.resume", "begun"), "begun" },
+		},
+		{
+			name: sabotageDropsFacts, check: "crash",
+			crash: func() (crashCase, string) { return resumeCase(pathFresh, "worker.resume", "launched"), "launched" },
 		},
 		{
 			name:     "a resume that leaves the lane to resume on the work order",

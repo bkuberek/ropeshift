@@ -9,6 +9,29 @@ import (
 // scopeSeparator divides a scope into the parts a narrower scope extends.
 const scopeSeparator = "/"
 
+// AnswerText is what a lane reads of an answer. The answer leads, so text that has to be cut keeps
+// it and the record that holds the rest.
+func AnswerText(question Question, decision Decision) string {
+	return fmt.Sprintf("Decision %s answers question %s.\n%sQuestion: %s\n", decision.ID, question.ID, decisionLines(decision), question.Text)
+}
+
+// NoticeText is what a lane reads when a decision it may rest on stops standing.
+func NoticeText(ended string, replacement Decision) string {
+	return fmt.Sprintf("Decision %s no longer stands, and decision %s replaces it.\n%s", ended, replacement.ID, decisionLines(replacement))
+}
+
+func decisionLines(decision Decision) string {
+	var out strings.Builder
+	out.WriteString("Statement: " + decision.Statement + "\n")
+	if decision.Rationale != "" {
+		out.WriteString("Rationale: " + decision.Rationale + "\n")
+	}
+	if len(decision.Citations) != 0 {
+		out.WriteString("Citations: " + strings.Join(decision.Citations, ", ") + "\n")
+	}
+	return out.String()
+}
+
 // ScopesOverlap reports two scopes that cover some of the same thing: the same scope, or one
 // inside the other. An empty scope covers nothing.
 func ScopesOverlap(a, b string) bool {

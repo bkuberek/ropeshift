@@ -44,6 +44,8 @@ const (
 	SabotageResendsMessage = "resends-message"
 	// SabotageSplitsMessage keeps a message's write and what it proves in two journal writes.
 	SabotageSplitsMessage = "splits-message"
+	// SabotageDropsFacts starts a generation that was told nothing of what it inherited.
+	SabotageDropsFacts = "drops-facts"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -71,6 +73,8 @@ func splitsResume() bool { return sabotaged(SabotageSplitsResume) }
 func leavesParked() bool { return sabotaged(SabotageLeavesParked) }
 
 func splitsMessage() bool { return sabotaged(SabotageSplitsMessage) }
+
+func dropsFacts() bool { return sabotaged(SabotageDropsFacts) }
 
 func messageKey(id string) string {
 	if !sabotaged(SabotageResendsMessage) {

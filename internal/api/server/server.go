@@ -68,7 +68,7 @@ func New(config Config) http.Handler {
 		leases:     control.NewLeases(config.Store),
 		reviews:    control.NewReviews(config.Store),
 		accepting:  control.NewAcceptances(config.Store),
-		questions:  control.NewQuestions(config.Store, config.Batches),
+		questions:  control.NewQuestions(config.Store, config.Batches).Telling(config.Windows),
 		fleet:      control.NewFleet(config.Store),
 		wakes:      control.NewWakes(config.Store),
 		messages:   control.NewMessages(config.Store, config.Windows),

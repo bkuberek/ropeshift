@@ -8,6 +8,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -19,12 +20,20 @@ import (
 type Questions struct {
 	store   ports.Store
 	batches questions.BatchPolicy
+	windows messages.Windows
 }
 
 // NewQuestions returns the use cases over a Store, with how long questions gather for a
 // person.
 func NewQuestions(store ports.Store, batches questions.BatchPolicy) *Questions {
 	return &Questions{store: store, batches: batches.Filled()}
+}
+
+// Telling sets how long what these use cases send a lane stays useful, per kind. A kind the
+// windows leave out takes the default.
+func (q *Questions) Telling(windows messages.Windows) *Questions {
+	q.windows = windows
+	return q
 }
 
 // RecordQuestion keeps a question as it is, in `open`. The client generates its ID, so a
@@ -139,7 +148,7 @@ func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID
 		if err := admit(tx, &record, policy, actor); err != nil {
 			return err
 		}
-		return recordAdmitted(tx, record, actor)
+		return q.recordAdmitted(tx, record, actor)
 	})
 	if err != nil {
 		return questions.Decision{}, err
@@ -169,12 +178,62 @@ func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Ac
 	return err
 }
 
-// closeQuestion saves a question an answer closed, and fires what waits on that answer.
-func closeQuestion(tx ports.WriteTx, record questions.Question, actor ledger.Actor) error {
+// closeQuestion saves a question an answer closed, tells every lane attached to it, and fires what
+// waits on that answer, in one transaction (FR-QD-10).
+func (q *Questions) closeQuestion(tx ports.WriteTx, record questions.Question, actor ledger.Actor) error {
 	if err := saveQuestion(tx, record, actor); err != nil {
 		return err
 	}
+	if err := q.tellAnswer(tx, record, actor); err != nil {
+		return err
+	}
 	_, err := fireWakes(tx, "answer:"+record.ID, actor, parking.QuestionAnswered)
+	return err
+}
+
+// tellAnswer sends an answer to each lane that waits on it. A lane the ledger has no record of
+// hears nothing, and a lane whose generation ended meets the rollover table, which is how a parked
+// lane's next generation is told.
+func (q *Questions) tellAnswer(tx ports.WriteTx, record questions.Question, actor ledger.Actor) error {
+	if leavesAnswers() {
+		return nil
+	}
+	decision, err := tx.Questions().Decision(record.DecisionID)
+	if err != nil {
+		return err
+	}
+	attached, err := tx.Questions().Attachments(record.ID)
+	if err != nil {
+		return err
+	}
+	body := messages.Clip(questions.AnswerText(record, decision))
+	for _, attachment := range attached {
+		draft := messages.Draft{
+			ID: messages.DerivedID(string(messages.KindAnswer), record.ID, attachment.Lane), To: messages.Target{Lane: attachment.Lane},
+			ReplyTo: record.ID, Kind: messages.KindAnswer, Body: body,
+		}
+		if err := q.tell(tx, draft, actor); err != nil {
+			return err
+		}
+		crashpoint.Hit("question.answer", "told")
+	}
+	return nil
+}
+
+// tell sends what the ledger owes a lane, in the transaction that decided it. A derived ID makes a
+// second call the same message.
+func (q *Questions) tell(tx ports.WriteTx, draft messages.Draft, actor ledger.Actor) error {
+	if _, err := tx.Lanes().Row(draft.To.Lane); errors.Is(err, ports.ErrNotFound) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.Messages().Message(draft.ID); err == nil {
+		return nil
+	} else if !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	_, err := sendIn(tx, draft, q.windows, actor)
 	return err
 }
 

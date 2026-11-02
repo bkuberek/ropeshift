@@ -43,3 +43,6 @@ func expiresSettled() bool { return false }
 
 // readsAnyLane is false: a worker speaks only for messages to the lane it names.
 func readsAnyLane() bool { return false }
+
+// leavesAnswers is false: the write that closes a question tells its lanes.
+func leavesAnswers() bool { return false }

@@ -348,6 +348,9 @@ func (r *laneRun) setFacts(facts []ledger.MessageFact) {
 }
 
 func (r *laneRun) factsOwed() []ledger.MessageFact {
+	if dropsFacts() {
+		return nil
+	}
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
 	return r.facts

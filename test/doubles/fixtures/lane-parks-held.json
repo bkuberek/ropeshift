@@ -1,0 +1,24 @@
+{
+  "source": "E4: a lane that holds its narrative until a test says, so an answer can land while it parks",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [
+    [
+      {"init": true},
+      {"mcp": "ask", "arguments": {"text": "What should this lane do next?", "blocking": true}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"wait_file": "goes-on"},
+      {"mcp": "lane_handoff", "arguments": {"done": ["Asked the question"], "in_progress": [], "next_steps": ["Read the answer"], "risks": [], "carries_next_step": false}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ],
+  "resume_turns": [
+    [
+      {"init": true},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

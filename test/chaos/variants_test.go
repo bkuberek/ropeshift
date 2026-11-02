@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -469,6 +470,55 @@ func (s splitAnswer) Answer(ctx context.Context, scope ledger.WorkspaceID, id st
 	return s.Ops.RecordDecision(ctx, scope, questions.Decision{
 		ID: answer.DecisionID, Status: questions.DecisionDecided, Statement: answer.Statement, QuestionID: id,
 	}, actor)
+}
+
+// splitTell closes a question in one transaction and tells its lanes in another, so a kill between
+// them leaves an answer that no lane will ever hear. A retry finds the question closed.
+type splitTell struct {
+	contract.Ops
+	store ports.Store
+}
+
+func (s splitTell) Answer(ctx context.Context, scope ledger.WorkspaceID, id string, answer questions.Answer, actor ledger.Actor) (questions.Decision, error) {
+	control.Sabotaged(control.Sabotage{LeavesAnswers: true})
+	var closed bool
+	err := s.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		record, err := tx.Questions().Question(id)
+		closed = err == nil && record.Status == questions.StatusAnswered
+		return err
+	})
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	decided, err := s.Ops.Answer(ctx, scope, id, answer, actor)
+	if err != nil || closed {
+		return decided, err
+	}
+	crashpoint.Hit("question.answer", "split")
+	control.Sabotaged(control.Sabotage{})
+	return decided, s.tell(ctx, scope, id, actor)
+}
+
+func (s splitTell) tell(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) error {
+	var attached []questions.Attachment
+	err := s.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		attached, err = tx.Questions().Attachments(id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, attachment := range attached {
+		draft := messages.Draft{
+			ID: messages.DerivedID(string(messages.KindAnswer), id, attachment.Lane), To: messages.Target{Lane: attachment.Lane},
+			ReplyTo: id, Kind: messages.KindAnswer, Body: "The answer.",
+		}
+		if _, err := s.Ops.Send(ctx, scope, draft, actor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // splitAccept moves accepted work in one transaction and records who accepted it in another,
@@ -1169,6 +1219,21 @@ func allVariants() []variant {
 			},
 			check: "crash",
 			crash: func() (crashCase, string) { return answerCase(), "split" },
+		},
+		{
+			name: "an answer and its messages in two transactions",
+			ops: func(s ports.Store) contract.Ops {
+				return splitTell{Ops: contract.RealOps(s), store: s}
+			},
+			check: "crash",
+			crash: func() (crashCase, string) {
+				return answerTellsCase("an answer that may tell nobody", "split"), "split"
+			},
+		},
+		{name: "an answer that tells no lane", control: control.Sabotage{LeavesAnswers: true}, check: "AN1"},
+		{
+			name:     "an answer that reaches its first lane",
+			sabotage: sqlstore.Sabotage{Rewrite: replace("question.attachments", " ORDER BY question_id, lane_id", " ORDER BY question_id, lane_id LIMIT 1")}, check: "AN1",
 		},
 		{
 			name: "an acceptance in two transactions",

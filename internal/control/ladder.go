@@ -310,7 +310,7 @@ func (q *Questions) Resolve(ctx context.Context, scope ledger.WorkspaceID, id, d
 		}
 		crashpoint.Hit("question.resolve", "answered")
 		record.Status, record.DecisionID, record.ClaimedBy, record.ClaimUntil = questions.StatusAnswered, decision, "", 0
-		return closeQuestion(tx, record, actor)
+		return q.closeQuestion(tx, record, actor)
 	})
 	if err != nil {
 		return questions.Question{}, err

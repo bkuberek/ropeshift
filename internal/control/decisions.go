@@ -11,6 +11,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -64,14 +65,14 @@ func (q *Questions) Rule(ctx context.Context, scope ledger.WorkspaceID, id strin
 		if err := admit(tx, &record, policy, actor); err != nil {
 			return err
 		}
-		if err := recordAdmitted(tx, record, actor); err != nil {
+		if err := q.recordAdmitted(tx, record, actor); err != nil {
 			return err
 		}
 		crashpoint.Hit("question.rule", "decided")
 		step := questions.Step{Rung: question.Rung, Candidates: record.Citations, Outcome: string(record.Status)}
 		question.LadderTrace = append(question.LadderTrace, step)
 		question.Status, question.DecisionID, question.ClaimedBy, question.ClaimUntil = questions.StatusAnswered, record.ID, "", 0
-		return closeQuestion(tx, question, actor)
+		return q.closeQuestion(tx, question, actor)
 	})
 	if err != nil {
 		return questions.Decision{}, err
@@ -164,7 +165,7 @@ func stamp(tx ports.WriteTx, record *questions.Decision, policy questions.Policy
 }
 
 // recordAdmitted writes a decision and ends the one it replaces, with no rework implied.
-func recordAdmitted(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {
+func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {
 	if err := insertDecision(tx, record, actor); err != nil {
 		return err
 	}
@@ -183,7 +184,7 @@ func recordAdmitted(tx ports.WriteTx, record questions.Decision, actor ledger.Ac
 		return err
 	}
 	crashpoint.Hit("decision.record", "replaced")
-	_, err = noticeLanes(tx, old.ID, record.ID, touched, actor)
+	_, err = q.noticeLanes(tx, old.ID, record.ID, touched, actor)
 	return err
 }
 
@@ -307,8 +308,13 @@ func addRunningLanes(tx ports.WriteTx, touched *reach) error {
 
 // noticeLanes leaves one notice per lane. A lane reads it from the ledger, so a notice
 // missed in flight is still there for the next generation.
-func noticeLanes(tx ports.WriteTx, decision, replacedBy string, touched reach, actor ledger.Actor) ([]string, error) {
+func (q *Questions) noticeLanes(tx ports.WriteTx, decision, replacedBy string, touched reach, actor ledger.Actor) ([]string, error) {
 	lanes := slices.Sorted(maps.Keys(touched.lanes))
+	replacement, err := tx.Questions().Decision(replacedBy)
+	if err != nil {
+		return nil, err
+	}
+	body := messages.Clip(questions.NoticeText(decision, replacement))
 	for _, lane := range lanes {
 		notice := questions.Notice{
 			DecisionID: decision, Lane: lane, Generation: touched.lanes[lane], ReplacedBy: replacedBy, NoticedAt: tx.Now(),
@@ -325,6 +331,13 @@ func noticeLanes(tx ports.WriteTx, decision, replacedBy string, touched reach, a
 			return nil, err
 		}
 		if _, err := tx.Append(event); err != nil {
+			return nil, err
+		}
+		draft := messages.Draft{
+			ID: messages.DerivedID(string(messages.KindDecisionNotice), decision, lane), To: messages.Target{Lane: lane},
+			Kind: messages.KindDecisionNotice, Body: body,
+		}
+		if err := q.tell(tx, draft, actor); err != nil {
 			return nil, err
 		}
 	}
@@ -352,7 +365,7 @@ func (q *Questions) Overturn(ctx context.Context, scope ledger.WorkspaceID, id s
 			result = found
 			return nil
 		}
-		result, err = overturnIn(tx, id, overturn, actor)
+		result, err = q.overturnIn(tx, id, overturn, actor)
 		return err
 	})
 	if err != nil {
@@ -398,7 +411,7 @@ func overturnFound(tx ports.WriteTx, id string, overturn questions.Overturn) (qu
 	return result, true, nil
 }
 
-func overturnIn(tx ports.WriteTx, id string, overturn questions.Overturn, actor ledger.Actor) (questions.Overturned, error) {
+func (q *Questions) overturnIn(tx ports.WriteTx, id string, overturn questions.Overturn, actor ledger.Actor) (questions.Overturned, error) {
 	old, err := tx.Questions().Decision(id)
 	if err != nil {
 		return questions.Overturned{}, err
@@ -425,7 +438,7 @@ func overturnIn(tx ports.WriteTx, id string, overturn questions.Overturn, actor 
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "reworked")
-	if result.Noticed, err = noticeLanes(tx, id, result.New.ID, touched, actor); err != nil {
+	if result.Noticed, err = q.noticeLanes(tx, id, result.New.ID, touched, actor); err != nil {
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "noticed")
