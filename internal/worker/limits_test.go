@@ -415,6 +415,63 @@ func TestNoKnownResetReadsUsageAndProbes(t *testing.T) {
 	r.awaitOrders(t, workorders.Acceptance)
 }
 
+// TestAProbeThatGetsThroughWakesTheOthers holds the probe at work, so only what it heard back can
+// end the limit: a lane that goes on has no end for a worker to read.
+func TestAProbeThatGetsThroughWakesTheOthers(t *testing.T) {
+	for name, heard := range map[string]fake.DriverStep{
+		"a turn that finished":        completed(0.02),
+		"a reading that says allowed": {Limit: &lanes.UsageReading{Status: lanes.UsageAllowed}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var r *limitRig
+			back, release := make(chan struct{}), make(chan struct{})
+			r = fleetOf(t, 2, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
+				switch {
+				case spec.Generation == 1 && spec.Lane == "lane-1":
+					return script([]fake.DriverStep{{Bound: true}, *rejected(0), {Hold: true}})
+				case spec.Generation == 1:
+					return atRest()
+				case spec.Lane == "lane-1":
+					waits := fake.DriverStep{Do: func(ports.SessionSpec) {
+						close(back)
+						<-release
+					}}
+					return script([]fake.DriverStep{{Bound: true}, waits, heard, {Hold: true}})
+				}
+				return finishes(r.laneRig)
+			})
+			r.start()
+			r.awaitOrders(t, workorders.Parked)
+			r.passTime(t, lanes.DefaultUsageBackoff+time.Second)
+			r.eventually("the probe back at work", func(ledger.LaneView) bool {
+				r.beat(t)
+				select {
+				case <-back:
+					return true
+				default:
+					return false
+				}
+			})
+			// Every pass parks what it finds at a limit, and the lane sent to find out is not that.
+			for range 5 {
+				r.beat(t)
+			}
+			if got := r.order(t, "wo").State; got != workorders.Running {
+				close(release)
+				t.Fatalf("the probe reads %s before it heard anything", got)
+			}
+			close(release)
+			r.eventually("the other lane's end", func(ledger.LaneView) bool {
+				r.beat(t)
+				return r.order(t, "wo-2").State == workorders.Acceptance
+			})
+			if got := r.order(t, "wo").State; got != workorders.Running {
+				t.Errorf("the probe reads %s", got)
+			}
+		})
+	}
+}
+
 // TestAProbeThatEndsReleasesTheOthers: nothing else would ever wake them.
 func TestAProbeThatEndsReleasesTheOthers(t *testing.T) {
 	var r *limitRig

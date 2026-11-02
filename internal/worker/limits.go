@@ -140,20 +140,7 @@ func (r *laneRun) reachedLimit(ctx context.Context) {
 	lane, now := r.lease.Lane, r.w.clock.Now().UnixMilli()
 	base := r.state.usageBackoff()
 	err := r.w.moveSignIn(ctx, func(state *lanes.SignInState) ([]ledger.UploadEvent, bool) {
-		if state.Limited && (state.Probe != lane || now < state.ProbeAtMs) {
-			return nil, false
-		}
-		if state.Limited {
-			state.Tries++
-		} else {
-			state.Limited, state.Tries, state.Hint, state.HintRead = true, 0, "", false
-		}
-		state.ResetAtMs = state.Last.Reset(now)
-		state.Probe, state.ProbeAtMs = "", 0
-		if state.ResetAtMs == 0 {
-			state.Probe, state.ProbeAtMs = lane, now+lanes.UsageBackoff(base, state.Tries).Milliseconds()
-		}
-		return nil, true
+		return nil, state.Reach(lane, now, base)
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", lane, err))
@@ -179,11 +166,8 @@ func (r *laneRun) signedOut(ctx context.Context) {
 }
 
 // limitPassed is the probe's answer: a response came back, so the limit is over for every lane.
-// Only the lane sent to find out can say so, and only once its time came: a turn that was under
-// way when the limit landed proves nothing.
 func (r *laneRun) limitPassed(ctx context.Context) {
-	state := r.w.signIn()
-	if !state.Limited || state.Probe != r.lease.Lane || r.w.clock.Now().UnixMilli() < state.ProbeAtMs {
+	if !r.w.signIn().Passed(r.lease.Lane, r.w.clock.Now().UnixMilli()) {
 		return
 	}
 	if err := r.w.endLimit(ctx); err != nil {

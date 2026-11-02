@@ -102,6 +102,68 @@ func TestASignInWakeWaitsOnOneFact(t *testing.T) {
 	}
 }
 
+// TestReachingALimit is what one lane's word does to a sign-in, in every case that can arrive.
+func TestReachingALimit(t *testing.T) {
+	const now, base = int64(1_000_000), 5 * time.Minute
+	reset := lanes.UsageReading{ResetsAtMs: now + 60_000}
+	probing := lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: now - 1, Tries: 1, Hint: "kept", HintRead: true}
+	waiting := probing
+	waiting.ProbeAtMs = now + 1
+	known := lanes.SignInState{Limited: true, ResetAtMs: now + 60_000, Last: reset}
+	pastItsTime := lanes.SignInState{Last: lanes.UsageReading{ResetsAtMs: now - 1}}
+	backoff := func(tries int64) int64 { return now + lanes.UsageBackoff(base, tries).Milliseconds() }
+	for name, tt := range map[string]struct {
+		state   lanes.SignInState
+		lane    string
+		changed bool
+		want    lanes.SignInState
+	}{
+		"the first word, with a time": {
+			lanes.SignInState{Last: reset}, "lane-1", true, lanes.SignInState{Last: reset, Limited: true, ResetAtMs: now + 60_000},
+		},
+		"the first word, with none": {
+			lanes.SignInState{}, "lane-1", true, lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: backoff(0)},
+		},
+		"the first word, with a time gone by": {
+			pastItsTime, "lane-1", true, lanes.SignInState{Last: pastItsTime.Last, Limited: true, Probe: "lane-1", ProbeAtMs: backoff(0)},
+		},
+		"another lane on a known reset":      {known, "lane-2", false, known},
+		"another lane while one probes":      {waiting, "lane-2", false, waiting},
+		"another lane past the probe's time": {probing, "lane-2", false, probing},
+		"the same word heard twice":          {waiting, "lane-1", false, waiting},
+		"the probe finds it still there": {
+			probing, "lane-1", true,
+			lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: backoff(2), Tries: 2, Hint: "kept", HintRead: true},
+		},
+	} {
+		got := tt.state
+		if changed := got.Reach(tt.lane, now, base); changed != tt.changed || got != tt.want {
+			t.Errorf("%s: changed %v\ngot  %+v\nwant %+v", name, changed, got, tt.want)
+		}
+	}
+}
+
+func TestOnlyTheProbeSaysALimitPassed(t *testing.T) {
+	const now = int64(1_000_000)
+	probing := lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: now}
+	for name, tt := range map[string]struct {
+		state lanes.SignInState
+		lane  string
+		nowMs int64
+		want  bool
+	}{
+		"the probe, at its time":   {probing, "lane-1", now, true},
+		"the probe, before it":     {probing, "lane-1", now - 1, false},
+		"another lane":             {probing, "lane-2", now, false},
+		"no limit at all":          {lanes.SignInState{Probe: "lane-1"}, "lane-1", now, false},
+		"a limit with a known end": {lanes.SignInState{Limited: true, ResetAtMs: now}, "lane-1", now, false},
+	} {
+		if got := tt.state.Passed(tt.lane, tt.nowMs); got != tt.want {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}
+
 // TestAStatusLineNamesItsFullestWindow assumes no window: whichever the build reports, the fullest
 // is the one that stops a lane, and a line with none says nothing of a limit.
 func TestAStatusLineNamesItsFullestWindow(t *testing.T) {

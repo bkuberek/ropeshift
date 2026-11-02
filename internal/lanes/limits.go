@@ -85,6 +85,32 @@ type SignInState struct {
 	SignedOut bool `json:"signed_out,omitempty"`
 }
 
+// Reach is one lane finding its limit, and says whether that changed anything. The first lane to
+// find one starts the wait, and with no reset to go by it is the lane that tries again. Only that
+// lane, once its time came, moves the wait on: anything else is the same limit heard again.
+func (s *SignInState) Reach(lane string, nowMs int64, base time.Duration) bool {
+	if s.Limited && (s.Probe != lane || nowMs < s.ProbeAtMs) {
+		return false
+	}
+	if s.Limited {
+		s.Tries++
+	} else {
+		s.Limited, s.Tries, s.Hint, s.HintRead = true, 0, "", false
+	}
+	s.ResetAtMs = s.Last.Reset(nowMs)
+	s.Probe, s.ProbeAtMs = "", 0
+	if s.ResetAtMs == 0 {
+		s.Probe, s.ProbeAtMs = lane, nowMs+UsageBackoff(base, s.Tries).Milliseconds()
+	}
+	return true
+}
+
+// Passed says a lane's answer shows a limit is over. Only the lane sent to find out can say so, and
+// only once its time came: a turn that was under way when the limit landed proves nothing.
+func (s SignInState) Passed(lane string, nowMs int64) bool {
+	return s.Limited && lane == s.Probe && nowMs >= s.ProbeAtMs
+}
+
 // UsageBackoff is how long a limit with no known reset waits, by how many tries found it.
 func UsageBackoff(base time.Duration, tries int64) time.Duration {
 	if base <= 0 {

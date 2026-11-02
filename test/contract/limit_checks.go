@@ -24,6 +24,9 @@ var LimitChecks = []Check{
 
 const testDriver = "claude-code"
 
+// usageWakeAheadMs puts a reset past a slow commit, because a server's clock runs on real time.
+const usageWakeAheadMs = 60_000
+
 func (s *statusRig) key() string { return parking.SignInKey(s.auth.WorkerID, testDriver) }
 
 // signalUpload is a worker's word on its sign-in, which belongs to no lane and no claim.
@@ -212,14 +215,14 @@ func checkUsageWakeTime(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	_, wake, err := s.parkedOnLimit(now + 100)
+	_, wake, err := s.parkedOnLimit(now + usageWakeAheadMs)
 	if err != nil {
 		return err
 	}
 	if err := s.wakeFired(wake, false); err != nil {
 		return err
 	}
-	r.DB.ShiftClock(200)
+	r.DB.ShiftClock(usageWakeAheadMs + 1)
 	if _, err := r.wakeTick(s.store); err != nil {
 		return err
 	}
