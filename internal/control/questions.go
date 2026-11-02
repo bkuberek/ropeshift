@@ -220,17 +220,12 @@ func (q *Questions) tellAnswer(tx ports.WriteTx, record questions.Question, acto
 	return nil
 }
 
-// tell sends what the ledger owes a lane, in the transaction that decided it. A derived ID makes a
-// second call the same message.
+// tell sends what the ledger owes a lane, in the transaction that decided it. What closes a question
+// or ends a decision does so once, so this sends once.
 func (q *Questions) tell(tx ports.WriteTx, draft messages.Draft, actor ledger.Actor) error {
 	if _, err := tx.Lanes().Row(draft.To.Lane); errors.Is(err, ports.ErrNotFound) {
 		return nil
 	} else if err != nil {
-		return err
-	}
-	if _, err := tx.Messages().Message(draft.ID); err == nil {
-		return nil
-	} else if !errors.Is(err, ports.ErrNotFound) {
 		return err
 	}
 	_, err := sendIn(tx, draft, q.windows, actor)

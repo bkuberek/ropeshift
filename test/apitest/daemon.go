@@ -20,6 +20,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -100,6 +101,8 @@ type Options struct {
 	Knowledge []ports.KnowledgeSource
 	// NoMember leaves the daemon with no passphrase and the client with no session.
 	NoMember bool
+	// Windows says how long a message stays useful, per kind.
+	Windows messages.Windows
 }
 
 // Start serves the API until the test ends.
@@ -137,7 +140,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	identity := fake.NewIdentityProvider()
 	handler := server.New(server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
-		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity,
+		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 	})
 	if options.Wrap != nil {
 		handler = options.Wrap(handler)

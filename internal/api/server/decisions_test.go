@@ -27,7 +27,11 @@ type rulingRig struct {
 // newRulingRig registers a worker, because an orchestrator reaches the API through its own.
 func newRulingRig(t *testing.T) rulingRig {
 	t.Helper()
-	daemon := apitest.Start(t)
+	return rulingRigOn(t, apitest.Start(t))
+}
+
+func rulingRigOn(t *testing.T, daemon *apitest.Daemon) rulingRig {
+	t.Helper()
 	ctx := t.Context()
 	token, err := daemon.Client.CreateJoinToken(ctx)
 	if err != nil {

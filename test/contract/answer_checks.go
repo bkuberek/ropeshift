@@ -27,6 +27,7 @@ var AnswerChecks = []Check{
 	{"AN8", "an overturned decision tells each lane, and a parked lane as a fact", checkNoticeOverturned},
 	{"AN9", "a replaced decision tells each lane", checkNoticeReplaced},
 	{"AN10", "a lane that ended learns nothing it can use, and its sender can read that", checkAnswerEndedLane},
+	{"AN11", "a notice too long for a message still ends its decision", checkNoticeClipped},
 }
 
 func (r *Rig) messagesTo(s ports.Store, lane string) ([]messages.Message, error) {
@@ -378,6 +379,33 @@ func checkNoticeReplaced(r *Rig) error {
 	}
 	if len(rows) != 1 || !strings.Contains(rows[0].Body, "Three times.") {
 		return Violatedf("a replaced decision told %+v", rows)
+	}
+	return r.CheckMessages(s.store)
+}
+
+func checkNoticeClipped(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	asked, err := r.ask(s.store, askedText, s.lane, nil)
+	if err != nil {
+		return err
+	}
+	old, err := r.answer(s.store, asked.QuestionID, "Twice.")
+	if err != nil {
+		return err
+	}
+	overturn := questions.Overturn{DecisionID: r.ID("d"), Statement: strings.Repeat("é", messages.MaxBody), Rationale: "A person read the logs."}
+	if _, err := r.NewOps(s.store).Overturn(r.Ctx, r.Scope, old.ID, overturn, r.Actor); err != nil {
+		return err
+	}
+	rows, err := r.noticesTo(s.store, s.lane)
+	if err != nil {
+		return err
+	}
+	if len(rows) != 1 || len(rows[0].Body) > messages.MaxBody {
+		return Violatedf("a notice of %d rows", len(rows))
 	}
 	return r.CheckMessages(s.store)
 }
