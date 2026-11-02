@@ -162,8 +162,8 @@ func (s *suite) laneOrder(stop func(), known []string) string {
 	return id
 }
 
-// atRest starts a lane and waits for it to ask and go idle, where a message finds it.
-func (s *suite) atRest(d *daemon, id, lane string, watch func()) {
+// startLane claims a work order on the one worker of a daemon that may have only just started.
+func (s *suite) startLane(d *daemon, id, lane string) {
 	s.t.Helper()
 	s.poll(d.stop, "the worker's session", func() bool {
 		var workers api.WorkerList
@@ -179,6 +179,12 @@ func (s *suite) atRest(d *daemon, id, lane string, watch func()) {
 	s.cli("work", "review", id)
 	s.cli("work", "claim", id, "--worker", workers.Workers[0].ID)
 	s.cli("lane", "start", id, "--lane", lane)
+}
+
+// atRest starts a lane and waits for it to ask and go idle, where a message finds it.
+func (s *suite) atRest(d *daemon, id, lane string, watch func()) {
+	s.t.Helper()
+	s.startLane(d, id, lane)
 	s.poll(d.stop, "lane "+lane+" at rest", func() bool {
 		watch()
 		return s.laneView(lane).ActualState == string(lanes.Idle)

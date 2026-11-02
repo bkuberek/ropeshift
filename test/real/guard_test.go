@@ -56,6 +56,7 @@ var laneTools = []string{
 var standInFixtures = map[string]string{
 	"rs1": "rs2-stand-in", "rs2": "rs2-stand-in", "rs3": "rs3-stand-in", "rs4": "rs4-stand-in", "rs5": "rs5-stand-in",
 	"rs6": "rs6-stand-in", "rs7": "rs7-stand-in", "rs8": "rs8-stand-in", "rs9": "rs9-stand-in",
+	"rs10": "rs10-stand-in", "rs11": "rs11-stand-in",
 }
 
 // allowedEnvironment is everything a session or the daemon takes from this process, so

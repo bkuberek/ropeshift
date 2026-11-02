@@ -126,6 +126,8 @@ type step struct {
 	AnsweredAt string `json:"answered_at,omitempty"`
 	// DeclinedAt is the same person saying no: the prompt goes, and no tool runs.
 	DeclinedAt string `json:"declined_at,omitempty"`
+	// OnScreen draws the prompt as a pane does, and takes a person's Enter on it.
+	OnScreen bool `json:"on_screen,omitempty"`
 	// Blocked stands for what stops a call after its hook: a deny rule, or a hook that timed
 	// out with `onFailure: block`. This double has neither, so it runs the hook and stops.
 	Blocked bool `json:"blocked,omitempty"`
@@ -152,8 +154,9 @@ type session struct {
 	settings settings
 	server   *mcpClient
 	costUSD  float64
-	// pane means this session draws on a terminal and writes no stream.
+	// pane means this session draws on a terminal and writes no stream, and keys is what it reads.
 	pane bool
+	keys <-chan string
 	// socket is where this session reads messages, which only a session with a private directory
 	// binds, as the driver's generated environment gives one.
 	socket string
@@ -782,10 +785,15 @@ func toolUseID(st step) string {
 // also takes a person's answer, which comes first if it comes first, and the hook goes on waiting
 // behind it, as T5 observed.
 func (s *session) permitted(st step, input map[string]any) bool {
-	if !st.Prompts && st.AnsweredAt == "" && st.DeclinedAt == "" {
+	if !st.Prompts && st.AnsweredAt == "" && st.DeclinedAt == "" && !st.OnScreen {
 		return true
 	}
 	payload := map[string]any{"tool_name": st.Tool, "tool_input": input}
+	if st.OnScreen {
+		go s.hook("PermissionRequest", payload)
+		s.awaitEnter(st.Command)
+		return true
+	}
 	if st.AnsweredAt != "" || st.DeclinedAt != "" {
 		go s.hook("PermissionRequest", payload)
 		if st.DeclinedAt != "" {

@@ -211,6 +211,13 @@ func (s *suite) laneEvidence(lane string) []string {
 			return err
 		}
 		out = append(out, ledgerStanding(row, generations, wakes, asked)...)
+		approvals, err := tx.Approvals().OfLane(lane)
+		if err != nil {
+			return err
+		}
+		for _, a := range approvals {
+			out = append(out, fmt.Sprintf("ledger: request generation=%d state=%s channel=%s decided_kind=%s reason=%q", a.Generation, a.State, a.Channel, a.DecidedKind, reasonClass(a.Reason)))
+		}
 		return nil
 	})
 	if err != nil {

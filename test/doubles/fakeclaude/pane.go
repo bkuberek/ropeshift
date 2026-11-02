@@ -62,6 +62,14 @@ const (
 ────────────────────────────────────────────────────────────────────────────────
   ? for shortcuts
 `
+	screenPermission = ` Bash command
+
+   %[1]s
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No, and tell Claude what to do differently (esc)
+`
 )
 
 const (
@@ -171,6 +179,18 @@ func (s *session) askTrust(keys <-chan string) {
 	}
 }
 
+// awaitEnter shows a permission prompt until a person presses Enter on it.
+func (s *session) awaitEnter(command string) {
+	draw(fmt.Sprintf(screenPermission, command))
+	for key := range s.keys {
+		witness("keys", "permission "+key)
+		if key == keyEnter {
+			break
+		}
+	}
+	draw(fmt.Sprintf(screenReady, ""))
+}
+
 // listen binds the session's socket where the variable says, and takes each line.
 func listen(lines chan<- string) string {
 	dir := os.Getenv("CLAUDE_CODE_TMPDIR")
@@ -230,6 +250,7 @@ func (s *session) runPane() {
 	terminalInput()
 	keys := make(chan string)
 	go readKeys(keys)
+	s.keys = keys
 	script := s.script.Pane
 	if script.ExitOnStart != nil {
 		os.Exit(*script.ExitOnStart)
