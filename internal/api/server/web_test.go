@@ -17,10 +17,12 @@ import (
 	"testing/fstest"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/web"
@@ -655,6 +657,66 @@ func TestTheWebListenerBindsLoopbackOnly(t *testing.T) {
 				t.Fatalf("bound %s", address)
 			}
 		})
+	}
+}
+
+func documentsOn(t *testing.T) *webRig {
+	t.Helper()
+	knowledge := fake.NewKnowledgeSource()
+	knowledge.Write("design.md", "# One\n")
+	knowledge.Write("design.md", "# Two\n")
+	return webOn(t, apitest.StartWith(t, apitest.Options{Knowledge: []ports.KnowledgeSource{knowledge}}))
+}
+
+// A list holds no bodies, so a page that cannot open one document shows only titles.
+func TestADocumentOpensThroughTheWebListener(t *testing.T) {
+	r := documentsOn(t)
+	cookies, _ := r.signedIn(t)
+	response, raw := r.send(t, call{path: "/v1/documents/read?path=design.md", cookies: cookies})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	var document api.Document
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Body != "# Two\n" {
+		t.Errorf("document %+v", document)
+	}
+	response, raw = r.send(t, call{path: "/v1/documents/versions?path=design.md", cookies: cookies})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	var versions api.DocumentVersions
+	if err := json.Unmarshal(raw, &versions); err != nil {
+		t.Fatal(err)
+	}
+	if len(versions.Versions) != 2 {
+		t.Errorf("versions %+v", versions)
+	}
+	response, raw = r.send(t, call{path: "/v1/documents/read?path=design.md&version=" + versions.Versions[1].Version, cookies: cookies})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	if !bytes.Contains(raw, []byte(`# One`)) {
+		t.Errorf("the earlier version reads %s", raw)
+	}
+}
+
+// ATTACK: a document's text comes from a repository, so a session is what stands between it and any
+// page on this machine.
+func TestADocumentStaysBehindASession(t *testing.T) {
+	r := documentsOn(t)
+	for _, path := range []string{"/v1/documents/read?path=design.md", "/v1/documents/versions?path=design.md"} {
+		response, raw := r.send(t, call{path: path})
+		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
+		if bytes.Contains(raw, []byte("# Two")) {
+			t.Fatalf("%s gave up the document with no session: %s", path, raw)
+		}
+	}
+}
+
+// ATTACK: a path in a link a stranger sends reads only what the source lists.
+func TestADocumentPathNamesOnlyWhatTheSourceLists(t *testing.T) {
+	r := documentsOn(t)
+	cookies, _ := r.signedIn(t)
+	for _, path := range []string{"../../etc/passwd", "/etc/passwd", "design.md/../../secret.md", "", "design.md\x00.txt"} {
+		response, raw := r.send(t, call{path: "/v1/documents/read?path=" + url.QueryEscape(path), cookies: cookies})
+		wantStatus(t, response, raw, http.StatusNotFound, api.CodeNotFound)
 	}
 }
 

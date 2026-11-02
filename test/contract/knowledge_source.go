@@ -149,6 +149,11 @@ func checkKnowledgeAbsent(t *testing.T, ctx context.Context, rig KnowledgeRig) {
 	if _, err := rig.Source.Read(ctx, key, "0000000"); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("an absent version: %v", err)
 	}
+	climbing := key
+	climbing.NativeID = "../design.md"
+	if _, err := rig.Source.Read(ctx, climbing, ""); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a path that climbs out of the source: %v", err)
+	}
 }
 
 func checkKnowledgeHealth(t *testing.T, ctx context.Context, rig KnowledgeRig) {

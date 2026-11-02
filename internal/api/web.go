@@ -37,6 +37,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, SignInPath, "login"},
 		{http.MethodPost, SignOutPath, "sign-out"},
 		{http.MethodGet, EventsPath, "events"},
+		{http.MethodGet, "/v1/documents/read", "document show"},
+		{http.MethodGet, "/v1/documents/versions", "document versions"},
 		{http.MethodPost, "/v1/questions/{id}/answer", "question answer"},
 		{http.MethodPost, "/v1/approvals/{id}/decide", "approval approve"},
 		{http.MethodPost, "/v1/effects/{id}/decide", "effect decide"},
