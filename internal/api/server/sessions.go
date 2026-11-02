@@ -10,6 +10,7 @@ import (
 
 func (h *handler) sessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/sessions", h.signIn)
+	mux.HandleFunc("POST /v1/sessions/end", h.member(h.signOut))
 	mux.HandleFunc("PUT /v1/passphrase", h.setPassphrase)
 }
 
@@ -40,6 +41,14 @@ func (h *handler) signIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusCreated, api.Session{Token: grant.Token, Member: grant.Member, ExpiresAt: grant.ExpiresAt})
+}
+
+func (h *handler) signOut(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if err := h.sessions.End(r.Context(), h.Scope, sessionOf(r), actor); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) setPassphrase(w http.ResponseWriter, r *http.Request) {

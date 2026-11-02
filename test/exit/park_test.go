@@ -1,7 +1,6 @@
 package exit
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -163,7 +162,7 @@ func (in *install) startBinary(path string, args ...string) *daemon {
 	in.t.Helper()
 	cmd := exec.Command(path, append([]string{"solo"}, args...)...)
 	cmd.Env = append(in.env(), in.daemonEnv...)
-	d := &daemon{cmd: cmd, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, exited: make(chan error, 1)}
+	d := &daemon{cmd: cmd, stdout: &lockedBuffer{}, stderr: &lockedBuffer{}, exited: make(chan error, 1)}
 	cmd.Stdout, cmd.Stderr = d.stdout, d.stderr
 	if err := cmd.Start(); err != nil {
 		in.t.Fatal(err)

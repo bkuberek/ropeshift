@@ -357,6 +357,9 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			return err
 		}
 		state.MaxRespawnsPerDay = facts.respawns()
+		if state.Effects, err = desiredEffects(tx, request.Auth.WorkerID); err != nil {
+			return err
+		}
 		state.Woken, err = wokenFor(tx, request.Auth.WorkerID)
 		return err
 	})
@@ -602,6 +605,9 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 // applyUpload stores one event inside its transaction. A lane's start and end change
 // the work order, so they run the same statements as the use cases.
 func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	if e.Type == ledger.UploadEffectUnknown || e.Type == ledger.UploadEffectSettled {
+		return effectUpload(tx, worker, id, e)
+	}
 	if e.WorkOrder == "" && ledger.IsOrchestratorLane(e.Lane) {
 		return orchestratorUpload(tx, worker, id, e)
 	}
@@ -765,21 +771,50 @@ const freshnessBeats = 3
 func (w *Workers) Lanes(ctx context.Context) ([]ledger.LaneView, error) {
 	var out []ledger.LaneView
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
-		rows, err := tx.Lanes().Rows()
-		if err != nil {
-			return err
-		}
-		out = make([]ledger.LaneView, 0, len(rows))
-		for _, row := range rows {
-			view, err := w.view(tx, row)
-			if err != nil {
-				return err
-			}
-			out = append(out, view)
-		}
-		return nil
+		var err error
+		out, err = w.LanesIn(tx)
+		return err
 	})
 	return out, err
+}
+
+// LanesIn reads every lane with its freshness, inside a read, so a read model sees one moment.
+func (w *Workers) LanesIn(tx ports.ReadTx) ([]ledger.LaneView, error) {
+	rows, err := tx.Lanes().Rows()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ledger.LaneView, 0, len(rows))
+	for _, row := range rows {
+		view, err := w.view(tx, row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, view)
+	}
+	return out, nil
+}
+
+// WorkerFreshness labels what the ledger holds of a worker by the same rule as a lane's. A heartbeat
+// writes nothing about a worker, so what confirms one is a session it opened or a lease it renews, and
+// a worker that holds no lease reads as last reported once its session is old.
+func (w *Workers) WorkerFreshness(tx ports.ReadTx, worker ledger.Worker) (string, error) {
+	now, err := tx.Now()
+	if err != nil {
+		return "", err
+	}
+	seen := worker.LastHandshakeAt
+	held, err := tx.WorkOrders().HeldBy(worker.ID)
+	if err != nil {
+		return "", err
+	}
+	for _, order := range held {
+		seen = max(seen, order.LeaseUntil-w.options.LeaseTTLMs)
+	}
+	if now-min(seen, now) <= freshnessBeats*w.options.HeartbeatMs {
+		return ledger.FreshnessObserved, nil
+	}
+	return ledger.FreshnessLastReported, nil
 }
 
 // Lane reads one lane with its freshness.

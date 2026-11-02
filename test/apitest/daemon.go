@@ -5,6 +5,7 @@ package apitest
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -45,6 +46,40 @@ type Daemon struct {
 	// Client calls as the harness's member, and Session is what it presents.
 	Client  *api.Client
 	Session string
+	// Config is what the handler runs on, for a second listener on the same ledger.
+	Config server.Config
+}
+
+// Web is the web listener of one daemon, on a real loopback port.
+type Web struct {
+	Host string
+	Port int
+	HTTP *http.Client
+}
+
+// URL is an address on this listener.
+func (w *Web) URL(path string) string { return "http://" + w.Host + path }
+
+// ServeWeb serves a daemon's web listener until the test ends.
+func (d *Daemon) ServeWeb(t testing.TB, assets fs.FS, recheck time.Duration) *Web {
+	t.Helper()
+	listener, err := server.ListenWeb("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	handler := server.NewWeb(d.Config, server.WebOptions{Port: port, Assets: assets, Recheck: recheck})
+	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = httpServer.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		_ = httpServer.Close()
+		<-done
+	})
+	return &Web{Host: listener.Addr().String(), Port: port, HTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 // maxShortBase keeps a socket under the 104-byte limit with a directory, a run
@@ -86,6 +121,16 @@ func SignIn(ctx context.Context, client *api.Client) (string, error) {
 	}
 	client.UseSession(session.Token)
 	return session.Token, nil
+}
+
+// RawClient is an HTTP client on a socket, for a test that must send what the API's client never would.
+func RawClient(socket string) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, "unix", socket)
+		},
+	}}
 }
 
 // Options changes what a harness serves.
@@ -138,10 +183,11 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		t.Fatal(err)
 	}
 	identity := fake.NewIdentityProvider()
-	handler := server.New(server.Config{
+	config := server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
-	})
+	}
+	handler := server.New(config)
 	if options.Wrap != nil {
 		handler = options.Wrap(handler)
 	}
@@ -157,7 +203,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	})
 	client := api.NewUnixClient(socket)
 	t.Cleanup(client.Close)
-	daemon := &Daemon{Socket: socket, Store: store, Client: client}
+	daemon := &Daemon{Socket: socket, Store: store, Client: client, Config: config}
 	if !options.NoMember {
 		daemon.signIn(t, identity)
 	}

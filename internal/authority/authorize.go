@@ -48,6 +48,9 @@ const (
 	ActionUnblock Action = "work_order.unblock"
 	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
 	ActionDecideApproval Action = "approval.decide"
+	// ActionDecideEffect says what became of an effect nothing can observe. Only a person can know, so
+	// no row below may ever grant it.
+	ActionDecideEffect Action = "effect.decide"
 	// ActionPassAutonomy claims or respawns whatever a worker's level says: a person being there is
 	// what a level stands in for, so a member needs no window and no agent has this.
 	ActionPassAutonomy Action = "autonomy.pass"
@@ -70,7 +73,7 @@ func Actions() []Action {
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
-		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock,
+		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect,
 	}
 }
 

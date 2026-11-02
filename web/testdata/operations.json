@@ -1,0 +1,27 @@
+{
+  "as_of": 1790000540001,
+  "fleet": {
+    "fleet_mode": "run",
+    "lanes_per_repository": 0,
+    "lanes_per_worker": 0,
+    "wip_limit": 0
+  },
+  "lanes": {
+    "ended": 2,
+    "parked": 1,
+    "tripped": 1,
+    "working": 5
+  },
+  "revision": 142,
+  "sources": [],
+  "waiting_for_a_person": 9,
+  "work_orders": {
+    "acceptance": 1,
+    "blocked": 1,
+    "lapsed": 1,
+    "parked": 1,
+    "running": 5
+  },
+  "workers": 1,
+  "workers_fresh": 1
+}

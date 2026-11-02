@@ -118,7 +118,7 @@ func (r *paneRun) daemon(kill string) error {
 	cmd := exec.Command(r.binary, "solo", "--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", r.repo)
 	cmd.Env = append([]string{
 		"HOME=" + r.w.target.Dir, "PATH=" + r.path,
-		api.EnvStateDir + "=" + r.paths.StateDir, api.EnvRunDir + "=" + r.paths.RunDir,
+		api.EnvStateDir + "=" + r.paths.StateDir, api.EnvRunDir + "=" + r.paths.RunDir, api.EnvWeb + "=" + api.WebOff,
 	}, r.extra...)
 	if kill != "" {
 		cmd.Env = append(cmd.Env, crashpoint.EnvKill+"="+kill)

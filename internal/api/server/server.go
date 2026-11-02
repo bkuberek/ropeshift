@@ -46,6 +46,8 @@ type Config struct {
 	Windows messages.Windows
 	// PackTokens is the budget of the pack a claim pins. Zero takes the default.
 	PackTokens int64
+	// LongParkedMs is how long a lane stays parked before it reads as stuck. Zero takes the default.
+	LongParkedMs int64
 }
 
 type handler struct {
@@ -62,6 +64,7 @@ type handler struct {
 	sessions   *control.Sessions
 	approvals  *control.Approvals
 	autonomy   *control.Autonomy
+	effects    *control.Effects
 }
 
 // New returns the versioned API.
@@ -79,6 +82,7 @@ func New(config Config) http.Handler {
 		sessions:   control.NewSessions(config.Store, config.Identity),
 		approvals:  control.NewApprovals(config.Store),
 		autonomy:   control.NewAutonomy(config.Store),
+		effects:    control.NewEffects(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens, Matcher: config.Matcher,
@@ -93,6 +97,9 @@ func New(config Config) http.Handler {
 	h.approvalRoutes(mux)
 	h.orchestratorRoutes(mux)
 	h.autonomyRoutes(mux)
+	h.effectRoutes(mux)
+	h.viewRoutes(mux)
+	h.eventRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
@@ -192,6 +199,12 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleDigest, Message: err.Error()})
 	case errors.Is(err, authority.ErrApprovalClosed):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRequestClosed, Message: err.Error()})
+	case errors.Is(err, ledger.ErrEffectOutcome):
+		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
+	case errors.Is(err, ledger.ErrEffectDecided):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeEffectDecided, Message: err.Error()})
+	case errors.Is(err, ledger.ErrEffectCannotRepeat):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeCannotRepeat, Message: err.Error()})
 	case errors.Is(err, authority.ErrBadApproval):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, workorders.ErrForbidden):

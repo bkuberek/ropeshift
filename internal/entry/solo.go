@@ -1,11 +1,13 @@
 package entry
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,6 +42,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/worker"
+	"ropeshift.dev/ropeshift/web"
 )
 
 // soloScope is the one implicit workspace of solo mode.
@@ -64,6 +67,7 @@ type soloOptions struct {
 	sources    repeatedFlag
 	ref        string
 	directory  string
+	web        string
 	leaseTick  time.Duration
 	intakeTick time.Duration
 	batchTick  time.Duration
@@ -88,6 +92,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.Var(&opts.sources, "source", "a repository to read work from, repeatable")
 	flags.StringVar(&opts.ref, "ref", "", "the ref intake reads, by default the default branch")
 	flags.StringVar(&opts.directory, "dir", "", "the directory intake reads, by default the whole repository")
+	flags.StringVar(&opts.web, "web", cmp.Or(os.Getenv(api.EnvWeb), api.DefaultWebAddress), "the loopback address of the web UI, or off")
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
@@ -189,17 +194,22 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	batches, windows := soloBatches(paths), soloWindows(paths)
-	httpServer := &http.Server{
-		Handler: server.New(server.Config{
-			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
-			Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
-			Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
-		}),
-		ReadHeaderTimeout: 10 * time.Second,
+	config := server.Config{
+		Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
+		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
+		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 	}
+	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpServer.Serve(listener) }()
 	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", paths.ControlSocket())
+	webServer, err := startWeb(config, opts.web, stdout, stderr)
+	if err != nil {
+		return err
+	}
+	if webServer != nil {
+		defer webServer.Close()
+	}
 
 	ticks := soloTicks(store, opts, batches, windows)
 	ticksDone := make(chan struct{})
@@ -228,6 +238,40 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	return nil
+}
+
+// startWeb serves the web UI on loopback. An address that is no loopback address is a mistake, and the
+// daemon stops on it, because a person asked for something solo mode never does. A port something else
+// holds costs only the UI, so the daemon goes on: lanes do not wait on a page.
+func startWeb(config server.Config, address string, stdout, stderr io.Writer) (*http.Server, error) {
+	if address == api.WebOff {
+		return nil, nil
+	}
+	listener, err := server.ListenWeb(address)
+	if errors.Is(err, syscall.EADDRINUSE) {
+		fmt.Fprintf(stderr, "ropeshiftd: web: %v\n", err)
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	assets, err := web.Assets()
+	if err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	bound := listener.Addr().(*net.TCPAddr)
+	webServer := &http.Server{
+		Handler:           server.NewWeb(config, server.WebOptions{Port: bound.Port, Assets: assets}),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		if err := webServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(stderr, "ropeshiftd: web: %v\n", err)
+		}
+	}()
+	fmt.Fprintf(stdout, "ropeshiftd: web http://%s\n", bound)
+	return webServer, nil
 }
 
 // startSoloWorker runs the worker in this process, on the real protocol over the

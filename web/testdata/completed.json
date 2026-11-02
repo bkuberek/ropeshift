@@ -1,0 +1,47 @@
+{
+  "as_of": 1790000540001,
+  "items": [
+    {
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000240001,
+            "digest": "abc123",
+            "fence": 2,
+            "id": "generated-1",
+            "kind": "branch",
+            "lane_id": "lane-wo-accept",
+            "uri": "lane/lane-wo-accept"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "checks": [],
+        "state": "acceptance",
+        "work_order_id": "wo-accept"
+      },
+      "work_order": {
+        "contract_id": "generated-2",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-accept",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "acceptance",
+        "title": "Trim the log"
+      }
+    }
+  ],
+  "revision": 142
+}

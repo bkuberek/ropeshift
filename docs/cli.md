@@ -45,6 +45,11 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift approval show <id>` | Shows one request: its call, its digest, and how it stands |
 | `ropeshift approval approve <id> --digest D [--reason R]` | Approves the one call a request names, and `--digest` says what you read. See [authorization](authorization.md) |
 | `ropeshift approval deny <id> --digest D [--reason R]` | Denies it |
+| `ropeshift effect list` | Lists the effects a crash left unknown that nothing can observe, such as an input to a session or a profile's hook, each with its worker, lane, and how it stands |
+| `ropeshift effect show <id>` | Shows one |
+| `ropeshift effect decide <id> --outcome O [--reason R]` | Says what became of one, which only a member can. `happened` and `not_happened` settle it. `retry` lets a run perform it again, so it may happen twice, and an ended lane has nothing left to retry it. An effect is decided once, and a retry a crash cuts short asks again |
+| `ropeshift view <name> [--category C]` | Prints one read model of the web UI, as JSON: `needs-you`, `roadmap`, `plans`, `documents`, `decisions`, `questions`, `in-progress`, `on-hold`, `stuck`, `completed`, `shop-floor`, or `operations`. `--category` narrows `questions` and `decisions` |
+| `ropeshift events [--after N] [--limit N]` | Follows the ledger from a revision, one line for each event: what happened and to what, with none of a record's content. With `--limit` it stops after that many |
 | `ropeshift category list` | Lists the workspace's categories: the built-in ones and those it added |
 | `ropeshift category add <name>` | Adds a category. A name is lowercase words joined by hyphens, and a category cannot be removed |
 | `ropeshift search <words> [--kind K]... [--limit N]` | Ranks candidates for a question among decisions, requirements, contracts, and open questions. A score orders one search and means nothing else: a person or an agent judges a match |
@@ -66,6 +71,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift fleet run`, `pause`, `drain` | Sets the mode for the whole fleet. `pause` takes no new claims and starts no new lanes, and a running lane that crashes still restarts. `drain` also stops new generations. Each lane already running goes on |
 | `ropeshift fleet caps [--wip N] [--per-repository N] [--per-worker N]` | Sets what a claim is held to. A flag left out keeps its value, and 0 means no limit. A claim already granted stays |
 | `ropeshift login` | Asks for the passphrase on the terminal and prints a session for `eval`. It lasts an hour |
+| `ropeshift sign-out` | Ends the session this shell holds, so its token opens nothing again |
 | `ropeshift passphrase set` | Sets the passphrase on the terminal. The first needs no session, and a later one asks for the current passphrase. A passphrase has at least 8 bytes |
 | `ropeshift worker doctor` | Reports each agent CLI on this machine: whether it is present, its version, whether that version is qualified, and the kind of its sign-in. It uses the vendor's status command, reads no credential, and needs no daemon. It exits 1 when no CLI is usable |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |

@@ -61,6 +61,13 @@ VALUES
   (:workspace_id, :rev, :id, :type, :actor_kind, :actor_id, :subject_kind, :subject_id,
    :data, :occurred_at, :recorded_at, :traceparent)`)
 
+	stmtEventsAbout = define("event.about",
+		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
+       data, occurred_at, recorded_at, traceparent
+  FROM events
+ WHERE workspace_id = :workspace_id AND subject_kind = :subject_kind AND subject_id = :subject_id
+ ORDER BY rev`)
+
 	stmtListEvents = define("event.list",
 		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
        data, occurred_at, recorded_at, traceparent

@@ -471,7 +471,7 @@ func (s *suite) startDaemonWith(overrides map[string]any) *daemon {
 	}
 	cmd := exec.Command(filepath.Join(s.binDir, "ropeshiftd"), "solo",
 		"--source", s.repo, "--intake-tick", "200ms", "--heartbeat", "1s", "--lease-tick", "1s")
-	cmd.Env = s.environment(append(s.daemonTags(), "ROPESHIFT_SESSION_OVERRIDE="+string(override))...)
+	cmd.Env = s.environment(append(s.daemonTags(), "ROPESHIFT_SESSION_OVERRIDE="+string(override), api.EnvWeb+"="+api.WebOff)...)
 	d := &daemon{cmd: cmd, exited: make(chan error, 1), stderr: &bytes.Buffer{}}
 	cmd.Stderr = d.stderr
 	if err := cmd.Start(); err != nil {

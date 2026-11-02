@@ -75,6 +75,11 @@ const usage = `usage: ropeshift <command>
   approval show <id>                                 print a request and the digest it binds to
   approval approve <id> --digest <digest>            let a lane make one call, as you read it
   approval deny <id> --digest <digest> [--reason ..] refuse a request
+  effect list                                        list effects a crash left for a person to decide
+  effect show <id>                                   show one, and what it lets a person say
+  effect decide <id> --outcome O [--reason R]        say happened, not_happened, or retry
+  view <name> [--category C]                         print a read model, the web UI's data
+  events [--after N] [--limit N]                     follow the ledger's events from a revision
   lane reset <work-order>                            let a lane its breaker stopped start again
   lane respawn <work-order>                          ask for a running lane's next generation
   lane resume <work-order>                           give a parked lane a member's word
@@ -88,6 +93,7 @@ const usage = `usage: ropeshift <command>
   fleet caps [--wip N] [--per-repository N] [--per-worker N]
                                                      set what a claim is held to
   login                                              print a session for this shell, for eval
+  sign-out                                           end this shell's session
   passphrase set                                     set the passphrase, on the terminal
   worker doctor                                      report which agent CLIs are usable here
   orchestrator show <worker>                         show a worker's orchestrator
@@ -110,7 +116,8 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
-		"question", "decision", "policy", "category", "search", "login", "passphrase", "message", "approval", "orchestrator":
+		"question", "decision", "policy", "category", "search", "login", "sign-out", "passphrase", "message", "approval", "orchestrator",
+		"effect", "view", "events":
 		return true
 	}
 	return false
@@ -151,15 +158,44 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		base.name = args[0]
 		return base.search(args[1:])
 	}
-	if len(args) > 0 && args[0] == "login" {
-		base.name = args[0]
-		return base.login(args[1:])
+	if len(args) > 0 {
+		if command, ok := singleWords[args[0]]; ok {
+			base.name = args[0]
+			return command(base, args[1:])
+		}
 	}
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usage)
 		return ExitUsage
 	}
-	commands := map[string]func(*invocation, []string) int{
+	base.name = args[0] + " " + args[1]
+	command, ok := commands()[base.name]
+	if !ok {
+		fmt.Fprintf(stderr, "ropeshift: unknown command %q\n\n%s", base.name, usage)
+		return ExitUsage
+	}
+	return command(base, args[2:])
+}
+
+// singleWords are the commands that take no second word.
+var singleWords = map[string]func(*invocation, []string) int{
+	"login":    (*invocation).login,
+	"sign-out": (*invocation).signOut,
+	"events":   (*invocation).events,
+}
+
+// HasCommand reports a command, as a person would type it.
+func HasCommand(words string) bool {
+	if _, ok := singleWords[words]; ok {
+		return true
+	}
+	_, ok := commands()[words]
+	return ok
+}
+
+// commands maps two words to a command.
+func commands() map[string]func(*invocation, []string) int {
+	table := map[string]func(*invocation, []string) int{
 		"work create":             (*invocation).workCreate,
 		"work list":               (*invocation).workList,
 		"work show":               (*invocation).workShow,
@@ -229,14 +265,14 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"orchestrator show":       (*invocation).orchestratorShow,
 		"orchestrator start":      setsOrchestrator(ledger.OrchestratorRunning),
 		"orchestrator stop":       setsOrchestrator(ledger.OrchestratorStopped),
+		"effect list":             (*invocation).effectList,
+		"effect show":             (*invocation).effectShow,
+		"effect decide":           (*invocation).effectDecide,
 	}
-	base.name = args[0] + " " + args[1]
-	command, ok := commands[base.name]
-	if !ok {
-		fmt.Fprintf(stderr, "ropeshift: unknown command %q\n\n%s", base.name, usage)
-		return ExitUsage
+	for _, name := range api.Views {
+		table["view "+name] = viewing(name)
 	}
-	return command(base, args[2:])
+	return table
 }
 
 // flags makes a flag set with what every command shares. Parsing stops at no
@@ -337,7 +373,8 @@ func exitOf(refused *api.Error) int {
 	case api.CodeLapsed:
 		return ExitLapsed
 	case api.CodeNotAcceptable, api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
-		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement:
+		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement,
+		api.CodeEffectDecided, api.CodeCannotRepeat:
 		return ExitConflict
 	case api.CodeInvalid:
 		return ExitUsage

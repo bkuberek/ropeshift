@@ -17,6 +17,7 @@ import (
 const (
 	// EventSignedIn records one session.
 	EventSignedIn      = "member.signed_in"
+	eventSignedOut     = "member.signed_out"
 	eventSignInRefused = "member.sign_in_refused"
 	subjectMember      = "member"
 )
@@ -127,6 +128,16 @@ func (s *Sessions) Member(ctx context.Context, scope ledger.WorkspaceID, token s
 		return ledger.Actor{}, err
 	}
 	return actor, nil
+}
+
+// End closes a session for good, so its token opens nothing, even in a browser that keeps it.
+func (s *Sessions) End(ctx context.Context, scope ledger.WorkspaceID, token string, actor ledger.Actor) error {
+	return s.store.Write(ctx, scope, "member.sign_out", func(tx ports.WriteTx) error {
+		if err := tx.Members().DropSession(digestOf(token)); err != nil {
+			return err
+		}
+		return appendSignIn(tx, eventSignedOut, actor, 0)
+	})
 }
 
 // Enroll sets a passphrase. A caller with no session counts as the first enrollment, and

@@ -15,6 +15,23 @@ const (
 	privateSocket = 0o600
 )
 
+// ListenWeb binds the web listener, on a loopback address and nothing else, because solo mode binds no
+// public listener. A name other than `localhost` could resolve anywhere, so only literal addresses
+// count, and this is the one TCP listener in the module.
+func ListenWeb(address string) (net.Listener, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	if host == "localhost" {
+		host = "127.0.0.1"
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return nil, fmt.Errorf("the web listener binds a loopback address, and %q is none", address)
+	}
+	return net.Listen("tcp", net.JoinHostPort(host, port))
+}
+
 // PrivateDir creates a directory only its owner can enter. It tightens one that
 // already exists, because an earlier version or a person may have made it wider.
 func PrivateDir(dir string) error {

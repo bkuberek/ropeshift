@@ -39,3 +39,14 @@ func (c *Client) SignIn(ctx context.Context, in SignIn) (Session, error) {
 func (c *Client) SetPassphrase(ctx context.Context, in SetPassphrase) error {
 	return c.Do(ctx, http.MethodPut, "/v1/passphrase", in, nil)
 }
+
+// SignInPath opens a session, and SignOutPath ends the one a call presents.
+const (
+	SignInPath  = "/v1/sessions"
+	SignOutPath = "/v1/sessions/end"
+)
+
+// SignOut ends this client's session, so its token opens nothing again.
+func (c *Client) SignOut(ctx context.Context) error {
+	return c.Do(ctx, http.MethodPost, SignOutPath, struct{}{}, nil)
+}

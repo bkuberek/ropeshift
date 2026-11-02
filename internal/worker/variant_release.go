@@ -49,6 +49,9 @@ func leavesParked() bool { return false }
 // splitsMessage is false: a normal build keeps a message's write and what it proves together.
 func splitsMessage() bool { return false }
 
+// splitsEffect is false: a normal build keeps a word about an effect and its event together.
+func splitsEffect() bool { return false }
+
 // dropsFacts is false: a generation's first prompt states what it inherited.
 func dropsFacts() bool { return false }
 

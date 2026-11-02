@@ -62,6 +62,12 @@ A session that comes back to an approved call hears that exact call first, with 
 | A push never shares a call with a stage or a commit | The hook, so a push reaches a person however the CLI reads a compound command |
 | A push reaches a person, and a force push or a push to a default branch reaches nobody | No allow rule covers a push, and the hook and generated deny rules refuse the rest |
 
+## The web listener
+
+The web UI serves on a loopback port, and any process on the machine can reach that port, so it holds to more than the socket does. It answers only to its own loopback names on its own port, which refuses a page that rebinds a hostile name to this machine. It serves a closed list of routes, each with a command that does the same, and keeps a worker's routes and the passphrase off that list. Every read needs a session here too, because a port reaches further than a socket only its owner can open.
+
+A session lives in a cookie no page can read, and a change also needs a token derived from it that only this listener's own page can read. A request from any other origin is refused, and that includes another port on this machine, which a same-site cookie does not stop. Signing out ends the session in the ledger, and an open event stream ends with it. Every response forbids inline scripts, so text from a document or an agent cannot run even if a page were to render it.
+
 ## A person at the terminal
 
 In a pane the prompt stays on screen while the hook waits, and a person's answer takes effect at once. Ropeshift sees only what follows. A tool that ran closes the request as `answered`, with channel `terminal`, and a turn that ended with no tool closes it the same way. No session proved who answered, so this is a record with nobody's name on it. It grants nothing: only `approved` lets a call run.

@@ -37,6 +37,9 @@ VALUES (:workspace_id, :digest, :member_id, :created_at, :expires_at)`)
 
 	stmtDropSessions = define("member_session.drop",
 		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND expires_at <= :before`)
+
+	stmtDropSession = define("member_session.drop_one",
+		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND digest = :digest`)
 )
 
 // memberTx is the member area of one transaction.
@@ -119,5 +122,10 @@ func (t memberTx) InsertSession(record authority.Session) error {
 
 func (t memberTx) DropSessions(before int64) error {
 	_, err := t.exec(stmtDropSessions, t.scoped(params{"before": before}))
+	return err
+}
+
+func (t memberTx) DropSession(digest string) error {
+	_, err := t.exec(stmtDropSession, t.scoped(params{"digest": digest}))
 	return err
 }

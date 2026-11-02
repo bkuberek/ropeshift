@@ -32,29 +32,35 @@ func NewAcceptances(store ports.Store) *Acceptances {
 func (a *Acceptances) Standing(ctx context.Context, scope ledger.WorkspaceID, id string) (workorders.AcceptanceView, error) {
 	var view workorders.AcceptanceView
 	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
-		current, err := tx.WorkOrders().Get(id)
-		if err != nil {
-			return err
-		}
-		assessment, err := assessAttempt(tx.Planning(), tx.Evidence(), current)
-		if err != nil {
-			return err
-		}
-		artifacts, err := tx.Evidence().Artifacts(id)
-		if err != nil {
-			return err
-		}
-		checks, err := tx.Evidence().Checks(id)
-		if err != nil {
-			return err
-		}
-		view = workorders.AcceptanceView{
-			WorkOrder: id, State: current.State, Assessment: assessment,
-			Artifacts: append([]ledger.Artifact{}, artifacts...), Checks: append([]workorders.Evidence{}, checks...),
-		}
-		return nil
+		var err error
+		view, err = StandingIn(tx, id)
+		return err
 	})
 	return view, err
+}
+
+// StandingIn reads where a work order stands inside a read, so a read model sees one moment.
+func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
+	current, err := tx.WorkOrders().Get(id)
+	if err != nil {
+		return workorders.AcceptanceView{}, err
+	}
+	assessment, err := assessAttempt(tx.Planning(), tx.Evidence(), current)
+	if err != nil {
+		return workorders.AcceptanceView{}, err
+	}
+	artifacts, err := tx.Evidence().Artifacts(id)
+	if err != nil {
+		return workorders.AcceptanceView{}, err
+	}
+	checks, err := tx.Evidence().Checks(id)
+	if err != nil {
+		return workorders.AcceptanceView{}, err
+	}
+	return workorders.AcceptanceView{
+		WorkOrder: id, State: current.State, Assessment: assessment,
+		Artifacts: append([]ledger.Artifact{}, artifacts...), Checks: append([]workorders.Evidence{}, checks...),
+	}, nil
 }
 
 // assessAttempt compares the pinned contract with the current attempt's evidence.

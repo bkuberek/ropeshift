@@ -307,6 +307,8 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 			w.config.Report(fmt.Errorf("lane %s: %s: %w", action.Lane, action.Kind, err))
 		}
 	}
+	w.raiseUnknown(ctx, world.Unknown, seen.records)
+	w.settleDecided(ctx)
 	w.drainLanes(ctx)
 	w.briefCleared(ctx)
 	w.respawnLanes(ctx)

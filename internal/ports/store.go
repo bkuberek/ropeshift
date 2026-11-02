@@ -60,6 +60,8 @@ type ReadTx interface {
 	Workspace() (ledger.Workspace, error)
 	// Events returns up to limit events after the revision, in order.
 	Events(after int64, limit int) ([]ledger.Event, error)
+	// EventsAbout returns every event about one subject, in order.
+	EventsAbout(subject ledger.Subject) ([]ledger.Event, error)
 	// Now reads database time.
 	Now() (int64, error)
 	// WorkOrders reads the work order projection.
@@ -90,6 +92,8 @@ type ReadTx interface {
 	Packs() PackReader
 	// Approvals reads approval requests.
 	Approvals() ApprovalReader
+	// Effects reads what waits for a person's word on an effect a crash left unknown.
+	Effects() EffectReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -142,6 +146,8 @@ type WriteTx interface {
 	Packs() PackWriter
 	// Approvals reads and writes approval requests.
 	Approvals() ApprovalWriter
+	// Effects reads and writes what waits for a person's word on an effect a crash left unknown.
+	Effects() EffectWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -445,6 +451,29 @@ type ApprovalWriter interface {
 	Save(approval authority.Approval, from authority.ApprovalState) (bool, error)
 }
 
+// EffectReader reads what a person can decide of an effect a crash left unknown. No read here stops
+// at a page, because each decides what a person or a worker hears.
+type EffectReader interface {
+	// Effect returns one, or ErrNotFound.
+	Effect(id string) (ledger.UnknownEffect, error)
+	// Effects lists every one, oldest first.
+	Effects() ([]ledger.UnknownEffect, error)
+	// DecidedFor lists what a person decided and one worker has not yet acted on, oldest first.
+	DecidedFor(worker string) ([]ledger.UnknownEffect, error)
+}
+
+// EffectWriter writes them. The store itself refuses a decision with no member behind it.
+type EffectWriter interface {
+	EffectReader
+	// Insert keeps one attempt at an effect, and reports whether it was new.
+	Insert(ledger.UnknownEffect) (bool, error)
+	// Decide keeps a decision on one nobody decided yet, and reports whether it did. Kind is the
+	// kind of actor deciding.
+	Decide(id string, decided ledger.EffectDecided, kind string) (bool, error)
+	// Settle records that the worker acted on a decision, and reports whether this was the first time.
+	Settle(id string, at int64) (bool, error)
+}
+
 // EvidenceReader reads what a work order's lanes left and what its checks said.
 type EvidenceReader interface {
 	// Attempt lists the check results of one attempt, oldest first.
@@ -687,6 +716,8 @@ type MemberWriter interface {
 	InsertSession(authority.Session) error
 	// DropSessions removes the sessions that ended by a time.
 	DropSessions(before int64) error
+	// DropSession removes one session, by the digest of its token.
+	DropSession(digest string) error
 }
 
 // WorkerReader reads the worker plane's records.

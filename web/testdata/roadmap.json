@@ -1,0 +1,128 @@
+{
+  "as_of": 1790000540001,
+  "goals": [
+    {
+      "goal": {
+        "id": "goal-1",
+        "status": "active",
+        "title": "Ship solo mode"
+      },
+      "plans": [
+        {
+          "done": 0,
+          "plan": {
+            "goal_id": "goal-1",
+            "id": "generated-1",
+            "status": "active",
+            "title": "Write the docs"
+          },
+          "states": {
+            "running": 1
+          },
+          "total": 1
+        }
+      ]
+    },
+    {
+      "plans": [
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-2",
+            "status": "active",
+            "title": "Add the retry budget"
+          },
+          "states": {
+            "running": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-3",
+            "status": "active",
+            "title": "Fix the flaky test"
+          },
+          "states": {
+            "running": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-4",
+            "status": "active",
+            "title": "Move the archive"
+          },
+          "states": {
+            "blocked": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-5",
+            "status": "active",
+            "title": "Read the logs"
+          },
+          "states": {
+            "running": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-6",
+            "status": "active",
+            "title": "Rotate the keys"
+          },
+          "states": {
+            "lapsed": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-7",
+            "status": "active",
+            "title": "Tag the release"
+          },
+          "states": {
+            "running": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-8",
+            "status": "active",
+            "title": "Trim the log"
+          },
+          "states": {
+            "acceptance": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-9",
+            "status": "active",
+            "title": "Wait for the check"
+          },
+          "states": {
+            "parked": 1
+          },
+          "total": 1
+        }
+      ]
+    }
+  ],
+  "revision": 142
+}

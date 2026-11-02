@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -77,7 +78,10 @@ func newInstall(t *testing.T) *install {
 }
 
 func (in *install) env() []string {
-	return []string{"HOME=" + in.home, "PATH=" + in.path, "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state")}
+	return []string{
+		"HOME=" + in.home, "PATH=" + in.path, "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state"),
+		api.EnvWeb + "=" + api.WebOff,
+	}
 }
 
 func (in *install) paths() api.Paths {
@@ -93,16 +97,34 @@ func (in *install) paths() api.Paths {
 // daemon is one running ropeshiftd.
 type daemon struct {
 	cmd    *exec.Cmd
-	stdout *bytes.Buffer
-	stderr *bytes.Buffer
+	stdout *lockedBuffer
+	stderr *lockedBuffer
 	exited chan error
+}
+
+// lockedBuffer holds a process's output, which a test may read while the process runs.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	raw bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.raw.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.raw.String()
 }
 
 func (in *install) start(args ...string) *daemon {
 	in.t.Helper()
 	cmd := exec.Command(binaries.daemon, append([]string{"solo"}, args...)...)
 	cmd.Env = append(in.env(), in.daemonEnv...)
-	d := &daemon{cmd: cmd, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, exited: make(chan error, 1)}
+	d := &daemon{cmd: cmd, stdout: &lockedBuffer{}, stderr: &lockedBuffer{}, exited: make(chan error, 1)}
 	cmd.Stdout, cmd.Stderr = d.stdout, d.stderr
 	if err := cmd.Start(); err != nil {
 		in.t.Fatal(err)

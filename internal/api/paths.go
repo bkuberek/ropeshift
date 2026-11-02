@@ -28,6 +28,14 @@ const (
 	EnvRunDir   = "ROPESHIFT_RUN_DIR"
 )
 
+// The web listener's address. EnvWeb replaces the default, for a second installation on one machine and
+// for tests, and WebOff turns the listener off.
+const (
+	DefaultWebAddress = "127.0.0.1:7317"
+	EnvWeb            = "ROPESHIFT_WEB"
+	WebOff            = "off"
+)
+
 // Paths says where one installation keeps its files (D19).
 type Paths struct {
 	StateDir string

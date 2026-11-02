@@ -49,6 +49,8 @@ const (
 	SabotageResendsMessage = "resends-message"
 	// SabotageSplitsMessage keeps a message's write and what it proves in two journal writes.
 	SabotageSplitsMessage = "splits-message"
+	// SabotageSplitsEffect keeps a word about an effect and the event that carries it in two writes.
+	SabotageSplitsEffect = "splits-effect"
 	// SabotageDropsFacts starts a generation that was told nothing of what it inherited.
 	SabotageDropsFacts = "drops-facts"
 	// SabotageSplitsSignal clears a limit in one journal write and says so in another.
@@ -96,6 +98,8 @@ func splitsResume() bool { return sabotaged(SabotageSplitsResume) }
 func leavesParked() bool { return sabotaged(SabotageLeavesParked) }
 
 func splitsMessage() bool { return sabotaged(SabotageSplitsMessage) }
+
+func splitsEffect() bool { return sabotaged(SabotageSplitsEffect) }
 
 func dropsFacts() bool { return sabotaged(SabotageDropsFacts) }
 

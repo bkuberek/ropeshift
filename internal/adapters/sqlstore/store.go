@@ -319,6 +319,23 @@ func (t *readTx) Events(after int64, limit int) ([]ledger.Event, error) {
 	return listEvents(t.session, t.scope, after, limit)
 }
 
+func (t *readTx) EventsAbout(subject ledger.Subject) ([]ledger.Event, error) {
+	rows, err := t.rows(stmtEventsAbout, params{"workspace_id": string(t.scope), "subject_kind": subject.Kind, "subject_id": subject.ID})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []ledger.Event
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
 func (t *readTx) Now() (int64, error) { return t.readClock() }
 
 func (t *readTx) WorkOrders() ports.WorkOrderReader {

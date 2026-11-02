@@ -1,0 +1,45 @@
+{
+  "as_of": 1790000540001,
+  "decisions": [
+    {
+      "categories": [
+        "product"
+      ],
+      "decided_by": "member-1",
+      "id": "decision-1",
+      "lineage": [
+        "decision-1",
+        "decision-2"
+      ],
+      "policy_version": 1,
+      "rationale": "It covers the outage.",
+      "reversibility": "reversible",
+      "scope": "retries",
+      "statement": "Retry twice.",
+      "status": "replaced",
+      "superseded_by": "decision-2"
+    },
+    {
+      "categories": [
+        "product"
+      ],
+      "decided_by": "member-1",
+      "id": "decision-2",
+      "lineage": [
+        "decision-1",
+        "decision-2"
+      ],
+      "overlaps": [
+        "decision-1"
+      ],
+      "policy_version": 1,
+      "rationale": "The outage ran longer.",
+      "reversibility": "reversible",
+      "scope": "retries",
+      "statement": "Retry three times.",
+      "status": "decided",
+      "supersedes": "decision-1"
+    }
+  ],
+  "revision": 142
+}

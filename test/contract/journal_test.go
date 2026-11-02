@@ -57,6 +57,10 @@ func TestJournalContract(t *testing.T) {
 		{"a crash leaves a started effect unknown", checkEffectUnknown},
 		{"only an unknown effect can be retried", checkEffectRetry},
 		{"a settled effect stays settled", checkEffectSettled},
+		{"each attempt at an effect is reported once", checkEffectReportedOnce},
+		{"a person's word settles an unknown effect once", checkVerdictSettles},
+		{"a person's word sends an effect back once", checkVerdictRetries},
+		{"a word about an attempt that moved on changes no effect", checkVerdictOnAnOldAttempt},
 		{"a generation binds once", checkGenerationBinds},
 		{"progress round trips and survives a save", checkLaneProgress},
 	}
@@ -85,6 +89,114 @@ func effectState(t *testing.T, ctx context.Context, j ports.Journal, key string)
 		t.Fatal(err)
 	}
 	return effect.State
+}
+
+// unknownEffect lays down an effect as a crash leaves it.
+func unknownEffect(t *testing.T, ctx context.Context, j ports.Journal) lanes.Effect {
+	t.Helper()
+	effect := newEffect("")
+	if _, err := j.BeginEffect(ctx, effect); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.MarkUnknown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return effect
+}
+
+func pendingOf(t *testing.T, ctx context.Context, j ports.Journal, eventType string) int {
+	t.Helper()
+	events, err := j.Pending(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, event := range events {
+		if event.Type == eventType {
+			found++
+		}
+	}
+	return found
+}
+
+func checkEffectReportedOnce(t *testing.T, ctx context.Context, j ports.Journal) {
+	effect := unknownEffect(t, ctx, j)
+	event := ledger.UploadEvent{Type: ledger.UploadEffectUnknown, Lane: effect.Lane}
+	for _, want := range []bool{true, false} {
+		first, err := j.ReportEffect(ctx, effect.Key, 1, event)
+		if err != nil || first != want {
+			t.Fatalf("report: %v, %v, want %v", first, err, want)
+		}
+	}
+	if got := pendingOf(t, ctx, j, ledger.UploadEffectUnknown); got != 1 {
+		t.Errorf("%d events for one attempt", got)
+	}
+	first, err := j.ReportEffect(ctx, effect.Key, 2, event)
+	if err != nil || !first {
+		t.Fatalf("a later attempt reads as a repeat: %v, %v", first, err)
+	}
+}
+
+func checkVerdictSettles(t *testing.T, ctx context.Context, j ports.Journal) {
+	effect := unknownEffect(t, ctx, j)
+	verdict := lanes.EffectVerdict{ID: "d1", Key: effect.Key, Attempt: 1, State: lanes.EffectCompleted, Detail: lanes.DetailSaidHappened}
+	event := ledger.UploadEvent{Type: ledger.UploadEffectSettled, Lane: effect.Lane}
+	for _, want := range []bool{true, false} {
+		first, err := j.SettleEffect(ctx, verdict, event)
+		if err != nil || first != want {
+			t.Fatalf("settle: %v, %v, want %v", first, err, want)
+		}
+	}
+	got, err := j.Effect(ctx, effect.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != lanes.EffectCompleted || got.Detail != lanes.DetailSaidHappened {
+		t.Errorf("effect %+v", got)
+	}
+	if got := pendingOf(t, ctx, j, ledger.UploadEffectSettled); got != 1 {
+		t.Errorf("%d events for one word", got)
+	}
+}
+
+func checkVerdictRetries(t *testing.T, ctx context.Context, j ports.Journal) {
+	effect := unknownEffect(t, ctx, j)
+	verdict := lanes.EffectVerdict{ID: "d1", Key: effect.Key, Attempt: 1, Retry: true}
+	event := ledger.UploadEvent{Type: ledger.UploadEffectSettled, Lane: effect.Lane}
+	for range 2 {
+		if _, err := j.SettleEffect(ctx, verdict, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := j.Effect(ctx, effect.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != lanes.EffectStarted || got.Attempts != 2 {
+		t.Errorf("effect %+v", got)
+	}
+}
+
+func checkVerdictOnAnOldAttempt(t *testing.T, ctx context.Context, j ports.Journal) {
+	effect := unknownEffect(t, ctx, j)
+	if _, err := j.RetryEffect(ctx, effect.Key); err != nil {
+		t.Fatal(err)
+	}
+	verdict := lanes.EffectVerdict{ID: "d1", Key: effect.Key, Attempt: 1, State: lanes.EffectCompleted, Detail: lanes.DetailSaidHappened}
+	first, err := j.SettleEffect(ctx, verdict, ledger.UploadEvent{Type: ledger.UploadEffectSettled})
+	if err != nil || !first {
+		t.Fatalf("settle: %v, %v", first, err)
+	}
+	got, err := j.Effect(ctx, effect.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != lanes.EffectStarted {
+		t.Errorf("a word about attempt 1 moved attempt 2: %+v", got)
+	}
+	if got := pendingOf(t, ctx, j, ledger.UploadEffectSettled); got != 1 {
+		t.Errorf("the ledger will not hear the word was read: %d events", got)
+	}
 }
 
 func checkEffectOnce(t *testing.T, ctx context.Context, j ports.Journal) {

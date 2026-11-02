@@ -81,6 +81,14 @@ type Journal interface {
 	// MarkUnknown turns every started effect into unknown_after_crash, and returns how
 	// many. It runs once at a start, before this process begins an effect.
 	MarkUnknown(ctx context.Context) (int, error)
+	// ReportEffect keeps that one attempt at an effect reached the ledger, and the event that takes
+	// it there, in one write, and reports whether this was the first time, so a person hears of each
+	// attempt once.
+	ReportEffect(ctx context.Context, key string, attempt int64, event ledger.UploadEvent) (bool, error)
+	// SettleEffect applies a person's word and stores the event that says so, in one write, and
+	// reports whether this was the first time. A word about an attempt that is no longer unknown
+	// changes no effect, and the ledger still hears that the worker read it.
+	SettleEffect(ctx context.Context, verdict lanes.EffectVerdict, event ledger.UploadEvent) (bool, error)
 	// BindGeneration records a lane's session and its event together, once, and reports
 	// whether this was the first time.
 	BindGeneration(ctx context.Context, lane, sessionID string, event ledger.UploadEvent) (bool, error)

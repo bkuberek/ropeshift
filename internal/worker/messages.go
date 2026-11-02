@@ -129,8 +129,14 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 	}
 	effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, generation, "", messageKey(held.ID))
 	begun, err := r.w.journal.BeginEffect(ctx, effect)
-	if err != nil || !begun {
+	if err != nil {
 		return false, err
+	}
+	if !begun {
+		again, err := r.afterAPersonsWord(ctx, held, effect.Key)
+		if err != nil || !again {
+			return false, err
+		}
 	}
 	crashpoint.Hit("worker.message", "begun")
 	_, sent := r.rt.Driver.Send(ctx, handle, ports.Input{ID: held.InputID, Text: messages.Render(held.Message, age, window), Peer: true})
@@ -145,6 +151,23 @@ func (r *laneRun) deliver(ctx context.Context, held messages.Held) (bool, error)
 		return false, sent
 	}
 	return true, r.recordHandedOff(ctx, held, effect.Key)
+}
+
+// afterAPersonsWord reads a write that already has a record, and says whether to write again. Only a
+// person sends one back, since a restart turns whatever it finds started to unknown, and only a
+// person's word that it arrived stands for a hand-off no write of ours saw.
+func (r *laneRun) afterAPersonsWord(ctx context.Context, held messages.Held, key string) (bool, error) {
+	current, err := r.w.journal.Effect(ctx, key)
+	if err != nil {
+		return false, err
+	}
+	switch {
+	case current.State == lanes.EffectStarted && current.Attempts > 1:
+		return true, nil
+	case current.State == lanes.EffectCompleted && current.Detail == lanes.DetailSaidHappened:
+		return false, r.recordHandedOff(ctx, held, key)
+	}
+	return false, nil
 }
 
 // recordHandedOff keeps the write and what it proves in one journal write. A state that followed the

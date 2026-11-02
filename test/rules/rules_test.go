@@ -209,17 +209,28 @@ func TestPortWithAFakePasses(t *testing.T) {
 	}
 }
 
-// TestNoTCPListener holds solo mode to its unix sockets (FR-DEP-1): nothing in this
-// module opens a TCP listener yet.
-func TestNoTCPListener(t *testing.T) {
+// webListenerFile is the one file that may open a TCP listener: ListenWeb, which refuses anything but
+// a loopback address, and a test holds it to that.
+const webListenerFile = "internal/api/server/listen.go"
+
+// TestOneTCPListener holds solo mode to its unix sockets and the one loopback web listener the design
+// names (FR-DEP-1), so a second way onto the network cannot arrive unnoticed.
+func TestOneTCPListener(t *testing.T) {
 	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, []string{
-		`net.Listen("tcp`, `ListenAndServe(`, `ListenConfig{`, `net.ListenTCP(`,
+		`ListenAndServe(`, `ListenConfig{`, `net.ListenTCP(`,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, hit := range found {
 		t.Error(hit)
+	}
+	bound, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, []string{`net.Listen("tcp`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bound) != 1 || !strings.Contains(bound[0], webListenerFile) {
+		t.Errorf("TCP listeners at %v, and only %s may hold one", bound, webListenerFile)
 	}
 }
 

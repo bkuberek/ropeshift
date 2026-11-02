@@ -301,6 +301,8 @@ type DesiredState struct {
 	// MaxRespawnsPerDay is what this worker's autonomy holds a lane's generations to, where zero
 	// leaves that to its profile (FR-ORCH-6).
 	MaxRespawnsPerDay int64 `json:"max_respawns_per_day,omitempty"`
+	// Effects are what a person decided of this worker's unknown effects and it has not acted on.
+	Effects []DesiredEffect `json:"effects,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.

@@ -1,0 +1,16 @@
+{
+  "as_of": 1790000540001,
+  "documents": [
+    {
+      "adapter": "fake-knowledge",
+      "digest": "sha256:082d1fde95b7ed5569a557dd167368455b5dc361f7cb8057a37b6f0b21da251d",
+      "instance": "memory",
+      "path": "design.md",
+      "source": "design.md@1",
+      "title": "The retry budget",
+      "version": "1"
+    }
+  ],
+  "requirements": [],
+  "revision": 142
+}

@@ -50,6 +50,25 @@ func (k EffectKind) Repeats(state EffectState) bool {
 	return false
 }
 
+// The words a person's decision leaves on an effect. A run reads DetailSaidHappened, because an
+// effect that completed on a person's word has nothing else to say it did.
+const (
+	DetailSaidHappened    = "a member said it happened"
+	DetailSaidNotHappened = "a member said it did not happen"
+)
+
+// EffectVerdict is what a person's word does to one attempt at an effect. Retry sends it back to
+// started for a run to repeat, and State and Detail settle it otherwise.
+type EffectVerdict struct {
+	// ID is the ledger's name for the decision, which makes applying it once a fact of the journal.
+	ID      string
+	Key     string
+	Attempt int64
+	Retry   bool
+	State   EffectState
+	Detail  string
+}
+
 // Effect is one bracket in the journal. Key is unique for good, so one effect can be
 // performed only once, and a retry of the same effect keeps its key.
 type Effect struct {
