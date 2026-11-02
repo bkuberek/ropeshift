@@ -458,6 +458,10 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if r.resumeFrom == "" {
 		r.setInstruction(spec.Brief)
 	}
+	// Before the process, so a kill right after it leaves a lane able to answer what it was told.
+	if len(r.carriedIDs()) != 0 {
+		r.saveProgress(ctx, r.cursor)
+	}
 	spawn := lanes.NewEffect(lanes.EffectSession, r.lease.Lane, r.currentGeneration(), prepared.Worktree.Path, "")
 	ran, err := r.w.bracket(ctx, spawn, func() error {
 		handle, err := r.launch(ctx, spec)
@@ -646,10 +650,6 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	if err != nil {
 		r.w.config.Report(err)
 		return
-	}
-	// Before the binding, so a kill between them leaves a lane able to answer what it was told.
-	if len(r.carriedIDs()) > 0 {
-		r.saveProgress(ctx, r.cursor)
 	}
 	bound := r.w.event(ledger.UploadGenerationBound, r.record(), payload)
 	first, err := r.w.journal.BindGeneration(ctx, r.lease.Lane, event.SessionID, bound)

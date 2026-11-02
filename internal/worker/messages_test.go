@@ -598,6 +598,37 @@ func TestAFactReachesTheBriefOfAFreshGeneration(t *testing.T) {
 	r.subject.Wait()
 }
 
+// beforeResume runs something the moment a session is about to start.
+type beforeResume struct {
+	*fake.AgentDriver
+	before func()
+}
+
+func (d beforeResume) Resume(ctx context.Context, spec ports.SessionSpec, from ports.ResumeRef) (ports.SessionHandle, error) {
+	d.before()
+	return d.AgentDriver.Resume(ctx, spec, from)
+}
+
+// TestAStatedFactIsKeptBeforeItsSessionStarts closes the window where a prompt is out and a kill
+// leaves a worker that would refuse the lane's reply to it.
+func TestAStatedFactIsKeptBeforeItsSessionStarts(t *testing.T) {
+	r := parkedWithAFact(t, (*laneRig).toldToGoOn)
+	var kept []string
+	r.config.Driver = beforeResume{AgentDriver: r.driver, before: func() {
+		record, err := r.journal.Lane(context.Background(), "lane-1")
+		if err != nil {
+			t.Error(err)
+		}
+		kept = record.Progress.Carried
+	}}
+	r.pass(t)
+	r.awaitOrder(t, workorders.Acceptance)
+	r.subject.Wait()
+	if !slices.Contains(kept, "m-1") {
+		t.Errorf("a session started with %v kept", kept)
+	}
+}
+
 // TestAStatedFactTakesAReplyAfterTheWorkerRestarts: the first prompt was read once, and a worker
 // that starts again finds no row for what it stated.
 func TestAStatedFactTakesAReplyAfterTheWorkerRestarts(t *testing.T) {
