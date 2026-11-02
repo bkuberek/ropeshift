@@ -692,15 +692,18 @@ func (r *laneRun) expireToken(ctx context.Context) {
 }
 
 // saveProgress keeps how far this run read, so a kill costs at most one redelivered
-// turn, and a redelivered turn is dropped by its position.
+// turn, and a redelivered turn is dropped by its position. The generation is read before anything
+// else, so what a clear overtakes is refused: everything here that a clear resets may already be of
+// the generation before it.
 func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
+	generation := r.currentGeneration()
 	r.cursor = cursor
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(), OwesBrief: r.owesBrief.Load(),
 	}
 	r.state.journalContext(&progress)
-	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
+	if _, err := r.w.journal.SaveProgress(ctx, r.lease.Lane, generation, progress); err != nil {
 		r.w.config.Report(err)
 	}
 }

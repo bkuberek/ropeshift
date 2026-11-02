@@ -160,7 +160,7 @@ func (r *laneRig) setContext(t *testing.T, tokens int64) {
 	}
 	progress := record.Progress
 	progress.ContextTokens, progress.BaselineTokens = tokens+500, 500
-	if err := r.journal.SaveProgress(t.Context(), "lane-1", progress); err != nil {
+	if _, err := r.journal.SaveProgress(t.Context(), "lane-1", record.Generation, progress); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -921,14 +921,19 @@ func (j *Journal) SaveActual(ctx context.Context, lane string, state, from lanes
 	return err
 }
 
-// SaveProgress replaces how far a lane's session was read.
-func (j *Journal) SaveProgress(ctx context.Context, lane string, progress lanes.Progress) error {
+// SaveProgress replaces how far a lane's session was read. A clear moves a generation on a hook's
+// goroutine, so what a reader saved as it happened says nothing of the generation it landed in.
+func (j *Journal) SaveProgress(ctx context.Context, lane string, generation int64, progress lanes.Progress) (bool, error) {
 	raw, err := json.Marshal(progress)
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = j.db.ExecContext(ctx, `UPDATE lanes SET progress = ?1 WHERE id = ?2`, raw, lane)
-	return err
+	result, err := j.db.ExecContext(ctx, `UPDATE lanes SET progress = ?1 WHERE id = ?2 AND generation = ?3`, raw, lane, generation)
+	if err != nil {
+		return false, err
+	}
+	saved, err := result.RowsAffected()
+	return saved > 0, err
 }
 
 var _ ports.Journal = (*Journal)(nil)

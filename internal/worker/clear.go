@@ -67,11 +67,13 @@ func (r *laneRun) cleared(ctx context.Context, session string) {
 		return
 	}
 	crashpoint.Hit("worker.clear", "cleared")
+	// What a generation reports resets before the generation moves, so a save that reads this one
+	// reads nothing of the last.
+	r.state.newGeneration(r.w.clock.Now(), 0)
 	r.handleLock.Lock()
 	r.generation, r.instruction = stored.Generation, ""
 	r.handleLock.Unlock()
 	r.nudged.Store(false)
-	r.state.newGeneration(r.w.clock.Now(), 0)
 	if life := r.life; life != nil {
 		r.sequence.Go(func() { r.uploadBounded(life) })
 	}

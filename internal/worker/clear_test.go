@@ -1,10 +1,13 @@
 package worker_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,6 +58,59 @@ func aLaneAtRest(t *testing.T, next ...[]fake.DriverStep) *laneRig {
 	r.start()
 	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
 	return r
+}
+
+// clearAmidSave is a clear that lands while a save of the generation before it is on its way to the
+// journal, because a clear runs on a hook's goroutine and a save on the one that reads the session.
+type clearAmidSave struct {
+	ports.Journal
+	during func()
+	once   sync.Once
+	armed  atomic.Bool
+	landed chan struct{}
+}
+
+func (j *clearAmidSave) SaveProgress(ctx context.Context, lane string, generation int64, progress lanes.Progress) (bool, error) {
+	raced := false
+	if j.armed.Load() {
+		j.once.Do(func() {
+			j.during()
+			raced = true
+		})
+	}
+	saved, err := j.Journal.SaveProgress(ctx, lane, generation, progress)
+	if raced {
+		close(j.landed)
+	}
+	return saved, err
+}
+
+// What a clear wrote stands: a save that started before it is of a generation that has ended, and it
+// would tell a restart the new one owes no brief.
+func TestASaveOfTheGenerationBeforeAClearChangesNothing(t *testing.T) {
+	base := newRig(t)
+	raced := &clearAmidSave{Journal: base.journal, landed: make(chan struct{})}
+	base.workerJournal = raced
+	r := newLaneRigFor(t, base).dispatched()
+	t.Cleanup(func() {
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+	raced.during = func() { r.cleared(t, clearedSession) }
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Do: func(ports.SessionSpec) { raced.armed.Store(true) }}, completed(0.01)}, []fake.DriverStep{{Hold: true}}))
+	r.start()
+	select {
+	case <-raced.landed:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no save came")
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Generation != 2 || !record.Progress.OwesBrief {
+		t.Errorf("after a clear the journal holds generation %d, owing a brief: %v", record.Generation, record.Progress.OwesBrief)
+	}
 }
 
 // A clear runs inside a process, so it starts no session, and the record says so: a new generation,

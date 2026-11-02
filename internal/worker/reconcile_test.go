@@ -374,7 +374,7 @@ func TestAdoptionContinuesFromTheJournal(t *testing.T) {
 	w.record("lane-1", lanes.StateRunning)
 	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
 	progress := lanes.Progress{Cursor: 40, Cost: lanes.CostMeter{SessionTotalUSD: 0.5, CostUSD: 0.5}, Usage: lanes.Usage{OutputTokens: 7}}
-	if err := w.journal.SaveProgress(t.Context(), "lane-1", progress); err != nil {
+	if _, err := w.journal.SaveProgress(t.Context(), "lane-1", 1, progress); err != nil {
 		t.Fatal(err)
 	}
 	w.driver.Leave("lane-1", 1, sessionAlive)

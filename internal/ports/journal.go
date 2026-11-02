@@ -84,8 +84,9 @@ type Journal interface {
 	// BindGeneration records a lane's session and its event together, once, and reports
 	// whether this was the first time.
 	BindGeneration(ctx context.Context, lane, sessionID string, event ledger.UploadEvent) (bool, error)
-	// SaveProgress replaces how far this worker read a lane's session.
-	SaveProgress(ctx context.Context, lane string, progress lanes.Progress) error
+	// SaveProgress replaces how far this worker read a lane's session, while the lane is still in the
+	// generation that was read, and says whether it did.
+	SaveProgress(ctx context.Context, lane string, generation int64, progress lanes.Progress) (bool, error)
 	// SaveActual replaces where a lane's state stands, and from says what a compaction under way
 	// left, in one write, because the end of that compaction returns there.
 	SaveActual(ctx context.Context, lane string, state, from lanes.ActualState) error

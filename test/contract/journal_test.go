@@ -200,8 +200,8 @@ func checkGenerationBinds(t *testing.T, ctx context.Context, j ports.Journal) {
 func checkLaneProgress(t *testing.T, ctx context.Context, j ports.Journal) {
 	record := journalLane(t, ctx, j)
 	want := lanes.Progress{Cursor: 12, Cost: lanes.CostMeter{SessionTotalUSD: 0.5, CostUSD: 0.25, UnknownTurns: 1}, Usage: lanes.Usage{OutputTokens: 9}}
-	if err := j.SaveProgress(ctx, "lane", want); err != nil {
-		t.Fatal(err)
+	if saved, err := j.SaveProgress(ctx, "lane", record.Generation, want); err != nil || !saved {
+		t.Fatalf("saved %v: %v", saved, err)
 	}
 	if err := j.SaveLane(ctx, record); err != nil {
 		t.Fatal(err)
@@ -209,6 +209,15 @@ func checkLaneProgress(t *testing.T, ctx context.Context, j ports.Journal) {
 	got, err := j.Lane(ctx, "lane")
 	if err != nil || !reflect.DeepEqual(got.Progress, want) {
 		t.Errorf("progress %+v: %v", got.Progress, err)
+	}
+	for name, generation := range map[string]int64{"an earlier generation": record.Generation - 1, "a later one": record.Generation + 1} {
+		saved, err := j.SaveProgress(ctx, "lane", generation, lanes.Progress{Cursor: 99})
+		if err != nil || saved {
+			t.Errorf("%s: saved %v: %v", name, saved, err)
+		}
+	}
+	if got, err := j.Lane(ctx, "lane"); err != nil || !reflect.DeepEqual(got.Progress, want) {
+		t.Errorf("a save from another generation left %+v: %v", got.Progress, err)
 	}
 }
 
