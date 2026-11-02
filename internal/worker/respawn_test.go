@@ -71,9 +71,9 @@ func TestAMemberRespawnsARunningLane(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if view := r.read(); view.ActualState != string(lanes.Working) {
-		t.Errorf("a request acted on already moved the lane to %s", view.ActualState)
-	}
+	// A session reaches its gate ahead of the worker that reads it, so the lane gets a moment to read
+	// `working`. A second respawn would start a third session, which the count below reads.
+	r.eventually("the next session at work", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
 	close(after.release)
 	r.awaitOrderState(t, workorders.Acceptance)
 	generations := r.generations(t)

@@ -120,10 +120,9 @@ func mustDo(t *testing.T, err error) {
 // asks next goes to a member, because no class reaches where it lands now.
 func TestADecisionBindsToWhereACallLands(t *testing.T) {
 	type attack struct {
-		name   string
-		file   func(f *fileRig) string
-		before func(t *testing.T, f *fileRig)
-		move   func(t *testing.T, f *fileRig)
+		name string
+		file func(f *fileRig) string
+		move func(t *testing.T, f *fileRig)
 	}
 	existing := func(f *fileRig) string { return f.path("docs", "a.md") }
 	attacks := []attack{
