@@ -72,17 +72,17 @@ func (w *Worker) reading(ctx context.Context) lanes.MachineReading {
 	return reading
 }
 
-// admission names what holds a new lane back, for what only this machine can see. The
-// control plane held the claim to what the ledger can see.
-func (w *Worker) admission(ctx context.Context, lease ledger.DesiredLease) string {
+// admission names what holds a lane back, for what only this machine can see. The control plane
+// held the claim to what the ledger can see. Woken says the lane parked, and has work to finish.
+func (w *Worker) admission(ctx context.Context, lease ledger.DesiredLease, woken bool) string {
 	running, err := w.runningLanes(ctx)
 	if err != nil {
 		w.config.Report(err)
 		return ""
 	}
-	return lanes.Admit(lanes.AdmissionFacts{
-		Mode: w.fleetMode(ctx), Running: running, Limits: w.limits(ctx, lease), Machine: w.reading(ctx),
-	})
+	facts := w.usageFacts(lease.Lane, woken)
+	facts.Mode, facts.Running, facts.Limits, facts.Machine = w.fleetMode(ctx), running, w.limits(ctx, lease), w.reading(ctx)
+	return lanes.Admit(facts)
 }
 
 // hold leaves a lane to a later pass, and tells a person once per reason. The lease stays

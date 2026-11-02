@@ -1,5 +1,7 @@
 package parking
 
+import "strings"
+
 // The causes a firing records.
 const (
 	// CauseParked is the transaction that commits `parked`.
@@ -52,4 +54,17 @@ type Draft struct {
 type Signal struct {
 	Kind Kind   `json:"kind"`
 	Key  string `json:"key"`
+}
+
+// signInKeyMark separates a key's worker from its driver.
+const signInKeyMark = ":"
+
+// SignInKey names a sign-in. A sign-in has no identity the ledger may hold, so what it has is the
+// worker it lives on and the CLI that uses it (D10).
+func SignInKey(worker, driver string) string { return worker + signInKeyMark + driver }
+
+// SignInKeyOf says a key names a sign-in on this worker.
+func SignInKeyOf(worker, key string) bool {
+	driver, ok := strings.CutPrefix(key, worker+signInKeyMark)
+	return ok && driver != ""
 }

@@ -249,8 +249,12 @@ type DriverEvent struct {
 	End           *SessionEnd
 	// InputID is the input an EventInputAdmitted names.
 	InputID string
-	// Detail is a short reason: a limit's status, or a compaction's trigger.
+	// Detail is a short reason: a limit's status, a retry's error, or a compaction's trigger.
 	Detail string
+	// Usage is what an EventLimit read of its sign-in.
+	Usage *lanes.UsageReading
+	// Attempt counts an EventRetry's tries.
+	Attempt int64
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64
@@ -303,6 +307,10 @@ type AgentDriver interface {
 	// Doctor reports presence, version, qualification, and sign-in kind. It uses
 	// vendor status commands and never reads credentials.
 	Doctor(ctx context.Context) (DoctorReport, error)
+	// ReadUsage reads what a sign-in has used as free text, with no session and no tokens. Nothing
+	// outside this machine may see it, because it can name local plugins and subagents. A run mode
+	// with no such read says ErrUnsupported.
+	ReadUsage(ctx context.Context, spec SessionSpec) (string, error)
 	// Preflight checks a spec before start.
 	Preflight(ctx context.Context, spec SessionSpec) (PreflightReport, error)
 	// Start launches a session for a generation and returns its handle.

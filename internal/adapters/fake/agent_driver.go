@@ -37,6 +37,11 @@ type DriverStep struct {
 	Do func(spec ports.SessionSpec)
 	// Refused reports a receipt that says the session refused this input.
 	Refused string
+	// Limit reports what a session read of its sign-in.
+	Limit *lanes.UsageReading
+	// Retry reports the CLI retrying on this error, for the Attempt-th time.
+	Retry   string
+	Attempt int64
 	// Hold waits until the session is stopped.
 	Hold bool
 	// Crash ends the process with no end to its turn.
@@ -82,6 +87,12 @@ type AgentDriver struct {
 	// ignoresPeers stands for a session that took a write and will never reach it: frozen,
 	// refusing, or behind a long tool.
 	ignoresPeers atomic.Bool
+	// signInStatus is what the doctor reads, and empty reads as signed in.
+	signInStatus string
+	doctors      int
+	usageText    string
+	usageErr     error
+	usageReads   int
 }
 
 type driverSession struct {
@@ -266,9 +277,50 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 func (d *AgentDriver) Doctor(context.Context) (ports.DoctorReport, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	status := d.signInStatus
+	if status == "" {
+		status = lanes.SignedIn
+	}
+	d.doctors++
 	return ports.DoctorReport{
-		Driver: FakeDriverName, Present: d.present, Version: d.version, Qualified: !d.degraded, SignIn: d.signIn, SignInStatus: lanes.SignedIn,
+		Driver: FakeDriverName, Present: d.present, Version: d.version, Qualified: !d.degraded, SignIn: d.signIn, SignInStatus: status,
 	}, nil
+}
+
+// SetSignInStatus says what the doctor reads of this machine's sign-in.
+func (d *AgentDriver) SetSignInStatus(status string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.signInStatus = status
+}
+
+// Doctors counts the times something asked.
+func (d *AgentDriver) Doctors() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.doctors
+}
+
+// SetUsageRead says what `ReadUsage` answers.
+func (d *AgentDriver) SetUsageRead(text string, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.usageText, d.usageErr = text, err
+}
+
+// UsageReads counts the times something read it.
+func (d *AgentDriver) UsageReads() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.usageReads
+}
+
+// ReadUsage answers what a test set, with no session.
+func (d *AgentDriver) ReadUsage(context.Context, ports.SessionSpec) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.usageReads++
+	return d.usageText, d.usageErr
 }
 
 // Preflight applies the checks a spec must pass on every driver.
@@ -415,6 +467,10 @@ func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
 			step.Do(s.spec)
 		case step.Refused != "":
 			s.events <- ports.DriverEvent{Kind: ports.EventInputRefused, InputID: step.Refused}
+		case step.Limit != nil:
+			s.events <- ports.DriverEvent{Kind: ports.EventLimit, Detail: step.Limit.Status, Usage: step.Limit}
+		case step.Retry != "":
+			s.events <- ports.DriverEvent{Kind: ports.EventRetry, Detail: step.Retry, Attempt: step.Attempt}
 		case step.Turn != nil:
 			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage}
 			result.CostUSD = s.meter.ObserveTurn(step.Turn.TotalUSD)

@@ -16,6 +16,9 @@ const (
 	HeldSignInFull    = "sign_in_full"
 	HeldMemory        = "memory_floor"
 	HeldCPU           = "cpu_floor"
+	HeldUsageLimit    = "usage_limit"
+	HeldNearLimit     = "near_limit"
+	HeldSignedOut     = "signed_out"
 )
 
 // Admission holds what only a machine can see (FR-LANE-16). Zero leaves a cap off. These
@@ -43,6 +46,11 @@ type AdmissionFacts struct {
 	Running int64
 	Limits  Admission
 	Machine MachineReading
+	// SignedOut, Limited, and NearLimit are what this worker knows of its sign-in.
+	SignedOut, Limited, NearLimit bool
+	// Woken says this lane is one that parked, which near the limit has work to finish. Probe says
+	// it is the one lane sent to find out whether a limit still stands.
+	Woken, Probe bool
 }
 
 // Admit names what holds a new lane back, and is empty when nothing does.
@@ -54,6 +62,12 @@ func Admit(f AdmissionFacts) string {
 		return HeldFleetDraining
 	}
 	switch {
+	case f.SignedOut:
+		return HeldSignedOut
+	case f.Limited && !f.Probe:
+		return HeldUsageLimit
+	case f.NearLimit && !f.Woken:
+		return HeldNearLimit
 	case f.Limits.MaxLanes > 0 && f.Running >= f.Limits.MaxLanes:
 		return HeldWorkerFull
 	case f.Limits.MaxLanesPerSignIn > 0 && f.Running >= f.Limits.MaxLanesPerSignIn:

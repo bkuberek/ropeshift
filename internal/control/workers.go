@@ -594,6 +594,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return respondGeneration(tx, worker, id, e)
 	case ledger.UploadMessage:
 		return messageUpload(tx, worker, id, e)
+	case ledger.UploadWakeSignal:
+		return signalUpload(tx, worker, e, stamp)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {

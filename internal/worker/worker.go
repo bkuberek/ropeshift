@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
@@ -63,6 +64,12 @@ type Worker struct {
 	holding map[string]string
 
 	uploading sync.Mutex
+	// sign is what this worker knows of its sign-in, as the journal holds it, and polledAt is when
+	// it last asked the doctor. signLock guards both, and is held across the journal write, so two
+	// lanes that reach one limit take turns.
+	signLock  sync.Mutex
+	sign      lanes.SignInState
+	polledAt  time.Time
 	laneGroup sync.WaitGroup
 	marked    sync.Once
 }
@@ -132,6 +139,9 @@ func (w *Worker) Start(ctx context.Context) error {
 	}
 	cached, err := w.journal.Desired(ctx)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	if err := w.loadSignIn(ctx); err != nil {
 		return err
 	}
 	w.mu.Lock()

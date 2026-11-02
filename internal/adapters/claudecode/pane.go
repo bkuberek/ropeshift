@@ -599,6 +599,9 @@ func (s *paneSession) takeStatus(event lanes.HookEvent) {
 		s.seen.ContextTokens = event.Status.ContextTokens
 		s.push(ports.DriverEvent{Kind: ports.EventUsage, ContextTokens: event.Status.ContextTokens})
 	}
+	if event.Status.Usage != nil {
+		s.push(ports.DriverEvent{Kind: ports.EventLimit, Usage: event.Status.Usage})
+	}
 }
 
 // observe reads the pane. A pane proves only that its process has not exited, and a read

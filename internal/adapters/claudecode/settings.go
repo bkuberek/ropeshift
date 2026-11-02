@@ -48,6 +48,9 @@ type settingsFile struct {
 	Hooks        map[string][]hookGroup `json:"hooks,omitempty"`
 	Permissions  permissions            `json:"permissions"`
 	APIKeyHelper string                 `json:"apiKeyHelper,omitempty"`
+	// AutoContinueAtUsageLimit is false, because the worker owns the wait: a session that sat out a
+	// limit in its own process would hold it, and continue with nobody deciding.
+	AutoContinueAtUsageLimit bool `json:"autoContinueAtUsageLimit"`
 	// CrossSessionInbound is `accept`, because a worker's input to a pane and every
 	// message to a lane arrive on the session's socket, and nobody is there to answer a
 	// hold.

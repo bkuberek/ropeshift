@@ -305,6 +305,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 		}
 	}
 	w.drainLanes(ctx)
+	w.tendSignIn(ctx)
 	w.deliverMessages(ctx)
 	return actions, nil
 }
@@ -313,7 +314,7 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 	switch action.Kind {
 	case lanes.ActionStart:
 		lease := seen.leases[action.Lane]
-		if reason := w.admission(ctx, lease); reason != "" {
+		if reason := w.admission(ctx, lease, false); reason != "" {
 			return w.hold(ctx, lease, reason)
 		}
 		w.startRun(ctx, newRun(w, lease), (*laneRun).begin)
@@ -321,7 +322,7 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 		return w.claimWoken(ctx, seen.woken[action.Lane])
 	case lanes.ActionResume:
 		lease := seen.leases[action.Lane]
-		if reason := w.admission(ctx, lease); reason != "" {
+		if reason := w.admission(ctx, lease, true); reason != "" {
 			return w.hold(ctx, lease, reason)
 		}
 		w.startRun(ctx, w.wokenRun(lease, seen.records[action.Lane]), (*laneRun).resume)

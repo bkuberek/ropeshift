@@ -288,7 +288,11 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 			s.play(s.script.Turns[turn], interrupts)
 			turn++
 		}
-		s.hook("Stop", map[string]any{})
+		// A turn that ended on StopFailure has no Stop.
+		if !s.failedTurn {
+			s.hook("Stop", map[string]any{})
+		}
+		s.failedTurn = false
 	}
 	for {
 		select {

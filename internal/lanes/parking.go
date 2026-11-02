@@ -18,6 +18,10 @@ const (
 	ParkFleetDrain ParkTrigger = "fleet_drain"
 	// ParkUnknownScreen is a tmux start no check could read.
 	ParkUnknownScreen ParkTrigger = "unknown_screen"
+	// ParkUsageLimit is a lane on a sign-in that reached its limit.
+	ParkUsageLimit ParkTrigger = "usage_limit"
+	// ParkSignIn is a lane on a sign-in that expired.
+	ParkSignIn ParkTrigger = "sign_in_expired"
 )
 
 // ParkRequest asks a lane to park.

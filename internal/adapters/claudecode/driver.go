@@ -644,7 +644,7 @@ func exitStatus(exit shimlink.Exit) ports.ExitStatus {
 }
 
 func (s *session) take(line []byte, seq int64) {
-	p, err := parseLine(line)
+	p, err := parseLine(line, s.qualified)
 	if err != nil {
 		s.mu.Lock()
 		s.seen.Malformed++

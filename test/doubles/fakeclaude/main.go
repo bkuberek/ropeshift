@@ -46,7 +46,17 @@ type fixture struct {
 	Inbound string `json:"inbound,omitempty"`
 	// Lanes gives a lane a script of its own, for a test with two lanes on one binary.
 	Lanes map[string]laneScript `json:"lanes,omitempty"`
+	// Matrix names the qualification matrix's row this fixture stands for.
+	Matrix string `json:"matrix,omitempty"`
+	// UsageText is what `/usage` prints.
+	UsageText string `json:"usage_text,omitempty"`
 }
+
+// usageCommand reads a sign-in's usage, which takes no tokens and starts no turn.
+const usageCommand = "/usage"
+
+// signedOutMark beside the binary says the sign-in expired, until a test removes it.
+const signedOutMark = "signed-out"
 
 // laneScript replaces a fixture's turns for one lane.
 type laneScript struct {
@@ -80,6 +90,15 @@ type step struct {
 	WaitFile string `json:"wait_file,omitempty"`
 	// SleepMs is a turn taking its time.
 	SleepMs int `json:"sleep_ms,omitempty"`
+	// ResetsInS says when `$resets_at` in this step's line falls, in seconds from now, because a
+	// fixed time in a fixture would soon be in the past.
+	ResetsInS int64 `json:"resets_in_s,omitempty"`
+	// Witness appends Line to a log a test reads, with the time.
+	Witness string `json:"witness,omitempty"`
+	Line    string `json:"line,omitempty"`
+	// FirstTime plays Then once, across every session of this binary, and marks that with a file.
+	FirstTime string `json:"first_time,omitempty"`
+	Then      []step `json:"then,omitempty"`
 	// Status runs the status line once, with this payload merged in, as a reply does.
 	Status map[string]any `json:"status,omitempty"`
 	// Tool calls a built-in tool: the PreToolUse hook decides, and a command that passes
@@ -118,6 +137,8 @@ type session struct {
 	// socket is where this session reads messages, which only a session with a private directory
 	// binds, as the driver's generated environment gives one.
 	socket string
+	// failedTurn says a turn ended on StopFailure, which has no Stop after it.
+	failedTurn bool
 }
 
 func main() {
@@ -145,6 +166,11 @@ func main() {
 			version = "2.1.316"
 		}
 		fmt.Printf("%s (Claude Code)\n", version)
+		return
+	}
+	if slices.Contains(os.Args[1:], usageCommand) {
+		witness("usage", usageCommand)
+		fmt.Print(script.UsageText)
 		return
 	}
 	remember(self, os.Args[1:])
@@ -176,6 +202,9 @@ func authStatus(script fixture, args []string) {
 	method := script.AuthMethod
 	if method == "" {
 		method = "api_key"
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(os.Args[0]), signedOutMark)); err == nil {
+		method = "none"
 	}
 	answer, err := json.Marshal(map[string]any{
 		"loggedIn": method != "none", "authMethod": method, "apiProvider": "firstParty",
@@ -456,21 +485,32 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 			s.emit(s.init())
 		case st.Hook != "":
 			s.hook(st.Hook, st.Input)
+			s.failedTurn = s.failedTurn || st.Hook == "StopFailure"
 		case st.Emit != nil:
 			if cost, ok := st.Emit["total_cost_usd"].(float64); ok {
 				s.costUSD = cost
 			}
-			s.emit(st.Emit)
+			s.emit(resetsAt(st.Emit, st.ResetsInS))
 		case st.Raw != "":
 			writeLine([]byte(st.Raw))
 		case st.MCP != "":
 			s.callTool(st.MCP, st.Arguments, st.Refusable)
+		case st.Witness != "":
+			witness(st.Witness, fmt.Sprintf("%s %d", st.Line, time.Now().UnixMilli()))
+		case st.FirstTime != "":
+			mark := filepath.Join(filepath.Dir(os.Args[0]), st.FirstTime)
+			if _, err := os.Stat(mark); err != nil {
+				if err := os.WriteFile(mark, nil, 0o600); err != nil {
+					fail("%v", err)
+				}
+				s.play(st.Then, interrupts)
+			}
 		case st.WaitFile != "":
 			awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.WaitFile))
 		case st.SleepMs != 0:
 			time.Sleep(time.Duration(st.SleepMs) * time.Millisecond)
 		case st.Status != nil:
-			s.statusLine(st.Status)
+			s.statusLine(resetsAt(st.Status, st.ResetsInS))
 		case st.Tool != "":
 			s.callBuiltin(st)
 		case st.Hold:
@@ -484,6 +524,28 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 			os.Exit(*st.Exit)
 		}
 	}
+}
+
+// resetsAt writes a real time into a line that says `$resets_at`.
+func resetsAt(line map[string]any, seconds int64) map[string]any {
+	at := time.Now().Unix() + seconds
+	var stamp func(value any) any
+	stamp = func(value any) any {
+		switch typed := value.(type) {
+		case string:
+			if typed == "$resets_at" {
+				return at
+			}
+		case map[string]any:
+			out := make(map[string]any, len(typed))
+			for key, item := range typed {
+				out[key] = stamp(item)
+			}
+			return out
+		}
+		return value
+	}
+	return stamp(line).(map[string]any)
 }
 
 func awaitFile(path string) {

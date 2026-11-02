@@ -136,6 +136,10 @@ type Journal interface {
 	// MoveMessage moves a held message that stands in `from`, and stores its event, together, and
 	// reports whether it matched.
 	MoveMessage(ctx context.Context, id string, from, to messages.State, event ledger.UploadEvent) (bool, error)
+	// SignIn reads what this worker knows of its sign-in, and the zero state when it knows nothing.
+	SignIn(ctx context.Context) (lanes.SignInState, error)
+	// SaveSignIn keeps a state and the words that follow from it, in one write.
+	SaveSignIn(ctx context.Context, state lanes.SignInState, events ...ledger.UploadEvent) error
 	// CloseMessage stops holding a message nobody can be told of here. The ledger decides what a
 	// sender reads, so this stores no event.
 	CloseMessage(ctx context.Context, id string) error

@@ -11,6 +11,13 @@ import (
 // this word separates a stopped turn from a finished one.
 const abortedStreaming = "aborted_streaming"
 
+// blockingLimit is the terminal reason of a turn at a limit. The page names it and does not define
+// it, so what it means here is a choice: a real limit corrects it.
+const blockingLimit = "blocking_limit"
+
+// percentOfUtilization turns the stream's fraction into the status line's percent.
+const percentOfUtilization = 100
+
 // streamLine holds the fields the driver reads from one stream-json line. It never
 // reads message content, and an unknown type is ignored.
 type streamLine struct {
@@ -26,14 +33,47 @@ type streamLine struct {
 	Usage           lanes.Usage  `json:"usage"`
 	ParentToolUseID *string      `json:"parent_tool_use_id"`
 	Event           *streamEvent `json:"event"`
-	RateLimit       *struct {
-		Status string `json:"status"`
-	} `json:"rate_limit_info"`
+	// RateLimit is one notice of a sign-in's limit. It comes with a process's first API response,
+	// and then when a figure moves.
+	RateLimit *rateLimitInfo `json:"rate_limit_info"`
+	// Error and Attempt are a retry's. Another line can hold a different shape under the same
+	// name, and one word of a line must not cost the rest of it.
+	Error   json.RawMessage `json:"error"`
+	Attempt int64           `json:"attempt"`
 	Compact *struct {
 		Trigger string `json:"trigger"`
 	} `json:"compact_metadata"`
 	// MessagingSocket is where a session reads messages. It changes with the process.
 	MessagingSocket string `json:"messaging_socket_path"`
+}
+
+type rateLimitInfo struct {
+	Status      string   `json:"status"`
+	ResetsAt    int64    `json:"resetsAt"`
+	Window      string   `json:"rateLimitType"`
+	Utilization *float64 `json:"utilization"`
+	// Windows is where T8 saw the figure. Only a version the matrix pins is read here.
+	Windows map[string]struct {
+		Utilization *float64 `json:"utilization"`
+	} `json:"unifiedWindows"`
+}
+
+// reading turns a notice into what a worker reads. No window is assumed, so the highest figure any
+// of them gives is the one that can hold work back.
+func (i rateLimitInfo) reading(qualified bool) lanes.UsageReading {
+	out := lanes.UsageReading{Status: i.Status, ResetsAtMs: i.ResetsAt * 1000, Window: i.Window}
+	take := func(fraction *float64) {
+		if fraction != nil {
+			out.UsedKnown, out.UsedPercent = true, max(out.UsedPercent, *fraction*percentOfUtilization)
+		}
+	}
+	take(i.Utilization)
+	if qualified {
+		for _, window := range i.Windows {
+			take(window.Utilization)
+		}
+	}
+	return out
 }
 
 type streamEvent struct {
@@ -56,7 +96,7 @@ type parsed struct {
 	socket string
 }
 
-func parseLine(raw []byte) (parsed, error) {
+func parseLine(raw []byte, qualified bool) (parsed, error) {
 	var line streamLine
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return parsed{}, err
@@ -70,7 +110,8 @@ func parseLine(raw []byte) (parsed, error) {
 		return parseResult(line), nil
 	case "rate_limit_event":
 		if line.RateLimit != nil {
-			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventLimit, Detail: line.RateLimit.Status}}, nil
+			reading := line.RateLimit.reading(qualified)
+			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventLimit, Detail: reading.Status, Usage: &reading}}, nil
 		}
 	case "user":
 		if line.IsReplay && line.UUID != "" {
@@ -87,7 +128,11 @@ func parseSystem(line streamLine) parsed {
 			Kind: ports.EventSessionBound, SessionID: line.SessionID, ModelResolved: line.Model,
 		}}
 	case "api_retry":
-		return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventRetry}}
+		var category string
+		if json.Unmarshal(line.Error, &category) != nil {
+			category = ""
+		}
+		return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventRetry, Detail: category, Attempt: line.Attempt}}
 	case "compact_boundary":
 		event := ports.DriverEvent{Kind: ports.EventCompaction}
 		if line.Compact != nil {
@@ -117,6 +162,8 @@ func parseResult(line streamLine) parsed {
 	switch {
 	case line.TerminalReason == abortedStreaming:
 		turn.Status, turn.Reason, stopped = ports.TurnStopped, abortedStreaming, true
+	case line.TerminalReason == blockingLimit:
+		turn.Status, turn.Reason = ports.TurnFailed, lanes.FailureUsageLimit
 	case line.IsError || (line.Subtype != "" && line.Subtype != "success"):
 		turn.Status, turn.Reason = ports.TurnFailed, line.Subtype
 	}

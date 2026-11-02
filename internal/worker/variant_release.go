@@ -44,6 +44,12 @@ func splitsMessage() bool { return false }
 // dropsFacts is false: a generation's first prompt states what it inherited.
 func dropsFacts() bool { return false }
 
+// splitsSignal is false: a normal build keeps a limit's end and its signal together.
+func splitsSignal() bool { return false }
+
+// forgetsLimit is false: what a worker knows of a sign-in outlives its process.
+func forgetsLimit() bool { return false }
+
 // messageKey is one key per message, so a restart cannot write one twice.
 func messageKey(id string) string { return messageLabel + id }
 

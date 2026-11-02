@@ -1,0 +1,11 @@
+{
+  "source": "Documented only, not observed: the CLI retries a rate limit, and the line carries no reset time",
+  "matrix": "`system/api_retry` with `retry_delay_ms`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [[
+    {"init": true},
+    {"emit": {"type": "system", "subtype": "api_retry", "attempt": 3, "max_retries": 10, "retry_delay_ms": 8000, "error_status": 429, "error": "rate_limit"}},
+    {"hold": true}
+  ]]
+}

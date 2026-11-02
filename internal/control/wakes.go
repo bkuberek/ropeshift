@@ -553,7 +553,7 @@ func (w *Wakes) Signal(ctx context.Context, scope ledger.WorkspaceID, signal par
 	var fired []string
 	err := w.store.Write(ctx, scope, opWakeSignal, func(tx ports.WriteTx) error {
 		var err error
-		fired, err = signalIn(tx, signal, actor)
+		fired, err = signalIn(tx, signal, actor, noStamp)
 		return err
 	})
 	return fired, err
@@ -570,7 +570,7 @@ func (w *Wakes) ResumeLane(ctx context.Context, scope ledger.WorkspaceID, lane s
 			return err
 		}
 		var err error
-		fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: lane}, actor)
+		fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: lane}, actor, noStamp)
 		return err
 	})
 	return fired, err
@@ -601,7 +601,7 @@ func (w *Wakes) ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOr
 				return err
 			}
 			if row.WorkOrder == workOrder {
-				fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: wake.Lane}, actor)
+				fired, err = signalIn(tx, parking.Signal{Kind: parking.HumanResume, Key: wake.Lane}, actor, noStamp)
 				return err
 			}
 		}
@@ -610,15 +610,17 @@ func (w *Wakes) ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOr
 	return fired, err
 }
 
-func signalIn(tx ports.WriteTx, signal parking.Signal, actor ledger.Actor) ([]string, error) {
+func signalIn(tx ports.WriteTx, signal parking.Signal, actor ledger.Actor, stamp func(*ledger.EventDraft)) ([]string, error) {
 	data, err := json.Marshal(signal)
 	if err != nil {
 		return nil, err
 	}
-	event, err := tx.Append(ledger.EventDraft{
+	draft := ledger.EventDraft{
 		Type: parking.EventSignal, Actor: actor, Data: data,
 		Subject: ledger.Subject{Kind: parking.SubjectSignal, ID: string(signal.Kind) + ":" + signal.Key},
-	})
+	}
+	stamp(&draft)
+	event, err := tx.Append(draft)
 	if err != nil {
 		return nil, err
 	}
@@ -627,6 +629,24 @@ func signalIn(tx ports.WriteTx, signal parking.Signal, actor ledger.Actor) ([]st
 	}
 	crashpoint.Hit("wake.signal", "recorded")
 	return fireWakes(tx, string(signal.Kind), actor, signal.Kind)
+}
+
+// signalUpload is a worker's word on its own sign-in. One signal fires every wake that names the
+// key (D10). Only a worker's own key counts, and only what a sign-in can say, so no worker can wake
+// another's lanes or speak for a person.
+func signalUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp func(*ledger.EventDraft)) error {
+	var signal parking.Signal
+	if err := json.Unmarshal(e.Payload, &signal); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if signal.Kind != parking.UsageReset && signal.Kind != parking.SigninRestored && !signalsAnyKind() {
+		return fmt.Errorf("%w: a worker cannot signal %q", workorders.ErrInvalid, signal.Kind)
+	}
+	if !parking.SignInKeyOf(worker, signal.Key) && !signalsAnyKey() {
+		return fmt.Errorf("%w: %s is not this worker's sign-in", workorders.ErrInvalid, signal.Key)
+	}
+	_, err := signalIn(tx, signal, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
+	return err
 }
 
 // retireWakes closes what a work order's lanes left open, in the transaction that ends them.

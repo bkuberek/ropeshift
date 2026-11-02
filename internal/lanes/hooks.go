@@ -2,6 +2,8 @@ package lanes
 
 import (
 	"encoding/json"
+	"maps"
+	"slices"
 
 	"ropeshift.dev/ropeshift/internal/messages"
 )
@@ -53,6 +55,8 @@ type StatusReport struct {
 	ContextKnown  bool    `json:"context_known,omitempty"`
 	ContextTokens int64   `json:"context_tokens,omitempty"`
 	CostUSD       float64 `json:"cost_usd,omitempty"`
+	// Usage is the fullest window this line named, and nil when it named none.
+	Usage *UsageReading `json:"usage,omitempty"`
 }
 
 // hookPayload names the fields a hook reads from its input.
@@ -94,6 +98,25 @@ type statusPayload struct {
 			CacheRead     int64 `json:"cache_read_input_tokens"`
 		} `json:"current_usage"`
 	} `json:"context_window"`
+	// Limits has whichever windows the build reports, and none is assumed.
+	Limits map[string]struct {
+		Used     *float64 `json:"used_percentage"`
+		ResetsAt int64    `json:"resets_at"`
+	} `json:"rate_limits"`
+}
+
+// fullestWindow reads the window nearest its limit, because that is the one that stops a lane. A
+// line that names none says nothing. Windows at one figure read in name order.
+func (p statusPayload) fullestWindow() *UsageReading {
+	var out *UsageReading
+	for _, window := range slices.Sorted(maps.Keys(p.Limits)) {
+		limit := p.Limits[window]
+		if limit.Used == nil || (out != nil && *limit.Used <= out.UsedPercent) {
+			continue
+		}
+		out = &UsageReading{Window: window, UsedPercent: *limit.Used, UsedKnown: true, ResetsAtMs: limit.ResetsAt * 1000}
+	}
+	return out
 }
 
 // NewStatusEvent reads one status line's input. Context is the sum of one call's input
@@ -107,7 +130,7 @@ func NewStatusEvent(input []byte) HookEvent {
 		return out
 	}
 	out.SessionID, out.Subject, out.Model = payload.SessionID, payload.SessionID, payload.Model.ID
-	report := StatusReport{CostUSD: payload.Cost.TotalUSD}
+	report := StatusReport{CostUSD: payload.Cost.TotalUSD, Usage: payload.fullestWindow()}
 	if current := payload.Window.Current; current != nil {
 		report.ContextTokens = current.Input + current.CacheCreation + current.CacheRead
 		report.ContextKnown = report.ContextTokens > 0

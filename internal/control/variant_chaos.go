@@ -40,6 +40,8 @@ type Sabotage struct {
 	ReadsAnyLane bool
 	// LeavesAnswers closes a question and tells no lane.
 	LeavesAnswers bool
+	// SignalsAnyKey takes a worker's word on any sign-in, and SignalsAnyKind any word at all.
+	SignalsAnyKey, SignalsAnyKind bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -83,3 +85,7 @@ func expiresSettled() bool { return current().ExpiresSettled }
 func readsAnyLane() bool { return current().ReadsAnyLane }
 
 func leavesAnswers() bool { return current().LeavesAnswers }
+
+func signalsAnyKey() bool { return current().SignalsAnyKey }
+
+func signalsAnyKind() bool { return current().SignalsAnyKind }

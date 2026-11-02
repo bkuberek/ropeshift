@@ -311,6 +311,8 @@ const (
 	// UploadMessage is a worker's word on one message. It passes no fence, because what happened
 	// to a message stays true after its lane moved on.
 	UploadMessage = "message_report"
+	// UploadWakeSignal is a worker's word that its own sign-in is back, which belongs to no lane.
+	UploadWakeSignal = "wake_signal"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

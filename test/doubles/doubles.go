@@ -26,6 +26,24 @@ import (
 //go:embed fixtures/*.json
 var fixtures embed.FS
 
+// Fixtures lists the scripted sessions by name, each with its text.
+func Fixtures(t testing.TB) map[string][]byte {
+	t.Helper()
+	entries, err := fixtures.ReadDir("fixtures")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make(map[string][]byte, len(entries))
+	for _, entry := range entries {
+		raw, err := fixtures.ReadFile("fixtures/" + entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[strings.TrimSuffix(entry.Name(), ".json")] = raw
+	}
+	return out
+}
+
 // The files fakeclaude reads and leaves beside itself.
 const (
 	FixtureFile = "fixture.json"

@@ -1,0 +1,35 @@
+{
+  "source": "Documented only, not observed: six lanes on one sign-in, and the last to start reaches a limit that names its reset",
+  "matrix": "`rate_limit_event` `status` `allowed_warning` and `rejected`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [[
+    {"init": true},
+    {"hold": true}
+  ]],
+  "resume_turns": [[
+    {"init": true},
+    {"witness": "spans", "line": "start"},
+    {"sleep_ms": 400},
+    {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+    {"witness": "spans", "line": "end"},
+    {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+  ]],
+  "lanes": {
+    "lane-6": {
+      "turns": [[
+        {"init": true},
+        {"emit": {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": "$resets_at", "rateLimitType": "seven_day"}}, "resets_in_s": 6},
+        {"hold": true}
+      ]],
+      "resume_turns": [[
+        {"init": true},
+        {"witness": "spans", "line": "start"},
+        {"sleep_ms": 400},
+        {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+        {"witness": "spans", "line": "end"},
+        {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+      ]]
+    }
+  }
+}

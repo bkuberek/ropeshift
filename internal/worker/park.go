@@ -397,13 +397,18 @@ func (w *Worker) drainLanes(ctx context.Context) {
 	if w.fleetMode(ctx) != lanes.FleetDrain {
 		return
 	}
+	for _, run := range w.runs() {
+		run.parkDrained(ctx)
+	}
+}
+
+// runs lists what this worker runs.
+func (w *Worker) runs() []*laneRun {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	runs := make([]*laneRun, 0, len(w.running))
 	for _, run := range w.running {
 		runs = append(runs, run)
 	}
-	w.mu.Unlock()
-	for _, run := range runs {
-		run.parkDrained(ctx)
-	}
+	return runs
 }

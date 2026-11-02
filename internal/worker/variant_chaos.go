@@ -46,6 +46,10 @@ const (
 	SabotageSplitsMessage = "splits-message"
 	// SabotageDropsFacts starts a generation that was told nothing of what it inherited.
 	SabotageDropsFacts = "drops-facts"
+	// SabotageSplitsSignal clears a limit in one journal write and says so in another.
+	SabotageSplitsSignal = "splits-signal"
+	// SabotageForgetsLimit keeps what a worker knows of a sign-in in memory alone.
+	SabotageForgetsLimit = "forgets-limit"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -75,6 +79,10 @@ func leavesParked() bool { return sabotaged(SabotageLeavesParked) }
 func splitsMessage() bool { return sabotaged(SabotageSplitsMessage) }
 
 func dropsFacts() bool { return sabotaged(SabotageDropsFacts) }
+
+func splitsSignal() bool { return sabotaged(SabotageSplitsSignal) }
+
+func forgetsLimit() bool { return sabotaged(SabotageForgetsLimit) }
 
 func messageKey(id string) string {
 	if !sabotaged(SabotageResendsMessage) {

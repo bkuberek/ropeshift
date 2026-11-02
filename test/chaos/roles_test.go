@@ -71,6 +71,7 @@ var childRoles = map[string]func(*child) error{
 	"worker-park":       roleWorkerPark,
 	"worker-resume":     roleWorkerResume,
 	"worker-message":    roleWorkerMessage,
+	"worker-limit":      roleWorkerLimit,
 	"send-message":      roleSendMessage,
 	"expire-messages":   roleExpireMessages,
 	"roll-messages":     roleRollMessages,

@@ -83,6 +83,7 @@ type LifecycleSettings struct {
 	WakeDebounce         string `toml:"wake_debounce" json:"wake_debounce"`
 	WakeMinInterval      string `toml:"wake_min_interval" json:"wake_min_interval"`
 	HandoffTimeout       string `toml:"handoff_timeout" json:"handoff_timeout"`
+	UsageBackoff         string `toml:"usage_backoff" json:"usage_backoff"`
 	ReadyTimeout         string `toml:"ready_timeout" json:"ready_timeout"`
 	BriefGrace           string `toml:"brief_grace" json:"brief_grace"`
 	ApprovalWait         string `toml:"approval_wait" json:"approval_wait"`

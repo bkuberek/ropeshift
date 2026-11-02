@@ -63,7 +63,9 @@ type laneState struct {
 	handoffDegraded bool
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
-	askLimit   time.Duration
+	askLimit time.Duration
+	// usageBase is how long the first wait on a limit with no known reset lasts.
+	usageBase  time.Duration
 	drainLimit time.Duration
 }
 
@@ -86,7 +88,15 @@ func (s *laneState) thresholds(profile lanes.Profile) {
 	}
 	s.handoffLimit, _ = time.ParseDuration(profile.Lifecycle.HandoffTimeout)
 	s.askLimit, _ = time.ParseDuration(profile.Lifecycle.AskWait)
+	s.usageBase, _ = time.ParseDuration(profile.Lifecycle.UsageBackoff)
 	s.drainLimit, _ = time.ParseDuration(profile.Lifecycle.DrainDeadline)
+}
+
+// usageBackoff reads how long a limit with no known reset waits first. Zero takes the default.
+func (s *laneState) usageBackoff() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.usageBase
 }
 
 // askWait reads a profile's limit. A value it cannot read takes the default, because a lane must
@@ -238,11 +248,18 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 			r.noteModel(lanes.Reachable)
 		}
 		r.signal(ctx, lanes.OnActivity, lanes.OnTurnFinished)
+		if event.Turn.Status == ports.TurnCompleted {
+			r.limitPassed(ctx)
+		}
 	case ports.EventRetry:
 		r.noteModel(lanes.Impaired)
+		r.noteRetry(ctx, event)
 	case ports.EventLimit:
 		if event.Detail != "" && event.Detail != "allowed" {
 			r.noteModel(lanes.Impaired)
+		}
+		if event.Usage != nil {
+			r.noteUsage(ctx, *event.Usage)
 		}
 	}
 }
@@ -269,6 +286,7 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		s.mu.Unlock()
 	case hookStopFailure:
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
+		r.noteFailure(ctx, event.Detail)
 	}
 }
 

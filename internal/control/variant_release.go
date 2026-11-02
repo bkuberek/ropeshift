@@ -46,3 +46,9 @@ func readsAnyLane() bool { return false }
 
 // leavesAnswers is false: the write that closes a question tells its lanes.
 func leavesAnswers() bool { return false }
+
+// signalsAnyKey is false: a worker speaks only for its own sign-in.
+func signalsAnyKey() bool { return false }
+
+// signalsAnyKind is false: a worker says only what a sign-in can say.
+func signalsAnyKind() bool { return false }

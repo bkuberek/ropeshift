@@ -677,6 +677,9 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 		return
 	}
 	if turn.Status != ports.TurnCompleted {
+		if r.noteFailure(ctx, turn.Reason) {
+			return
+		}
 		report := failed(turn.Reason)
 		r.decided = &report
 		r.signal(ctx, lanes.OnLaneEnding)

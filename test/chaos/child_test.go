@@ -79,9 +79,13 @@ type childSpec struct {
 	Profile string `json:"profile,omitempty"`
 	// Question is what a parking lane waits on, and Decision the answer's ID. AnswerFirst has
 	// a worker answer it at the step where it dies, so the answer lands ahead of the crash.
-	Question    string `json:"question,omitempty"`
-	Decision    string `json:"decision,omitempty"`
-	Message     string `json:"message,omitempty"`
+	Question string `json:"question,omitempty"`
+	Decision string `json:"decision,omitempty"`
+	Message  string `json:"message,omitempty"`
+	// OtherOrder, OtherClaim, and OtherLane are a second lane, for a role that needs two.
+	OtherOrder  string `json:"other_order,omitempty"`
+	OtherClaim  string `json:"other_claim,omitempty"`
+	OtherLane   string `json:"other_lane,omitempty"`
 	AnswerFirst bool   `json:"answer_first,omitempty"`
 }
 

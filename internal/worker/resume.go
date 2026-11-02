@@ -27,7 +27,7 @@ func (w *Worker) wokenRun(lease ledger.DesiredLease, record lanes.Record) *laneR
 // it. Admission comes first, so a machine that cannot start the lane leaves it to one that can,
 // and a claim that loses a race is no failure.
 func (w *Worker) claimWoken(ctx context.Context, woken ledger.DesiredWoken) error {
-	if reason := w.admission(ctx, ledger.DesiredLease{Repository: woken.Repository}); reason != "" {
+	if reason := w.admission(ctx, ledger.DesiredLease{Lane: woken.Lane, Repository: woken.Repository}, true); reason != "" {
 		return nil
 	}
 	request := workorders.ClaimRequest{

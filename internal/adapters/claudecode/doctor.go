@@ -28,17 +28,43 @@ func (d *Driver) signIn(ctx context.Context) (kind, status string) {
 	if !lanes.ReadsVendorStatus {
 		return "", lanes.SignInUnknown
 	}
-	env := d.versionEnv()
-	binary, err := findBinary(env)
+	out, err := d.vendorOutput(ctx, "auth", "status")
 	if err != nil {
 		return "", lanes.SignInUnknown
 	}
+	var answer struct {
+		Method string `json:"authMethod"`
+	}
+	if json.Unmarshal(out, &answer) != nil {
+		return "", lanes.SignInUnknown
+	}
+	return lanes.ReadSignIn(answer.Method)
+}
+
+// ReadUsage reads `/usage`, which takes no tokens. A pane has no way to run it apart from its own
+// session, and a real-session build runs no such command.
+func (d *Driver) ReadUsage(ctx context.Context, spec ports.SessionSpec) (string, error) {
+	if spec.RunMode == ports.RunModeInteractive || !lanes.ReadsVendorStatus {
+		return "", ports.ErrUnsupported
+	}
+	out, err := d.vendorOutput(ctx, "-p", usageCommand)
+	return string(out), err
+}
+
+// vendorOutput runs one bounded vendor command under the clean environment, and keeps a bounded
+// part of what it printed. A status command can exit 1 with the answer on stdout.
+func (d *Driver) vendorOutput(ctx context.Context, args ...string) ([]byte, error) {
+	env := d.versionEnv()
+	binary, err := findBinary(env)
+	if err != nil {
+		return nil, err
+	}
 	var out bytes.Buffer
 	process, err := d.runner.Start(ctx, ports.ProcessSpec{
-		Path: binary, Args: []string{"auth", "status"}, Env: env, Stdout: &limitedWriter{target: &out, room: maxStatusOutput},
+		Path: binary, Args: args, Env: env, Stdout: &limitedWriter{target: &out, room: maxStatusOutput},
 	})
 	if err != nil {
-		return "", lanes.SignInUnknown
+		return nil, err
 	}
 	finished := make(chan struct{})
 	go func() {
@@ -47,18 +73,15 @@ func (d *Driver) signIn(ctx context.Context) (kind, status string) {
 	}()
 	select {
 	case <-finished:
+		return out.Bytes(), nil
 	case <-time.After(statusTimeout):
 		_ = process.Signal(ports.SignalKill)
-		return "", lanes.SignInUnknown
+		return nil, fmt.Errorf("%s: %w", binary, context.DeadlineExceeded)
 	}
-	var answer struct {
-		Method string `json:"authMethod"`
-	}
-	if json.Unmarshal(out.Bytes(), &answer) != nil {
-		return "", lanes.SignInUnknown
-	}
-	return lanes.ReadSignIn(answer.Method)
 }
+
+// usageCommand reads a sign-in's usage, which takes no tokens.
+const usageCommand = "/usage"
 
 type limitedWriter struct {
 	target *bytes.Buffer
