@@ -96,6 +96,8 @@ type HandoffProgress struct {
 	// Begun says the next generation exists, so the document is its brief and nothing is
 	// left to finish.
 	Begun bool `json:"begun,omitempty"`
+	// MidTurn says the instruction must reach a turn already running.
+	MidTurn bool `json:"mid_turn,omitempty"`
 }
 
 // Degraded says only the deterministic part exists.

@@ -168,7 +168,13 @@ func (d *handoffDriver) goesOn() fake.DriverScript {
 // roleWorkerHandoff runs one lane through a handoff on a real worker. The claim and the
 // dispatch are safe to repeat, and a retry goes on from what the journal holds.
 func roleWorkerHandoff(c *child) error {
+	return runHandoffWorker(c, func(d *handoffDriver) ports.AgentDriver { return d })
+}
+
+// runHandoffWorker runs a worker on whatever session a role builds over the shared driver.
+func runHandoffWorker(c *child, session func(*handoffDriver) ports.AgentDriver) error {
 	applyHandoffVariant(c.spec.Variant)
+	applyContextVariant(c.spec.Variant)
 	journal, err := sqlite.OpenJournal(c.spec.Journal)
 	if err != nil {
 		return err
@@ -191,7 +197,7 @@ func roleWorkerHandoff(c *child) error {
 		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },
 		Lanes: &worker.LaneRuntime{
-			Driver:      driver,
+			Driver:      session(driver),
 			Provisioner: worker.Provisioner{Profiles: profiles, Worktrees: lastingWorktrees{dir: dir, log: c.log}},
 			Secrets:     fake.SecretResolver{},
 			Repository:  func(context.Context, string) (string, error) { return "/repository", nil },
@@ -259,7 +265,7 @@ func handoffWitness(w *world, spec childSpec) error {
 	}
 	first, second := spec.Lane+"/1", spec.Lane+"/2"
 	spawned, inputs, order := map[string]int{}, 0, []string{}
-	brief := ""
+	brief, held := "", false
 	for _, record := range records {
 		switch {
 		case record.Op == witnessSpawn:
@@ -267,7 +273,12 @@ func handoffWitness(w *world, spec childSpec) error {
 			order = append(order, "spawn "+record.Key)
 		case record.Op == witnessEnded:
 			order = append(order, "ended "+record.Key)
+		case record.Op == witnessHold && record.Key == first:
+			held = true
 		case record.Op == witnessInput && record.Key == first:
+			if !held {
+				return contract.Violatedf("a running turn was told with nothing held")
+			}
 			inputs++
 		case record.Op == witnessBrief && record.Key == second:
 			brief = record.Note
@@ -311,23 +322,23 @@ func handoffCase(name, op, script string, steps ...string) crashCase {
 // and with one that goes with it, because the two recover by different paths.
 func handoffCases() []crashCase {
 	const begun, requested, awaited, guarded, stored = "begun", "requested", "awaited", "guarded", "stored"
-	return []crashCase{
+	return append([]crashCase{
 		handoffCase("a handoff", "worker.handoff", "", begun, requested, awaited, guarded, stored),
 		handoffCase("a handoff with no session left", "worker.handoff", laneDied, begun, requested, awaited, guarded, stored),
 		handoffCase("a handoff's instruction", "effect.input", "", "started", "performed", "finished"),
 		handoffCase("a handoff's stop", "effect.stop", "", "started", "performed", "finished"),
 		handoffCase("a handoff's next generation", "worker.restart", "", "next"),
-	}
+	}, contextCases()...)
 }
 
 func handoffVariants() []variant {
 	crash := func(name, op, script, step string) func() (crashCase, string) {
 		return func() (crashCase, string) { return handoffCase(name, op, script, step), step }
 	}
-	return []variant{
+	return append([]variant{
 		{name: sabotageStoresAgain, check: "crash", crash: crash("a second store", "worker.handoff", "", "stored")},
 		{name: sabotageForgets, check: "crash", crash: crash("a forgotten handoff", "worker.handoff", laneDied, "requested")},
 		{name: sabotageResends, check: "crash", crash: crash("a second instruction", "effect.input", "", "performed")},
 		{name: sabotageSplits, check: "crash", crash: crash("a split store", "worker.handoff", "", "split")},
-	}
+	}, contextVariants()...)
 }

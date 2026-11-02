@@ -50,13 +50,16 @@ const (
 	hookStop             = "Stop"
 	hookStopFailure      = "StopFailure"
 	hookNotification     = "Notification"
+	hookPostCompact      = "PostCompact"
 )
 
 // notificationNeedsInput is the Notification that says a session waits for an answer.
 const notificationNeedsInput = "agent_needs_input"
 
-// ErrAwaitingAnswer means a session is waiting on an answer, so a key could give one.
-var ErrAwaitingAnswer = errors.New("the session is waiting for an answer")
+// compactRequested is the trigger of a compaction someone asked for, which runs at rest as a turn of
+// its own. A stream ends that turn with a result, and in a pane no Stop follows it, so its last hook
+// is what ends it. An automatic compaction is part of the turn it fell in.
+const compactRequested = "manual"
 
 // The commands a pane runs.
 const (
@@ -199,7 +202,7 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 	if err := s.listen(spec, Qualified(version)); err != nil {
 		return ports.SessionHandle{}, err
 	}
-	d.keep(s.handle.ID, s)
+	d.keep(s.handle.ID, s, spec)
 	pane, err := d.terminal.Open(ctx, ports.PaneSpec{
 		Name: state.Name, Dir: spec.Dir, Width: paneWidth, Height: paneHeight,
 		Command: []string{spec.Binary, lanePaneCommand, launch},
@@ -338,7 +341,7 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 		event.AtMs = record.LastMs
 		s.takeHook(event)
 	}
-	d.keep(h.ID, s)
+	d.keep(h.ID, s, spec)
 	s.follow()
 	switch state.Phase {
 	case phaseOpening, phaseOpened:
@@ -558,6 +561,11 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 		s.takeStatus(event)
 	case hookNotification:
 		s.waiting = event.Detail == notificationNeedsInput
+	case hookPostCompact:
+		s.push(ports.DriverEvent{Kind: ports.EventCompaction, Detail: event.Detail})
+		if event.Detail == compactRequested {
+			s.endTurn(event, ports.TurnCompleted, "")
+		}
 	}
 }
 
@@ -636,7 +644,7 @@ func (s *paneSession) send(ctx context.Context, in ports.Input) (ports.SendRecei
 	socket, pid := s.socket, s.handle.PID
 	s.mu.Unlock()
 	from := ""
-	if in.Peer {
+	if in.Peer || in.MidTurn {
 		if !s.qualified {
 			return ports.SendReceipt{}, fmt.Errorf("%s: %w: this version passed no check of the socket", s.handle.ID, ports.ErrNoChannel)
 		}
@@ -659,7 +667,7 @@ func (s *paneSession) compact(ctx context.Context) error {
 	waiting := s.waiting
 	s.mu.Unlock()
 	if waiting {
-		return ErrAwaitingAnswer
+		return ports.ErrAwaitingAnswer
 	}
 	if err := s.terminal.Type(ctx, s.name, compactCommand); err != nil {
 		return err

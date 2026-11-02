@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"strconv"
 )
 
 // EnvSabotage names a broken variant of the worker, to prove that a check can fail. The
@@ -50,6 +51,10 @@ const (
 	SabotageSplitsSignal = "splits-signal"
 	// SabotageForgetsLimit keeps what a worker knows of a sign-in in memory alone.
 	SabotageForgetsLimit = "forgets-limit"
+	// SabotageHoldsNoTools tells a running turn to hand off and denies it nothing.
+	SabotageHoldsNoTools = "holds-no-tools"
+	// SabotageResendsCompaction gives each process its own request, and its own word to go on after.
+	SabotageResendsCompaction = "resends-compaction"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -83,6 +88,18 @@ func dropsFacts() bool { return sabotaged(SabotageDropsFacts) }
 func splitsSignal() bool { return sabotaged(SabotageSplitsSignal) }
 
 func forgetsLimit() bool { return sabotaged(SabotageForgetsLimit) }
+
+func holdsNoTools() bool { return sabotaged(SabotageHoldsNoTools) }
+
+func compactionKey(label string, n int64) string {
+	key := label + strconv.FormatInt(n, 10)
+	if !sabotaged(SabotageResendsCompaction) {
+		return key
+	}
+	raw := make([]byte, 4)
+	_, _ = rand.Read(raw)
+	return key + "/" + hex.EncodeToString(raw)
+}
 
 func messageKey(id string) string {
 	if !sabotaged(SabotageResendsMessage) {

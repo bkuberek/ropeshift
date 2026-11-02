@@ -35,6 +35,9 @@ var ErrNoSession = errors.New("no such session")
 // ErrNoChannel means a peer's message has no path into this session: nothing was written.
 var ErrNoChannel = errors.New("no channel for a peer's message")
 
+// ErrAwaitingAnswer means a session is waiting on an answer, so a key could give one.
+var ErrAwaitingAnswer = errors.New("the session is waiting for an answer")
+
 // The two ways a checked start stops. Neither session ran a turn.
 var (
 	// ErrUnknownScreen means a fresh start never reached a screen the driver knows.
@@ -270,6 +273,9 @@ type Input struct {
 	// Peer says this comes from anyone but the worker, so it must keep a peer's standing. A driver
 	// with no such path says ErrNoChannel, and never gives it the standing of a worker's input.
 	Peer bool
+	// MidTurn says this must reach a turn already running, on the path a session reads between tool
+	// calls. A driver with no such path says ErrNoChannel.
+	MidTurn bool
 }
 
 // The paths a SendReceipt can state.
@@ -338,8 +344,13 @@ type AgentDriver interface {
 	Send(ctx context.Context, h SessionHandle, in Input) (SendReceipt, error)
 	// Decide returns an approval decision to the waiting session.
 	Decide(ctx context.Context, h SessionHandle, d ApprovalDecision) error
-	// Compact requests native compaction where the driver has a path for it.
+	// Compact requests native compaction where the driver has a path for it. It runs as a turn of its
+	// own, which an EventCompaction shows ran, and an EventTurnEnded ends either way.
 	Compact(ctx context.Context, h SessionHandle) error
+	// HoldTools has a session's hooks deny every tool call but the lane's own, with a reason the
+	// model reads, and an empty reason lifts it. A hook decides this from a file, so it needs no
+	// worker, and a session with no such path says ErrUnsupported.
+	HoldTools(ctx context.Context, h SessionHandle, reason string) error
 	// Stop ends the session, interrupting the turn first when the mode asks.
 	Stop(ctx context.Context, h SessionHandle, how StopMode) error
 }

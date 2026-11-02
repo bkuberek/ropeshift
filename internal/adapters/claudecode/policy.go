@@ -1,6 +1,8 @@
 package claudecode
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -53,8 +55,36 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	}
 	return lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Writable: writable,
-		QuestionTool: questionTool(spec),
+		QuestionTool: questionTool(spec), OwnTools: toolRule(""),
 	})
+}
+
+// holdPolicy changes the one field a worker changes after a start. The file goes by a rename,
+// because a hook reads it with no lock, and a file it cannot read denies every tool.
+func holdPolicy(path, reason string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var policy lanes.DenyPolicy
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		return err
+	}
+	policy.Hold = reason
+	raw, err = json.MarshalIndent(policy, "", "  ")
+	if err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	_, err = file.Write(append(raw, '\n'))
+	if err := errors.Join(err, file.Close()); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
 }
 
 // questionTool is what the agent's own question tool becomes. Only `-p` honors `defer`, so an

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
 
@@ -332,5 +333,8 @@ func checkUnknownHandle(t *testing.T, ctx context.Context, rig DriverRig) {
 	observed, err := rig.Driver.Observe(ctx, ports.SessionHandle{ID: "nothing"})
 	if !errors.Is(err, ports.ErrNoSession) || observed.Liveness != ports.LivenessUnknown {
 		t.Errorf("observed %+v, %v", observed, err)
+	}
+	if err := rig.Driver.HoldTools(ctx, ports.SessionHandle{ID: "nothing"}, lanes.ReasonHandOff); !errors.Is(err, ports.ErrNoSession) {
+		t.Errorf("a hold on nothing: %v", err)
 	}
 }

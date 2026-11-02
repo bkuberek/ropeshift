@@ -121,6 +121,10 @@ func decide(cfg config, input []byte, stdout io.Writer) bool {
 		deny(stdout, unavailablePolicy)
 		return false
 	}
+	if reason, held := policy.HoldsTool(call.Tool); held {
+		deny(stdout, reason)
+		return false
+	}
 	if call.Tool == lanes.ToolQuestion {
 		switch policy.QuestionTool {
 		case lanes.QuestionToolDefer:

@@ -90,6 +90,8 @@ type Driver struct {
 	mu       sync.Mutex
 	env      []string
 	sessions map[string]liveSession
+	// policies names the file each session's hooks read.
+	policies map[string]string
 	listed   map[string][]listedSession
 }
 
@@ -121,7 +123,7 @@ func New(runner ports.ProcessRunner, options Options) *Driver {
 	}
 	return &Driver{
 		runner: runner, terminal: options.Terminal, grace: grace, linger: options.ShimLinger, cap: options.JournalCap, env: options.Env,
-		sessions: map[string]liveSession{}, listed: map[string][]listedSession{},
+		sessions: map[string]liveSession{}, policies: map[string]string{}, listed: map[string][]listedSession{},
 	}
 }
 
@@ -447,7 +449,7 @@ func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle port
 		_ = stream.Close()
 		return nil, err
 	}
-	d.keep(s.handle.ID, s)
+	d.keep(s.handle.ID, s, spec)
 	go s.read(stream, log, cursor)
 	return s, nil
 }
@@ -489,16 +491,17 @@ func (s *session) refused(input string) {
 	}
 }
 
-func (d *Driver) keep(id string, s liveSession) {
+func (d *Driver) keep(id string, s liveSession, spec ports.SessionSpec) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.sessions[id] = s
+	d.sessions[id], d.policies[id] = s, policyPath(spec)
 }
 
 func (d *Driver) forget(id string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.sessions, id)
+	delete(d.policies, id)
 }
 
 func sessionHandleID(spec ports.SessionSpec) string {
@@ -854,9 +857,10 @@ func (d *Driver) Send(ctx context.Context, h ports.SessionHandle, in ports.Input
 // send takes the path that suits who is speaking. The worker's own input goes in on stdin, and
 // anyone else's on the socket, which keeps peer marking: stdin reads as a user turn, which is more
 // standing than a message has. A version whose socket passed no check has no such path, and stdin
-// does not stand in for it.
+// does not stand in for it. The worker's word for a running turn takes the socket too, because
+// stdin waits for the turn to end.
 func (s *session) send(ctx context.Context, in ports.Input) (ports.SendReceipt, error) {
-	if !in.Peer {
+	if !in.Peer && !in.MidTurn {
 		return s.write(ctx, in)
 	}
 	if !s.qualified {
@@ -893,6 +897,17 @@ func (d *Driver) Compact(ctx context.Context, h ports.SessionHandle) error {
 func (s *session) compact(ctx context.Context) error {
 	_, err := s.write(ctx, ports.Input{Text: "/compact"})
 	return err
+}
+
+// HoldTools changes the file this session's hooks read, which takes effect at its next tool call.
+func (d *Driver) HoldTools(_ context.Context, h ports.SessionHandle, reason string) error {
+	if _, err := d.session(h); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	path := d.policies[h.ID]
+	d.mu.Unlock()
+	return holdPolicy(path, reason)
 }
 
 // Stop ends a session. A session that does not end within the grace takes the next

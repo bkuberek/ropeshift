@@ -171,9 +171,22 @@ func HandoffInstruction() string {
 		"Then end your turn, and start nothing new.\n"
 }
 
+// MidTurnInstruction is the same instruction for a turn that is running, which a session reads
+// between tool calls. Its first line is a message's, because that is the one line a hook reads.
+func MidTurnInstruction(id string) string {
+	return messages.Render(messages.Message{
+		ID: id, Kind: messages.KindInstruction, From: messages.Sender{Kind: messages.SenderWorker}, Body: HandoffInstruction(),
+	}, 0, messages.DefaultWindow)
+}
+
 // Restarted is what a resumed generation is told, because a resume alone starts no turn.
 const Restarted = "Your session ended unexpectedly and was restarted. Continue this work order from where it stopped, " +
 	"and call lane_report when it is done or cannot go on."
+
+// AfterCompaction is what a session is told after a compaction ran at rest, because a compaction
+// alone starts no turn, and its next call is the only evidence that it worked.
+const AfterCompaction = "Your context was compacted. Go on with this work order from where you stopped, and call " +
+	ToolLaneReport + " when it is done or cannot go on."
 
 // RestartPrompt is that, with what the last generation left unread.
 func RestartPrompt(facts ...ledger.MessageFact) string {

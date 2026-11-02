@@ -77,6 +77,11 @@ type Progress struct {
 	BaselineTokens int64 `json:"baseline_tokens,omitempty"`
 	// Pack names the context pack version this generation holds, which a handoff states.
 	Pack *PackRef `json:"pack,omitempty"`
+	// Compactions counts the compactions this generation asked for, CompactPending says the last
+	// waits on its next call's usage, and CompactSeen that its boundary came.
+	Compactions    int64 `json:"compactions,omitempty"`
+	CompactPending bool  `json:"compact_pending,omitempty"`
+	CompactSeen    bool  `json:"compact_seen,omitempty"`
 }
 
 // TokenDigest is how a worker stores and compares a lane token.

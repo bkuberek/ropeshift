@@ -181,6 +181,10 @@ func (w *Worker) takeAdmission(ctx context.Context, event lanes.HookEvent) {
 	if event.Message == "" {
 		return
 	}
+	if run := w.runOf(event.Lane); run != nil && event.Message == run.instructionID() {
+		run.liftHold(ctx)
+		return
+	}
 	held, err := w.journal.Message(ctx, event.Message)
 	if errors.Is(err, ports.ErrNotFound) {
 		return
@@ -246,6 +250,10 @@ func (w *Worker) uploadSoon(ctx context.Context) {
 // message of this worker's, such as a brief, moves no message.
 func (r *laneRun) noteInput(ctx context.Context, input string) {
 	if input == "" {
+		return
+	}
+	if input == messages.InputID(r.instructionID()) {
+		r.liftHold(ctx)
 		return
 	}
 	held, err := r.w.journal.MessageByInput(ctx, input)

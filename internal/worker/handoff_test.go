@@ -142,7 +142,7 @@ func TestANarrativeBecomesADocumentAndANewGeneration(t *testing.T) {
 	r.awaitSecondGeneration(t)
 
 	sent := r.driver.Sent()
-	if len(sent) != 1 || sent[0].Text != lanes.HandoffInstruction() {
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, lanes.HandoffInstruction()) {
 		t.Fatalf("sent %+v", sent)
 	}
 	specs := r.driver.Specs()

@@ -172,7 +172,7 @@ func (d *Driver) Adopt(ctx context.Context, h ports.SessionHandle, from ports.Ad
 	}
 	s := d.newSession(spec, h, nil, from.Cost)
 	s.last = from.Cursor
-	d.keep(h.ID, s)
+	d.keep(h.ID, s, spec)
 	go func() {
 		if log != nil {
 			defer log.Close()

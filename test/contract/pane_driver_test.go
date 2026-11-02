@@ -297,6 +297,12 @@ func TestPaneCompactGoesByKeys(t *testing.T) {
 			if !strings.Contains(strings.ReplaceAll(typed, "prompt ", ""), "/compact") {
 				t.Errorf("keys %v", keys)
 			}
+			// A pane has no stream, so its hook is the one boundary it can report, and no Stop follows
+			// a compaction, so that hook is also the end of the turn a compaction runs as.
+			if event := s.until(ports.EventCompaction); event.Detail != "manual" {
+				t.Errorf("boundary %+v", event)
+			}
+			s.until(ports.EventTurnEnded)
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

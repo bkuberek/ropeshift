@@ -205,6 +205,11 @@ type DenyPolicy struct {
 	DefaultBranches []string `json:"default_branches,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
+	// Hold denies every tool but OwnTools with this reason, for a lane that must stop and hand off.
+	// A worker writes it, and the hook reads it with no worker.
+	Hold string `json:"hold,omitempty"`
+	// OwnTools is the prefix of the lane's own tools, which a hold leaves open.
+	OwnTools string `json:"own_tools,omitempty"`
 }
 
 // ToolQuestion is the vendor's tool that asks the terminal. A lane must not ask there,

@@ -35,6 +35,20 @@ type PolicySpec struct {
 	Writable []string
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string
+	// OwnTools is the prefix of the lane's own tools.
+	OwnTools string
+}
+
+// ReasonHandOff is what a held lane reads at its next tool call.
+const ReasonHandOff = "ropeshift policy: this lane must hand off now, and no other tool runs until it does. Call " +
+	ToolLaneHandoff + " with what you alone know, and then end your turn."
+
+// HoldsTool says a hold stops this tool, and why.
+func (p DenyPolicy) HoldsTool(tool string) (string, bool) {
+	if p.Hold == "" || (p.OwnTools != "" && strings.HasPrefix(tool, p.OwnTools)) {
+		return "", false
+	}
+	return p.Hold, true
 }
 
 // CompilePolicy builds the file a generation's hook reads.
@@ -47,7 +61,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		roots = append(roots, spec.WorktreeReal)
 	}
 	return DenyPolicy{
-		Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, QuestionTool: spec.QuestionTool,
+		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, QuestionTool: spec.QuestionTool,
 	}
 }
 

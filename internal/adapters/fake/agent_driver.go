@@ -46,6 +46,8 @@ type DriverStep struct {
 	Hold bool
 	// Crash ends the process with no end to its turn.
 	Crash bool
+	// Compaction reports the boundary of a compaction that ran.
+	Compaction bool
 }
 
 // DriverScript is one session. Each turn answers one input, and the brief is the
@@ -93,7 +95,17 @@ type AgentDriver struct {
 	usageText    string
 	usageErr     error
 	usageReads   int
+	compacts     int
+	compactErr   error
+	sendErr      error
+	noCompact    bool
+	holds        []string
+	// midTurnRefused stands for a socket that takes nothing, on a version that says it can.
+	midTurnRefused bool
 }
+
+// compactInput is what a compaction reads as, in a list of inputs.
+const compactInput = "/compact"
 
 type driverSession struct {
 	spec    ports.SessionSpec
@@ -264,9 +276,16 @@ func (d *AgentDriver) Specs() []ports.SessionSpec {
 func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	injection, compact := ports.InjectionBetweenTools, ports.CompactNative
+	if d.noPeerChannel {
+		injection = ports.InjectionNone
+	}
+	if d.noCompact {
+		compact = ""
+	}
 	return ports.Capabilities{
 		RunModes: []string{ports.RunModeHeadless, ports.RunModeInteractive}, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
-		Injection: ports.InjectionBetweenTools, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
+		Injection: injection, ContextReport: ports.ContextLive, Compact: compact,
 		NativeResume: !d.noResume, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
 		Version:     d.version, Degraded: d.degraded, Resume: d.costs,
@@ -471,6 +490,8 @@ func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
 			s.events <- ports.DriverEvent{Kind: ports.EventLimit, Detail: step.Limit.Status, Usage: step.Limit}
 		case step.Retry != "":
 			s.events <- ports.DriverEvent{Kind: ports.EventRetry, Detail: step.Retry, Attempt: step.Attempt}
+		case step.Compaction:
+			s.events <- ports.DriverEvent{Kind: ports.EventCompaction, Detail: "manual"}
 		case step.Turn != nil:
 			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage}
 			result.CostUSD = s.meter.ObserveTurn(step.Turn.TotalUSD)
@@ -536,7 +557,12 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 	default:
 	}
 	d.mu.Lock()
-	if in.Peer && d.noPeerChannel {
+	if failure := d.sendErr; failure != nil {
+		d.sendErr = nil
+		d.mu.Unlock()
+		return ports.SendReceipt{}, failure
+	}
+	if (in.Peer || in.MidTurn) && (d.noPeerChannel || (in.MidTurn && d.midTurnRefused)) {
 		d.mu.Unlock()
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w", h.ID, ports.ErrNoChannel)
 	}
@@ -548,7 +574,7 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 	d.mu.Unlock()
 	session.inputs <- in
 	path := ports.SendStdin
-	if in.Peer {
+	if in.Peer || in.MidTurn {
 		path = ports.SendSocket
 	}
 	return ports.SendReceipt{ID: in.ID, Path: path}, nil
@@ -573,8 +599,89 @@ func (d *AgentDriver) Hooks() []lanes.HookEvent {
 	return append([]lanes.HookEvent{}, d.hooks...)
 }
 
-// Compact has no scripted effect.
-func (d *AgentDriver) Compact(context.Context, ports.SessionHandle) error { return nil }
+// Compact is one more input, which plays the next turn as the compaction.
+func (d *AgentDriver) Compact(_ context.Context, h ports.SessionHandle) error {
+	session, err := d.session(h)
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	failure := d.compactErr
+	d.compacts++
+	d.mu.Unlock()
+	if failure != nil {
+		return failure
+	}
+	session.inputs <- ports.Input{Text: compactInput}
+	return nil
+}
+
+// FailSend makes the next Send say this.
+func (d *AgentDriver) FailSend(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sendErr = err
+}
+
+// FailCompact makes every Compact say this.
+func (d *AgentDriver) FailCompact(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.compactErr = err
+}
+
+// SetCompact says whether this driver has a path to a compaction.
+func (d *AgentDriver) SetCompact(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.noCompact = !on
+}
+
+// Compacts counts the compactions asked for.
+func (d *AgentDriver) Compacts() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.compacts
+}
+
+// HoldTools keeps what a session's hooks would deny with.
+func (d *AgentDriver) HoldTools(_ context.Context, h ports.SessionHandle, reason string) error {
+	if _, err := d.session(h); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.holds = append(d.holds, reason)
+	return nil
+}
+
+// Holds lists what HoldTools took, in order.
+func (d *AgentDriver) Holds() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string{}, d.holds...)
+}
+
+// AdmitInput reports that the newest session took an input, as its stream would between two tool
+// calls, whatever turn it is in.
+func (d *AgentDriver) AdmitInput(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.specs) == 0 {
+		return
+	}
+	last := d.specs[len(d.specs)-1]
+	if session, ok := d.sessions[sessionID(last.Lane, last.Generation)]; ok {
+		session.events <- ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: id}
+	}
+}
+
+// SetMidTurnRefused says a turn in progress can be reached by nothing, though the version says it can.
+func (d *AgentDriver) SetMidTurnRefused(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.midTurnRefused = on
+}
 
 // Stop ends a session and waits for its last event to be sent.
 func (d *AgentDriver) Stop(_ context.Context, h ports.SessionHandle, how ports.StopMode) error {

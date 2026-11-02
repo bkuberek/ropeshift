@@ -32,6 +32,7 @@ const retriesBlind = "an effect retried without looking for it"
 const (
 	witnessSpawn    = "spawn"
 	witnessInput    = "input"
+	witnessHold     = "hold"
 	witnessWorktree = "worktree"
 )
 
@@ -88,6 +89,16 @@ func (d *lastingDriver) Adopt(ctx context.Context, h ports.SessionHandle, from p
 	d.Play(d.rest())
 	d.Leave(lane, generation, lanes.Session{Found: true, Liveness: lanes.LivenessAlive, Readable: true})
 	return d.AgentDriver.Adopt(ctx, h, from)
+}
+
+// HoldTools leaves a witness of a hold, and of nothing else: a lift says nothing about the order.
+func (d *lastingDriver) HoldTools(ctx context.Context, h ports.SessionHandle, reason string) error {
+	if reason != "" {
+		if err := d.witness(witnessHold, h.ID); err != nil {
+			return err
+		}
+	}
+	return d.AgentDriver.HoldTools(ctx, h, reason)
 }
 
 func (d *lastingDriver) Send(ctx context.Context, h ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {

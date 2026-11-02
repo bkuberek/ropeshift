@@ -99,8 +99,15 @@ type step struct {
 	Witness string `json:"witness,omitempty"`
 	Line    string `json:"line,omitempty"`
 	// FirstTime plays Then once, across every session of this binary, and marks that with a file.
-	FirstTime string `json:"first_time,omitempty"`
-	Then      []step `json:"then,omitempty"`
+	// AfterFirst plays Then for every session once that file is there.
+	FirstTime  string `json:"first_time,omitempty"`
+	AfterFirst string `json:"after_first,omitempty"`
+	Then       []step `json:"then,omitempty"`
+	// AwaitPeer reads one message between two tool calls, as a turn in progress does.
+	AwaitPeer bool `json:"await_peer,omitempty"`
+	// AwaitHold waits until the policy file holds tools ("held") or does not ("free"), so a fixture
+	// can make its next tool call on one side of a worker's hold.
+	AwaitHold string `json:"await_hold,omitempty"`
 	// Status runs the status line once, with this payload merged in, as a reply does.
 	Status map[string]any `json:"status,omitempty"`
 	// Tool calls a built-in tool: the PreToolUse hook decides, and a command that passes
@@ -141,6 +148,8 @@ type session struct {
 	socket string
 	// failedTurn says a turn ended on StopFailure, which has no Stop after it.
 	failedTurn bool
+	// peers is what the socket read, which a turn can take between its tool calls.
+	peers chan string
 }
 
 func main() {
@@ -355,9 +364,9 @@ func (s *session) run() {
 	}
 	lines := make(chan string)
 	go readInput(lines)
-	peers := make(chan string)
+	s.peers = make(chan string)
 	if os.Getenv("CLAUDE_CODE_TMPDIR") != "" {
-		s.socket = listen(peers)
+		s.socket = listen(s.peers)
 		if err := os.Setenv("CLAUDE_CODE_MESSAGING_SOCKET", s.socket); err != nil {
 			fail("%v", err)
 		}
@@ -382,14 +391,52 @@ func (s *session) run() {
 			}
 			witness("prompts", strconv.Quote(messageText(line)))
 			s.replay(line)
+			if messageText(line) == "/compact" {
+				s.compactOnStream()
+				continue
+			}
 			next()
-		case line := <-peers:
+		case line := <-s.peers:
 			if s.admits(line) {
 				s.replayPeer(line)
 				next()
 			}
 		}
 	}
+}
+
+// compactOnStream is the command as a headless session runs it: its hooks, a boundary, and a result
+// whose usage is zero, because the command itself tells nobody what context fell to.
+func (s *session) compactOnStream() {
+	s.compact()
+	s.emit(map[string]any{"type": "system", "subtype": "compact_boundary", "compact_metadata": map[string]any{"trigger": "manual", "post_tokens": 1}})
+	s.emit(map[string]any{
+		"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": s.costUSD,
+		"usage": map[string]any{"input_tokens": 0, "output_tokens": 0},
+	})
+}
+
+// awaitHold waits for the file a hook reads to say one thing.
+func awaitHold(want string) {
+	path := os.Getenv("ROPESHIFT_POLICY")
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			fail("the policy: %v", err)
+		}
+		var policy struct {
+			Hold string `json:"hold"`
+		}
+		if json.Unmarshal(raw, &policy) != nil {
+			fail("a hook would read this as no policy: %s", raw)
+		}
+		if (policy.Hold != "") == (want == "held") {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	fail("the policy never read %s", want)
 }
 
 // admits is the inbound policy, as T6 observed it: a refused or held message reaches no hook and
@@ -525,6 +572,16 @@ func (s *session) play(steps []step, interrupts <-chan os.Signal) {
 				}
 				s.play(st.Then, interrupts)
 			}
+		case st.AfterFirst != "":
+			if _, err := os.Stat(filepath.Join(filepath.Dir(os.Args[0]), st.AfterFirst)); err == nil {
+				s.play(st.Then, interrupts)
+			}
+		case st.AwaitPeer:
+			if line := <-s.peers; s.admits(line) {
+				s.replayPeer(line)
+			}
+		case st.AwaitHold != "":
+			awaitHold(st.AwaitHold)
 		case st.WaitFile != "":
 			awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.WaitFile))
 		case st.SleepMs != 0:

@@ -78,10 +78,13 @@ func (w *Worker) parkOnPolicy(ctx context.Context) {
 }
 
 // recordBaseline tells the ledger what this generation started with, once. Zero says nothing new.
+// The journal keeps it at once, because a call a restart read first is not what the session began
+// with, and the policy would read a lane near its threshold as one with no room to hand off.
 func (r *laneRun) recordBaseline(ctx context.Context, tokens int64) {
 	if tokens == 0 {
 		return
 	}
+	r.saveProgress(ctx, r.cursor)
 	payload, err := json.Marshal(ledger.GenerationBaseline{Tokens: tokens})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))

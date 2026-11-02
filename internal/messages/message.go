@@ -51,6 +51,9 @@ func (k Kind) DecisionBearing() bool {
 	return k == KindAnswer || k == KindDecisionNotice || k == KindContractNotice
 }
 
+// SenderWorker is the kind of sender a worker is, on the one line it writes for a running turn.
+const SenderWorker = "worker"
+
 // Target is who a message is for. Generation is part of the address, because a message is written
 // for a session that holds one context.
 type Target struct {

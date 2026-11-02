@@ -149,7 +149,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	run.left, run.parking = record.Handoff, record.Parking
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
 	run.packRead = record.Progress.Pack
-	run.state.keepContext(record.Progress.ContextTokens, record.Progress.BaselineTokens)
+	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
 	return run
 }
@@ -333,9 +333,14 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
 	run.state = newLaneState(record.Actual, w.clock.Now())
-	run.state.keepContext(record.Progress.ContextTokens, record.Progress.BaselineTokens)
+	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
 	run.loadProfile(ctx)
+	if capabilities, err := w.config.Lanes.Driver.Capabilities(ctx); err != nil {
+		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
+	} else {
+		run.state.noteCapabilities(capabilities)
+	}
 	_, err := w.journal.Effect(ctx, run.nudge().Key)
 	switch {
 	case err == nil:
@@ -553,6 +558,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	r.state.mu.Lock()
 	r.state.degraded = capabilities.Degraded
 	r.state.mu.Unlock()
+	r.state.noteCapabilities(capabilities)
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
 		Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
@@ -636,7 +642,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
 		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(), Pack: r.readPack(),
 	}
-	progress.ContextTokens, progress.BaselineTokens = r.state.contextRead()
+	r.state.journalContext(&progress)
 	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
 		r.w.config.Report(err)
 	}
@@ -706,6 +712,9 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 	}
 	if r.draining(ctx) {
 		r.parkDrained(ctx)
+		return
+	}
+	if r.contextAtRest(ctx) {
 		return
 	}
 	if !r.nudged {

@@ -52,6 +52,10 @@ type laneState struct {
 	// on its way to the ledger.
 	policy     lanes.ContextPolicy
 	baselined  bool
+	compact    compaction
+	canCompact bool
+	// held says this run has a session's tools held, and has not lifted that.
+	held       bool
 	stallAfter time.Duration
 	briefGrace time.Duration
 	waitUntil  time.Time
@@ -152,14 +156,19 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	defer s.mu.Unlock()
 	s.tools, s.progress, s.since, s.context, s.baseline = map[string]bool{}, now, now, 0, baseline
 	s.unconfirmed, s.retried, s.baselined = false, false, false
+	s.compact = compaction{}
 }
 
 // noteContext keeps the context of one API call. The first of a session is what every path
 // carries. It says what to record of a generation that has recorded nothing, and zero otherwise.
+// The first call after a compaction's boundary is its verdict, because nothing else shows it worked.
 func (s *laneState) noteContext(tokens int64) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.context = tokens
+	if s.compact.pending && s.compact.seen {
+		s.compact.pending, s.compact.seen, s.compact.failed = false, false, !s.policy.Compacted(tokens)
+	}
 	if s.baseline == 0 {
 		s.baseline = tokens
 	}
@@ -178,10 +187,19 @@ func (s *laneState) contextRead() (tokens, baseline int64) {
 }
 
 // keepContext goes on from what a journal held.
-func (s *laneState) keepContext(tokens, baseline int64) {
+func (s *laneState) keepContext(progress lanes.Progress) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.context, s.baseline = tokens, baseline
+	s.context, s.baseline = progress.ContextTokens, progress.BaselineTokens
+	s.compact = compaction{asked: progress.Compactions, pending: progress.CompactPending, seen: progress.CompactSeen}
+}
+
+// journalContext writes what keepContext reads.
+func (s *laneState) journalContext(progress *lanes.Progress) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	progress.ContextTokens, progress.BaselineTokens = s.context, s.baseline
+	progress.Compactions, progress.CompactPending, progress.CompactSeen = s.compact.asked, s.compact.pending, s.compact.seen
 }
 
 // signal moves the lane and keeps where it stands, so an adopted run goes on from there.
@@ -237,7 +255,11 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		r.noteInput(ctx, event.InputID)
 	case ports.EventInputRefused:
 		r.noteRefused(ctx, event.InputID)
-	case ports.EventSessionBound, ports.EventCompaction:
+	case ports.EventCompaction:
+		s.noteBoundary()
+		r.progressed()
+		r.signal(ctx, lanes.OnActivity)
+	case ports.EventSessionBound:
 		r.progressed()
 		r.signal(ctx, lanes.OnActivity)
 	case ports.EventUsage:
@@ -246,6 +268,7 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		r.noteModel(lanes.Reachable)
 		r.signal(ctx, lanes.OnActivity)
 		r.recordBaseline(ctx, baseline)
+		r.evaluateContext(ctx)
 	case ports.EventTurnEnded:
 		r.progressed()
 		if event.Turn.Status == ports.TurnFailed {

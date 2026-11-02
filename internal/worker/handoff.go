@@ -64,7 +64,9 @@ func (r *laneRun) beginHandoff(ctx context.Context, reason string) error {
 	if _, moves := lanes.Next(r.state.current(), lanes.OnHandoffThreshold); !moves {
 		return fmt.Errorf("%w: lane %s is %s", ErrNoHandoff, r.lease.Lane, r.state.current())
 	}
-	progress := lanes.HandoffProgress{Reason: reason, DeadlineMs: r.w.clock.Now().Add(r.state.handoffTimeout()).UnixMilli()}
+	progress := lanes.HandoffProgress{
+		Reason: reason, DeadlineMs: r.w.clock.Now().Add(r.state.handoffTimeout()).UnixMilli(), MidTurn: r.state.current() == lanes.Working,
+	}
 	if err := r.w.journal.SaveHandoff(ctx, r.lease.Lane, &progress); err != nil {
 		return err
 	}
@@ -157,13 +159,15 @@ func (r *laneRun) runHandoff(ctx context.Context) {
 }
 
 // requestNarrative sends the instruction, at most once for a generation. One that cannot be
-// sent ends the wait, because no answer can come.
+// sent ends the wait, because no answer can come. A turn that was running is held first, because
+// nothing says it will read the instruction before its next tool call.
 func (r *laneRun) requestNarrative(ctx context.Context, flight *handoffFlight) {
+	progress := flight.read()
+	if progress.MidTurn {
+		r.holdTools(ctx)
+	}
 	effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", instructionLabel())
-	_, err := r.w.bracket(ctx, effect, func() error {
-		_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: lanes.HandoffInstruction()})
-		return err
-	})
+	_, err := r.w.bracket(ctx, effect, func() error { return r.sendInstruction(ctx, progress.MidTurn) })
 	if err == nil {
 		return
 	}

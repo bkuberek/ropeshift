@@ -2,6 +2,8 @@
 
 package worker
 
+import "strconv"
+
 // chargeKey is the key: a normal build charges one act once.
 func chargeKey(key string) string { return key }
 
@@ -55,3 +57,9 @@ func messageKey(id string) string { return messageLabel + id }
 
 // instructionLabel is the one label, so a generation sends its instruction once.
 func instructionLabel() string { return handoffInput }
+
+// holdsNoTools is false: a running turn is held before it is told.
+func holdsNoTools() bool { return false }
+
+// compactionKey is one key per compaction, so a restart sends neither of its inputs twice.
+func compactionKey(label string, n int64) string { return label + strconv.FormatInt(n, 10) }

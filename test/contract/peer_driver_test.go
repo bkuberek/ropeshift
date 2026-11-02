@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -113,6 +114,123 @@ func TestAPeerMessageGoesByTheSocketAndReturnsAsAReplay(t *testing.T) {
 	}
 }
 
+// A worker's word for a running turn takes the one path a turn reads between tool calls, because
+// stdin waits for the turn to end. The turn here is over, and the path is what this states.
+func TestAnInstructionForARunningTurnGoesByTheSocket(t *testing.T) {
+	r := newPeerRig(t, "peer-messages")
+	session := r.start()
+	session.until(ports.EventTurnEnded)
+	input := ports.Input{ID: messages.InputID("context-1"), Text: "[ropeshift message context-1 kind=instruction age=0m00s tier=fresh from=worker]\nHand off.", MidTurn: true}
+	receipt, err := r.driver.Send(session.ctx, session.handle, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Path != ports.SendSocket {
+		t.Errorf("receipt %+v", receipt)
+	}
+	for {
+		if event := session.until(ports.EventInputAdmitted); event.InputID == input.ID {
+			break
+		}
+	}
+}
+
+// policyHeld reads what a hook would read.
+func policyHeld(t *testing.T, spec ports.SessionSpec) lanes.DenyPolicy {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(spec.ConfigDir, "policy-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy lanes.DenyPolicy
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		t.Fatal(err)
+	}
+	return policy
+}
+
+func checkHold(t *testing.T, driver ports.AgentDriver, handle ports.SessionHandle, spec ports.SessionSpec) {
+	t.Helper()
+	before := policyHeld(t, spec)
+	if before.Hold != "" || before.OwnTools != "mcp__ropeshift__" {
+		t.Fatalf("a session starts held, or with no way out: %+v", before)
+	}
+	if err := driver.HoldTools(t.Context(), handle, lanes.ReasonHandOff); err != nil {
+		t.Fatal(err)
+	}
+	after := policyHeld(t, spec)
+	if after.Hold != lanes.ReasonHandOff {
+		t.Errorf("hold %q", after.Hold)
+	}
+	if !slices.Equal(after.Roots, before.Roots) || len(after.Deny) != len(before.Deny) || after.QuestionTool != before.QuestionTool {
+		t.Errorf("a hold changed more than itself: %+v", after)
+	}
+	if err := driver.HoldTools(t.Context(), handle, ""); err != nil {
+		t.Fatal(err)
+	}
+	if lifted := policyHeld(t, spec); lifted.Hold != "" {
+		t.Errorf("hold %q", lifted.Hold)
+	}
+	left, err := filepath.Glob(filepath.Join(spec.ConfigDir, "policy-1.json.*"))
+	if err != nil || len(left) != 0 {
+		t.Errorf("left beside the policy: %v, %v", left, err)
+	}
+}
+
+// A hook reads the file with no lock, and a file it cannot read denies every tool, so a hold going
+// on and off must never show a reader an empty or half-written policy.
+func TestAHookNeverReadsAHalfWrittenPolicy(t *testing.T) {
+	r := newPeerRig(t, "peer-messages")
+	session := r.start()
+	session.until(ports.EventSessionBound)
+	path := filepath.Join(r.spec.ConfigDir, "policy-1.json")
+	done := make(chan struct{})
+	bad := make(chan string, 1)
+	go func() {
+		defer close(bad)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			raw, err := os.ReadFile(path)
+			var policy lanes.DenyPolicy
+			if err != nil || json.Unmarshal(raw, &policy) != nil {
+				bad <- string(raw)
+				return
+			}
+		}
+	}()
+	for i := range 400 {
+		reason := lanes.ReasonHandOff
+		if i%2 == 1 {
+			reason = ""
+		}
+		if err := r.driver.HoldTools(t.Context(), session.handle, reason); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(done)
+	if raw, read := <-bad; read {
+		t.Errorf("a hook read %q", raw)
+	}
+}
+
+func TestAHoldReachesTheFileAHookReads(t *testing.T) {
+	r := newPeerRig(t, "peer-messages")
+	session := r.start()
+	session.until(ports.EventSessionBound)
+	checkHold(t, r.driver, session.handle, r.spec)
+}
+
+func TestAHoldReachesAPanesHook(t *testing.T) {
+	r := newPaneRig(t, "pane-two-turns")
+	session := r.start()
+	session.until(ports.EventTurnEnded)
+	checkHold(t, r.driver, session.handle, r.spec)
+}
+
 // TestAWorkersOwnInputStaysOnStdin keeps a peer's path to peers: nothing the worker says for
 // itself reaches the socket.
 func TestAWorkersOwnInputStaysOnStdin(t *testing.T) {
@@ -188,6 +306,10 @@ func TestAnUnqualifiedVersionHasNoPeerPath(t *testing.T) {
 	if !errors.Is(err, ports.ErrNoChannel) {
 		t.Errorf("a send on an unqualified version: %v", err)
 	}
+	_, err = r.driver.Send(session.ctx, session.handle, ports.Input{ID: messages.InputID("m-2"), Text: "Hand off.", MidTurn: true})
+	if !errors.Is(err, ports.ErrNoChannel) {
+		t.Errorf("a mid-turn send on an unqualified version: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(r.spec.TempDir, "cc-socks", "r1.sock")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("an address for receipts on an unqualified version: %v", err)
 	}
@@ -203,6 +325,10 @@ func TestAnUnqualifiedPaneTakesItsBriefAndNoPeer(t *testing.T) {
 	_, err := r.driver.Send(session.ctx, session.handle, ports.Input{ID: messages.InputID("m-1"), Text: "A message.", Peer: true})
 	if !errors.Is(err, ports.ErrNoChannel) {
 		t.Errorf("a send on an unqualified version: %v", err)
+	}
+	_, err = r.driver.Send(session.ctx, session.handle, ports.Input{ID: messages.InputID("m-2"), Text: "Hand off.", MidTurn: true})
+	if !errors.Is(err, ports.ErrNoChannel) {
+		t.Errorf("a mid-turn send on an unqualified version: %v", err)
 	}
 }
 
