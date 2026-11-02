@@ -100,6 +100,37 @@ func TestPolicyOnBashCommands(t *testing.T) {
 		{name: "dd out", command: "dd if=a of=/tmp/b", denied: ReasonOutside},
 		{name: "sed in place outside", command: "sed -i '' s/a/b/ /tmp/out", denied: ReasonOutside},
 		{name: "a write through a shell", command: `bash -c "echo x > /tmp/out"`, denied: ReasonOutside},
+
+		{name: "a stage and a commit", command: "git add plans && git commit -q -m plan"},
+		{name: "a commit from a subdirectory", command: "cd sub && git commit -m plan"},
+		{name: "a commit by an option inside", command: "git -C sub commit -m plan"},
+		{name: "a commit with a global option", command: "git -c commit.gpgsign=false commit -m plan"},
+		{name: "a status in another repository", command: "git -C /work/app status"},
+		{name: "a push alone", command: "git push origin lane/one"},
+
+		{name: "a commit in another repository", command: "cd /work/app && git commit -m plan", denied: ReasonOutside},
+		{name: "a stage in another lane", command: "cd ../lane-2 && git add .", denied: ReasonOutside},
+		{name: "a commit elsewhere by option", command: "git -C /work/app commit -m plan", denied: ReasonOutside},
+		{name: "a stage elsewhere by a relative option", command: "git -C ../lane-2 add .", denied: ReasonOutside},
+		{name: "a git directory elsewhere", command: "git --git-dir=/work/app/.git commit -m plan", denied: ReasonOutside},
+		{name: "a git directory as its own word", command: "git --git-dir /work/app/.git add .", denied: ReasonOutside},
+		{name: "a work tree elsewhere", command: "git --work-tree=/work/app add .", denied: ReasonOutside},
+		{name: "a git directory by variable", command: "GIT_DIR=/work/app/.git git commit -m plan", denied: ReasonOutside},
+		{name: "a work tree by variable behind a wrapper", command: "env GIT_WORK_TREE=/work/app git add .", denied: ReasonOutside},
+		{name: "an index by variable", command: "GIT_INDEX_FILE=/tmp/index git add .", denied: ReasonOutside},
+		{name: "a commit from where it cannot read", command: `cd "$X" && git commit -m plan`, denied: ReasonOutside},
+		{name: "a git directory it cannot read", command: `git --git-dir="$X" commit -m plan`, denied: ReasonOutside},
+		{name: "a commit redirected out", command: "git commit -m plan > ../other/file", denied: ReasonOutside},
+		{name: "a stage elsewhere through a shell", command: `sh -c "cd /work/app && git add ."`, denied: ReasonOutside},
+
+		{name: "a commit and a push", command: "git commit -m plan && git push", denied: ReasonPushApart},
+		{name: "a stage, a commit, and a push", command: "git add . && git commit -m plan && git push origin lane/one", denied: ReasonPushApart},
+		{name: "a push before a commit", command: "git push; git commit -m plan", denied: ReasonPushApart},
+		{name: "a push in a commit's message", command: `git commit -m "$(git push)"`, denied: ReasonPushApart},
+		{name: "a push in backticks in a commit", command: "git commit -m `git push`", denied: ReasonPushApart},
+		{name: "a push through a shell beside a stage", command: `git add . && sh -c "git push"`, denied: ReasonPushApart},
+		{name: "a push through eval beside a commit", command: `git commit -m plan; eval "git push"`, denied: ReasonPushApart},
+		{name: "a force push beside a commit", command: "git commit -m plan && git push -f", denied: ReasonForcePush},
 	}
 	policy := testPolicy()
 	for _, tt := range tests {

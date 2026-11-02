@@ -162,12 +162,37 @@ func within(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
 }
 
-// askRules gates what a profile names, on a lane that would otherwise not ask.
+// askRules gates what a profile names, on a lane that would otherwise not ask: in a mode that asks
+// nothing, and on what commitRules would let through. An ask rule beats an allow rule.
 func askRules(spec ports.SessionSpec) []string {
-	if !slices.Contains(promptlessModes, spec.PermissionMode) {
+	if slices.Contains(promptlessModes, spec.PermissionMode) {
+		return slices.Clone(spec.Gates)
+	}
+	if spec.OnlyTools {
 		return nil
 	}
-	return slices.Clone(spec.Gates)
+	var gated []string
+	for _, rule := range spec.Gates {
+		if gatesCommit(rule) {
+			gated = append(gated, rule)
+		}
+	}
+	return gated
+}
+
+// gatesCommit says a gate reaches a command commitRules allow.
+func gatesCommit(rule string) bool {
+	gate := lanes.ReadGate(rule)
+	if gate.Tool != lanes.ToolBash {
+		return false
+	}
+	for _, allowed := range commitRules {
+		prefix := strings.TrimSuffix(strings.TrimPrefix(allowed, lanes.ToolBash+"("), " *)")
+		if strings.HasPrefix(prefix, gate.CommandPrefix) || strings.HasPrefix(gate.CommandPrefix, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // deferredGates are the calls a hook defers. Only `-p` honors `defer`, and a pane has a screen for

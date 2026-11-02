@@ -68,17 +68,33 @@ type settingsFile struct {
 // toolRule is the permission rule of one ropeshift MCP tool.
 func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 
+// commitRules let a lane stage and commit with no prompt, because nobody may be there to answer one,
+// and a lane would wait out `approval_wait` on its own work. Each names one subcommand, so the CLI
+// holds a compound command to every part of it, and a push, a move to another branch, and a `git -C`
+// are none of these. A session's hook holds what is left to the worktree (lanes.DenyPolicy).
+var commitRules = []string{"Bash(git add *)", "Bash(git commit *)"}
+
+// allowRules are what a session runs with no prompt: its own tools, and a stage and a commit for a
+// session that has a worktree.
+func allowRules(spec ports.SessionSpec) []string {
+	rules := make([]string, 0, len(spec.Tools)+len(commitRules))
+	for _, tool := range spec.Tools {
+		rules = append(rules, toolRule(tool))
+	}
+	if !spec.OnlyTools {
+		rules = append(rules, commitRules...)
+	}
+	return rules
+}
+
 // generateSettings builds a generation's settings. The hook commands use the stable
 // path (D18), quoted, because a state directory can hold a space and the CLI runs a
 // hook through a shell. PreToolUse fails closed: a hook that times out must block the
 // call, or a denial could be skipped by a slow machine.
 func generateSettings(spec ports.SessionSpec) settingsFile {
 	out := settingsFile{
-		Permissions:  permissions{Allow: []string{}, Deny: denyRules(spec), Ask: askRules(spec)},
+		Permissions:  permissions{Allow: allowRules(spec), Deny: denyRules(spec), Ask: askRules(spec)},
 		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
-	}
-	for _, tool := range spec.Tools {
-		out.Permissions.Allow = append(out.Permissions.Allow, toolRule(tool))
 	}
 	if spec.Binary == "" {
 		return out

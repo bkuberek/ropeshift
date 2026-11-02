@@ -50,9 +50,9 @@ const (
 	rs12PlanFile = "plans/rs12.md"
 )
 
-// rs12ProjectAllows let a planning lane write and commit, and nothing else, in this scratch
-// repository alone. A headless session has nobody to answer a prompt.
-var rs12ProjectAllows = []string{"Write", "Edit", "Bash(mkdir:*)", "Bash(git add:*)", "Bash(git commit:*)"}
+// rs12ProjectAllows let a planning lane write, in this scratch repository alone. A stage and a commit
+// are left out on purpose: generated settings must cover those, and a real lane is what shows it.
+var rs12ProjectAllows = []string{"Write", "Edit", "Bash(mkdir:*)"}
 
 // rs12PlanStatement is the trial: a session that holds the format only as its brief states it. It
 // names no file and no key, because what a planning agent makes of the format is the question.
@@ -121,25 +121,16 @@ func rs12Text(mode string) string {
 	return "Which log level do retries use on the " + mode + " path?"
 }
 
-// rs12Commits says a command does what a planning lane was told to run and nothing more. A member's
-// approval runs it on this machine, so what it allows is narrow: each step is one of these, and a
-// separator it does not split on stops it.
-func rs12Commits(command string) bool {
-	if strings.ContainsAny(command, ";|>`") {
-		return false
-	}
-	for _, step := range strings.Split(command, "&&") {
-		step = strings.TrimSpace(step)
-		if !strings.HasPrefix(step, "git add ") && !strings.HasPrefix(step, "git commit ") && !strings.HasPrefix(step, "mkdir -p plans") {
-			return false
-		}
-	}
-	return true
+// stagesOrCommits says a request is for what generated settings let a lane run with no prompt, so a
+// member should never have seen it.
+func stagesOrCommits(command string) bool {
+	return strings.Contains(command, "git add") || strings.Contains(command, "git commit")
 }
 
-// rs12Answer stands for the member a planning lane's prompt reaches. A call its project settings do
-// not cover raises a request and holds for `approval_wait`, which is the product working, and a person
-// is who answers it, so a lane does not wait out this suite's limit on nobody.
+// rs12Answer stands for the member a planning lane's prompt reaches, and refuses what it reads, so a
+// lane does not wait out this suite's limit on nobody. Nothing this lane was told to do needs a member:
+// the repository allows a write, and generated settings allow a stage and a commit. That last part is
+// what this suite shows, so a commit that reached a person fails it however the lane ended.
 func (s *suite) rs12Answer() {
 	s.t.Helper()
 	var list api.ApprovalList
@@ -150,11 +141,9 @@ func (s *suite) rs12Answer() {
 		if !row.Open() {
 			continue
 		}
-		wanted := rs12Commits(row.Command) || (row.Command == "" && strings.Contains(row.Path, "/plans/"))
-		s.t.Logf("rs12 plan: a request on %s, which a member %s", row.Subject, map[bool]string{true: "approves", false: "denies"}[wanted])
-		if wanted {
-			s.approve(row)
-			continue
+		s.t.Logf("rs12 plan: a request on %s, which a member refuses", row.Subject)
+		if stagesOrCommits(row.Command) {
+			s.t.Errorf("a stage or a commit waited on a member")
 		}
 		s.cli("approval", "deny", row.ID, "--digest", row.SubjectDigest, "--reason", "This lane only writes under plans/ and commits.")
 	}
@@ -176,15 +165,15 @@ func standInOrchestrator(question, scope string) []any {
 	}
 }
 
-// standInPlanner plays what a real planning lane did: a file its settings allow, and a commit they do
-// not, which reaches a member.
+// standInPlanner plays what a planning lane does: a file its repository allows, and a stage and a
+// commit that generated settings allow, which the double holds to those rules.
 func standInPlanner() []any {
 	write := "mkdir -p plans; printf '%s' '" + rs12StandInContract + "' > " + rs12PlanFile
 	return []any{
 		map[string]any{"init": true},
 		standInPrompt(),
 		map[string]any{"tool": "Bash", "command": write},
-		map[string]any{"tool": "Bash", "command": "git add plans && git commit -q -m 'plan the retry budget'", "prompts": true},
+		map[string]any{"tool": "Bash", "command": "git add plans && git commit -q -m 'plan the retry budget'", "unprompted": true},
 		map[string]any{"mcp": lanes.ToolLaneReport, "arguments": map[string]any{"outcome": "completed"}},
 		standInResult(),
 	}

@@ -138,6 +138,9 @@ type step struct {
 	// Blocked stands for what stops a call after its hook: a deny rule, or a hook that timed
 	// out with `onFailure: block`. This double has neither, so it runs the hook and stops.
 	Blocked bool `json:"blocked,omitempty"`
+	// Unprompted says the call runs only under an allow rule of `--settings`, and a call no rule
+	// covers ends the session, as one with nobody to answer would wait.
+	Unprompted bool `json:"unprompted,omitempty"`
 }
 
 // A session's flags, as the real CLI takes them.
@@ -381,6 +384,23 @@ func readSettings(path string) (settings, error) {
 		return out, err
 	}
 	return out, json.Unmarshal(raw, &out)
+}
+
+// allows reads a command as the CLI documents: an allow rule covers a part by its prefix, and a
+// compound command needs a rule for every part.
+func (s settings) allows(command string) bool {
+	for part := range strings.SplitSeq(command, "&&") {
+		part = strings.TrimSpace(part)
+		covered := slices.ContainsFunc(s.Permissions.Allow, func(rule string) bool {
+			body, ok := strings.CutPrefix(rule, "Bash(")
+			prefix, trailing := strings.CutSuffix(strings.TrimSuffix(body, ")"), " *")
+			return ok && trailing && (part == prefix || strings.HasPrefix(part, prefix+" "))
+		})
+		if !covered {
+			return false
+		}
+	}
+	return true
 }
 
 // stopInput is what a turn's Stop hook reads of how the turn ended.
@@ -798,6 +818,9 @@ func (s *session) callBuiltin(st step) {
 	if st.Blocked {
 		witness("blocked", st.Tool)
 		return
+	}
+	if st.Unprompted && !s.settings.allows(st.Command) {
+		fail("%q would wait on a permission prompt", st.Command)
 	}
 	if !s.permitted(st, input) {
 		return

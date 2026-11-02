@@ -137,6 +137,142 @@ func TestGatesBecomeAskRulesOnlyWhereACallWouldNotPrompt(t *testing.T) {
 	}
 }
 
+// A rule covers a command as the CLI's documented matching does: `Bash(git add *)` is that prefix at
+// a word's end, and a compound command runs with no prompt only if a rule covers every part.
+func ruleCovers(rule, part string) bool {
+	body, ok := strings.CutPrefix(rule, "Bash(")
+	if !ok {
+		return false
+	}
+	body = strings.TrimSuffix(body, ")")
+	if prefix, trailing := strings.CutSuffix(body, " *"); trailing {
+		return part == prefix || strings.HasPrefix(part, prefix+" ")
+	}
+	return part == body
+}
+
+func runsWithNoPrompt(rules []string, command string) bool {
+	for part := range strings.SplitSeq(strings.NewReplacer(";", "&&", "|", "&&", "\n", "&&").Replace(command), "&&") {
+		part = strings.TrimSpace(part)
+		if !slices.ContainsFunc(rules, func(rule string) bool { return ruleCovers(rule, part) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// A lane with nobody there would wait out `approval_wait` on its own work, so a stage and a commit
+// run with no prompt, alone or together.
+func TestALaneStagesAndCommitsWithNoPrompt(t *testing.T) {
+	spec := policySpec(t)
+	spec.Tools = []string{"lane_report"}
+	rules := generateSettings(spec).Permissions.Allow
+	if !slices.Contains(rules, "mcp__ropeshift__lane_report") {
+		t.Errorf("a lane lost its own tool: %v", rules)
+	}
+	for _, command := range []string{
+		"git add plans/retry.md", "git add .", "git commit -m plan", "git add plans && git commit -q -m 'plan the retry budget'",
+	} {
+		if !runsWithNoPrompt(rules, command) {
+			t.Errorf("%q would wait on a member: %v", command, rules)
+		}
+	}
+}
+
+// An orchestrator holds no vendor tools and has no worktree, so it gets its own tools and no more.
+func TestAnOrchestratorGetsNoCommitRule(t *testing.T) {
+	spec := policySpec(t)
+	spec.Tools, spec.OnlyTools = []string{"question_next"}, true
+	if got := generateSettings(spec).Permissions.Allow; !slices.Equal(got, []string{"mcp__ropeshift__question_next"}) {
+		t.Errorf("allow %v", got)
+	}
+}
+
+// What a stage and a commit may run with no prompt stops there. Each of these reaches a person or a
+// denial: a member's baseline is that the same shape with a stage or a commit does run.
+func TestAllowRulesReachNoPushAndNoOtherGitCommand(t *testing.T) {
+	spec := policySpec(t)
+	rules := generateSettings(spec).Permissions.Allow
+	if !runsWithNoPrompt(rules, "git commit -m plan") {
+		t.Fatalf("the baseline: a commit prompts, so these prove nothing: %v", rules)
+	}
+	for _, command := range []string{
+		"git push", "git push origin lane/one", "git push --force origin lane/one", "git commit -m plan && git push",
+		"git add . ; git push", "git add . && rm -rf ..", "git checkout main", "git switch main", "git branch -f main HEAD",
+		"git reset --hard main", "git update-ref refs/heads/main HEAD", "git rebase main", "git merge main",
+		"git -C ../lane-2 commit -m plan", "git -c core.hooksPath=/tmp/hooks commit -m plan", "git config core.hooksPath /tmp/hooks",
+		"GIT_DIR=/work/app/.git git commit -m plan", "cd .. && git commit -m plan",
+	} {
+		if runsWithNoPrompt(rules, command) {
+			t.Errorf("%q would run with no prompt: %v", command, rules)
+		}
+	}
+	for _, rule := range rules {
+		if rule == "Bash" || strings.Contains(rule, "push") || strings.HasPrefix(rule, "Bash(*") || strings.HasPrefix(rule, "Bash(git *") {
+			t.Errorf("a rule too wide: %s", rule)
+		}
+	}
+}
+
+// The attack on what these rules open, read as a session's hook reads it. A denial here needs no
+// worker and no person, so it holds with nobody there.
+func TestAnAllowedCommitCarriesNoPushAndWritesNothingOutside(t *testing.T) {
+	spec := policySpec(t)
+	policy := compilePolicy(spec)
+	sibling := filepath.Join(filepath.Dir(spec.Dir), "lane-2")
+	tests := []struct {
+		name    string
+		command string
+		denied  string
+	}{
+		{"the baseline, a commit in the worktree", "git add . && git commit -m plan", ""},
+		{"a commit and a force push", "git commit -m plan && git push --force", lanes.ReasonForcePush},
+		{"a commit and a push", "git commit -m plan && git push", lanes.ReasonPushApart},
+		{"a push in a commit's message", `git commit -m "$(git push)"`, lanes.ReasonPushApart},
+		{"a commit and a push to the default branch", "git commit -m plan && git push origin trunk", lanes.ReasonDefaultBranch},
+		{"a commit in another lane", "cd " + sibling + " && git commit -m plan", lanes.ReasonOutside},
+		{"a stage in another lane", "git -C " + sibling + " add .", lanes.ReasonOutside},
+		{"a commit in the repository itself", "git --git-dir=" + filepath.Join(filepath.Dir(filepath.Dir(spec.Dir)), "repository", ".git") + " commit -m plan", lanes.ReasonOutside},
+		{"a commit that writes beside the worktree", "git commit -m plan > " + filepath.Join(sibling, "file"), lanes.ReasonOutside},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := policy.Decide(lanes.ToolCall{Tool: lanes.ToolBash, Command: tt.command, Cwd: spec.Dir})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("reason %q denied %v, want %q", reason, denied, tt.denied)
+			}
+		})
+	}
+}
+
+// A profile's gate on a commit outranks a rule the driver writes for every lane: ask beats allow, and
+// a gate exists because a member wants to read that call.
+func TestAGateOnACommitStillAsks(t *testing.T) {
+	tests := []struct {
+		name string
+		gate string
+		asks bool
+	}{
+		{"a gate on every commit", "Bash(git commit *)", true},
+		{"a gate on part of a commit", "Bash(git commit --amend *)", true},
+		{"a gate on a stage", "Bash(git add *)", true},
+		{"a gate on all of git", "Bash(git *)", true},
+		{"a gate on every command", "Bash", true},
+		{"a gate on something else", "Bash(git tag *)", false},
+		{"a gate on another tool", "Write", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := policySpec(t)
+			spec.Gates = []string{tt.gate}
+			got := generateSettings(spec).Permissions.Ask
+			if slices.Contains(got, tt.gate) != tt.asks {
+				t.Errorf("ask %v", got)
+			}
+		})
+	}
+}
+
 func TestPreToolUseFailsClosed(t *testing.T) {
 	group := generateSettings(policySpec(t)).Hooks["PreToolUse"]
 	if len(group) != 1 || group[0].Hooks[0].OnFailure != "block" {

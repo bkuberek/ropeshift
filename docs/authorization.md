@@ -57,6 +57,10 @@ A session that comes back to an approved call hears that exact call first, with 
 | A claim no member made follows the level and the window | The claim's transaction, which reads both as it grants |
 | `unattended` on a subscription needs a current acknowledgement | The route that sets a level, and the claim, which reads it again |
 | A message is never a decision | Nothing in the decision path reads a message |
+| A lane stages and commits with no prompt, and runs nothing else that way | Generated settings, which allow `git add` and `git commit` and no other git command, and a profile's gate on either still asks |
+| That stage or commit stays in the lane's worktree | The hook, which refuses one after a `cd`, `-C`, `--git-dir`, `--work-tree`, or a `GIT_DIR` that leaves it, and one whose place it cannot read |
+| A push never shares a call with a stage or a commit | The hook, so a push reaches a person however the CLI reads a compound command |
+| A push reaches a person, and a force push or a push to a default branch reaches nobody | No allow rule covers a push, and the hook and generated deny rules refuse the rest |
 
 ## A person at the terminal
 
@@ -95,5 +99,6 @@ A lane with a shell can, as that user:
 - Read and write the ledger and journal files directly. A database check stops a statement that breaks it, and it does not stop one that names a member as the decider. A window or an acknowledgement written that way passes for a member's. The event log would then disagree with the row, which a replay shows. The journal holds each token's digest, which is what a spool line's seal is keyed from.
 - Read the stored passphrase hash, and guess at it offline.
 - Change the generated settings and hook commands, past the guardrails that deny that write. A hook is a guardrail and not a sandbox.
+- Run what it wrote through a repository's own hooks. A commit runs with no prompt, and a commit runs those hooks, so where `core.hooksPath` names a directory in the worktree, a lane that may edit that directory runs its own code at its next commit.
 
 Strong separation needs a boundary an agent cannot cross: another operating system user, a container, a virtual machine, or a worker on another machine. Run a lane on untrusted work only behind one of these.

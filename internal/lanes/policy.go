@@ -20,6 +20,7 @@ const (
 	ReasonForcePush     = "ropeshift policy: a force push is denied on this lane. Push without force."
 	ReasonDefaultBranch = "ropeshift policy: a push to the default branch is denied on this lane. Push the lane's own branch."
 	ReasonOutside       = "ropeshift policy: a write outside this lane's worktree is denied. Write inside the worktree, with a path the policy can read."
+	ReasonPushApart     = "ropeshift policy: a push runs as a command of its own on this lane, because a commit runs with no prompt and a push does not. Commit first, then push alone."
 )
 
 // PolicySpec is what a generation's policy compiles from.
@@ -91,7 +92,13 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 	}
 	switch call.Tool {
 	case ToolBash:
-		return p.decideShell(call.Command, call.Cwd, 0)
+		var seen gitSeen
+		if reason, denied := p.decideShell(call.Command, call.Cwd, 0, &seen); denied {
+			return reason, true
+		}
+		if seen.pushes && seen.commits {
+			return ReasonPushApart, true
+		}
 	case toolWrite, toolEdit, toolMultiEdit, toolNotebookEdit:
 		if len(p.Roots) != 0 && !p.inside(shellWord{text: call.Path}, call.Cwd) {
 			return ReasonOutside, true
@@ -109,13 +116,21 @@ var shellKeywords = []string{"if", "then", "elif", "else", "do", "while", "until
 // shells take a command as an argument.
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh"}
 
-func (p DenyPolicy) decideShell(text, cwd string, depth int) (string, bool) {
+// gitSeen is what one call's commands did with git, however deep they stood. A stage and a commit run
+// with no prompt and a push does not, so a push that shares a call with them would lean on the CLI's
+// reading of a compound command to reach a person. A hook reads that on its own.
+type gitSeen struct {
+	pushes  bool
+	commits bool
+}
+
+func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (string, bool) {
 	if depth > maxShellDepth {
 		return ReasonOutside, true
 	}
 	commands, nested := parseShell(text)
 	for _, inner := range nested {
-		if reason, denied := p.decideShell(inner, cwd, depth+1); denied {
+		if reason, denied := p.decideShell(inner, cwd, depth+1, seen); denied {
 			return reason, true
 		}
 	}
@@ -137,16 +152,17 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int) (string, bool) {
 		case name == "cd":
 			at = p.moved(words[1:], at)
 		case name == "git":
-			if reason, denied := p.decideGit(words[1:]); denied {
+			leaders := command.words[:len(command.words)-len(words)]
+			if reason, denied := p.decideGit(leaders, words[1:], at, seen); denied {
 				return reason, true
 			}
 		case name == "eval":
-			if reason, denied := p.decideShell(joinWords(words[1:]), at, depth+1); denied {
+			if reason, denied := p.decideShell(joinWords(words[1:]), at, depth+1, seen); denied {
 				return reason, true
 			}
 		case slices.Contains(shells, name):
 			if inner, ok := shellArgument(words[1:]); ok {
-				if reason, denied := p.decideShell(inner, at, depth+1); denied {
+				if reason, denied := p.decideShell(inner, at, depth+1, seen); denied {
 					return reason, true
 				}
 			}
@@ -239,19 +255,73 @@ func takesGitValue(text string) bool {
 	return strings.EqualFold(text, "-c") || slices.Contains(gitOptionsWithValue, text)
 }
 
-func (p DenyPolicy) decideGit(args []shellWord) (string, bool) {
+// gitPlaceOptions say where a command works, before its subcommand.
+var gitPlaceOptions = []string{"--git-dir", "--work-tree"}
+
+// gitPlaceVariables say the same from the environment.
+var gitPlaceVariables = []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"}
+
+// assignedPlaces reads what stands before a command for where it would work.
+func assignedPlaces(leaders []shellWord) []shellWord {
+	var places []shellWord
+	for _, word := range leaders {
+		name, value, found := strings.Cut(word.text, "=")
+		if found && slices.Contains(gitPlaceVariables, name) {
+			places = append(places, shellWord{text: value, dynamic: word.dynamic})
+		}
+	}
+	return places
+}
+
+func (p DenyPolicy) decideGit(leaders, args []shellWord, at string, seen *gitSeen) (string, bool) {
+	places := assignedPlaces(leaders)
 	for len(args) != 0 && strings.HasPrefix(args[0].text, "-") {
-		if takesGitValue(args[0].text) {
+		option := args[0]
+		name, value, joined := strings.Cut(option.text, "=")
+		switch {
+		case joined && slices.Contains(gitPlaceOptions, name):
+			places = append(places, shellWord{text: value, dynamic: option.dynamic})
+		case option.text == "-C" && len(args) > 1:
+			at = p.moved(args[1:2], at)
+		case slices.Contains(gitPlaceOptions, option.text) && len(args) > 1:
+			places = append(places, args[1])
+		}
+		if takesGitValue(option.text) {
 			args = args[1:]
 		}
 		if len(args) != 0 {
 			args = args[1:]
 		}
 	}
-	if len(args) == 0 || args[0].text != "push" {
+	if len(args) == 0 {
 		return "", false
 	}
-	return p.decidePush(args[1:])
+	switch args[0].text {
+	case "push":
+		seen.pushes = true
+		return p.decidePush(args[1:])
+	case "add", "commit":
+		seen.commits = true
+		return p.decideStage(places, at)
+	}
+	return "", false
+}
+
+// decideStage holds a stage or a commit to this lane's worktree, which is what lets either run with
+// no prompt. A place it cannot read reads as outside.
+func (p DenyPolicy) decideStage(places []shellWord, at string) (string, bool) {
+	if len(p.Roots) == 0 {
+		return "", false
+	}
+	if !p.inside(shellWord{text: at}, at) {
+		return ReasonOutside, true
+	}
+	for _, place := range places {
+		if !p.inside(place, at) {
+			return ReasonOutside, true
+		}
+	}
+	return "", false
 }
 
 // pushOptionsWithValue are the options of `git push` that take the next word.

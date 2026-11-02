@@ -664,7 +664,7 @@ func TestGeneratedSettings(t *testing.T) {
 	})
 	play(t, driver, spec)
 	settings, raw := readSettings(t, spec)
-	if !slices.Equal(settings.Permissions.Allow, []string{"mcp__ropeshift__lane_report"}) {
+	if !slices.Equal(settings.Permissions.Allow, []string{"mcp__ropeshift__lane_report", "Bash(git add *)", "Bash(git commit *)"}) {
 		t.Errorf("allow %v", settings.Permissions.Allow)
 	}
 	for event, groups := range settings.Hooks {
