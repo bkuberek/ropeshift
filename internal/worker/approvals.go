@@ -146,7 +146,7 @@ func (r *laneRun) lookAt(ctx context.Context, lane lanes.Record, call authority.
 			r.sendRequests()
 		}
 	}
-	return r.keepWaiting(ctx, lane, call)
+	return r.keepWaiting(ctx, lane, call, request.Raised)
 }
 
 // sendRequests hands the ledger a request it has not heard of, on a goroutine of its own, because a
@@ -200,8 +200,11 @@ func (r *laneRun) askLedger(ctx context.Context, lane lanes.Record, call authori
 
 // keepWaiting keeps a request on record and says how much longer a call waits. Past its bound a hook
 // denies, and the lane is on its way to parking, so the request stands for when it comes back.
-func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call authority.ToolCall) lanes.Reply {
-	open, err := r.standingRequest(ctx, lane, call)
+func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call authority.ToolCall, raised bool) lanes.Reply {
+	open, err := r.standingRequest(ctx, lane, call, raised)
+	if errors.Is(err, errRequestGone) {
+		return answer(lanes.ApprovalDeny, lanes.ReasonRequestClosed, "")
+	}
 	if err != nil {
 		return refused(lanes.CodeUnavailable, err.Error())
 	}
@@ -214,10 +217,14 @@ func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call autho
 	return reply
 }
 
+// errRequestGone says a hook that was already waiting has no request left, because the call it held
+// was answered at a terminal and the ledger has not heard yet. Only a new call raises one.
+var errRequestGone = errors.New("this call has no request left")
+
 // standingRequest finds what this lane asked of this call, or raises it. The row and the event that
 // carries it are one journal write, so a kill leaves a request the ledger hears of or none at all. A
 // generation that goes on from the one that asked waits for itself.
-func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call authority.ToolCall) (lanes.OpenApproval, error) {
+func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call authority.ToolCall, raised bool) (lanes.OpenApproval, error) {
 	rows, err := r.w.journal.OpenApprovals(ctx, lane.ID)
 	if err != nil {
 		return lanes.OpenApproval{}, err
@@ -235,6 +242,9 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 			r.noteRequest(ctx, len(rows))
 		}
 		return row, nil
+	}
+	if raised {
+		return lanes.OpenApproval{}, errRequestGone
 	}
 	id, err := newToken(questionIDBytes)
 	if err != nil {

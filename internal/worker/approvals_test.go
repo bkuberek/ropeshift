@@ -325,6 +325,31 @@ func TestATerminalAnswerRecordsAndGrantsNothing(t *testing.T) {
 	}
 }
 
+// A hook still waiting behind a prompt a person answered can look again before the ledger has heard.
+// The row that stood for its call is gone by then, and that look must not ask again for a call a
+// person already answered, or a request nobody can decide would stand with no call behind it.
+func TestAHookBehindAnAnsweredPromptRaisesNothing(t *testing.T) {
+	r, _ := aLaneThatWaits(t)
+	r.look(t, gatedCall, "call-1", false)
+	a := r.onlyRequest(t)
+	if err := r.journal.CloseApproval(t.Context(), a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := decisionIn(t, r.look(t, gatedCall, "call-1", true)); got != lanes.ApprovalDeny {
+		t.Errorf("the hook still waiting: %s", got)
+	}
+	if rows := r.requests(t); len(rows) != 1 {
+		t.Errorf("requests %+v", rows)
+	}
+	open, err := r.journal.OpenApprovals(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 0 {
+		t.Errorf("open %+v", open)
+	}
+}
+
 // A turn that ends with a request open was answered no at a terminal, because a waiting hook holds a
 // turn open.
 func TestATurnThatEndsCloseRequest(t *testing.T) {
