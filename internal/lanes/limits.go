@@ -104,9 +104,8 @@ func (s *SignInState) Reach(lane string, nowMs int64, base time.Duration) bool {
 	}
 	if s.Limited {
 		s.Tries++
-	} else {
-		s.Limited, s.Tries, s.Hint, s.HintRead = true, 0, "", false
 	}
+	s.Limited = true
 	s.ResetAtMs = s.Last.Reset(nowMs)
 	s.Probe, s.ProbeAtMs = "", 0
 	if s.ResetAtMs == 0 {
