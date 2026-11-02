@@ -107,6 +107,8 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		return w.takeApproval(ctx, lane, *request.Approval)
 	case request.Decide != nil:
 		return w.takeDecision(ctx, lane, *request.Decide)
+	case request.Work != nil:
+		return w.takeWork(ctx, lane, *request.Work)
 	case request.Hook != nil:
 		event := *request.Hook
 		event.Lane, event.Generation = lane.ID, lane.Generation

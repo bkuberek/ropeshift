@@ -45,14 +45,20 @@ type Orchestrator struct {
 // OrchestratorOf names a worker's orchestrator. One per worker is the rule, and the name holds it.
 func OrchestratorOf(worker string) string { return orchestratorPrefix + worker }
 
-// IsOrchestratorLane says a lane is an orchestrator's, which an upload with no work order must be.
+// IsOrchestratorLane says a lane is an orchestrator's, which an upload with no work order must be. No
+// other lane may take such a name.
 func IsOrchestratorLane(lane string) bool { return strings.HasPrefix(lane, orchestratorPrefix) }
 
-// Lane names the record this start runs under.
-func (o Orchestrator) Lane() string { return o.ID + "-" + strconv.FormatInt(o.Run, 10) }
+// Lane names the record this start runs under. A lane's name reaches a session's socket path, which
+// has a limit, and a journal holds one worker's lanes, so it carries no worker's ID.
+func (o Orchestrator) Lane() string { return orchestratorPrefix + strconv.FormatInt(o.Run, 10) }
 
-// Belongs says a lane is one of this orchestrator's starts, whichever one.
-func (o Orchestrator) Belongs(lane string) bool { return strings.HasPrefix(lane, o.ID+"-") }
+// Belongs says a lane is a start this orchestrator made, whichever one.
+func (o Orchestrator) Belongs(lane string) bool {
+	text, found := strings.CutPrefix(lane, orchestratorPrefix)
+	run, err := strconv.ParseInt(text, 10, 64)
+	return found && err == nil && run >= 1 && run <= o.Run
+}
 
 // DesiredOrchestrator is what a worker should run. Absent, it runs none.
 type DesiredOrchestrator struct {
@@ -138,3 +144,42 @@ type WakeRequest struct {
 	Auth  WorkerAuth `json:"-"`
 	Epoch int64      `json:"epoch"`
 }
+
+// The acts a worker carries for its orchestrator. Each is one route, and the ledger holds each to
+// what a person could do, for this worker's orchestrator and nobody else's.
+const (
+	VerbCandidates = "candidates"
+	VerbClaim      = "claim"
+	VerbDecline    = "decline"
+	VerbStart      = "start"
+	VerbStop       = "stop"
+	VerbNext       = "next"
+	VerbTake       = "take"
+	VerbClimb      = "climb"
+	VerbEscalate   = "escalate"
+	VerbResolve    = "resolve"
+	VerbMerge      = "merge"
+	VerbRule       = "rule"
+	VerbAccept     = "accept"
+)
+
+// OrchestratorCall is one such act. Lane names the run it speaks for, so a call from a start that was
+// replaced acts for nobody. Body carries what a verb reads that this package has no type for.
+type OrchestratorCall struct {
+	Auth      WorkerAuth      `json:"-"`
+	Epoch     int64           `json:"epoch"`
+	Lane      string          `json:"lane"`
+	WorkOrder string          `json:"work_order,omitempty"`
+	Question  string          `json:"question,omitempty"`
+	Target    string          `json:"target,omitempty"`
+	Reason    string          `json:"reason,omitempty"`
+	Body      json.RawMessage `json:"body,omitempty"`
+}
+
+// OrchestratorReply is what such an act found.
+type OrchestratorReply struct {
+	Result json.RawMessage `json:"result,omitempty"`
+}
+
+// EventOrchestratorDeclined records an item an orchestrator passed on, with its reason.
+const EventOrchestratorDeclined = "orchestrator.declined"

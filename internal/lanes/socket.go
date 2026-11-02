@@ -56,10 +56,42 @@ var Tools = []string{
 // ToolApprovalDecide decides a request a member delegated (FR-AUTH-6).
 const ToolApprovalDecide = "approval_decide"
 
-// OrchestratorTools is what `ropeshift mcp` lists for an orchestrator's token. It reads what a lane
-// reads, and it decides what a lane cannot.
+// The Work group: an orchestrator pulls work, and nothing is assigned to it (FR-ORCH-3).
+const (
+	ToolWorkCandidates = "work_candidates"
+	ToolWorkClaim      = "work_claim"
+	ToolLaneStart      = "lane_start"
+	ToolLaneStop       = "lane_stop"
+)
+
+// The Ladder group: one rung at a time, on a question this orchestrator holds.
+const (
+	ToolQuestionNext     = "question_next"
+	ToolQuestionAttach   = "question_attach"
+	ToolDecisionRecord   = "decision_record"
+	ToolQuestionEscalate = "question_escalate"
+)
+
+// The acts the design gives an orchestrator with no group of their own (D2).
+const (
+	ToolWorkDecline      = "work_decline"
+	ToolAcceptanceRecord = "acceptance_record"
+)
+
+// OrchestratorTools is what `ropeshift mcp` lists for an orchestrator's token, and all of them. More
+// tools raise prompt cost and widen authority, so a further one needs a need a trial named (ADR-0014).
 var OrchestratorTools = []string{
-	ToolContextGet, ToolDecisionSearch, ToolRequirementGet, ToolQuestionSearch, ToolApprovalDecide,
+	ToolContextGet, ToolDecisionSearch, ToolRequirementGet, ToolQuestionSearch,
+	ToolWorkCandidates, ToolWorkClaim, ToolLaneStart, ToolLaneStop,
+	ToolQuestionNext, ToolQuestionAttach, ToolDecisionRecord, ToolQuestionEscalate,
+	ToolWorkDecline, ToolApprovalDecide, ToolAcceptanceRecord,
+}
+
+// WorkRequest is one call of an orchestrator's tool. Args go as the session wrote them, so the
+// worker reads each by its exact name.
+type WorkRequest struct {
+	Tool string          `json:"tool"`
+	Args json.RawMessage `json:"args,omitempty"`
 }
 
 // WaitDeclaration is a lane's word that it waits on an external process.
@@ -112,6 +144,8 @@ type Request struct {
 	Approval *ApprovalRequest `json:"approval,omitempty"`
 	// Decide is an orchestrator's decision, which a lane's token cannot make.
 	Decide *DecideRequest `json:"decide,omitempty"`
+	// Work is an orchestrator's tool, which a lane's token cannot reach.
+	Work *WorkRequest `json:"work,omitempty"`
 	// Who asks whom this token stands for, which only the worker can say.
 	Who bool `json:"who,omitempty"`
 }
@@ -148,6 +182,8 @@ type Reply struct {
 	Approval *ApprovalReply `json:"approval,omitempty"`
 	// Owner answers Who, and a lane's token has none.
 	Owner string `json:"owner,omitempty"`
+	// Work is what an orchestrator's tool found, set when OK.
+	Work json.RawMessage `json:"work,omitempty"`
 }
 
 // What a look at a call can answer.

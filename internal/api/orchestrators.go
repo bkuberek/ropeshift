@@ -26,6 +26,13 @@ func (c *Client) SetOrchestrator(ctx context.Context, worker string, in SetOrche
 	return out, err
 }
 
+// Orchestrate carries one act of a worker's orchestrator.
+func (c *Client) Orchestrate(ctx context.Context, verb string, in ledger.OrchestratorCall) (ledger.OrchestratorReply, error) {
+	var out ledger.OrchestratorReply
+	err := c.Do(ctx, http.MethodPost, workerPath(in.Auth.WorkerID, "orchestrator", "acts", verb), in, &out)
+	return out, err
+}
+
 // WakeDigest reads what a worker's orchestrator could judge now.
 func (c *Client) WakeDigest(ctx context.Context, worker string, in ledger.WakeRequest) (ledger.WakeDigest, error) {
 	var out ledger.WakeDigest

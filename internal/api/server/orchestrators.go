@@ -11,6 +11,23 @@ func (h *handler) orchestratorRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workers/{id}/orchestrator", h.showOrchestrator)
 	mux.HandleFunc("PUT /v1/workers/{id}/orchestrator", h.member(h.setOrchestrator))
 	mux.HandleFunc("POST /v1/workers/{id}/orchestrator/digest", h.workerDigest)
+	mux.HandleFunc("POST /v1/workers/{id}/orchestrator/acts/{verb}", h.workerOrchestrate)
+}
+
+// workerOrchestrate is how an orchestrator's acts reach the ledger: through its worker, which proves
+// itself, and which the control plane holds to the run a member asked for.
+func (h *handler) workerOrchestrate(w http.ResponseWriter, r *http.Request) {
+	var in ledger.OrchestratorCall
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	result, err := h.workers.Orchestrate(r.Context(), r.PathValue("verb"), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, result)
 }
 
 func (h *handler) showOrchestrator(w http.ResponseWriter, r *http.Request) {

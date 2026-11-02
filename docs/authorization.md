@@ -13,6 +13,10 @@ Ropeshift's aim is that an agent cannot grant itself authority. This page says h
 
 A lane or orchestrator token works only on the worker's local socket. It ends when its process ends. A `clear` keeps the process, so the token goes on, and it acts as the lane's current generation.
 
+Only a member can start an orchestrator, and no session starts until there is something to judge. The first passphrase needs no session, which is safe only because no agent runs before a member asks for one: a lane through a dispatch, or an orchestrator through `ropeshift orchestrator start`.
+
+An orchestrator reads a request in the wake that names it, which states the request's summary and the digest a decision binds to. Only a request a member's delegation covers reaches it, and none it made itself. It reaches the ledger through its worker, and the ledger holds each act to the run a member asked for: a worker's credential with no such run acts for nobody.
+
 A hook that cannot reach the worker appends to a spool, and that is a file anything this user runs can write. Taken at its word, a line could end another lane's request or give it a generation, so a line carries a seal, keyed from the token of the lane it names. The line holds neither the token nor its digest, so reading the spool gives a lane nothing to speak with. A line with no seal, a seal from any other token, a line changed after its seal, and a line whose token has ended all count for nothing, and the worker reports how many it dropped. A lane can copy a sealed line and append it again, which says only what that session already said, and a repeat merges by meaning.
 
 ## A request binds to what it asks
@@ -41,6 +45,10 @@ A session that comes back to an approved call hears that exact call first, with 
 | Nothing is approved with nobody behind it | A database check |
 | A human decision needs a session | The route, which takes only a session the ledger issued |
 | A lane's token cannot reach a decision | The worker socket, which takes a decision only from an orchestrator's token |
+| A lane's token reaches no orchestrator tool | `ropeshift mcp`, which does not list one, and the worker socket, which refuses one |
+| An orchestrator's token reaches no lane's tool | The worker socket, which refuses a report, a wait, an ask, and a reply from it |
+| Only a member starts an orchestrator | The route, which takes only a session, and the authorization function |
+| An orchestrator runs only what its worker holds | The control plane, which reads the lease before it starts or stops a lane |
 | A message is never a decision | Nothing in the decision path reads a message |
 
 ## A person at the terminal

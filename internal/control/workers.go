@@ -1,6 +1,7 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -66,6 +67,8 @@ type WorkerOptions struct {
 	Windows messages.Windows
 	// PackTokens is the budget of the pack a claim pins. Zero takes the default.
 	PackTokens int64
+	// Matcher finds what could answer a question. Nil leaves an orchestrator to search for itself.
+	Matcher ports.Matcher
 }
 
 // Workers is the control plane's side of the plane protocol. It has the shape of
@@ -78,6 +81,8 @@ type Workers struct {
 	leases  *Leases
 	// questions records what a lane asks.
 	questions *Questions
+	// accepting carries an orchestrator's word as the second principal.
+	accepting *Acceptances
 }
 
 // NewWorkers returns the plane over a Store, for one workspace.
@@ -94,6 +99,7 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 	return &Workers{
 		store: store, scope: scope, options: options, leases: NewLeases(store).Budgeted(options.PackTokens),
 		questions: NewQuestions(store, options.Batches).Telling(options.Windows).Budgeted(options.PackTokens),
+		accepting: NewAcceptances(store),
 	}
 }
 
@@ -945,7 +951,7 @@ func (w *Workers) Offered(ctx context.Context, worker string) ([]workorders.Work
 		case a.ResumeLaneID == "" && b.ResumeLaneID != "":
 			return 1
 		}
-		return 0
+		return cmp.Compare(b.Priority, a.Priority)
 	})
 	return offered, err
 }

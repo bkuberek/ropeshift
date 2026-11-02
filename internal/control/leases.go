@@ -519,6 +519,9 @@ func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, wor
 	if lane == "" {
 		return workorders.Lease{}, fmt.Errorf("%w: a lane needs an ID", workorders.ErrInvalid)
 	}
+	if ledger.IsOrchestratorLane(lane) {
+		return workorders.Lease{}, fmt.Errorf("%w: %s is an orchestrator's name", workorders.ErrInvalid, lane)
+	}
 	var lease workorders.Lease
 	err := l.store.Write(ctx, scope, "lane.dispatch", func(tx ports.WriteTx) error {
 		current, err := tx.WorkOrders().Get(workOrder)

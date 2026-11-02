@@ -111,7 +111,12 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 			laneReportTool, laneWaitTool, askTool, laneHandoffTool, replyTool, contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
 		}
 		if orchestrating(call) {
-			tools = []any{contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool, approvalDecideTool}
+			tools = []any{
+				contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
+				workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
+				questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
+				workDeclineTool, approvalDecideTool, acceptanceRecordTool,
+			}
 		}
 		out.Result = map[string]any{"tools": tools}
 	case "tools/call":
@@ -282,6 +287,75 @@ var approvalDecideTool = map[string]any{
 	},
 }
 
+func objectTool(name, description string, properties map[string]any, required ...string) map[string]any {
+	schema := map[string]any{"type": "object", "properties": properties}
+	if len(required) != 0 {
+		schema["required"] = required
+	}
+	return map[string]any{"name": name, "description": description, "inputSchema": schema}
+}
+
+func textField(description string) map[string]any {
+	return map[string]any{"type": "string", "description": description}
+}
+
+func listField(description string) map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": description}
+}
+
+var workOrderField = textField("The work order's ID.")
+
+var questionField = textField("The question's ID.")
+
+var (
+	considered = listField("The IDs of what rung 1 considered and found no answer in.")
+	matched    = listField("The IDs of the open questions rung 2 considered and found different.")
+)
+
+var workCandidatesTool = objectTool(lanes.ToolWorkCandidates, "List the work this worker can run, woken lanes first, then by priority and age.", map[string]any{})
+
+var workClaimTool = objectTool(lanes.ToolWorkClaim, "Claim a work order for this worker. Two workers cannot hold one, so a refusal means it is taken.",
+	map[string]any{"work_order": workOrderField}, "work_order")
+
+var laneStartTool = objectTool(lanes.ToolLaneStart, "Start a lane on a work order this worker claimed.",
+	map[string]any{"work_order": workOrderField}, "work_order")
+
+var laneStopTool = objectTool(lanes.ToolLaneStop, "End a stuck lane's session. The worker starts its next generation from what the lane left, and the work stays claimed.",
+	map[string]any{"work_order": workOrderField}, "work_order")
+
+var workDeclineTool = objectTool(lanes.ToolWorkDecline, "Pass on a work order, with why. It stays open for any other worker.",
+	map[string]any{"work_order": workOrderField, "reason": textField("Why this worker passes on it.")}, "work_order", "reason")
+
+var questionNextTool = objectTool(lanes.ToolQuestionNext, "Take the next question to work, with what the record holds that could answer it. "+
+	"A blocking question comes first. You hold it until you resolve it or your hold runs out. It answers nothing when no question is free.", map[string]any{})
+
+var questionAttachTool = objectTool(lanes.ToolQuestionAttach, "Close a question you judged the same as an open one. Its lanes wait on that one's answer.",
+	map[string]any{"question": questionField, "into": textField("The ID of the open question that stays."), "lookup": considered}, "question", "into")
+
+var decisionRecordTool = objectTool(lanes.ToolDecisionRecord, "Answer a question. Name a decision the record holds, or decide or assume within policy, "+
+	"with what you considered. A one-way category is a member's. When decisions overlap, state supersedes or no_conflict.",
+	map[string]any{
+		"question": questionField, "decision": textField("A decision the record holds that answers this."),
+		"status":    map[string]any{"type": "string", "enum": []string{string(questions.DecisionDecided), string(questions.DecisionAssumed)}},
+		"statement": textField("What is decided."), "rationale": textField("Why."), "citations": listField("What it rests on."),
+		"scope": textField("What it covers."), "reversibility": textField("reversible or one_way."), "categories": listField("Its categories."),
+		"supersedes": textField("The decision this replaces."), "no_conflict": listField("The overlapping decisions this does not conflict with."),
+		"lookup": considered, "open": matched,
+	}, "question")
+
+var questionEscalateTool = objectTool(lanes.ToolQuestionEscalate, "Take a question to a member, through a gate that refuses one with no record of rungs 1 and 2, "+
+	"no reason, no category, fewer than two options, or no recommendation. A refusal names what is missing.",
+	map[string]any{
+		"question":   questionField,
+		"reason":     map[string]any{"type": "string", "enum": []string{questions.ReasonOneWay, questions.ReasonRequirementConflict, questions.ReasonScopeChange}},
+		"categories": listField("Which members could answer it."), "options": listField("What a member chooses between."),
+		"recommendation": textField("What you would choose, and why."), "lookup": considered, "open": matched,
+	}, "question", "reason", "options", "recommendation")
+
+var acceptanceRecordTool = objectTool(lanes.ToolAcceptanceRecord, "Act as the second principal on a finished lane, once you read that its evidence holds. "+
+	"A failed check cannot be accepted, and what needs a person stays with a person.",
+	map[string]any{"work_order": workOrderField}, "work_order")
+
 func searchTool(name, description string) map[string]any {
 	return map[string]any{
 		"name":        name,
@@ -333,6 +407,12 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
 		}
 		return callDecide(request.Arguments, call), nil
+	case lanes.ToolWorkCandidates, lanes.ToolWorkClaim, lanes.ToolLaneStart, lanes.ToolLaneStop, lanes.ToolQuestionNext, lanes.ToolQuestionAttach,
+		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline, lanes.ToolAcceptanceRecord:
+		if !orchestrating(call) {
+			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
+		}
+		return callWork(request.Name, request.Arguments, call), nil
 	case lanes.ToolLaneReport:
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
@@ -407,6 +487,22 @@ func callReply(arguments json.RawMessage, call Caller) map[string]any {
 		return toolText("the worker refused this reply: "+answer.Message, true)
 	}
 	return toolText("The reply is recorded.", false)
+}
+
+// callWork passes one of an orchestrator's tools to the worker as it was written, and says what it
+// found. A session that hears nothing back knows nothing happened, and a refusal says why.
+func callWork(tool string, arguments json.RawMessage, call Caller) map[string]any {
+	answer, err := call(lanes.Request{Work: &lanes.WorkRequest{Tool: tool, Args: arguments}})
+	if err != nil {
+		return toolText("the worker did not answer, so nothing happened: "+err.Error(), true)
+	}
+	if !answer.OK {
+		return toolText("the worker refused this: "+answer.Message, true)
+	}
+	if len(answer.Work) == 0 || string(answer.Work) == "null" {
+		return toolText("Done. There is nothing more to read from this.", false)
+	}
+	return toolText(string(answer.Work), false)
 }
 
 // callDecide passes a decision to the worker as it was written. A session that hears nothing back

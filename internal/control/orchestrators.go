@@ -146,8 +146,16 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 	return digest, err
 }
 
-// wakeWork is claimable work, while this worker has room for it.
+// wakeWork is claimable work, while this worker has room for it. A fleet that takes no claims has
+// none, and a wake it could only decline would still read a whole context.
 func wakeWork(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
+	workspace, err := tx.Workspace()
+	if err != nil {
+		return nil, err
+	}
+	if workspace.FleetMode != ledger.FleetRun {
+		return nil, nil
+	}
 	record, err := tx.Workers().Find(worker)
 	if err != nil {
 		return nil, err
@@ -182,11 +190,28 @@ func wakeWork(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 // wakeQuestions is what waits on the ladder and nobody holds. A question past its gate waits on a
 // person, and no wake would change that.
 func wakeQuestions(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
+	rows, err := freeQuestions(tx, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ledger.WakeItem, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: row.Text})
+	}
+	return out, nil
+}
+
+// questionPage is how many questions one read takes at a time.
+const questionPage = 200
+
+// freeQuestions walks every question that waits on the ladder and nobody else holds. A digest and the
+// tool that takes the next read this one list, so what a wake names is what a session can take.
+func freeQuestions(tx ports.ReadTx, holder string) ([]questions.Question, error) {
 	now, err := tx.Now()
 	if err != nil {
 		return nil, err
 	}
-	var out []ledger.WakeItem
+	var out []questions.Question
 	for after := ""; ; {
 		rows, err := tx.Questions().Questions(ports.RecordFilter{After: after, Limit: questionPage})
 		if err != nil {
@@ -194,19 +219,16 @@ func wakeQuestions(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
 		}
 		for _, row := range rows {
 			after = row.ID
-			if (row.Status != questions.StatusOpen && row.Status != questions.StatusTriage) || row.ClaimUntil > now {
-				continue
+			waits := row.Status == questions.StatusOpen || row.Status == questions.StatusTriage
+			if waits && (row.ClaimUntil <= now || (holder != "" && row.ClaimedBy == holder)) {
+				out = append(out, row)
 			}
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeQuestion, ID: row.ID, Stamp: row.ClaimUntil + row.Rung, Text: row.Text})
 		}
 		if len(rows) < questionPage {
 			return out, nil
 		}
 	}
 }
-
-// questionPage is how many questions one read of a digest takes at a time.
-const questionPage = 200
 
 // wakeFinished is a lane that ended and left its work order for review.
 func wakeFinished(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {

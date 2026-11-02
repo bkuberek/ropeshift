@@ -34,6 +34,16 @@ func (w *worker) call(request lanes.Request) (lanes.Reply, error) {
 	return lanes.Reply{OK: true}, nil
 }
 
+func (w *worker) works() []lanes.WorkRequest {
+	var out []lanes.WorkRequest
+	for _, request := range w.requests {
+		if request.Work != nil {
+			out = append(out, *request.Work)
+		}
+	}
+	return out
+}
+
 func (w *worker) decisions() []lanes.DecideRequest {
 	var out []lanes.DecideRequest
 	for _, request := range w.requests {
@@ -107,6 +117,66 @@ func TestToolsDependOnWhoTheTokenStandsFor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := listed(t, &tt.worker); !slices.Equal(got, tt.want) {
 				t.Errorf("listed %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// The numbers are the decision's (ADR-0014): more tools raise prompt cost and widen authority, so a
+// new one has to change this test.
+func TestEachCallerSeesExactlyItsTools(t *testing.T) {
+	lane := []string{"lane_report", "lane_wait", "ask", "lane_handoff", "reply", "context_get", "decision_search", "requirement_get", "question_search"}
+	orchestrator := []string{
+		"context_get", "decision_search", "requirement_get", "question_search",
+		"work_candidates", "work_claim", "lane_start", "lane_stop",
+		"question_next", "question_attach", "decision_record", "question_escalate",
+		"work_decline", "approval_decide", "acceptance_record",
+	}
+	if got := listed(t, &worker{}); !slices.Equal(got, lane) {
+		t.Errorf("a lane sees %d: %v", len(got), got)
+	}
+	if got := listed(t, &worker{owner: lanes.OwnerOrchestrator}); !slices.Equal(got, orchestrator) {
+		t.Errorf("an orchestrator sees %d: %v", len(got), got)
+	}
+}
+
+// Every tool an orchestrator lists takes a schema a session can read, and each reaches its worker
+// under its own name.
+func TestEveryOrchestratorToolReachesItsWorker(t *testing.T) {
+	for _, name := range lanes.OrchestratorTools {
+		switch name {
+		case lanes.ToolContextGet, lanes.ToolDecisionSearch, lanes.ToolRequirementGet, lanes.ToolQuestionSearch, lanes.ToolApprovalDecide:
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			w := &worker{owner: lanes.OwnerOrchestrator}
+			got := ask(t, w, "tools/call", map[string]any{"name": name, "arguments": map[string]any{"work_order": "wo"}})
+			if got.Error != nil || got.Result.IsError {
+				t.Fatalf("answer %+v", got)
+			}
+			if calls := w.works(); len(calls) != 1 || calls[0].Tool != name {
+				t.Errorf("calls %+v", calls)
+			}
+		})
+	}
+}
+
+// A lane's token is refused on `work_claim` here, and again at the worker, because a lane can reach
+// the socket without this process.
+func TestALaneCallingAnOrchestratorsToolReachesNoWorker(t *testing.T) {
+	for _, name := range lanes.OrchestratorTools {
+		switch name {
+		case lanes.ToolContextGet, lanes.ToolDecisionSearch, lanes.ToolRequirementGet, lanes.ToolQuestionSearch:
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			w := &worker{}
+			got := ask(t, w, "tools/call", map[string]any{"name": name, "arguments": map[string]any{"work_order": "wo"}})
+			if got.Error == nil {
+				t.Errorf("answer %+v", got)
+			}
+			if calls := w.works(); len(calls) != 0 {
+				t.Errorf("a call reached the worker: %+v", calls)
 			}
 		})
 	}

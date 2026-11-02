@@ -79,7 +79,7 @@ func New(config Config) http.Handler {
 		approvals:  control.NewApprovals(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
-			PackTokens: config.PackTokens,
+			PackTokens: config.PackTokens, Matcher: config.Matcher,
 		}),
 	}
 	mux := http.NewServeMux()

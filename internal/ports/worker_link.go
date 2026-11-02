@@ -41,4 +41,6 @@ type WorkerLink interface {
 	DecideApproval(ctx context.Context, decision authority.WorkerDecision) (authority.Approval, error)
 	// WakeDigest reads what this worker's orchestrator could judge now.
 	WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error)
+	// Orchestrate carries one act of this worker's orchestrator.
+	Orchestrate(ctx context.Context, verb string, call ledger.OrchestratorCall) (ledger.OrchestratorReply, error)
 }

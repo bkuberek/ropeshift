@@ -108,6 +108,34 @@ func status(t *testing.T, state string) []byte {
 	return raw
 }
 
+// An orchestrator's name is reserved, or a member's lane could read as one, and a run no member
+// asked for could speak for the worker that holds it.
+func TestNoLaneTakesAnOrchestratorsName(t *testing.T) {
+	r := newLaneRig(t)
+	r.claimFor("wo-2", r.subject.Auth().WorkerID)
+	_, err := control.NewLeases(r.store).Dispatch(t.Context(), scope, "wo-2", ledger.Orchestrator{Run: 1}.Lane(), member)
+	if !errors.Is(err, workorders.ErrInvalid) {
+		t.Errorf("err %v", err)
+	}
+}
+
+// A socket's path has a limit, and a lane's name is part of it, so a name with a worker's ID in it
+// passes a fake and stops a real session.
+func TestAnOrchestratorsLaneNameStaysShort(t *testing.T) {
+	row := ledger.Orchestrator{ID: ledger.OrchestratorOf("44f226018ebb89cc2fc7c5d1a70a82e3"), Run: 1_000_000}
+	if got := row.Lane(); len(got) > 24 {
+		t.Errorf("%q is %d bytes", got, len(got))
+	}
+	for _, lane := range []string{"orchestrator-0", "orchestrator-1000001", "orchestrator-x", "orchestrator-", "lane-1"} {
+		if row.Belongs(lane) {
+			t.Errorf("%q reads as a start of this orchestrator", lane)
+		}
+	}
+	if !row.Belongs("orchestrator-1") || !row.Belongs(row.Lane()) {
+		t.Error("a start this orchestrator made reads as another's")
+	}
+}
+
 // A worker speaks only for its own orchestrator, and a word about a start this one replaced is
 // kept and moves nothing.
 func TestAWorkerSpeaksForItsOwnOrchestrator(t *testing.T) {
@@ -126,7 +154,7 @@ func TestAWorkerSpeaksForItsOwnOrchestrator(t *testing.T) {
 	stale := row
 	stale.Run--
 	rejected := r.orchestratorUpload(t,
-		ledger.UploadEvent{Type: ledger.UploadLaneStatus, Lane: ledger.Orchestrator{ID: ledger.OrchestratorOf("another"), Run: 1}.Lane(), Payload: status(t, "idle")},
+		ledger.UploadEvent{Type: ledger.UploadLaneStatus, Lane: ledger.Orchestrator{Run: row.Run + 1}.Lane(), Payload: status(t, "idle")},
 		ledger.UploadEvent{Type: ledger.UploadLaneStatus, Lane: row.Lane(), Generation: 3, Payload: status(t, "working")},
 		ledger.UploadEvent{Type: ledger.UploadLaneStatus, Lane: stale.Lane(), Generation: 9, Payload: status(t, "tripped")},
 	)

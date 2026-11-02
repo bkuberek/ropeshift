@@ -169,6 +169,12 @@ func (l *HTTP) DecideApproval(ctx context.Context, decision authority.WorkerDeci
 	return record, domainError(err)
 }
 
+// Orchestrate carries one act of this worker's orchestrator.
+func (l *HTTP) Orchestrate(ctx context.Context, verb string, call ledger.OrchestratorCall) (ledger.OrchestratorReply, error) {
+	reply, err := l.as(call.Auth).Orchestrate(ctx, verb, call)
+	return reply, domainError(err)
+}
+
 // WakeDigest reads what this worker's orchestrator could judge now.
 func (l *HTTP) WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error) {
 	digest, err := l.as(request.Auth).WakeDigest(ctx, request.Auth.WorkerID, request)

@@ -1,0 +1,26 @@
+{
+  "source": "RS12: a wake with a working record tool, every rung through ropeshift mcp, and a turn that ends",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the wake"}},
+      {"mcp": "question_next"},
+      {"mcp": "decision_record", "arguments": {"question": "rung-1", "decision": "d-budget", "lookup": ["d-budget"]}},
+      {"mcp": "question_attach", "arguments": {"question": "rung-2-again", "into": "rung-2", "lookup": ["d-budget"]}},
+      {"mcp": "decision_record", "arguments": {
+        "question": "rung-3", "status": "decided", "statement": "Log retries at warn.", "rationale": "A retry is worth seeing.",
+        "scope": "logging", "reversibility": "reversible", "citations": ["d-budget"], "lookup": [], "open": []
+      }},
+      {"mcp": "decision_record", "arguments": {
+        "question": "rung-4", "status": "assumed", "statement": "Use the default queue for now.", "rationale": "It is easy to change.",
+        "scope": "queues", "reversibility": "reversible", "lookup": [], "open": []
+      }},
+      {"mcp": "question_escalate", "refusable": true, "arguments": {"question": "rung-5", "reason": "one_way"}},
+      {"mcp": "question_escalate", "arguments": {
+        "question": "rung-5", "reason": "one_way", "options": ["Rotate the key", "Keep the key"], "recommendation": "Rotate it, because it left the machine.",
+        "lookup": ["d-budget"], "open": []
+      }},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

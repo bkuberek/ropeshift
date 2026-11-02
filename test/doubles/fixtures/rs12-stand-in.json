@@ -1,0 +1,10 @@
+{
+  "source": "RS12 dry run: the harness on a scripted CLI, which spends nothing. The suite writes each orchestrator's own turns",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": [[
+    {"init": true},
+    {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+  ]]
+}

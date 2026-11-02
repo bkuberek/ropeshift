@@ -71,6 +71,8 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift orchestrator stop <worker>` | Stops its orchestrator, which stops no lane |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 
+`ropeshift mcp` lists 9 tools for a lane and 15 for an orchestrator, by the token it runs with. `lane_stop` ends a stuck session and starts the lane's next generation, because canceling work is a member's.
+
 Three commands are for ropeshift or an agent CLI to run, and a person does not need them:
 
 | Command | Does |

@@ -157,6 +157,14 @@ func (l *WorkerLink) DecideApproval(ctx context.Context, decision authority.Work
 	return l.Plane.DecideApproval(ctx, decision)
 }
 
+// Orchestrate calls the plane, unless it is away.
+func (l *WorkerLink) Orchestrate(ctx context.Context, verb string, call ledger.OrchestratorCall) (ledger.OrchestratorReply, error) {
+	if l.FailLaneFacts.Load() {
+		return ledger.OrchestratorReply{}, errPlaneAway
+	}
+	return l.Plane.Orchestrate(ctx, verb, call)
+}
+
 // WakeDigest calls the plane, unless it is away.
 func (l *WorkerLink) WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error) {
 	if l.FailLaneFacts.Load() {
