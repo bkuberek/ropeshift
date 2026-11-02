@@ -1,6 +1,7 @@
 import type { EffectOutcome, NeedsYou, WorkAction } from "./types";
 
-// The API's own names, which a Go test holds this file to. The UI reaches nothing the CLI cannot.
+// The API's own names. A test holds them to the list the web listener serves, which a Go test writes,
+// and each row of that list names a CLI command, so the UI reaches nothing the CLI cannot.
 export const paths = {
   signIn: "/v1/sessions",
   signOut: "/v1/sessions/end",

@@ -26,7 +26,6 @@ func (h *handler) viewRoutes(mux *http.ServeMux) {
 		api.ViewNeedsYou:   h.readNeedsYou,
 		api.ViewRoadmap:    h.readRoadmap,
 		api.ViewPlans:      h.readPlans,
-		api.ViewDocuments:  h.readDocuments,
 		api.ViewDecisions:  h.readDecisions,
 		api.ViewQuestions:  h.readQuestions,
 		api.ViewInProgress: h.readInProgress,
@@ -36,10 +35,10 @@ func (h *handler) viewRoutes(mux *http.ServeMux) {
 		api.ViewShopFloor:  h.readShopFloor,
 		api.ViewOperations: h.readOperations,
 	}
-	for _, name := range api.Views {
-		fill := views[name]
+	for name, fill := range views {
 		mux.HandleFunc("GET "+api.ViewPath(name), func(w http.ResponseWriter, r *http.Request) { h.serveView(w, r, fill) })
 	}
+	mux.HandleFunc("GET "+api.ViewPath(api.ViewDocuments), h.serveDocuments)
 }
 
 // serveView reads one view in one read, so everything in it stands at one revision.
@@ -504,29 +503,35 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	return view, nil
 }
 
-func (h *handler) readDocuments(tx ports.ReadTx, r *http.Request, stamp api.Stamp) (any, error) {
-	view := api.Documents{Stamp: stamp, Documents: []api.Document{}, Requirements: []planning.Requirement{}}
+// serveDocuments lists the sources before it opens a read, because a source runs a subprocess for each
+// file, and nothing that slow belongs inside a read of the ledger.
+func (h *handler) serveDocuments(w http.ResponseWriter, r *http.Request) {
+	listed := []api.Document{}
 	for _, source := range h.Knowledge {
 		documents, err := source.List(r.Context())
 		if err != nil {
-			return nil, err
+			fail(w, err)
+			return
 		}
 		for _, document := range documents {
-			view.Documents = append(view.Documents, documentBody(document))
+			listed = append(listed, documentBody(document))
 		}
 	}
-	versions, err := tx.Planning().Requirements()
-	if err != nil {
-		return nil, err
-	}
-	for _, requirement := range versions {
-		if last := len(view.Requirements) - 1; last >= 0 && view.Requirements[last].Key == requirement.Key {
-			view.Requirements[last] = requirement
-			continue
+	h.serveView(w, r, func(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
+		view := api.Documents{Stamp: stamp, Documents: listed, Requirements: []planning.Requirement{}}
+		versions, err := tx.Planning().Requirements()
+		if err != nil {
+			return nil, err
 		}
-		view.Requirements = append(view.Requirements, requirement)
-	}
-	return view, nil
+		for _, requirement := range versions {
+			if last := len(view.Requirements) - 1; last >= 0 && view.Requirements[last].Key == requirement.Key {
+				view.Requirements[last] = requirement
+				continue
+			}
+			view.Requirements = append(view.Requirements, requirement)
+		}
+		return view, nil
+	})
 }
 
 // allDecisions walks past the bound of one read.

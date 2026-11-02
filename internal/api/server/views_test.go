@@ -1,7 +1,10 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +12,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/api/server"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -279,6 +283,35 @@ func TestDocumentsListWithNoBody(t *testing.T) {
 	}
 }
 
+// slowSource stands for a source that runs a subprocess for each file. It reads the ledger while it
+// works, which a one-connection store can only serve if no read is open around it.
+type slowSource struct {
+	ports.KnowledgeSource
+	store ports.Store
+}
+
+func (s slowSource) List(ctx context.Context) ([]ports.KnowledgeDocument, error) {
+	err := s.store.Read(ctx, apitest.Scope, func(ports.ReadTx) error { return nil })
+	return nil, err
+}
+
+// A source runs git for each file, which is no work to do inside a read of the ledger.
+func TestDocumentsListOutsideAnyRead(t *testing.T) {
+	d := apitest.Start(t)
+	source := &slowSource{KnowledgeSource: fake.NewKnowledgeSource()}
+	source.store = d.Store
+	config := d.Config
+	config.Knowledge = []ports.KnowledgeSource{source}
+	recorder := httptest.NewRecorder()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	request := httptest.NewRequestWithContext(ctx, http.MethodGet, api.ViewPath(api.ViewDocuments), nil)
+	server.New(config).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body)
+	}
+}
+
 func TestDecisionsCarryTheirLineage(t *testing.T) {
 	d, _, _ := aWorld(t)
 	view := readView[api.Decisions](t, d, api.ViewDecisions, "")
@@ -370,6 +403,24 @@ func TestStuckListsTheDesignsFive(t *testing.T) {
 		if !seen[want] {
 			t.Errorf("no %s in %v", want, seen)
 		}
+	}
+}
+
+// A parked lane that waits on a person and has waited long is one thing, and it keeps its way out.
+func TestALongParkedLaneStandsOnceInNeedsYou(t *testing.T) {
+	d, _, clock := aWorld(t)
+	clock.Advance(25 * time.Hour)
+	var found []api.NeedItem
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.ID == "wo-parked" {
+			found = append(found, item)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("items %+v", found)
+	}
+	if work := found[0].Work; work.Reason != api.ReasonLongParked || !slices.Equal(work.Actions, []string{api.ActResume}) {
+		t.Errorf("work %+v", work)
 	}
 }
 
