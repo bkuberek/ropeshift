@@ -564,6 +564,13 @@ func TestNearTheLimitHoldsANewLaneAndNotAWokenOne(t *testing.T) {
 	r.start()
 	<-seen
 	r.eventually("the reading kept", func(ledger.LaneView) bool {
+		state, err := r.journal.SignIn(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.Last.Status != lanes.UsageWarning {
+			return false
+		}
 		r.secondLaneOnce(t)
 		r.beat(t)
 		notes := r.heldNotes()
