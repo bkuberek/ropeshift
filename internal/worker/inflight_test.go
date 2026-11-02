@@ -143,7 +143,11 @@ func TestARefusedRequestEndsItsCallAlone(t *testing.T) {
 func adoptedRead(t *testing.T, r *laneRig, g *gate) ledger.LaneView {
 	t.Helper()
 	g.release <- struct{}{}
-	driver := r.takeOver(t, script([]fake.DriverStep{{Hold: true}}))
+	// What an adopted session admits counts as progress, and it can land after the clock moved, so this
+	// one says nothing.
+	plays := script([]fake.DriverStep{{Hold: true}})
+	plays.Silent = true
+	driver := r.takeOver(t, plays)
 	// The hooks are read before the session is adopted, and reading one counts as progress, so a clock
 	// that moved ahead of that would measure nothing.
 	deadline := time.Now().Add(20 * time.Second)
