@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,18 +30,20 @@ const (
 	rs10Question     = "rs10 question"
 	// rs10PaneHalf is the value of envOnly that runs only the pane.
 	rs10PaneHalf = "pane"
-	// rs10MaxTurns caps each input of a headless lane, with room for a session to correct one call,
-	// because a handoff can arrive inside the turn that follows a compaction and share its cap.
-	rs10MaxTurns = "4"
-	// A headless lane takes five inputs: its brief, the compaction, the turn after it, a handoff, and
-	// a next generation. A pane's four are its reads, the compaction, the turn after it, and the
-	// brief a clear owes it.
-	rs10HeadlessCharge = 17
+	// rs10TurnsOfAnInput caps each input of a headless lane. A handoff arrives inside the turn that
+	// follows a compaction and shares its cap, so one input can hold the step after a compaction, the
+	// call the hold denied, the handoff, a corrected handoff, one more correction, and the turn's end.
+	// A cap under that stops the run on the harness and proves nothing of the lane.
+	rs10TurnsOfAnInput = 6
+	// A headless lane takes five inputs: its brief, the compaction, which costs one turn, the turn
+	// after it, a handoff, and a next generation. A pane's four are its reads, the compaction, the turn
+	// after it, and the brief a clear owes it.
+	rs10HeadlessCharge = 4*rs10TurnsOfAnInput + 1
 	rs10PaneCharge     = 10
 	// rs10Sessions are two generations of a headless lane, whose first init stands for a probe, and
-	// a pane with the session its clear begins.
+	// a pane with the session its clear begins. A pane run alone starts a probe of its own.
 	rs10Sessions    = 4
-	rs10TurnCeiling = rs10HeadlessCharge + rs10PaneCharge
+	rs10TurnCeiling = rs10HeadlessCharge + rs10PaneCharge + 1
 	// rs10ToolLimit ends a pane that keeps calling tools past that charge.
 	rs10ToolLimit = 6
 	// rs10HeadlessCompact is under anything a call can report, so no compaction can pass.
@@ -156,6 +159,8 @@ func standInGenerationReport() map[string]any {
 }
 
 // standInHeadless plays a lane whose compaction cannot pass, and the next generation it hands off to.
+// The handoff comes in the turn that follows the compaction, with the call the hold denies ahead of
+// it, as a real session takes it.
 func standInHeadless() []any {
 	return []any{
 		[]any{
@@ -173,6 +178,7 @@ func standInHeadless() []any {
 		[]any{
 			standInPrompt(),
 			standInUsage(8000),
+			map[string]any{"await_hold": "held"},
 			map[string]any{"mcp": lanes.ToolAsk, "arguments": map[string]any{"text": rs10Question, "blocking": true}},
 			standInStop(),
 			standInResult(),
@@ -316,7 +322,7 @@ func (s *suite) checkPaneContext(id string, state workorders.State, compacted la
 func (s *suite) runHeadlessContext() string {
 	s.t.Helper()
 	s.playStandIn(standInHeadless(), nil)
-	flags := append(append([]string{}, guardFlags...), "--max-turns", rs10MaxTurns)
+	flags := append(append([]string{}, guardFlags...), "--max-turns", strconv.Itoa(rs10TurnsOfAnInput))
 	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
 	s.t.Cleanup(first.stop)
 	id := s.dispatch(first, rs10HeadlessLane)
@@ -367,9 +373,12 @@ func TestRS10(t *testing.T) {
 	s.worktree = worktree(headless.Dir, rs10HeadlessLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, worktree(pane.Dir, rs10PaneLane)}
 	paneOnly := os.Getenv(envOnly) == rs10PaneHalf
+	if paneOnly {
+		s.probe()
+	}
 	charges := map[string]int{"pane": rs10PaneCharge - 3, "cleared": 3}
 	if !paneOnly {
-		charges["headless"], charges["next"] = rs10HeadlessCharge-4, 4
+		charges["headless"], charges["next"] = rs10HeadlessCharge-rs10TurnsOfAnInput, rs10TurnsOfAnInput
 	}
 	for session, turns := range charges {
 		if err := s.spend.charge(session, turns); err != nil {

@@ -26,6 +26,10 @@ const (
 	rs11First        = "rs11-first"
 	rs11Second       = "rs11-second"
 	rs11Third        = "rs11-third"
+	// rs11PaneHalf is the value of envOnly that runs only the pane, and rs11FreshPane the same with a
+	// dry run's session coming back fresh, which a real session does when no response is on record.
+	rs11PaneHalf  = "pane"
+	rs11FreshPane = "pane-fresh"
 	// rs11MaxTurns caps each input of a headless lane, with room for a session to correct one call.
 	rs11MaxTurns = "4"
 	// A headless lane takes at most three inputs: its brief, a handoff where a defer is not honored,
@@ -34,9 +38,10 @@ const (
 	rs11PaneCharge     = 11
 	// rs11Sessions are the two lanes, and the second session a pane can come back in, because a turn
 	// a hook's denial ended records no response, so the resume table reads its cache as gone. The
-	// first lane is headless, so its init stands for a probe before the pane starts.
+	// first lane is headless, so its init stands for a probe before the pane starts, and a pane run
+	// alone starts a probe of its own.
 	rs11Sessions    = 3
-	rs11TurnCeiling = rs11HeadlessCharge + rs11PaneCharge
+	rs11TurnCeiling = rs11HeadlessCharge + rs11PaneCharge + 1
 	// rs11ToolLimit ends a pane that keeps calling tools past that charge.
 	rs11ToolLimit = 7
 	// rs11HeadlessWait bounds a hook on a headless lane where a defer is not honored, and rs11PaneWait
@@ -112,17 +117,29 @@ func standInDefers() (turns, resumed []any) {
 }
 
 // standInGatedPane plays a call decided in its wait, one that outlasts it, and one answered on screen.
-func standInGatedPane() (turns, resumed []any) {
+// A session a resume continues comes back on its own script. A fresh one reads the same fixture as
+// the first, so a mark says which one it is.
+func standInGatedPane(fresh bool) (turns, resumed []any) {
 	call := func(name string) map[string]any {
 		return map[string]any{"tool": "Bash", "command": "touch " + name, "prompts": true}
 	}
-	turns = []any{[]any{map[string]any{"init": true}, call(rs11First), call(rs11Second)}, standInHandoff(false)}
-	resumed = []any{[]any{
+	first := []any{call(rs11First), call(rs11Second)}
+	back := []any{
 		call(rs11Second),
 		map[string]any{"tool": "Bash", "command": "touch " + rs11Third, "on_screen": true},
 		standInLaneReport(),
-	}}
-	return turns, resumed
+	}
+	if fresh {
+		return []any{
+			[]any{
+				map[string]any{"init": true},
+				map[string]any{"after_first": "rs11-first-session", "then": back},
+				map[string]any{"first_time": "rs11-first-session", "then": first},
+			},
+			standInHandoff(true),
+		}, nil
+	}
+	return []any{append([]any{map[string]any{"init": true}}, first...), standInHandoff(false)}, []any{back}
 }
 
 // request reads the last request whose summary names a call, which is the one that stands for it.
@@ -218,6 +235,31 @@ func (s *suite) checkHeadlessApproval(id string, a authority.Approval, before bo
 	}
 }
 
+// runHeadlessApproval takes a headless lane's gated call through a decision with no process waiting.
+func (s *suite) runHeadlessApproval() string {
+	s.t.Helper()
+	turns, resumed := standInDefers()
+	s.playStandIn(turns, resumed)
+	flags := []string{
+		"--setting-sources", "project", "--strict-mcp-config", "--tools", "Bash", "--max-budget-usd", budgetUSD, "--max-turns", rs11MaxTurns,
+	}
+	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
+	s.t.Cleanup(first.stop)
+	id := s.dispatch(first, rs11HeadlessLane)
+	watch := func() {
+		s.checkStream(first.stop)
+		s.checkedStream(first.stop)
+	}
+	gated := s.awaitRequest(first, rs11Gated, authority.ApprovalPending, watch)
+	s.awaitParkedOn(first, id, rs11Gated, gated, watch)
+	before := fileThere(s.worktree, rs11Gated)
+	s.approve(gated)
+	s.awaitState(first, id, rs11HeadlessLane, workorders.Acceptance, 2, watch)
+	s.checkHeadlessApproval(id, gated, before)
+	first.stop()
+	return id
+}
+
 // TestRS11 takes a real session's gated calls through a decision. On a pane, one is decided while its
 // hook waits, one outlasts the wait, so the lane parks and comes back to it, and one is answered at
 // the prompt. On a headless lane a gated call is decided with no process waiting. Whether that lane
@@ -247,34 +289,28 @@ func TestRS11(t *testing.T) {
 	s.worktree = worktree(headless.Dir, rs11HeadlessLane)
 	paneTree := worktree(pane.Dir, rs11PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneTree}
-	for session, turns := range map[string]int{"headless": rs11HeadlessCharge, "pane": rs11PaneCharge - 4, "pane again": 4} {
+	freshPane := os.Getenv(envOnly) == rs11FreshPane
+	paneOnly := os.Getenv(envOnly) == rs11PaneHalf || freshPane
+	if paneOnly {
+		s.probe()
+	}
+	charges := map[string]int{"pane": rs11PaneCharge - 4, "pane again": 4}
+	if !paneOnly {
+		charges["headless"] = rs11HeadlessCharge
+	}
+	for session, turns := range charges {
 		if err := s.spend.charge(session, turns); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	turns, resumed := standInDefers()
-	s.playStandIn(turns, resumed)
-	flags := []string{
-		"--setting-sources", "project", "--strict-mcp-config", "--tools", "Bash", "--max-budget-usd", budgetUSD, "--max-turns", rs11MaxTurns,
+	id := ""
+	if !paneOnly {
+		id = s.runHeadlessApproval()
 	}
-	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
-	t.Cleanup(first.stop)
-	id := s.dispatch(first, rs11HeadlessLane)
-	watch := func() {
-		s.checkStream(first.stop)
-		s.checkedStream(first.stop)
-	}
-	gated := s.awaitRequest(first, rs11Gated, authority.ApprovalPending, watch)
-	s.awaitParkedOn(first, id, rs11Gated, gated, watch)
-	before := fileThere(s.worktree, rs11Gated)
-	s.approve(gated)
-	s.awaitState(first, id, rs11HeadlessLane, workorders.Acceptance, 2, watch)
-	s.checkHeadlessApproval(id, gated, before)
-	first.stop()
 
 	s.repo = pane.Dir
-	turns, resumed = standInGatedPane()
+	turns, resumed := standInGatedPane(freshPane)
 	s.playStandIn(turns, resumed)
 	second := s.startDaemonWith(map[string]any{"args": paneGuardFlags, "env": paneEnv})
 	t.Cleanup(second.stop)
@@ -309,14 +345,15 @@ func TestRS11(t *testing.T) {
 	s.awaitState(second, paneID, rs11PaneLane, workorders.Acceptance, 2, paneWatch)
 	left := s.settleProcesses(rs11PaneLane)
 	state := s.workOrder(paneID).State
+	generations := s.generationsOf(rs11PaneLane)
 	second.stop()
 
 	ran := map[string]bool{}
 	for _, file := range []string{rs11First, rs11Second, rs11Third} {
 		ran[file] = fileThere(paneTree, file)
 	}
-	t.Logf("rs11: pane: version=%s state=%s ran=%v second_ran_before_approval=%v third_channel=%s screens=%v processes_left=%d",
-		version, state, ran, parkedBefore, answered.Channel, screens.names(), left)
+	t.Logf("rs11: pane: version=%s state=%s ran=%v second_ran_before_approval=%v third_channel=%s generations=%d came_back_by=%s screens=%v processes_left=%d",
+		version, state, ran, parkedBefore, answered.Channel, len(generations), generations[len(generations)-1].StartReason, screens.names(), left)
 	if parkedBefore {
 		t.Error("pane: the second call ran before its decision")
 	}
