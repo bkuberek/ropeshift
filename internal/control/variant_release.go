@@ -58,3 +58,9 @@ func dropsPackEvent() bool { return false }
 
 // rebuildsPack is false: a lane keeps its pack.
 func rebuildsPack() bool { return false }
+
+// keepsParkWanted is false: a parked commit answers what a policy asked.
+func keepsParkWanted() bool { return false }
+
+// ignoresPins is false: a notice finds every lane whose pack holds what changed.
+func ignoresPins() bool { return false }

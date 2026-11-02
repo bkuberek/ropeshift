@@ -39,6 +39,7 @@ var childRoles = map[string]func(*child) error{
 	"record-question":   roleRecordQuestion,
 	"record-decision":   roleRecordDecision,
 	"supersede":         roleSupersede,
+	"one-way":           roleOneWay,
 	"rule":              roleRule,
 	"overturn":          roleOverturn,
 	"accept":            roleAccept,
@@ -154,6 +155,15 @@ func roleSupersede(c *child) error {
 	draft := questions.Decision{
 		ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "The retry budget is four calls.",
 		Scope: c.spec.Key, Supersedes: c.spec.ClaimID,
+	}
+	_, err := c.ops.RecordDecision(c.ctx, c.scope, draft, c.member())
+	return err
+}
+
+// roleOneWay records a decision nobody can take back.
+func roleOneWay(c *child) error {
+	draft := questions.Decision{
+		ID: c.spec.Key, Status: questions.DecisionDecided, Statement: "Audit data stays in region.", Scope: c.spec.Key, Reversibility: questions.OneWay,
 	}
 	_, err := c.ops.RecordDecision(c.ctx, c.scope, draft, c.member())
 	return err

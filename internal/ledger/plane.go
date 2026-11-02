@@ -175,6 +175,8 @@ type DesiredLease struct {
 	Messages []DesiredMessage `json:"messages,omitempty"`
 	// Pack is the newest version of the context pack this lane pinned.
 	Pack *DesiredPack `json:"pack,omitempty"`
+	// ParkWanted says a policy asked this lane to park, and why.
+	ParkWanted string `json:"park_wanted,omitempty"`
 }
 
 // DesiredPack is what a generation reads of its pack. Text crosses as it was built and is never

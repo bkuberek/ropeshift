@@ -20,6 +20,11 @@ func NoticeText(ended string, replacement Decision) string {
 	return fmt.Sprintf("Decision %s no longer stands, and decision %s replaces it.\n%s", ended, replacement.ID, decisionLines(replacement))
 }
 
+// OneWayNoticeText is what a lane reads when a decision nobody can take back now covers its work.
+func OneWayNoticeText(decision Decision) string {
+	return fmt.Sprintf("One-way decision %s now covers this lane's work.\n%s", decision.ID, decisionLines(decision))
+}
+
 // DecisionText is what a pack or a read says of a decision, with how it stands, because a contract
 // can cite one that no longer does.
 func DecisionText(decision Decision) string {

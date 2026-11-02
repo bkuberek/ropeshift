@@ -642,6 +642,33 @@ func TestPolicyCommands(t *testing.T) {
 	}
 }
 
+func TestLanePolicyCommands(t *testing.T) {
+	s := newSession(t)
+	if text := s.must("policy", "list", "--kind", "lane"); !strings.Contains(text, "1\tbuilt-in\tsha256:") {
+		t.Fatalf("policy list %q", text)
+	}
+	if text := s.must("policy", "show", "--kind", "lane", "1"); text != authority.BuiltInLanePolicyBody {
+		t.Fatalf("policy show %q", text)
+	}
+	file := filepath.Join(t.TempDir(), "lane-policy.toml")
+	body := strings.Replace(authority.BuiltInLanePolicyBody, "version = 1", "version = 2", 1)
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if text := s.must("policy", "publish", "--file", file); !strings.HasPrefix(text, "2\tmember") {
+		t.Fatalf("policy publish %q", text)
+	}
+	if text := s.must("policy", "show", "--kind", "lane", "2"); text != body {
+		t.Fatalf("policy show %q", text)
+	}
+	if text := s.must("policy", "list"); strings.Contains(text, "2\tmember") {
+		t.Fatalf("the decision policy lists %q", text)
+	}
+	if code, _, _ := s.run("policy", "list", "--kind", "autonomy"); code != cli.ExitUsage {
+		t.Fatalf("exit %d for a kind nobody named", code)
+	}
+}
+
 func TestDecisionOverturn(t *testing.T) {
 	s := newSession(t)
 	s.must("decision", "record", "--id", "d1", "--statement", "Retries log at info.", "--assumed", "--scope", "checkout")

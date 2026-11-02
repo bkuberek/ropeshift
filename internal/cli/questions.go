@@ -326,13 +326,36 @@ func policyLine(p authority.PolicyVersion) string {
 	return fmt.Sprintf("%d\t%s\t%s\n", p.Version, p.AuthoredBy, p.Digest)
 }
 
-func (c *invocation) policyList(args []string) int {
-	client, ok, code := c.noArguments(args)
-	if !ok {
-		return code
+// policyKind reads `--kind`, which names the decision policy unless it says otherwise.
+func policyKind(kind string) (authority.PolicyKind, bool) {
+	switch authority.PolicyKind(kind) {
+	case authority.PolicyDecision, authority.PolicyLane:
+		return authority.PolicyKind(kind), true
 	}
+	return "", false
+}
+
+func (c *invocation) policyList(args []string) int {
+	set := c.flags()
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision or lane")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	named, ok := policyKind(*kind)
+	if !ok {
+		return c.usageError("no policy %q", *kind)
+	}
+	client := c.client()
 	defer client.Close()
-	rows, err := client.Policies(c.ctx)
+	read := client.Policies
+	if named == authority.PolicyLane {
+		read = client.LanePolicies
+	}
+	rows, err := read(c.ctx)
 	return c.finish(err, api.PolicyList{Versions: rows}, func() string {
 		var out strings.Builder
 		for _, row := range rows {
@@ -344,6 +367,7 @@ func (c *invocation) policyList(args []string) int {
 
 func (c *invocation) policyShow(args []string) int {
 	set := c.flags()
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision or lane")
 	positional, ok := parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -355,9 +379,17 @@ func (c *invocation) policyShow(args []string) int {
 	if err != nil {
 		return c.usageError("version %q is not a number", positional[0])
 	}
+	named, ok := policyKind(*kind)
+	if !ok {
+		return c.usageError("no policy %q", *kind)
+	}
 	client := c.client()
 	defer client.Close()
-	row, err := client.Policy(c.ctx, version)
+	read := client.Policy
+	if named == authority.PolicyLane {
+		read = client.LanePolicy
+	}
+	row, err := read(c.ctx, version)
 	return c.finish(err, row, func() string { return row.Body })
 }
 

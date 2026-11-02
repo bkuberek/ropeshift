@@ -37,8 +37,13 @@ type statusRig struct {
 }
 
 func newStatusRig(r *Rig) (*statusRig, error) {
+	return newStatusRigOn(r, r.Store(), r.Ready)
+}
+
+// newStatusRigOn runs a lane on a work order a test made ready.
+func newStatusRigOn(r *Rig, store ports.Store, ready func(ports.Store) (string, error)) (*statusRig, error) {
 	s := &statusRig{
-		r: r, store: r.Store(), lane: r.ID("lane"),
+		r: r, store: store, lane: r.ID("lane"),
 		working: ledger.LaneStatus{ActualState: "working", Liveness: "alive", ModelReach: "reachable", LedgerReach: "unknown"},
 	}
 	s.plane = control.NewWorkers(s.store, r.Scope, control.WorkerOptions{HeartbeatMs: statusHeartbeatMs, LeaseTTLMs: TTLMs})
@@ -55,7 +60,7 @@ func newStatusRig(r *Rig) (*statusRig, error) {
 	if err := s.open(); err != nil {
 		return nil, err
 	}
-	id, err := r.Ready(s.store)
+	id, err := ready(s.store)
 	if err != nil {
 		return nil, err
 	}

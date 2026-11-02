@@ -215,9 +215,13 @@ func (r *Rig) CheckPacks(s ports.Store) error {
 	}
 	var rows []contextpacks.Pack
 	var additions []contextpacks.Addition
+	var laneRows []ledger.LaneRow
 	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
 		var err error
 		if rows, err = tx.Packs().All(); err != nil {
+			return err
+		}
+		if laneRows, err = tx.Lanes().Rows(); err != nil {
 			return err
 		}
 		additions, err = tx.Packs().AllAdditions()
@@ -225,6 +229,11 @@ func (r *Rig) CheckPacks(s ports.Store) error {
 	})
 	if err != nil {
 		return err
+	}
+	for _, row := range laneRows {
+		if row.ParkWanted != book.Wanted[row.ID] {
+			return Violatedf("lane %s asks %q, and its log %q", row.ID, row.ParkWanted, book.Wanted[row.ID])
+		}
 	}
 	if len(rows) != len(book.Packs) {
 		return Violatedf("%d pack versions and %d in the log", len(rows), len(book.Packs))

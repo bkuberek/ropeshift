@@ -57,7 +57,7 @@ func insertPolicy(tx ports.WriteTx, version authority.PolicyVersion, actor ledge
 		return err
 	}
 	if !added {
-		return fmt.Errorf("%w: version %d of the decision policy exists", questions.ErrInvalid, version.Version)
+		return fmt.Errorf("%w: version %d of the %s policy exists", questions.ErrInvalid, version.Version, version.Kind)
 	}
 	crashpoint.Hit("policy.publish", "inserted")
 	event, err := questions.RecordEvent(questions.EventPolicyPublished, questions.SubjectPolicy, version.ID, version, actor)
@@ -109,6 +109,94 @@ func (q *Questions) PublishPolicy(ctx context.Context, scope ledger.WorkspaceID,
 		return authority.PolicyVersion{}, err
 	}
 	return record, nil
+}
+
+// currentLaneVersion reads the version of the lane policy in force, as currentPolicy does for
+// decisions, so every lane a policy touched names a version a member can read.
+func currentLaneVersion(tx ports.WriteTx) (authority.PolicyVersion, error) {
+	version, err := tx.Policies().InForce(authority.PolicyLane)
+	if !errors.Is(err, ports.ErrNotFound) {
+		return version, err
+	}
+	id, err := newID(tx.Now())
+	if err != nil {
+		return authority.PolicyVersion{}, err
+	}
+	if version, err = builtInLanePolicy(id, tx.Now()); err != nil {
+		return authority.PolicyVersion{}, err
+	}
+	return version, insertPolicy(tx, version, policyActor)
+}
+
+func builtInLanePolicy(id string, createdAt int64) (authority.PolicyVersion, error) {
+	draft := authority.LanePolicyDraft{Body: authority.BuiltInLanePolicyBody, Policy: authority.DefaultLanePolicy()}
+	return authority.NewLanePolicyVersion(id, builtInPolicyAuthor, draft, createdAt)
+}
+
+// lanePolicyInForce reads what the version in force says. A body that no longer matches its digest
+// stops the write, because a member reviewed other text.
+func lanePolicyInForce(tx ports.WriteTx) (authority.LanePolicy, error) {
+	version, err := currentLaneVersion(tx)
+	if err != nil {
+		return authority.LanePolicy{}, err
+	}
+	return authority.ReadLanePolicy(version)
+}
+
+// PublishLanePolicy records a new version of the lane policy, on the same terms as a decision
+// policy: only a member can, each version is newer than the last, and the same body is a retry.
+func (q *Questions) PublishLanePolicy(ctx context.Context, scope ledger.WorkspaceID, draft authority.LanePolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error) {
+	if !authority.Allowed(actor, authority.ActionPublishPolicy) {
+		return authority.PolicyVersion{}, workorders.ErrForbidden
+	}
+	var record authority.PolicyVersion
+	err := q.store.Write(ctx, scope, "policy.publish", func(tx ports.WriteTx) error {
+		current, err := currentLaneVersion(tx)
+		if err != nil {
+			return err
+		}
+		if current.Version == draft.Policy.Version && current.Digest == authority.PolicyDigest(draft.Body) {
+			record = current
+			return nil
+		}
+		if err := draft.Policy.Check(); err != nil {
+			return err
+		}
+		if draft.Policy.Version <= current.Version {
+			return fmt.Errorf("%w: version %d is not newer than version %d", authority.ErrBadLanePolicy, draft.Policy.Version, current.Version)
+		}
+		id, err := newID(tx.Now())
+		if err != nil {
+			return err
+		}
+		if record, err = authority.NewLanePolicyVersion(id, actor.ID, draft, tx.Now()); err != nil {
+			return err
+		}
+		return insertPolicy(tx, record, actor)
+	})
+	if err != nil {
+		return authority.PolicyVersion{}, err
+	}
+	return record, nil
+}
+
+// LanePolicyVersions lists the versions of the lane policy, newest first. A workspace nothing has
+// happened to yet still has the built-in one in force.
+func (q *Questions) LanePolicyVersions(ctx context.Context, scope ledger.WorkspaceID) ([]authority.PolicyVersion, error) {
+	var versions []authority.PolicyVersion
+	err := q.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		versions, err = tx.Policies().Versions(authority.PolicyLane)
+		return err
+	})
+	if err != nil || len(versions) != 0 {
+		return versions, err
+	}
+	version, err := builtInLanePolicy(builtInPolicyAuthor, 0)
+	if err != nil {
+		return nil, err
+	}
+	return []authority.PolicyVersion{version}, nil
 }
 
 // PolicyVersions lists the versions of the decision policy, newest first, so a member can

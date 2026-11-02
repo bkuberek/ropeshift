@@ -100,6 +100,8 @@ type LaneRow struct {
 	Archived bool
 	// Hold says where a parked lane can resume.
 	Hold ResumeHold
+	// ParkWanted says a policy asked this lane to park, and why. Empty asks nothing.
+	ParkWanted string
 }
 
 // The values of a lane's `resume_affinity`.

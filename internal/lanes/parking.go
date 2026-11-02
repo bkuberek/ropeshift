@@ -22,6 +22,8 @@ const (
 	ParkUsageLimit ParkTrigger = "usage_limit"
 	// ParkSignIn is a lane on a sign-in that expired.
 	ParkSignIn ParkTrigger = "sign_in_expired"
+	// ParkPolicy is a lane a policy stopped, for a person to look at what changed under it.
+	ParkPolicy ParkTrigger = "policy"
 )
 
 // ParkRequest asks a lane to park.

@@ -1,6 +1,8 @@
 package worker_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -8,6 +10,7 @@ import (
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -191,6 +194,163 @@ func TestAGenerationRecordsItsBaseline(t *testing.T) {
 	if generations := r.generationsOf(t); len(generations) != 1 || generations[0].BaselineTokens != 700 {
 		t.Errorf("generations %+v", generations)
 	}
+}
+
+// oneWayOn publishes a lane policy that parks, and decides something nobody can take back under a
+// lane's work.
+func (r *laneRig) oneWayOn(t *testing.T) {
+	t.Helper()
+	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
+	const body = "[lane_policy]\nversion = 2\non_contract_version = \"notify\"\non_one_way_decision = \"park\"\n"
+	draft := authority.LanePolicyDraft{Body: body, Policy: authority.LanePolicy{Version: 2, OnContractVersion: authority.LaneNotify, OnOneWayDecision: authority.LanePark}}
+	if _, err := ops.PublishLanePolicy(t.Context(), scope, draft, member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
+		ID: "d-one-way", Status: questions.DecisionDecided, Statement: "Keep audit data in region.", Scope: r.id, Reversibility: questions.OneWay,
+	}, member); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAPolicyParksALaneForAPerson(t *testing.T) {
+	var r *handoffRig
+	r = atWork(t, r2(&r, narrativeText), completed(0.02))
+	r.letGoOnFailure(t)
+	r.oneWayOn(t)
+	if err := r.subject.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.eventually("the lane parking", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Parking) })
+	close(r.release)
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	wake := r.wakeOf(t, 1)
+	if wake.Expr != lanes.HumanWake() {
+		t.Errorf("a lane a policy stopped waits on %s", wake.Expr)
+	}
+}
+
+// The default policy tells a lane and leaves it running.
+func TestALaneNoPolicyAskedKeepsWorking(t *testing.T) {
+	var r *handoffRig
+	r = atWork(t, r2(&r, narrativeText), completed(0.02))
+	r.letGoOnFailure(t)
+	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
+	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
+		ID: "d-one-way", Status: questions.DecisionDecided, Statement: "Keep audit data in region.", Scope: r.id, Reversibility: questions.OneWay,
+	}, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.subject.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.subject.Publish(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if view := r.read(); view.ActualState != string(lanes.Working) {
+		t.Errorf("a lane nothing asked to stop reads %s", view.ActualState)
+	}
+}
+
+// A generation reads the newest version when it starts, and the one before it keeps what it read.
+func TestANextGenerationReadsTheNewestPack(t *testing.T) {
+	var r *handoffRig
+	r = atWork(t, r2(&r, narrativeText), completed(0.02))
+	r.letGoOnFailure(t)
+	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
+	first := r.pinned(t)
+	if _, err := ops.RecordDecision(t.Context(), scope, questions.Decision{ID: "d-old", Status: questions.DecisionDecided, Statement: "Use two retries.", Scope: "elsewhere"}, member); err != nil {
+		t.Fatal(err)
+	}
+	addition := contextpacks.Addition{WorkOrder: r.id, Kind: contextpacks.KindKnowledge, Ref: "wiki:1", Text: "A page."}
+	if err := control.NewPacks(r.store).AddPackItem(t.Context(), scope, addition, member); err != nil {
+		t.Fatal(err)
+	}
+	r.renewPack(t, first)
+	r.handOff(t)
+	r.awaitSecondGeneration(t)
+	specs := r.driver.Specs()
+	generations := r.generationsOf(t)
+	writes := r.worktrees().ContextWrites(specs[1].Dir)
+	if len(writes) != 2 || writes[0] != first.Text || writes[1] == first.Text {
+		t.Fatalf("a worktree held %d versions", len(writes))
+	}
+	if generations[0].PackVersion != first.Version || generations[1].PackVersion != first.Version+1 {
+		t.Errorf("generations %+v", generations)
+	}
+	_, doc := r.storedHandoff(t, 1)
+	if doc.Deterministic.ContextPack == nil || doc.Deterministic.ContextPack.Version != first.Version {
+		t.Errorf("a handoff states %+v, and its generation read version %d", doc.Deterministic.ContextPack, first.Version)
+	}
+}
+
+// renewPack stands for what a decision does to a pack, because this rig's work cites none.
+func (r *laneRig) renewPack(t *testing.T, previous contextpacks.Pack) {
+	t.Helper()
+	next := previous
+	next.Version, next.Text = previous.Version+1, previous.Text+"\nA later version.\n"
+	raw, err := next.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	next.Digest = contextpacks.DigestSHA256 + hex.EncodeToString(sum[:])
+	payload, err := json.Marshal(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = r.store.Write(t.Context(), scope, "note", func(tx ports.WriteTx) error {
+		if err := tx.Packs().Insert(next); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: contextpacks.EventBuilt, Actor: member, Subject: ledger.Subject{Kind: contextpacks.SubjectPack, ID: next.ID}, Data: payload,
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A handoff under way has its own way out, and parking waits for it to finish.
+func TestAHandoffUnderWayOutranksAPolicy(t *testing.T) {
+	var r *handoffRig
+	r = atWork(t, r2(&r, narrativeText), completed(0.02))
+	r.letGoOnFailure(t)
+	if err := r.subject.HandOff(t.Context(), "lane-1", lanes.HandoffContextThreshold); err != nil {
+		t.Fatal(err)
+	}
+	r.oneWayOn(t)
+	if err := r.subject.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if view := r.read(); view.ActualState != string(lanes.HandingOff) {
+		t.Fatalf("a handoff under way moved to %s", view.ActualState)
+	}
+	close(r.release)
+	r.awaitSecondGeneration(t)
+}
+
+// letGoOnFailure ends the first turn of a test that stopped before it would have.
+func (r *handoffRig) letGoOnFailure(t *testing.T) {
+	t.Cleanup(func() {
+		select {
+		case <-r.release:
+		default:
+			close(r.release)
+		}
+	})
 }
 
 func TestAGenerationRecordsThePackItRead(t *testing.T) {

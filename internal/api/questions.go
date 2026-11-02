@@ -210,7 +210,21 @@ func (c *Client) Policy(ctx context.Context, version int64) (authority.PolicyVer
 	return out, err
 }
 
-// PublishPolicy records a new version of the decision policy.
+// LanePolicies lists the versions of the lane policy, newest first.
+func (c *Client) LanePolicies(ctx context.Context) ([]authority.PolicyVersion, error) {
+	var out PolicyList
+	err := c.Do(ctx, http.MethodGet, "/v1/policies?kind="+string(authority.PolicyLane), nil, &out)
+	return out.Versions, err
+}
+
+// LanePolicy reads one version of the lane policy.
+func (c *Client) LanePolicy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
+	var out authority.PolicyVersion
+	err := c.Do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(authority.PolicyLane), nil, &out)
+	return out, err
+}
+
+// PublishPolicy records a new version of the policy its body's table names.
 func (c *Client) PublishPolicy(ctx context.Context, body string) (authority.PolicyVersion, error) {
 	var out authority.PolicyVersion
 	err := c.Do(ctx, http.MethodPost, "/v1/policies", PublishPolicy{Body: body}, &out)

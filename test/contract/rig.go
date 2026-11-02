@@ -143,6 +143,8 @@ type Ops interface {
 	LaneMessages(ctx context.Context, scope ledger.WorkspaceID, lane string) ([]messages.Message, error)
 	ExpireMessages(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 	AddPackItem(ctx context.Context, scope ledger.WorkspaceID, addition contextpacks.Addition, actor ledger.Actor) error
+	PublishLanePolicy(ctx context.Context, scope ledger.WorkspaceID, draft authority.LanePolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error)
+	LanePolicyVersions(ctx context.Context, scope ledger.WorkspaceID) ([]authority.PolicyVersion, error)
 }
 
 type realOps struct {

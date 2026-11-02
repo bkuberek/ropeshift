@@ -35,9 +35,9 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift decision show <id>` | Shows one decision |
 | `ropeshift decision record --statement S [--rationale R] [--scope S] [--category C]... [--citation C]... [--reversibility R] [--question Q] [--assumed] [--supersedes D] [--no-conflict D]...` | Records a decision, or with `--assumed` a reversible assumption. The answer lists decisions with an overlapping scope. `--supersedes` replaces one, with no rework |
 | `ropeshift decision overturn <id> --statement S [--rationale R] [--citation C]...` | Reverses a decision in one transaction: rework for each completed work order, a notice for each lane, and the outcome on its experience record |
-| `ropeshift policy list` | Lists the versions of the decision policy, newest first |
-| `ropeshift policy show <version>` | Prints one version as its author wrote it |
-| `ropeshift policy publish --file F` | Publishes a new version. A body names its version, and it must be newer than the one in force |
+| `ropeshift policy list [--kind K]` | Lists the versions of a policy, newest first. `--kind` is `decision`, the default, or `lane` |
+| `ropeshift policy show <version> [--kind K]` | Prints one version as its author wrote it |
+| `ropeshift policy publish --file F` | Publishes a new version of the policy its table names, `[decision_policy]` or `[lane_policy]`. A body names its version, and it must be newer than the one in force |
 | `ropeshift category list` | Lists the workspace's categories: the built-in ones and those it added |
 | `ropeshift category add <name>` | Adds a category. A name is lowercase words joined by hyphens, and a category cannot be removed |
 | `ropeshift search <words> [--kind K]... [--limit N]` | Ranks candidates for a question among decisions, requirements, contracts, and open questions. A score orders one search and means nothing else: a person or an agent judges a match |

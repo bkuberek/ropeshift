@@ -307,6 +307,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.drainLanes(ctx)
 	w.tendSignIn(ctx)
 	w.deliverMessages(ctx)
+	w.parkOnPolicy(ctx)
 	return actions, nil
 }
 

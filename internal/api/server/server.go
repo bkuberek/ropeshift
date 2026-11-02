@@ -70,7 +70,7 @@ func New(config Config) http.Handler {
 		leases:     control.NewLeases(config.Store).Budgeted(config.PackTokens),
 		reviews:    control.NewReviews(config.Store),
 		accepting:  control.NewAcceptances(config.Store),
-		questions:  control.NewQuestions(config.Store, config.Batches).Telling(config.Windows),
+		questions:  control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
 		fleet:      control.NewFleet(config.Store),
 		wakes:      control.NewWakes(config.Store),
 		messages:   control.NewMessages(config.Store, config.Windows),
@@ -153,7 +153,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, messages.ErrInvalid):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, messages.ErrInvalid):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, questions.ErrResolved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})

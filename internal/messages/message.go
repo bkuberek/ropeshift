@@ -38,15 +38,18 @@ type Kind string
 const (
 	KindAnswer         Kind = "answer"
 	KindDecisionNotice Kind = "decision_notice"
+	KindContractNotice Kind = "contract_notice"
 	KindInstruction    Kind = "instruction"
 	KindNotice         Kind = "notice"
 )
 
-var kinds = map[Kind]bool{KindAnswer: true, KindDecisionNotice: true, KindInstruction: true, KindNotice: true}
+var kinds = map[Kind]bool{KindAnswer: true, KindDecisionNotice: true, KindContractNotice: true, KindInstruction: true, KindNotice: true}
 
 // DecisionBearing says a message carries a fact the ledger holds, so that fact reaches the next
 // generation whatever happens to the message.
-func (k Kind) DecisionBearing() bool { return k == KindAnswer || k == KindDecisionNotice }
+func (k Kind) DecisionBearing() bool {
+	return k == KindAnswer || k == KindDecisionNotice || k == KindContractNotice
+}
 
 // Target is who a message is for. Generation is part of the address, because a message is written
 // for a session that holds one context.

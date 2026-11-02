@@ -477,7 +477,7 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 	leases := control.NewLeases(store)
 	delivering := control.NewMessages(store, windows)
 	asked := control.NewQuestions(store, batches)
-	intake := control.NewIntake(store)
+	intake := control.NewIntake(store).Telling(windows)
 	reviews := control.NewReviews(store)
 	accepting := control.NewAcceptances(store)
 	wakes := control.NewWakes(store)

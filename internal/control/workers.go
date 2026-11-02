@@ -93,7 +93,7 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 	}
 	return &Workers{
 		store: store, scope: scope, options: options, leases: NewLeases(store).Budgeted(options.PackTokens),
-		questions: NewQuestions(store, options.Batches).Telling(options.Windows),
+		questions: NewQuestions(store, options.Batches).Telling(options.Windows).Budgeted(options.PackTokens),
 	}
 }
 
@@ -447,6 +447,9 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	}
 	lease.Resets = resets
 	if lease.Pack, err = desiredPack(tx.Packs(), claim.PackID); err != nil {
+		return lease, err
+	}
+	if lease.ParkWanted, err = parkWanted(tx.Lanes(), claim.Lane); err != nil {
 		return lease, err
 	}
 	now, err := tx.Now()

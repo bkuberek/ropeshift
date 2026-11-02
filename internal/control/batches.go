@@ -198,6 +198,9 @@ func (q *Questions) Answer(ctx context.Context, scope ledger.WorkspaceID, id str
 		if err := insertDecision(tx, record, actor); err != nil {
 			return err
 		}
+		if err := q.noticeOneWay(tx, record, actor); err != nil {
+			return err
+		}
 		crashpoint.Hit("question.answer", "decided")
 		question.Status, question.DecisionID, question.ClaimedBy, question.ClaimUntil = questions.StatusAnswered, record.ID, "", 0
 		return q.closeQuestion(tx, question, actor)

@@ -285,6 +285,8 @@ type LaneWriter interface {
 	Responded(lane string, number int64) error
 	// FellBack says a generation that meant to resume started from its handoff instead.
 	FellBack(lane string, number int64, handoffIn string) error
+	// WantPark says a policy asked a lane to park, and an empty reason takes that back.
+	WantPark(lane, reason string) error
 	// Reset counts one human reset of a lane's breaker and returns the count.
 	Reset(lane string) (int64, error)
 	// Guarded keeps how a stop left a worktree. Work no remote holds withdraws a request
@@ -526,6 +528,8 @@ type QuestionReader interface {
 	Decision(id string) (questions.Decision, error)
 	// Decisions returns the decisions a filter selects.
 	Decisions(filter RecordFilter) ([]questions.Decision, error)
+	// ReplacedBy returns the decision that superseded one, or ErrNotFound.
+	ReplacedBy(decision string) (questions.Decision, error)
 	// AnsweredBy returns the questions one decision answered.
 	AnsweredBy(decision string) ([]questions.Question, error)
 	// Overlapping returns every decision in force whose scope overlaps one, by ID. It stops at no

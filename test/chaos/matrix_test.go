@@ -145,7 +145,8 @@ func crashMatrix() []crashCase {
 		intakeCase("intake.item", withSteps("versioned", "ordered")),
 		intakeCase("intake.settle", withSteps()),
 		intakeFilesCase(),
-		repinCase("repinned"),
+		repinCase("repinned", "told"),
+		oneWayCase(),
 		reviewCase(),
 		sendBackCase(),
 		recordQuestionCase("indexed"),
@@ -662,11 +663,11 @@ func (w *world) inReview(key string) (workorders.WorkOrder, error) {
 }
 
 // repinCase kills a poll of a contract's second version, while its work order is ready.
-func repinCase(step string) crashCase {
+func repinCase(steps ...string) crashCase {
 	return crashCase{
 		name:  "a new version",
 		op:    "intake.item",
-		steps: []string{step},
+		steps: steps,
 		prepare: func(w *world) (childSpec, error) {
 			key := w.rig.ID("alpha")
 			order, err := w.inReview(key)
@@ -796,7 +797,7 @@ func supersedeCase() crashCase {
 	return crashCase{
 		name:  "replace a decision",
 		op:    "decision.record",
-		steps: []string{"replaced"},
+		steps: []string{"replaced", "repacked"},
 		prepare: func(w *world) (childSpec, error) {
 			old, err := w.rig.Assumed(w.store, w.rig.ID("Which log level do retries use"), "")
 			if err != nil {
@@ -854,7 +855,7 @@ func overturnCase() crashCase {
 	return crashCase{
 		name:  "overturn a decision",
 		op:    "decision.overturn",
-		steps: withSteps("overturned", "succeeded", "reworked", "noticed", "measured"),
+		steps: withSteps("overturned", "succeeded", "reworked", "noticed", "repacked", "measured"),
 		prepare: func(w *world) (childSpec, error) {
 			done, err := w.rig.Completed(w.store, true)
 			if err != nil {

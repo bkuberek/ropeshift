@@ -21,6 +21,8 @@ type Questions struct {
 	store   ports.Store
 	batches questions.BatchPolicy
 	windows messages.Windows
+	// packTokens is the budget of a pack a decision renews. Zero takes the default.
+	packTokens int64
 }
 
 // NewQuestions returns the use cases over a Store, with how long questions gather for a
@@ -33,6 +35,12 @@ func NewQuestions(store ports.Store, batches questions.BatchPolicy) *Questions {
 // windows leave out takes the default.
 func (q *Questions) Telling(windows messages.Windows) *Questions {
 	q.windows = windows
+	return q
+}
+
+// Budgeted sets the budget of the packs these use cases renew.
+func (q *Questions) Budgeted(tokens int64) *Questions {
+	q.packTokens = tokens
 	return q
 }
 

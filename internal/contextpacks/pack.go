@@ -324,9 +324,25 @@ func VersionKey(id string, version int64) string { return id + "@" + strconv.For
 const (
 	EventBuilt     = "context_pack.built"
 	EventItemAdded = "context_pack.item_added"
-	SubjectPack    = "context_pack"
-	SubjectAdded   = "context_pack_addition"
+	// EventParkWanted records a policy asking a lane to park, or a parked commit answering it.
+	EventParkWanted = "lane.park_wanted"
+	SubjectLane     = "lane"
+	SubjectPack     = "context_pack"
+	SubjectAdded    = "context_pack_addition"
 )
+
+// ParkWanted is a policy asking a lane to park, and an empty reason takes that back.
+type ParkWanted struct {
+	Lane   string `json:"lane"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ContractNotice is what a lane reads when its contract has a new version. A running lane stays on
+// the version it pinned, so this tells it what changed around it and leaves the rest to policy.
+func ContractNotice(title, ref string) string {
+	return fmt.Sprintf("Contract %s has a new version, %s. This lane stays on the version in its context pack, and nothing about its "+
+		"work order has changed yet. Read the new version with the %s tool before you rest on anything it may have moved.", title, ref, ToolGet)
+}
 
 // RecordEvent is the event that records one record.
 func RecordEvent(eventType, subjectKind, subjectID string, record any, actor ledger.Actor) (ledger.EventDraft, error) {
@@ -341,12 +357,14 @@ func RecordEvent(eventType, subjectKind, subjectID string, record any, actor led
 type Book struct {
 	Packs     map[string]Pack
 	Additions map[string]Addition
+	// Wanted holds each lane a policy still asks to park, and why.
+	Wanted map[string]string
 }
 
 // Replay rebuilds packs from events, in revision order. A digest that does not cover its pack, or
 // a version that follows none, means the log lost something.
 func Replay(events []ledger.Event) (Book, error) {
-	book := Book{Packs: map[string]Pack{}, Additions: map[string]Addition{}}
+	book := Book{Packs: map[string]Pack{}, Additions: map[string]Addition{}, Wanted: map[string]string{}}
 	for _, e := range events {
 		if err := book.apply(e); err != nil {
 			return Book{}, fmt.Errorf("pack replay: rev %d: %w", e.Rev, err)
@@ -381,6 +399,16 @@ func (b Book) apply(e ledger.Event) error {
 			return err
 		}
 		b.Additions[AdditionKey(addition)] = addition
+	case EventParkWanted:
+		var wanted ParkWanted
+		if err := json.Unmarshal(e.Data, &wanted); err != nil {
+			return err
+		}
+		if wanted.Reason == "" {
+			delete(b.Wanted, wanted.Lane)
+		} else {
+			b.Wanted[wanted.Lane] = wanted.Reason
+		}
 	}
 	return nil
 }

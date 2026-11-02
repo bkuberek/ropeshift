@@ -119,6 +119,10 @@ VALUES
 	stmtReadDecision = define("decision.read",
 		`SELECT `+decisionColumns+` FROM decisions WHERE workspace_id = :workspace_id AND id = :id`)
 
+	// stmtReplacedBy reads the one decision that ended another, because a decision ends once.
+	stmtReplacedBy = define("decision.replaced_by",
+		`SELECT `+decisionColumns+` FROM decisions WHERE workspace_id = :workspace_id AND supersedes = :supersedes`)
+
 	stmtListDecisions = define("decision.list",
 		`SELECT `+decisionColumns+`
   FROM decisions d
@@ -474,6 +478,18 @@ func (t questionTx) Decision(id string) (questions.Decision, error) {
 	d, err := scanDecision(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return questions.Decision{}, fmt.Errorf("decision %s: %w", id, ports.ErrNotFound)
+	}
+	return d, err
+}
+
+func (t questionTx) ReplacedBy(decision string) (questions.Decision, error) {
+	row, err := t.row(stmtReplacedBy, t.scoped(params{"supersedes": decision}))
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	d, err := scanDecision(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return questions.Decision{}, fmt.Errorf("what replaced decision %s: %w", decision, ports.ErrNotFound)
 	}
 	return d, err
 }

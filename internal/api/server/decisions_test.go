@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -187,6 +188,67 @@ func TestAPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
 	}
 	_, err = daemon.Client.Policy(ctx, 3)
 	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+}
+
+func TestALanePolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
+	daemon := apitest.Start(t)
+	ctx := t.Context()
+	before, err := daemon.Client.LanePolicies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || before[0].Version != 1 || before[0].Body != authority.BuiltInLanePolicyBody {
+		t.Fatalf("a new workspace reviews %+v", before)
+	}
+	body := strings.Replace(strings.Replace(authority.BuiltInLanePolicyBody, "version = 1", "version = 2", 1), `on_contract_version = "notify"`, `on_contract_version = "park"`, 1)
+	published, err := daemon.Client.PublishPolicy(ctx, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Kind != authority.PolicyLane || published.Version != 2 {
+		t.Fatalf("published %+v", published)
+	}
+	read, err := daemon.Client.LanePolicy(ctx, 2)
+	if err != nil || read.Digest != published.Digest {
+		t.Fatalf("read %+v: %v", read, err)
+	}
+	decisions, err := daemon.Client.Policies(ctx)
+	if err != nil || len(decisions) != 1 || decisions[0].Kind != authority.PolicyDecision {
+		t.Fatalf("the decision policy reads %+v: %v", decisions, err)
+	}
+	var inForce authority.LanePolicy
+	err = daemon.Store.Read(ctx, apitest.Scope, func(tx ports.ReadTx) error {
+		version, err := tx.Policies().InForce(authority.PolicyLane)
+		if err != nil {
+			return err
+		}
+		inForce, err = authority.ReadLanePolicy(version)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (authority.LanePolicy{Version: 2, OnContractVersion: authority.LanePark, OnOneWayDecision: authority.LaneNotify}); inForce != want {
+		t.Errorf("in force %+v, want %+v", inForce, want)
+	}
+}
+
+func TestALanePolicyBodyMustBeComplete(t *testing.T) {
+	daemon := apitest.Start(t)
+	base := strings.Replace(authority.BuiltInLanePolicyBody, "version = 1", "version = 2", 1)
+	tests := []struct{ name, body string }{
+		{"a misspelled key", strings.Replace(base, "on_contract_version", "on_contract", 1)},
+		{"no setting for a contract", strings.Replace(base, "on_contract_version = \"notify\"\n", "", 1)},
+		{"no setting for a one-way decision", strings.Replace(base, "on_one_way_decision = \"notify\"\n", "", 1)},
+		{"no version", strings.Replace(base, "version = 2\n", "", 1)},
+		{"an action nobody named", strings.Replace(base, `"notify"`, `"ignore"`, 1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := daemon.Client.PublishPolicy(t.Context(), tt.body)
+			refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+		})
+	}
 }
 
 func TestAPolicyBodyMustBeComplete(t *testing.T) {

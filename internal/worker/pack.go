@@ -59,6 +59,24 @@ func (r *laneRun) writePack(ctx context.Context, worktree string) (string, error
 	return file, nil
 }
 
+// parkOnPolicy parks each lane a policy asked to stop, for a person to look at what changed under
+// it. A lane that cannot park now comes up on the next pass, and each lane decides alone.
+func (w *Worker) parkOnPolicy(ctx context.Context) {
+	leases, err := w.desiredLeases(ctx)
+	if err != nil {
+		w.config.Report(fmt.Errorf("reading what policy asks: %w", err))
+		return
+	}
+	for _, lease := range leases {
+		if lease.ParkWanted == "" {
+			continue
+		}
+		if run := w.runOf(lease.Lane); run != nil {
+			run.parkReported(ctx, lanes.ParkRequest{Trigger: lanes.ParkPolicy, Expr: lanes.HumanWake()})
+		}
+	}
+}
+
 // recordBaseline tells the ledger what this generation started with, once. Zero says nothing new.
 func (r *laneRun) recordBaseline(ctx context.Context, tokens int64) {
 	if tokens == 0 {
@@ -74,12 +92,8 @@ func (r *laneRun) recordBaseline(ctx context.Context, tokens int64) {
 	}
 }
 
-// setPack takes the newest version the ledger names, for the generation about to start. A control
-// plane that says nothing leaves what this run already holds.
+// setPack takes the newest version the ledger names, for the generation about to start.
 func (r *laneRun) setPack(pack *ledger.DesiredPack) {
-	if pack == nil {
-		return
-	}
 	r.handleLock.Lock()
 	defer r.handleLock.Unlock()
 	r.pack = pack

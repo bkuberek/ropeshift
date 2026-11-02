@@ -46,6 +46,10 @@ type Sabotage struct {
 	DropsPackEvent bool
 	// RebuildsPack gives a claim that brings a lane back a new pack.
 	RebuildsPack bool
+	// KeepsParkWanted leaves what a policy asked of a lane that parked.
+	KeepsParkWanted bool
+	// IgnoresPins tells only the lanes a decision's scope reaches, and renews no pack.
+	IgnoresPins bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -97,3 +101,7 @@ func signalsAnyKind() bool { return current().SignalsAnyKind }
 func dropsPackEvent() bool { return current().DropsPackEvent }
 
 func rebuildsPack() bool { return current().RebuildsPack }
+
+func keepsParkWanted() bool { return current().KeepsParkWanted }
+
+func ignoresPins() bool { return current().IgnoresPins }

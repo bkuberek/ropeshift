@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/measures"
@@ -169,6 +170,9 @@ func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, 
 	if err := insertDecision(tx, record, actor); err != nil {
 		return err
 	}
+	if err := q.noticeOneWay(tx, record, actor); err != nil {
+		return err
+	}
 	if record.Supersedes == "" {
 		return nil
 	}
@@ -184,8 +188,14 @@ func (q *Questions) recordAdmitted(tx ports.WriteTx, record questions.Decision, 
 		return err
 	}
 	crashpoint.Hit("decision.record", "replaced")
-	_, err = q.noticeLanes(tx, old.ID, record.ID, touched, actor)
-	return err
+	if _, err := q.noticeLanes(tx, old.ID, record.ID, touched, actor); err != nil {
+		return err
+	}
+	if err := q.renewPacks(tx, touched.packs, actor); err != nil {
+		return err
+	}
+	crashpoint.Hit("decision.record", "repacked")
+	return nil
 }
 
 // endDecision is the one way a decision leaves force, so it ends once.
@@ -206,15 +216,16 @@ func endDecision(tx ports.WriteTx, decision questions.Decision, status questions
 	return decision, err
 }
 
-// reach is the work and the lanes a decision touched.
+// reach is the work and the lanes a decision touched, and the packs that hold it.
 type reach struct {
 	orders []workorders.WorkOrder
 	lanes  map[string]int64
+	packs  []string
 }
 
 // reachOf finds what rested on a decision: the subject of each question it answered, the
-// work of each lane attached to one, work under a contract that cites it, and work inside
-// its scope. A pack index replaces the lane half of this when packs exist.
+// work of each lane attached to one, work under a contract that cites it, work inside its
+// scope, and every lane whose pack holds it, which the item index finds.
 func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 	touched := reach{lanes: map[string]int64{}}
 	subjects := map[string]bool{}
@@ -255,6 +266,9 @@ func reachOf(tx ports.WriteTx, decision questions.Decision) (reach, error) {
 		if rests(order, decision.Scope, subjects) {
 			touched.orders = append(touched.orders, order)
 		}
+	}
+	if err := addPinnedLanes(tx, &touched, contextpacks.KindDecision, decision.ID); err != nil {
+		return reach{}, err
 	}
 	return touched, addRunningLanes(tx, &touched)
 }
@@ -314,34 +328,67 @@ func (q *Questions) noticeLanes(tx ports.WriteTx, decision, replacedBy string, t
 	if err != nil {
 		return nil, err
 	}
-	body := messages.Clip(questions.NoticeText(decision, replacement))
-	for _, lane := range lanes {
+	return lanes, q.tellDecision(tx, decision, replacedBy, messages.Clip(questions.NoticeText(decision, replacement)), touched, actor)
+}
+
+// tellDecision leaves one notice per lane, and repeats nothing a lane was told.
+func (q *Questions) tellDecision(tx ports.WriteTx, decision, replacedBy, body string, touched reach, actor ledger.Actor) error {
+	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
 		notice := questions.Notice{
 			DecisionID: decision, Lane: lane, Generation: touched.lanes[lane], ReplacedBy: replacedBy, NoticedAt: tx.Now(),
 		}
 		added, err := tx.Questions().Notice(notice)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if !added {
 			continue
 		}
 		event, err := questions.RecordEvent(questions.EventDecisionNoticed, questions.SubjectDecision, decision, notice, actor)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if _, err := tx.Append(event); err != nil {
-			return nil, err
+			return err
 		}
 		draft := messages.Draft{
 			ID: messages.DerivedID(string(messages.KindDecisionNotice), decision, lane), To: messages.Target{Lane: lane},
 			Kind: messages.KindDecisionNotice, Body: body,
 		}
 		if err := q.tell(tx, draft, actor); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return lanes, nil
+	return nil
+}
+
+// noticeOneWay tells each lane a one-way decision now covers, and parks the ones its policy says
+// to, because work that goes on past a choice nobody can take back may have to be thrown away.
+func (q *Questions) noticeOneWay(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {
+	if record.Reversibility != questions.OneWay {
+		return nil
+	}
+	touched, err := reachOf(tx, record)
+	if err != nil {
+		return err
+	}
+	crashpoint.Hit("decision.record", "noticed")
+	if len(touched.lanes) == 0 {
+		return nil
+	}
+	if err := q.tellDecision(tx, record.ID, "", messages.Clip(questions.OneWayNoticeText(record)), touched, actor); err != nil {
+		return err
+	}
+	policy, err := lanePolicyInForce(tx)
+	if err != nil || policy.OnOneWayDecision != authority.LanePark {
+		return err
+	}
+	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
+		if err := askToPark(tx, lane, touched.lanes[lane], "one-way decision "+record.ID, actor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Overturn is a member reversing a decision, in one transaction: the old decision becomes
@@ -442,6 +489,10 @@ func (q *Questions) overturnIn(tx ports.WriteTx, id string, overturn questions.O
 		return questions.Overturned{}, err
 	}
 	crashpoint.Hit("decision.overturn", "noticed")
+	if err := q.renewPacks(tx, touched.packs, actor); err != nil {
+		return questions.Overturned{}, err
+	}
+	crashpoint.Hit("decision.overturn", "repacked")
 	outcome := measures.Outcome{Status: measures.OutcomeOverturned, ReworkWorkOrders: result.Rework}
 	if err := fillOutcome(tx, id, outcome, actor); err != nil {
 		return questions.Overturned{}, err

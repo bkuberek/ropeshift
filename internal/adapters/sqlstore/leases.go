@@ -503,6 +503,9 @@ VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :fence, :now)`)
 	stmtLaneRows = define("lane.rows",
 		`SELECT `+laneRowColumns+` FROM lanes WHERE workspace_id = :workspace_id ORDER BY id`)
 
+	stmtLaneWantPark = define("lane.want_park",
+		`UPDATE lanes SET park_wanted = :reason WHERE workspace_id = :workspace_id AND id = :id`)
+
 	stmtLaneResets = define("lane.resets",
 		`SELECT resets FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
 
@@ -519,7 +522,7 @@ RETURNING current_generation`)
 
 const laneRowColumns = `id, work_order_id, worker_id, current_generation, actual_state, conditions, liveness,
        reach_model, reach_ledger, reported_at, reported_by_epoch, started_fence, unpushed_work, archived,
-       resume_affinity, resume_worker`
+       resume_affinity, resume_worker, park_wanted`
 
 // The values of `archive_request`. Empty means nobody asked.
 const (
@@ -536,7 +539,7 @@ func scanLaneRow(row interface{ Scan(...any) error }) (ledger.LaneRow, error) {
 	var unpushed, archived int64
 	err := row.Scan(&out.ID, &out.WorkOrder, &out.WorkerID, &out.Generation, &out.Status.ActualState, &conditions,
 		&out.Status.Liveness, &out.Status.ModelReach, &out.Status.LedgerReach, &out.ReportedAt, &out.ReportedByEpoch,
-		&out.StartedFence, &unpushed, &archived, &out.Hold.Affinity, &out.Hold.Worker)
+		&out.StartedFence, &unpushed, &archived, &out.Hold.Affinity, &out.Hold.Worker, &out.ParkWanted)
 	if conditions != "" {
 		out.Status.Conditions = strings.Split(conditions, conditionSeparator)
 	}
@@ -583,6 +586,11 @@ func (t laneTx) Report(row ledger.LaneRow) error {
 		"conditions": strings.Join(row.Status.Conditions, conditionSeparator), "liveness": row.Status.Liveness,
 		"reach_model": row.Status.ModelReach, "reach_ledger": row.Status.LedgerReach, "now": now, "epoch": row.ReportedByEpoch,
 	})
+	return err
+}
+
+func (t laneTx) WantPark(lane, reason string) error {
+	_, err := t.exec(stmtLaneWantPark, params{"workspace_id": string(t.scope), "id": lane, "reason": reason})
 	return err
 }
 

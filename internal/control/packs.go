@@ -13,6 +13,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -250,12 +251,14 @@ func (r packRecords) selection(order workorders.WorkOrder) (contextpacks.Selecti
 }
 
 // buildPack fits what a work order selects to a budget, at the ratio this workspace has measured.
-func buildPack(tx ports.WriteTx, order workorders.WorkOrder, tokens int64) (contextpacks.Pack, error) {
+// Carried is what an earlier version held that the selection would no longer reach.
+func buildPack(tx ports.WriteTx, order workorders.WorkOrder, tokens int64, carried ...contextpacks.Source) (contextpacks.Pack, error) {
 	records := writeRecords(tx)
 	selection, err := records.selection(order)
 	if err != nil {
 		return contextpacks.Pack{}, err
 	}
+	selection.Added = append(selection.Added, carried...)
 	samples, err := tx.Packs().Samples()
 	if err != nil {
 		return contextpacks.Pack{}, err
@@ -263,12 +266,172 @@ func buildPack(tx ports.WriteTx, order workorders.WorkOrder, tokens int64) (cont
 	return contextpacks.Build(order.ID, selection, contextpacks.Budget{Tokens: tokens, Ratio: contextpacks.Ratio(samples)})
 }
 
+// carried reads what a pack's decisions stand for now. A decision that ended leaves its replacement
+// in the pack, whatever put it there, because a selection reads scopes and a replacement can name
+// another. Each version is renewed as a decision ends, so one step reaches the one in force.
+func (r packRecords) carried(pack contextpacks.Pack) ([]contextpacks.Source, error) {
+	var out []contextpacks.Source
+	for _, item := range pack.Items {
+		if item.Kind != contextpacks.KindDecision {
+			continue
+		}
+		decision, err := r.questions.Decision(item.Ref)
+		if errors.Is(err, ports.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !decision.Status.InForce() {
+			decision, err = r.questions.ReplacedBy(decision.ID)
+			if errors.Is(err, ports.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+		if decision.Status.InForce() {
+			out = append(out, decisionSource(decision))
+		}
+	}
+	return out, nil
+}
+
+// renewPacks gives each pack a new version for its next generation, in the transaction that ended
+// what it held. A running generation keeps the version it read, and the notice is what it hears.
+func (q *Questions) renewPacks(tx ports.WriteTx, packs []string, actor ledger.Actor) error {
+	for _, id := range packs {
+		live, err := packInUse(tx, id)
+		if err != nil {
+			return err
+		}
+		if !live {
+			continue
+		}
+		latest, err := tx.Packs().Latest(id)
+		if err != nil {
+			return err
+		}
+		order, err := tx.WorkOrders().Get(latest.WorkOrder)
+		if err != nil {
+			return err
+		}
+		carried, err := writeRecords(tx).carried(latest)
+		if err != nil {
+			return err
+		}
+		next, err := buildPack(tx, order, q.packTokens, carried...)
+		if err != nil {
+			return err
+		}
+		next.ID, next.Version = latest.ID, latest.Version+1
+		if err := keepPack(tx, next, actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// packInUse says a generation can still read a pack: a lane that has not ended holds it, or no
+// lane has started under it yet.
+func packInUse(tx ports.WriteTx, pack string) (bool, error) {
+	lanes, err := tx.Packs().Lanes(pack)
+	if err != nil || len(lanes) == 0 {
+		return true, err
+	}
+	for _, lane := range lanes {
+		row, err := tx.Lanes().Row(lane)
+		if errors.Is(err, ports.ErrNotFound) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if row.Status.ActualState != ledger.StateEnded {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// addPinnedLanes finds every lane whose pack holds a record, through the item index, so a notice
+// reaches them whatever else does or does not connect the two.
+func addPinnedLanes(tx ports.WriteTx, touched *reach, kind contextpacks.Kind, record string) error {
+	if ignoresPins() {
+		return nil
+	}
+	packs, err := tx.Packs().Pinning(kind, record)
+	if err != nil {
+		return err
+	}
+	touched.packs = packs
+	for _, pack := range packs {
+		lanes, err := tx.Packs().Lanes(pack)
+		if err != nil {
+			return err
+		}
+		for _, lane := range lanes {
+			row, err := tx.Lanes().Row(lane)
+			switch {
+			case errors.Is(err, ports.ErrNotFound):
+				continue
+			case err != nil:
+				return err
+			}
+			touched.lanes[lane] = row.Generation
+		}
+	}
+	return nil
+}
+
+// askToPark records a policy's word on a lane a session still runs. A lane no generation runs has
+// nothing to stop, and it reads the change as a fact when it comes back.
+func askToPark(tx ports.WriteTx, lane string, generation int64, reason string, actor ledger.Actor) error {
+	open, err := generationOpen(tx, messages.Target{Lane: lane, Generation: generation})
+	if err != nil || !open {
+		return err
+	}
+	return settlePark(tx, lane, reason, actor)
+}
+
+// settlePark keeps what a policy asks of a lane with its event. An empty reason takes it back.
+func settlePark(tx ports.WriteTx, lane, reason string, actor ledger.Actor) error {
+	if err := tx.Lanes().WantPark(lane, reason); err != nil {
+		return err
+	}
+	event, err := contextpacks.RecordEvent(contextpacks.EventParkWanted, contextpacks.SubjectLane, lane, contextpacks.ParkWanted{Lane: lane, Reason: reason}, actor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(event)
+	return err
+}
+
+// parkWanted reads what a policy asks of a lane, and a lane that has not started has no answer yet.
+func parkWanted(lanes ports.LaneReader, lane string) (string, error) {
+	row, err := lanes.Row(lane)
+	if errors.Is(err, ports.ErrNotFound) {
+		return "", nil
+	}
+	return row.ParkWanted, err
+}
+
+// answerPark clears what a policy asked of a lane that has now parked, so it does not park again
+// when a person brings it back.
+func answerPark(tx ports.WriteTx, lane string, actor ledger.Actor) error {
+	row, err := tx.Lanes().Row(lane)
+	if err != nil || row.ParkWanted == "" || keepsParkWanted() {
+		return err
+	}
+	return settlePark(tx, lane, "", actor)
+}
+
 // keepPack stores one version with its event.
 func keepPack(tx ports.WriteTx, pack contextpacks.Pack, actor ledger.Actor) error {
 	if err := tx.Packs().Insert(pack); err != nil {
 		return err
 	}
-	crashpoint.Hit("claim", "packed")
 	if dropsPackEvent() {
 		return nil
 	}
@@ -295,6 +458,7 @@ func (l *Leases) pinPack(tx ports.WriteTx, order workorders.WorkOrder, claim *wo
 	}
 	pack.Version = 1
 	claim.PackID = pack.ID
+	crashpoint.Hit("claim", "packed")
 	return keepPack(tx, pack, actor)
 }
 

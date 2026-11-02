@@ -5,11 +5,15 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
+	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -33,12 +37,19 @@ type IntakeReport struct {
 // each item is one short transaction (R17), so a stale read is harmless and a poll
 // that stops between items finishes on the next one.
 type Intake struct {
-	store ports.Store
+	store   ports.Store
+	windows messages.Windows
 }
 
 // NewIntake returns the use case over a Store.
 func NewIntake(store ports.Store) *Intake {
 	return &Intake{store: store}
+}
+
+// Telling sets how long what a new contract version sends a lane stays useful.
+func (i *Intake) Telling(windows messages.Windows) *Intake {
+	i.windows = windows
+	return i
 }
 
 // BindingID names the binding of one source. It holds no path, so the record means
@@ -188,7 +199,7 @@ type itemOutcome struct {
 func (i *Intake) recordItem(ctx context.Context, scope ledger.WorkspaceID, item ports.WorkItem) (itemOutcome, error) {
 	var outcome itemOutcome
 	err := i.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
-		r := &itemRecorder{tx: tx, item: item}
+		r := &itemRecorder{tx: tx, item: item, windows: i.windows}
 		var err error
 		outcome = itemOutcome{}
 		outcome, err = r.record()
@@ -198,8 +209,9 @@ func (i *Intake) recordItem(ctx context.Context, scope ledger.WorkspaceID, item 
 }
 
 type itemRecorder struct {
-	tx   ports.WriteTx
-	item ports.WorkItem
+	tx      ports.WriteTx
+	item    ports.WorkItem
+	windows messages.Windows
 }
 
 func (r *itemRecorder) record() (itemOutcome, error) {
@@ -238,6 +250,10 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 			return itemOutcome{}, err
 		}
 		crashpoint.Hit("intake.item", "repinned")
+		if err := r.tellLanes(contract); err != nil {
+			return itemOutcome{}, err
+		}
+		crashpoint.Hit("intake.item", "told")
 	}
 	created := 0
 	for _, spec := range r.item.Contract.WorkOrders {
@@ -299,6 +315,43 @@ func (r *itemRecorder) repin(contract planning.Contract) error {
 			err = takeEdge(r.tx, order.ID, workorders.TriggerContractSubmitted, intakeActor)
 		}
 		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tellLanes tells each lane pinned to an earlier version, which the pack item index finds. A
+// lane stays on its pin, so a new version never changes one silently, and policy decides whether
+// it goes on (FR-PLAN-8).
+func (r *itemRecorder) tellLanes(contract planning.Contract) error {
+	touched := reach{lanes: map[string]int64{}}
+	if err := addPinnedLanes(r.tx, &touched, contextpacks.KindContract, contract.ID); err != nil {
+		return err
+	}
+	if err := addRunningLanes(r.tx, &touched); err != nil {
+		return err
+	}
+	if len(touched.lanes) == 0 {
+		return nil
+	}
+	policy, err := lanePolicyInForce(r.tx)
+	if err != nil {
+		return err
+	}
+	ref := planning.ContractKey(contract.ID, contract.Version)
+	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
+		draft := messages.Draft{
+			ID: messages.DerivedID(string(messages.KindContractNotice), ref, lane), To: messages.Target{Lane: lane},
+			Kind: messages.KindContractNotice, Body: messages.Clip(contextpacks.ContractNotice(contract.Title, ref)),
+		}
+		if _, err := sendIn(r.tx, draft, r.windows, intakeActor); err != nil {
+			return err
+		}
+		if policy.OnContractVersion != authority.LanePark {
+			continue
+		}
+		if err := askToPark(r.tx, lane, touched.lanes[lane], "contract version "+ref, intakeActor); err != nil {
 			return err
 		}
 	}
