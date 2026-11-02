@@ -13,10 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/osexec"
 	"ropeshift.dev/ropeshift/internal/adapters/tmux"
@@ -267,6 +269,15 @@ func SeenBy(t testing.TB, dir string) []Seen {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A record is named for a process, and a name says nothing of order once IDs come round.
+	written := func(entry os.DirEntry) time.Time {
+		info, err := entry.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.ModTime()
+	}
+	slices.SortStableFunc(entries, func(a, b os.DirEntry) int { return written(a).Compare(written(b)) })
 	var out []Seen
 	for _, entry := range entries {
 		raw, err := os.ReadFile(filepath.Join(dir, SeenDir, entry.Name()))
