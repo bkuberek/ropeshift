@@ -31,13 +31,17 @@ import (
 
 // The broken variants of parking, each of which the oracle below must catch.
 const (
-	sabotageParksFirst  = "a parked commit ahead of the stop"
-	sabotageForgetsWake = "a restart ends a lane that stored a wake"
-	sabotageSplitsPark  = "a parked commit and its upload in two journal writes"
+	sabotageParksFirst      = "a parked commit ahead of the stop"
+	sabotageForgetsWake     = "a restart ends a lane that stored a wake"
+	sabotageSplitsPark      = "a parked commit and its upload in two journal writes"
+	sabotageStaysCompacting = "a restart parks a lane and leaves it in its compaction"
 )
 
 // witnessParked records that a parked commit left the worker, which is where a lease can go.
 const witnessParked = "parked"
+
+// laneCompacting has a session stand in a compaction when its worker parks it.
+const laneCompacting = "compacting"
 
 // parkProfile gives a session that will not answer a short time to say so.
 const parkProfile = "[lifecycle]\nhandoff_timeout = \"300ms\"\nmax_restarts = 0\n"
@@ -50,6 +54,8 @@ func applyParkVariant(variant string) {
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageForgetsWake)
 	case sabotageSplitsPark:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageSplitsPark)
+	case sabotageStaysCompacting:
+		_ = os.Setenv(worker.EnvSabotage, worker.SabotageStaysCompacting)
 	}
 }
 
@@ -61,6 +67,9 @@ type parkDriver struct {
 	ctx      context.Context
 	lost     bool
 	question string
+	// compacting has the session start a compaction before it asks to park, which only a hold with
+	// a bound of its own may take a lane out of.
+	compacting bool
 }
 
 func (d *parkDriver) Start(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
@@ -101,7 +110,10 @@ func (d *parkDriver) parks() fake.DriverScript { return d.parksCarrying(true) }
 func (d *parkDriver) parksCarrying(carries bool) fake.DriverScript {
 	turn := fake.DriverStep{Turn: &fake.DriverTurn{Status: ports.TurnCompleted, TotalUSD: 0.01}}
 	park := fake.DriverStep{Do: func(spec ports.SessionSpec) {
-		request := lanes.ParkRequest{Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake([]string{d.question})}
+		request := lanes.ParkRequest{Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake([]string{d.question}), PastCompaction: d.compacting}
+		if d.compacting && !d.startCompaction(spec) {
+			return
+		}
 		for d.ctx.Err() == nil {
 			if d.subject.Park(d.ctx, spec.Lane, request) == nil {
 				return
@@ -123,6 +135,36 @@ func (d *parkDriver) parksCarrying(carries bool) fake.DriverScript {
 		}
 	}}
 	return fake.DriverScript{SessionID: "session-1", Model: "fixture", Turns: [][]fake.DriverStep{{{Bound: true}, park, turn}, {answer, turn}}}
+}
+
+// startCompaction moves the lane into a compaction, and waits until its journal says so, because a
+// compaction starts only from a state a session's first event has to reach first.
+func (d *parkDriver) startCompaction(spec ports.SessionSpec) bool {
+	line, err := json.Marshal(lanes.Request{
+		Version: lanes.SocketProtocol, Token: tokenOf(spec),
+		Hook: &lanes.HookEvent{Event: "PreCompact", Subject: "s", Detail: "auto", AtMs: time.Now().UnixMilli()},
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "session:", err)
+		return false
+	}
+	for d.ctx.Err() == nil {
+		record, err := d.journal.Lane(d.ctx, spec.Lane)
+		switch {
+		case err != nil:
+			fmt.Fprintln(os.Stderr, "session:", err)
+			return false
+		case record.Actual == lanes.Compacting:
+			return true
+		case record.Actual == lanes.Working:
+			if reply := d.subject.AnswerLane(d.ctx, line); !reply.OK {
+				fmt.Fprintln(os.Stderr, "session:", reply.Message)
+				return false
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
 }
 
 // witnessLink tells the witness when a parked commit leaves, because nothing a worker wrote can
@@ -161,7 +203,7 @@ func roleWorkerPark(c *child) error {
 	dir := filepath.Dir(c.spec.Journal)
 	driver := &parkDriver{
 		lastingDriver: &lastingDriver{AgentDriver: fake.NewAgentDriver(), dir: dir, log: c.log, journal: journal},
-		lost:          c.spec.Script == laneDied, ctx: c.ctx, question: c.spec.Question,
+		lost:          c.spec.Script == laneDied, ctx: c.ctx, question: c.spec.Question, compacting: c.spec.Script == laneCompacting,
 	}
 	profiles := fake.NewProfileSource()
 	profiles.PutUser(c.spec.Profile)
@@ -252,7 +294,32 @@ func parkedOut(w *world, spec childSpec) error {
 	if view.ActualState != ledger.StateParked {
 		return contract.Violatedf("the lane reads %+v", view.LaneStatus)
 	}
+	if err := leftItsCompaction(w, spec); err != nil {
+		return err
+	}
 	return stopBeforeLease(w, spec)
+}
+
+// leftItsCompaction reads the worker's own record. The ledger names a parked lane by itself, so only
+// this shows one that parked without leaving a compaction, which reached `compacting` before the
+// kill and has one way out.
+func leftItsCompaction(w *world, spec childSpec) error {
+	if spec.Script != laneCompacting {
+		return nil
+	}
+	journal, err := sqlite.OpenJournal(spec.Journal)
+	if err != nil {
+		return err
+	}
+	defer journal.Close()
+	record, err := journal.Lane(w.rig.Ctx, spec.Lane)
+	if err != nil {
+		return err
+	}
+	if record.Actual != lanes.Parked {
+		return contract.Violatedf("the worker's journal reads %s", record.Actual)
+	}
+	return nil
 }
 
 func stopBeforeLease(w *world, spec childSpec) error {
@@ -330,6 +397,10 @@ func parkOrders() []crashCase {
 			cases = append(cases, parkCase(step.name+" with no session left, "+order, step.op, laneDied, first, step.kill...))
 		}
 	}
+	// The wake is kept before the lane moves, so a kill there leaves it on record in its compaction.
+	for _, first := range []bool{true, false} {
+		cases = append(cases, parkCase(fmt.Sprintf("the wake of a lane in a compaction, answered first %v", first), "worker.park", laneCompacting, first, "begun"))
+	}
 	return cases
 }
 
@@ -387,5 +458,6 @@ func parkVariants() []variant {
 		{name: sabotageParksFirst, check: "crash", crash: crash("a commit ahead of its stop", "worker.park", "", false, "committed")},
 		{name: sabotageForgetsWake, check: "crash", crash: crash("a forgotten wake", "worker.park", laneDied, false, "stored")},
 		{name: sabotageSplitsPark, check: "crash", crash: crash("a split commit", "worker.park", "", false, "split")},
+		{name: sabotageStaysCompacting, check: "crash", crash: crash("a lane left in its compaction", "worker.park", laneCompacting, false, "begun")},
 	}
 }

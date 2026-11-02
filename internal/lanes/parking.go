@@ -33,6 +33,9 @@ type ParkRequest struct {
 	Expr string
 	// SkipNarrative leaves the agent's part out, because the agent cannot write it.
 	SkipNarrative bool
+	// PastCompaction lets a lane park from a compaction, for a hold with a bound of its own. It
+	// leaves through the compaction's failure edge, and a session inside one writes nothing.
+	PastCompaction bool
 }
 
 // ParkProgress is how far a lane's parking got, in the worker's journal. A stored wake decides

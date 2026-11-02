@@ -31,6 +31,9 @@ func parksFirst() bool { return false }
 // forgetsWake is false: a normal build finishes parking that lost its session.
 func forgetsWake() bool { return false }
 
+// staysCompacting is false: a lane that parks from a compaction leaves it, whichever process goes on.
+func staysCompacting() bool { return false }
+
 // splitsPark is false: a normal build keeps a parked commit and its upload together.
 func splitsPark() bool { return false }
 

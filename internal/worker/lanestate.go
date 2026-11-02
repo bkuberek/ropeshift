@@ -96,6 +96,19 @@ func (s *laneState) atRest() bool {
 	return s.tracker.State() == lanes.Idle || s.tracker.Left() == lanes.Idle
 }
 
+// compactionHolds says a lane stands in a compaction that does not read `stalled`, which is one that
+// may still end. `lanes.Conditions` says what stalled means, here as everywhere.
+func (s *laneState) compactionHolds(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tracker.State() != lanes.Compacting {
+		return false
+	}
+	return !slices.Contains(lanes.Conditions(lanes.Facts{
+		State: lanes.Compacting, SinceProgress: now.Sub(s.progress), StallAfter: s.stallAfter, WaitDeclared: now.Before(s.waitUntil),
+	}), lanes.Stalled)
+}
+
 // thresholds reads what a profile sets. A duration that does not parse leaves its check
 // off, because a bad profile value must not stop a running lane.
 func (s *laneState) thresholds(profile lanes.Profile) {

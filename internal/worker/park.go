@@ -32,6 +32,10 @@ var ErrNoParking = errors.New("this lane cannot park now")
 // parkSignals are the edges into `parking`, one from each state a lane can park from.
 var parkSignals = []lanes.Signal{lanes.OnCannotProceed, lanes.OnParkRequested, lanes.OnWaitBound, lanes.OnUnknownScreen}
 
+// parkPath is the way there, which starts at a compaction's failure edge for a lane that parks from
+// one, so both a lane that begins and a worker that goes on from a kill reach `parking` the same way.
+var parkPath = append([]lanes.Signal{lanes.OnCompactionFailed}, parkSignals...)
+
 // Park starts the sequence on a lane this worker runs (FR-PARK-1). It returns once the wake is
 // kept and the lane is `parking`, and the lane's run sees it through.
 func (w *Worker) Park(ctx context.Context, lane string, request lanes.ParkRequest) error {
@@ -49,19 +53,25 @@ func parkable(state lanes.ActualState) bool {
 	})
 }
 
+// parksFrom says a lane may park from where it stands. A compaction has no edge into `parking`, so
+// only a hold with a bound of its own may take a lane out of one.
+func parksFrom(state lanes.ActualState, request lanes.ParkRequest) bool {
+	return parkable(state) || (request.PastCompaction && state == lanes.Compacting)
+}
+
 // beginParking keeps the wake before anything else happens, so a kill at any later step leaves
 // a worker that finishes parking. The wake and the event that carries it are one journal write.
 func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) error {
 	r.flightLock.Lock()
 	defer r.flightLock.Unlock()
 	state := r.state.current()
-	if r.flight != nil || r.fenced.Load() || !parkable(state) {
+	if r.flight != nil || r.fenced.Load() || !parksFrom(state, request) {
 		return fmt.Errorf("%w: lane %s is %s, lost its lease, or has a handoff under way", ErrNoParking, r.lease.Lane, state)
 	}
 	record := r.record()
 	parking := lanes.ParkProgress{
 		Wake: lanes.WakeID(record.ID, record.Generation), Expr: request.Expr, Trigger: request.Trigger,
-		SkipNarrative: request.SkipNarrative, Generation: record.Generation,
+		SkipNarrative: request.SkipNarrative || state == lanes.Compacting, Generation: record.Generation,
 	}
 	handoff := lanes.HandoffProgress{
 		Reason: string(request.Trigger), DeadlineMs: r.w.clock.Now().Add(r.state.handoffTimeout()).UnixMilli(),
@@ -75,7 +85,7 @@ func (r *laneRun) beginParking(ctx context.Context, request lanes.ParkRequest) e
 	}
 	crashpoint.Hit("worker.park", "begun")
 	r.parking = &parking
-	r.signal(ctx, parkSignals...)
+	r.signal(ctx, parkPath...)
 	r.startParking(handoff)
 	return nil
 }
@@ -104,7 +114,11 @@ func (r *laneRun) resumeParking(ctx context.Context) {
 	if r.flight != nil {
 		return
 	}
-	r.signal(ctx, parkSignals...)
+	if staysCompacting() {
+		r.signal(ctx, parkSignals...)
+	} else {
+		r.signal(ctx, parkPath...)
+	}
 	progress := lanes.HandoffProgress{Reason: string(r.parking.Trigger)}
 	if r.left != nil {
 		progress = *r.left
@@ -315,7 +329,9 @@ func (r *laneRun) blockingQuestions() []string {
 }
 
 // awaitAnswer holds a lane at rest for `ask_wait`, then parks it, because no process waits on a
-// person. A new turn ends the wait, and the next rest starts it again.
+// person. A new turn ends the wait, and the next rest starts it again. A compaction at rest sits this
+// out while it may still end, and once it reads `stalled` nothing will end it, so the lane parks from
+// where it stands.
 func (r *laneRun) awaitAnswer(ctx context.Context) {
 	if !r.waiting.CompareAndSwap(false, true) {
 		return
@@ -323,7 +339,7 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 	deadline := r.w.clock.Now().Add(r.state.askWait())
 	r.sequence.Go(func() {
 		defer r.waiting.Store(false)
-		for r.w.clock.Now().Before(deadline) || r.state.current() == lanes.Compacting {
+		for r.w.clock.Now().Before(deadline) || r.state.compactionHolds(r.w.clock.Now()) {
 			if !r.restsOn(ctx) {
 				return
 			}
@@ -336,7 +352,9 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 		if !r.restsOn(ctx) {
 			return
 		}
-		request := lanes.ParkRequest{Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake(r.blockingQuestions())}
+		request := lanes.ParkRequest{
+			Trigger: lanes.ParkBlockingQuestion, Expr: lanes.QuestionWake(r.blockingQuestions()), PastCompaction: true,
+		}
 		r.parkReported(ctx, request)
 	})
 }
@@ -388,8 +406,8 @@ func (r *laneRun) parkDrained(ctx context.Context) {
 	since := r.drainingSince
 	r.handleLock.Unlock()
 	past := r.w.clock.Now().Sub(since) >= r.state.drainDeadline()
-	if state == lanes.Idle || (past && (state == lanes.Working || state == lanes.NeedsDecision)) {
-		r.parkReported(ctx, lanes.ParkRequest{Trigger: lanes.ParkFleetDrain, Expr: lanes.HumanWake()})
+	if state == lanes.Idle || (past && (state == lanes.Working || state == lanes.NeedsDecision || state == lanes.Compacting)) {
+		r.parkReported(ctx, lanes.ParkRequest{Trigger: lanes.ParkFleetDrain, Expr: lanes.HumanWake(), PastCompaction: true})
 	}
 }
 

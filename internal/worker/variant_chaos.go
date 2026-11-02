@@ -35,6 +35,8 @@ const (
 	SabotageParksFirst = "parks-first"
 	// SabotageForgetsWake ends a lane whose parking lost its session.
 	SabotageForgetsWake = "forgets-wake"
+	// SabotageStaysCompacting goes on with parking and leaves the lane in its compaction.
+	SabotageStaysCompacting = "stays-compacting"
 	// SabotageSplitsPark keeps a parked commit and its upload in two journal writes.
 	SabotageSplitsPark = "splits-park"
 	// SabotageSplitsResume keeps a resume and its upload in two journal writes.
@@ -80,6 +82,8 @@ func splitsHandoff() bool { return sabotaged(SabotageSplitsHandoff) }
 func parksFirst() bool { return sabotaged(SabotageParksFirst) }
 
 func forgetsWake() bool { return sabotaged(SabotageForgetsWake) }
+
+func staysCompacting() bool { return sabotaged(SabotageStaysCompacting) }
 
 func splitsPark() bool { return sabotaged(SabotageSplitsPark) }
 
