@@ -87,12 +87,14 @@ func readingOf(last, heard lanes.UsageReading) lanes.UsageReading {
 	if heard.UsedKnown {
 		last.UsedKnown, last.UsedPercent = true, heard.UsedPercent
 	}
+	last.ReadAtMs = heard.ReadAtMs
 	return last
 }
 
 // noteUsage keeps what a session read. Rejected reaches a limit at once, and an `allowed` from the
 // lane sent to find out ends one.
 func (r *laneRun) noteUsage(ctx context.Context, heard lanes.UsageReading) {
+	heard.ReadAtMs = r.w.clock.Now().UnixMilli()
 	err := r.w.moveSignIn(ctx, func(state *lanes.SignInState) ([]ledger.UploadEvent, bool) {
 		next := readingOf(state.Last, heard)
 		changed := next != state.Last

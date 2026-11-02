@@ -24,6 +24,10 @@ const (
 // design names no figure, and a vendor's `allowed_warning` holds work back at any figure.
 const NearLimitPercent = 90
 
+// NearLimitLasts is how long a reading with no reset holds work back. Both figures come only with
+// an API response, so a fleet held back by one would never read another.
+const NearLimitLasts = 5 * time.Minute
+
 // RetriesBeforeLimit is how many retries of a rate limit a session makes before a worker calls it
 // a usage limit, because one 429 is not a limit, and a limit parks every lane on a sign-in.
 const RetriesBeforeLimit = 3
@@ -46,11 +50,17 @@ type UsageReading struct {
 	// UsedPercent runs from 0 to 100. UsedKnown is false when no figure came.
 	UsedPercent float64 `json:"used_percent,omitempty"`
 	UsedKnown   bool    `json:"used_known,omitempty"`
+	// ReadAtMs is when a session last said any of this.
+	ReadAtMs int64 `json:"read_at_ms,omitempty"`
 }
 
-// Near says this reading holds new work back. A reading past its own reset says nothing.
+// Near says this reading holds new work back. A reading past its own reset says nothing, and neither
+// does one with no reset that nobody renewed.
 func (u UsageReading) Near(nowMs int64) bool {
 	if u.ResetsAtMs != 0 && nowMs >= u.ResetsAtMs {
+		return false
+	}
+	if u.ResetsAtMs == 0 && nowMs-u.ReadAtMs >= NearLimitLasts.Milliseconds() {
 		return false
 	}
 	return u.Status == UsageWarning || (u.UsedKnown && u.UsedPercent >= NearLimitPercent)

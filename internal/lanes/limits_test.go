@@ -14,14 +14,17 @@ func TestAReadingNearTheLimit(t *testing.T) {
 		reading lanes.UsageReading
 		want    bool
 	}{
-		"nothing read":           {lanes.UsageReading{}, false},
-		"allowed with no figure": {lanes.UsageReading{Status: lanes.UsageAllowed}, false},
-		"a vendor's warning":     {lanes.UsageReading{Status: lanes.UsageWarning}, true},
-		"under the mark":         {lanes.UsageReading{UsedPercent: 89.9, UsedKnown: true}, false},
-		"at the mark":            {lanes.UsageReading{UsedPercent: lanes.NearLimitPercent, UsedKnown: true}, true},
-		"a warning past reset":   {lanes.UsageReading{Status: lanes.UsageWarning, ResetsAtMs: now - 1}, false},
-		"a figure past reset":    {lanes.UsageReading{UsedPercent: 99, UsedKnown: true, ResetsAtMs: now}, false},
-		"a warning before it":    {lanes.UsageReading{Status: lanes.UsageWarning, ResetsAtMs: now + 1}, true},
+		"nothing read":             {lanes.UsageReading{}, false},
+		"allowed with no figure":   {lanes.UsageReading{Status: lanes.UsageAllowed}, false},
+		"a vendor's warning":       {lanes.UsageReading{Status: lanes.UsageWarning, ReadAtMs: now}, true},
+		"under the mark":           {lanes.UsageReading{UsedPercent: 89.9, UsedKnown: true, ReadAtMs: now}, false},
+		"at the mark":              {lanes.UsageReading{UsedPercent: lanes.NearLimitPercent, UsedKnown: true, ReadAtMs: now}, true},
+		"a warning nobody renewed": {lanes.UsageReading{Status: lanes.UsageWarning, ReadAtMs: now - lanes.NearLimitLasts.Milliseconds()}, false},
+		"a figure nobody renewed":  {lanes.UsageReading{UsedPercent: 95, UsedKnown: true, ReadAtMs: now - lanes.NearLimitLasts.Milliseconds()}, false},
+		"a warning just inside it": {lanes.UsageReading{Status: lanes.UsageWarning, ReadAtMs: now - lanes.NearLimitLasts.Milliseconds() + 1}, true},
+		"a warning past reset":     {lanes.UsageReading{Status: lanes.UsageWarning, ResetsAtMs: now - 1}, false},
+		"a figure past reset":      {lanes.UsageReading{UsedPercent: 99, UsedKnown: true, ResetsAtMs: now}, false},
+		"a warning before it":      {lanes.UsageReading{Status: lanes.UsageWarning, ResetsAtMs: now + 1}, true},
 	} {
 		if got := tt.reading.Near(now); got != tt.want {
 			t.Errorf("%s: near %v", name, got)
