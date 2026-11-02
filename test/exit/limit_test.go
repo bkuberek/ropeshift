@@ -13,6 +13,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/api/shimlink"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -123,6 +124,7 @@ func TestUsageLimitParksAndResumes(t *testing.T) {
 	in := newInstall(t)
 	running, ids := in.fleet(t, "limit-fleet", 6)
 	in.waitFor("every lane to park", in.allRead(ids, workorders.Parked))
+	in.noneRunning(t, 6)
 	in.setUserProfile(t, "[admission]\nmax_lanes = 0\nmax_lanes_per_sign_in = 2\n")
 	in.waitFor("every lane's outcome", in.allRead(ids, workorders.Acceptance))
 	running.kill()
@@ -133,10 +135,26 @@ func TestUsageLimitParksAndResumes(t *testing.T) {
 	if most > 2 {
 		t.Errorf("%d lanes ran at once under a cap of 2", most)
 	}
+	resumed := 0
 	for _, session := range in.sessionsOf(t) {
-		if slices.Contains(session, "--dangerously-skip-permissions") {
-			t.Errorf("a session started with %v", session)
+		if slices.Contains(session, "--resume") {
+			resumed++
 		}
+	}
+	if resumed != 6 {
+		t.Errorf("%d lanes went on in their own sessions", resumed)
+	}
+}
+
+// noneRunning holds parked lanes to what parking promises: no process, and no quota in use.
+func (in *install) noneRunning(t *testing.T, count int) {
+	t.Helper()
+	for i := 1; i <= count; i++ {
+		state, err := shimlink.ReadState(filepath.Join(in.paths().StateDir, "lanes", fmt.Sprintf("lane-%d", i), "shim-1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.waitFor("a parked session's end", func() bool { return !exists(state.ChildPID) && !exists(state.ShimPID) })
 	}
 }
 
