@@ -1,7 +1,10 @@
 {
-  "source": "RS8 dry run: the harness on a scripted CLI, which spends nothing. The suite writes each session's turns",
+  "source": "RS8 dry run: the harness on a scripted CLI, which spends nothing. These turns are the probe, and the suite writes each session's own",
   "version": "2.1.316",
   "model": "claude-fixture-5-5",
   "pane": {"trust": true},
-  "turns": []
+  "turns": [[
+    {"init": true},
+    {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+  ]]
 }

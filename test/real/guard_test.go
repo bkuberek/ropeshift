@@ -85,8 +85,9 @@ type spendLedger struct {
 	mu       sync.Mutex
 	sessions map[string]bool
 	turns    int
-	// turnCeiling replaces maxTurns for a suite that needs more and has the room for it.
-	turnCeiling int
+	// sessionCeiling and turnCeiling replace maxSessions and maxTurns for a suite that needs more
+	// and has the room for it.
+	sessionCeiling, turnCeiling int
 }
 
 func newSpendLedger() *spendLedger { return &spendLedger{sessions: map[string]bool{}} }
@@ -94,12 +95,9 @@ func newSpendLedger() *spendLedger { return &spendLedger{sessions: map[string]bo
 func (l *spendLedger) charge(session string, turns int) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.sessions[session] && len(l.sessions) >= maxSessions {
-		return fmt.Errorf("the session ceiling of %d is reached", maxSessions)
-	}
-	ceiling := maxTurns
-	if l.turnCeiling != 0 {
-		ceiling = l.turnCeiling
+	sessions, ceiling := l.ceilings()
+	if !l.sessions[session] && len(l.sessions) >= sessions {
+		return fmt.Errorf("the session ceiling of %d is reached", sessions)
 	}
 	if l.turns+turns > ceiling {
 		return fmt.Errorf("the turn ceiling of %d is reached", ceiling)
@@ -107,6 +105,18 @@ func (l *spendLedger) charge(session string, turns int) error {
 	l.sessions[session] = true
 	l.turns += turns
 	return nil
+}
+
+// ceilings reads what this run may spend.
+func (l *spendLedger) ceilings() (sessions, turns int) {
+	sessions, turns = maxSessions, maxTurns
+	if l.sessionCeiling != 0 {
+		sessions = l.sessionCeiling
+	}
+	if l.turnCeiling != 0 {
+		turns = l.turnCeiling
+	}
+	return sessions, turns
 }
 
 func (l *spendLedger) used() (sessions, turns int) {
@@ -436,6 +446,13 @@ func TestLedgerRefusesPastTheCeiling(t *testing.T) {
 	}
 	if err := second.charge("one more", 1); err == nil {
 		t.Error("a session past the ceiling was charged")
+	}
+	second.sessionCeiling = maxSessions + 1
+	if err := second.charge("one more", 1); err != nil {
+		t.Errorf("a suite's own ceiling: %v", err)
+	}
+	if err := second.charge("one past that", 1); err == nil {
+		t.Error("a session past a suite's own ceiling was charged")
 	}
 }
 

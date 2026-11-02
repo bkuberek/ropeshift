@@ -35,7 +35,9 @@ const (
 	// A lane that replies is charged for both inputs, and one that refuses for its brief alone.
 	rs8Charge        = 6
 	rs8RefusedCharge = 3
-	rs8TurnCeiling   = 2*rs8Charge + rs8RefusedCharge
+	// rs8Sessions are the first probe and three lanes.
+	rs8Sessions    = 4
+	rs8TurnCeiling = 2*rs8Charge + rs8RefusedCharge + 1
 	// rs8ToolLimit ends a pane that keeps calling tools past that charge.
 	rs8ToolLimit = 4
 	// rs8Body is what a message says. It is plain work, so a session has no reason to weigh it.
@@ -86,6 +88,13 @@ first of these that applies to it.
 }
 
 func rs8Message(lane string) string { return "m-" + strings.TrimPrefix(lane, "rs8-") }
+
+// standInBrief asks as standInAsk does, with the hook the real CLI runs for a brief on stdin, which
+// a scripted session does not run by itself.
+func standInBrief(text string) []any {
+	hook := map[string]any{"hook": "UserPromptSubmit", "input": map[string]any{"prompt": "the brief"}}
+	return append([]any{hook}, standInAsk(text)...)
+}
 
 func standInAnswers(lane string) []any {
 	return []any{
@@ -274,10 +283,11 @@ func (s *suite) reportReply(mode, lane string, wantReplay bool) {
 func TestRS8(t *testing.T) {
 	s := start(t, "rs8")
 	s.watched = []string{rs8HeadlessLane, rs8PaneLane, rs8RefusedLane}
-	s.spend.turnCeiling = rs8TurnCeiling
+	s.spend.sessionCeiling, s.spend.turnCeiling = rs8Sessions, rs8TurnCeiling
 	t.Cleanup(s.killTerminal)
 	s.reapGenerations(rs8HeadlessLane, rs8RefusedLane)
 	s.build()
+	s.probe()
 	version := s.requireQualified()
 
 	headless := gittest.NewIn(t, s.subdirectory("h"))
@@ -314,7 +324,7 @@ func TestRS8(t *testing.T) {
 		s.cli("message", "send", lane, "--id", rs8Message(lane), "--body", rs8Body)
 	}
 
-	s.playStandIn([]any{standInAsk(rs8Question), standInAnswers(rs8HeadlessLane)}, nil)
+	s.playStandIn([]any{standInBrief(rs8Question), standInAnswers(rs8HeadlessLane)}, nil)
 	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
 	t.Cleanup(first.stop)
 	id := s.waitForWorkOrder(first.stop)
@@ -326,7 +336,7 @@ func TestRS8(t *testing.T) {
 	s.reportReply("headless", rs8HeadlessLane, true)
 
 	s.repo = pane.Dir
-	s.playStandIn([]any{standInAsk(rs8Question), standInAnswers(rs8PaneLane)}, nil)
+	s.playStandIn([]any{standInBrief(rs8Question), standInAnswers(rs8PaneLane)}, nil)
 	second := s.startDaemonWith(map[string]any{"args": paneGuardFlags, "env": paneEnv})
 	t.Cleanup(second.stop)
 	paneID := s.laneOrder(second.stop, []string{id})
@@ -350,7 +360,7 @@ func TestRS8(t *testing.T) {
 	}
 
 	s.repo = refusing.Dir
-	s.playStandIn([]any{standInAsk(rs8Question), standInAnswers(rs8RefusedLane)}, nil)
+	s.playStandIn([]any{standInBrief(rs8Question), standInAnswers(rs8RefusedLane)}, nil)
 	third := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream, "inbound": "refuse"})
 	t.Cleanup(third.stop)
 	refusedID := s.laneOrder(third.stop, []string{id, paneID})

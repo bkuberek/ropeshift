@@ -131,7 +131,8 @@ func (s *suite) finish() {
 		s.t.Error("STOP: the user-level settings file changed")
 	}
 	sessions, turns := s.spend.used()
-	s.t.Logf("charged: sessions=%d turns=%d of %d and %d", sessions, turns, maxSessions, maxTurns)
+	sessionCeiling, turnCeiling := s.spend.ceilings()
+	s.t.Logf("charged: sessions=%d turns=%d of %d and %d", sessions, turns, sessionCeiling, turnCeiling)
 	left, err := processesHolding(s.scratch)
 	if err != nil {
 		s.t.Error(err)
