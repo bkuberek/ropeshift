@@ -26,6 +26,10 @@ const (
 	ackDeadline  = 25 * time.Millisecond
 	// hardDeadline ends a hook that passed everything else, below the 100 ms limit.
 	hardDeadline = 90 * time.Millisecond
+	// groundAck is how long a hook that re-grounds a session waits for its generation. A clear's
+	// answer follows two journal commits, and a session that hears none starts with no generation,
+	// so this takes most of a hook's time, and with dialDeadline it stays under hardDeadline.
+	groundAck = 60 * time.Millisecond
 	// peekDeadline bounds a hook's look at a gated call, inside hardDeadline.
 	peekDeadline = 45 * time.Millisecond
 	// approvalPoll is how often a waiting hook looks, and the two after it bound one look.
@@ -105,7 +109,11 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 		}
 	case eventSessionStart:
 		event.Socket = cfg.session
-		reground(cfg, event, forward(cfg, event), stdout)
+		ack := ackDeadline
+		if lanes.Regrounds(event.Detail) {
+			ack = groundAck
+		}
+		reground(cfg, event, forwardWithin(cfg, event, ack), stdout)
 		return
 	case eventPostToolUse:
 		if call, err := readCall(input); err == nil {
@@ -326,9 +334,13 @@ func write(stdout io.Writer, specific any) {
 // is an answer, so it spools nothing, and a hook that missed its ack spools an event the worker may
 // have, which is safe because the worker merges by meaning.
 func forward(cfg config, event lanes.HookEvent) int64 {
+	return forwardWithin(cfg, event, ackDeadline)
+}
+
+func forwardWithin(cfg config, event lanes.HookEvent, ack time.Duration) int64 {
 	if cfg.socket != "" {
 		request := lanes.Request{Version: lanes.SocketProtocol, Token: cfg.token, Hook: &event}
-		if reply, err := api.CallLane(cfg.socket, request, dialDeadline, ackDeadline); err == nil {
+		if reply, err := api.CallLane(cfg.socket, request, dialDeadline, ack); err == nil {
 			return reply.Generation
 		}
 	}
