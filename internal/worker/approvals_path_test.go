@@ -93,6 +93,20 @@ func (f *fileRig) orchestratorSays(t *testing.T, a authority.Approval) lanes.Rep
 	return f.subject.AnswerLane(t.Context(), line)
 }
 
+// twoRequests reads the request named and the one after it, which a clock's millisecond can list
+// in either order.
+func (f *fileRig) twoRequests(t *testing.T, first string) (named, other authority.Approval) {
+	t.Helper()
+	rows := f.requests(t)
+	if len(rows) != 2 {
+		t.Fatalf("requests %+v", rows)
+	}
+	if rows[0].ID == first {
+		return rows[0], rows[1]
+	}
+	return rows[1], rows[0]
+}
+
 func mustDo(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
@@ -178,14 +192,14 @@ func TestADecisionBindsToWhereACallLands(t *testing.T) {
 				if got := decisionIn(t, f.lookAtEdit(t, input, "call-2", false)); got == lanes.ApprovalAllow {
 					t.Fatal("the call ran where nobody decided it would land")
 				}
-				rows := f.requests(t)
-				if len(rows) != 2 || rows[0].ID != first.ID || rows[0].State != authority.ApprovalVoid || rows[1].State != authority.ApprovalPending {
-					t.Fatalf("requests %+v", rows)
+				voided, second := f.twoRequests(t, first.ID)
+				if voided.State != authority.ApprovalVoid || second.State != authority.ApprovalPending {
+					t.Fatalf("first %+v, second %+v", voided, second)
 				}
-				if rows[1].SubjectDigest == first.SubjectDigest || rows[1].Path == first.Path {
-					t.Errorf("the second request binds to what the first did: %+v", rows[1])
+				if second.SubjectDigest == first.SubjectDigest || second.Path == first.Path {
+					t.Errorf("the second request binds to what the first did: %+v", second)
 				}
-				if reply := f.orchestratorSays(t, rows[1]); reply.OK || reply.Code != lanes.CodeForbidden {
+				if reply := f.orchestratorSays(t, second); reply.OK || reply.Code != lanes.CodeForbidden {
 					t.Errorf("a class reached where the call lands now: %+v", reply)
 				}
 			})
@@ -272,8 +286,8 @@ func TestACallThatLandsOutsideSaysSoFromTheStart(t *testing.T) {
 	if got := decisionIn(t, f.lookAtEdit(t, input, "call-2", false)); got == lanes.ApprovalAllow {
 		t.Fatal("a member's decision followed a link somewhere else")
 	}
-	if rows := f.requests(t); rows[0].State != authority.ApprovalVoid {
-		t.Errorf("requests %+v", rows)
+	if voided, _ := f.twoRequests(t, a.ID); voided.State != authority.ApprovalVoid {
+		t.Errorf("request %+v", voided)
 	}
 }
 
