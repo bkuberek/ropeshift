@@ -27,19 +27,20 @@ const (
 	rs10HeadlessLane = "rs10-headless"
 	rs10PaneLane     = "rs10-pane"
 	rs10Question     = "rs10 question"
-	// rs10MaxTurns caps each input of a headless lane.
-	rs10MaxTurns = "3"
+	// rs10MaxTurns caps each input of a headless lane, with room for a session to correct one call,
+	// because a handoff can arrive inside the turn that follows a compaction and share its cap.
+	rs10MaxTurns = "4"
 	// A headless lane takes five inputs: its brief, the compaction, the turn after it, a handoff, and
-	// a next generation. A pane's five are its reads, the compaction, the turn after it, and the
+	// a next generation. A pane's four are its reads, the compaction, the turn after it, and the
 	// brief a clear owes it.
-	rs10HeadlessCharge = 13
-	rs10PaneCharge     = 11
-	// rs10Sessions are the first probe, two generations of a headless lane, and a pane with the
-	// session its clear begins.
-	rs10Sessions    = 5
-	rs10TurnCeiling = rs10HeadlessCharge + rs10PaneCharge + 1
+	rs10HeadlessCharge = 17
+	rs10PaneCharge     = 10
+	// rs10Sessions are two generations of a headless lane, whose first init stands for a probe, and
+	// a pane with the session its clear begins.
+	rs10Sessions    = 4
+	rs10TurnCeiling = rs10HeadlessCharge + rs10PaneCharge
 	// rs10ToolLimit ends a pane that keeps calling tools past that charge.
-	rs10ToolLimit = 7
+	rs10ToolLimit = 6
 	// rs10HeadlessCompact is under anything a call can report, so no compaction can pass.
 	rs10HeadlessCompact = 1
 	// rs10PaneCompact sits above where a pane starts and below where its reads take it, so only a
@@ -321,7 +322,6 @@ func TestRS10(t *testing.T) {
 	t.Cleanup(s.killTerminal)
 	s.reapGenerations(rs10HeadlessLane)
 	s.build()
-	s.probe()
 
 	headless := gittest.NewIn(t, s.subdirectory("h"))
 	headless.Commit(".ropeshift/profile.toml", rs10Profile(lanes.ProfileRunHeadless, rs10HeadlessCompact))
@@ -337,7 +337,7 @@ func TestRS10(t *testing.T) {
 	s.repo = headless.Dir
 	s.worktree = worktree(headless.Dir, rs10HeadlessLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, worktree(pane.Dir, rs10PaneLane)}
-	for session, turns := range map[string]int{"headless": rs10HeadlessCharge - 3, "next": 3, "pane": rs10PaneCharge - 3, "cleared": 3} {
+	for session, turns := range map[string]int{"headless": rs10HeadlessCharge - 4, "next": 4, "pane": rs10PaneCharge - 3, "cleared": 3} {
 		if err := s.spend.charge(session, turns); err != nil {
 			t.Fatal(err)
 		}

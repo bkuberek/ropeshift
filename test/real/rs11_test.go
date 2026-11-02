@@ -26,17 +26,18 @@ const (
 	rs11First        = "rs11-first"
 	rs11Second       = "rs11-second"
 	rs11Third        = "rs11-third"
-	// rs11MaxTurns caps each input of a headless lane.
-	rs11MaxTurns = "3"
-	// A headless lane takes two inputs, and a pane the same two with four calls and their ends.
-	rs11HeadlessCharge = 6
-	rs11PaneCharge     = 12
+	// rs11MaxTurns caps each input of a headless lane, with room for a session to correct one call.
+	rs11MaxTurns = "4"
+	// A headless lane takes at most three inputs: its brief, a handoff where a defer is not honored,
+	// and the session that comes back. A pane takes the same three, with four calls and their ends.
+	rs11HeadlessCharge = 12
+	rs11PaneCharge     = 11
 	// rs11Sessions are the two lanes. The first is headless, so its init stands for a probe, on the
 	// flags RS10's probe passed, before the pane starts.
 	rs11Sessions    = 2
 	rs11TurnCeiling = rs11HeadlessCharge + rs11PaneCharge
 	// rs11ToolLimit ends a pane that keeps calling tools past that charge.
-	rs11ToolLimit = 8
+	rs11ToolLimit = 7
 	// rs11HeadlessWait bounds a hook on a headless lane where a defer is not honored, and rs11PaneWait
 	// leaves a person time to read the prompt it holds open.
 	rs11HeadlessWait = "10s"
