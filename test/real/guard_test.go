@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,13 +172,107 @@ type streamLine struct {
 	Subtype string `json:"subtype"`
 	IsError bool   `json:"is_error"`
 	// TerminalReason says why a turn ended.
-	TerminalReason string `json:"terminal_reason"`
-	RateLimit      *struct {
-		Status  string `json:"status"`
-		Windows map[string]struct {
-			Status string `json:"status"`
-		} `json:"unifiedWindows"`
-	} `json:"rate_limit_info"`
+	TerminalReason string         `json:"terminal_reason"`
+	RateLimit      *rateLimitInfo `json:"rate_limit_info"`
+}
+
+// limitWindow is one window's own figures.
+type limitWindow struct {
+	Status      string   `json:"status"`
+	Utilization *float64 `json:"utilization"`
+	ResetsAt    *int64   `json:"resetsAt"`
+}
+
+// rateLimitInfo is what one event says of a sign-in's limits. `rateLimitType` names the window the
+// event's status is about, and `unifiedWindows` is every window it carries.
+type rateLimitInfo struct {
+	limitWindow
+	Window  string                 `json:"rateLimitType"`
+	Windows map[string]limitWindow `json:"unifiedWindows"`
+}
+
+const (
+	limitAllowed = "allowed"
+	limitWarning = "allowed_warning"
+	// limitStopAt is the utilization that ends a run on any window, whatever its status says.
+	limitStopAt = 0.90
+)
+
+// overTheLine names a figure at or past the line.
+func overTheLine(name string, figure *float64) []string {
+	if figure == nil || *figure < limitStopAt {
+		return nil
+	}
+	return []string{fmt.Sprintf("rate limit window: %s at %v", name, *figure)}
+}
+
+// stops names what ends a run in one event. A warning alone does not, because a warning says only
+// that some window is filling: it ends a run when it cannot say which, or how full. A status past a
+// warning ends one, and so does any window at the line, whatever status came with it.
+func (i rateLimitInfo) stops() []string {
+	var found []string
+	if i.Status != limitAllowed && i.Status != limitWarning {
+		found = append(found, "rate limit: "+i.Status)
+	}
+	named := i.Window
+	if named == "" {
+		named = "the event's own window"
+	}
+	found = append(found, overTheLine(named, i.Utilization)...)
+	figure := i.Utilization
+	if window, ok := i.Windows[i.Window]; ok && figure == nil {
+		figure = window.Utilization
+	}
+	if i.Status == limitWarning && i.Window == "" {
+		found = append(found, "a limit warning that names no window")
+	}
+	if i.Status == limitWarning && figure == nil {
+		found = append(found, "a limit warning with no utilization")
+	}
+	for _, name := range slices.Sorted(maps.Keys(i.Windows)) {
+		window := i.Windows[name]
+		found = append(found, overTheLine(name, window.Utilization)...)
+		if window.Status != "" && window.Status != limitAllowed && window.Status != limitWarning {
+			found = append(found, "rate limit window: "+name+" "+window.Status)
+		}
+		if window.Status == limitWarning && window.Utilization == nil {
+			found = append(found, "a limit warning on "+name+" with no utilization")
+		}
+	}
+	return found
+}
+
+// orNone reads a figure for the record, where an event that left one out must say so.
+func orNone[T any](value *T) string {
+	if value == nil {
+		return "none"
+	}
+	return fmt.Sprint(*value)
+}
+
+// limitReadings says what each rate limit event in a stream reports, so a stop, and a warning a
+// run goes on past, both leave the window and the figures on the record. It keeps those fields and
+// no others.
+func limitReadings(stream []byte) []string {
+	var found []string
+	for line := range bytes.SplitSeq(stream, []byte("\n")) {
+		var event streamLine
+		if json.Unmarshal(line, &event) != nil || event.Type != "rate_limit_event" || event.RateLimit == nil {
+			continue
+		}
+		info := event.RateLimit
+		window := info.Window
+		if window == "" {
+			window = "none"
+		}
+		parts := []string{fmt.Sprintf("status=%s window=%s utilization=%s resets_at=%s", info.Status, window, orNone(info.Utilization), orNone(info.ResetsAt))}
+		for _, name := range slices.Sorted(maps.Keys(info.Windows)) {
+			w := info.Windows[name]
+			parts = append(parts, fmt.Sprintf("%s status=%s utilization=%s resets_at=%s", name, w.Status, orNone(w.Utilization), orNone(w.ResetsAt)))
+		}
+		found = append(found, strings.Join(parts, "; "))
+	}
+	return found
 }
 
 // abortedStreaming is how a result reads when SIGINT ended its turn, which is how a worker stops
@@ -185,8 +280,8 @@ type streamLine struct {
 const abortedStreaming = "aborted_streaming"
 
 // stopSignals reads a stream and names every stop condition in it: a failed result, a
-// usage limit signal, a retry of the model API, or an authentication event. A routine
-// rate limit event with status allowed is not a signal, and neither is a turn a stop ended.
+// usage limit signal, a retry of the model API, or an authentication event. A rate limit
+// event stops a run as rateLimitInfo.stops says, and a turn a stop ended is not a signal.
 func stopSignals(stream []byte) []string {
 	var found []string
 	for line := range bytes.SplitSeq(stream, []byte("\n")) {
@@ -202,15 +297,10 @@ func stopSignals(stream []byte) []string {
 			found = append(found, "authentication event")
 		case event.Type == "system" && event.Subtype == "api_retry":
 			found = append(found, "api retry")
-		case event.Type == "rate_limit_event" && event.RateLimit != nil:
-			if event.RateLimit.Status != "allowed" && event.RateLimit.Status != "" {
-				found = append(found, "rate limit: "+event.RateLimit.Status)
-			}
-			for name, window := range event.RateLimit.Windows {
-				if window.Status != "allowed" && window.Status != "" {
-					found = append(found, "rate limit window: "+name+" "+window.Status)
-				}
-			}
+		case event.Type == "rate_limit_event" && event.RateLimit == nil:
+			found = append(found, "a rate limit event with nothing in it")
+		case event.Type == "rate_limit_event":
+			found = append(found, event.RateLimit.stops()...)
 		}
 	}
 	return found
@@ -531,7 +621,6 @@ func TestStopConditions(t *testing.T) {
 		{"a failed result", `{"type":"result","subtype":"error_max_budget_usd","is_error":true}`, 1},
 		{"a turn the worker's own stop ended", `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}`, 0},
 		{"a turn that failed on its own", `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"max_turns"}`, 1},
-		{"a warning", `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning"}}`, 1},
 		{"a window that is not allowed", `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"status":"rejected"}}}}`, 1},
 		{"a retry", `{"type":"system","subtype":"api_retry"}`, 1},
 		{"an authentication event", `{"type":"auth_status"}`, 1},
@@ -545,6 +634,67 @@ func TestStopConditions(t *testing.T) {
 	}
 	if len(stderrSignals([]byte("Login expired"))) != 1 || len(stderrSignals([]byte("an ordinary warning"))) != 0 {
 		t.Error("stderr patterns")
+	}
+}
+
+// TestStopOnALimitReading holds a warning to the figures it came with: a run goes on past one only
+// when it can say which window warned and how full that window is, and that no window is close.
+func TestStopOnALimitReading(t *testing.T) {
+	tests := []struct {
+		name string
+		info string
+		stop bool
+	}{
+		{"a warning well short of the limit", `{"status":"allowed_warning","rateLimitType":"five_hour","utilization":0.31,"resetsAt":1800000000}`, false},
+		{"a warning with its figure on the window it names", `{"status":"allowed_warning","rateLimitType":"seven_day","unifiedWindows":{"seven_day":{"status":"allowed","utilization":0.31}}}`, false},
+		{"a warning just short of the line", `{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.8999}`, false},
+		{"a warning from one window", `{"status":"allowed","unifiedWindows":{"seven_day_opus":{"status":"allowed_warning","utilization":0.5}}}`, false},
+		{"an allowed event with no figures", `{"status":"allowed"}`, false},
+		{"a warning on the line", `{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.90}`, true},
+		{"a warning under a window past the line", `{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.2,"unifiedWindows":{"five_hour":{"status":"allowed","utilization":0.9}}}`, true},
+		{"an allowed event past the line", `{"status":"allowed","utilization":0.95}`, true},
+		{"an allowed window past the line", `{"status":"allowed","unifiedWindows":{"five_hour":{"status":"allowed","utilization":0.9}}}`, true},
+		{"a rejection with low figures", `{"status":"rejected","rateLimitType":"seven_day","utilization":0.1}`, true},
+		{"a rejected window under a warning", `{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.1,"unifiedWindows":{"five_hour":{"status":"rejected","utilization":0.1}}}`, true},
+		{"a status nobody named", `{"status":"throttled","rateLimitType":"seven_day","utilization":0.1}`, true},
+		{"no status at all", `{"rateLimitType":"seven_day","utilization":0.1}`, true},
+		{"a warning that names no window", `{"status":"allowed_warning","utilization":0.31}`, true},
+		{"a warning with no figure", `{"status":"allowed_warning","rateLimitType":"seven_day"}`, true},
+		{"a warning whose figure belongs to another window", `{"status":"allowed_warning","rateLimitType":"seven_day","unifiedWindows":{"five_hour":{"status":"allowed","utilization":0.2}}}`, true},
+		{"a warning from one window with no figure", `{"status":"allowed","unifiedWindows":{"seven_day_opus":{"status":"allowed_warning"}}}`, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stopSignals([]byte(`{"type":"rate_limit_event","rate_limit_info":` + tt.info + `}`))
+			if (len(got) != 0) != tt.stop {
+				t.Errorf("signals %v, want a stop: %v", got, tt.stop)
+			}
+		})
+	}
+	t.Run("an event that says nothing", func(t *testing.T) {
+		if got := stopSignals([]byte(`{"type":"rate_limit_event"}`)); len(got) == 0 {
+			t.Error("a run went on past an event it could not read")
+		}
+	})
+}
+
+// TestStopReadingsNameTheirWindow holds a run's record to what a person needs after a warning: the
+// window, the figure, and the reset, on every event, and an empty answer for an empty one.
+func TestStopReadingsNameTheirWindow(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"type":"system","subtype":"init"}`,
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rateLimitType":"five_hour","utilization":0.31,"resetsAt":1800000000,` +
+			`"unifiedWindows":{"seven_day":{"status":"allowed","utilization":0.29,"resetsAt":1800000900},"five_hour":{"status":"allowed_warning","utilization":0.31,"resetsAt":1800000000}}}}`,
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}`,
+	}, "\n")
+	want := []string{
+		"status=allowed_warning window=five_hour utilization=0.31 resets_at=1800000000" +
+			"; five_hour status=allowed_warning utilization=0.31 resets_at=1800000000" +
+			"; seven_day status=allowed utilization=0.29 resets_at=1800000900",
+		"status=allowed window=none utilization=none resets_at=none",
+	}
+	if got := limitReadings([]byte(stream)); !slices.Equal(got, want) {
+		t.Errorf("readings\n%q\nwant\n%q", got, want)
 	}
 }
 

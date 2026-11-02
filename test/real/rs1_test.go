@@ -82,6 +82,8 @@ type suite struct {
 	// watched names the lanes a run reports its evidence on, and daemons what it started.
 	watched []string
 	daemons []*daemon
+	// limits are the readings this run has printed.
+	limits []string
 }
 
 // start refuses to run without the explicit start, and takes the settings digest before
@@ -339,6 +341,7 @@ func (s *suite) probe() {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		s.t.Fatalf("STOP: the probe passed its limit, and it exited: %v", <-done)
 	}
+	s.noteLimits(stdout.Bytes())
 	signals := append(stopSignals(stdout.Bytes()), stderrSignals(stderr.Bytes())...)
 	if len(signals) != 0 {
 		s.t.Fatalf("STOP: the probe: %v", signals)
@@ -536,6 +539,7 @@ func (s *suite) checkStream(stop func()) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		s.t.Fatal(err)
 	}
+	s.noteLimits(raw)
 	signals := stopSignals(raw)
 	logs, err := filepath.Glob(filepath.Join(s.paths.StateDir, "lanes", "*", "stderr-*.log"))
 	if err != nil {
@@ -549,6 +553,18 @@ func (s *suite) checkStream(stop func()) {
 	}
 	if len(signals) != 0 {
 		s.stopWith(stop, "%v", signals)
+	}
+}
+
+// noteLimits prints each new thing a stream says of a sign-in's limits, so what a run went on past
+// stays on its record. A poll reads the whole stream each time, so each reading prints once.
+func (s *suite) noteLimits(stream []byte) {
+	s.t.Helper()
+	for _, reading := range limitReadings(stream) {
+		if !slices.Contains(s.limits, reading) {
+			s.limits = append(s.limits, reading)
+			s.t.Logf("rate limit: %s", reading)
+		}
 	}
 }
 
