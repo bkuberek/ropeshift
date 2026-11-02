@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -225,9 +226,9 @@ func (r *laneRun) limitHolds() bool {
 	return state.Probe != r.lease.Lane || now < state.ProbeAtMs
 }
 
-// deliverWake hands a live session at rest what came due, once. The effect keeps it to once across a
-// restart: one that left and was never recorded counts as told, because telling twice costs a whole
-// context and telling once loses nothing the next digest does not hold.
+// deliverWake hands a live session at rest what came due. It keeps no effect, unlike what a lane is
+// told, because a wake that went twice costs one context, and one a kill lost leaves a question nobody
+// reads until something else changes it. What it told lives in this process, so a restart tells again.
 func (r *laneRun) deliverWake(ctx context.Context) {
 	if r.sessionHandle().ID == "" || r.sessionOver.Load() || r.state.current() != lanes.Idle || r.currentFlight() != nil {
 		return
@@ -236,25 +237,20 @@ func (r *laneRun) deliverWake(ctx context.Context) {
 	if !due {
 		return
 	}
-	keys := make([]string, 0, len(items))
-	for _, item := range items {
-		keys = append(keys, item.Key())
+	if r.adopted.Load() && dropsWake() {
+		r.w.wakeLanded(items)
+		return
 	}
-	effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", "wake/"+lanes.DigestOf(keys))
-	ran, err := r.w.bracket(ctx, effect, func() error {
-		_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: lanes.WakeText(items)})
-		return err
-	})
-	if err != nil {
+	crashpoint.Hit("worker.wake", "handing")
+	if _, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: lanes.WakeText(items)}); err != nil {
 		if !errors.Is(err, ports.ErrAwaitingAnswer) {
 			r.w.config.Report(fmt.Errorf("lane %s: a wake: %w", r.lease.Lane, err))
 		}
 		return
 	}
+	crashpoint.Hit("worker.wake", "handed")
 	r.w.wakeLanded(items)
-	if ran {
-		r.signal(ctx, lanes.OnInputHanded)
-	}
+	r.signal(ctx, lanes.OnInputHanded)
 }
 
 // stopOrchestrator ends what a member stopped. A run with no session yet has nothing to stop.

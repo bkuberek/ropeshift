@@ -34,6 +34,9 @@ func forgetsWake() bool { return false }
 // staysCompacting is false: a lane that parks from a compaction leaves it, whichever process goes on.
 func staysCompacting() bool { return false }
 
+// dropsWake is false: a restart wakes an orchestrator for what is due.
+func dropsWake() bool { return false }
+
 // splitsPark is false: a normal build keeps a parked commit and its upload together.
 func splitsPark() bool { return false }
 

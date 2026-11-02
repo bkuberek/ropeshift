@@ -138,6 +138,8 @@ type laneRun struct {
 	// wake is what an orchestrator's session was started on, which counts as told once its turn ends,
 	// and the handle's lock guards it.
 	wake []ledger.WakeItem
+	// adopted says this run took over a session an earlier process left.
+	adopted atomic.Bool
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -409,6 +411,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 // adopt reads a session this process did not start, from where the journal says the
 // last one stopped. A lane that already reported waits only for its session to end.
 func (r *laneRun) adopt(ctx context.Context) error {
+	r.adopted.Store(true)
 	hooks, err := r.w.journal.HookEvents(ctx, r.lease.Lane)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))

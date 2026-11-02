@@ -1,8 +1,6 @@
 package lanes
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -47,12 +45,6 @@ func WakeText(items []ledger.WakeItem) string {
 		fmt.Fprintf(&out, ": %q\n", item.Text)
 	}
 	return out.String()
-}
-
-// DigestOf names a set of keys, so one wake's effect has one name.
-func DigestOf(keys []string) string {
-	sum := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-	return hex.EncodeToString(sum[:8])
 }
 
 // WakeBounds reads a profile's two wake settings. Each stays under `ask_wait`, because a wake that

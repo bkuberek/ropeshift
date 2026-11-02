@@ -37,6 +37,8 @@ const (
 	SabotageForgetsWake = "forgets-wake"
 	// SabotageStaysCompacting goes on with parking and leaves the lane in its compaction.
 	SabotageStaysCompacting = "stays-compacting"
+	// SabotageDropsWake reads what a restart finds due as already told.
+	SabotageDropsWake = "drops-wake"
 	// SabotageSplitsPark keeps a parked commit and its upload in two journal writes.
 	SabotageSplitsPark = "splits-park"
 	// SabotageSplitsResume keeps a resume and its upload in two journal writes.
@@ -84,6 +86,8 @@ func parksFirst() bool { return sabotaged(SabotageParksFirst) }
 func forgetsWake() bool { return sabotaged(SabotageForgetsWake) }
 
 func staysCompacting() bool { return sabotaged(SabotageStaysCompacting) }
+
+func dropsWake() bool { return sabotaged(SabotageDropsWake) }
 
 func splitsPark() bool { return sabotaged(SabotageSplitsPark) }
 
