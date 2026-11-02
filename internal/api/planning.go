@@ -46,6 +46,21 @@ type SendBack struct {
 	Reason string `json:"reason"`
 }
 
+// Unblock takes work out of `blocked`, and Reason says what changed.
+type Unblock struct {
+	Reason string `json:"reason"`
+}
+
+// Resolve returns blocked work to ready.
+func (c *Client) Resolve(ctx context.Context, id string, in Unblock) error {
+	return c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/resolve", in, nil)
+}
+
+// Replan returns blocked work to planning.
+func (c *Client) Replan(ctx context.Context, id string, in Unblock) error {
+	return c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/replan", in, nil)
+}
+
 // Document is one document at one version. A list leaves Body empty.
 type Document struct {
 	Adapter  string `json:"adapter"`

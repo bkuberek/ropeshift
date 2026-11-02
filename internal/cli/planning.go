@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -115,6 +116,38 @@ func (c *invocation) requirementGet(args []string) int {
 	return c.finish(err, requirement, func() string {
 		return fmt.Sprintf("%s\tv%d\t%s\n", requirement.Key, requirement.Version, requirement.Text)
 	})
+}
+
+func (c *invocation) workResolve(args []string) int {
+	return c.unblock(args, (*api.Client).Resolve, "ready")
+}
+
+func (c *invocation) workReplan(args []string) int {
+	return c.unblock(args, (*api.Client).Replan, "planning")
+}
+
+func (c *invocation) unblock(args []string, move func(*api.Client, context.Context, string, api.Unblock) error, to string) int {
+	set := c.flags()
+	var request api.Unblock
+	set.StringVar(&request.Reason, "reason", "", "what changed")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	if request.Reason == "" {
+		return c.usageError("--reason is required")
+	}
+	client := c.client()
+	defer client.Close()
+	err := move(client, c.ctx, id, request)
+	return c.finish(err, struct {
+		Moved string `json:"moved"`
+		State string `json:"state"`
+	}{id, to}, func() string { return id + "\t" + to + "\n" })
 }
 
 func (c *invocation) workSendBack(args []string) int {

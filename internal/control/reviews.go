@@ -102,6 +102,46 @@ func (r *Reviews) SendBack(ctx context.Context, scope ledger.WorkspaceID, id, re
 	})
 }
 
+// Unblock takes work out of `blocked`, which only a person can do: a lane reports that outcome when no
+// answer to a question would change it. TriggerResolved returns the work to `ready` with its review
+// standing, and TriggerReplan returns it to `planning`, where the review of this version is void.
+func (r *Reviews) Unblock(ctx context.Context, scope ledger.WorkspaceID, id string, trigger workorders.Trigger, reason string, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionUnblock) {
+		return workorders.ErrForbidden
+	}
+	return r.store.Write(ctx, scope, "review.unblock", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		edge, err := workorders.Move(current, trigger)
+		if err != nil {
+			return err
+		}
+		if edge.From != workorders.Blocked {
+			return workorders.ErrIllegalMove
+		}
+		won, err := tx.WorkOrders().Move(id, edge.From, edge.To)
+		if err != nil {
+			return err
+		}
+		if !won {
+			return workorders.ErrIllegalMove
+		}
+		if trigger == workorders.TriggerReplan {
+			if err := tx.WorkOrders().Reviewed(id, ""); err != nil {
+				return err
+			}
+		}
+		event, err := workorders.ChangeEvent(workorders.EventType(edge.Trigger), id, workorders.Change{Trigger: edge.Trigger, Reason: reason}, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+}
+
 func recordReview(tx ports.WriteTx, id string, actor ledger.Actor) error {
 	if err := tx.WorkOrders().Reviewed(id, actor.ID); err != nil {
 		return err

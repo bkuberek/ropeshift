@@ -21,6 +21,8 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |
 | `ropeshift work send-back <id> --reason R` | Returns a work order in review to `planning`, because its contract must change. It voids the review, and the contract's next version returns the work to review |
+| `ropeshift work resolve <id> --reason R` | Returns blocked work to `ready` with its review standing, once whatever stopped the lane is fixed |
+| `ropeshift work replan <id> --reason R` | Returns blocked work to `planning`, which voids its review, because its contract must change. Only a member can take work out of `blocked` |
 | `ropeshift plan list` | Lists plans |
 | `ropeshift plan show <id>` | Shows one plan with its goal, each contract's newest version, and their work orders |
 | `ropeshift plan review <id> [--id I]` | Starts a contract review a lane can run, ready for a member to claim. Its lane reads the plan and each contract's newest version, and everything it asks reaches the ladder together when it ends. Its questions are about the plan, so a blocking one holds all of the plan's work. Accepting the review passes the review of the work whose versions it read |

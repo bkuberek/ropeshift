@@ -22,6 +22,8 @@ func (h *handler) planningRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/requirements", h.listRequirements)
 	mux.HandleFunc("GET /v1/requirements/{key}", h.showRequirement)
 	mux.HandleFunc("POST /v1/work-orders/{id}/send-back", h.member(h.sendBack))
+	mux.HandleFunc("POST /v1/work-orders/{id}/resolve", h.member(h.unblock(workorders.TriggerResolved)))
+	mux.HandleFunc("POST /v1/work-orders/{id}/replan", h.member(h.unblock(workorders.TriggerReplan)))
 	mux.HandleFunc("GET /v1/documents", h.listDocuments)
 	mux.HandleFunc("GET /v1/documents/read", h.readDocument)
 	mux.HandleFunc("GET /v1/documents/versions", h.documentVersions)
@@ -164,6 +166,25 @@ func (h *handler) sendBack(w http.ResponseWriter, r *http.Request, actor ledger.
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// unblock takes one of the two edges out of `blocked`.
+func (h *handler) unblock(trigger workorders.Trigger) func(http.ResponseWriter, *http.Request, ledger.Actor) {
+	return func(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+		var in api.Unblock
+		if !decode(w, r, &in) {
+			return
+		}
+		if strings.TrimSpace(in.Reason) == "" {
+			invalid(w, "taking work out of blocked needs a reason")
+			return
+		}
+		if err := h.reviews.Unblock(r.Context(), h.Scope, r.PathValue("id"), trigger, in.Reason, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func documentBody(d ports.KnowledgeDocument) api.Document {

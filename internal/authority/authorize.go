@@ -44,6 +44,8 @@ const (
 	ActionSendMessage   Action = "message.send"
 	ActionSetPassphrase Action = "member.set_passphrase"
 	ActionTakeQuestion  Action = "question.take"
+	// ActionUnblock takes work out of `blocked`, where a lane left it because no answer would help.
+	ActionUnblock Action = "work_order.unblock"
 	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
 	ActionDecideApproval Action = "approval.decide"
 	// ActionPassAutonomy claims or respawns whatever a worker's level says: a person being there is
@@ -68,7 +70,7 @@ func Actions() []Action {
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
-		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy,
+		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock,
 	}
 }
 

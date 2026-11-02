@@ -405,6 +405,21 @@ func TestWorkSendBack(t *testing.T) {
 	}
 }
 
+// A work order in any other state refuses, and the route that refuses is what this test holds: the
+// contract suite walks blocked work through both edges.
+func TestWorkResolveAndReplanReachTheLedger(t *testing.T) {
+	s := newSession(t)
+	s.create("wo")
+	for _, command := range []string{"resolve", "replan"} {
+		if code, _, _ := s.run("work", command, "wo"); code != cli.ExitUsage {
+			t.Errorf("%s with no reason: exit %d", command, code)
+		}
+		if code, _, stderr := s.run("work", command, "wo", "--reason", "It works now"); code != cli.ExitConflict {
+			t.Errorf("%s of work that is not blocked: exit %d, %s", command, code, stderr)
+		}
+	}
+}
+
 func TestDocumentCommands(t *testing.T) {
 	knowledge := fake.NewKnowledgeSource()
 	knowledge.Write("design.md", "# One\n")

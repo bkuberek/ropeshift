@@ -39,6 +39,8 @@ const usage = `usage: ropeshift <command>
   work release <id> --claim-id C --fence N           give a claim back
   work reassign <id> --reason R                      end a lapsed holder's ownership
   work send-back <id> --reason R                     return reviewed work to planning
+  work resolve <id> --reason R                       return blocked work to ready
+  work replan <id> --reason R                        return blocked work to planning
   plan list                                          list plans
   plan show <id>                                     show a plan, its goal, contracts, and work
   plan review <id> [--id I]                          start a contract review a lane can run
@@ -169,6 +171,8 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"work release":            (*invocation).workRelease,
 		"work reassign":           (*invocation).workReassign,
 		"work send-back":          (*invocation).workSendBack,
+		"work resolve":            (*invocation).workResolve,
+		"work replan":             (*invocation).workReplan,
 		"plan list":               (*invocation).planList,
 		"plan show":               (*invocation).planShow,
 		"plan review":             (*invocation).planReview,
