@@ -33,10 +33,12 @@ const (
 // ErrLocked means another shim holds this generation, so a second must not start.
 var ErrLocked = errors.New("a shim already holds this generation")
 
-// call is one request on its way through the event loop.
+// call is one request on its way through the event loop. Once the loop takes it, it owes
+// an answer, and sent closes when that answer has left for the caller.
 type call struct {
 	request shimlink.Request
 	answer  chan shimlink.Reply
+	sent    chan struct{}
 }
 
 // server is one running shim. The event loop owns seen, stdinOpen, and ended, so a ping
@@ -268,6 +270,9 @@ func (s *server) loop(ctx context.Context) error {
 			reply := s.handle(c.request)
 			c.answer <- reply
 			if c.request.Op == shimlink.OpShutdown && reply.OK {
+				// Main exits when this returns, so the reply leaves first. The
+				// connection's deadline bounds the wait.
+				<-c.sent
 				return nil
 			}
 		case <-linger:
@@ -409,17 +414,16 @@ func (s *server) serve(ctx context.Context, conn net.Conn) {
 		s.attach(ctx, conn, reader, request)
 		return
 	}
-	answer := make(chan shimlink.Reply, 1)
+	answer, sent := make(chan shimlink.Reply, 1), make(chan struct{})
+	defer close(sent)
 	select {
-	case s.calls <- call{request: request, answer: answer}:
+	case s.calls <- call{request: request, answer: answer, sent: sent}:
 	case <-ctx.Done():
 		return
 	}
-	select {
-	case reply := <-answer:
-		shimlink.Send(conn, reply)
-	case <-ctx.Done():
-	}
+	// The loop answers whatever it takes, and a shutdown ends serving as it answers, so a
+	// cancelled context here must not drop the reply.
+	shimlink.Send(conn, <-answer)
 }
 
 // attach follows the journal for one client. A new attach takes over from the last, so a
