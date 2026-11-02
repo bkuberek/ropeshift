@@ -62,6 +62,9 @@ func standInOrchestrator(question, scope string) []any {
 	return []any{
 		map[string]any{"init": true},
 		map[string]any{"status": map[string]any{"context_window": map[string]any{"current_usage": map[string]any{"input_tokens": 12000}}}},
+		map[string]any{"emit": map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{
+			"type": "message_start", "message": map[string]any{"usage": map[string]any{"input_tokens": 12000}},
+		}}},
 		map[string]any{"mcp": lanes.ToolQuestionNext},
 		map[string]any{"mcp": lanes.ToolDecisionRecord, "arguments": map[string]any{
 			"question": question, "status": "decided", "statement": "warn", "rationale": "given", "scope": scope,
@@ -136,8 +139,9 @@ func (s *suite) rs12Worker(d *daemon) string {
 	s.t.Helper()
 	var workers api.WorkerList
 	s.poll(d.stop, "the worker's session", func() bool {
-		if err := json.Unmarshal(s.cli("worker", "list", "--json"), &workers); err != nil {
-			s.t.Fatal(err)
+		listed, err := s.tryCLI("worker", "list", "--json")
+		if err != nil || json.Unmarshal(listed, &workers) != nil {
+			return false
 		}
 		return len(workers.Workers) == 1 && workers.Workers[0].Epoch >= 1
 	})
