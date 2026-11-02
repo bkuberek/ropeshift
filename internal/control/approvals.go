@@ -143,7 +143,7 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if err != nil {
 			return err
 		}
-		if err := delegated(row, version, actor); err != nil {
+		if err := authority.CheckDelegated(row, version, actor); err != nil {
 			return err
 		}
 		if record, err = row.Decide(decision, actor, version.Version, tx.Now()); err != nil {
@@ -155,22 +155,6 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		return authority.Approval{}, err
 	}
 	return record, nil
-}
-
-// delegated holds an orchestrator to the policy in force. A body that no longer matches its digest
-// stops the decision, because a member reviewed other text.
-func delegated(row authority.Approval, version authority.PolicyVersion, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorOrchestrator {
-		return nil
-	}
-	policy, err := authority.ReadDelegation(version)
-	if err != nil {
-		return err
-	}
-	if !policy.Covers(row) {
-		return fmt.Errorf("%w: %s goes to a member", authority.ErrNotDelegated, row.ID)
-	}
-	return nil
 }
 
 // Check reads where a lane's call stands, with no write unless something changes. It is what a

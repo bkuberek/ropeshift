@@ -483,6 +483,22 @@ func (p DelegationPolicy) Covers(a Approval) bool {
 	return false
 }
 
+// CheckDelegated holds an orchestrator to the policy in force, and a member to none. A body that no
+// longer matches its digest stops the decision, because a member reviewed other text.
+func CheckDelegated(a Approval, version PolicyVersion, actor ledger.Actor) error {
+	if actor.Kind != ledger.ActorOrchestrator {
+		return nil
+	}
+	policy, err := ReadDelegation(version)
+	if err != nil {
+		return err
+	}
+	if !policy.Covers(a) {
+		return fmt.Errorf("%w: %s goes to a member", ErrNotDelegated, a.ID)
+	}
+	return nil
+}
+
 // NewDelegationVersion stores a draft under a generated ID.
 func NewDelegationVersion(id, authoredBy string, draft DelegationDraft, createdAt int64) (PolicyVersion, error) {
 	settings, err := json.Marshal(draft.Policy)
