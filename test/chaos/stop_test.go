@@ -61,8 +61,9 @@ var workFiles = map[string]string{
 	"staged.txt":         "a file in the index\n",
 }
 
-// workDriver is a session that writes real files, and tells the witness first, so no
-// database and no ref can be the reason a check passes.
+// workDriver is a session that writes real files, and tells the witness of each one once it
+// is whole, so no database and no ref can be the reason a check passes, and a kill inside a
+// write asks a stop for nothing that was ever on the disk.
 type workDriver struct {
 	*lastingDriver
 	gitEnv []string
@@ -83,14 +84,14 @@ func gitIn(dir string, env []string, args ...string) (string, error) {
 
 func (d *workDriver) write(dir string) error {
 	for name, content := range workFiles {
-		if err := d.log.Append(Record{Kind: Attempted, Op: witnessWork, Key: name, Note: content, Actor: "session"}); err != nil {
-			return err
-		}
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			return err
+		}
+		if err := d.log.Append(Record{Kind: Completed, Op: witnessWork, Key: name, Note: content, Actor: "session"}); err != nil {
 			return err
 		}
 	}
