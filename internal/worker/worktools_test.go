@@ -332,6 +332,65 @@ func TestABlockingQuestionComesNext(t *testing.T) {
 	}
 }
 
+// recordOffers finds the candidate of a kind in what the ladder offered.
+func recordOffers(read control.LadderRead, kind string) (control.LadderCandidate, bool) {
+	for _, candidate := range read.Lookup {
+		if candidate.Kind == kind {
+			return candidate, true
+		}
+	}
+	return control.LadderCandidate{}, false
+}
+
+// A session answers from what it can read. The ladder's first rung is the record, so it offers what
+// each record says and the name a citation and the read tools take, because a row's ID leads nowhere
+// and a session told only that a requirement exists has nothing to decide on. Two real panes took a
+// question that a requirement answered, and neither recorded that answer.
+func TestTheNextQuestionStatesWhatTheRecordSays(t *testing.T) {
+	r := aToolRig(t)
+	source := fake.NewWorkSource()
+	source.Write("requirements.md", []byte("+++\nkind = \"requirements\"\nid = \"logs\"\n\n[[requirement]]\nid = \"LOG-1\"\ntext = \"Retries log at warn.\"\n+++\n"))
+	source.Write("contract.md", []byte("+++\nkind = \"contract\"\nid = \"logging\"\ntitle = \"Log the retries\"\n\n[[criteria]]\nid = \"c1\"\ntext = \"A retry logs\"\n\n[[work_orders]]\nid = \"logging-work\"\ntitle = \"Log\"\nsize = \"small\"\n+++\n\nLog each retry.\n"))
+	if _, err := control.NewIntake(r.store).Poll(t.Context(), scope, source); err != nil {
+		t.Fatal(err)
+	}
+	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
+	earlier, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
+		ID: "an-earlier-call", Status: questions.DecisionDecided, Statement: "Retries use one log level for every path.", Rationale: "One rule.", Scope: "logging",
+		Reversibility: "reversible", DecidedBy: "member-1",
+	}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.Ask(t.Context(), scope, questions.Ask{ID: "a-sibling", Text: "Which log level do failed retries use?"}, member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.Ask(t.Context(), scope, questions.Ask{ID: "z-blocks", Text: "Which log level do retries use?", Blocking: true}, member); err != nil {
+		t.Fatal(err)
+	}
+	var read control.LadderRead
+	if err := json.Unmarshal(r.done(t, lanes.ToolQuestionNext, nil), &read); err != nil {
+		t.Fatal(err)
+	}
+	requirement, found := recordOffers(read, questions.KindRequirement)
+	if !found || requirement.Ref != "LOG-1" || requirement.Text != "Retries log at warn." {
+		t.Errorf("a requirement reads %+v in %+v", requirement, read.Lookup)
+	}
+	decision, found := recordOffers(read, questions.KindDecision)
+	if !found || decision.Ref != earlier.ID || !strings.Contains(decision.Text, "one log level") {
+		t.Errorf("a decision reads %+v in %+v", decision, read.Lookup)
+	}
+	contract, found := recordOffers(read, questions.KindContract)
+	if !found || contract.Ref == "" || !strings.Contains(contract.Text, "Log each retry.") {
+		t.Errorf("a contract reads %+v in %+v", contract, read.Lookup)
+	}
+	if !slices.ContainsFunc(read.Open, func(candidate control.LadderCandidate) bool {
+		return candidate.Ref == "a-sibling" && strings.Contains(candidate.Text, "failed retries")
+	}) {
+		t.Errorf("an open question reads %+v", read.Open)
+	}
+}
+
 // addOrder puts work in front of the worker.
 func (r *toolRig) addOrder(t *testing.T, id string, priority int64, needs map[string]string) {
 	t.Helper()

@@ -22,12 +22,19 @@ const ladderHoldMs = 10 * 60 * 1000
 // candidateLimit bounds what one rung's lookup reads.
 const candidateLimit = 5
 
+// LadderCandidate is a record that could answer a question.
+type LadderCandidate struct {
+	Kind string `json:"kind"`
+	Ref  string `json:"ref"`
+	Text string `json:"text"`
+}
+
 // LadderRead is a question to work and the candidates the core found for it. A score means nothing
 // here: the orchestrator judges, and the core stores and searches.
 type LadderRead struct {
 	Question questions.Question `json:"question"`
-	Lookup   []ports.Candidate  `json:"lookup"`
-	Open     []ports.Candidate  `json:"open"`
+	Lookup   []LadderCandidate  `json:"lookup"`
+	Open     []LadderCandidate  `json:"open"`
 }
 
 // orchestrateActor checks a call came from the run a member asked for, before anything else reads
@@ -243,12 +250,11 @@ func (w *Workers) nextQuestion(ctx context.Context, actor ledger.Actor) (*Ladder
 }
 
 func (w *Workers) withCandidates(ctx context.Context, question questions.Question) (*LadderRead, error) {
-	read := &LadderRead{Question: question, Lookup: []ports.Candidate{}, Open: []ports.Candidate{}}
+	read := &LadderRead{Question: question, Lookup: []LadderCandidate{}, Open: []LadderCandidate{}}
 	if w.options.Matcher == nil {
 		return read, nil
 	}
-	var err error
-	read.Lookup, err = w.options.Matcher.Candidates(ctx, w.scope, ports.MatchRequest{
+	lookup, err := w.options.Matcher.Candidates(ctx, w.scope, ports.MatchRequest{
 		Text: question.Text, Kinds: []string{questions.KindDecision, questions.KindRequirement, questions.KindContract}, Limit: candidateLimit,
 	})
 	if err != nil {
@@ -258,6 +264,79 @@ func (w *Workers) withCandidates(ctx context.Context, question questions.Questio
 	if err != nil {
 		return nil, err
 	}
-	read.Open = slices.DeleteFunc(found, func(candidate ports.Candidate) bool { return candidate.RecordID == question.ID })
+	open := slices.DeleteFunc(found, func(candidate ports.Candidate) bool { return candidate.RecordID == question.ID })
+	err = w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		var err error
+		if read.Lookup, err = readCandidates(tx, lookup); err != nil {
+			return err
+		}
+		read.Open, err = readCandidates(tx, open)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return read, nil
+}
+
+// readCandidates states what each record says, under the name a citation and the read tools take. A
+// search knows a row's ID, which names nothing a session can read, and a session answers from what it
+// reads.
+func readCandidates(tx ports.ReadTx, found []ports.Candidate) ([]LadderCandidate, error) {
+	out := make([]LadderCandidate, 0, len(found))
+	for _, candidate := range found {
+		read, err := readCandidate(tx, candidate)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, read)
+	}
+	return out, nil
+}
+
+func readCandidate(tx ports.ReadTx, candidate ports.Candidate) (LadderCandidate, error) {
+	read := LadderCandidate{Kind: candidate.Kind, Ref: candidate.RecordID}
+	switch candidate.Kind {
+	case questions.KindDecision:
+		row, err := tx.Questions().Decision(candidate.RecordID)
+		if err != nil {
+			return read, err
+		}
+		read.Text = decisionSource(row).Text
+	case questions.KindRequirement:
+		return readRequirement(tx, read)
+	case questions.KindContract:
+		row, err := tx.Planning().LatestContract(candidate.RecordID)
+		if err != nil {
+			return read, err
+		}
+		read.Text = contractSource(row).Text
+	case questions.KindQuestion:
+		row, err := tx.Questions().Question(candidate.RecordID)
+		if err != nil {
+			return read, err
+		}
+		read.Text = row.Text
+	}
+	return read, nil
+}
+
+// readRequirement finds a requirement by the ID search holds, at its newest version. A session reads
+// one by its key, so that is the name it gets.
+func readRequirement(tx ports.ReadTx, read LadderCandidate) (LadderCandidate, error) {
+	versions, err := tx.Planning().Requirements()
+	if err != nil {
+		return read, err
+	}
+	at := -1
+	for i, version := range versions {
+		if version.ID == read.Ref {
+			at = i
+		}
+	}
+	if at < 0 {
+		return read, fmt.Errorf("requirement %s: %w", read.Ref, ports.ErrNotFound)
+	}
+	read.Ref, read.Text = versions[at].Key, versions[at].Text
 	return read, nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/adapters/lexical"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/control"
@@ -64,7 +65,7 @@ func newRig(t *testing.T) *rig {
 	if err := journal.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	plane := control.NewWorkers(store, scope, control.WorkerOptions{HeartbeatMs: 20, LeaseTTLMs: 60_000})
+	plane := control.NewWorkers(store, scope, control.WorkerOptions{HeartbeatMs: 20, LeaseTTLMs: 60_000, Matcher: lexical.Matcher{Store: store}})
 	return &rig{
 		t: t, store: store, plane: plane, link: &fake.WorkerLink{Plane: plane},
 		journal: journal, clock: fake.NewClock(time.UnixMilli(1_000_000)), offset: offset,
