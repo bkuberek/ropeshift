@@ -21,7 +21,9 @@ const (
 )
 
 // NearLimitPercent is where a worker stops starting new work, so lanes that run can finish. The
-// design names no figure, and a vendor's `allowed_warning` holds work back at any figure.
+// design names no figure. A vendor's `allowed_warning` holds work back only when no figure came
+// with it, because the vendor does not state its threshold, and one seen far below this mark would
+// otherwise hold every new lane until a reset days away.
 const NearLimitPercent = 90
 
 // NearLimitLasts is how long a reading with no reset holds work back. Both figures come only with
@@ -63,7 +65,10 @@ func (u UsageReading) Near(nowMs int64) bool {
 	if u.ResetsAtMs == 0 && nowMs-u.ReadAtMs >= NearLimitLasts.Milliseconds() {
 		return false
 	}
-	return u.Status == UsageWarning || (u.UsedKnown && u.UsedPercent >= NearLimitPercent)
+	if u.UsedKnown {
+		return u.UsedPercent >= NearLimitPercent
+	}
+	return u.Status == UsageWarning
 }
 
 // Reset reads the moment a limit ends, or zero for a reading that names none still ahead.
