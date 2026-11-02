@@ -220,9 +220,9 @@ func (s *suite) checkHeadlessApproval(id string, a authority.Approval, before bo
 // TestRS11 takes a real session's gated calls through a decision. On a pane, one is decided while its
 // hook waits, one outlasts the wait, so the lane parks and comes back to it, and one is answered at
 // the prompt. On a headless lane a gated call is decided with no process waiting. Whether that lane
-// got there through `defer` or through the wait is logged as defer_honored, because no real session
-// has shown `defer` in a stream with no permission host: what holds either way is that nothing runs
-// before a decision, the lane parks on its request, and the call runs after it.
+// got there through `defer` or through the wait is logged as defer_honored, because that belongs to
+// the CLI's version: what holds either way is that nothing runs before a decision, the lane parks on
+// its request, and the call runs once after it, on the one request that stands for it.
 func TestRS11(t *testing.T) {
 	s := start(t, "rs11")
 	s.watched = []string{rs11HeadlessLane, rs11PaneLane}
