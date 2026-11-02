@@ -145,8 +145,8 @@ func (r *laneRun) briefCleared(ctx context.Context) {
 		_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: text})
 		return err
 	})
-	r.owesBrief.Store(false)
 	crashpoint.Hit("worker.clear", "briefed")
+	r.owesBrief.Store(false)
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: a cleared session's brief: %w", r.lease.Lane, err))
 		return
