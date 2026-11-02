@@ -31,7 +31,7 @@ const (
 
 const usage = `usage: ropeshift <command>
 
-  work create --title T [--criterion C]... [flags]   record a work order
+  work create --title T [--criterion C]... [flags]   record a work order, or planning work with --kind plan, or planning work with --kind plan
   work list [--state S] [--worker W]                 list work orders, or what a worker can run
   work show <id>                                     show one work order
   work review <id>                                   record a passed review
@@ -41,6 +41,7 @@ const usage = `usage: ropeshift <command>
   work send-back <id> --reason R                     return reviewed work to planning
   plan list                                          list plans
   plan show <id>                                     show a plan, its goal, contracts, and work
+  plan review <id> [--id I]                          start a contract review a lane can run
   requirement list                                   list requirements
   requirement get <key>                              show one requirement's newest version
   question list [--category C] [--status S] [--scope S] [--text T]
@@ -170,6 +171,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"work send-back":          (*invocation).workSendBack,
 		"plan list":               (*invocation).planList,
 		"plan show":               (*invocation).planShow,
+		"plan review":             (*invocation).planReview,
 		"requirement list":        (*invocation).requirementList,
 		"requirement get":         (*invocation).requirementGet,
 		"document list":           (*invocation).documentList,

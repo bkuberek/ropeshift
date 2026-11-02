@@ -41,6 +41,8 @@ func (c *invocation) workCreate(args []string) int {
 	set.StringVar(&request.Title, "title", "", "the title")
 	set.StringVar(&request.Statement, "statement", "", "what this work must deliver")
 	set.StringVar(&request.Size, "size", "", "small, medium, or large")
+	set.StringVar((*string)(&request.Kind), "kind", "", "change, the default, or plan")
+	set.StringVar(&request.RepositoryID, "repository", "", "the repository its lane runs in, as source list names it")
 	set.Int64Var(&request.Priority, "priority", 0, "the priority")
 	set.Var(&criteria, "criterion", "an acceptance criterion, repeatable")
 	set.Var(&dependsOn, "depends-on", "a work order this one needs, repeatable")

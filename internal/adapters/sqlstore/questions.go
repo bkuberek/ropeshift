@@ -96,7 +96,8 @@ ON CONFLICT (workspace_id, question_id, lane_id) DO NOTHING`)
    AND blocking = 1
    AND status IN ('open', 'triage', 'needs_human')
    AND ((subject_kind = 'work_order' AND subject_id = :work_order_id)
-     OR (subject_kind = 'contract' AND subject_id = :contract_id))`)
+     OR (subject_kind = 'contract' AND subject_id = :contract_id)
+     OR (subject_kind = 'plan' AND subject_id = :plan_id))`)
 
 	stmtTakeQuestion = define("question.take",
 		`UPDATE questions
@@ -392,8 +393,8 @@ func (t questionTx) Take(id, holder string, ttlMs int64) (bool, error) {
 	return n > 0, err
 }
 
-func (t questionTx) OpenBlocking(workOrder, contract string) (int64, error) {
-	row, err := t.row(stmtOpenBlocking, t.scoped(params{"work_order_id": workOrder, "contract_id": contract}))
+func (t questionTx) OpenBlocking(workOrder, contract, plan string) (int64, error) {
+	row, err := t.row(stmtOpenBlocking, t.scoped(params{"work_order_id": workOrder, "contract_id": contract, "plan_id": plan}))
 	if err != nil {
 		return 0, err
 	}

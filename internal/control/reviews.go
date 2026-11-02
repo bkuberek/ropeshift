@@ -132,18 +132,20 @@ func settleReview(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.A
 // readyFailures gathers the facts and runs the pure function.
 func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, asked ports.QuestionReader, w workorders.WorkOrder) ([]workorders.ReadyFailure, error) {
 	var facts workorders.ReadyFacts
-	open, err := asked.OpenBlocking(w.ID, w.ContractID)
-	if err != nil {
-		return nil, err
-	}
-	facts.OpenBlockingQuestions = int(open)
+	var plan string
 	if w.ContractVersion != 0 {
 		contract, err := planned.Contract(w.ContractID, w.ContractVersion)
 		if err != nil {
 			return nil, err
 		}
 		facts.Criteria, facts.ContractVersion, facts.ContractDigest = len(contract.Criteria), contract.Version, contract.Digest
+		plan = contract.PlanID
 	}
+	open, err := asked.OpenBlocking(w.ID, w.ContractID, plan)
+	if err != nil {
+		return nil, err
+	}
+	facts.OpenBlockingQuestions = int(open)
 	dependencies, err := planned.Dependencies(w.ID)
 	if err != nil {
 		return nil, err

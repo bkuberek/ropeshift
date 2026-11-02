@@ -79,6 +79,9 @@ func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work 
 	if record.Title == "" {
 		return workorders.WorkOrder{}, fmt.Errorf("%w: no title", workorders.ErrInvalid)
 	}
+	if record.Kind == workorders.KindContractReview {
+		return workorders.WorkOrder{}, fmt.Errorf("%w: a review reads a plan, so start one with plan review", workorders.ErrInvalid)
+	}
 	if record.Size, err = planning.CheckSize(record.Size); err != nil {
 		return workorders.WorkOrder{}, fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
 	}

@@ -126,6 +126,9 @@ func accept(tx ports.WriteTx, id string, assessment workorders.Assessment, actor
 	if err := leaveAcceptance(tx, id, workorders.Change{Trigger: workorders.TriggerAcceptancePassed, Payload: payload}, actor, moved); err != nil {
 		return err
 	}
+	if err := passPlanReview(tx, id, actor); err != nil {
+		return err
+	}
 	_, err = fireWakes(tx, "done:"+id, actor, parking.WorkOrderDone)
 	return err
 }

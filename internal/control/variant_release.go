@@ -65,6 +65,18 @@ func ignoresAutonomy() bool { return false }
 // dropsAutonomyEvent is false: every change of autonomy is on the log.
 func dropsAutonomyEvent() bool { return false }
 
+// passesAnyVersion is false: a review passes only the versions it read.
+func passesAnyVersion() bool { return false }
+
+// releasesReviews is false: what a review asks waits for it to end.
+func releasesReviews() bool { return false }
+
+// takesInUnaccepted is false: nothing a lane wrote is a record until someone accepts it.
+func takesInUnaccepted() bool { return false }
+
+// movesPlanCursor is false: a commit a person accepted is not where a source stands.
+func movesPlanCursor() bool { return false }
+
 // rebuildsPack is false: a lane keeps its pack.
 func rebuildsPack() bool { return false }
 

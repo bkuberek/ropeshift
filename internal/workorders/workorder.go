@@ -73,6 +73,12 @@ type WorkOrder struct {
 	Deadline        int64             `json:"deadline,omitempty"`
 	ReviewedBy      string            `json:"reviewed_by,omitempty"`
 	Rev             int64             `json:"rev,omitempty"`
+	// ReviewsPlan is the plan a `contract_review` work order reads, and ReviewPins the contract
+	// versions it reads: a review covers those versions and no later one.
+	ReviewsPlan string   `json:"reviews_plan,omitempty"`
+	ReviewPins  []string `json:"review_pins,omitempty"`
+	// PlanCommit is the commit intake read for an accepted `plan` work order (D17).
+	PlanCommit string `json:"plan_commit,omitempty"`
 }
 
 // Completed reports a state past its lane's work: the work is waiting for acceptance or was
@@ -138,6 +144,8 @@ type Change struct {
 	Payload    []byte  `json:"payload,omitempty"`
 	// ContractVersion is the version a pin moved to.
 	ContractVersion int64 `json:"contract_version,omitempty"`
+	// PlanCommit is the commit intake read for an accepted plan.
+	PlanCommit string `json:"plan_commit,omitempty"`
 }
 
 // EventType names the event of a transition.
@@ -154,6 +162,9 @@ const EventReviewPassed = "work_order.review_passed"
 // EventContractPinned records that unstarted work pinned a new contract version, which
 // changes no state by itself and voids any review of the last version.
 const EventContractPinned = "work_order.contract_pinned"
+
+// EventPlanTakenIn records that intake read an accepted plan's commit, which changes no state.
+const EventPlanTakenIn = "work_order.plan_taken_in"
 
 // EventLaneDispatched records a request to run a lane, which changes no state. The
 // worker reads it as desired state, and the lane's start moves the work order.
@@ -273,6 +284,10 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 		current.ContractVersion, current.ReviewedBy = change.ContractVersion, ""
 		return current, nil
 	}
+	if e.Type == EventPlanTakenIn {
+		current.PlanCommit = change.PlanCommit
+		return current, nil
+	}
 	if change.Guarded {
 		if change.Fence != current.Fence {
 			return current, fmt.Errorf("%w: a write with fence %d under fence %d", ErrInvalid, change.Fence, current.Fence)
@@ -377,6 +392,9 @@ func Diff(a, b WorkOrder) []string {
 	note("deadline", a.Deadline == b.Deadline)
 	note("reviewed_by", a.ReviewedBy == b.ReviewedBy)
 	note("rev", a.Rev == b.Rev)
+	note("reviews_plan", a.ReviewsPlan == b.ReviewsPlan)
+	note("review_pins", slices.Equal(a.ReviewPins, b.ReviewPins))
+	note("plan_commit", a.PlanCommit == b.PlanCommit)
 	return fields
 }
 

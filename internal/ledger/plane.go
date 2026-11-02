@@ -179,6 +179,23 @@ type DesiredLease struct {
 	Pack *DesiredPack `json:"pack,omitempty"`
 	// ParkWanted says a policy asked this lane to park, and why.
 	ParkWanted string `json:"park_wanted,omitempty"`
+	// Kind says what this work produces, which decides what its lane is told.
+	Kind string `json:"kind,omitempty"`
+	// Review is what a `contract_review` lane reads.
+	Review *DesiredReview `json:"review,omitempty"`
+}
+
+// DesiredReview is a plan as a review lane reads it, at the contract versions its review covers.
+type DesiredReview struct {
+	Plan      string             `json:"plan"`
+	Contracts []ReviewedContract `json:"contracts"`
+}
+
+// ReviewedContract is one contract version a review reads.
+type ReviewedContract struct {
+	Title     string   `json:"title"`
+	Statement string   `json:"statement,omitempty"`
+	Criteria  []string `json:"criteria,omitempty"`
 }
 
 // DesiredPack is what a generation reads of its pack. Text crosses as it was built and is never

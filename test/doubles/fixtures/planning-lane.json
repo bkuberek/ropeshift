@@ -1,0 +1,12 @@
+{
+  "source": "RS12: a planning lane writes a contract in the repository file format and commits it on its branch",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"tool": "Bash", "command": "mkdir -p plans; printf '%s\\n' '+++' 'kind = \"contract\"' 'id = \"retry-budget\"' 'title = \"Add a retry budget\"' '' '[[criteria]]' 'id = \"c1\"' 'text = \"A call retries twice.\"' '' '[[work_orders]]' 'id = \"retry-budget-work\"' 'title = \"Add the budget\"' 'repo = \".\"' 'priority = 2' 'size = \"small\"' '+++' '' 'Retry a failed call twice.' > plans/retry-budget.md; printf '%s\\n' '+++' 'kind = \"contract\"' 'id = broken' '+++' > plans/broken.md; git add plans; git -c user.name=planner -c user.email=planner@example.com commit -q -m 'plan the retry budget'"},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "checks": [{"name": "wrote the contract", "passed": true, "criterion": "c1"}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

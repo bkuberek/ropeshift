@@ -10,7 +10,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 
 | Command | Does |
 |---------|------|
-| `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review` |
+| `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review`. With `--kind plan --repository R`, its lane writes repository files on its branch, and intake reads them at the commit a member accepts. `source list` names R, and reports a file intake could not read |
 | `ropeshift work list [--state S] [--worker W]` | Lists work orders. With `--worker`, it lists only ready work that worker's manifest can run |
 | `ropeshift work show <id>` | Shows one work order |
 | `ropeshift work review <id>` | Records a passed review, and the definition of ready decides the move to `ready` |
@@ -23,6 +23,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work send-back <id> --reason R` | Returns a work order in review to `planning`, because its contract must change. It voids the review, and the contract's next version returns the work to review |
 | `ropeshift plan list` | Lists plans |
 | `ropeshift plan show <id>` | Shows one plan with its goal, each contract's newest version, and their work orders |
+| `ropeshift plan review <id> [--id I]` | Starts a contract review a lane can run, ready for a member to claim. Its lane reads the plan and each contract's newest version, and everything it asks reaches the ladder together when it ends. Its questions are about the plan, so a blocking one holds all of the plan's work. Accepting the review passes the review of the work whose versions it read |
 | `ropeshift requirement list` | Lists each requirement's newest version |
 | `ropeshift requirement get <key>` | Shows one requirement's newest version, by the key a contract names |
 | `ropeshift question list [--category C] [--status S] [--scope S] [--text T]` | Finds questions. `--scope` names what a question is about, and `--text` ranks the best match first |

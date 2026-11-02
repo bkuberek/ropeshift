@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
 )
@@ -194,6 +196,20 @@ type Book struct {
 // ContractKey identifies a contract or requirement version in a Book.
 func ContractKey(id string, version int64) string {
 	return fmt.Sprintf("%s@%d", id, version)
+}
+
+// ParseContractKey reads a key back. An ID may not hold the separator's meaning, so the last one
+// counts.
+func ParseContractKey(key string) (string, int64, bool) {
+	at := strings.LastIndexByte(key, '@')
+	if at <= 0 {
+		return "", 0, false
+	}
+	version, err := strconv.ParseInt(key[at+1:], 10, 64)
+	if err != nil || version < 1 {
+		return "", 0, false
+	}
+	return key[:at], version, true
 }
 
 // LinkKey identifies a link in a Book.

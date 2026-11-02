@@ -17,6 +17,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -458,6 +459,10 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	lease.Lane, lease.Repository, lease.Branch, lease.Title = claim.Lane, row.RepositoryID, row.Branch, row.Title
 	lease.Deadline, lease.Overrides = row.Deadline, claim.Overrides
 	lease.Contract, lease.ContractVersion = row.ContractID, row.ContractVersion
+	lease.Kind = string(row.Kind)
+	if lease.Review, err = desiredReview(tx.Planning(), row); err != nil {
+		return lease, err
+	}
 	resets, err := tx.Lanes().Resets(claim.Lane)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return lease, err
@@ -892,6 +897,7 @@ func (w *Workers) Claim(ctx context.Context, auth ledger.WorkerAuth, request wor
 // through its worker, so the plane checks that this worker holds that work order at that
 // fence, and the question is about that work order.
 func (w *Workers) Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error) {
+	var reviews string
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		if err := w.checkSession(tx, ask.Auth, ask.Epoch); err != nil {
 			return err
@@ -903,13 +909,23 @@ func (w *Workers) Ask(ctx context.Context, ask questions.LaneAsk) (questions.Ask
 		if order.LeaseWorker != ask.Auth.WorkerID || order.Fence != ask.Fence {
 			return &workorders.FencedError{Current: order.Fence, State: order.State}
 		}
+		reviews = order.ReviewsPlan
 		return nil
 	})
 	if err != nil {
 		return questions.AskResult{}, err
 	}
-	ask.Ask.SubjectKind, ask.Ask.SubjectID = workorders.SubjectKind, ask.WorkOrder
+	ask.Ask.SubjectKind, ask.Ask.SubjectID = subjectOf(reviews, ask.WorkOrder)
 	return w.questions.Ask(ctx, w.scope, ask.Ask, ledger.Actor{Kind: ledger.ActorLane, ID: ask.Ask.Lane})
+}
+
+// subjectOf says what a lane's question is about: its own work order, or for a review lane the plan
+// it reads, because that is the work the answer holds back.
+func subjectOf(reviewsPlan, workOrder string) (string, string) {
+	if reviewsPlan != "" {
+		return planning.SubjectPlan, reviewsPlan
+	}
+	return workorders.SubjectKind, workOrder
 }
 
 // Rule records what this worker's orchestrator decided or assumed for a question it holds.

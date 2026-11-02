@@ -6,6 +6,8 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
 // Nudge is the one message a lane that ended a turn with no outcome receives. An idle
@@ -30,6 +32,40 @@ type BriefSpec struct {
 	Pending string
 	// Facts are what no session of this lane took in, or took in and did not answer.
 	Facts []ledger.MessageFact
+	// Kind says what this work produces, which is what a planning or review lane is told to do.
+	Kind workorders.Kind
+	// Review is what a review lane reads.
+	Review *ledger.DesiredReview
+}
+
+// planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
+// once a person accepts it. It carries the format whole, because a session holds no document of it.
+const planningNotice = "This is planning work. Its output is repository files, and nothing else you do reaches the ledger. " +
+	"Write each contract as a Markdown file with TOML front matter between +++ lines, in this format:\n\n" +
+	planning.FormatExample + "\n" +
+	"A contract's id is stable, so keep it when you change a file. It needs at least one criterion and at least one work order, and each " +
+	"work order's id is unique. Use repo = \".\" for this repository, and size small, medium, or large. A TOML string needs its quotes, and " +
+	"a file that does not parse reaches nobody.\n\n" +
+	"Commit the files on this branch, because intake reads a commit and never your working tree. Report the outcome after the commit. " +
+	"When a member accepts your work, intake reads that commit.\n"
+
+// reviewNotice tells a review lane what a review is for. It finds, and it decides nothing.
+const reviewNotice = "This is a contract review. Read the plan and each contract below as the lane that will do the work would, and " +
+	"find everything that lane would have to stop and ask: what the contract leaves open, what two contracts disagree on, what a " +
+	"criterion cannot show. Ask each one with the " + ToolAsk + " tool, as a person would read it. Set blocking to true when work cannot " +
+	"start without the answer. Ask everything you find in this one pass, and answer none of it yourself: nothing reaches a person until " +
+	"you report, so that they read it together. Do not change any file.\n"
+
+func writeReview(out *strings.Builder, review ledger.DesiredReview) {
+	out.WriteString("\n" + reviewNotice)
+	fmt.Fprintf(out, "\nPlan: %s\n", review.Plan)
+	for _, contract := range review.Contracts {
+		fmt.Fprintf(out, "\nContract: %s\n", contract.Title)
+		if statement := strings.TrimSpace(contract.Statement); statement != "" {
+			out.WriteString(statement + "\n")
+		}
+		writeList(out, "Its criteria", contract.Criteria)
+	}
 }
 
 // Brief is a lane's first prompt: the contract, where its context pack is, and how the lane ends.
@@ -44,6 +80,12 @@ func Brief(spec BriefSpec) string {
 		for _, criterion := range spec.Criteria {
 			out.WriteString("- " + criterion + "\n")
 		}
+	}
+	if spec.Kind == workorders.KindPlan {
+		out.WriteString("\n" + planningNotice)
+	}
+	if spec.Review != nil {
+		writeReview(&out, *spec.Review)
 	}
 	if spec.Pack {
 		out.WriteString("\nYour system prompt holds this lane's context pack, which is also at " + PackFile + ". It is where you start " +

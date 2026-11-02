@@ -481,7 +481,7 @@ func (r *Rig) openBlocking(s ports.Store, workOrder string) (int64, error) {
 	var count int64
 	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
 		var err error
-		count, err = tx.Questions().OpenBlocking(workOrder, "")
+		count, err = tx.Questions().OpenBlocking(workOrder, "", "")
 		return err
 	})
 	return count, err

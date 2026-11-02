@@ -55,6 +55,32 @@ func (c *invocation) planShow(args []string) int {
 	})
 }
 
+// planReview starts a contract review as a lane, which is ready for a member to claim. Work orders
+// the review reads stay where they are until a member accepts it.
+func (c *invocation) planReview(args []string) int {
+	set := c.flags()
+	id := set.String("id", "", "the review's ID, for a retry")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one plan ID")
+	}
+	review := *id
+	if review == "" {
+		generated, err := newID()
+		if err != nil {
+			return c.failure(err)
+		}
+		review = generated
+	}
+	client := c.client()
+	defer client.Close()
+	row, err := client.ReviewPlan(c.ctx, positional[0], api.ReviewPlan{ID: review})
+	return c.finish(err, row, func() string { return orderLine(row) })
+}
+
 func (c *invocation) requirementList(args []string) int {
 	client, ok, code := c.noArguments(args)
 	if !ok {

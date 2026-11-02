@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -242,6 +243,10 @@ func freeQuestions(tx ports.ReadTx, holder string) ([]questions.Question, error)
 	if err != nil {
 		return nil, err
 	}
+	under, err := reviewsUnderWay(tx.WorkOrders())
+	if err != nil {
+		return nil, err
+	}
 	var out []questions.Question
 	for after := ""; ; {
 		rows, err := tx.Questions().Questions(ports.RecordFilter{After: after, Limit: questionPage})
@@ -250,6 +255,9 @@ func freeQuestions(tx ports.ReadTx, holder string) ([]questions.Question, error)
 		}
 		for _, row := range rows {
 			after = row.ID
+			if row.SubjectKind == planning.SubjectPlan && under[row.SubjectID] {
+				continue
+			}
 			waits := row.Status == questions.StatusOpen || row.Status == questions.StatusTriage
 			if waits && (row.ClaimUntil <= now || (holder != "" && row.ClaimedBy == holder)) {
 				out = append(out, row)

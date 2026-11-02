@@ -170,6 +170,20 @@ func heldOrders(tx ports.WriteTx, question questions.Question) ([]workorders.Wor
 		return []workorders.WorkOrder{order}, err
 	case planning.SubjectContract:
 		return tx.WorkOrders().ByContract(question.SubjectID)
+	case planning.SubjectPlan:
+		contracts, err := newestContracts(tx.Planning(), question.SubjectID)
+		if err != nil {
+			return nil, err
+		}
+		var out []workorders.WorkOrder
+		for _, contract := range contracts {
+			orders, err := tx.WorkOrders().ByContract(contract.ID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, orders...)
+		}
+		return out, nil
 	}
 	return nil, nil
 }

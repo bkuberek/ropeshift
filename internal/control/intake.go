@@ -75,6 +75,23 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 		return IntakeReport{}, err
 	}
 	crashpoint.Hit("intake", "polled")
+	report, err := i.record(ctx, scope, batch)
+	if err != nil {
+		return report, err
+	}
+	health, err := source.Health(ctx)
+	if err != nil {
+		return report, err
+	}
+	binding := planning.SourceBinding{
+		ID: id, Port: planning.PortWork, Adapter: description.Adapter, Instance: description.Instance,
+		Cursor: string(batch.Cursor), Health: health.State, Detail: health.Detail, Problems: report.Problems,
+	}
+	return report, i.settle(ctx, scope, binding, batch.Cursor == cursor, report.Versions+report.Records > 0)
+}
+
+// record stores what one read of a source found, item by item.
+func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, batch ports.ChangeBatch) (IntakeReport, error) {
 	var report IntakeReport
 	report.Problems = slices.Clone(batch.Problems)
 	held := map[string]string{}
@@ -104,15 +121,7 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: outcome.problem})
 		}
 	}
-	health, err := source.Health(ctx)
-	if err != nil {
-		return report, err
-	}
-	binding := planning.SourceBinding{
-		ID: id, Port: planning.PortWork, Adapter: description.Adapter, Instance: description.Instance,
-		Cursor: string(batch.Cursor), Health: health.State, Detail: health.Detail, Problems: report.Problems,
-	}
-	return report, i.settle(ctx, scope, binding, batch.Cursor == cursor, report.Versions+report.Records > 0)
+	return report, nil
 }
 
 // repeatedRequirement finds a key an earlier file in this batch holds, and otherwise marks

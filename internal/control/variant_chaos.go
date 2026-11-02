@@ -50,6 +50,14 @@ type Sabotage struct {
 	IgnoresAutonomy bool
 	// DropsAutonomyEvent keeps a change of autonomy the log never hears of.
 	DropsAutonomyEvent bool
+	// PassesAnyVersion lets a review pass a contract version it never read.
+	PassesAnyVersion bool
+	// ReleasesReviews sends what a review asks up the ladder while it still reads.
+	ReleasesReviews bool
+	// TakesInUnaccepted reads a plan's commit before anyone accepted it.
+	TakesInUnaccepted bool
+	// MovesPlanCursor moves a source to the commit of an accepted plan.
+	MovesPlanCursor bool
 	// RebuildsPack gives a claim that brings a lane back a new pack.
 	RebuildsPack bool
 	// KeepsParkWanted leaves what a policy asked of a lane that parked.
@@ -111,6 +119,14 @@ func dropsPackEvent() bool { return current().DropsPackEvent }
 func ignoresAutonomy() bool { return current().IgnoresAutonomy }
 
 func dropsAutonomyEvent() bool { return current().DropsAutonomyEvent }
+
+func passesAnyVersion() bool { return current().PassesAnyVersion }
+
+func releasesReviews() bool { return current().ReleasesReviews }
+
+func takesInUnaccepted() bool { return current().TakesInUnaccepted }
+
+func movesPlanCursor() bool { return current().MovesPlanCursor }
 
 func rebuildsPack() bool { return current().RebuildsPack }
 

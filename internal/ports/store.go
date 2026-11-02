@@ -177,6 +177,8 @@ type WorkOrderWriter interface {
 	Move(id string, from, to workorders.State) (bool, error)
 	// Reviewed records who passed a work order's review. An empty member voids it.
 	Reviewed(id, member string) error
+	// TakenIn records the commit intake read for an accepted `plan` work order.
+	TakenIn(id, commit string) error
 	// Pin moves unstarted work to a contract version, and voids its review.
 	Pin(id string, version int64) error
 }
@@ -557,8 +559,8 @@ type QuestionReader interface {
 	ByHash(hash string) ([]questions.Question, error)
 	// Attachments returns one question's lanes, or every attachment for an empty ID.
 	Attachments(question string) ([]questions.Attachment, error)
-	// OpenBlocking counts the open blocking questions about a work order or its contract.
-	OpenBlocking(workOrder, contract string) (int64, error)
+	// OpenBlocking counts the open blocking questions about a work order, its contract, or its plan.
+	OpenBlocking(workOrder, contract, plan string) (int64, error)
 	// Decision returns one decision, or ErrNotFound.
 	Decision(id string) (questions.Decision, error)
 	// Decisions returns the decisions a filter selects.

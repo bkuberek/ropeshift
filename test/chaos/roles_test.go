@@ -50,6 +50,8 @@ var childRoles = map[string]func(*child) error{
 	"set-level":         roleSetLevel,
 	"open-window":       roleOpenWindow,
 	"close-window":      roleCloseWindow,
+	"review-plan":       roleReviewPlan,
+	"take-in-plan":      roleTakeInPlan,
 	"sign-in":           roleSignIn,
 	"deliver":           roleDeliver,
 	"answer":            roleAnswer,

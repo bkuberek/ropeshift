@@ -23,6 +23,19 @@ type PlanView struct {
 	WorkOrders []workorders.WorkOrder `json:"work_orders"`
 }
 
+// ReviewPlan starts a contract review of a plan. The client generates ID, so a retry returns the
+// first answer.
+type ReviewPlan struct {
+	ID string `json:"id"`
+}
+
+// ReviewPlan records a work order that reads a plan and its contracts.
+func (c *Client) ReviewPlan(ctx context.Context, plan string, in ReviewPlan) (workorders.WorkOrder, error) {
+	var out workorders.WorkOrder
+	err := c.Do(ctx, http.MethodPost, "/v1/plans/"+url.PathEscape(plan)+"/reviews", in, &out)
+	return out, err
+}
+
 // RequirementList is the answer to a list of requirements.
 type RequirementList struct {
 	Requirements []planning.Requirement `json:"requirements"`

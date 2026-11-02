@@ -18,6 +18,7 @@ import (
 func (h *handler) planningRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/plans", h.listPlans)
 	mux.HandleFunc("GET /v1/plans/{id}", h.showPlan)
+	mux.HandleFunc("POST /v1/plans/{id}/reviews", h.member(h.reviewPlan))
 	mux.HandleFunc("GET /v1/requirements", h.listRequirements)
 	mux.HandleFunc("GET /v1/requirements/{key}", h.showRequirement)
 	mux.HandleFunc("POST /v1/work-orders/{id}/send-back", h.member(h.sendBack))
@@ -40,6 +41,25 @@ func (h *handler) listPlans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, list)
+}
+
+// reviewPlan starts a contract review. The client generates the review's ID, so a retry returns the
+// first answer.
+func (h *handler) reviewPlan(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.ReviewPlan
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ID == "" {
+		invalid(w, "a review needs an id")
+		return
+	}
+	record, err := h.workOrders.ReviewPlan(r.Context(), h.Scope, in.ID, r.PathValue("id"), actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, record)
 }
 
 func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {

@@ -384,6 +384,19 @@ func checkouts(opts soloOptions) func(context.Context, string) (string, error) {
 	}
 }
 
+// acceptedCommits reads a repository at the commit a person accepted, under the same directory the
+// daemon reads it in. A lane's branch lives in the repository its worktree came from.
+func acceptedCommits(opts soloOptions) control.PlanSource {
+	repository := checkouts(opts)
+	return func(ctx context.Context, id, commit string) (ports.WorkSource, error) {
+		path, err := repository(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return repofiles.New(repofiles.Config{Repository: path, Ref: commit, Directory: opts.directory}), nil
+	}
+}
+
 // keepStableBinary points the stable path at this binary, so generated settings and
 // a running lane survive an upgrade that removes a versioned path (D18). A new target
 // runs once, because the first run of a new binary can exceed the hook budget.
@@ -545,6 +558,9 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 					if _, err := intake.Poll(ctx, soloScope, source); err != nil {
 						failed = append(failed, err)
 					}
+				}
+				if _, err := intake.TakeInPlans(ctx, soloScope, acceptedCommits(opts)); err != nil {
+					failed = append(failed, err)
 				}
 				if _, err := reviews.Promote(ctx, soloScope, tickActor("intake-tick")); err != nil {
 					failed = append(failed, err)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/planning"
@@ -16,6 +17,20 @@ func readFixture(t *testing.T, name string) []byte {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+// What a planning lane is shown is what intake reads, so an agent that copies it writes a file.
+func TestThePlanningExampleIsAFile(t *testing.T) {
+	doc, err := ParseFile([]byte(planning.FormatExample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Contract == nil || doc.Contract.ID != "checkout-retry" || len(doc.Contract.Criteria) != 1 || len(doc.Contract.WorkOrders) != 1 {
+		t.Fatalf("document %+v", doc)
+	}
+	if !strings.Contains(doc.Statement, "must deliver") {
+		t.Fatalf("statement %q", doc.Statement)
+	}
 }
 
 func TestParseFile(t *testing.T) {
