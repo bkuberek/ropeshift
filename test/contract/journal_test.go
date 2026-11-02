@@ -182,6 +182,9 @@ func checkVerdictOnAnOldAttempt(t *testing.T, ctx context.Context, j ports.Journ
 	if _, err := j.RetryEffect(ctx, effect.Key); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := j.MarkUnknown(ctx); err != nil {
+		t.Fatal(err)
+	}
 	verdict := lanes.EffectVerdict{ID: "d1", Key: effect.Key, Attempt: 1, State: lanes.EffectCompleted, Detail: lanes.DetailSaidHappened}
 	first, err := j.SettleEffect(ctx, verdict, ledger.UploadEvent{Type: ledger.UploadEffectSettled})
 	if err != nil || !first {
@@ -191,8 +194,8 @@ func checkVerdictOnAnOldAttempt(t *testing.T, ctx context.Context, j ports.Journ
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != lanes.EffectStarted {
-		t.Errorf("a word about attempt 1 moved attempt 2: %+v", got)
+	if got.State != lanes.EffectUnknown || got.Attempts != 2 {
+		t.Errorf("a word about attempt 1 moved attempt 2, which a crash left unknown too: %+v", got)
 	}
 	if got := pendingOf(t, ctx, j, ledger.UploadEffectSettled); got != 1 {
 		t.Errorf("the ledger will not hear the word was read: %d events", got)
