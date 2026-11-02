@@ -141,6 +141,22 @@ func (r *laneRun) contextAtRest(ctx context.Context) bool {
 	return r.evaluateContext(ctx)
 }
 
+// anotherCompaction says a turn held a compaction this lane did not ask for, or one it has already
+// gone on from. A person runs one at a pane, in a lane at rest or with input on its way, and that
+// ended no work: reading it as a turn's end would nudge the lane, or end it with no outcome.
+func (r *laneRun) anotherCompaction(ctx context.Context, event ports.DriverEvent) bool {
+	if event.Kind != ports.EventTurnEnded || !event.Turn.Compaction {
+		return false
+	}
+	n, pending, _ := r.state.compactionAsked()
+	if !pending {
+		return true
+	}
+	told := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", compactionKey(compactedLabel, n))
+	_, err := r.w.journal.Effect(ctx, told.Key)
+	return err == nil
+}
+
 // afterCompaction settles a turn that followed a request. A turn with no boundary did not compact.
 // One with a boundary proves nothing yet, and a compaction starts no turn, so the session is told to
 // go on, and the first call of that turn is the verdict. A session already told, which is one whose

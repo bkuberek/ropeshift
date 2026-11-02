@@ -144,7 +144,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	run.cost, run.usage = record.Progress.Cost, record.Progress.Usage
 	run.priorUSD, run.priorUnknown = record.Progress.PriorUSD, record.Progress.PriorUnknown
 	if record.Actual != "" {
-		run.state = newLaneState(record.Actual, w.clock.Now())
+		run.state = laneStateOf(record, w.clock.Now())
 	}
 	run.left, run.parking = record.Handoff, record.Parking
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
@@ -152,6 +152,32 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
 	return run
+}
+
+// replayHooks reads what a session's hooks said while no worker listened. Each compaction merges
+// into one record of each hook, so only their last times say whether one is still under way.
+func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
+	generation := r.currentGeneration()
+	var began, ended int64
+	for _, record := range hooks {
+		if record.Generation != generation {
+			continue
+		}
+		switch record.Event {
+		case hookPreCompact:
+			began = record.LastMs
+		case hookPostCompact:
+			ended = record.LastMs
+		default:
+			r.observeHook(ctx, record.HookEvent)
+		}
+	}
+	switch {
+	case began > ended:
+		r.signal(ctx, lanes.OnCompactionStarted)
+	case began != 0 || ended != 0:
+		r.signal(ctx, lanes.OnCompactionFinished)
+	}
 }
 
 // sessionHandle returns the current session, which is empty before a start.
@@ -332,7 +358,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.fenced.Store(w.leaseGone(ctx, record))
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
-	run.state = newLaneState(record.Actual, w.clock.Now())
+	run.state = laneStateOf(record, w.clock.Now())
 	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
 	run.loadProfile(ctx)
@@ -358,11 +384,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
 	}
-	for _, record := range hooks {
-		if record.Generation == r.currentGeneration() {
-			r.observeHook(ctx, record.HookEvent)
-		}
-	}
+	r.replayHooks(ctx, hooks)
 	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
 		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
 	})
@@ -611,6 +633,12 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 	defer r.sessionOver.Store(true)
 	for event := range events {
 		if event.Seq != 0 && event.Seq <= r.cursor {
+			continue
+		}
+		if r.anotherCompaction(ctx, event) {
+			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.progressed()
+			r.saveProgress(ctx, event.Seq)
 			continue
 		}
 		r.observeEvent(ctx, event)

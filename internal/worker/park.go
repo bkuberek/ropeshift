@@ -323,7 +323,7 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 	deadline := r.w.clock.Now().Add(r.state.askWait())
 	r.sequence.Go(func() {
 		defer r.waiting.Store(false)
-		for r.w.clock.Now().Before(deadline) {
+		for r.w.clock.Now().Before(deadline) || r.state.current() == lanes.Compacting {
 			if !r.restsOn(ctx) {
 				return
 			}
@@ -341,8 +341,10 @@ func (r *laneRun) awaitAnswer(ctx context.Context) {
 	})
 }
 
+// restsOn says the wait goes on. A compaction at rest does not end it, because an automatic one ends
+// no turn, and nothing would start the wait again. It parks only at `idle`.
 func (r *laneRun) restsOn(ctx context.Context) bool {
-	return ctx.Err() == nil && !r.sessionOver.Load() && !r.fenced.Load() && r.state.current() == lanes.Idle
+	return ctx.Err() == nil && !r.sessionOver.Load() && !r.fenced.Load() && r.state.atRest()
 }
 
 // parkReported starts parking for a trigger nobody waits on. A lane that moved on has nothing to

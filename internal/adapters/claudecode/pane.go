@@ -564,8 +564,18 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 	case hookPostCompact:
 		s.push(ports.DriverEvent{Kind: ports.EventCompaction, Detail: event.Detail})
 		if event.Detail == compactRequested {
-			s.endTurn(event, ports.TurnCompleted, "")
+			s.endCompaction(event)
 		}
+	}
+}
+
+// endCompaction ends the turn a compaction ran as, and says that is all it held, because a person
+// can run one, and nothing here tells that from one the worker asked for.
+func (s *paneSession) endCompaction(event lanes.HookEvent) {
+	before := len(s.queue)
+	s.endTurn(event, ports.TurnCompleted, "")
+	if len(s.queue) > before {
+		s.queue[len(s.queue)-1].Turn.Compaction = true
 	}
 }
 

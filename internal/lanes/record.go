@@ -37,6 +37,9 @@ type Record struct {
 	Progress Progress
 	// Actual is where the lane's state stood, so an adopted run goes on from there.
 	Actual ActualState
+	// CompactFrom is the state a compaction under way left, kept in the write that moved Actual,
+	// because the end of a compaction returns to it.
+	CompactFrom ActualState
 	// ResumeSession is the session a restarted generation continues.
 	ResumeSession string
 	// ResetsSeen is how many human resets of the breaker this worker has acted on.

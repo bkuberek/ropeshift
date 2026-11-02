@@ -236,6 +236,9 @@ type TurnResult struct {
 	CostUSD float64
 	// Cost is the generation's cost so far.
 	Cost lanes.CostMeter
+	// Compaction says this turn held only a compaction, which ends no work of the lane's unless the
+	// lane asked for it. A person can run one at a pane, and its last hook is all a driver reads.
+	Compaction bool
 }
 
 // SessionEnd says how a session ended.

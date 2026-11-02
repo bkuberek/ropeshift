@@ -77,6 +77,20 @@ func newLaneState(start lanes.ActualState, now time.Time) *laneState {
 	return &laneState{tracker: lanes.NewTracker(start), tools: map[string]bool{}, progress: now, since: now}
 }
 
+// laneStateOf goes on from what a journal holds.
+func laneStateOf(record lanes.Record, now time.Time) *laneState {
+	state := newLaneState(record.Actual, now)
+	state.tracker = lanes.ResumeTracker(record.Actual, record.CompactFrom)
+	return state
+}
+
+// atRest says no turn is running: the lane is idle, or in a compaction it began there.
+func (s *laneState) atRest() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tracker.State() == lanes.Idle || s.tracker.Left() == lanes.Idle
+}
+
 // thresholds reads what a profile sets. A duration that does not parse leaves its check
 // off, because a bad profile value must not stop a running lane.
 func (s *laneState) thresholds(profile lanes.Profile) {
@@ -213,12 +227,12 @@ func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) {
 			s.since = r.w.clock.Now()
 		}
 	}
-	state := s.tracker.State()
+	state, from := s.tracker.State(), s.tracker.Left()
 	s.mu.Unlock()
 	if !moved {
 		return
 	}
-	if err := r.w.journal.SaveActual(context.WithoutCancel(ctx), r.lease.Lane, state); err != nil {
+	if err := r.w.journal.SaveActual(context.WithoutCancel(ctx), r.lease.Lane, state, from); err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 	}
 }
@@ -276,7 +290,7 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		} else {
 			r.noteModel(lanes.Reachable)
 		}
-		r.signal(ctx, lanes.OnActivity, lanes.OnTurnFinished)
+		r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed, lanes.OnTurnFinished)
 		if event.Turn.Status == ports.TurnCompleted {
 			r.limitPassed(ctx)
 		}
@@ -307,7 +321,7 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		s.mu.Lock()
 		s.tools[event.Subject] = true
 		s.mu.Unlock()
-		r.signal(ctx, lanes.OnActivity)
+		r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed)
 	case hookPostToolUse:
 		r.progressed()
 		s.mu.Lock()

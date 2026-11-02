@@ -302,7 +302,9 @@ func TestPaneCompactGoesByKeys(t *testing.T) {
 			if event := s.until(ports.EventCompaction); event.Detail != "manual" {
 				t.Errorf("boundary %+v", event)
 			}
-			s.until(ports.EventTurnEnded)
+			if turn := s.until(ports.EventTurnEnded); !turn.Turn.Compaction {
+				t.Errorf("the turn reads as work: %+v", turn.Turn)
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

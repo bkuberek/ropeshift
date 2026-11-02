@@ -280,7 +280,7 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
@@ -288,7 +288,7 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var progress, guard, handoff, parking, blocking []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom)
 	if err != nil {
 		return lane, err
 	}
@@ -873,9 +873,9 @@ func (j *Journal) BindGeneration(ctx context.Context, lane, sessionID string, ev
 	return true, tx.Commit()
 }
 
-// SaveActual replaces where a lane's state stands.
-func (j *Journal) SaveActual(ctx context.Context, lane string, state lanes.ActualState) error {
-	_, err := j.db.ExecContext(ctx, `UPDATE lanes SET actual = ?1 WHERE id = ?2`, state, lane)
+// SaveActual replaces where a lane's state stands, and the state a compaction under way left.
+func (j *Journal) SaveActual(ctx context.Context, lane string, state, from lanes.ActualState) error {
+	_, err := j.db.ExecContext(ctx, `UPDATE lanes SET actual = ?1, compact_from = ?3 WHERE id = ?2`, state, lane, from)
 	return err
 }
 

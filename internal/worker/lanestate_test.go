@@ -320,7 +320,7 @@ func TestAStatusIsPublishedOnlyOnChange(t *testing.T) {
 func TestAdoptionKeepsTheLanesState(t *testing.T) {
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
-	if err := w.journal.SaveActual(t.Context(), "lane-1", lanes.Idle); err != nil {
+	if err := w.journal.SaveActual(t.Context(), "lane-1", lanes.Idle, ""); err != nil {
 		t.Fatal(err)
 	}
 	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)

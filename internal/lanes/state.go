@@ -56,7 +56,10 @@ const (
 	OnCompactionFinished Signal = "compaction_finished"
 	OnFinishedInTurn     Signal = "compaction_finished_in_turn"
 	OnFinishedAtRest     Signal = "compaction_finished_at_rest"
-	OnHandoffThreshold   Signal = "handoff_threshold"
+	// OnCompactionFailed says a session went on from a compaction that never finished. No hook
+	// reports a failure, so this is what a tool call or a turn's end shows.
+	OnCompactionFailed Signal = "compaction_failed"
+	OnHandoffThreshold Signal = "handoff_threshold"
 	OnHandoffWritten     Signal = "handoff_written"
 	OnNextGeneration     Signal = "next_generation"
 	OnCannotProceed      Signal = "cannot_proceed"
@@ -80,7 +83,7 @@ const (
 var Signals = []Signal{
 	OnClaimGranted, OnResourcesReady, OnDriverReady, OnResumeNotReady, OnUnknownScreen, OnActivity,
 	OnBriefGrace, OnTurnFinished, OnInputHanded, OnDecisionPending, OnDecisionReturned, OnWaitBound,
-	OnCompactionStarted, OnCompactionFinished, OnFinishedInTurn, OnFinishedAtRest, OnHandoffThreshold,
+	OnCompactionStarted, OnCompactionFinished, OnFinishedInTurn, OnFinishedAtRest, OnCompactionFailed, OnHandoffThreshold,
 	OnHandoffWritten, OnNextGeneration, OnCannotProceed, OnParkRequested, OnProcessGone, OnWakeFired,
 	OnSessionGone, OnDelayElapsed, OnRestartLimit, OnHumanReset, OnOutcomeReported, OnStopRequested,
 	OnSessionStopped, OnLaneEnding,
@@ -109,6 +112,7 @@ var transitions = map[edge]ActualState{
 	{Idle, OnCompactionStarted}:         Compacting,
 	{Compacting, OnFinishedInTurn}:      Working,
 	{Compacting, OnFinishedAtRest}:      Idle,
+	{Compacting, OnCompactionFailed}:    Working,
 	{Working, OnHandoffThreshold}:       HandingOff,
 	{Idle, OnHandoffThreshold}:          HandingOff,
 	{HandingOff, OnHandoffWritten}:      Retiring,
@@ -162,8 +166,19 @@ type Tracker struct {
 // NewTracker starts from a state a journal kept.
 func NewTracker(state ActualState) *Tracker { return &Tracker{state: state} }
 
+// ResumeTracker starts from a state a journal kept, and the state a compaction under way left.
+func ResumeTracker(state, from ActualState) *Tracker { return &Tracker{state: state, resume: from} }
+
 // State returns where the lane is.
 func (t *Tracker) State() ActualState { return t.state }
+
+// Left is the state a compaction under way left, which is empty in any other state.
+func (t *Tracker) Left() ActualState {
+	if t.state != Compacting {
+		return ""
+	}
+	return t.resume
+}
 
 // Apply moves the lane, and reports whether it moved. A compaction returns to the state
 // it left, whoever started it.
