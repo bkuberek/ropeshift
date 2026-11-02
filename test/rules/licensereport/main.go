@@ -16,10 +16,16 @@ func main() {
 		os.Exit(1)
 	}
 	report, violations := rules.CheckLicenses(modules)
-	for _, line := range report {
+	web, webViolations, err := rules.CheckWebLicenses("web/package-lock.json")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	violations = append(violations, webViolations...)
+	for _, line := range append(report, web...) {
 		fmt.Println(line)
 	}
-	fmt.Printf("%d modules, %d violations\n", len(modules), len(violations))
+	fmt.Printf("%d modules, %d web packages, %d violations\n", len(modules), len(web), len(violations))
 	for _, v := range violations {
 		fmt.Fprintln(os.Stderr, v)
 	}

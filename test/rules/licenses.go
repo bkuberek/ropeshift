@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -145,6 +146,66 @@ func CheckLicenses(modules []Module) (report []string, violations []Violation) {
 		}
 	}
 	return report, violations
+}
+
+// webLicenses are what a web package may state: OSI-approved (NFR-LIC-1), with no limit on hosted use
+// (NFR-LIC-2). OFL-1.1 covers a font, which ships inside the build.
+var webLicenses = map[string]bool{
+	"0BSD": true, "Apache-2.0": true, "BSD-2-Clause": true, "BSD-3-Clause": true, "ISC": true, "MIT": true, "MPL-2.0": true, "OFL-1.1": true,
+}
+
+// webPackage is one row of a lockfile.
+type webPackage struct {
+	Version string `json:"version"`
+	License string `json:"license"`
+}
+
+// allowedExpression reads an SPDX expression. Either side of an OR is a choice this project can make,
+// and both sides of an AND bind it.
+func allowedExpression(expression string) bool {
+	trimmed := strings.Trim(strings.TrimSpace(expression), "()")
+	for _, choice := range strings.Split(trimmed, " OR ") {
+		allowed := true
+		for _, term := range strings.Split(choice, " AND ") {
+			allowed = allowed && webLicenses[strings.Trim(strings.TrimSpace(term), "()")]
+		}
+		if allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckWebLicenses reads the web application's lockfile, which states a license for every package the
+// tree installs, so the rule holds for a package no build ships too, and it needs no Node.js. A package
+// with no statement fails, so that a silence is a decision and not a pass.
+func CheckWebLicenses(lockfile string) (report []string, violations []Violation, err error) {
+	raw, err := os.ReadFile(lockfile)
+	if err != nil {
+		return nil, nil, err
+	}
+	var lock struct {
+		Packages map[string]webPackage `json:"packages"`
+	}
+	if err := json.Unmarshal(raw, &lock); err != nil {
+		return nil, nil, err
+	}
+	names := make([]string, 0, len(lock.Packages))
+	for name := range lock.Packages {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		row := lock.Packages[name]
+		short := name[strings.LastIndex(name, "node_modules/")+len("node_modules/"):]
+		report = append(report, fmt.Sprintf("%s %s %s", short, row.Version, row.License))
+		if !allowedExpression(row.License) {
+			violations = append(violations, Violation{"license", short, "license " + strconv.Quote(row.License) + " is not allowed"})
+		}
+	}
+	return report, violations, nil
 }
 
 // ListModules returns every module in the build list except the main one. A

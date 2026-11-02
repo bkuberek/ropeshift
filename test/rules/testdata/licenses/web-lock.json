@@ -1,0 +1,11 @@
+{
+  "name": "fixture",
+  "lockfileVersion": 3,
+  "packages": {
+    "": { "name": "fixture" },
+    "node_modules/good": { "version": "1.0.0", "license": "MIT" },
+    "node_modules/font": { "version": "1.0.0", "license": "OFL-1.1" },
+    "node_modules/silent": { "version": "1.0.0" },
+    "node_modules/nested/node_modules/viral": { "version": "1.0.0", "license": "GPL-3.0" }
+  }
+}

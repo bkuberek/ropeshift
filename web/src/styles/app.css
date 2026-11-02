@@ -1,0 +1,511 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ground);
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+main:focus,
+.title:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 3px solid var(--marker);
+  outline-offset: 3px;
+}
+
+h1,
+h2,
+p,
+dl,
+dd,
+ol,
+fieldset,
+legend {
+  margin: 0;
+  padding: 0;
+}
+
+ol {
+  list-style: none;
+}
+
+fieldset {
+  min-width: 0;
+  border: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: var(--gutter);
+  z-index: 10;
+  padding: 0.5rem 0.875rem;
+  background: var(--ink);
+  color: var(--ground);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
+
+.quiet {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+/* The masthead */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1.5rem;
+  padding: 0.75rem var(--gutter);
+  border-bottom: 0.3125rem solid var(--hemp);
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-size: 2rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.masthead-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem 1.25rem;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.status::before {
+  content: "";
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+}
+
+.status-live::before {
+  border-color: var(--marker);
+  background: var(--marker);
+}
+
+.link-button {
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--marker);
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  text-decoration: underline;
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.16em;
+}
+
+/* The page */
+
+.page {
+  max-width: 76rem;
+  padding: 1.25rem var(--gutter) 4rem;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1.5rem;
+  margin-bottom: clamp(1.5rem, 4vw, 2.75rem);
+}
+
+.title {
+  font-family: var(--display);
+  font-size: clamp(3.25rem, 9vw, 6rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 0.95;
+}
+
+.count {
+  font-family: var(--display);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+}
+
+.empty {
+  max-width: 38ch;
+  font-size: clamp(1.375rem, 2.2vw, 1.75rem);
+  line-height: 1.3;
+}
+
+/*
+ * The queue is the project's lane, read from the top: what has waited longest hangs first. The hemp
+ * strand is the work and the marker yarn is the person, and the two run apart until a rung joins them,
+ * which is what every item here is. The wait stands at the end of its rung in the site's signage, so a
+ * glance down the left edge answers how long a person has kept the fleet waiting.
+ */
+.queue {
+  --strand-x: 0.75rem;
+  --yarn-x: 0rem;
+  --text-x: 2.25rem;
+
+  position: relative;
+  padding-left: var(--text-x);
+}
+
+.queue::before,
+.queue::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.queue::before {
+  left: var(--strand-x);
+  width: 0.3125rem;
+  background: var(--hemp);
+}
+
+.queue::after {
+  left: var(--yarn-x);
+  width: 0.1875rem;
+  background: var(--marker);
+}
+
+.need {
+  position: relative;
+  padding-bottom: 2rem;
+}
+
+.need::before {
+  content: "";
+  position: absolute;
+  top: 1.25rem;
+  left: calc(var(--yarn-x) - var(--text-x));
+  width: calc(var(--text-x) - var(--yarn-x) - 0.5rem);
+  height: 0.1875rem;
+  background: var(--marker);
+}
+
+.need article {
+  display: grid;
+  gap: 0.25rem 2rem;
+}
+
+.wait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+}
+
+.wait-time {
+  font-family: var(--display);
+  font-size: clamp(2.25rem, 4vw, 3.25rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.wait-kind {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+@media (min-width: 52rem) {
+  .queue {
+    --text-x: 2.75rem;
+  }
+
+  .need article {
+    grid-template-columns: 10rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .wait {
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+}
+
+.card {
+  min-width: 0;
+  padding: 1rem clamp(1rem, 2vw, 1.5rem) 1.25rem;
+  background: var(--lane);
+}
+
+.card-title {
+  font-family: var(--display);
+  font-size: clamp(1.625rem, 2.6vw, 2.125rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.card-body {
+  display: grid;
+  gap: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.lead {
+  max-width: 62ch;
+}
+
+.call {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  overflow-x: auto;
+  border-left: 0.3125rem solid var(--hemp);
+  background: var(--ground);
+  font-family: var(--mono);
+  font-size: 0.9375rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 1.5rem;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.fresh {
+  margin-left: 0.5rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.fresh-old {
+  font-style: italic;
+}
+
+/* Questions */
+
+/* A fieldset's border breaks around its legend, so the rule between questions is on a wrapper. */
+.question-block + .question-block {
+  padding-top: 1rem;
+  border-top: 2px solid var(--hemp);
+}
+
+.question {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.question-text {
+  padding-bottom: 0.25rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.tags:empty {
+  display: none;
+}
+
+.tag-strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.75rem;
+  border: 2px solid var(--muted);
+  cursor: pointer;
+}
+
+.choice-on {
+  border-color: var(--marker);
+}
+
+.choice input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--marker);
+}
+
+.choice-text {
+  flex: 1 1 12rem;
+  overflow-wrap: anywhere;
+}
+
+.choice-note {
+  color: var(--marker);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+/* Fields and buttons */
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+input[type="text"],
+input[type="password"],
+textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.625rem;
+  border: 2px solid var(--muted);
+  border-radius: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.button {
+  min-height: 2.75rem;
+  padding: 0.25rem 1rem;
+  border: 2px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.button:hover:not(:disabled),
+.button-strong {
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.button-strong:hover:not(:disabled) {
+  background: var(--marker);
+  border-color: var(--marker);
+  color: var(--ground);
+}
+
+.button:disabled {
+  border-color: var(--muted);
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.refusal {
+  max-width: 62ch;
+  color: var(--refuse);
+  font-weight: 600;
+}
+
+.reason {
+  display: grid;
+  gap: 0.625rem;
+  max-width: 34rem;
+}
+
+.sign-in {
+  display: grid;
+  gap: 1rem;
+  max-width: 28rem;
+}
+
+/* Motion */
+
+@media (prefers-reduced-motion: no-preference) {
+  .need {
+    animation: tie-on 260ms ease-out both;
+  }
+
+  .button,
+  .choice {
+    transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+  }
+}
+
+@keyframes tie-on {
+  from {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

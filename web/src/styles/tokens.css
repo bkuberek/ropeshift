@@ -1,0 +1,58 @@
+/*
+ * The project's palette. Hemp draws the strand and never carries text, so only ink, muted, marker, and
+ * refuse have to read against ground and lane, which a test holds to WCAG AA in both themes.
+ */
+:root {
+  color-scheme: light;
+
+  --ground: #e4e8e1;
+  --lane: #d5dcd2;
+  --ink: #14302f;
+  --muted: #44605c;
+  --hemp: #a06e27;
+  --marker: #1846c4;
+  --refuse: #8f1d1d;
+
+  --gutter: 1rem;
+  --display: "Big Shoulders", "Arial Narrow", Impact, sans-serif;
+  --body: "Source Serif 4", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --gutter: 2rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --gutter: 3rem;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --ground: #12302e;
+    --lane: #0c2523;
+    --ink: #e9ede4;
+    --muted: #a9bdb6;
+    --hemp: #d9a650;
+    --marker: #9db8ff;
+    --refuse: #ffb4a8;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ground: #12302e;
+  --lane: #0c2523;
+  --ink: #e9ede4;
+  --muted: #a9bdb6;
+  --hemp: #d9a650;
+  --marker: #9db8ff;
+  --refuse: #ffb4a8;
+}

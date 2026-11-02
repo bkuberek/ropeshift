@@ -12,9 +12,9 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test licenses cross bench check-postgres chaos canary real
+.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real
 
-check: format vet lint test licenses canary
+check: format vet lint test web-test licenses canary
 
 # The list goes through a variable, because gofmt exits 0 when it finds a file to change.
 format:
@@ -37,6 +37,18 @@ lint:
 # 10 minutes, which the worker's package reaches on a busy machine with every test passing.
 test:
 	$(GO) test -race -count=1 -timeout 25m ./...
+
+# The web application's types and tests, on the packages its lockfile pins.
+web-test:
+	@test -d web/node_modules || npm --prefix web ci
+	npm --prefix web run typecheck
+	npm --prefix web test
+
+# Writes the application where the binary embeds it, so a build after this one serves it. A plain
+# checkout serves the placeholder page, and a release commit adds this output on its tag (D28).
+web-build:
+	@test -d web/node_modules || npm --prefix web ci
+	npm --prefix web run build
 
 licenses:
 	$(GO) run ./test/rules/licensereport

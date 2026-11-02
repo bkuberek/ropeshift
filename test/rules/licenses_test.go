@@ -2,6 +2,7 @@ package rules
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -40,6 +41,60 @@ func TestLicenseClassification(t *testing.T) {
 				t.Errorf("got %+v, want %s allowed=%v", got, tt.want, tt.allowed)
 			}
 		})
+	}
+}
+
+func TestWebLicenseExpressions(t *testing.T) {
+	tests := []struct {
+		expression string
+		allowed    bool
+	}{
+		{"MIT", true},
+		{"(MIT OR Apache-2.0)", true},
+		{"MIT OR GPL-3.0", true},
+		{"(MIT AND ISC)", true},
+		{"OFL-1.1", true},
+		{"MIT AND GPL-3.0", false},
+		{"GPL-3.0", false},
+		{"AGPL-3.0", false},
+		{"BUSL-1.1", false},
+		{"SEE LICENSE IN LICENSE.md", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expression, func(t *testing.T) {
+			if got := allowedExpression(tt.expression); got != tt.allowed {
+				t.Errorf("got %v", got)
+			}
+		})
+	}
+}
+
+func TestWebLicenseCheckFailsOnADisallowedPackage(t *testing.T) {
+	_, violations, err := CheckWebLicenses(filepath.Join("testdata", "licenses", "web-lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, violation := range violations {
+		names = append(names, violation.Package)
+	}
+	if want := []string{"viral", "silent"}; !slices.Equal(names, want) {
+		t.Errorf("violations %v, want %v", names, want)
+	}
+}
+
+// TestWebDependencyLicenses holds the web application's whole tree to the rule, with no Node.js.
+func TestWebDependencyLicenses(t *testing.T) {
+	report, violations, err := CheckWebLicenses(filepath.Join(repoRoot(t), "web", "package-lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report) == 0 {
+		t.Fatal("the lockfile lists nothing")
+	}
+	for _, violation := range violations {
+		t.Error(violation)
 	}
 }
 
