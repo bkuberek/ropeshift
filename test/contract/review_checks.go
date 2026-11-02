@@ -35,6 +35,16 @@ var PlanLaneChecks = []Check{
 	{"PL14", "a file intake cannot read is reported, and stops nothing", checkPlanProblemIsReported},
 	{"PL15", "reading an accepted plan moves no cursor", checkPlanMovesNoCursor},
 	{"PL16", "a commit that cannot be opened is read again later", checkPlanSourceFailure},
+	{"PL17", "a plan on the newest version records the next one", checkPlanOnTheNewestVersion},
+	{"PL18", "a plan on a base that moved brings no old text back", checkStalePlanBringsNothingBack},
+	{"PL19", "a plan that changed what moved is a conflict, not a version", checkPlanConflict},
+	{"PL20", "a merge settles a conflict as the next version", checkMergeSettlesAConflict},
+	{"PL21", "main moving before a merge undoes no accepted plan", checkMainKeepsAnAcceptedPlan},
+	{"PL22", "an edit on main beside an unmerged plan is a conflict", checkMainEditBesideAPlan},
+	{"PL23", "a stale plan brings back no requirement, goal, or plan", checkStalePlanBringsNoRecordBack},
+	{"PL24", "a changed requirement on a stale plan is a conflict", checkRequirementConflict},
+	{"PL25", "a source with one line of history records every change", checkOneLineOfHistory},
+	{"PL26", "a source that cannot say records nothing, and is read again", checkLineageFailure},
 }
 
 const (

@@ -16,6 +16,9 @@ type SourceRig struct {
 	Commit func(name, content string)
 	// Rename stands for a person moving one file.
 	Rename func(from, to string)
+	// Fork stands for a branch cut here: a rig on that branch, and what merges it back with one file
+	// as a person resolved it.
+	Fork func() (SourceRig, func(name, content string))
 }
 
 // ContractText renders a small contract file.
@@ -97,12 +100,103 @@ func RunWorkSource(t *testing.T, fresh func(*testing.T) SourceRig) {
 		{"apply reports unsupported", checkApply},
 		{"no webhooks and no write capability", checkCapabilities},
 		{"health and fields answer", checkHealthAndFields},
+		{"a later commit stands ahead of an earlier one", checkLineageOfOneLine},
+		{"a branch that left a file alone stands behind what moved it", checkLineageOfAStaleBranch},
+		{"two sides that changed a file have diverged", checkLineageOfTwoSides},
+		{"a squash keeps what its text knew", checkLineageOfASquash},
+		{"a merge holds both sides", checkLineageOfAMerge},
+		{"a version nothing holds any more has nothing to compare", checkLineageOfALostVersion},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
 			check.run(t, t.Context(), fresh(t))
 		})
 	}
+}
+
+// lineageFile is the one file the lineage checks read.
+const lineageFile = "contract.md"
+
+func lineageText(statement string) string { return ContractText("alpha", "Alpha", statement) }
+
+// sourceOf is where a rig's contract stands now.
+func sourceOf(t *testing.T, ctx context.Context, rig SourceRig) string {
+	t.Helper()
+	batch, err := rig.Source.Poll(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return onlyItem(t, batch).Source
+}
+
+func wantLineage(t *testing.T, ctx context.Context, rig SourceRig, read, recorded string, want ports.Lineage) {
+	t.Helper()
+	got, err := rig.Source.Relate(ctx, read, recorded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("%s against %s reads %s, want %s", read, recorded, got, want)
+	}
+}
+
+func checkLineageOfOneLine(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit(lineageFile, lineageText("One."))
+	earlier := sourceOf(t, ctx, rig)
+	rig.Commit(lineageFile, lineageText("Two."))
+	later := sourceOf(t, ctx, rig)
+	wantLineage(t, ctx, rig, later, earlier, ports.LineageAhead)
+	wantLineage(t, ctx, rig, earlier, later, ports.LineageBehind)
+	rig.Commit(lineageFile, lineageText("One."))
+	wantLineage(t, ctx, rig, sourceOf(t, ctx, rig), later, ports.LineageAhead)
+}
+
+func checkLineageOfAStaleBranch(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit(lineageFile, lineageText("One."))
+	branch, _ := rig.Fork()
+	rig.Commit(lineageFile, lineageText("Two."))
+	branch.Commit("other.md", "# Ordinary prose\n")
+	wantLineage(t, ctx, rig, sourceOf(t, ctx, branch), sourceOf(t, ctx, rig), ports.LineageBehind)
+	wantLineage(t, ctx, rig, sourceOf(t, ctx, rig), sourceOf(t, ctx, branch), ports.LineageAhead)
+}
+
+func checkLineageOfTwoSides(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit(lineageFile, lineageText("One."))
+	branch, _ := rig.Fork()
+	rig.Commit(lineageFile, lineageText("On main."))
+	branch.Commit(lineageFile, lineageText("On the branch."))
+	wantLineage(t, ctx, rig, sourceOf(t, ctx, branch), sourceOf(t, ctx, rig), ports.LineageDiverged)
+	wantLineage(t, ctx, rig, sourceOf(t, ctx, rig), sourceOf(t, ctx, branch), ports.LineageDiverged)
+}
+
+// A squash or a rebase keeps a branch's text and loses its commits, so a later edit on main still
+// knew what the branch said.
+func checkLineageOfASquash(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit(lineageFile, lineageText("One."))
+	branch, _ := rig.Fork()
+	branch.Commit(lineageFile, lineageText("From the branch."))
+	recorded := sourceOf(t, ctx, branch)
+	rig.Commit(lineageFile, lineageText("From the branch."))
+	rig.Commit(lineageFile, lineageText("Then edited."))
+	wantLineage(t, ctx, rig, sourceOf(t, ctx, rig), recorded, ports.LineageAhead)
+}
+
+func checkLineageOfAMerge(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit(lineageFile, lineageText("One."))
+	branch, merge := rig.Fork()
+	rig.Commit(lineageFile, lineageText("On main."))
+	onMain := sourceOf(t, ctx, rig)
+	branch.Commit(lineageFile, lineageText("On the branch."))
+	onBranch := sourceOf(t, ctx, branch)
+	merge(lineageFile, lineageText("Both."))
+	merged := sourceOf(t, ctx, rig)
+	wantLineage(t, ctx, rig, merged, onMain, ports.LineageAhead)
+	wantLineage(t, ctx, rig, merged, onBranch, ports.LineageAhead)
+}
+
+func checkLineageOfALostVersion(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit(lineageFile, lineageText("One."))
+	wantLineage(t, ctx, rig, sourceOf(t, ctx, rig), lineageFile+"@0000000000000000000000000000000000000000", ports.LineageAhead)
 }
 
 func onlyItem(t *testing.T, batch ports.ChangeBatch) ports.WorkItem {

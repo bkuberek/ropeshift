@@ -29,8 +29,10 @@ type IntakeReport struct {
 	Versions   int
 	WorkOrders int
 	// Records counts the goals, plans, and requirements a poll changed.
-	Records  int
-	Problems []planning.SourceProblem
+	Records int
+	// Conflicts counts the files a poll left out because the base under them moved.
+	Conflicts int
+	Problems  []planning.SourceProblem
 }
 
 // Intake records what a work source holds. A poll reads with no transaction, and
@@ -75,7 +77,7 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 		return IntakeReport{}, err
 	}
 	crashpoint.Hit("intake", "polled")
-	report, err := i.record(ctx, scope, batch)
+	report, err := i.record(ctx, scope, source, batch)
 	if err != nil {
 		return report, err
 	}
@@ -91,7 +93,7 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 }
 
 // record stores what one read of a source found, item by item.
-func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, batch ports.ChangeBatch) (IntakeReport, error) {
+func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, batch ports.ChangeBatch) (IntakeReport, error) {
 	var report IntakeReport
 	report.Problems = slices.Clone(batch.Problems)
 	held := map[string]string{}
@@ -101,27 +103,84 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, batch por
 			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: detail})
 			continue
 		}
-		outcome, err := i.recordFile(ctx, scope, item)
+		outcome, err := i.recordFile(ctx, scope, source, item)
 		if err != nil {
 			return report, err
 		}
 		report.Records += outcome.records
-		if outcome.problem != "" {
-			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: outcome.problem})
-		}
+		report.note(item.Path, outcome)
 	}
 	for _, item := range batch.Items {
-		outcome, err := i.recordItem(ctx, scope, item)
+		outcome, err := i.recordItem(ctx, scope, source, item)
 		if err != nil {
 			return report, err
 		}
 		report.Versions += outcome.versions
 		report.WorkOrders += outcome.workOrders
-		if outcome.problem != "" {
-			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: outcome.problem})
-		}
+		report.note(item.Path, outcome)
 	}
 	return report, nil
+}
+
+func (r *IntakeReport) note(path string, outcome itemOutcome) {
+	r.Conflicts += outcome.conflicts
+	if outcome.problem != "" {
+		r.Problems = append(r.Problems, planning.SourceProblem{Path: path, Detail: outcome.problem})
+	}
+}
+
+// unreadLineage says a transaction needs what only a source can say, and a transaction asks no
+// source (R17).
+type unreadLineage struct{ read, recorded string }
+
+func (u *unreadLineage) Error() string {
+	return "the lineage of " + u.read + " against " + u.recorded + " is unread"
+}
+
+// lineages are the answers a source gave for one file.
+type lineages map[unreadLineage]ports.Lineage
+
+// of answers from what a source said, and otherwise stops the transaction to ask it. A version with
+// no source has nothing to compare, and a read of the version itself is no change.
+func (l lineages) of(read, recorded string) (ports.Lineage, error) {
+	if recorded == "" || recorded == read {
+		return ports.LineageAhead, nil
+	}
+	pair := unreadLineage{read: read, recorded: recorded}
+	if stands, known := l[pair]; known {
+		return stands, nil
+	}
+	return "", &pair
+}
+
+// withLineage runs one file's transaction with what its source says of that file. The transaction
+// finds which versions it stands against, under the revision that decides what it writes, and one it
+// has no answer for stops it, so the question goes to the source with nothing held open. An answer
+// names two versions that never change, so one a later pass reads again stays true.
+func withLineage(ctx context.Context, source ports.WorkSource, write func(lineages) error) error {
+	known := lineages{}
+	for {
+		err := write(known)
+		var unread *unreadLineage
+		if !errors.As(err, &unread) {
+			return err
+		}
+		stands, err := source.Relate(ctx, unread.read, unread.recorded)
+		switch {
+		case errors.Is(err, ports.ErrUnsupported):
+			stands = ports.LineageAhead
+		case err != nil:
+			return err
+		}
+		known[*unread] = stands
+	}
+}
+
+// baseMoved is the problem of a file that changed what the ledger's version changed, which is a
+// conflict and not the next version. A merge holds both, so the merge is what intake reads next.
+func baseMoved(kind, id string) string {
+	return fmt.Sprintf("%v: %s %s has a version this commit never held, and this commit changes it too. Merge the two, and intake reads the merge as the next version",
+		planning.ErrBaseMoved, kind, id)
 }
 
 // repeatedRequirement finds a key an earlier file in this batch holds, and otherwise marks
@@ -200,19 +259,22 @@ type itemOutcome struct {
 	versions   int
 	workOrders int
 	records    int
+	conflicts  int
 	problem    string
 }
 
 // recordItem is one transaction. The revision serializes it with every other
 // writer, so the digest it compares cannot change before it commits.
-func (i *Intake) recordItem(ctx context.Context, scope ledger.WorkspaceID, item ports.WorkItem) (itemOutcome, error) {
+func (i *Intake) recordItem(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.WorkItem) (itemOutcome, error) {
 	var outcome itemOutcome
-	err := i.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
-		r := &itemRecorder{tx: tx, item: item, windows: i.windows}
-		var err error
-		outcome = itemOutcome{}
-		outcome, err = r.record()
-		return err
+	err := withLineage(ctx, source, func(known lineages) error {
+		return i.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
+			r := &itemRecorder{tx: tx, item: item, windows: i.windows, known: known}
+			var err error
+			outcome = itemOutcome{}
+			outcome, err = r.record()
+			return err
+		})
 	})
 	return outcome, err
 }
@@ -221,12 +283,21 @@ type itemRecorder struct {
 	tx      ports.WriteTx
 	item    ports.WorkItem
 	windows messages.Windows
+	known   lineages
+	// moved says this file's base moved, once nextVersion has read that.
+	moved bool
 }
 
 func (r *itemRecorder) record() (itemOutcome, error) {
 	contract, isNew, err := r.nextVersion()
-	if err != nil || contract.ID == "" {
+	if err != nil {
 		return itemOutcome{}, err
+	}
+	if r.moved {
+		return itemOutcome{conflicts: 1, problem: baseMoved("contract", r.item.Contract.ID)}, nil
+	}
+	if contract.ID == "" {
+		return itemOutcome{}, nil
 	}
 	repeated, err := r.foreignOrder(contract.ID)
 	if err != nil {
@@ -367,8 +438,9 @@ func (r *itemRecorder) tellLanes(contract planning.Contract) error {
 	return nil
 }
 
-// nextVersion builds the version to record, or a zero contract when the ledger
-// already holds this digest.
+// nextVersion builds the version to record, or a zero contract when this read changes nothing: the
+// ledger holds this digest, or the ledger's version was written knowing what this commit holds. A
+// commit that never saw the ledger's version and changes the file too sets moved.
 func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 	file := r.item.Contract
 	contract := planning.Contract{
@@ -393,6 +465,14 @@ func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 		return planning.Contract{}, false, err
 	}
 	if latest.Digest == r.item.Digest {
+		return planning.Contract{}, false, nil
+	}
+	stands, err := r.known.of(r.item.Source, latest.Source)
+	if err != nil {
+		return planning.Contract{}, false, err
+	}
+	if stands != ports.LineageAhead {
+		r.moved = stands == ports.LineageDiverged
 		return planning.Contract{}, false, nil
 	}
 	contract.ID, contract.Version, contract.PlanID = latest.ID, latest.Version+1, latest.PlanID

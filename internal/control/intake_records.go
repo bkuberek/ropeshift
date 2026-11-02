@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -14,28 +15,45 @@ import (
 
 // recordFile keeps what a goal, plan, or requirements file says. It is one transaction, and
 // a file that says what the ledger holds appends nothing.
-func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, item ports.RecordItem) (itemOutcome, error) {
+func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.RecordItem) (itemOutcome, error) {
 	var outcome itemOutcome
-	err := i.store.Write(ctx, scope, "intake.file", func(tx ports.WriteTx) error {
-		r := &fileRecorder{tx: tx, item: item}
-		var err error
-		switch {
-		case item.Goal != nil:
-			outcome, err = r.goal()
-		case item.Plan != nil:
-			outcome, err = r.plan()
-		default:
-			outcome, err = r.requirements()
-		}
-		crashpoint.Hit("intake.file", "recorded")
-		return err
+	err := withLineage(ctx, source, func(known lineages) error {
+		return i.store.Write(ctx, scope, "intake.file", func(tx ports.WriteTx) error {
+			r := &fileRecorder{tx: tx, item: item, known: known}
+			var err error
+			switch {
+			case item.Goal != nil:
+				outcome, err = r.goal()
+			case item.Plan != nil:
+				outcome, err = r.plan()
+			default:
+				outcome, err = r.requirements()
+			}
+			crashpoint.Hit("intake.file", "recorded")
+			return err
+		})
 	})
 	return outcome, err
 }
 
 type fileRecorder struct {
-	tx   ports.WriteTx
-	item ports.RecordItem
+	tx    ports.WriteTx
+	item  ports.RecordItem
+	known lineages
+}
+
+// standing reads a changed record against this file: true when the change stands, and an outcome
+// that says so when it does not, because the record's version was written knowing this commit, or
+// the two changed a base neither saw.
+func (r *fileRecorder) standing(kind, id, recorded string) (itemOutcome, bool, error) {
+	stands, err := r.known.of(r.item.Source, recorded)
+	switch {
+	case err != nil:
+		return itemOutcome{}, false, err
+	case stands == ports.LineageDiverged:
+		return itemOutcome{conflicts: 1, problem: baseMoved(kind, id)}, false, nil
+	}
+	return itemOutcome{}, stands == ports.LineageAhead, nil
 }
 
 func (r *fileRecorder) writer() planningWriter {
@@ -81,6 +99,9 @@ func (r *fileRecorder) goal() (itemOutcome, error) {
 		if sameGoal(current, next) {
 			return itemOutcome{}, nil
 		}
+		if outcome, stands, err := r.standing(planning.SubjectGoal, r.item.Key.NativeID, current.Source); err != nil || !stands {
+			return outcome, err
+		}
 	} else if id, err = r.newRecord(planning.SubjectGoal, r.item.Key); err != nil {
 		return itemOutcome{}, err
 	}
@@ -124,6 +145,9 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 	if current.Title == next.Title && current.GoalID == next.GoalID {
 		return itemOutcome{}, nil
 	}
+	if outcome, stands, err := r.standing(planning.SubjectPlan, r.item.Key.NativeID, current.Source); err != nil || !stands {
+		return outcome, err
+	}
 	next.ID = id
 	return itemOutcome{records: 1}, r.writer().changedPlan(next)
 }
@@ -147,6 +171,15 @@ func (r *fileRecorder) requirements() (itemOutcome, error) {
 				return itemOutcome{}, err
 			}
 			if current.Digest == next.Digest {
+				continue
+			}
+			held, stands, err := r.standing(planning.SubjectRequirement, spec.ID, current.Source)
+			if err != nil {
+				return itemOutcome{}, err
+			}
+			if !stands {
+				outcome.conflicts += held.conflicts
+				outcome.problem = strings.TrimPrefix(outcome.problem+"; "+held.problem, "; ")
 				continue
 			}
 			next.ID, next.Version = id, current.Version+1

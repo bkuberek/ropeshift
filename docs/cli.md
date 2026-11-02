@@ -50,7 +50,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift document show <path> [--version V] [--instance I]` | Prints one document. `--version` names an earlier version, and `--instance` names the repository when two hold the path |
 | `ropeshift document versions <path> [--instance I]` | Lists the versions of one document, newest first |
 | `ropeshift lane start <work-order> [--lane L] [--profile F]` | Asks the worker holding the claim to run a lane. It returns when the ledger holds the request, and a retry with the same lane ID is the same request. `--profile` names a TOML file that is this lane's own profile layer, over the built-in, user, and repository layers. It cannot raise the permission mode or change what the machine admits |
-| `ropeshift source list` | Lists sources, their health, and the files they cannot read |
+| `ropeshift source list` | Lists sources, their health, the files they cannot read, and each file whose base moved: a commit that never held the ledger's version and changes the file too is no new version, and merging the two is what settles it |
 | `ropeshift lane list` | Lists lanes. Each line states the lane's state, liveness, reachability, conditions, and whether the value is `observed` or `last_reported` |
 | `ropeshift lane show <lane>` | Shows one lane the same way. `--json` adds `as_of` and `reported_by_epoch` |
 | `ropeshift lane respawn <work-order>` | Stops a running lane's session, and starts its next generation from that session. It needs a member's session |

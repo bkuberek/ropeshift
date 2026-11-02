@@ -271,7 +271,7 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 		return err
 	}
 	crashpoint.Hit("intake.plan", "polled")
-	report, err := i.record(ctx, scope, batch)
+	report, err := i.record(ctx, scope, source, batch)
 	if err != nil {
 		return err
 	}
@@ -291,7 +291,8 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 		return err
 	}
 	crashpoint.Hit("intake.plan", "settled")
-	detail := fmt.Sprintf("%d contract versions, %d work orders, %d records, %d files it could not read", report.Versions, report.WorkOrders, report.Records, len(report.Problems))
+	detail := fmt.Sprintf("%d contract versions, %d work orders, %d records, %d conflicts, %d files it could not read",
+		report.Versions, report.WorkOrders, report.Records, report.Conflicts, len(report.Problems)-report.Conflicts)
 	return i.store.Write(ctx, scope, "intake.plan", func(tx ports.WriteTx) error {
 		if err := tx.WorkOrders().TakenIn(plan.order.ID, plan.commit); err != nil {
 			return err

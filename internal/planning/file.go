@@ -64,6 +64,9 @@ var (
 	ErrUnknownKind = errors.New("unknown file kind")
 	// ErrBadFile means the file is ours and cannot be read.
 	ErrBadFile = errors.New("bad repository file")
+	// ErrBaseMoved means a file and the ledger's version of it each changed a base the other never
+	// saw, so neither can stand as the next version of the other.
+	ErrBaseMoved = errors.New("the base moved")
 )
 
 // Criterion is one acceptance criterion.

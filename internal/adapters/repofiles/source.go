@@ -173,6 +173,56 @@ func (s *Source) Read(ctx context.Context, key ledger.ExternalKey) (ports.WorkIt
 	return ports.WorkItem{}, fmt.Errorf("%s: %w", key, ports.ErrNotFound)
 }
 
+// Relate compares the two files by what each one's history held, not by their commits, because a
+// squash or a rebase keeps a branch's text and loses its commits. A recorded file that no longer
+// resolves has nothing to compare, so a commit a person dropped never stops a later version.
+func (s *Source) Relate(ctx context.Context, read, recorded string) (ports.Lineage, error) {
+	readPath, readCommit, readOK := splitSource(read)
+	recordedPath, recordedCommit, recordedOK := splitSource(recorded)
+	if !readOK || !recordedOK {
+		return ports.LineageAhead, nil
+	}
+	recordedBlob, err := s.blobAt(ctx, recordedCommit, recordedPath)
+	if err != nil {
+		return ports.LineageAhead, ctx.Err()
+	}
+	readBlob, err := s.blobAt(ctx, readCommit, readPath)
+	if err != nil {
+		return "", err
+	}
+	if ahead, err := s.holds(ctx, readCommit, recordedPath, recordedBlob); err != nil || ahead {
+		return ports.LineageAhead, err
+	}
+	behind, err := s.holds(ctx, recordedCommit, readPath, readBlob)
+	switch {
+	case err != nil:
+		return "", err
+	case behind:
+		return ports.LineageBehind, nil
+	}
+	return ports.LineageDiverged, nil
+}
+
+// splitSource reads what itemOf wrote: a path and a commit, and a path can hold an `@`.
+func splitSource(source string) (path, commit string, ok bool) {
+	at := strings.LastIndexByte(source, '@')
+	if at <= 0 || at == len(source)-1 {
+		return "", "", false
+	}
+	return source[:at], source[at+1:], true
+}
+
+func (s *Source) blobAt(ctx context.Context, commit, path string) (string, error) {
+	return s.git.Text(ctx, "rev-parse", "--verify", "--quiet", commit+":"+path)
+}
+
+// holds says a commit's history had this blob at this path. It walks every side of every merge,
+// because a merge that took one side's file still knew the other's.
+func (s *Source) holds(ctx context.Context, commit, path, blob string) (bool, error) {
+	found, err := s.git.Text(ctx, "log", "-1", "--format=%H", "--full-history", "-m", "--root", "--find-object="+blob, commit, "--", path)
+	return found != "", err
+}
+
 // VerifyDelivery reports that repository files take no webhooks: polling must work
 // alone.
 func (s *Source) VerifyDelivery(context.Context, ports.InboundDelivery) (ports.ChangeHint, error) {

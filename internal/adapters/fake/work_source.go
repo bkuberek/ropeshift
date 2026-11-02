@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 
 	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
@@ -28,11 +30,50 @@ type WorkSource struct {
 	files    map[string][]byte
 	revision int
 	health   ports.SourceHealth
+	// line names a fork's commits, and held is every digest this line's history has seen.
+	line    string
+	held    map[string]bool
+	history *sourceHistory
+}
+
+// sourceHistory is what a source and its forks share, as a repository's objects are shared.
+type sourceHistory struct {
+	mu    sync.Mutex
+	forks int
+	// held is what each commit's history had seen, and files the digest of each version read.
+	held  map[string]map[string]bool
+	files map[string]string
 }
 
 // NewWorkSource returns an empty source.
 func NewWorkSource() *WorkSource {
-	return &WorkSource{files: map[string][]byte{}, health: ports.SourceHealth{State: planning.HealthOK}}
+	return &WorkSource{
+		files: map[string][]byte{}, health: ports.SourceHealth{State: planning.HealthOK}, held: map[string]bool{},
+		history: &sourceHistory{held: map[string]map[string]bool{}, files: map[string]string{}},
+	}
+}
+
+func fileDigest(content []byte) string {
+	sum := sha256.Sum256(content)
+	return planning.DigestSHA256 + hex.EncodeToString(sum[:])
+}
+
+func (s *WorkSource) commit() string { return s.line + strconv.Itoa(s.revision) }
+
+// commitOf reads the commit a version names.
+func commitOf(source string) string {
+	return source[strings.LastIndexByte(source, '@')+1:]
+}
+
+// committed moves this line on and keeps what its history has seen. The caller holds mu.
+func (s *WorkSource) committed() {
+	s.revision++
+	for _, content := range s.files {
+		s.held[fileDigest(content)] = true
+	}
+	s.history.mu.Lock()
+	defer s.history.mu.Unlock()
+	s.history.held[s.commit()] = maps.Clone(s.held)
 }
 
 // Write stands for committing one file.
@@ -40,7 +81,36 @@ func (s *WorkSource) Write(name string, content []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.files[name] = slices.Clone(content)
-	s.revision++
+	s.committed()
+}
+
+// Fork stands for a branch cut here: it holds this history, and what either side writes next the
+// other does not hold.
+func (s *WorkSource) Fork() *WorkSource {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.history.mu.Lock()
+	defer s.history.mu.Unlock()
+	s.history.forks++
+	fork := &WorkSource{
+		files: maps.Clone(s.files), revision: s.revision, health: s.health, held: maps.Clone(s.held), history: s.history,
+		line: fmt.Sprintf("f%d.", s.history.forks),
+	}
+	s.history.held[fork.commit()] = maps.Clone(fork.held)
+	return fork
+}
+
+// Merge stands for merging a branch and committing one file as a person resolved it, so this line's
+// history holds what the branch's did.
+func (s *WorkSource) Merge(branch *WorkSource, name string, content []byte) {
+	branch.mu.Lock()
+	seen := maps.Clone(branch.held)
+	branch.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	maps.Copy(s.held, seen)
+	s.files[name] = slices.Clone(content)
+	s.committed()
 }
 
 // Rename stands for moving one file.
@@ -49,7 +119,17 @@ func (s *WorkSource) Rename(from, to string) {
 	defer s.mu.Unlock()
 	s.files[to] = s.files[from]
 	delete(s.files, from)
-	s.revision++
+	s.committed()
+}
+
+// source names one file at this commit, and keeps what it held there for Relate to read. The caller
+// holds mu.
+func (s *WorkSource) source(name string) string {
+	source := name + "@" + s.commit()
+	s.history.mu.Lock()
+	defer s.history.mu.Unlock()
+	s.history.files[source] = fileDigest(s.files[name])
+	return source
 }
 
 // SetHealth sets what Health reports.
@@ -96,8 +176,7 @@ func (s *WorkSource) Poll(_ context.Context, cursor ports.Cursor) (ports.ChangeB
 			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: name, Detail: err.Error()})
 			continue
 		case doc.Contract == nil:
-			source := fmt.Sprintf("%s@%d", name, s.revision)
-			if record, ok := ports.RecordOf(doc, sourceAdapter, sourceInstance, name, source); ok {
+			if record, ok := ports.RecordOf(doc, sourceAdapter, sourceInstance, name, s.source(name)); ok {
 				batch.Records = append(batch.Records, record)
 			}
 			continue
@@ -109,11 +188,10 @@ func (s *WorkSource) Poll(_ context.Context, cursor ports.Cursor) (ports.ChangeB
 }
 
 func (s *WorkSource) item(name string, doc planning.Document) ports.WorkItem {
-	sum := sha256.Sum256(s.files[name])
 	return ports.WorkItem{
 		Key:       ledger.ExternalKey{Adapter: sourceAdapter, Instance: sourceInstance, NativeID: doc.Contract.ID},
-		Digest:    planning.DigestSHA256 + hex.EncodeToString(sum[:]),
-		Source:    fmt.Sprintf("%s@%d", name, s.revision),
+		Digest:    fileDigest(s.files[name]),
+		Source:    s.source(name),
 		Path:      name,
 		Contract:  *doc.Contract,
 		Statement: doc.Statement,
@@ -132,6 +210,22 @@ func (s *WorkSource) Read(ctx context.Context, key ledger.ExternalKey) (ports.Wo
 		}
 	}
 	return ports.WorkItem{}, fmt.Errorf("%s: %w", key, ports.ErrNotFound)
+}
+
+// Relate reads what each version's commit had seen, as the repository source reads its history. A
+// version from any other source is one this history has no word on.
+func (s *WorkSource) Relate(_ context.Context, read, recorded string) (ports.Lineage, error) {
+	s.history.mu.Lock()
+	defer s.history.mu.Unlock()
+	readDigest, known := s.history.files[read]
+	recordedDigest, knownToo := s.history.files[recorded]
+	switch {
+	case !known || !knownToo, s.history.held[commitOf(read)][recordedDigest]:
+		return ports.LineageAhead, nil
+	case s.history.held[commitOf(recorded)][readDigest]:
+		return ports.LineageBehind, nil
+	}
+	return ports.LineageDiverged, nil
 }
 
 // VerifyDelivery reports that the fake takes no webhooks.

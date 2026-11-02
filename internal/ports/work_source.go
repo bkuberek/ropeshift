@@ -157,6 +157,21 @@ type SourceHealth struct {
 	Detail string
 }
 
+// Lineage says how what a source reads now stands to a version the ledger holds from it.
+type Lineage string
+
+// The ways two versions of one file can stand.
+const (
+	// LineageAhead says the read was written knowing the version the ledger holds, so what differs
+	// is a change.
+	LineageAhead Lineage = "ahead"
+	// LineageBehind says the version the ledger holds was written knowing the read, so the read is
+	// only old, and nothing changed.
+	LineageBehind Lineage = "behind"
+	// LineageDiverged says neither knew the other, so each changed a base that moved.
+	LineageDiverged Lineage = "diverged"
+)
+
 // WorkSource reads planned work from outside the ledger. The contract in the
 // architecture's adapter section binds every implementation.
 type WorkSource interface {
@@ -168,6 +183,10 @@ type WorkSource interface {
 	Poll(ctx context.Context, cursor Cursor) (ChangeBatch, error)
 	// Read returns current state for one item, or ErrNotFound.
 	Read(ctx context.Context, key ledger.ExternalKey) (WorkItem, error)
+	// Relate reads how a version it read stands to one the ledger recorded, each named by its
+	// Source. A recorded version it can no longer find has nothing to compare, and reads as ahead.
+	// A source with one line of history answers ErrUnsupported.
+	Relate(ctx context.Context, read, recorded string) (Lineage, error)
 	// VerifyDelivery authenticates a webhook and converts it to a hint.
 	VerifyDelivery(ctx context.Context, d InboundDelivery) (ChangeHint, error)
 	// Apply performs one outbox item and reports the outcome.

@@ -26,19 +26,46 @@ func TestWorkSourceContract(t *testing.T) {
 				Source: repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()}),
 				Commit: func(name, content string) { repo.Commit(name, content) },
 				Rename: repo.Rename,
+				Fork:   func() (SourceRig, func(name, content string)) { return repoFork(repo) },
 			}
 		})
 	})
 	t.Run("fake", func(t *testing.T) {
-		RunWorkSource(t, func(*testing.T) SourceRig {
-			source := fake.NewWorkSource()
-			return SourceRig{
-				Source: source,
-				Commit: func(name, content string) { source.Write(name, []byte(content)) },
-				Rename: source.Rename,
-			}
-		})
+		RunWorkSource(t, func(*testing.T) SourceRig { return fakeRig(fake.NewWorkSource()) })
 	})
+}
+
+// repoFork cuts a branch and leaves the repository on the one it stood on, so a rig on either
+// commits where it should.
+func repoFork(repo *gittest.Repo) (SourceRig, func(name, content string)) {
+	const branch = "forked"
+	home := repo.Git("symbolic-ref", "--short", "HEAD")
+	repo.Git("branch", branch)
+	onBranch := SourceRig{
+		Source: repofiles.New(repofiles.Config{Repository: repo.Dir, Ref: "refs/heads/" + branch, Env: repo.Env()}),
+		Commit: func(name, content string) {
+			repo.Git("switch", "--quiet", branch)
+			repo.Commit(name, content)
+			repo.Git("switch", "--quiet", home)
+		},
+	}
+	merge := func(name, content string) {
+		repo.Git("merge", "--quiet", "--no-edit", "--strategy=ours", branch)
+		repo.Commit(name, content)
+	}
+	return onBranch, merge
+}
+
+func fakeRig(source *fake.WorkSource) SourceRig {
+	return SourceRig{
+		Source: source,
+		Commit: func(name, content string) { source.Write(name, []byte(content)) },
+		Rename: source.Rename,
+		Fork: func() (SourceRig, func(name, content string)) {
+			branch := source.Fork()
+			return fakeRig(branch), func(name, content string) { source.Merge(branch, name, []byte(content)) }
+		},
+	}
 }
 
 // TestDigestIsTheGitBlobHash is D1's digest: the hash git holds, of the file as
