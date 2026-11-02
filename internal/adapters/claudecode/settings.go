@@ -28,8 +28,8 @@ const (
 // hookEvents are the events a lane listens to.
 // approvals.
 var hookEvents = []string{
-	"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Notification",
-	"PreCompact", "PostCompact", "Stop", "StopFailure", "SessionEnd",
+	"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PermissionDenied", "PostToolUse",
+	"PostToolUseFailure", "Notification", "PreCompact", "PostCompact", "Stop", "StopFailure", "SessionEnd",
 }
 
 type hookCommand struct {

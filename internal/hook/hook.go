@@ -45,10 +45,12 @@ const (
 )
 
 const (
-	eventPreToolUse        = "PreToolUse"
-	eventPostToolUse       = "PostToolUse"
-	eventPermissionRequest = "PermissionRequest"
-	eventSessionStart      = "SessionStart"
+	eventPreToolUse         = "PreToolUse"
+	eventPostToolUse        = "PostToolUse"
+	eventPostToolUseFailure = lanes.EventToolFailed
+	eventPermissionDenied   = lanes.EventToolDenied
+	eventPermissionRequest  = "PermissionRequest"
+	eventSessionStart       = "SessionStart"
 )
 
 const unavailablePolicy = "the policy file cannot be read"
@@ -104,9 +106,14 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 	event.Lane, event.Generation, event.AtMs = cfg.lane, cfg.generation, time.Now().UnixMilli()
 	switch cfg.event {
 	case eventPreToolUse:
-		if !decide(cfg, input, stdout) {
+		verdict := decide(cfg, input, stdout)
+		if verdict != questionDeferred {
 			event.Asked = nil
 		}
+		if verdict == callDenied {
+			event.Detail = lanes.DetailDenied
+		}
+		nameCall(&event, input)
 	case eventSessionStart:
 		event.Socket = cfg.session
 		ack := ackDeadline
@@ -115,18 +122,31 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 		}
 		reground(cfg, event, forwardWithin(cfg, event, ack), stdout)
 		return
-	case eventPostToolUse:
-		if call, err := readCall(input); err == nil {
-			event.Digest = call.Digest
-		}
+	case eventPostToolUse, eventPostToolUseFailure, eventPermissionDenied:
+		nameCall(&event, input)
 	case eventPermissionRequest:
-		if call, err := readCall(input); err == nil {
-			event.Digest = call.Digest
-		}
+		nameCall(&event, input)
 		awaitDecision(cfg, event, input, stdout)
 		return
 	}
 	forward(cfg, event)
+}
+
+// verdict is what a policy hook made of a call.
+type verdict int
+
+const (
+	callPassed verdict = iota
+	questionDeferred
+	callDenied
+)
+
+// nameCall gives an event the digest of its call, which is all a hook forwards of its input outside
+// a request. It ties a `PermissionRequest`, which names no call, to the start of the one it holds.
+func nameCall(event *lanes.HookEvent, input []byte) {
+	if call, err := readCall(input); err == nil {
+		event.Digest = call.Digest
+	}
 }
 
 // requestedCall is the part of a hook's input a request reads.
@@ -216,10 +236,10 @@ func answerPermission(stdout io.Writer, decision, reason string) {
 // deferGated ends a turn on a call a person must approve, once a request stands for it, so a lane
 // parks with no process waiting. A worker that does not answer in time leaves the call to
 // PermissionRequest, which waits, so this can make a lane slower and never let a call through.
-func deferGated(cfg config, input []byte, stdout io.Writer) {
+func deferGated(cfg config, input []byte, stdout io.Writer) verdict {
 	var call requestedCall
 	if cfg.socket == "" || json.Unmarshal(input, &call) != nil {
-		return
+		return callPassed
 	}
 	request := lanes.Request{
 		Version: lanes.SocketProtocol, Token: cfg.token,
@@ -227,31 +247,33 @@ func deferGated(cfg config, input []byte, stdout io.Writer) {
 	}
 	reply, err := api.CallLane(cfg.socket, request, dialDeadline, peekDeadline)
 	if err != nil || !reply.OK || reply.Approval == nil {
-		return
+		return callPassed
 	}
 	switch reply.Approval.Decision {
 	case lanes.ApprovalWaiting:
 		write(stdout, map[string]string{"hookEventName": eventPreToolUse, "permissionDecision": "defer"})
 	case lanes.ApprovalDeny:
 		deny(stdout, reply.Approval.Reason)
+		return callDenied
 	}
+	return callPassed
 }
 
-// decide comes first, so a denial never depends on the worker. It reports whether it
-// deferred the agent's question tool, which is the one case that forwards tool input.
-func decide(cfg config, input []byte, stdout io.Writer) bool {
+// decide comes first, so a denial never depends on the worker. Only a deferred question tool forwards
+// tool input, and a denied call is one no later hook reports.
+func decide(cfg config, input []byte, stdout io.Writer) verdict {
 	if cfg.policy == "" {
-		return false
+		return callPassed
 	}
 	raw, err := os.ReadFile(cfg.policy)
 	if err != nil {
 		deny(stdout, unavailablePolicy)
-		return false
+		return callDenied
 	}
 	var policy lanes.DenyPolicy
 	if json.Unmarshal(raw, &policy) != nil {
 		deny(stdout, unavailablePolicy)
-		return false
+		return callDenied
 	}
 	var call struct {
 		Tool  string `json:"tool_name"`
@@ -264,20 +286,20 @@ func decide(cfg config, input []byte, stdout io.Writer) bool {
 	}
 	if json.Unmarshal(input, &call) != nil {
 		deny(stdout, unavailablePolicy)
-		return false
+		return callDenied
 	}
 	if reason, held := policy.HoldsTool(call.Tool); held {
 		deny(stdout, reason)
-		return false
+		return callDenied
 	}
 	if call.Tool == lanes.ToolQuestion {
 		switch policy.QuestionTool {
 		case lanes.QuestionToolDefer:
 			write(stdout, map[string]string{"hookEventName": eventPreToolUse, "permissionDecision": "defer"})
-			return true
+			return questionDeferred
 		case lanes.QuestionToolDeny:
 			deny(stdout, lanes.ReasonUseAsk)
-			return false
+			return callDenied
 		}
 	}
 	target := call.Input.File
@@ -288,12 +310,12 @@ func decide(cfg config, input []byte, stdout io.Writer) bool {
 	reason, denied := policy.Decide(tool)
 	if denied {
 		deny(stdout, reason)
-		return false
+		return callDenied
 	}
 	if policy.Gated(tool) {
-		deferGated(cfg, input, stdout)
+		return deferGated(cfg, input, stdout)
 	}
-	return false
+	return callPassed
 }
 
 func deny(stdout io.Writer, reason string) {

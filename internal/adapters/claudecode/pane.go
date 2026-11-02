@@ -568,7 +568,7 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 		s.waiting = event.Detail == notificationNeedsInput
 	case eventPermissionRequest:
 		s.approvals[event.Digest] = true
-	case hookPostToolUse:
+	case hookPostToolUse, lanes.EventToolFailed:
 		delete(s.approvals, event.Digest)
 	case hookPostCompact:
 		s.push(ports.DriverEvent{Kind: ports.EventCompaction, Detail: event.Detail})

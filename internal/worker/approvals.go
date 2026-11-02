@@ -53,7 +53,11 @@ func (w *Worker) takeApproval(ctx context.Context, lane lanes.Record, request la
 	if err != nil {
 		return refused(lanes.CodeInvalid, err.Error())
 	}
-	return run.lookAt(ctx, lane, call.Lands(insideWorktree(lane.Worktree, call.Path)), request)
+	reply := run.lookAt(ctx, lane, call.Lands(insideWorktree(lane.Worktree, call.Path)), request)
+	if reply.Approval != nil && reply.Approval.Decision == lanes.ApprovalDeny {
+		run.callRefused(ctx, lane, call.Digest)
+	}
+	return reply
 }
 
 // insideWorktree reads where a call lands, which is what a decision binds to. This runs on every

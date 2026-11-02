@@ -52,6 +52,20 @@ type HookEvent struct {
 // this name: the driver's status line command reports on the same socket.
 const EventStatusLine = "StatusLine"
 
+// DetailDenied is the Detail of a `PreToolUse` a hook refused. It is kept with the event, because a
+// refused call never reaches a hook that would say it ended.
+const DetailDenied = "denied"
+
+// The two hooks that end a call `PostToolUse` does not, which fires only for one that succeeded.
+const (
+	EventToolFailed = "PostToolUseFailure"
+	EventToolDenied = "PermissionDenied"
+)
+
+// EventCallDenied names what a worker keeps when it refuses a call a `PermissionRequest` held. The
+// CLI has no hook of this name, and it reports no end for a call that was refused.
+const EventCallDenied = "CallDenied"
+
 // StatusReport is the part of a status line's input a worker uses.
 type StatusReport struct {
 	// ContextKnown is false when the line had no usage to read, which holds after a
@@ -158,6 +172,10 @@ func NewHookEvent(event string, input []byte) HookEvent {
 			out.Detail = detail
 			break
 		}
+	}
+	if event == EventToolFailed || event == EventToolDenied {
+		// These are free text, and a failed tool's is its output, which does not leave the session.
+		out.Detail = ""
 	}
 	out.Subject = payload.ToolUseID
 	if out.Subject == "" {

@@ -38,7 +38,8 @@ type laneState struct {
 	mu       sync.Mutex
 	tracker  *lanes.Tracker
 	progress time.Time
-	tools    map[string]bool
+	// tools holds the calls at work, by the ID of each, with the digest of what it called.
+	tools    map[string]string
 	context  int64
 	baseline int64
 	since    time.Time
@@ -78,7 +79,7 @@ type laneState struct {
 }
 
 func newLaneState(start lanes.ActualState, now time.Time) *laneState {
-	return &laneState{tracker: lanes.NewTracker(start), tools: map[string]bool{}, progress: now, since: now}
+	return &laneState{tracker: lanes.NewTracker(start), tools: map[string]string{}, progress: now, since: now}
 }
 
 // laneStateOf goes on from what a journal holds.
@@ -173,7 +174,7 @@ func (s *laneState) current() lanes.ActualState {
 func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tools, s.progress, s.since, s.context, s.baseline = map[string]bool{}, now, now, 0, baseline
+	s.tools, s.progress, s.since, s.context, s.baseline = map[string]string{}, now, now, 0, baseline
 	s.unconfirmed, s.retried, s.baselined = false, false, false
 	s.compact = compaction{}
 }
@@ -219,6 +220,57 @@ func (s *laneState) journalContext(progress *lanes.Progress) {
 	defer s.mu.Unlock()
 	progress.ContextTokens, progress.BaselineTokens = s.context, s.baseline
 	progress.Compactions, progress.CompactPending, progress.CompactSeen = s.compact.asked, s.compact.pending, s.compact.seen
+}
+
+// callStarted keeps a call at work. A call a hook refused never ran, and nothing will say it ended.
+func (s *laneState) callStarted(event lanes.HookEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if event.Detail != lanes.DetailDenied {
+		s.tools[event.Subject] = event.Digest
+	}
+}
+
+func (s *laneState) callEnded(subject string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.tools, subject)
+}
+
+// callsEnded closes what a turn left open. A cancelled call and a deferred one report no end, and a
+// turn's end is the end of its calls.
+func (s *laneState) callsEnded() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clear(s.tools)
+}
+
+// refuseCalls ends the calls with one digest, and names them. A `PermissionRequest` names no call, so
+// a digest is all that ties a refusal to the calls it ends.
+func (s *laneState) refuseCalls(digest string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for subject, called := range s.tools {
+		if called == digest {
+			out = append(out, subject)
+			delete(s.tools, subject)
+		}
+	}
+	return out
+}
+
+// callRefused ends a call a worker refused. A refusal reaches no hook, so the journal keeps one a
+// restart can read.
+func (r *laneRun) callRefused(ctx context.Context, lane lanes.Record, digest string) {
+	for _, subject := range r.state.refuseCalls(digest) {
+		event := lanes.HookEvent{
+			Lane: lane.ID, Generation: lane.Generation, Event: lanes.EventCallDenied, Subject: subject, AtMs: r.w.clock.Now().UnixMilli(),
+		}
+		if err := r.w.journal.MergeHook(context.WithoutCancel(ctx), event); err != nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		}
+	}
 }
 
 // signal moves the lane and keeps where it stands, so an adopted run goes on from there.
@@ -301,6 +353,7 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 			r.noteModel(lanes.Reachable)
 		}
 		r.turnEndedWithRequests(ctx, event.Turn)
+		s.callsEnded()
 		r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed, lanes.OnTurnFinished)
 		if event.Turn.Status == ports.TurnCompleted {
 			r.limitPassed(ctx)
@@ -335,18 +388,19 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		}
 	case hookPreToolUse:
 		r.progressed()
-		s.mu.Lock()
-		s.tools[event.Subject] = true
-		s.mu.Unlock()
+		s.callStarted(event)
 		r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed)
-	case hookPostToolUse:
+	case hookPostToolUse, lanes.EventToolFailed:
 		r.progressed()
-		s.mu.Lock()
-		delete(s.tools, event.Subject)
-		s.mu.Unlock()
+		s.callEnded(event.Subject)
 		if event.Digest != "" {
 			r.terminalAnswer(ctx, event.Digest, noteToolRan)
 		}
+	case lanes.EventToolDenied:
+		r.progressed()
+		s.callEnded(event.Subject)
+	case lanes.EventCallDenied:
+		s.callEnded(event.Subject)
 	case hookStopFailure:
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
 		r.noteFailure(ctx, event.Detail)

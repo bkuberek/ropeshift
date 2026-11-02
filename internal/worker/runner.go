@@ -167,10 +167,12 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 }
 
 // replayHooks reads what a session's hooks said while no worker listened. Each compaction merges
-// into one record of each hook, so only their last times say whether one is still under way.
+// into one record of each hook, so only their last times say whether one is still under way. A
+// call's end reads after every start, because two hooks in one millisecond sort by name.
 func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 	generation := r.currentGeneration()
 	var began, ended int64
+	var calls []lanes.HookRecord
 	for _, record := range hooks {
 		if record.Generation != generation {
 			continue
@@ -180,9 +182,14 @@ func (r *laneRun) replayHooks(ctx context.Context, hooks []lanes.HookRecord) {
 			began = record.LastMs
 		case hookPostCompact:
 			ended = record.LastMs
+		case hookPostToolUse, lanes.EventToolFailed, lanes.EventToolDenied, lanes.EventCallDenied:
+			calls = append(calls, record)
 		default:
 			r.observeHook(ctx, record.HookEvent)
 		}
+	}
+	for _, record := range calls {
+		r.observeHook(ctx, record.HookEvent)
 	}
 	switch {
 	case began > ended:
