@@ -15,6 +15,9 @@ const abortedStreaming = "aborted_streaming"
 // it, so what it means here is a choice: a real limit corrects it.
 const blockingLimit = "blocking_limit"
 
+// stopDeferred is the stop reason of a turn that ended on a deferred call.
+const stopDeferred = "tool_deferred"
+
 // percentOfUtilization turns the stream's fraction into the status line's percent.
 const percentOfUtilization = 100
 
@@ -40,7 +43,9 @@ type streamLine struct {
 	// name, and one word of a line must not cost the rest of it.
 	Error   json.RawMessage `json:"error"`
 	Attempt int64           `json:"attempt"`
-	Compact *struct {
+	// StopReason says what ended a turn, which a deferred call names.
+	StopReason string `json:"stop_reason"`
+	Compact    *struct {
 		Trigger string `json:"trigger"`
 	} `json:"compact_metadata"`
 	// MessagingSocket is where a session reads messages. It changes with the process.
@@ -157,7 +162,7 @@ func parseStreamEvent(line streamLine) parsed {
 // parseResult ends a turn. The driver reads this line and not the exit code, because
 // SIGINT exits 0 with `is_error` true.
 func parseResult(line streamLine) parsed {
-	turn := ports.TurnResult{Status: ports.TurnCompleted, Usage: line.Usage}
+	turn := ports.TurnResult{Status: ports.TurnCompleted, Usage: line.Usage, Deferred: line.StopReason == stopDeferred}
 	stopped := false
 	switch {
 	case line.TerminalReason == abortedStreaming:

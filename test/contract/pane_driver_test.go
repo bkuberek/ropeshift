@@ -312,6 +312,38 @@ func TestPaneCompactGoesByKeys(t *testing.T) {
 	t.Errorf("no compaction: %v", r.log("keys"))
 }
 
+// hookOf is one hook of a session, named the way a worker hands it to a driver.
+func hookOf(t *testing.T, s *driverSession, event string) lanes.HookEvent {
+	t.Helper()
+	lane, text, _ := strings.Cut(s.handle.ID, "/")
+	generation, err := strconv.ParseInt(text, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lanes.HookEvent{Lane: lane, Generation: generation, Event: event, Digest: "sha256:a"}
+}
+
+// The worker holds its own compaction while a request is open, and this holds if it does not: an
+// Enter on a permission prompt is an answer, so no key reaches a pane until the call ends.
+func TestPaneSendsNoKeysWhileARequestIsOpen(t *testing.T) {
+	r := newPaneRig(t, "pane-two-turns")
+	s := r.start()
+	s.until(ports.EventTurnEnded)
+	before := len(r.log("keys"))
+	r.driver.TakeHook(t.Context(), hookOf(t, s, "PermissionRequest"))
+	if err := r.driver.Compact(t.Context(), s.handle); !errors.Is(err, ports.ErrAwaitingAnswer) {
+		t.Fatalf("err %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if keys := r.log("keys"); len(keys) != before {
+		t.Errorf("keys reached a prompt: %v", keys[before:])
+	}
+	r.driver.TakeHook(t.Context(), hookOf(t, s, "PostToolUse"))
+	if err := r.driver.Compact(t.Context(), s.handle); err != nil {
+		t.Errorf("after its end: %v", err)
+	}
+}
+
 func TestPaneEndingMidTurnIsACrash(t *testing.T) {
 	r := newPaneRig(t, "pane-crash")
 	s := r.start()

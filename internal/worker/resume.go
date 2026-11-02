@@ -159,18 +159,19 @@ func fetchRefs(from *ledger.DesiredResume) []string {
 // pending instruction goes along on both paths.
 func (r *laneRun) resumeRecord(record lanes.Record, next int64, choice lanes.ResumeChoice, session string) lanes.Record {
 	from := r.lease.Resume
+	pending := lanes.WithApprovals(from.Pending, from.Approvals)
 	stored := lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence, Generation: next,
 		State: lanes.StateRunning, Actual: lanes.Provisioning, Worktree: record.Worktree, Branch: record.Branch,
 		Handoff: &lanes.HandoffProgress{Reason: string(choice.Rule), Document: from.Handoff, Begun: true},
-		Parking: &lanes.ParkProgress{Generation: from.Generation, Pending: from.Pending, Begun: true},
+		Parking: &lanes.ParkProgress{Generation: from.Generation, Pending: pending, Begun: true},
 	}
 	if leavesParked() {
 		stored.Actual = lanes.Parked
 	}
 	r.priorUSD, r.priorUnknown = r.priorUSD+r.cost.CostUSD, r.priorUnknown+r.cost.UnknownTurns
 	stored.Progress = lanes.Progress{
-		Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown, Instruction: from.Pending,
+		Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown, Instruction: pending,
 	}
 	if choice.Path == lanes.ResumeNative {
 		stored.ResumeSession = session

@@ -34,6 +34,9 @@ type compaction struct {
 func (s *laneState) contextAct() lanes.ContextAct {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.approvals != 0 {
+		return lanes.ContextWait
+	}
 	return s.policy.Decide(lanes.ContextFacts{
 		State: s.tracker.State(), Tokens: s.context, Baseline: s.baseline, CanCompact: s.canCompact,
 		CompactPending: s.compact.pending, CompactFailed: s.compact.failed,

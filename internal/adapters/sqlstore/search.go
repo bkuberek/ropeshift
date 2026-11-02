@@ -104,6 +104,14 @@ func (t *writeTx) Members() ports.MemberWriter {
 	return memberTx{session: t.session, scope: t.scope}
 }
 
+func (t *readTx) Approvals() ports.ApprovalReader {
+	return approvalTx{session: t.session, scope: t.scope}
+}
+
+func (t *writeTx) Approvals() ports.ApprovalWriter {
+	return approvalTx{session: t.session, scope: t.scope}
+}
+
 func (t *readTx) Policies() ports.PolicyReader {
 	return policyTx{session: t.session, scope: t.scope}
 }

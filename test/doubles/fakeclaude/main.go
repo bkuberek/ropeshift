@@ -119,6 +119,13 @@ type step struct {
 	Tool    string `json:"tool,omitempty"`
 	Command string `json:"command,omitempty"`
 	File    string `json:"file,omitempty"`
+	// Prompts says the call would prompt, so PermissionRequest fires, and with no answer from it the
+	// call is refused, as `-p` refuses one. AnsweredAt is a person's answer on the screen: when this
+	// file appears the tool runs, with the hook still waiting behind the prompt.
+	Prompts    bool   `json:"prompts,omitempty"`
+	AnsweredAt string `json:"answered_at,omitempty"`
+	// DeclinedAt is the same person saying no: the prompt goes, and no tool runs.
+	DeclinedAt string `json:"declined_at,omitempty"`
 	// Blocked stands for what stops a call after its hook: a deny rule, or a hook that timed
 	// out with `onFailure: block`. This double has neither, so it runs the hook and stops.
 	Blocked bool `json:"blocked,omitempty"`
@@ -154,6 +161,8 @@ type session struct {
 	failedTurn bool
 	// clears counts the clears this process ran, which each begin a new session.
 	clears int
+	// deferred says a hook ended this turn on a call, so the turn's script stops there.
+	deferred bool
 	// peers is what the socket read, which a turn can take between its tool calls.
 	peers chan string
 }
@@ -553,7 +562,11 @@ func (s *session) end() {
 }
 
 func (s *session) play(steps []step, interrupts <-chan os.Signal) {
+	defer func() { s.deferred = false }()
 	for _, st := range steps {
+		if s.deferred {
+			return
+		}
 		switch {
 		case st.Init:
 			s.emit(s.init())
@@ -714,7 +727,7 @@ func (s *session) callBuiltin(st step) {
 	if st.File != "" {
 		input["file_path"] = st.File
 	}
-	outputs := s.hook("PreToolUse", map[string]any{"tool_name": st.Tool, "tool_use_id": "toolu_builtin", "tool_input": input})
+	outputs := s.hook("PreToolUse", map[string]any{"tool_name": st.Tool, "tool_use_id": toolUseID(st), "tool_input": input})
 	for _, output := range outputs {
 		var decision struct {
 			Specific struct {
@@ -722,13 +735,28 @@ func (s *session) callBuiltin(st step) {
 				Reason   string `json:"permissionDecisionReason"`
 			} `json:"hookSpecificOutput"`
 		}
-		if json.Unmarshal(output, &decision) == nil && decision.Specific.Decision == "deny" {
+		if json.Unmarshal(output, &decision) != nil {
+			continue
+		}
+		switch decision.Specific.Decision {
+		case "deny":
 			witness("denied", decision.Specific.Reason)
+			return
+		case "defer":
+			witness("deferred", st.Tool)
+			s.deferred = true
+			s.emit(map[string]any{
+				"type": "result", "subtype": "success", "is_error": false, "stop_reason": "tool_deferred", "num_turns": 1,
+				"total_cost_usd": s.costUSD, "deferred_tool_use": map[string]any{"id": "toolu_builtin", "name": st.Tool, "input": input},
+			})
 			return
 		}
 	}
 	if st.Blocked {
 		witness("blocked", st.Tool)
+		return
+	}
+	if !s.permitted(st, input) {
 		return
 	}
 	if st.Command != "" {
@@ -743,7 +771,51 @@ func (s *session) callBuiltin(st step) {
 		}
 	}
 	witness("ran", st.Tool)
-	s.hook("PostToolUse", map[string]any{"tool_name": st.Tool, "tool_use_id": "toolu_builtin"})
+	s.hook("PostToolUse", map[string]any{"tool_name": st.Tool, "tool_use_id": toolUseID(st), "tool_input": input})
+}
+
+func toolUseID(st step) string {
+	return "toolu_" + st.Tool + strconv.Itoa(len(st.Command)+len(st.File))
+}
+
+// permitted runs a call's permission flow. A hook that answers decides it. A session with a screen
+// also takes a person's answer, which comes first if it comes first, and the hook goes on waiting
+// behind it, as T5 observed.
+func (s *session) permitted(st step, input map[string]any) bool {
+	if !st.Prompts && st.AnsweredAt == "" && st.DeclinedAt == "" {
+		return true
+	}
+	payload := map[string]any{"tool_name": st.Tool, "tool_input": input}
+	if st.AnsweredAt != "" || st.DeclinedAt != "" {
+		go s.hook("PermissionRequest", payload)
+		if st.DeclinedAt != "" {
+			awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.DeclinedAt))
+			witness("denied", "a person")
+			return false
+		}
+		awaitFile(filepath.Join(filepath.Dir(os.Args[0]), st.AnsweredAt))
+		return true
+	}
+	for _, output := range s.hook("PermissionRequest", payload) {
+		var answer struct {
+			Specific struct {
+				Decision struct {
+					Behavior string `json:"behavior"`
+					Message  string `json:"message"`
+				} `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		if json.Unmarshal(output, &answer) != nil {
+			continue
+		}
+		if answer.Specific.Decision.Behavior == "allow" {
+			return true
+		}
+		witness("denied", answer.Specific.Decision.Message)
+		return false
+	}
+	witness("denied", "no approver")
+	return false
 }
 
 // hook runs an event's commands through a shell, as the CLI does, with the session's

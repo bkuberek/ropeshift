@@ -219,7 +219,8 @@ type MessageFact struct {
 	Unanswered bool `json:"unanswered,omitempty"`
 }
 
-// DesiredResume is what the ledger holds of the generation that parked, which is all a worker
+// DesiredResume is what the ledger holds of the generation that parked, and Approvals says how
+// each request it made came out, in words a session reads. It is all a worker
 // that never ran the lane has. Durations cross the wire, because the worker's clock decides
 // nothing about the ledger's time.
 type DesiredResume struct {
@@ -241,6 +242,8 @@ type DesiredResume struct {
 	// when this was read.
 	Responded       bool  `json:"responded,omitempty"`
 	SinceResponseMs int64 `json:"since_response_ms,omitempty"`
+	// Approvals says how each request of the generation that parked came out.
+	Approvals []string `json:"approvals,omitempty"`
 	// Facts are what the next generation's first prompt owes, as they stood at this read.
 	Facts []MessageFact `json:"facts,omitempty"`
 }
@@ -331,6 +334,10 @@ const (
 	UploadMessage = "message_report"
 	// UploadWakeSignal is a worker's word that its own sign-in is back, which belongs to no lane.
 	UploadWakeSignal = "wake_signal"
+	// UploadApprovalRaised carries a request a lane raised, and UploadApprovalAnswered what a
+	// tool's end showed of one.
+	UploadApprovalRaised   = "approval_raised"
+	UploadApprovalAnswered = "approval_answered"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

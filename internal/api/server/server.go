@@ -60,6 +60,7 @@ type handler struct {
 	wakes      *control.Wakes
 	messages   *control.Messages
 	sessions   *control.Sessions
+	approvals  *control.Approvals
 }
 
 // New returns the versioned API.
@@ -75,6 +76,7 @@ func New(config Config) http.Handler {
 		wakes:      control.NewWakes(config.Store),
 		messages:   control.NewMessages(config.Store, config.Windows),
 		sessions:   control.NewSessions(config.Store, config.Identity),
+		approvals:  control.NewApprovals(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens,
@@ -86,6 +88,7 @@ func New(config Config) http.Handler {
 	h.questionRoutes(mux)
 	h.messageRoutes(mux)
 	h.sessionRoutes(mux)
+	h.approvalRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
@@ -169,6 +172,18 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeAssumptionLimit, Message: err.Error()})
 	case errors.Is(err, questions.ErrDecisionEnded):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeDecisionEnded, Message: err.Error()})
+	case errors.Is(err, authority.ErrSelfApproval):
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeSelfApproval, Message: err.Error()})
+	case errors.Is(err, authority.ErrDeciderKind):
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeNotADecider, Message: err.Error()})
+	case errors.Is(err, authority.ErrNotDelegated):
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeNotDelegated, Message: err.Error()})
+	case errors.Is(err, authority.ErrStaleDigest):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleDigest, Message: err.Error()})
+	case errors.Is(err, authority.ErrApprovalClosed):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRequestClosed, Message: err.Error()})
+	case errors.Is(err, authority.ErrBadApproval):
+		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, workorders.ErrForbidden):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: err.Error()})
 	case errors.Is(err, workorders.ErrNotAcceptable):

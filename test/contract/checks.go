@@ -7,7 +7,7 @@ import (
 
 // AllChecks lists every invariant of the suite.
 func AllChecks() []Check {
-	return slices.Concat(StoreChecks, LeaseChecks, IntakeChecks, LaneChecks, GenerationChecks, QuestionChecks, BatchChecks, DecisionChecks, AcceptanceChecks, WakeChecks, ParkChecks, ResumeChecks, MessageChecks, AnswerChecks, LimitChecks, PackChecks, NoticeChecks)
+	return slices.Concat(StoreChecks, LeaseChecks, IntakeChecks, LaneChecks, GenerationChecks, ApprovalChecks, QuestionChecks, BatchChecks, DecisionChecks, AcceptanceChecks, WakeChecks, ParkChecks, ResumeChecks, MessageChecks, AnswerChecks, LimitChecks, PackChecks, NoticeChecks)
 }
 
 func writeFile(path, content string) error {

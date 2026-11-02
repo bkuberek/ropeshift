@@ -39,6 +39,9 @@ type PolicySpec struct {
 	OwnTools string
 	// Ground is what a session that lost its place is told of its work.
 	Ground Grounding
+	// ApprovalWaitMs bounds a hook that waits on a decision, and Gates are what it defers.
+	ApprovalWaitMs int64
+	Gates          []GateRule
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -64,6 +67,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 	}
 	return DenyPolicy{
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
+		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates,
 	}
 }
 

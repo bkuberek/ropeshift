@@ -88,6 +88,8 @@ type ReadTx interface {
 	Messages() MessageReader
 	// Packs reads context packs.
 	Packs() PackReader
+	// Approvals reads approval requests.
+	Approvals() ApprovalReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -138,6 +140,8 @@ type WriteTx interface {
 	Messages() MessageWriter
 	// Packs reads and writes context packs.
 	Packs() PackWriter
+	// Approvals reads and writes approval requests.
+	Approvals() ApprovalWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -410,6 +414,33 @@ type PackWriter interface {
 	Insert(contextpacks.Pack) error
 	// Add keeps one addition, and reports whether it was new.
 	Add(contextpacks.Addition) (bool, error)
+}
+
+// ApprovalReader reads approval requests. No read here stops at a page, because each decides what
+// happens to everything it returns.
+type ApprovalReader interface {
+	// Approval returns one request, or ErrNotFound.
+	Approval(id string) (authority.Approval, error)
+	// OfLane lists what a lane raised, oldest first.
+	OfLane(lane string) ([]authority.Approval, error)
+	// OfWorkOrder lists what a work order's lanes raised, oldest first.
+	OfWorkOrder(workOrder string) ([]authority.Approval, error)
+	// All lists every request, oldest first.
+	All() ([]authority.Approval, error)
+	// Due lists the live requests past their time. A tick reads this with no lock, so each is read
+	// again in its own transaction.
+	Due(now int64) ([]string, error)
+}
+
+// ApprovalWriter writes approval requests. The store itself refuses a decision by the principal
+// that asked, one by a kind that decides nothing, and one that names any other digest.
+type ApprovalWriter interface {
+	ApprovalReader
+	// Insert adds a request, and reports whether it was new.
+	Insert(authority.Approval) (bool, error)
+	// Save is the compare-and-set of a request's state: it replaces what can change on one that still
+	// stands in the state its caller read, and reports whether it did.
+	Save(approval authority.Approval, from authority.ApprovalState) (bool, error)
 }
 
 // EvidenceReader reads what a work order's lanes left and what its checks said.

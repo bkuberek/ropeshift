@@ -14,6 +14,9 @@ func evaluatedAt(now int64) int64 { return now }
 // firesFirstOnly is false: one signal reaches every lane that names it.
 func firesFirstOnly() bool { return false }
 
+// leavesApprovalWakes is false: a decision reaches whatever waits on it, in its own write.
+func leavesApprovalWakes() bool { return false }
+
 // stopsOnUnreadable is false: what a build cannot read stops nothing.
 func stopsOnUnreadable() bool { return false }
 

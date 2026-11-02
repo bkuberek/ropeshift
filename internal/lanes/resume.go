@@ -142,5 +142,17 @@ func ResumePrompt(pending string, facts ...ledger.MessageFact) string {
 	return out.String()
 }
 
+// WithApprovals adds how a generation's requests came out to what it was doing, because a session
+// that comes back has no other way to hear of a decision.
+func WithApprovals(pending string, outcomes []string) string {
+	if len(outcomes) == 0 {
+		return pending
+	}
+	if pending == "" {
+		return strings.Join(outcomes, "\n")
+	}
+	return pending + "\n\n" + strings.Join(outcomes, "\n")
+}
+
 // pendingNotice introduces what a stopped generation was doing.
 const pendingNotice = "The turn in progress when it stopped did not finish, and it will not continue by itself. This instruction is still open:"

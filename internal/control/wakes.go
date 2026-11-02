@@ -388,8 +388,14 @@ func factHolds(tx ports.WriteTx, wake parking.Wake, fact parking.Fact) (bool, er
 		}
 		return order.State == workorders.Done, err
 	case parking.ApprovalDecided:
-		// Approvals have no record yet, so nothing can make this term true.
-		return false, nil
+		row, err := tx.Approvals().Approval(fact.Key)
+		if errors.Is(err, ports.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return row.Decided(), nil
 	}
 	return tx.Wakes().Signaled(fact.Kind, fact.Key, wake.StoredRev)
 }
@@ -656,6 +662,9 @@ func signalUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp f
 // Otherwise an answer to an old lane's question could wake a new owner's work order with the
 // wrong lane, and an event-only wake would stay in every later evaluation.
 func retireWakes(tx ports.WriteTx, workOrder, cause string) error {
+	if err := expireApprovals(tx, workOrder); err != nil {
+		return err
+	}
 	if keepsWakesOpen() {
 		return nil
 	}

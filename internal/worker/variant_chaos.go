@@ -59,6 +59,8 @@ const (
 	SabotageSplitsClear = "splits-clear"
 	// SabotageResendsBrief gives each process its own brief for a cleared session.
 	SabotageResendsBrief = "resends-brief"
+	// SabotageSplitsApproval keeps a request and what tells the ledger in two journal writes.
+	SabotageSplitsApproval = "splits-approval"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -96,6 +98,8 @@ func forgetsLimit() bool { return sabotaged(SabotageForgetsLimit) }
 func holdsNoTools() bool { return sabotaged(SabotageHoldsNoTools) }
 
 func splitsClear() bool { return sabotaged(SabotageSplitsClear) }
+
+func splitsApproval() bool { return sabotaged(SabotageSplitsApproval) }
 
 func clearedKey() string {
 	if !sabotaged(SabotageResendsBrief) {

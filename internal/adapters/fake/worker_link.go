@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -139,3 +140,19 @@ func (l *WorkerLink) LaneFacts(ctx context.Context, request ledger.LaneFactsRequ
 var errPlaneAway = errors.New("the control plane is away")
 
 var _ ports.WorkerLink = (*WorkerLink)(nil)
+
+// UseApproval calls the plane, unless it is away.
+func (l *WorkerLink) UseApproval(ctx context.Context, use authority.ApprovalUse) (authority.ApprovalAnswer, error) {
+	if l.FailLaneFacts.Load() {
+		return authority.ApprovalAnswer{}, errPlaneAway
+	}
+	return l.Plane.UseApproval(ctx, use)
+}
+
+// DecideApproval calls the plane, unless it is away.
+func (l *WorkerLink) DecideApproval(ctx context.Context, decision authority.WorkerDecision) (authority.Approval, error) {
+	if l.FailLaneFacts.Load() {
+		return authority.Approval{}, errPlaneAway
+	}
+	return l.Plane.DecideApproval(ctx, decision)
+}

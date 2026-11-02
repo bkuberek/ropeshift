@@ -90,6 +90,20 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 		return refused(lanes.CodeUnavailable, err.Error())
 	}
 	switch {
+	case request.Who:
+		return lanes.Reply{OK: true, Owner: lane.Owner}
+	case request.Approval != nil:
+		if request.Hook != nil {
+			event := *request.Hook
+			event.Lane, event.Generation = lane.ID, lane.Generation
+			if err := w.journal.MergeHook(ctx, event); err != nil {
+				return refused(lanes.CodeUnavailable, err.Error())
+			}
+			w.deliverHook(ctx, event)
+		}
+		return w.takeApproval(ctx, lane, *request.Approval)
+	case request.Decide != nil:
+		return w.takeDecision(ctx, lane, *request.Decide)
 	case request.Hook != nil:
 		event := *request.Hook
 		event.Lane, event.Generation = lane.ID, lane.Generation

@@ -53,6 +53,15 @@ var Tools = []string{
 	ToolLaneReport, ToolLaneWait, ToolAsk, ToolLaneHandoff, ToolReply, ToolContextGet, ToolDecisionSearch, ToolRequirementGet, ToolQuestionSearch,
 }
 
+// ToolApprovalDecide decides a request a member delegated (FR-AUTH-6).
+const ToolApprovalDecide = "approval_decide"
+
+// OrchestratorTools is what `ropeshift mcp` lists for an orchestrator's token. It reads what a lane
+// reads, and it decides what a lane cannot.
+var OrchestratorTools = []string{
+	ToolContextGet, ToolDecisionSearch, ToolRequirementGet, ToolQuestionSearch, ToolApprovalDecide,
+}
+
 // WaitDeclaration is a lane's word that it waits on an external process.
 type WaitDeclaration struct {
 	Reason  string `json:"reason,omitempty"`
@@ -99,6 +108,12 @@ type Request struct {
 	Handoff json.RawMessage `json:"handoff,omitempty"`
 	Reply   *ReplyRequest   `json:"reply,omitempty"`
 	Context *ContextRequest `json:"context,omitempty"`
+	// Approval is a hook's look at a call that needs a decision.
+	Approval *ApprovalRequest `json:"approval,omitempty"`
+	// Decide is an orchestrator's decision, which a lane's token cannot make.
+	Decide *DecideRequest `json:"decide,omitempty"`
+	// Who asks whom this token stands for, which only the worker can say.
+	Who bool `json:"who,omitempty"`
 }
 
 // ContextRequest is one read of the Context group. A search reads Query, and a lookup reads Kind
@@ -123,4 +138,65 @@ type Reply struct {
 	Ask *questions.AskResult `json:"ask,omitempty"`
 	// Context is what a read of the Context group found, set when OK.
 	Context []ledger.ContextRecord `json:"context,omitempty"`
+	// Approval is what a look at a call found, set when OK.
+	Approval *ApprovalReply `json:"approval,omitempty"`
+	// Owner answers Who, and a lane's token has none.
+	Owner string `json:"owner,omitempty"`
 }
+
+// What a look at a call can answer.
+const (
+	// ApprovalWaiting says nobody has decided, and a hook goes on waiting.
+	ApprovalWaiting = "waiting"
+	// ApprovalGoesOn says a decision stands for this call. A peek spends nothing, so the call goes on
+	// to the hook that spends it.
+	ApprovalGoesOn = "goes_on"
+	// ApprovalAllow says this call may run.
+	ApprovalAllow = "allow"
+	// ApprovalDeny says it may not, and Reason reaches the model.
+	ApprovalDeny = "deny"
+)
+
+// ApprovalRequest is one look a hook takes at its call. Tool and Input are the call as the CLI gave
+// them, so a worker reads the digest and the summary itself, and a lane has no say in either.
+type ApprovalRequest struct {
+	Tool  string          `json:"tool"`
+	Input json.RawMessage `json:"input"`
+	// Call names this one call, so a lost answer reaches it and nothing else.
+	Call string `json:"call"`
+	// Peek looks at a call before a turn ends: it spends nothing, and asks for what a hook needs to
+	// defer the turn.
+	Peek bool `json:"peek,omitempty"`
+	// Raised says an earlier look reached a worker, so a request stands, and an end to it is an
+	// answer. A first look at a call that ended raises it again.
+	Raised bool `json:"raised,omitempty"`
+}
+
+// ApprovalReply is what a look found.
+type ApprovalReply struct {
+	Decision string `json:"decision"`
+	Reason   string `json:"reason,omitempty"`
+	ID       string `json:"id,omitempty"`
+	// WaitMs is how much longer this call waits.
+	WaitMs int64 `json:"wait_ms,omitempty"`
+}
+
+// DecideRequest is what an orchestrator decides, with the digest it read.
+type DecideRequest struct {
+	ID     string `json:"id"`
+	Digest string `json:"digest"`
+	Allow  bool   `json:"allow"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// CodeForbidden refuses what this caller's kind of token cannot do.
+const CodeForbidden = "forbidden"
+
+// ReasonApprovalWait reaches the model when a request outlasts its wait.
+const ReasonApprovalWait = "ropeshift policy: this call needs an approval, and none came within this lane's wait. The request stands. End your turn: the lane parks, and it resumes once the request is decided."
+
+// ReasonNoApproval reaches the model when no request could be recorded.
+const ReasonNoApproval = "ropeshift policy: this call needs an approval, and the worker could not record the request. Nothing ran."
+
+// ReasonRequestClosed reaches the model when a call's request ended with no decision for it.
+const ReasonRequestClosed = "ropeshift policy: the request for this call has closed, so nothing allows it. Make the call again to ask again."

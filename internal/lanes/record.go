@@ -58,6 +58,8 @@ type Record struct {
 	// Process is the generation whose process runs now. A clear moves Generation and not this,
 	// because what a session left on this machine is named by the generation it started in.
 	Process int64
+	// Owner is the kind of principal this record's token stands for. Empty is a lane.
+	Owner string
 	// RespawnsSeen is how many of a member's requests for a new generation this worker acted on.
 	RespawnsSeen int64
 }
@@ -107,4 +109,19 @@ type Progress struct {
 func TokenDigest(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// OwnerOrchestrator marks a record an orchestrator's session runs under, which supervision shares
+// with a lane's. Its token is the only one the worker takes a decision from.
+const OwnerOrchestrator = "orchestrator"
+
+// OpenApproval is a request a lane is waiting on, which a worker keeps until it hears back, so a
+// restart goes on waiting and a wait keeps its bound.
+type OpenApproval struct {
+	ID         string
+	Lane       string
+	Generation int64
+	Tool       string
+	Digest     string
+	DeadlineMs int64
 }

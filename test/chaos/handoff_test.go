@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -176,6 +177,7 @@ func runHandoffWorker(c *child, session func(*handoffDriver) ports.AgentDriver) 
 	applyHandoffVariant(c.spec.Variant)
 	applyContextVariant(c.spec.Variant)
 	applyClearVariant(c.spec.Variant)
+	applyApprovalVariant(c.spec.Variant)
 	journal, err := sqlite.OpenJournal(c.spec.Journal)
 	if err != nil {
 		return err
@@ -329,7 +331,7 @@ func handoffCases() []crashCase {
 		handoffCase("a handoff's instruction", "effect.input", "", "started", "performed", "finished"),
 		handoffCase("a handoff's stop", "effect.stop", "", "started", "performed", "finished"),
 		handoffCase("a handoff's next generation", "worker.restart", "", "next"),
-	}, append(contextCases(), clearCases()...)...)
+	}, slices.Concat(contextCases(), clearCases(), approvalCases())...)
 }
 
 func handoffVariants() []variant {
@@ -341,5 +343,5 @@ func handoffVariants() []variant {
 		{name: sabotageForgets, check: "crash", crash: crash("a forgotten handoff", "worker.handoff", laneDied, "requested")},
 		{name: sabotageResends, check: "crash", crash: crash("a second instruction", "effect.input", "", "performed")},
 		{name: sabotageSplits, check: "crash", crash: crash("a split store", "worker.handoff", "", "split")},
-	}, append(contextVariants(), clearVariants()...)...)
+	}, slices.Concat(contextVariants(), clearVariants(), approvalVariants())...)
 }

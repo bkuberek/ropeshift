@@ -172,17 +172,19 @@ func TestTheLedgerHoldsATokenOnlyAsADigest(t *testing.T) {
 // credential proves, and the two a person uses before any session exists. A new route that
 // changes something has to appear here or go through h.member, or this test fails.
 var sessionless = map[string]string{
-	"POST /v1/sessions":                  "signing in is how a session starts",
-	"PUT /v1/passphrase":                 "the first has no session, and the provider guards the rest",
-	"POST /v1/work-orders/{id}/claims":   "a worker's credential, or a session checked in the handler",
-	"POST /v1/workers/register":          "a join token",
-	"POST /v1/workers/{id}/sessions":     "a worker's credential",
-	"POST /v1/workers/{id}/heartbeat":    "a worker's credential",
-	"POST /v1/workers/{id}/events":       "a worker's credential",
-	"POST /v1/workers/{id}/ask":          "a worker's credential",
-	"POST /v1/workers/{id}/lane-facts":   "a worker's credential",
-	"POST /v1/workers/{id}/lane-context": "a worker's credential",
-	"POST /v1/workers/{id}/rulings":      "a worker's credential",
+	"POST /v1/sessions":                      "signing in is how a session starts",
+	"PUT /v1/passphrase":                     "the first has no session, and the provider guards the rest",
+	"POST /v1/work-orders/{id}/claims":       "a worker's credential, or a session checked in the handler",
+	"POST /v1/workers/register":              "a join token",
+	"POST /v1/workers/{id}/sessions":         "a worker's credential",
+	"POST /v1/workers/{id}/heartbeat":        "a worker's credential",
+	"POST /v1/workers/{id}/events":           "a worker's credential",
+	"POST /v1/workers/{id}/ask":              "a worker's credential",
+	"POST /v1/workers/{id}/lane-facts":       "a worker's credential",
+	"POST /v1/workers/{id}/lane-context":     "a worker's credential",
+	"POST /v1/workers/{id}/rulings":          "a worker's credential",
+	"POST /v1/workers/{id}/approvals/use":    "a worker's credential",
+	"POST /v1/workers/{id}/approvals/decide": "a worker's credential, which reaches only what a member delegated",
 }
 
 var routeLine = regexp.MustCompile(`mux\.HandleFunc\("((POST|PUT|PATCH|DELETE) ([^"]+))", (.+)\)$`)

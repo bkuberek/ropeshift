@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -53,6 +54,16 @@ func domainError(err error) error {
 		return workorders.ErrIneligible
 	case api.CodeLapsed:
 		return workorders.ErrLapsed
+	case api.CodeSelfApproval:
+		return authority.ErrSelfApproval
+	case api.CodeNotADecider:
+		return authority.ErrDeciderKind
+	case api.CodeNotDelegated:
+		return authority.ErrNotDelegated
+	case api.CodeStaleDigest:
+		return authority.ErrStaleDigest
+	case api.CodeRequestClosed:
+		return authority.ErrApprovalClosed
 	case api.CodeNotFound:
 		return ports.ErrNotFound
 	}
@@ -145,3 +156,15 @@ func (l *HTTP) LaneContext(ctx context.Context, request ledger.LaneContextReques
 }
 
 var _ ports.WorkerLink = (*HTTP)(nil)
+
+// UseApproval reads where a lane's call stands.
+func (l *HTTP) UseApproval(ctx context.Context, use authority.ApprovalUse) (authority.ApprovalAnswer, error) {
+	answer, err := l.as(use.Auth).UseApproval(ctx, use.Auth.WorkerID, use)
+	return answer, domainError(err)
+}
+
+// DecideApproval carries what this worker's orchestrator decided.
+func (l *HTTP) DecideApproval(ctx context.Context, decision authority.WorkerDecision) (authority.Approval, error) {
+	record, err := l.as(decision.Auth).DecideDelegated(ctx, decision.Auth.WorkerID, decision)
+	return record, domainError(err)
+}

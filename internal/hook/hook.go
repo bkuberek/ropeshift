@@ -5,6 +5,8 @@
 package hook
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/lanes"
 )
 
@@ -23,11 +26,25 @@ const (
 	ackDeadline  = 25 * time.Millisecond
 	// hardDeadline ends a hook that passed everything else, below the 100 ms limit.
 	hardDeadline = 90 * time.Millisecond
+	// peekDeadline bounds a hook's look at a gated call, inside hardDeadline.
+	peekDeadline = 45 * time.Millisecond
+	// approvalPoll is how often a waiting hook looks, and the two after it bound one look.
+	approvalPoll   = 250 * time.Millisecond
+	approvalDial   = time.Second
+	approvalAnswer = 4 * time.Second
+	// hookWaitGrace lets a worker say a wait ran out before a hook stops asking.
+	hookWaitGrace = 2 * time.Second
+	// unknownWait bounds a hook with no policy to read, which has no worker that set a limit.
+	unknownWait = 5 * time.Second
+	// callBytes sizes the name a hook gives one call.
+	callBytes = 8
 )
 
 const (
-	eventPreToolUse   = "PreToolUse"
-	eventSessionStart = "SessionStart"
+	eventPreToolUse        = "PreToolUse"
+	eventPostToolUse       = "PostToolUse"
+	eventPermissionRequest = "PermissionRequest"
+	eventSessionStart      = "SessionStart"
 )
 
 const unavailablePolicy = "the policy file cannot be read"
@@ -61,8 +78,10 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 		return 0
 	}
 	cfg := read(args[0], getenv)
-	timer := time.AfterFunc(hardDeadline, func() { expire(cfg, stdout) })
-	defer timer.Stop()
+	if cfg.event != eventPermissionRequest {
+		timer := time.AfterFunc(hardDeadline, func() { expire(cfg, stdout) })
+		defer timer.Stop()
+	}
 	run(cfg, stdin, stdout)
 	return 0
 }
@@ -88,8 +107,126 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 		event.Socket = cfg.session
 		reground(cfg, event, forward(cfg, event), stdout)
 		return
+	case eventPostToolUse:
+		if call, err := readCall(input); err == nil {
+			event.Digest = call.Digest
+		}
+	case eventPermissionRequest:
+		if call, err := readCall(input); err == nil {
+			event.Digest = call.Digest
+		}
+		awaitDecision(cfg, event, input, stdout)
+		return
 	}
 	forward(cfg, event)
+}
+
+// requestedCall is the part of a hook's input a request reads.
+type requestedCall struct {
+	Tool  string          `json:"tool_name"`
+	Input json.RawMessage `json:"tool_input"`
+}
+
+// readCall reads the digest of the call a hook is about, which is all a hook forwards of its input
+// outside a request.
+func readCall(input []byte) (authority.ToolCall, error) {
+	var call requestedCall
+	if err := json.Unmarshal(input, &call); err != nil {
+		return authority.ToolCall{}, err
+	}
+	return authority.ReadToolCall(call.Tool, call.Input)
+}
+
+// awaitDecision is the one hook that waits (NFR-PERF-2). The worker reads the call and raises the
+// request, and this looks until a decision comes or the wait runs out. A worker that goes away
+// comes back to what its journal holds, so a look that fails is tried again, and only the hook's
+// own bound ends the wait. Nothing here can allow a call the worker did not.
+func awaitDecision(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
+	var call requestedCall
+	if json.Unmarshal(input, &call) != nil {
+		answerPermission(stdout, lanes.ApprovalDeny, lanes.ReasonNoApproval)
+		return
+	}
+	request := lanes.ApprovalRequest{Tool: call.Tool, Input: call.Input, Call: newCallID()}
+	line := lanes.Request{Version: lanes.SocketProtocol, Token: cfg.token, Hook: &event, Approval: &request}
+	deadline := time.Now().Add(waitOf(cfg) + hookWaitGrace)
+	reason := lanes.ReasonNoApproval
+	for time.Now().Before(deadline) {
+		reply, err := api.CallLane(cfg.socket, line, approvalDial, approvalAnswer)
+		if err == nil && !reply.OK && reply.Code != lanes.CodeUnavailable {
+			answerPermission(stdout, lanes.ApprovalDeny, reply.Message)
+			return
+		}
+		if err == nil && reply.OK && reply.Approval != nil {
+			request.Raised, line.Hook = true, nil
+			switch reply.Approval.Decision {
+			case lanes.ApprovalAllow, lanes.ApprovalDeny:
+				answerPermission(stdout, reply.Approval.Decision, reply.Approval.Reason)
+				return
+			}
+			reason = lanes.ReasonApprovalWait
+		}
+		time.Sleep(approvalPoll)
+	}
+	if line.Hook != nil {
+		spool(cfg.spool, event)
+	}
+	answerPermission(stdout, lanes.ApprovalDeny, reason)
+}
+
+// waitOf reads a lane's bound from the file a denial reads. With no file, a hook gives up soon,
+// because a lane with no policy has no worker that set one.
+func waitOf(cfg config) time.Duration {
+	var policy lanes.DenyPolicy
+	raw, err := os.ReadFile(cfg.policy)
+	if err == nil {
+		err = json.Unmarshal(raw, &policy)
+	}
+	if err != nil || policy.ApprovalWaitMs <= 0 {
+		return unknownWait
+	}
+	return time.Duration(policy.ApprovalWaitMs) * time.Millisecond
+}
+
+func newCallID() string {
+	raw := make([]byte, callBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+	return hex.EncodeToString(raw)
+}
+
+// answerPermission is a PermissionRequest hook's answer, which has a shape of its own.
+func answerPermission(stdout io.Writer, decision, reason string) {
+	behavior := map[string]string{"behavior": decision}
+	if decision == lanes.ApprovalDeny {
+		behavior["message"] = reason
+	}
+	write(stdout, map[string]any{"hookEventName": eventPermissionRequest, "decision": behavior})
+}
+
+// deferGated ends a turn on a call a person must approve, once a request stands for it, so a lane
+// parks with no process waiting. A worker that does not answer in time leaves the call to
+// PermissionRequest, which waits, so this can make a lane slower and never let a call through.
+func deferGated(cfg config, input []byte, stdout io.Writer) {
+	var call requestedCall
+	if cfg.socket == "" || json.Unmarshal(input, &call) != nil {
+		return
+	}
+	request := lanes.Request{
+		Version: lanes.SocketProtocol, Token: cfg.token,
+		Approval: &lanes.ApprovalRequest{Tool: call.Tool, Input: call.Input, Call: newCallID(), Peek: true},
+	}
+	reply, err := api.CallLane(cfg.socket, request, dialDeadline, peekDeadline)
+	if err != nil || !reply.OK || reply.Approval == nil {
+		return
+	}
+	switch reply.Approval.Decision {
+	case lanes.ApprovalWaiting:
+		write(stdout, map[string]string{"hookEventName": eventPreToolUse, "permissionDecision": "defer"})
+	case lanes.ApprovalDeny:
+		deny(stdout, reply.Approval.Reason)
+	}
 }
 
 // decide comes first, so a denial never depends on the worker. It reports whether it
@@ -139,9 +276,14 @@ func decide(cfg config, input []byte, stdout io.Writer) bool {
 	if target == "" {
 		target = call.Input.Notebook
 	}
-	reason, denied := policy.Decide(lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd})
+	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd}
+	reason, denied := policy.Decide(tool)
 	if denied {
 		deny(stdout, reason)
+		return false
+	}
+	if policy.Gated(tool) {
+		deferGated(cfg, input, stdout)
 	}
 	return false
 }
@@ -173,7 +315,7 @@ func reground(cfg config, event lanes.HookEvent, generation int64, stdout io.Wri
 	})
 }
 
-func write(stdout io.Writer, specific map[string]string) {
+func write(stdout io.Writer, specific any) {
 	line, err := json.Marshal(map[string]any{"hookSpecificOutput": specific})
 	if err == nil {
 		_, _ = stdout.Write(line)

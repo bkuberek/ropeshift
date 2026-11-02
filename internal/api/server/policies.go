@@ -65,12 +65,34 @@ func readLanePolicy(body string) (authority.LanePolicyDraft, error) {
 }
 
 // holdsLanePolicy says a body is a lane policy, which the table it names decides.
-func holdsLanePolicy(body string) bool {
+func holdsLanePolicy(body string) bool { return holdsTable(body, lanePolicyTable) }
+
+// delegationTable names the table of a delegation policy.
+const delegationTable = "delegation_policy"
+
+// readDelegation reads a delegation policy as a member wrote it. A setting this build does not know
+// stops it, because a class nobody reads would look declared.
+func readDelegation(body string) (authority.DelegationDraft, error) {
+	var file authority.DelegationPolicyFile
+	meta, err := toml.Decode(body, &file)
+	if err != nil {
+		return authority.DelegationDraft{}, fmt.Errorf("%w: %v", authority.ErrBadLanePolicy, err)
+	}
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		return authority.DelegationDraft{}, fmt.Errorf("%w: unknown setting %s", authority.ErrBadLanePolicy, unknown[0])
+	}
+	if !meta.IsDefined(delegationTable, "version") {
+		return authority.DelegationDraft{}, fmt.Errorf("%w: a delegation policy states its version", authority.ErrBadLanePolicy)
+	}
+	return authority.DelegationDraft{Body: body, Policy: file.DelegationPolicy}, nil
+}
+
+func holdsTable(body, table string) bool {
 	var tables map[string]any
 	if _, err := toml.Decode(body, &tables); err != nil {
 		return false
 	}
-	_, found := tables[lanePolicyTable]
+	_, found := tables[table]
 	return found
 }
 
@@ -80,6 +102,19 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 		return
 	}
 	var record authority.PolicyVersion
+	if holdsTable(in.Body, delegationTable) {
+		draft, err := readDelegation(in.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record, err = h.approvals.PublishDelegation(r.Context(), h.Scope, draft, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, http.StatusCreated, record)
+		return
+	}
 	if holdsLanePolicy(in.Body) {
 		draft, err := readLanePolicy(in.Body)
 		if err != nil {
@@ -109,6 +144,9 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 // policyVersions reads the versions of the kind a request names, and the decision policy when it
 // names none.
 func (h *handler) policyVersions(r *http.Request) ([]authority.PolicyVersion, error) {
+	if r.URL.Query().Get("kind") == string(authority.PolicyDelegation) {
+		return h.approvals.DelegationVersions(r.Context(), h.Scope)
+	}
 	if r.URL.Query().Get("kind") == string(authority.PolicyLane) {
 		return h.questions.LanePolicyVersions(r.Context(), h.Scope)
 	}

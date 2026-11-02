@@ -280,7 +280,7 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen, owner`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
@@ -288,7 +288,7 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var progress, guard, handoff, parking, blocking []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen, &lane.Owner)
 	if err != nil {
 		return lane, err
 	}
@@ -333,14 +333,15 @@ func (j *Journal) SaveLane(ctx context.Context, lane lanes.Record) error {
 
 func saveLane(ctx context.Context, db execer, lane lanes.Record) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO lanes
-  (id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, run_mode, process_generation)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+  (id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, run_mode, process_generation, owner)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6,
   token_digest = ?7, worktree = ?8, branch = ?9, report = coalesce(lanes.report, ?10),
   run_mode = coalesce(nullif(?11, ''), lanes.run_mode),
-  process_generation = CASE WHEN ?12 = 0 THEN lanes.process_generation ELSE ?12 END`,
+  process_generation = CASE WHEN ?12 = 0 THEN lanes.process_generation ELSE ?12 END,
+  owner = coalesce(nullif(?13, ''), lanes.owner)`,
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State,
-		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report, lane.RunMode, lane.Process)
+		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report, lane.RunMode, lane.Process, lane.Owner)
 	return err
 }
 
@@ -710,6 +711,10 @@ func (j *Journal) EndLane(ctx context.Context, id string, event ledger.UploadEve
 	}
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx, `UPDATE lanes SET state = ?1, token_digest = NULL WHERE id = ?2`, lanes.StateEnded, id)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	_, err = tx.ExecContext(ctx, `DELETE FROM open_approvals WHERE lane = ?1`, id)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}

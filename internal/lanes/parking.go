@@ -91,3 +91,23 @@ func HumanWake() string {
 	}
 	return string(raw)
 }
+
+// ParkApproval is a lane whose request outlasted its wait, or one that deferred a call.
+const ParkApproval ParkTrigger = "approval"
+
+// ApprovalWake is what a lane waits on after a request: each one decided, or a person, because a
+// member can look at a lane and let it go on without deciding.
+func ApprovalWake(approvals []string) string {
+	terms := make([]map[parking.Kind]string, 0, len(approvals))
+	for _, id := range approvals {
+		terms = append(terms, map[parking.Kind]string{parking.ApprovalDecided: id})
+	}
+	raw, err := json.Marshal(map[string]any{"any_of": []any{
+		map[string]any{"all_of": terms},
+		map[parking.Kind]bool{parking.HumanResume: true},
+	}})
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
+}

@@ -421,6 +421,9 @@ func desiredResume(tx ports.ReadTx, lane string) (*ledger.DesiredResume, error) 
 			resume.Responded, resume.SinceResponseMs = true, now-generation.LastResponseAt
 		}
 	}
+	if resume.Approvals, err = approvalOutcomes(tx.Approvals(), lane, row.Generation); err != nil {
+		return nil, err
+	}
 	resume.Facts, err = messageFacts(tx.Messages(), lane, row.Generation)
 	return resume, err
 }
@@ -612,6 +615,10 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return recordBaseline(tx, worker, id, e)
 	case ledger.UploadMessage:
 		return messageUpload(tx, worker, id, e)
+	case ledger.UploadApprovalRaised:
+		return approvalUpload(tx, worker, id, e, stamp)
+	case ledger.UploadApprovalAnswered:
+		return answeredUpload(tx, worker, e)
 	case ledger.UploadWakeSignal:
 		return signalUpload(tx, worker, e, stamp)
 	case ledger.UploadLaneEnded:

@@ -119,6 +119,10 @@ type laneRun struct {
 	process int64
 	// respawnAsked is the request this run is acting on, as the ledger counts them.
 	respawnAsked atomic.Int64
+	// sending says a goroutine is handing the ledger what this lane raised.
+	sending atomic.Bool
+	// approving says a goroutine holds this lane for `approval_wait`.
+	approving atomic.Bool
 	// owesBrief says a clear left this generation's session with no idea of its work.
 	owesBrief atomic.Bool
 	// fellBack says this generation meant to resume and started from its handoff.
@@ -393,6 +397,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		r.w.config.Report(fmt.Errorf("lane %s: reading its hooks: %w", r.lease.Lane, err))
 	}
 	r.replayHooks(ctx, hooks)
+	r.resumeApprovals(ctx)
 	err = r.rt.Driver.Adopt(ctx, r.sessionHandle(), ports.AdoptFrom{
 		Spec: r.w.sessionSpec(r.record()), Cursor: r.cursor, Cost: r.cost, Hooks: hooks,
 	})
@@ -599,7 +604,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: lanes.Tools,
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
-		Gates: prepared.Profile.Agent.Gates,
+		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
 	}
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
@@ -737,6 +742,9 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 	if _, ok := r.reported(ctx); ok {
 		r.signal(ctx, lanes.OnOutcomeReported)
 		r.stop(ctx, ports.StopAtRest)
+		return
+	}
+	if turn.Deferred && r.parkDeferred(ctx) {
 		return
 	}
 	if r.currentFlight() != nil {

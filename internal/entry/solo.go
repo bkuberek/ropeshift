@@ -511,6 +511,14 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 			},
 		},
 		{
+			Name:  "approvals",
+			Every: opts.wakeTick,
+			Run: func(ctx context.Context) error {
+				_, err := control.NewApprovals(store).ExpireDue(ctx, soloScope)
+				return err
+			},
+		},
+		{
 			Name:  "messages",
 			Every: opts.wakeTick,
 			Run: func(ctx context.Context) error {

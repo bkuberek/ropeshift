@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -34,4 +35,8 @@ type WorkerLink interface {
 	LaneFacts(ctx context.Context, request ledger.LaneFactsRequest) (ledger.LaneFacts, error)
 	// LaneContext reads what a workspace holds, for a lane this worker holds.
 	LaneContext(ctx context.Context, request ledger.LaneContextRequest) (ledger.LaneContext, error)
+	// UseApproval reads where a call of a lane this worker holds stands, and spends a decision on it.
+	UseApproval(ctx context.Context, use authority.ApprovalUse) (authority.ApprovalAnswer, error)
+	// DecideApproval carries what this worker's orchestrator decided.
+	DecideApproval(ctx context.Context, decision authority.WorkerDecision) (authority.Approval, error)
 }

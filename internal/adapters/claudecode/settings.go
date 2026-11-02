@@ -18,10 +18,17 @@ const inboundAccept = "accept"
 // hookTimeoutSeconds bounds a hook the CLI runs. The hook holds itself to far less.
 const hookTimeoutSeconds = 5
 
-// hookEvents are the events a lane listens to. PermissionRequest joins them with
+// eventPermissionRequest is the one hook that waits, up to a profile limit. The CLI's bound sits past
+// the hook's own, because a hook the CLI ends says nothing, and a pane would stay on its prompt.
+const (
+	eventPermissionRequest = "PermissionRequest"
+	approvalTimeoutMargin  = 30
+)
+
+// hookEvents are the events a lane listens to.
 // approvals.
 var hookEvents = []string{
-	"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification",
+	"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Notification",
 	"PreCompact", "PostCompact", "Stop", "StopFailure", "SessionEnd",
 }
 
@@ -80,6 +87,9 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 	for _, event := range hookEvents {
 		command := hookCommand{
 			Type: "command", Command: lanes.ShellQuote(spec.Binary) + " hook " + event, Timeout: hookTimeoutSeconds,
+		}
+		if event == eventPermissionRequest {
+			command.Timeout = int(spec.ApprovalWait.Seconds()) + approvalTimeoutMargin
 		}
 		if event == "PreToolUse" {
 			command.OnFailure = "block"

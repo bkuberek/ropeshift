@@ -64,6 +64,9 @@ func holdsNoTools() bool { return false }
 // splitsClear stands for no write that could leave a clear the ledger never hears of.
 func splitsClear() bool { return false }
 
+// splitsApproval stands for no write that could leave a request the ledger never hears of.
+func splitsApproval() bool { return false }
+
 // clearedKey is one key per generation, so a restart does not tell a session its work twice.
 func clearedKey() string { return clearedInput }
 

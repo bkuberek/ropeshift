@@ -93,6 +93,15 @@ type Journal interface {
 	// so a crash leaves the lane on one generation or the other. The token of the last
 	// generation ends here, because its process has.
 	BeginGeneration(ctx context.Context, lane lanes.Record, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// BeginApproval keeps a lane's request and the event that carries it to the ledger, together, and
+	// reports whether it was new.
+	BeginApproval(ctx context.Context, open lanes.OpenApproval, event ledger.UploadEvent) (bool, error)
+	// RenewApproval gives a request a later generation and a wait of its own.
+	RenewApproval(ctx context.Context, id string, generation, deadlineMs int64) error
+	// OpenApprovals lists what a lane has asked and not heard back on, oldest deadline first.
+	OpenApprovals(ctx context.Context, lane string) ([]lanes.OpenApproval, error)
+	// CloseApproval stops following a request and stores what the ledger must hear of that, together.
+	CloseApproval(ctx context.Context, id string, events ...ledger.UploadEvent) error
 	// ClearGeneration moves a lane to the generation a clear began, under the process and the token
 	// it has, and stores what the ledger must hear, together. A repeat reports false, and changes
 	// nothing.

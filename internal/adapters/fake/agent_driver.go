@@ -21,6 +21,8 @@ type DriverTurn struct {
 	Usage  lanes.Usage
 	// TotalUSD is the session's running total, as a vendor reports it.
 	TotalUSD float64
+	// Deferred says the turn ended on a call a hook deferred.
+	Deferred bool
 	// Compaction says this turn held only a compaction.
 	Compaction bool
 }
@@ -495,7 +497,7 @@ func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
 		case step.Compaction:
 			s.events <- ports.DriverEvent{Kind: ports.EventCompaction, Detail: "manual"}
 		case step.Turn != nil:
-			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage, Compaction: step.Turn.Compaction}
+			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage, Compaction: step.Turn.Compaction, Deferred: step.Turn.Deferred}
 			result.CostUSD = s.meter.ObserveTurn(step.Turn.TotalUSD)
 			result.Cost = s.meter
 			s.events <- ports.DriverEvent{Kind: ports.EventTurnEnded, Turn: &result}

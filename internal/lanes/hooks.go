@@ -39,6 +39,8 @@ type HookEvent struct {
 	Status *StatusReport `json:"status,omitempty"`
 	// Asked is what a question tool call asked, on a lane that defers it.
 	Asked []AskedQuestion `json:"asked,omitempty"`
+	// Digest names the call a tool event is about, which is all a hook forwards of its input.
+	Digest string `json:"digest,omitempty"`
 	// Message names the message a prompt opened with, which is the admission signal. It is the
 	// one thing a hook takes from a prompt.
 	Message   string `json:"message,omitempty"`
@@ -240,6 +242,11 @@ type DenyPolicy struct {
 	// Hold denies every tool but OwnTools with this reason, for a lane that must stop and hand off.
 	// A worker writes it, and the hook reads it with no worker.
 	Hold string `json:"hold,omitempty"`
+	// ApprovalWaitMs bounds a hook that waits on a decision.
+	ApprovalWaitMs int64 `json:"approval_wait_ms,omitempty"`
+	// Gates are the calls a person must approve, and a hook defers one where it can, so a lane parks
+	// with no process waiting. Empty leaves every call to the wait.
+	Gates []GateRule `json:"gates,omitempty"`
 	// OwnTools is the prefix of the lane's own tools, which a hold leaves open.
 	OwnTools string `json:"own_tools,omitempty"`
 	// Ground is what a session that lost its place is told of its work.
@@ -259,3 +266,37 @@ const (
 
 // ReasonUseAsk reaches the model, so it names the tool to use.
 const ReasonUseAsk = "ropeshift policy: this lane asks through the ask tool. It records the question for the workspace, and it answers at once when it can."
+
+// GateRule is one permission rule a profile gates, as a hook reads it.
+type GateRule struct {
+	Tool string `json:"tool"`
+	// CommandPrefix narrows a rule to commands that start with it.
+	CommandPrefix string `json:"command_prefix,omitempty"`
+}
+
+// Gated says a call is one a person must approve. It reads what a call says, so a call it misses
+// reaches `PermissionRequest` and waits there, and one it takes too widely only parks sooner.
+func (p DenyPolicy) Gated(call ToolCall) bool {
+	for _, gate := range p.Gates {
+		if gate.Tool == call.Tool && strings.HasPrefix(call.Command, gate.CommandPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// ReadGate reads a permission rule such as `Bash(git tag *)`. A rule with no command reads as its
+// tool, and the CLI's own check stands behind it.
+func ReadGate(rule string) GateRule {
+	tool, rest, found := strings.Cut(rule, "(")
+	gate := GateRule{Tool: tool}
+	if !found || tool != ToolBash {
+		return gate
+	}
+	body := strings.TrimSuffix(rest, ")")
+	for _, suffix := range []string{":*", " *", "*"} {
+		body = strings.TrimSuffix(body, suffix)
+	}
+	gate.CommandPrefix = body
+	return gate
+}

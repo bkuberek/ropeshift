@@ -283,7 +283,11 @@ func checkPoliciesReplay(tx ports.ReadTx, book questions.Book) error {
 	if err != nil {
 		return err
 	}
-	versions = append(versions, lane...)
+	delegation, err := tx.Policies().Versions(authority.PolicyDelegation)
+	if err != nil {
+		return err
+	}
+	versions = append(append(versions, lane...), delegation...)
 	if len(versions) != len(book.Policies) {
 		return Violatedf("%d policy versions, the log replays to %d", len(versions), len(book.Policies))
 	}

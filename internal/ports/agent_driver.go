@@ -131,6 +131,8 @@ type SessionSpec struct {
 	ReadyTimeout time.Duration
 	// DefaultBranch is the repository's own, which the generation's policy guards.
 	DefaultBranch string
+	// ApprovalWait bounds a hook that waits on a decision.
+	ApprovalWait time.Duration
 	// Gates are the permission rules a person must approve.
 	Gates []string
 	// Override carries a real-session suite's guard flags. It is empty outside the
@@ -239,6 +241,8 @@ type TurnResult struct {
 	CostUSD float64
 	// Cost is the generation's cost so far.
 	Cost lanes.CostMeter
+	// Deferred says the turn ended on a call a hook deferred, which waits in the session's transcript.
+	Deferred bool
 	// Compaction says this turn held only a compaction, which ends no work of the lane's unless the
 	// lane asked for it. A person can run one at a pane, and its last hook is all a driver reads.
 	Compaction bool

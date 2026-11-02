@@ -51,6 +51,7 @@ const (
 	hookStopFailure      = "StopFailure"
 	hookNotification     = "Notification"
 	hookPostCompact      = "PostCompact"
+	hookPostToolUse      = "PostToolUse"
 )
 
 // notificationNeedsInput is the Notification that says a session waits for an answer.
@@ -394,14 +395,17 @@ type paneSession struct {
 	floor    int64
 	waiting  bool
 	totalUSD float64
-	meter    lanes.CostMeter
-	seen     ports.Observation
+	// approvals names the calls a hook is waiting on, and no key reaches a pane until each ends,
+	// because an Enter on a permission prompt is an answer.
+	approvals map[string]bool
+	meter     lanes.CostMeter
+	seen      ports.Observation
 }
 
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
 		handle: handle, terminal: d.terminal, name: name, events: make(chan ports.DriverEvent, eventBuffer),
-		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter,
+		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]bool{},
 	}
 	s.totalUSD = meter.SessionTotalUSD
 	s.wake = sync.NewCond(&s.mu)
@@ -562,6 +566,10 @@ func (s *paneSession) takeHook(event lanes.HookEvent) {
 		s.takeStatus(event)
 	case hookNotification:
 		s.waiting = event.Detail == notificationNeedsInput
+	case eventPermissionRequest:
+		s.approvals[event.Digest] = true
+	case hookPostToolUse:
+		delete(s.approvals, event.Digest)
 	case hookPostCompact:
 		s.push(ports.DriverEvent{Kind: ports.EventCompaction, Detail: event.Detail})
 		if event.Detail == compactRequested {
@@ -599,6 +607,7 @@ func (s *paneSession) endTurn(event lanes.HookEvent, status ports.TurnStatus, re
 		return
 	}
 	s.stopMs, s.waiting = event.AtMs, false
+	clear(s.approvals)
 	turn := ports.TurnResult{Status: status, Reason: reason, CostUSD: s.meter.ObserveTurn(s.totalUSD)}
 	turn.Cost = s.meter
 	s.push(ports.DriverEvent{Kind: ports.EventTurnEnded, Turn: &turn, Seq: event.AtMs})
@@ -675,7 +684,7 @@ func (s *paneSession) refused(input string) {
 // to a session that is waiting for an answer: the Enter would answer it.
 func (s *paneSession) compact(ctx context.Context) error {
 	s.mu.Lock()
-	waiting := s.waiting
+	waiting := s.waiting || len(s.approvals) != 0
 	s.mu.Unlock()
 	if waiting {
 		return ports.ErrAwaitingAnswer

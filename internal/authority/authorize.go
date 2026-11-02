@@ -44,6 +44,8 @@ const (
 	ActionSendMessage   Action = "message.send"
 	ActionSetPassphrase Action = "member.set_passphrase"
 	ActionTakeQuestion  Action = "question.take"
+	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
+	ActionDecideApproval Action = "approval.decide"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -53,7 +55,7 @@ func Actions() []Action {
 		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
-		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion,
+		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval,
 	}
 }
 
@@ -61,7 +63,7 @@ func Actions() []Action {
 // none of these.
 var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
-		ActionAccept: true, ActionAcceptLaneChecks: true, ActionAddPackItem: true, ActionArchiveLane: true, ActionDismissQuestion: true,
+		ActionAccept: true, ActionAcceptLaneChecks: true, ActionAddPackItem: true, ActionArchiveLane: true, ActionDecideApproval: true, ActionDismissQuestion: true,
 		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRespawnLane: true, ActionRework: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},

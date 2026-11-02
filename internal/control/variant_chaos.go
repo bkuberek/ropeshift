@@ -30,6 +30,8 @@ type Sabotage struct {
 	RefusesResumeRetry bool
 	// RefusesParkedRepeat answers a repeated parked commit as a stranger's.
 	RefusesParkedRepeat bool
+	// LeavesApprovalWakes decides a request and tells nothing that waits on it.
+	LeavesApprovalWakes bool
 	// ReadsOnePage stops a wake's read of a scope at its first page.
 	ReadsOnePage bool
 	// LeavesMessages ends a generation and decides nothing about what it left.
@@ -71,6 +73,8 @@ func firesBeforeParked() bool { return current().FiresBeforeParked }
 func evaluatedAt(now int64) int64 { return now + current().EarlyMs }
 
 func firesFirstOnly() bool { return current().FirstOnly }
+
+func leavesApprovalWakes() bool { return current().LeavesApprovalWakes }
 
 func stopsOnUnreadable() bool { return current().UnreadableStops }
 

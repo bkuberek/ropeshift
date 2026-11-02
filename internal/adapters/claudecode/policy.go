@@ -56,7 +56,8 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	return lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Writable: writable,
 		QuestionTool: questionTool(spec), OwnTools: toolRule(""),
-		Ground: lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
+		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
+		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec),
 	})
 }
 
@@ -167,4 +168,17 @@ func askRules(spec ports.SessionSpec) []string {
 		return nil
 	}
 	return slices.Clone(spec.Gates)
+}
+
+// deferredGates are the calls a hook defers. Only `-p` honors `defer`, and a pane has a screen for
+// its wait, so an interactive session has none.
+func deferredGates(spec ports.SessionSpec) []lanes.GateRule {
+	if spec.RunMode == ports.RunModeInteractive {
+		return nil
+	}
+	gates := make([]lanes.GateRule, 0, len(spec.Gates))
+	for _, rule := range spec.Gates {
+		gates = append(gates, lanes.ReadGate(rule))
+	}
+	return gates
 }

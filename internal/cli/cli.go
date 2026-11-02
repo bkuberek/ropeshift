@@ -68,6 +68,10 @@ const usage = `usage: ropeshift <command>
   source list                                        list sources and their health
   lane list                                          list lanes, each with its freshness
   lane show <lane>                                   show one lane, with its freshness
+  approval list [--state <state>]                    list what lanes have asked to do
+  approval show <id>                                 print a request and the digest it binds to
+  approval approve <id> --digest <digest>            let a lane make one call, as you read it
+  approval deny <id> --digest <digest> [--reason ..] refuse a request
   lane reset <work-order>                            let a lane its breaker stopped start again
   lane respawn <work-order>                          ask for a running lane's next generation
   lane resume <work-order>                           give a parked lane a member's word
@@ -94,7 +98,7 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
-		"question", "decision", "policy", "category", "search", "login", "passphrase", "message":
+		"question", "decision", "policy", "category", "search", "login", "passphrase", "message", "approval":
 		return true
 	}
 	return false
@@ -177,6 +181,10 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"policy publish":    (*invocation).policyPublish,
 		"category list":     (*invocation).categoryList,
 		"category add":      (*invocation).categoryAdd,
+		"approval list":     (*invocation).approvalList,
+		"approval show":     (*invocation).approvalShow,
+		"approval approve":  (*invocation).approvalApprove,
+		"approval deny":     (*invocation).approvalDeny,
 		"lane start":        (*invocation).laneStart,
 		"lane reset":        (*invocation).laneReset,
 		"lane respawn":      (*invocation).laneRespawn,

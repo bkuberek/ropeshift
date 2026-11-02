@@ -72,6 +72,9 @@ type laneState struct {
 	// usageBase is how long the first wait on a limit with no known reset lasts.
 	usageBase  time.Duration
 	drainLimit time.Duration
+	// approvalLimit is how long a call waits on a decision, and approvals how many it has open.
+	approvalLimit time.Duration
+	approvals     int
 }
 
 func newLaneState(start lanes.ActualState, now time.Time) *laneState {
@@ -109,6 +112,7 @@ func (s *laneState) thresholds(profile lanes.Profile) {
 	s.askLimit, _ = time.ParseDuration(profile.Lifecycle.AskWait)
 	s.usageBase, _ = time.ParseDuration(profile.Lifecycle.UsageBackoff)
 	s.drainLimit, _ = time.ParseDuration(profile.Lifecycle.DrainDeadline)
+	s.approvalLimit, _ = time.ParseDuration(profile.Lifecycle.ApprovalWait)
 }
 
 // usageBackoff reads how long a limit with no known reset waits first. Zero takes the default.
@@ -291,6 +295,7 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		} else {
 			r.noteModel(lanes.Reachable)
 		}
+		r.turnEndedWithRequests(ctx, event.Turn)
 		r.signal(ctx, lanes.OnActivity, lanes.OnCompactionFailed, lanes.OnTurnFinished)
 		if event.Turn.Status == ports.TurnCompleted {
 			r.limitPassed(ctx)
@@ -332,6 +337,9 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 		s.mu.Lock()
 		delete(s.tools, event.Subject)
 		s.mu.Unlock()
+		if event.Digest != "" {
+			r.terminalAnswer(ctx, event.Digest, noteToolRan)
+		}
 	case hookStopFailure:
 		r.noteModel(lanes.ReachOfFailure(event.Detail))
 		r.noteFailure(ctx, event.Detail)
