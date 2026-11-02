@@ -89,11 +89,20 @@ first of these that applies to it.
 
 func rs8Message(lane string) string { return "m-" + strings.TrimPrefix(lane, "rs8-") }
 
+// standInWarning is the warning that stopped this suite once: well short of the line, and with a
+// reset a week off, so a dry run shows a warning stops neither the run nor the lanes after it.
+func standInWarning() map[string]any {
+	return map[string]any{"resets_in_s": 7 * 24 * 3600, "emit": map[string]any{"type": "rate_limit_event", "rate_limit_info": map[string]any{
+		"status": lanes.UsageWarning, "rateLimitType": "seven_day", "utilization": 0.31, "resetsAt": "$resets_at",
+	}}}
+}
+
 // standInBrief asks as standInAsk does, with the hook the real CLI runs for a brief on stdin, which
 // a scripted session does not run by itself.
 func standInBrief(text string) []any {
 	hook := map[string]any{"hook": "UserPromptSubmit", "input": map[string]any{"prompt": "the brief"}}
-	return append([]any{hook}, standInAsk(text)...)
+	ask := standInAsk(text)
+	return append([]any{hook, ask[0], standInWarning()}, ask[1:]...)
 }
 
 func standInAnswers(lane string) []any {
