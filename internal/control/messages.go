@@ -226,7 +226,7 @@ func (m *Messages) ExpireMessages(ctx context.Context, scope ledger.WorkspaceID,
 			if row.State.Settled() && !expiresSettled() {
 				return nil
 			}
-			_, err = moveMessage(tx, row, messages.Expired, messages.ReasonTimedOut, actor, noStamp)
+			_, err = moveMessage(tx, row, messages.Expired, messages.ExpiryReason(row.Kind), actor, noStamp)
 			moved = err == nil
 			return err
 		})

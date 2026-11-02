@@ -28,6 +28,7 @@ var AnswerChecks = []Check{
 	{"AN9", "a replaced decision tells each lane", checkNoticeReplaced},
 	{"AN10", "a lane that ended learns nothing it can use, and its sender can read that", checkAnswerEndedLane},
 	{"AN11", "a notice too long for a message still ends its decision", checkNoticeClipped},
+	{"AN12", "an answer that outlives its window still reaches the next generation", checkAnswerPastItsWindow},
 }
 
 func (r *Rig) messagesTo(s ports.Store, lane string) ([]messages.Message, error) {
@@ -379,6 +380,53 @@ func checkNoticeReplaced(r *Rig) error {
 	}
 	if len(rows) != 1 || !strings.Contains(rows[0].Body, "Three times.") {
 		return Violatedf("a replaced decision told %+v", rows)
+	}
+	return r.CheckMessages(s.store)
+}
+
+// checkAnswerPastItsWindow covers a worker that was away while an answer waited. Its window ends
+// and the lane still needs the answer, so what a clock ended is a fact and not a loss.
+func checkAnswerPastItsWindow(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	asked, err := r.ask(s.store, askedText, s.lane, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := r.answer(s.store, asked.QuestionID, "Twice."); err != nil {
+		return err
+	}
+	r.DB.ShiftClock(int64(farAhead))
+	if _, err := r.NewOps(s.store).ExpireMessages(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	m, err := r.answerTo(s.store, s.lane, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if m.State != messages.Expired || m.Reason != messages.ReasonLedgerFact {
+		return Violatedf("an answer past its window reads %+v", m)
+	}
+	wake := r.ID("wake")
+	if err := accepted(s.parkingUpload(wake, lanes.QuestionWake([]string{asked.QuestionID}))); err != nil {
+		return err
+	}
+	if err := accepted(s.parkedUpload(wake, true)); err != nil {
+		return err
+	}
+	grant, err := s.claim()
+	if err != nil {
+		return err
+	}
+	s.grant = grant
+	facts, err := s.leaseFacts()
+	if err != nil {
+		return err
+	}
+	if len(facts) != 1 || !strings.Contains(facts[0].Body, "Twice.") {
+		return Violatedf("a next generation owes %+v", facts)
 	}
 	return r.CheckMessages(s.store)
 }

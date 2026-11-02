@@ -95,6 +95,16 @@ func Rollover(state State, kind Kind, next bool) Rolled {
 	return RollExpire
 }
 
+// ExpiryReason says what a clock's end means. A stale instruction is worse than none, and its
+// sender decides what to do. A decision stands whatever a clock says, and a lane still needs it, so
+// the next generation hears of it.
+func ExpiryReason(kind Kind) string {
+	if kind.DecisionBearing() {
+		return ReasonLedgerFact
+	}
+	return ReasonTimedOut
+}
+
 // Window is how long a message stays useful, because a stale instruction is worse than none.
 type Window struct {
 	StaleAfter  time.Duration
