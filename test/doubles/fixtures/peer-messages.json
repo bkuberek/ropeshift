@@ -1,0 +1,15 @@
+{
+  "source": "T6: a message on the socket, as the injection spike measured it on 2.1.316",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [
+    [
+      {"init": true},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"init": true},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

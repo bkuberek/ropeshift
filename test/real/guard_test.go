@@ -46,12 +46,12 @@ const (
 )
 
 // laneTools are the MCP tools a lane's init may list.
-var laneTools = []string{"mcp__ropeshift__lane_report", "mcp__ropeshift__lane_wait", "mcp__ropeshift__ask", "mcp__ropeshift__lane_handoff"}
+var laneTools = []string{"mcp__ropeshift__lane_report", "mcp__ropeshift__lane_wait", "mcp__ropeshift__ask", "mcp__ropeshift__lane_handoff", "mcp__ropeshift__reply"}
 
 // standInFixtures say what each suite's dry run plays.
 var standInFixtures = map[string]string{
 	"rs1": "rs2-stand-in", "rs2": "rs2-stand-in", "rs3": "rs3-stand-in", "rs4": "rs4-stand-in", "rs5": "rs5-stand-in",
-	"rs6": "rs6-stand-in", "rs7": "rs7-stand-in",
+	"rs6": "rs6-stand-in", "rs7": "rs7-stand-in", "rs8": "rs8-stand-in",
 }
 
 // allowedEnvironment is everything a session or the daemon takes from this process, so

@@ -81,6 +81,7 @@ type childSpec struct {
 	// a worker answer it at the step where it dies, so the answer lands ahead of the crash.
 	Question    string `json:"question,omitempty"`
 	Decision    string `json:"decision,omitempty"`
+	Message     string `json:"message,omitempty"`
 	AnswerFirst bool   `json:"answer_first,omitempty"`
 }
 

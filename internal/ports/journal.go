@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 )
 
 // JournalResult is what the journal keeps about one event the ledger rejected.
@@ -119,6 +120,25 @@ type Journal interface {
 	// MarkArchived records that a lane's worktree went, and stores that event, together,
 	// so a crash cannot leave a removal the ledger never hears of.
 	MarkArchived(ctx context.Context, lane string, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// TakeMessage keeps a message the first time it arrives and stores the event that tells the
+	// ledger, together, and reports whether this was the first time. A repeat changes nothing,
+	// because the control plane offers a message until it hears back (FR-MSG-3).
+	TakeMessage(ctx context.Context, message messages.Held, event ledger.UploadEvent) (bool, error)
+	// Message returns one held message, or ErrNotFound.
+	Message(ctx context.Context, id string) (messages.Held, error)
+	// MessageByInput finds a held message by what its session calls it, or ErrNotFound.
+	MessageByInput(ctx context.Context, input string) (messages.Held, error)
+	// WaitingMessages lists what this worker holds and has not written, oldest first.
+	WaitingMessages(ctx context.Context) ([]messages.Held, error)
+	// HandMessage settles the effect that wrote a message, moves it to `handed_off`, and stores
+	// the event that says so, in one write, so a crash leaves a write on record or none at all.
+	HandMessage(ctx context.Context, effect, id string, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// MoveMessage moves a held message that stands in `from`, and stores its event, together, and
+	// reports whether it matched.
+	MoveMessage(ctx context.Context, id string, from, to messages.State, event ledger.UploadEvent) (bool, error)
+	// CloseMessage stops holding a message nobody can be told of here. The ledger decides what a
+	// sender reads, so this stores no event.
+	CloseMessage(ctx context.Context, id string) error
 	// Allocate gives a lane its resources, or returns what it already holds, so a retry
 	// after a crash converges. A pool with no block left is ErrNoPorts.
 	Allocate(ctx context.Context, request lanes.AllocationRequest) (lanes.Allocation, error)

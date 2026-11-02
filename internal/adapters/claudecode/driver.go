@@ -198,9 +198,13 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 	if d.terminal != nil {
 		modes = append(modes, ports.RunModeInteractive)
 	}
+	injection := ports.InjectionBetweenTools
+	if !Qualified(version) {
+		injection = ports.InjectionNone
+	}
 	return ports.Capabilities{
 		RunModes: modes, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
-		Injection: ports.InjectionBetweenTools, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
+		Injection: injection, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
 		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
 		Version:     version, Degraded: !Qualified(version), Resume: resumeCosts,
@@ -351,7 +355,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
-	s, err := d.follow(ctx, spec, ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID()}, client, 0, meter)
+	s, err := d.follow(ctx, spec, ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID()}, client, 0, meter, Qualified(version))
 	if err != nil {
 		_ = client.Signal(ctx, shimlink.SignalKill)
 		return ports.SessionHandle{}, err
@@ -414,7 +418,7 @@ func endRefused(ctx context.Context, process ports.Process, exited <-chan ports.
 }
 
 // follow attaches after a cursor and starts the one reader of a session's stream.
-func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, cursor int64, meter lanes.CostMeter) (*session, error) {
+func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, cursor int64, meter lanes.CostMeter, qualified bool) (*session, error) {
 	s := d.newSession(spec, handle, client, meter)
 	stream, err := client.Attach(ctx, cursor)
 	if err != nil {
@@ -422,6 +426,10 @@ func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle port
 	}
 	log, err := openStreamLog(spec)
 	if err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	if err := s.listen(spec, qualified); err != nil {
 		_ = stream.Close()
 		return nil, err
 	}
@@ -434,6 +442,36 @@ func (d *Driver) newSession(spec ports.SessionSpec, handle ports.SessionHandle, 
 	return &session{
 		handle: handle, client: client, dir: shimDir(spec), socket: shimSocket(spec), grace: d.grace,
 		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter,
+	}
+}
+
+// keepSocket reads what an earlier process heard, because a stream read from a cursor can hold no
+// init, and a session's socket does not change while its process lives.
+func (s *session) keepSocket(hooks []lanes.HookRecord) {
+	for _, record := range hooks {
+		s.takeHook(record.HookEvent)
+	}
+}
+
+// listen opens this session's address for receipts, before anything can answer one.
+func (s *session) listen(spec ports.SessionSpec, qualified bool) error {
+	receipts, err := openReceiver(spec, qualified, s.refused)
+	s.qualified, s.receipts = qualified, receipts
+	return err
+}
+
+// refused reports what a receipt said. A receipt arrives on its own connection, so this holds the
+// lock that keeps a late one from a stream that has closed, and a full stream loses it, which
+// leaves a message `handed_off` until it expires.
+func (s *session) refused(input string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.over {
+		return
+	}
+	select {
+	case s.events <- ports.DriverEvent{Kind: ports.EventInputRefused, InputID: input}:
+	default:
 	}
 }
 
@@ -510,6 +548,14 @@ type session struct {
 	last     int64
 	meter    lanes.CostMeter
 	seen     ports.Observation
+	// peerSocket is the session's messaging socket, which its init or a hook named, and over says
+	// its stream has ended.
+	peerSocket string
+	over       bool
+	// qualified says this version passed the check of the socket's surfaces, and receipts is where
+	// its receipts come back, when it has an address.
+	qualified bool
+	receipts  *receiver
 }
 
 // read is the one reader of a session's stream. It ends at the child's exit, which is
@@ -610,6 +656,9 @@ func (s *session) take(line []byte, seq int64) {
 		return
 	}
 	s.mu.Lock()
+	if p.socket != "" {
+		s.peerSocket = p.socket
+	}
 	switch p.event.Kind {
 	case ports.EventSessionBound:
 		s.seen.SessionID, s.seen.ModelResolved = p.event.SessionID, p.event.ModelResolved
@@ -636,7 +685,9 @@ func (s *session) finish(status ports.ExitStatus, err error) {
 	s.mu.Lock()
 	crashed := !s.stopping && (s.inFlight > 0 || status.Code != 0 || status.Signal != "" || err != nil)
 	last := s.last
+	s.over = true
 	s.mu.Unlock()
+	s.receipts.close()
 	if s.client != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), shimDialDeadline)
 		defer cancel()
@@ -766,8 +817,16 @@ func (s *session) stream() <-chan ports.DriverEvent { return s.events }
 
 func (s *session) ended() <-chan struct{} { return s.done }
 
-// takeHook has nothing to add: a headless session's state comes from its stream.
-func (s *session) takeHook(lanes.HookEvent) {}
+// takeHook keeps the one thing a stream cannot say before a first prompt: a session binds its
+// socket first, and it has no init until then. Its state comes from its stream.
+func (s *session) takeHook(event lanes.HookEvent) {
+	if event.Socket == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.peerSocket = event.Socket
+}
 
 // Send hands one input to the session, by whatever path its run mode has.
 func (d *Driver) Send(ctx context.Context, h ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {
@@ -778,8 +837,28 @@ func (d *Driver) Send(ctx context.Context, h ports.SessionHandle, in ports.Input
 	return s.send(ctx, in)
 }
 
+// send takes the path that suits who is speaking. The worker's own input goes in on stdin, and
+// anyone else's on the socket, which keeps peer marking: stdin reads as a user turn, which is more
+// standing than a message has. A version whose socket passed no check has no such path, and stdin
+// does not stand in for it.
 func (s *session) send(ctx context.Context, in ports.Input) (ports.SendReceipt, error) {
-	return s.write(ctx, in)
+	if !in.Peer {
+		return s.write(ctx, in)
+	}
+	if !s.qualified {
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: this version passed no check of the socket", s.handle.ID, ports.ErrNoChannel)
+	}
+	state, err := shimlink.ReadState(s.dir)
+	if err != nil {
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoChannel, err)
+	}
+	s.mu.Lock()
+	socket := s.peerSocket
+	s.mu.Unlock()
+	if socket == "" {
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: no socket", s.handle.ID, ports.ErrNoChannel)
+	}
+	return writeSocket(ctx, s.handle.ID, socket, state.ChildPID, in, s.receipts.from())
 }
 
 // Decide has no path yet: an approval returns through the waiting hook.

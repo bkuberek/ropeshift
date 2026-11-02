@@ -19,6 +19,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -136,6 +137,10 @@ type Ops interface {
 	ResumeLane(ctx context.Context, scope ledger.WorkspaceID, lane string, actor ledger.Actor) ([]string, error)
 	ResumeWork(ctx context.Context, scope ledger.WorkspaceID, workOrder string, actor ledger.Actor) ([]string, error)
 	ContinueLane(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, reason ledger.StartReason, actor ledger.Actor) (int64, error)
+	Send(ctx context.Context, scope ledger.WorkspaceID, draft messages.Draft, actor ledger.Actor) (messages.Message, error)
+	ReadMessage(ctx context.Context, scope ledger.WorkspaceID, id string) (messages.Message, error)
+	LaneMessages(ctx context.Context, scope ledger.WorkspaceID, lane string) ([]messages.Message, error)
+	ExpireMessages(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 }
 
 type realOps struct {
@@ -147,6 +152,7 @@ type realOps struct {
 	*control.Questions
 	*control.Acceptances
 	*control.Wakes
+	*control.Messages
 }
 
 // The limits a batch runs under here: a window long enough that a blocking question can
@@ -166,12 +172,17 @@ func (provenMember) Authenticate(context.Context, ledger.WorkspaceID, ports.Proo
 	return "member-1", nil
 }
 
+// NewMessageOps are the production message use cases under windows of their own.
+func NewMessageOps(store ports.Store, windows messages.Windows) *control.Messages {
+	return control.NewMessages(store, windows)
+}
+
 // RealOps are the production use cases.
 func RealOps(store ports.Store) Ops {
 	return realOps{
 		control.NewSessions(store, provenMember{}), control.NewWorkOrders(store), control.NewLeases(store), control.NewIntake(store), control.NewReviews(store),
 		control.NewQuestions(store, questions.BatchPolicy{WindowMs: BatchWindowMs, MaxWaitMs: BatchMaxWaitMs}),
-		control.NewAcceptances(store), control.NewWakes(store),
+		control.NewAcceptances(store), control.NewWakes(store), control.NewMessages(store, nil),
 	}
 }
 

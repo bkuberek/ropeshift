@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -40,6 +41,17 @@ type fixture struct {
 	// AuthMethod is what `claude auth status` reports. Empty reports an API key, so a lane
 	// with no run mode in its profile stays headless.
 	AuthMethod string `json:"auth_method,omitempty"`
+	// Inbound stands for a stricter project value of `crossSessionInbound`, which beats what
+	// `--settings` says.
+	Inbound string `json:"inbound,omitempty"`
+	// Lanes gives a lane a script of its own, for a test with two lanes on one binary.
+	Lanes map[string]laneScript `json:"lanes,omitempty"`
+}
+
+// laneScript replaces a fixture's turns for one lane.
+type laneScript struct {
+	Turns       [][]step `json:"turns"`
+	ResumeTurns [][]step `json:"resume_turns,omitempty"`
 }
 
 // step is one thing the session does. Exactly one field is set.
@@ -103,6 +115,9 @@ type session struct {
 	costUSD  float64
 	// pane means this session draws on a terminal and writes no stream.
 	pane bool
+	// socket is where this session reads messages, which only a session with a private directory
+	// binds, as the driver's generated environment gives one.
+	socket string
 }
 
 func main() {
@@ -133,6 +148,9 @@ func main() {
 		return
 	}
 	remember(self, os.Args[1:])
+	if own, ok := script.Lanes[os.Getenv("ROPESHIFT_LANE_ID")]; ok {
+		script.Turns, script.ResumeTurns = own.Turns, own.ResumeTurns
+	}
 	if opts.resume != "" && len(script.ResumeTurns) != 0 {
 		script.Turns = script.ResumeTurns
 	}
@@ -270,6 +288,7 @@ type settings struct {
 	StatusLine struct {
 		Command string `json:"command"`
 	} `json:"statusLine"`
+	CrossSessionInbound string `json:"crossSessionInbound"`
 }
 
 func readSettings(path string) (settings, error) {
@@ -290,8 +309,21 @@ func (s *session) run() {
 	}
 	lines := make(chan string)
 	go readInput(lines)
+	peers := make(chan string)
+	if os.Getenv("CLAUDE_CODE_TMPDIR") != "" {
+		s.socket = listen(peers)
+		if err := os.Setenv("CLAUDE_CODE_MESSAGING_SOCKET", s.socket); err != nil {
+			fail("%v", err)
+		}
+	}
 	s.hook("SessionStart", map[string]any{"source": "startup"})
 	turn := 0
+	next := func() {
+		if turn < len(s.script.Turns) {
+			s.play(s.script.Turns[turn], interrupts)
+			turn++
+		}
+	}
 	for {
 		select {
 		case <-interrupts:
@@ -302,13 +334,73 @@ func (s *session) run() {
 				s.end()
 				return
 			}
+			witness("prompts", strconv.Quote(messageText(line)))
 			s.replay(line)
-			if turn >= len(s.script.Turns) {
-				continue
+			next()
+		case line := <-peers:
+			if s.admits(line) {
+				s.replayPeer(line)
+				next()
 			}
-			s.play(s.script.Turns[turn], interrupts)
-			turn++
 		}
+	}
+}
+
+// admits is the inbound policy, as T6 observed it: a refused or held message reaches no hook and
+// no model, and the only sign of one goes to a sender that named an address.
+func (s *session) admits(line string) bool {
+	policy := s.script.Inbound
+	if policy == "" {
+		policy = s.settings.CrossSessionInbound
+	}
+	switch policy {
+	case "refuse":
+		s.receipt(line, "expired", "refused")
+		return false
+	case "hold":
+		s.emit(map[string]any{"type": "system", "subtype": "peer_message_hold", "state": "held", "message_uuid": messageID(line)})
+		s.receipt(line, "held", "")
+		return false
+	}
+	s.hook("UserPromptSubmit", map[string]any{"prompt": messageText(line)})
+	return true
+}
+
+// replayPeer is the headless acknowledgement: the sender's `uuid`, with a peer's origin.
+func (s *session) replayPeer(line string) {
+	s.emit(map[string]any{
+		"type": "user", "isReplay": true, "uuid": messageID(line), "origin": map[string]any{"kind": "peer"},
+		"message": map[string]any{"role": "user", "content": messageText(line)},
+	})
+}
+
+// receipt answers a reply address, which the receiver does only in its own socket directory.
+func (s *session) receipt(line, status, detail string) {
+	address, msgID := messageFrom(line)
+	path, ok := strings.CutPrefix(address, "uds:")
+	if !ok {
+		return
+	}
+	socket := s.socket
+	if socket == "" {
+		socket = os.Getenv("CLAUDE_CODE_MESSAGING_SOCKET")
+	}
+	if filepath.Dir(path) != filepath.Dir(socket) {
+		return
+	}
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	raw, err := json.Marshal(map[string]any{
+		"type": "control", "action": "peer_message_status", "status": status, "status_detail": detail, "orig_msg_id": msgID,
+	})
+	if err != nil {
+		fail("%v", err)
+	}
+	if _, err := conn.Write(append(raw, '\n')); err != nil {
+		return
 	}
 }
 
@@ -408,11 +500,15 @@ func (s *session) init() map[string]any {
 	if model == "" {
 		model = "claude-fixture-5-5"
 	}
-	return map[string]any{
+	line := map[string]any{
 		"type": "system", "subtype": "init", "model": model, "apiKeySource": "none", "cwd": mustGetwd(),
 		"tools": []string{}, "mcp_servers": s.servers(), "plugins": []string{},
 		"permissionMode": s.opts.permissionMode, "claude_code_version": s.script.Version,
 	}
+	if s.socket != "" {
+		line["messaging_socket_path"] = s.socket
+	}
+	return line
 }
 
 func mustGetwd() string {

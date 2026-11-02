@@ -3,6 +3,8 @@ package lanes
 import (
 	"strings"
 	"time"
+
+	"ropeshift.dev/ropeshift/internal/ledger"
 )
 
 // ResumePath says how a lane comes back.
@@ -127,13 +129,17 @@ func EstimateTokens(size int) int64 { return int64((size + tokenBytes - 1) / tok
 func ConversationTokens(context, baseline int64) int64 { return max(context-baseline, 0) }
 
 // ResumePrompt is what a session is told when it comes back. A resume alone starts no turn, and
-// a stopped turn is not continued, so it states what was in progress again.
-func ResumePrompt(pending string) string {
-	prompt := "This lane parked, and what it waited on has arrived. Your session is back as it stopped.\n"
+// a stopped turn is not continued, so it states what was in progress again, and what landed while
+// no process was there to hear it.
+func ResumePrompt(pending string, facts ...ledger.MessageFact) string {
+	var out strings.Builder
+	out.WriteString("This lane parked, and what it waited on has arrived. Your session is back as it stopped.\n")
 	if pending != "" {
-		prompt += "\n" + pendingNotice + "\n\n" + pending + "\n"
+		out.WriteString("\n" + pendingNotice + "\n\n" + pending + "\n")
 	}
-	return prompt + "\nContinue this work order from there, and call the " + ToolLaneReport + " tool when it is done or cannot go on.\n"
+	writeFacts(&out, facts)
+	out.WriteString("\nContinue this work order from there, and call the " + ToolLaneReport + " tool when it is done or cannot go on.\n")
+	return out.String()
 }
 
 // pendingNotice introduces what a stopped generation was doing.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ledger"
 )
 
 // nativeFacts reach the last row: every earlier row's condition is false. Each case changes
@@ -155,6 +156,59 @@ func TestAResumePromptRestatesWhatWasInProgress(t *testing.T) {
 	idle := lanes.ResumePrompt("")
 	if strings.Contains(idle, "still open") || !strings.Contains(idle, lanes.ToolLaneReport) {
 		t.Errorf("prompt %q", idle)
+	}
+}
+
+var (
+	answerFact = ledger.MessageFact{ID: "m-answer", Kind: "answer", ReplyTo: "q-1", Body: "Use two retries."}
+	openFact   = ledger.MessageFact{ID: "m-open", Kind: "instruction", Body: "Say which branch you used.", Unanswered: true}
+)
+
+// TestEveryFirstPromptStatesItsFacts holds all three ways a generation can begin, because a fact
+// that reached only one of them would be lost on the other two (FR-MSG-5).
+func TestEveryFirstPromptStatesItsFacts(t *testing.T) {
+	prompts := map[string]string{
+		"a native resume":     lanes.ResumePrompt("", answerFact, openFact),
+		"a fresh generation":  lanes.Brief(lanes.BriefSpec{WorkOrder: "wo", Title: "T", Facts: []ledger.MessageFact{answerFact, openFact}}),
+		"a restarted session": lanes.RestartPrompt(answerFact, openFact),
+	}
+	for name, prompt := range prompts {
+		for _, want := range []string{
+			"Use two retries.", "m-answer", "q-1",
+			"Say which branch you used.", "m-open", lanes.ToolReply, "possibly unanswered", "not a permission decision",
+		} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("%s holds no %q:\n%s", name, want, prompt)
+			}
+		}
+	}
+}
+
+// TestAPromptWithNoFactsAddsNothing keeps a first prompt byte for byte what it was, which is what
+// a session's cache reads.
+func TestAPromptWithNoFactsAddsNothing(t *testing.T) {
+	if got := lanes.RestartPrompt(); got != lanes.Restarted {
+		t.Errorf("prompt %q", got)
+	}
+	for name, prompt := range map[string]string{
+		"a native resume": lanes.ResumePrompt(""), "a fresh generation": lanes.Brief(lanes.BriefSpec{WorkOrder: "wo", Title: "T"}),
+	} {
+		if strings.Contains(prompt, "possibly unanswered") || strings.Contains(prompt, "the ledger holds") {
+			t.Errorf("%s: %q", name, prompt)
+		}
+	}
+}
+
+// TestAFactSaysWhichKindItIs keeps an unanswered message out of the list of answers, and the other
+// way round, because the two ask different things of a session.
+func TestAFactSaysWhichKindItIs(t *testing.T) {
+	only := lanes.ResumePrompt("", answerFact)
+	if strings.Contains(only, "possibly unanswered") {
+		t.Errorf("an answer was listed as unanswered:\n%s", only)
+	}
+	unanswered := lanes.ResumePrompt("", openFact)
+	if strings.Contains(unanswered, "the ledger holds") {
+		t.Errorf("an unanswered message was listed as a fact:\n%s", unanswered)
 	}
 }
 

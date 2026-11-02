@@ -3,6 +3,9 @@ package lanes
 import (
 	"fmt"
 	"strings"
+
+	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 )
 
 // Nudge is the one message a lane that ended a turn with no outcome receives. An idle
@@ -20,6 +23,8 @@ type BriefSpec struct {
 	Handoff *Handoff
 	// Pending is what a stopped generation was doing, because a stopped turn is not continued.
 	Pending string
+	// Facts are what no session of this lane took in, or took in and did not answer.
+	Facts []ledger.MessageFact
 }
 
 // Brief is a lane's first prompt until context packs replace it: the contract, and
@@ -42,9 +47,50 @@ func Brief(spec BriefSpec) string {
 	if spec.Pending != "" {
 		out.WriteString("\n" + pendingNotice + "\n\n" + spec.Pending + "\n")
 	}
+	writeFacts(&out, spec.Facts)
 	out.WriteString("\nWhen the work is done, or cannot go on, call the " + ToolLaneReport +
 		" tool once with its outcome, then end your turn.\n")
 	return out.String()
+}
+
+// The two lists a first prompt can hold.
+const (
+	factsNotice      = "While no session could hear it, the ledger holds this for this lane:"
+	unansweredNotice = "These messages were taken into an earlier turn, and each is possibly unanswered. " +
+		"Check whether each still needs a reply, and use the " + ToolReply + " tool if it does:"
+)
+
+// writeFacts states what reaches a new generation as a ledger fact, and what it should check. A
+// message is never retargeted to a new generation, so this is the one way any of it gets here. The
+// text is a sender's, so it says what it is not.
+func writeFacts(out *strings.Builder, facts []ledger.MessageFact) {
+	var stated, unanswered []ledger.MessageFact
+	for _, fact := range facts {
+		if fact.Unanswered {
+			unanswered = append(unanswered, fact)
+		} else {
+			stated = append(stated, fact)
+		}
+	}
+	writeFactList(out, factsNotice, stated)
+	writeFactList(out, unansweredNotice, unanswered)
+	if len(facts) != 0 {
+		out.WriteString("\n" + messages.NotConsent + "\n")
+	}
+}
+
+func writeFactList(out *strings.Builder, notice string, facts []ledger.MessageFact) {
+	if len(facts) == 0 {
+		return
+	}
+	out.WriteString("\n" + notice + "\n")
+	for _, fact := range facts {
+		fmt.Fprintf(out, "\n- %s %s", fact.Kind, fact.ID)
+		if fact.ReplyTo != "" {
+			out.WriteString(", about " + fact.ReplyTo)
+		}
+		out.WriteString(": " + fact.Body + "\n")
+	}
 }
 
 // writeHandoff tells a new generation what the last one left. It states a missing narrative
@@ -119,3 +165,14 @@ func HandoffInstruction() string {
 // Restarted is what a resumed generation is told, because a resume alone starts no turn.
 const Restarted = "Your session ended unexpectedly and was restarted. Continue this work order from where it stopped, " +
 	"and call lane_report when it is done or cannot go on."
+
+// RestartPrompt is that, with what the last generation left unread.
+func RestartPrompt(facts ...ledger.MessageFact) string {
+	var out strings.Builder
+	out.WriteString(Restarted)
+	if len(facts) != 0 {
+		out.WriteString("\n")
+		writeFacts(&out, facts)
+	}
+	return out.String()
+}

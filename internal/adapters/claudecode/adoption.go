@@ -155,8 +155,15 @@ func (d *Driver) Adopt(ctx context.Context, h ports.SessionHandle, from ports.Ad
 	}
 	attempt, cancel := context.WithTimeout(ctx, shimDialDeadline)
 	defer cancel()
+	version, err := d.version(ctx, d.versionEnv())
+	if err != nil {
+		version = ""
+	}
 	if client, err := shimlink.Dial(attempt, shimSocket(spec)); err == nil {
-		_, err := d.follow(ctx, spec, h, client, from.Cursor, from.Cost)
+		s, err := d.follow(ctx, spec, h, client, from.Cursor, from.Cost, Qualified(version))
+		if err == nil {
+			s.keepSocket(from.Hooks)
+		}
 		return err
 	}
 	log, err := openStreamLog(spec)

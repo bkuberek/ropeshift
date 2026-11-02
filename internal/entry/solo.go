@@ -36,6 +36,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/worker"
@@ -187,12 +188,12 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
-	batches := soloBatches(paths)
+	batches, windows := soloBatches(paths), soloWindows(paths)
 	httpServer := &http.Server{
 		Handler: server.New(server.Config{
 			Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 			Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
-			Identity: localauth.New(store, localauth.DefaultParams), Batches: batches,
+			Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -200,7 +201,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	go func() { serveErr <- httpServer.Serve(listener) }()
 	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", paths.ControlSocket())
 
-	ticks := soloTicks(store, opts, batches)
+	ticks := soloTicks(store, opts, batches, windows)
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)
@@ -444,8 +445,23 @@ func soloBatches(paths api.Paths) questions.BatchPolicy {
 	return questions.BatchPolicy{WindowMs: window.Milliseconds(), MaxWaitMs: maxWait.Milliseconds()}
 }
 
-func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolicy) []control.Tick {
+// soloWindows reads how long a message stays useful from the user's layer. A layer that does not
+// parse leaves the defaults, and a lane that reads it reports the fault.
+func soloWindows(paths api.Paths) messages.Windows {
+	raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	profile, err := profiles.Resolve(string(raw))
+	if err != nil {
+		return nil
+	}
+	return profile.MessageWindows()
+}
+
+func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
 	leases := control.NewLeases(store)
+	delivering := control.NewMessages(store, windows)
 	asked := control.NewQuestions(store, batches)
 	intake := control.NewIntake(store)
 	reviews := control.NewReviews(store)
@@ -477,6 +493,14 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 			Every: opts.wakeTick,
 			Run: func(ctx context.Context) error {
 				_, err := wakes.WakeTick(ctx, soloScope, tickActor("wake-tick"))
+				return err
+			},
+		},
+		{
+			Name:  "messages",
+			Every: opts.wakeTick,
+			Run: func(ctx context.Context) error {
+				_, err := delivering.ExpireMessages(ctx, soloScope, tickActor("message-tick"))
 				return err
 			},
 		},

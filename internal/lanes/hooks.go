@@ -1,6 +1,10 @@
 package lanes
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"ropeshift.dev/ropeshift/internal/messages"
+)
 
 // AskedQuestion is one question an agent put to its terminal's question tool, which is the
 // one tool input a hook forwards, because a question is what the ledger is for.
@@ -30,9 +34,12 @@ type HookEvent struct {
 	// Status is what one run of the status line said.
 	Status *StatusReport `json:"status,omitempty"`
 	// Asked is what a question tool call asked, on a lane that defers it.
-	Asked     []AskedQuestion `json:"asked,omitempty"`
-	AtMs      int64           `json:"at_ms"`
-	Malformed bool            `json:"malformed,omitempty"`
+	Asked []AskedQuestion `json:"asked,omitempty"`
+	// Message names the message a prompt opened with, which is the admission signal. It is the
+	// one thing a hook takes from a prompt.
+	Message   string `json:"message,omitempty"`
+	AtMs      int64  `json:"at_ms"`
+	Malformed bool   `json:"malformed,omitempty"`
 }
 
 // EventStatusLine names a status line's report among hook events. The CLI has no hook of
@@ -59,6 +66,7 @@ type hookPayload struct {
 	NotificationType string `json:"notification_type"`
 	Error            string `json:"error"`
 	Model            string `json:"model"`
+	Prompt           string `json:"prompt"`
 	ToolInput        struct {
 		Questions []struct {
 			Question string `json:"question"`
@@ -128,6 +136,7 @@ func NewHookEvent(event string, input []byte) HookEvent {
 	if out.Subject == "" {
 		out.Subject = payload.SessionID
 	}
+	out.Message = messages.ReadFirstLine(payload.Prompt)
 	if payload.ToolName == ToolQuestion {
 		for _, question := range payload.ToolInput.Questions {
 			asked := AskedQuestion{Text: question.Question}

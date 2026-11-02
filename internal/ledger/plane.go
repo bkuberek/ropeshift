@@ -170,6 +170,37 @@ type DesiredLease struct {
 	Overrides string `json:"overrides,omitempty"`
 	// Resume says this claim brings a parked lane back, and what from.
 	Resume *DesiredResume `json:"resume,omitempty"`
+	// Messages are what no worker has acknowledged for this lane. The control plane offers them
+	// until one does, and the worker deduplicates by ID (FR-MSG-3).
+	Messages []DesiredMessage `json:"messages,omitempty"`
+}
+
+// DesiredMessage is one message on its way to a worker. Durations cross the wire, because the
+// worker's clock decides nothing about the ledger's time.
+type DesiredMessage struct {
+	ID          string `json:"id"`
+	Lane        string `json:"lane"`
+	Generation  int64  `json:"generation"`
+	FromKind    string `json:"from_kind"`
+	ReplyTo     string `json:"reply_to,omitempty"`
+	Kind        string `json:"kind"`
+	Body        string `json:"body"`
+	Traceparent string `json:"traceparent,omitempty"`
+	// AgeMs is how old it was when this was read, and the two windows count from its creation.
+	AgeMs         int64 `json:"age_ms"`
+	StaleAfterMs  int64 `json:"stale_after_ms"`
+	ExpireAfterMs int64 `json:"expire_after_ms"`
+}
+
+// MessageFact is what a generation's first prompt states of a message no earlier session took in,
+// or took in and did not answer.
+type MessageFact struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	ReplyTo string `json:"reply_to,omitempty"`
+	Body    string `json:"body"`
+	// Unanswered says an earlier generation took it into a turn and no reply came.
+	Unanswered bool `json:"unanswered,omitempty"`
 }
 
 // DesiredResume is what the ledger holds of the generation that parked, which is all a worker
@@ -194,6 +225,8 @@ type DesiredResume struct {
 	// when this was read.
 	Responded       bool  `json:"responded,omitempty"`
 	SinceResponseMs int64 `json:"since_response_ms,omitempty"`
+	// Facts are what the next generation's first prompt owes, as they stood at this read.
+	Facts []MessageFact `json:"facts,omitempty"`
 }
 
 // DesiredWoken is a woken lane this worker may claim.
@@ -275,6 +308,9 @@ const (
 	// UploadGenerationResponded says a generation's model answered, which the ledger stamps
 	// with its own time, for the resume table's cache clock.
 	UploadGenerationResponded = "generation_responded"
+	// UploadMessage is a worker's word on one message. It passes no fence, because what happened
+	// to a message stays true after its lane moved on.
+	UploadMessage = "message_report"
 )
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index

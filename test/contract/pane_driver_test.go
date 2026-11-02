@@ -411,7 +411,8 @@ func TestPaneSessionIsFoundAndAdoptedByANewDriver(t *testing.T) {
 
 func socketOf(t *testing.T, r *paneRig) string {
 	t.Helper()
-	found, err := filepath.Glob(filepath.Join(r.spec.TempDir, "cc-socks", "*.sock"))
+	// A session's socket is named for its process, and a driver's receipt address starts with r.
+	found, err := filepath.Glob(filepath.Join(r.spec.TempDir, "cc-socks", "[0-9]*.sock"))
 	if err != nil || len(found) != 1 {
 		t.Fatalf("sockets %v, %v", found, err)
 	}

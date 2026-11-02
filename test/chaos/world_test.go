@@ -117,6 +117,9 @@ func (w *world) verify() error {
 	if err := w.rig.CheckWakes(w.store); err != nil {
 		return err
 	}
+	if err := w.rig.CheckMessages(w.store); err != nil {
+		return err
+	}
 	if err := w.verifyClaims(); err != nil {
 		return err
 	}

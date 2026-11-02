@@ -215,9 +215,9 @@ func (r *laneRun) pendingInstruction() string {
 // turn.
 func (r *laneRun) resumePrompt() string {
 	if parking := r.woken(); parking != nil {
-		return lanes.ResumePrompt(parking.Pending)
+		return lanes.ResumePrompt(parking.Pending, r.factsOwed()...)
 	}
-	return lanes.Restarted
+	return lanes.RestartPrompt(r.factsOwed()...)
 }
 
 // fetchNames is what this generation must bring from a remote before its worktree exists.

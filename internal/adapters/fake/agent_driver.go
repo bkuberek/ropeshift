@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -34,6 +35,8 @@ type DriverStep struct {
 	Malformed bool
 	// Do runs in order with the events, as a tool call in a session would.
 	Do func(spec ports.SessionSpec)
+	// Refused reports a receipt that says the session refused this input.
+	Refused string
 	// Hold waits until the session is stopped.
 	Hold bool
 	// Crash ends the process with no end to its turn.
@@ -74,6 +77,11 @@ type AgentDriver struct {
 	present  bool
 	costs    lanes.ResumeCosts
 	noResume bool
+	// noPeerChannel stands for a version whose socket surfaces passed no check.
+	noPeerChannel bool
+	// ignoresPeers stands for a session that took a write and will never reach it: frozen,
+	// refusing, or behind a long tool.
+	ignoresPeers atomic.Bool
 }
 
 type driverSession struct {
@@ -87,6 +95,8 @@ type driverSession struct {
 	mu      sync.Mutex
 	context int64
 	bad     int
+	// ignoresPeers is its driver's, so a test can say this of a session already running.
+	ignoresPeers *atomic.Bool
 }
 
 // NewAgentDriver returns a driver with an empty script.
@@ -107,6 +117,16 @@ func (d *AgentDriver) SetResumeCosts(costs lanes.ResumeCosts) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.costs = costs
+}
+
+// SetIgnoresPeers says whether a session takes a peer's write and does nothing with it.
+func (d *AgentDriver) SetIgnoresPeers(on bool) { d.ignoresPeers.Store(on) }
+
+// SetPeerChannel says whether a peer's message has a path into a session.
+func (d *AgentDriver) SetPeerChannel(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.noPeerChannel = !on
 }
 
 // SetNativeResume says whether this driver can continue a session.
@@ -298,7 +318,7 @@ func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.
 func (d *AgentDriver) newSession(spec ports.SessionSpec, meter lanes.CostMeter) *driverSession {
 	return &driverSession{
 		spec: spec, script: d.next, events: make(chan ports.DriverEvent, 256), inputs: make(chan ports.Input, 16),
-		stops: make(chan ports.StopMode, 1), done: make(chan struct{}), meter: meter,
+		stops: make(chan ports.StopMode, 1), done: make(chan struct{}), meter: meter, ignoresPeers: &d.ignoresPeers,
 	}
 }
 
@@ -353,6 +373,9 @@ func (s *driverSession) run() {
 	for {
 		select {
 		case input := <-s.inputs:
+			if input.Peer && s.ignoresPeers.Load() {
+				continue
+			}
 			if !s.script.Silent {
 				s.events <- ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: input.ID}
 			}
@@ -390,6 +413,8 @@ func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
 			s.events <- ports.DriverEvent{Kind: ports.EventMalformed}
 		case step.Do != nil:
 			step.Do(s.spec)
+		case step.Refused != "":
+			s.events <- ports.DriverEvent{Kind: ports.EventInputRefused, InputID: step.Refused}
 		case step.Turn != nil:
 			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage}
 			result.CostUSD = s.meter.ObserveTurn(step.Turn.TotalUSD)
@@ -455,6 +480,10 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 	default:
 	}
 	d.mu.Lock()
+	if in.Peer && d.noPeerChannel {
+		d.mu.Unlock()
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w", h.ID, ports.ErrNoChannel)
+	}
 	d.sends++
 	if in.ID == "" {
 		in.ID = fmt.Sprintf("input-%d", d.sends)
@@ -462,7 +491,11 @@ func (d *AgentDriver) Send(_ context.Context, h ports.SessionHandle, in ports.In
 	d.sent = append(d.sent, in)
 	d.mu.Unlock()
 	session.inputs <- in
-	return ports.SendReceipt{ID: in.ID, Path: ports.SendStdin}, nil
+	path := ports.SendStdin
+	if in.Peer {
+		path = ports.SendSocket
+	}
+	return ports.SendReceipt{ID: in.ID, Path: path}, nil
 }
 
 // Decide has no path in a headless fake, as in the driver at this unit.

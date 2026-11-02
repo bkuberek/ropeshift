@@ -68,6 +68,9 @@ type Progress struct {
 	// Instruction is what the session was told and has not finished, because a stopped turn
 	// is not continued. Empty means the last turn ended.
 	Instruction string `json:"instruction,omitempty"`
+	// Carried names the messages this generation's first prompt stated. The worker holds no row
+	// for them, and a lane can still reply to one after a restart.
+	Carried []string `json:"carried,omitempty"`
 	// ContextTokens is what the session held at its last call, and BaselineTokens what it held
 	// at its first, which every path carries, so the difference is the conversation.
 	ContextTokens  int64 `json:"context_tokens,omitempty"`

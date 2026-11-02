@@ -31,7 +31,13 @@ type SessionOverride struct {
 	// ExpiredCache has the resume table read every cache as past its lifetime, so a suite can
 	// walk the fresh path with no long park.
 	ExpiredCache bool `json:"expired_cache"`
+	// Refuses is `crossSessionInbound` for a suite that shows a receipt, which only a session
+	// that refuses can write.
+	Refuses string `json:"inbound"`
 }
+
+// refusingInbound is the one value a suite may set.
+const refusingInbound = "refuse"
 
 // allowedVariables are all a suite may add to a session.
 var allowedVariables = []string{"CLAUDE_CODE_SKIP_PROMPT_HISTORY=1"}
@@ -56,7 +62,18 @@ func ParseOverride(text string) (SessionOverride, error) {
 			return SessionOverride{}, fmt.Errorf("refused variable: %s", entry)
 		}
 	}
+	if override.Refuses != "" && override.Refuses != refusingInbound {
+		return SessionOverride{}, fmt.Errorf("refused inbound policy: %s", override.Refuses)
+	}
 	return override, nil
+}
+
+// Inbound reads a suite's inbound policy, or the one a lane is generated with.
+func (o SessionOverride) Inbound(generated string) string {
+	if o.Refuses != "" {
+		return o.Refuses
+	}
+	return generated
 }
 
 // Args returns the guard flags.

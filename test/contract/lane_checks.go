@@ -63,7 +63,11 @@ func newStatusRig(r *Rig) (*statusRig, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = r.NewOps(s.store).StartLane(r.Ctx, r.Scope, s.grant.Lease, s.lane, r.Actor)
+	ops := r.NewOps(s.store)
+	if _, err := ops.Dispatch(r.Ctx, r.Scope, id, s.lane, r.Actor); err != nil {
+		return nil, err
+	}
+	_, err = ops.StartLane(r.Ctx, r.Scope, s.grant.Lease, s.lane, r.Actor)
 	return s, err
 }
 

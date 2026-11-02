@@ -24,5 +24,8 @@ func (SessionOverride) Env() []string { return nil }
 // StreamLog keeps nothing in a normal build.
 func (SessionOverride) StreamLog() string { return "" }
 
+// Inbound is what a lane is generated with, in a normal build.
+func (SessionOverride) Inbound(generated string) string { return generated }
+
 // CacheLifetime is what a driver documents, in a normal build.
 func (SessionOverride) CacheLifetime(documented time.Duration) time.Duration { return documented }

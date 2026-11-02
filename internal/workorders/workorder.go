@@ -194,6 +194,9 @@ type GenerationBinding struct {
 	// FellBack says a generation that meant to resume started fresh from its handoff, because
 	// its resume never reached a ready state.
 	FellBack bool `json:"fell_back,omitempty"`
+	// Carried names the messages this generation's first prompt stated. A binding shows that
+	// prompt reached a turn, so a generation that never got there leaves them for the next.
+	Carried []string `json:"carried,omitempty"`
 }
 
 // PinEvent is the event of unstarted work taking a new contract version.

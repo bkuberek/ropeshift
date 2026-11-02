@@ -791,7 +791,7 @@ func allVariants() []variant {
 	noStateGuard := sqlstore.Sabotage{Rewrite: replace("lease.grant", stateGuard, "")}
 	noFencePredicate := sqlstore.Sabotage{Rewrite: replace("lease.guard", fenceGuard, "")}
 	memoryFences := sqlstore.Sabotage{Rewrite: fenceInMemory}
-	return append(slices.Concat(handoffVariants(), wakeVariants(), parkVariants(), resumeVariants()), []variant{
+	return append(slices.Concat(handoffVariants(), wakeVariants(), parkVariants(), resumeVariants(), messageVariants()), []variant{
 		{
 			name:     "revision taken last",
 			sabotage: sqlstore.Sabotage{RevisionLast: true},

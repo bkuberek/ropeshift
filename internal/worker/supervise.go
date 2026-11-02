@@ -320,7 +320,7 @@ func (r *laneRun) retryBrief(ctx context.Context) {
 func (r *laneRun) briefText() string {
 	return lanes.Brief(lanes.BriefSpec{
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
-		Handoff: r.inherited, Pending: r.pendingInstruction(),
+		Handoff: r.inherited, Pending: r.pendingInstruction(), Facts: r.factsOwed(),
 	})
 }
 

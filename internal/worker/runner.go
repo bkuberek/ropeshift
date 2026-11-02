@@ -116,6 +116,10 @@ type laneRun struct {
 	waiting atomic.Bool
 	// fellBack says this generation meant to resume and started from its handoff.
 	fellBack bool
+	// facts are what this generation's first prompt owes, and carried names them, which is all a
+	// restarted worker keeps. The handle's lock guards both.
+	facts   []ledger.MessageFact
+	carried []string
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -139,7 +143,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 		run.state = newLaneState(record.Actual, w.clock.Now())
 	}
 	run.left, run.parking = record.Handoff, record.Parking
-	run.instruction, run.blocking = record.Progress.Instruction, record.Blocking
+	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
 	run.state.keepContext(record.Progress.ContextTokens, record.Progress.BaselineTokens)
 	run.inheritedFrom(record.Handoff)
 	return run
@@ -440,6 +444,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.state.thresholds(prepared.Profile)
+	r.readFacts(ctx)
 	spec, err := r.spec(ctx, prepared, repository)
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
@@ -615,7 +620,7 @@ func (r *laneRun) saveProgress(ctx context.Context, cursor int64) {
 	r.cursor = cursor
 	progress := lanes.Progress{
 		Cursor: cursor, Cost: r.cost, Usage: r.usage, PriorUSD: r.priorUSD, PriorUnknown: r.priorUnknown,
-		Instruction: r.instructionInProgress(),
+		Instruction: r.instructionInProgress(), Carried: r.carriedIDs(),
 	}
 	progress.ContextTokens, progress.BaselineTokens = r.state.contextRead()
 	if err := r.w.journal.SaveProgress(ctx, r.lease.Lane, progress); err != nil {
@@ -636,10 +641,15 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 	payload, err := json.Marshal(workorders.GenerationBinding{
 		SessionID: event.SessionID, ModelRequested: r.model, ModelResolved: event.ModelResolved,
 		ProfileDigest: r.profileDigest, DriverVersion: r.version, DegradedMode: r.degraded, FellBack: r.fellBack,
+		Carried: r.carriedIDs(),
 	})
 	if err != nil {
 		r.w.config.Report(err)
 		return
+	}
+	// Before the binding, so a kill between them leaves a lane able to answer what it was told.
+	if len(r.carriedIDs()) > 0 {
+		r.saveProgress(ctx, r.cursor)
 	}
 	bound := r.w.event(ledger.UploadGenerationBound, r.record(), payload)
 	first, err := r.w.journal.BindGeneration(ctx, r.lease.Lane, event.SessionID, bound)

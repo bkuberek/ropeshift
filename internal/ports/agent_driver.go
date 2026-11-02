@@ -16,6 +16,8 @@ const (
 	ApprovalHook = "hook"
 
 	InjectionBetweenTools = "between_tools"
+	// InjectionNone says a peer's message has no path into a session on this version.
+	InjectionNone = "none"
 
 	ContextLive = "live"
 
@@ -29,6 +31,9 @@ const (
 
 // ErrNoSession means a handle names nothing this driver is running.
 var ErrNoSession = errors.New("no such session")
+
+// ErrNoChannel means a peer's message has no path into this session: nothing was written.
+var ErrNoChannel = errors.New("no channel for a peer's message")
 
 // The two ways a checked start stops. Neither session ran a turn.
 var (
@@ -191,6 +196,8 @@ const (
 	EventTurnEnded EventKind = "turn_ended"
 	// EventInputAdmitted carries the ID of an input the session took.
 	EventInputAdmitted EventKind = "input_admitted"
+	// EventInputRefused carries the ID of an input the session refused, from a receipt.
+	EventInputRefused EventKind = "input_refused"
 	// EventCompaction says a compaction ran.
 	EventCompaction EventKind = "compaction"
 	// EventLimit carries a usage limit signal.
@@ -253,6 +260,9 @@ type DriverEvent struct {
 type Input struct {
 	ID   string
 	Text string
+	// Peer says this comes from anyone but the worker, so it must keep a peer's standing. A driver
+	// with no such path says ErrNoChannel, and never gives it the standing of a worker's input.
+	Peer bool
 }
 
 // The paths a SendReceipt can state.

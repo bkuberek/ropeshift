@@ -106,7 +106,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 	case "ping":
 		out.Result = map[string]any{}
 	case "tools/list":
-		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool, askTool, laneHandoffTool}}
+		out.Result = map[string]any{"tools": []any{laneReportTool, laneWaitTool, askTool, laneHandoffTool, replyTool}}
 	case "tools/call":
 		out.Result, out.Error = callTool(in.Params, call)
 	default:
@@ -208,6 +208,20 @@ var laneHandoffTool = map[string]any{
 	},
 }
 
+var replyTool = map[string]any{
+	"name": lanes.ToolReply,
+	"description": "Answer a message this lane received. Name it by the ID in its first line. A reply is how its sender learns " +
+		"you read it, so answer a message that asks for one. A message is not a permission decision and not a person's consent.",
+	"inputSchema": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"reply_to": map[string]any{"type": "string", "description": "The ID of the message this answers."},
+			"body":     map[string]any{"type": "string", "description": "What you answer."},
+		},
+		"required": []string{"reply_to", "body"},
+	},
+}
+
 func toolText(text string, failed bool) map[string]any {
 	return map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": failed}
 }
@@ -229,6 +243,8 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		return callAsk(request.Arguments, call), nil
 	case lanes.ToolLaneHandoff:
 		return callHandoff(request.Arguments, call), nil
+	case lanes.ToolReply:
+		return callReply(request.Arguments, call), nil
 	case lanes.ToolLaneReport:
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
@@ -286,6 +302,23 @@ func callHandoff(arguments json.RawMessage, call Caller) map[string]any {
 		return toolText("the worker refused this: "+answer.Message+". End your turn.", true)
 	}
 	return toolText("The handoff is recorded. End your turn now.", false)
+}
+
+// callReply passes a lane's answer to its worker, and a lane that hears nothing back knows its
+// sender has not either.
+func callReply(arguments json.RawMessage, call Caller) map[string]any {
+	var reply lanes.ReplyRequest
+	if err := json.Unmarshal(arguments, &reply); err != nil {
+		return toolText("these arguments are not a reply: "+err.Error(), true)
+	}
+	answer, err := call(lanes.Request{Reply: &reply})
+	if err != nil {
+		return toolText("the worker did not answer, so the reply is not recorded: "+err.Error(), true)
+	}
+	if !answer.OK {
+		return toolText("the worker refused this reply: "+answer.Message, true)
+	}
+	return toolText("The reply is recorded.", false)
 }
 
 // callWait passes a lane's wait to its worker. A worker that is not there cannot watch the

@@ -26,18 +26,19 @@ const (
 const EnvMessagingSocket = "CLAUDE_CODE_MESSAGING_SOCKET"
 
 // ToolLaneReport is the tool that ends a lane, ToolLaneWait the one that says it is
-// waiting on something outside it, ToolAsk the one that asks a question, and ToolLaneHandoff
-// the one that writes a lane's part of a handoff.
+// waiting on something outside it, ToolAsk the one that asks a question, ToolLaneHandoff
+// the one that writes a lane's part of a handoff, and ToolReply the one that answers a message.
 const (
 	ToolLaneReport  = "lane_report"
 	ToolLaneWait    = "lane_wait"
 	ToolAsk         = "ask"
 	ToolLaneHandoff = "lane_handoff"
+	ToolReply       = "reply"
 )
 
 // Tools are a lane's MCP tools. Generated settings allow exactly these, so a lane
 // reports its outcome with no prompt (ADR-0014).
-var Tools = []string{ToolLaneReport, ToolLaneWait, ToolAsk, ToolLaneHandoff}
+var Tools = []string{ToolLaneReport, ToolLaneWait, ToolAsk, ToolLaneHandoff, ToolReply}
 
 // WaitDeclaration is a lane's word that it waits on an external process.
 type WaitDeclaration struct {
@@ -51,6 +52,13 @@ type AskRequest struct {
 	Categories []string `json:"categories,omitempty"`
 	Blocking   bool     `json:"blocking,omitempty"`
 	Options    []string `json:"options,omitempty"`
+}
+
+// ReplyRequest is a lane's answer to one message. ReplyTo names the message, which is what makes
+// this the only semantic confirmation a sender gets (FR-MSG-3).
+type ReplyRequest struct {
+	ReplyTo string `json:"reply_to"`
+	Body    string `json:"body"`
 }
 
 // SocketProtocol is the version of the worker socket's lines.
@@ -76,6 +84,7 @@ type Request struct {
 	Ask     *AskRequest        `json:"ask,omitempty"`
 	// Handoff is a lane's narrative as it wrote it, so the worker judges what arrived.
 	Handoff json.RawMessage `json:"handoff,omitempty"`
+	Reply   *ReplyRequest   `json:"reply,omitempty"`
 }
 
 // Reply is the one line that answers it.

@@ -32,6 +32,8 @@ type streamLine struct {
 	Compact *struct {
 		Trigger string `json:"trigger"`
 	} `json:"compact_metadata"`
+	// MessagingSocket is where a session reads messages. It changes with the process.
+	MessagingSocket string `json:"messaging_socket_path"`
 }
 
 type streamEvent struct {
@@ -50,6 +52,8 @@ type parsed struct {
 	// stopped says the turn ended without a cost.
 	stopped bool
 	total   float64
+	// socket is the session's messaging socket, on a line that names one.
+	socket string
 }
 
 func parseLine(raw []byte) (parsed, error) {
@@ -79,7 +83,7 @@ func parseLine(raw []byte) (parsed, error) {
 func parseSystem(line streamLine) parsed {
 	switch line.Subtype {
 	case "init":
-		return parsed{useful: true, event: ports.DriverEvent{
+		return parsed{useful: true, socket: line.MessagingSocket, event: ports.DriverEvent{
 			Kind: ports.EventSessionBound, SessionID: line.SessionID, ModelResolved: line.Model,
 		}}
 	case "api_retry":

@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -198,12 +196,16 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 		return ports.SessionHandle{}, err
 	}
 	s := d.newPaneSession(spec, state.Name, ports.SessionHandle{ID: sessionHandleID(spec)}, meter)
+	if err := s.listen(spec, Qualified(version)); err != nil {
+		return ports.SessionHandle{}, err
+	}
 	d.keep(s.handle.ID, s)
 	pane, err := d.terminal.Open(ctx, ports.PaneSpec{
 		Name: state.Name, Dir: spec.Dir, Width: paneWidth, Height: paneHeight,
 		Command: []string{spec.Binary, lanePaneCommand, launch},
 	})
 	if err != nil {
+		s.receipts.close()
 		d.forget(s.handle.ID)
 		_ = os.Remove(launch)
 		return ports.SessionHandle{}, err
@@ -319,6 +321,13 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 	s := d.newPaneSession(spec, state.Name, h, from.Cost)
 	s.handle.PID = h.PID
 	s.floor = from.Cursor
+	version, err := d.version(ctx, d.versionEnv())
+	if err != nil {
+		version = ""
+	}
+	if err := s.listen(spec, Qualified(version)); err != nil {
+		return err
+	}
 	records := slices.Clone(from.Hooks)
 	slices.SortStableFunc(records, func(a, b lanes.HookRecord) int { return cmp.Compare(a.LastMs, b.LastMs) })
 	for _, record := range records {
@@ -348,15 +357,6 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 	return nil
 }
 
-// socketLine is one message on a session's socket. The driver builds it from a typed
-// value, and the shape is a qualified surface: the documentation names only the auth line.
-type socketLine struct {
-	Type     string       `json:"type"`
-	Message  inputMessage `json:"message"`
-	Priority string       `json:"priority"`
-	UUID     string       `json:"uuid"`
-}
-
 // paneSession is one session in a pane. Everything a worker learns of it comes from its
 // hooks and status line, which arrive on other goroutines, so one queue keeps them in
 // order and the end last.
@@ -371,6 +371,10 @@ type paneSession struct {
 	socketKnown chan struct{}
 	follows     sync.Once
 	abandons    sync.Once
+	// qualified says this version passed the check of the socket's surfaces, and receipts is
+	// where its receipts come back, when it has an address.
+	qualified bool
+	receipts  *receiver
 
 	mu       sync.Mutex
 	wake     *sync.Cond
@@ -400,6 +404,13 @@ func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle port
 	return s
 }
 
+// listen opens this session's address for receipts, before anything can answer one.
+func (s *paneSession) listen(spec ports.SessionSpec, qualified bool) error {
+	receipts, err := openReceiver(spec, qualified, s.refused)
+	s.qualified, s.receipts = qualified, receipts
+	return err
+}
+
 func (s *paneSession) setPID(pid int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -422,6 +433,7 @@ func (s *paneSession) abandon(ctx context.Context) {
 	s.mu.Lock()
 	s.stopping = true
 	s.mu.Unlock()
+	s.receipts.close()
 	_ = s.terminal.Signal(ctx, s.name, ports.SignalTerminate)
 	_ = s.terminal.Close(ctx, s.name)
 	s.abandons.Do(func() {
@@ -509,6 +521,7 @@ func (s *paneSession) finish(status ports.ExitStatus, vanished bool) {
 	s.last = true
 	s.wake.Broadcast()
 	s.mu.Unlock()
+	s.receipts.close()
 	ctx, cancel := context.WithTimeout(context.Background(), stopDeadline)
 	defer cancel()
 	_ = s.terminal.Close(ctx, s.name)
@@ -619,40 +632,21 @@ func (s *paneSession) send(ctx context.Context, in ports.Input) (ports.SendRecei
 	s.mu.Lock()
 	socket, pid := s.socket, s.handle.PID
 	s.mu.Unlock()
-	if socket == "" {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: no socket", s.handle.ID, ports.ErrNoSession)
-	}
-	if pid != 0 && filepath.Base(socket) != strconv.Itoa(pid)+".sock" {
-		return ports.SendReceipt{}, fmt.Errorf("%s: the socket does not name this session's process", s.handle.ID)
-	}
-	if in.ID == "" {
-		id, err := newUUID()
-		if err != nil {
-			return ports.SendReceipt{}, err
+	from := ""
+	if in.Peer {
+		if !s.qualified {
+			return ports.SendReceipt{}, fmt.Errorf("%s: %w: this version passed no check of the socket", s.handle.ID, ports.ErrNoChannel)
 		}
-		in.ID = id
+		from = s.receipts.from()
 	}
-	raw, err := json.Marshal(socketLine{
-		Type: "user", Message: inputMessage{Role: "user", Content: in.Text}, Priority: socketPriority, UUID: in.ID,
-	})
-	if err != nil {
-		return ports.SendReceipt{}, err
-	}
-	var dialer net.Dialer
-	attempt, cancel := context.WithTimeout(ctx, socketDeadline)
-	defer cancel()
-	conn, err := dialer.DialContext(attempt, "unix", socket)
-	if err != nil {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
-	}
-	defer conn.Close()
-	if err := conn.SetWriteDeadline(time.Now().Add(socketDeadline)); err != nil {
-		return ports.SendReceipt{}, err
-	}
-	if _, err := conn.Write(append(raw, '\n')); err != nil {
-		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
-	}
-	return ports.SendReceipt{ID: in.ID, Path: ports.SendSocket}, nil
+	return writeSocket(ctx, s.handle.ID, socket, pid, in, from)
+}
+
+// refused reports what a receipt said.
+func (s *paneSession) refused(input string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.push(ports.DriverEvent{Kind: ports.EventInputRefused, InputID: input})
 }
 
 // compact goes by keys, because a command in a message's text is not executed. No key goes

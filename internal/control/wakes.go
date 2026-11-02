@@ -236,6 +236,9 @@ func recordParked(tx ports.WriteTx, holder workorders.Holder, checkpoint ledger.
 	if err := tx.Lanes().EndGeneration(holder.Lane, holder.Generation, workorders.EndParked); err != nil {
 		return err
 	}
+	if err := rollMessages(tx, holder.Lane, holder.Generation, true, actor); err != nil {
+		return err
+	}
 	checkpoint.Lane, checkpoint.Generation = holder.Lane, holder.Generation
 	left, err := tx.Lanes().Handoff(holder.Lane, holder.Generation)
 	switch {

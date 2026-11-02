@@ -1,0 +1,19 @@
+{
+  "source": "T6 and RS8: a lane at rest takes a message, and answers it with the reply tool",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"mcp": "ask", "arguments": {"text": "When may this lane go on?", "blocking": true}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"init": true},
+      {"mcp": "reply", "arguments": {"reply_to": "m-cli", "body": "Read, and going on."}},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

@@ -65,7 +65,7 @@ func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 func generateSettings(spec ports.SessionSpec) settingsFile {
 	out := settingsFile{
 		Permissions:  permissions{Allow: []string{}, Deny: denyRules(spec), Ask: askRules(spec)},
-		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: inboundAccept,
+		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
 	}
 	for _, tool := range spec.Tools {
 		out.Permissions.Allow = append(out.Permissions.Allow, toolRule(tool))

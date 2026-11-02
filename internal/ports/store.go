@@ -7,6 +7,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -82,6 +83,8 @@ type ReadTx interface {
 	Evidence() EvidenceReader
 	// Wakes reads wake conditions and signals.
 	Wakes() WakeReader
+	// Messages reads messages to lanes.
+	Messages() MessageReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -128,6 +131,8 @@ type WriteTx interface {
 	Evidence() EvidenceWriter
 	// Wakes reads and writes wake conditions and signals.
 	Wakes() WakeWriter
+	// Messages reads and writes messages to lanes.
+	Messages() MessageWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -326,6 +331,40 @@ type WakeWriter interface {
 	Retire(workOrder, cause string) error
 	// Signal records a fact under its event's revision.
 	Signal(signal parking.Signal, rev int64) error
+}
+
+// MessageReader reads messages to lanes. No read here stops at a page, because each one decides
+// what happens to everything it returns.
+type MessageReader interface {
+	// Message returns one message, or ErrNotFound.
+	Message(id string) (messages.Message, error)
+	// All lists every message, oldest first.
+	All() ([]messages.Message, error)
+	// ToLane lists what was sent to a lane, oldest first.
+	ToLane(lane string) ([]messages.Message, error)
+	// Queued lists what no worker has acknowledged for a lane, oldest first.
+	Queued(lane string) ([]messages.Message, error)
+	// Unsettled lists what a clock or a generation's end can still move, for a lane's generations
+	// up to one.
+	Unsettled(lane string, through int64) ([]messages.Message, error)
+	// Facts lists what a lane's next first prompt owes: facts no session took in, and messages
+	// a generation up to `ended` took in and did not answer.
+	Facts(lane string, ended int64) ([]messages.Message, error)
+	// Due lists the messages past their window at a time. A tick reads this with no lock, so each
+	// one is read again in its own transaction.
+	Due(now int64) ([]string, error)
+}
+
+// MessageWriter writes messages to lanes.
+type MessageWriter interface {
+	MessageReader
+	// NextSeq is a sender's next number (FR-MSG-1).
+	NextSeq(kind, id string) (int64, error)
+	// Insert adds a new message.
+	Insert(messages.Message) error
+	// Save is the compare-and-set of the delivery table: it replaces what can change on a message
+	// that still stands in the state its caller read, and reports whether it did.
+	Save(message messages.Message, from messages.State) (bool, error)
 }
 
 // EvidenceReader reads what a work order's lanes left and what its checks said.

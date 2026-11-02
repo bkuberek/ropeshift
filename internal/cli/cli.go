@@ -71,6 +71,10 @@ const usage = `usage: ropeshift <command>
   lane reset <work-order>                            let a lane its breaker stopped start again
   lane resume <work-order>                           give a parked lane a member's word
   lane archive <lane> [--force]                      remove a lane's worktree, which keeps its branch
+  message send <lane> --body B [--kind K] [--id I] [--reply-to R] [--generation G]
+                                                     send a lane a message, which grants nothing
+  message show <id>                                  say what became of a message
+  message list <lane>                                list what was sent to a lane
   fleet show                                         show the fleet's mode and caps
   fleet run|pause|drain                              set the fleet's mode
   fleet caps [--wip N] [--per-repository N] [--per-worker N]
@@ -89,7 +93,7 @@ Every command takes --json and --socket. docs/cli.md lists the exit codes.
 func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
-		"question", "decision", "policy", "category", "search", "login", "passphrase":
+		"question", "decision", "policy", "category", "search", "login", "passphrase", "message":
 		return true
 	}
 	return false
@@ -178,6 +182,9 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		"lane archive":      (*invocation).laneArchive,
 		"lane list":         (*invocation).laneList,
 		"lane show":         (*invocation).laneShow,
+		"message send":      (*invocation).messageSend,
+		"message show":      (*invocation).messageShow,
+		"message list":      (*invocation).messageList,
 		"source list":       (*invocation).sourceList,
 		"fleet show":        (*invocation).fleetShow,
 		"fleet run":         setsFleet(ledger.FleetRun),

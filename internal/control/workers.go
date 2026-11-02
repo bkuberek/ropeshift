@@ -15,6 +15,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -61,6 +62,8 @@ type WorkerOptions struct {
 	LeaseTTLMs int64
 	// Batches says how long questions gather for a person.
 	Batches questions.BatchPolicy
+	// Windows says how long what a ruling sends a lane stays useful.
+	Windows messages.Windows
 }
 
 // Workers is the control plane's side of the plane protocol. It has the shape of
@@ -413,7 +416,8 @@ func desiredResume(tx ports.ReadTx, lane string) (*ledger.DesiredResume, error) 
 			resume.Responded, resume.SinceResponseMs = true, now-generation.LastResponseAt
 		}
 	}
-	return resume, nil
+	resume.Facts, err = messageFacts(tx.Messages(), lane, row.Generation)
+	return resume, err
 }
 
 // desiredLease adds what a dispatched lane starts from.
@@ -437,6 +441,13 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, err
 	}
 	lease.Resets = resets
+	now, err := tx.Now()
+	if err != nil {
+		return lease, err
+	}
+	if lease.Messages, err = desiredMessages(tx, claim.Lane, now); err != nil {
+		return lease, err
+	}
 	if row.ResumeLaneID != "" {
 		if lease.Resume, err = desiredResume(tx, row.ResumeLaneID); err != nil {
 			return lease, err
@@ -581,6 +592,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return resumeUpload(tx, worker, e, stamp)
 	case ledger.UploadGenerationResponded:
 		return respondGeneration(tx, worker, id, e)
+	case ledger.UploadMessage:
+		return messageUpload(tx, worker, id, e)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {

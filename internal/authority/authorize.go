@@ -34,8 +34,10 @@ const (
 	// ActionResumeLane is a person waking a parked lane, which no automatic step can do.
 	ActionResumeLane Action = "lane.resume"
 	// ActionRework sends completed work back for another attempt.
-	ActionRework        Action = "acceptance.rework"
-	ActionSendBack      Action = "review.send_back"
+	ActionRework   Action = "acceptance.rework"
+	ActionSendBack Action = "review.send_back"
+	// ActionSendMessage sends a lane a message, which grants nothing (FR-MSG-6).
+	ActionSendMessage   Action = "message.send"
 	ActionSetPassphrase Action = "member.set_passphrase"
 	ActionTakeQuestion  Action = "question.take"
 )
@@ -47,7 +49,7 @@ func Actions() []Action {
 		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionResumeLane, ActionRework, ActionSendBack,
-		ActionSetPassphrase, ActionTakeQuestion,
+		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion,
 	}
 }
 
@@ -57,7 +59,7 @@ var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
 		ActionAccept: true, ActionAcceptLaneChecks: true, ActionArchiveLane: true, ActionDismissQuestion: true,
 		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRework: true,
-		ActionSendBack: true, ActionTakeQuestion: true,
+		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},
 	ledger.ActorSystem: {ActionAccept: true, ActionCreateJoinToken: true, ActionRework: true},
 }

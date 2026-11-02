@@ -305,6 +305,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 		}
 	}
 	w.drainLanes(ctx)
+	w.deliverMessages(ctx)
 	return actions, nil
 }
 

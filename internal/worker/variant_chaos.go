@@ -40,6 +40,10 @@ const (
 	SabotageSplitsResume = "splits-resume"
 	// SabotageLeavesParked journals a resume with its lane still reading `parked`.
 	SabotageLeavesParked = "leaves-parked"
+	// SabotageResendsMessage gives each process its own write of a message.
+	SabotageResendsMessage = "resends-message"
+	// SabotageSplitsMessage keeps a message's write and what it proves in two journal writes.
+	SabotageSplitsMessage = "splits-message"
 )
 
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
@@ -65,6 +69,17 @@ func splitsPark() bool { return sabotaged(SabotageSplitsPark) }
 func splitsResume() bool { return sabotaged(SabotageSplitsResume) }
 
 func leavesParked() bool { return sabotaged(SabotageLeavesParked) }
+
+func splitsMessage() bool { return sabotaged(SabotageSplitsMessage) }
+
+func messageKey(id string) string {
+	if !sabotaged(SabotageResendsMessage) {
+		return messageLabel + id
+	}
+	raw := make([]byte, 4)
+	_, _ = rand.Read(raw)
+	return messageLabel + id + "/" + hex.EncodeToString(raw)
+}
 
 func instructionLabel() string {
 	if !sabotaged(SabotageResendsHandoff) {

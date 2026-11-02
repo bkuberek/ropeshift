@@ -13,6 +13,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -41,6 +42,8 @@ type Config struct {
 	Identity ports.IdentityProvider
 	// Batches says how long questions gather for a person.
 	Batches questions.BatchPolicy
+	// Windows says how long a message stays useful, per kind.
+	Windows messages.Windows
 }
 
 type handler struct {
@@ -53,6 +56,7 @@ type handler struct {
 	workers    *control.Workers
 	fleet      *control.Fleet
 	wakes      *control.Wakes
+	messages   *control.Messages
 	sessions   *control.Sessions
 }
 
@@ -67,15 +71,17 @@ func New(config Config) http.Handler {
 		questions:  control.NewQuestions(config.Store, config.Batches),
 		fleet:      control.NewFleet(config.Store),
 		wakes:      control.NewWakes(config.Store),
+		messages:   control.NewMessages(config.Store, config.Windows),
 		sessions:   control.NewSessions(config.Store, config.Identity),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
-			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches,
+			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 		}),
 	}
 	mux := http.NewServeMux()
 	h.workerRoutes(mux)
 	h.planningRoutes(mux)
 	h.questionRoutes(mux)
+	h.messageRoutes(mux)
 	h.sessionRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
@@ -144,7 +150,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, messages.ErrInvalid):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, questions.ErrResolved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})

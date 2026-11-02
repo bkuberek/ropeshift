@@ -175,6 +175,11 @@ func (s *session) askTrust(keys <-chan string) {
 func listen(lines chan<- string) string {
 	dir := os.Getenv("CLAUDE_CODE_TMPDIR")
 	if dir == "" {
+		// A version that gets no private directory binds in a shared one, which a double must
+		// stay out of. A test names a short directory for it.
+		dir = os.Getenv("FAKECLAUDE_SOCKETS")
+	}
+	if dir == "" {
 		dir = filepath.Dir(os.Args[0])
 	}
 	sockets := filepath.Join(dir, "cc-socks")
@@ -294,7 +299,9 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 			}
 			os.Exit(0)
 		case line := <-messages:
-			take(messageText(line))
+			if s.admitsPane(line) {
+				take(messageText(line))
+			}
 		case key, open := <-keys:
 			if !open {
 				keys = nil
@@ -320,6 +327,23 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 	}
 }
 
+// admitsPane is the inbound policy in a pane, where `take` runs the prompt's own hook.
+func (s *session) admitsPane(line string) bool {
+	policy := s.script.Inbound
+	if policy == "" {
+		policy = s.settings.CrossSessionInbound
+	}
+	switch policy {
+	case "refuse":
+		s.receipt(line, "expired", "refused")
+		return false
+	case "hold":
+		s.receipt(line, "held", "")
+		return false
+	}
+	return true
+}
+
 func (s *session) compact() {
 	s.hook("PreCompact", map[string]any{"trigger": "manual"})
 	s.hook("SessionStart", map[string]any{"source": "compact", "model": s.modelName()})
@@ -328,9 +352,20 @@ func (s *session) compact() {
 
 type socketLine struct {
 	UUID    string `json:"uuid"`
+	MsgID   string `json:"msg_id"`
+	From    string `json:"from"`
 	Message struct {
 		Content string `json:"content"`
 	} `json:"message"`
+}
+
+// messageFrom reads a line's reply address, and what a receipt names it by.
+func messageFrom(line string) (from, msgID string) {
+	var parsed socketLine
+	if json.Unmarshal([]byte(line), &parsed) != nil {
+		return "", ""
+	}
+	return parsed.From, parsed.MsgID
 }
 
 func messageID(line string) string {

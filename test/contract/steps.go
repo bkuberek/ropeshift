@@ -27,6 +27,8 @@ const (
 	opAnswer = "question.answer"
 	opFire   = "wake.fire"
 	opUpload = "plane.upload"
+	// OpMessageExpire is the transaction that expires one message.
+	OpMessageExpire = "message.expire"
 )
 
 // Stepper is a Store handle that can report a named moment. A broken variant uses

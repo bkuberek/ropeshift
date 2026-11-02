@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
+
+	"ropeshift.dev/ropeshift/internal/messages"
 )
 
 // ErrBadProfile means a layer cannot become settings.
@@ -46,6 +49,26 @@ type RoleThresholds struct {
 type ContextSettings struct {
 	Roles             map[string]RoleThresholds `toml:"roles" json:"roles"`
 	MinHeadroomTokens int64                     `toml:"min_headroom_tokens" json:"min_headroom_tokens"`
+}
+
+// MessageWindow is one kind's window, as a profile says it.
+type MessageWindow struct {
+	StaleAfter  string `toml:"stale_after" json:"stale_after"`
+	ExpireAfter string `toml:"expire_after" json:"expire_after"`
+}
+
+// MessageWindows reads what a profile sets. A window that does not parse, or that ends before it
+// goes stale, leaves its kind on the default, because a bad value must not lose a message.
+func (p Profile) MessageWindows() messages.Windows {
+	out := messages.Windows{}
+	for kind, window := range p.Messages {
+		stale, staleErr := time.ParseDuration(window.StaleAfter)
+		expire, expireErr := time.ParseDuration(window.ExpireAfter)
+		if staleErr == nil && expireErr == nil && stale >= 0 && expire > stale {
+			out[messages.Kind(kind)] = messages.Window{StaleAfter: stale, ExpireAfter: expire}
+		}
+	}
+	return out
 }
 
 // LifecycleSettings holds the lane's timers and limits. Durations stay text, so a
@@ -94,6 +117,8 @@ type Profile struct {
 	Resources ResourceSettings    `toml:"resources" json:"resources"`
 	Admission Admission           `toml:"admission" json:"admission"`
 	Hooks     map[string][]string `toml:"hooks" json:"hooks"`
+	// Messages says how long a message stays useful, per kind.
+	Messages map[string]MessageWindow `toml:"messages" json:"messages"`
 }
 
 // The values of `run_mode`. The default waits for the doctor, and until then an empty

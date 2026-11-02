@@ -32,6 +32,12 @@ type Sabotage struct {
 	RefusesParkedRepeat bool
 	// ReadsOnePage stops a wake's read of a scope at its first page.
 	ReadsOnePage bool
+	// LeavesMessages ends a generation and decides nothing about what it left.
+	LeavesMessages bool
+	// ExpiresSettled lets a stale tick move a message a signal settled.
+	ExpiresSettled bool
+	// ReadsAnyLane lets a worker speak for a message to a lane it does not name.
+	ReadsAnyLane bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -67,3 +73,9 @@ func refusesResumeRetry() bool { return current().RefusesResumeRetry }
 func refusesParkedRepeat() bool { return current().RefusesParkedRepeat }
 
 func readsOnePage() bool { return current().ReadsOnePage }
+
+func leavesMessages() bool { return current().LeavesMessages }
+
+func expiresSettled() bool { return current().ExpiresSettled }
+
+func readsAnyLane() bool { return current().ReadsAnyLane }

@@ -18,6 +18,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/questions"
 )
 
@@ -136,7 +137,7 @@ func TestTheDaemonRunsTheWakeTick(t *testing.T) {
 	if _, err := store.CreateWorkspace(t.Context(), ledger.Workspace{ID: soloScope}, tickActor("solo")); err != nil {
 		t.Fatal(err)
 	}
-	ticks := soloTicks(store, opts, questions.BatchPolicy{})
+	ticks := soloTicks(store, opts, questions.BatchPolicy{}, nil)
 	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "wakes" })
 	if at < 0 {
 		t.Fatalf("ticks %+v", ticks)
@@ -146,6 +147,45 @@ func TestTheDaemonRunsTheWakeTick(t *testing.T) {
 	}
 	if err := ticks[at].Run(t.Context()); err != nil {
 		t.Errorf("an empty tick: %v", err)
+	}
+}
+
+// TestTheDaemonExpiresMessages holds the tick that tells a sender a message never got through,
+// without which a lost one stays `handed_off` for good.
+func TestTheDaemonExpiresMessages(t *testing.T) {
+	store, err := fake.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateWorkspace(t.Context(), ledger.Workspace{ID: soloScope}, tickActor("solo")); err != nil {
+		t.Fatal(err)
+	}
+	ticks := soloTicks(store, soloOptions{wakeTick: time.Second}, questions.BatchPolicy{}, nil)
+	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "messages" })
+	if at < 0 {
+		t.Fatalf("ticks %+v", ticks)
+	}
+	if err := ticks[at].Run(t.Context()); err != nil {
+		t.Errorf("an empty tick: %v", err)
+	}
+}
+
+func TestMessageWindowsComeFromTheUserLayer(t *testing.T) {
+	dir := t.TempDir()
+	paths := api.Paths{StateDir: dir}
+	layer := "[messages.instruction]\nstale_after = \"1m\"\nexpire_after = \"3m\"\n"
+	if err := os.WriteFile(filepath.Join(dir, profiles.UserFile), []byte(layer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := soloWindows(paths).For(messages.KindInstruction); got.ExpireAfter != 3*time.Minute || got.StaleAfter != time.Minute {
+		t.Errorf("window %+v", got)
+	}
+	if got := soloWindows(paths).For(messages.KindAnswer); got != messages.DefaultWindow {
+		t.Errorf("window %+v", got)
 	}
 }
 

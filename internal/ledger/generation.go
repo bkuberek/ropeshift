@@ -113,6 +113,8 @@ type LaneFacts struct {
 	OpenQuestions   []string     `json:"open_questions"`
 	OpenAssumptions []string     `json:"open_assumptions"`
 	Checks          []CheckState `json:"checks"`
+	// Facts are what this generation's first prompt owes, read after the ledger moved to it.
+	Facts []MessageFact `json:"facts,omitempty"`
 }
 
 // HandoffURI names a handoff in the ledger, where its body lives.

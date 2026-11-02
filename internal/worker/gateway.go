@@ -97,7 +97,10 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 			return refused(lanes.CodeUnavailable, err.Error())
 		}
 		w.deliverHook(ctx, event)
+		w.takeAdmission(ctx, event)
 		return lanes.Reply{OK: true}
+	case request.Reply != nil:
+		return w.takeReply(ctx, lane, *request.Reply)
 	case request.Report != nil:
 		reply := w.takeReport(ctx, lane, *request.Report)
 		if run := w.runOf(lane.ID); run != nil {
@@ -265,6 +268,7 @@ func (w *Worker) drainFile(ctx context.Context, path string) error {
 			return err
 		}
 		w.deliverHook(ctx, event)
+		w.takeAdmission(ctx, event)
 	}
 	return os.Remove(path)
 }

@@ -216,7 +216,13 @@ func (r *laneRun) noteLedger(reach lanes.Reachability) {
 func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 	s := r.state
 	switch event.Kind {
-	case ports.EventSessionBound, ports.EventInputAdmitted, ports.EventCompaction:
+	case ports.EventInputAdmitted:
+		r.progressed()
+		r.signal(ctx, lanes.OnActivity)
+		r.noteInput(ctx, event.InputID)
+	case ports.EventInputRefused:
+		r.noteRefused(ctx, event.InputID)
+	case ports.EventSessionBound, ports.EventCompaction:
 		r.progressed()
 		r.signal(ctx, lanes.OnActivity)
 	case ports.EventUsage:

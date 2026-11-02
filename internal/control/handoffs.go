@@ -42,6 +42,9 @@ func bindGeneration(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 			return err
 		}
 	}
+	if err := carryMessages(tx, worker, e.Lane, e.Generation, binding.Carried); err != nil {
+		return err
+	}
 	_, err = tx.Append(draft)
 	return err
 }
@@ -132,7 +135,15 @@ func (w *Workers) LaneFacts(ctx context.Context, request ledger.LaneFactsRequest
 		for _, check := range checks {
 			facts.Checks = append(facts.Checks, ledger.CheckState{Name: check.Name, Status: string(check.Status)})
 		}
-		return nil
+		generation, err := tx.Lanes().Generation(request.Lane)
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		facts.Facts, err = messageFacts(tx.Messages(), request.Lane, generation-1)
+		return err
 	})
 	if err != nil {
 		return ledger.LaneFacts{}, err

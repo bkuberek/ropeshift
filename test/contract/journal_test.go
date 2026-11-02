@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -206,7 +207,7 @@ func checkLaneProgress(t *testing.T, ctx context.Context, j ports.Journal) {
 		t.Fatal(err)
 	}
 	got, err := j.Lane(ctx, "lane")
-	if err != nil || got.Progress != want {
+	if err != nil || !reflect.DeepEqual(got.Progress, want) {
 		t.Errorf("progress %+v: %v", got.Progress, err)
 	}
 }

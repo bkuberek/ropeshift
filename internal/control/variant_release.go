@@ -34,3 +34,12 @@ func refusesParkedRepeat() bool { return false }
 
 // readsOnePage is false: a wake reads on past one read's bound.
 func readsOnePage() bool { return false }
+
+// leavesMessages is false: the end of a generation decides what it left.
+func leavesMessages() bool { return false }
+
+// expiresSettled is false: a clock never moves a message a signal settled.
+func expiresSettled() bool { return false }
+
+// readsAnyLane is false: a worker speaks only for messages to the lane it names.
+func readsAnyLane() bool { return false }

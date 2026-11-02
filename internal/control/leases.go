@@ -424,6 +424,9 @@ func (l *Leases) Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrd
 		if err := retireWakes(tx, workOrder, parking.RetiredReassignment); err != nil {
 			return err
 		}
+		if err := rollWorkOrder(tx, workOrder, actor); err != nil {
+			return err
+		}
 		return appendOwnershipEnd(tx, workOrder, workorders.TriggerTakeover, current.ClaimID, reason, actor)
 	})
 }
@@ -593,6 +596,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if err := tx.Lanes().EndGeneration(holder.Lane, holder.Generation, string(result.Outcome)); err != nil {
 		return err
 	}
+	if err := rollMessages(tx, holder.Lane, holder.Generation, false, actor); err != nil {
+		return err
+	}
 	if err := retireWakes(tx, holder.WorkOrder, parking.RetiredFinished); err != nil {
 		return err
 	}
@@ -722,6 +728,9 @@ func nextGeneration(tx ports.WriteTx, holder workorders.Holder, reason ledger.St
 		return 0, err
 	}
 	if err := tx.Lanes().EndGeneration(holder.Lane, holder.Generation, string(reason)); err != nil {
+		return 0, err
+	}
+	if err := rollMessages(tx, holder.Lane, holder.Generation, true, actor); err != nil {
 		return 0, err
 	}
 	started := ledger.Generation{Lane: holder.Lane, Number: next, StartReason: reason}
