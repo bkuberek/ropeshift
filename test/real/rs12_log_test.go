@@ -87,9 +87,9 @@ func (s *suite) openLog() *rs12Log {
 	return &rs12Log{dir: dir, hook: hook}
 }
 
-// settings is a project settings file: the hooks that keep the log, beside the generated ones, and
-// what a project allows.
-func (l *rs12Log) settings(allow []string) ([]byte, error) {
+// settings is a project settings file, which holds the hooks that keep the log, beside the generated
+// ones.
+func (l *rs12Log) settings() ([]byte, error) {
 	type hook struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -103,11 +103,7 @@ func (l *rs12Log) settings(allow []string) ([]byte, error) {
 	for _, event := range loggedEvents {
 		hooks[event] = []group{{Hooks: []hook{{Type: "command", Command: command, Timeout: evidenceHookTimeout}}}}
 	}
-	file := map[string]any{"hooks": hooks}
-	if len(allow) != 0 {
-		file["permissions"] = map[string]any{"allow": allow}
-	}
-	raw, err := json.MarshalIndent(file, "", "  ")
+	raw, err := json.MarshalIndent(map[string]any{"hooks": hooks}, "", "  ")
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +114,7 @@ func (l *rs12Log) settings(allow []string) ([]byte, error) {
 // reads its project settings from the private directory it starts in.
 func (s *suite) watch(log *rs12Log, dir string) {
 	s.t.Helper()
-	raw, err := log.settings(nil)
+	raw, err := log.settings()
 	if err != nil {
 		s.t.Fatal(err)
 	}

@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"testing"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/test/doubles"
@@ -547,6 +548,35 @@ func TestLedgerRefusesPastTheCeiling(t *testing.T) {
 	}
 	if err := second.charge("one past that", 1); err == nil {
 		t.Error("a session past a suite's own ceiling was charged")
+	}
+}
+
+// A member's approval runs a call on this machine, so the suite's stand-in for one answers only what
+// it told a lane to do.
+func TestRefusedRequestsOfAPlanningLane(t *testing.T) {
+	cases := []struct {
+		name string
+		row  authority.Approval
+		want bool
+	}{
+		{"a file under plans", authority.Approval{Subject: "Write", Path: "plans/retry-budget.md"}, true},
+		{"a file deeper under plans", authority.Approval{Subject: "Write", Path: "plans/a/retry.md"}, true},
+		{"the directory itself", authority.Approval{Subject: lanes.ToolBash, Command: "mkdir -p plans"}, true},
+		{"a file beside plans", authority.Approval{Subject: "Write", Path: "plans-old/retry.md"}, false},
+		{"a file out of the worktree", authority.Approval{Subject: "Write", Path: "plans/../../secrets"}, false},
+		{"an absolute path", authority.Approval{Subject: "Write", Path: "/etc/plans/retry.md"}, false},
+		{"a write that names no path", authority.Approval{Subject: "Write"}, false},
+		{"another tool on the same path", authority.Approval{Subject: "NotebookEdit", Path: "plans/retry.md"}, false},
+		{"a directory and something more", authority.Approval{Subject: lanes.ToolBash, Command: "mkdir -p plans && rm -rf .."}, false},
+		{"a push", authority.Approval{Subject: lanes.ToolBash, Command: "git push origin main"}, false},
+		{"a commit, which needs no member", authority.Approval{Subject: lanes.ToolBash, Command: "git commit -m plan"}, false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := rs12Approves(tt.row); got != tt.want {
+				t.Errorf("rs12Approves(%+v) = %v", tt.row, got)
+			}
+		})
 	}
 }
 

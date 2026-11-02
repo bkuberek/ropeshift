@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -53,10 +55,6 @@ const (
 	// rs12PlanFile is what a dry run's planning lane commits.
 	rs12PlanFile = "plans/rs12.md"
 )
-
-// rs12ProjectAllows let a planning lane write, in this scratch repository alone. A stage and a commit
-// are left out on purpose: generated settings must cover those, and a real lane is what shows it.
-var rs12ProjectAllows = []string{"Write", "Edit", "Bash(mkdir:*)"}
 
 // rs12PlanStatement is the trial: a session that holds the format only as its brief states it. It
 // names no file and no key, because what a planning agent makes of the format is the question.
@@ -164,10 +162,20 @@ func stagesOrCommits(command string) bool {
 	return strings.Contains(command, "git add") || strings.Contains(command, "git commit")
 }
 
-// rs12Answer stands for the member a planning lane's prompt reaches, and refuses what it reads, so a
-// lane does not wait out this suite's limit on nobody. Nothing this lane was told to do needs a member:
-// the repository allows a write, and generated settings allow a stage and a commit. That last part is
-// what this suite shows, so a commit that reached a person fails it however the lane ended.
+// rs12Approves says a call is what a planning lane was told to do and nothing more. A member's
+// approval runs it on this machine, so what it allows is narrow: a file under plans/, and that
+// directory. A worker states a path against the lane's worktree, so one out of it reads as such.
+func rs12Approves(row authority.Approval) bool {
+	if row.Subject == lanes.ToolBash {
+		return row.Command == "mkdir -p plans"
+	}
+	return row.Subject == "Write" && row.Path == path.Clean(row.Path) && strings.HasPrefix(row.Path, "plans/")
+}
+
+// rs12Answer stands for the member a planning lane's prompt reaches, so a lane does not wait out this
+// suite's limit on nobody. A file is a default-mode lane's to ask for, and a member answers that. A
+// stage and a commit are not: generated settings allow them, which is what this suite shows, so one
+// that reached a person fails it however the lane ended.
 func (s *suite) rs12Answer() {
 	s.t.Helper()
 	var list api.ApprovalList
@@ -178,9 +186,14 @@ func (s *suite) rs12Answer() {
 		if !row.Open() {
 			continue
 		}
-		s.t.Logf("rs12 plan: a request on %s, which a member refuses", row.Subject)
+		wanted := rs12Approves(row)
+		s.t.Logf("rs12 plan: a request on %s, which a member %s", row.Subject, map[bool]string{true: "approves", false: "refuses"}[wanted])
 		if stagesOrCommits(row.Command) {
 			s.t.Errorf("a stage or a commit waited on a member")
+		}
+		if wanted {
+			s.approve(row)
+			continue
 		}
 		s.cli("approval", "deny", row.ID, "--digest", row.SubjectDigest, "--reason", "This lane only writes under plans/ and commits.")
 	}
@@ -202,14 +215,16 @@ func standInOrchestrator(question, scope string) []any {
 	}
 }
 
-// standInPlanner plays what a planning lane does: a file its repository allows, and a stage and a
-// commit that generated settings allow, which the double holds to those rules.
+// standInPlanner plays what a real planning lane did: a file that reaches a member, and a stage and a
+// commit that generated settings allow, which the double holds to those rules. The double's own
+// write leaves a file empty, so the text follows it.
 func standInPlanner() []any {
-	write := "mkdir -p plans; printf '%s' '" + rs12StandInContract + "' > " + rs12PlanFile
 	return []any{
 		map[string]any{"init": true},
 		standInPrompt(),
-		map[string]any{"tool": "Bash", "command": write},
+		map[string]any{"tool": "Bash", "command": "mkdir -p plans"},
+		map[string]any{"tool": "Write", "file": rs12PlanFile, "prompts": true},
+		map[string]any{"tool": "Bash", "command": "printf '%s' '" + rs12StandInContract + "' > " + rs12PlanFile},
 		map[string]any{"tool": "Bash", "command": "git add plans && git commit -q -m 'plan the retry budget'", "unprompted": true},
 		map[string]any{"mcp": lanes.ToolLaneReport, "arguments": map[string]any{"outcome": "completed"}},
 		standInResult(),
@@ -543,7 +558,7 @@ func TestRS12(t *testing.T) {
 	for _, setting := range [][]string{{"user.name", "RS12"}, {"user.email", "rs12@example.invalid"}, {"commit.gpgsign", "false"}, {"core.hooksPath", "/dev/null"}} {
 		repo.Git("config", setting[0], setting[1])
 	}
-	settings, err := log.settings(rs12ProjectAllows)
+	settings, err := log.settings()
 	if err != nil {
 		t.Fatal(err)
 	}
