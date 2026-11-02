@@ -32,9 +32,10 @@ const (
 	// and the session that comes back. A pane takes the same three, with four calls and their ends.
 	rs11HeadlessCharge = 12
 	rs11PaneCharge     = 11
-	// rs11Sessions are the two lanes. The first is headless, so its init stands for a probe, on the
-	// flags RS10's probe passed, before the pane starts.
-	rs11Sessions    = 2
+	// rs11Sessions are the two lanes, and the second session a pane can come back in, because a turn
+	// a hook's denial ended records no response, so the resume table reads its cache as gone. The
+	// first lane is headless, so its init stands for a probe before the pane starts.
+	rs11Sessions    = 3
 	rs11TurnCeiling = rs11HeadlessCharge + rs11PaneCharge
 	// rs11ToolLimit ends a pane that keeps calling tools past that charge.
 	rs11ToolLimit = 7
@@ -246,7 +247,7 @@ func TestRS11(t *testing.T) {
 	s.worktree = worktree(headless.Dir, rs11HeadlessLane)
 	paneTree := worktree(pane.Dir, rs11PaneLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, paneTree}
-	for session, turns := range map[string]int{"headless": rs11HeadlessCharge, "pane": rs11PaneCharge} {
+	for session, turns := range map[string]int{"headless": rs11HeadlessCharge, "pane": rs11PaneCharge - 4, "pane again": 4} {
 		if err := s.spend.charge(session, turns); err != nil {
 			t.Fatal(err)
 		}
