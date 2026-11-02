@@ -39,8 +39,9 @@ type LadderRead struct {
 
 // orchestrateActor checks a call came from the run a member asked for, before anything else reads
 // it. A worker's credential alone is not enough, because a worker with no orchestrator has no agent
-// to act for, and a start that was replaced speaks for nobody.
-func (w *Workers) orchestrateActor(ctx context.Context, call ledger.OrchestratorCall) (ledger.Actor, error) {
+// to act for, and a start that was replaced speaks for nobody. A run a member stopped keeps one act,
+// letting go of what its last turn held, because a stop ends that turn.
+func (w *Workers) orchestrateActor(ctx context.Context, verb string, call ledger.OrchestratorCall) (ledger.Actor, error) {
 	actor := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: call.Auth.WorkerID}
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		if err := w.checkSession(tx, call.Auth, call.Epoch); err != nil {
@@ -53,7 +54,7 @@ func (w *Workers) orchestrateActor(ctx context.Context, call ledger.Orchestrator
 		if err != nil {
 			return err
 		}
-		if row.Desired != ledger.OrchestratorRunning || row.Lane() != call.Lane {
+		if (row.Desired != ledger.OrchestratorRunning && verb != ledger.VerbLetGo) || row.Lane() != call.Lane {
 			return workorders.ErrForbidden
 		}
 		return nil
@@ -64,7 +65,7 @@ func (w *Workers) orchestrateActor(ctx context.Context, call ledger.Orchestrator
 // Orchestrate carries one act of this worker's orchestrator through the use case a person's act takes,
 // so every rule a person is held to holds here, and the rest are in authority's table.
 func (w *Workers) Orchestrate(ctx context.Context, verb string, call ledger.OrchestratorCall) (ledger.OrchestratorReply, error) {
-	actor, err := w.orchestrateActor(ctx, call)
+	actor, err := w.orchestrateActor(ctx, verb, call)
 	if err != nil {
 		return ledger.OrchestratorReply{}, err
 	}

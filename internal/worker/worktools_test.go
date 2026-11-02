@@ -662,6 +662,34 @@ func TestAnActNeedsTheRunAMemberAskedFor(t *testing.T) {
 	}
 }
 
+// A member's stop ends a run while its last turn ends, and what that turn held has nothing to wait
+// for. Letting go is the one act a stopped run keeps, and a run a later start replaced has none.
+func TestAStoppedRunLetsGoOfWhatItHeld(t *testing.T) {
+	r := aToolRig(t)
+	r.done(t, lanes.ToolQuestionNext, nil)
+	if row := r.question(t, "q1"); row.ClaimedBy == "" {
+		t.Fatalf("the baseline: nothing holds %+v", row)
+	}
+	lane := r.row(t).Lane()
+	if _, err := r.plane.SetOrchestrator(t.Context(), r.subject.Auth().WorkerID, ledger.OrchestratorStopped, member); err != nil {
+		t.Fatal(err)
+	}
+	stale := ledger.OrchestratorCall{Auth: r.subject.Auth(), Epoch: r.subject.Session().Epoch, Lane: lane + "0"}
+	if _, err := r.plane.Orchestrate(t.Context(), ledger.VerbLetGo, stale); !errors.Is(err, workorders.ErrForbidden) {
+		t.Errorf("a run nobody asked for let go: %v", err)
+	}
+	if row := r.question(t, "q1"); row.ClaimedBy == "" {
+		t.Fatalf("a stranger's call ended a hold: %+v", row)
+	}
+	current := ledger.OrchestratorCall{Auth: r.subject.Auth(), Epoch: r.subject.Session().Epoch, Lane: lane}
+	if _, err := r.plane.Orchestrate(t.Context(), ledger.VerbLetGo, current); err != nil {
+		t.Fatalf("a stopped run could not let go: %v", err)
+	}
+	if row := r.question(t, "q1"); row.ClaimedBy != "" {
+		t.Errorf("a stopped run still holds %+v", row)
+	}
+}
+
 func TestAnUnknownVerbActsOnNothing(t *testing.T) {
 	r := aToolRig(t)
 	call := ledger.OrchestratorCall{Auth: r.subject.Auth(), Epoch: r.subject.Session().Epoch, Lane: r.row(t).Lane()}
