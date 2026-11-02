@@ -155,6 +155,7 @@ const (
 	VerbStop       = "stop"
 	VerbNext       = "next"
 	VerbTake       = "take"
+	VerbLetGo      = "let_go"
 	VerbClimb      = "climb"
 	VerbEscalate   = "escalate"
 	VerbResolve    = "resolve"

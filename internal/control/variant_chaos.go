@@ -58,6 +58,8 @@ type Sabotage struct {
 	TakesInUnaccepted bool
 	// MovesPlanCursor moves a source to the commit of an accepted plan.
 	MovesPlanCursor bool
+	// KeepsHoldTime names no holder and leaves the time a hold ran to, which no wake reads until then.
+	KeepsHoldTime bool
 	// RebuildsPack gives a claim that brings a lane back a new pack.
 	RebuildsPack bool
 	// KeepsParkWanted leaves what a policy asked of a lane that parked.
@@ -127,6 +129,8 @@ func releasesReviews() bool { return current().ReleasesReviews }
 func takesInUnaccepted() bool { return current().TakesInUnaccepted }
 
 func movesPlanCursor() bool { return current().MovesPlanCursor }
+
+func keepsHoldTime() bool { return current().KeepsHoldTime }
 
 func rebuildsPack() bool { return current().RebuildsPack }
 

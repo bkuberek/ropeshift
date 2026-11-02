@@ -327,7 +327,7 @@ var workDeclineTool = objectTool(lanes.ToolWorkDecline, "Pass on a work order, w
 	map[string]any{"work_order": workOrderField, "reason": textField("Why this worker passes on it.")}, "work_order", "reason")
 
 var questionNextTool = objectTool(lanes.ToolQuestionNext, "Take the next question to work, with what the record holds that could answer it. "+
-	"A blocking question comes first. You hold it until you resolve it or your hold runs out. It answers nothing when no question is free.", map[string]any{})
+	"A blocking question comes first. You hold it until you record its answer or your turn ends, and a turn that ends lets go of it. It answers nothing when no question is free.", map[string]any{})
 
 var questionAttachTool = objectTool(lanes.ToolQuestionAttach, "Close a question you judged the same as an open one. Its lanes wait on that one's answer.",
 	map[string]any{"question": questionField, "into": textField("The ID of the open question that stays."), "lookup": considered}, "question", "into")

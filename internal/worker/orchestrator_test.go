@@ -449,6 +449,73 @@ func TestAnOrchestratorHandsOffOnItsOwnBudget(t *testing.T) {
 	}
 }
 
+// tokenIn reads a session's token from the environment it started with.
+func tokenIn(spec ports.SessionSpec) string {
+	for _, entry := range spec.Env {
+		if value, ok := strings.CutPrefix(entry, lanes.EnvLaneToken+"="); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func (o *orchestratorRig) question(t *testing.T, id string) questions.Question {
+	t.Helper()
+	var row questions.Question
+	err := o.store.Read(t.Context(), scope, func(tx ports.ReadTx) error {
+		var err error
+		row, err = tx.Questions().Question(id)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
+// A turn that ends holding a question left it for nobody to read: a hold outlives the session's
+// interest in it. So the turn's end lets go, the question stands free at once, and the next wake
+// names it, inside a floor and not a hold's whole length.
+func TestATurnThatEndsHoldingAQuestionLetsItGo(t *testing.T) {
+	var o *orchestratorRig
+	taken := make(chan lanes.Reply, 1)
+	o = newOrchestratorRig(t, aSession())
+	o.scripts = []fake.DriverScript{script(
+		[]fake.DriverStep{{Bound: true}, {Do: func(spec ports.SessionSpec) {
+			taken <- callTool(t, o.subject, tokenIn(spec), lanes.ToolQuestionNext, nil)
+		}}, completed(0.01)},
+		[]fake.DriverStep{completed(0.01)},
+	)}
+	o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	select {
+	case reply := <-taken:
+		if !reply.OK {
+			t.Fatalf("the session took nothing: %+v", reply)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the session never took the question")
+	}
+	o.awaitRest(t)
+	if row := o.question(t, "q1"); row.ClaimedBy != "" || !row.Status.Unresolved() {
+		t.Fatalf("a turn that ended still holds %+v", row)
+	}
+	o.clock.Advance(3 * time.Minute)
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) && len(o.driver.Sent()) == 0 {
+		o.tick(t)
+		o.clock.Advance(time.Minute)
+	}
+	sent := o.driver.Sent()
+	if len(sent) != 1 || !strings.Contains(sent[0].Text, "q1") {
+		t.Fatalf("the next wake reads %+v", sent)
+	}
+}
+
 // A restart finds the session its last worker left, and goes on from what its journal holds.
 func TestAnOrchestratorComesBackAfterARestart(t *testing.T) {
 	o := newOrchestratorRig(t, script([]fake.DriverStep{{Bound: true}, {Hold: true}}))

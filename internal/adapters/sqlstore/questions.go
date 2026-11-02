@@ -62,6 +62,14 @@ VALUES
  ORDER BY q.id
  LIMIT :limit`)
 
+	stmtHeldQuestions = define("question.held",
+		`SELECT `+questionColumns+`
+  FROM questions q
+ WHERE q.workspace_id = :workspace_id
+   AND q.claimed_by = :holder
+   AND q.status IN ('open', 'triage')
+ ORDER BY q.id`)
+
 	stmtSearchQuestions = define("question.search",
 		`SELECT `+questionColumns+`
   FROM questions q
@@ -370,6 +378,10 @@ func (t questionTx) Questions(filter ports.RecordFilter) ([]questions.Question, 
 	}
 	p["query"] = t.store.dialect.MatchQuery(terms)
 	return t.listQuestions(stmtSearchQuestions, p)
+}
+
+func (t questionTx) HeldBy(holder string) ([]questions.Question, error) {
+	return t.listQuestions(stmtHeldQuestions, params{"holder": holder})
 }
 
 func (t questionTx) ByHash(hash string) ([]questions.Question, error) {

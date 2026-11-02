@@ -45,6 +45,8 @@ var QuestionChecks = []Check{
 	{"Q23", "an agent's match merges a question into an open one", checkMerge},
 	{"Q24", "a retried ask finds its first attempt", checkAskRetry},
 	{"Q25", "a read goes on from where the last one stopped", checkRecordsWalk},
+	{"Q26", "a holder lets go of what it holds, and of nothing else, on the log", checkReleaseHeld},
+	{"Q27", "only one who may hold a question lets one go", checkReleaseActors},
 }
 
 // walk reads every record past the bound of one read, a page at a time. A page that does not
@@ -698,6 +700,109 @@ func checkTakeLapses(r *Rig) error {
 	}
 	if _, err := ops.Climb(r.Ctx, r.Scope, asked.QuestionID, questions.Step{Rung: questions.RungLookup}, first); !errors.Is(err, questions.ErrNotHeld) {
 		return Violatedf("the first holder worked on after it lapsed: %v", err)
+	}
+	return nil
+}
+
+// A session that ended its turn holding a question leaves it for nobody to read. Letting go is what
+// a hold's end would do, sooner: anyone may take it at once, and the holder works it no further.
+func checkReleaseHeld(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	held, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	rivals, err := r.ask(s, "Which queue takes the retries?", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	first, second := r.orchestrator("first"), r.orchestrator("second")
+	taken, err := ops.Take(r.Ctx, r.Scope, held.QuestionID, TTLMs, first)
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, rivals.QuestionID, TTLMs, second); err != nil {
+		return err
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, held.QuestionID, TTLMs, second); !errors.Is(err, questions.ErrTaken) {
+		return Violatedf("the baseline: a rival took a live hold: %v", err)
+	}
+	before, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	released, err := ops.LetGo(r.Ctx, r.Scope, first)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(released, []string{held.QuestionID}) {
+		return Violatedf("released %v", released)
+	}
+	after, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if len(after) != len(before)+1 || after[len(after)-1].Type != questions.EventQuestionChanged {
+		return Violatedf("%d events became %d", len(before), len(after))
+	}
+	var row questions.Question
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		row, err = tx.Questions().Question(held.QuestionID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if row.ClaimedBy != "" || row.ClaimUntil >= taken.ClaimUntil {
+		return Violatedf("a hold let go of reads %s until %d, from %d", row.ClaimedBy, row.ClaimUntil, taken.ClaimUntil)
+	}
+	if _, err := ops.Climb(r.Ctx, r.Scope, held.QuestionID, questions.Step{Rung: questions.RungLookup}, first); !errors.Is(err, questions.ErrNotHeld) {
+		return Violatedf("a holder worked on after it let go: %v", err)
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, rivals.QuestionID, TTLMs, first); !errors.Is(err, questions.ErrTaken) {
+		return Violatedf("a release reached another holder's question: %v", err)
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, held.QuestionID, TTLMs, second); err != nil {
+		return Violatedf("a rival could not take what was let go: %v", err)
+	}
+	again, err := ops.LetGo(r.Ctx, r.Scope, first)
+	if err != nil {
+		return err
+	}
+	if len(again) != 0 {
+		return Violatedf("nothing held released %v", again)
+	}
+	last, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if len(last) != len(after)+1 {
+		return Violatedf("a release of nothing wrote %d events", len(last)-len(after)-1)
+	}
+	return nil
+}
+
+func checkReleaseActors(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	asked, err := r.ask(s, "What is the retry budget?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	if _, err := ops.LetGo(r.Ctx, r.Scope, r.laneActor("lane-a")); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a lane let go of a question: %v", err)
+	}
+	if _, err := ops.Take(r.Ctx, r.Scope, asked.QuestionID, TTLMs, r.member()); err != nil {
+		return err
+	}
+	released, err := ops.LetGo(r.Ctx, r.Scope, r.member())
+	if err != nil {
+		return Violatedf("the baseline: a member could not let go: %v", err)
+	}
+	if !slices.Equal(released, []string{asked.QuestionID}) {
+		return Violatedf("a member released %v", released)
 	}
 	return nil
 }

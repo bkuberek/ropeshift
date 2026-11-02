@@ -117,6 +117,7 @@ type Ops interface {
 	AddCategory(ctx context.Context, scope ledger.WorkspaceID, name string, actor ledger.Actor) error
 	Ask(ctx context.Context, scope ledger.WorkspaceID, ask questions.Ask, actor ledger.Actor) (questions.AskResult, error)
 	Take(ctx context.Context, scope ledger.WorkspaceID, id string, ttlMs int64, actor ledger.Actor) (questions.Question, error)
+	LetGo(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error)
 	Climb(ctx context.Context, scope ledger.WorkspaceID, id string, step questions.Step, actor ledger.Actor) (questions.Question, error)
 	Escalate(ctx context.Context, scope ledger.WorkspaceID, id string, escalation questions.Escalation, actor ledger.Actor) (questions.Question, error)
 	Resolve(ctx context.Context, scope ledger.WorkspaceID, id, decision string, actor ledger.Actor) (questions.Question, error)

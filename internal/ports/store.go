@@ -555,6 +555,8 @@ type QuestionReader interface {
 	Question(id string) (questions.Question, error)
 	// Questions returns the questions a filter selects.
 	Questions(filter RecordFilter) ([]questions.Question, error)
+	// HeldBy returns the unresolved questions one holder holds, oldest first.
+	HeldBy(holder string) ([]questions.Question, error)
 	// ByHash returns the questions with one normalized text.
 	ByHash(hash string) ([]questions.Question, error)
 	// Attachments returns one question's lanes, or every attachment for an empty ID.

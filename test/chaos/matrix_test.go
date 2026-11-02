@@ -162,6 +162,7 @@ func crashMatrix() []crashCase {
 		askCase("question.ask", withSteps("recorded", "attached")),
 		askCase("question.record", []string{"indexed"}),
 		takeCase(),
+		letGoCase(),
 		climbCase(),
 		escalateCase(),
 		deliverCase(),
@@ -992,6 +993,34 @@ func takeCase() crashCase {
 		},
 		settled: func(w *world, spec childSpec) error {
 			return w.questionIs(spec.Key, questions.StatusTriage, "orchestrator-1")
+		},
+	}
+}
+
+// letGoCase ends a hold on two questions, so a kill between them shows the transaction holds them as
+// one.
+func letGoCase() crashCase {
+	return crashCase{
+		name:  "let go of what a turn held",
+		op:    "question.let_go",
+		steps: withSteps("released"),
+		prepare: func(w *world) (childSpec, error) {
+			ids := []string{w.rig.ID("q"), w.rig.ID("r")}
+			for _, id := range ids {
+				if _, err := w.rig.NewOps(w.store).RecordQuestion(w.rig.Ctx, w.rig.Scope, questions.Question{ID: id, Text: "What is the budget of " + id + "?"}, w.rig.Actor); err != nil {
+					return childSpec{}, err
+				}
+				if _, err := w.rig.NewOps(w.store).Take(w.rig.Ctx, w.rig.Scope, id, longTTL, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}); err != nil {
+					return childSpec{}, err
+				}
+			}
+			return childSpec{Role: "let-go", Key: ids[0], ClaimID: ids[1]}, nil
+		},
+		settled: func(w *world, spec childSpec) error {
+			if err := w.questionIs(spec.Key, questions.StatusTriage, ""); err != nil {
+				return err
+			}
+			return w.questionIs(spec.ClaimID, questions.StatusTriage, "")
 		},
 	}
 }

@@ -226,6 +226,40 @@ func (q *Questions) Take(ctx context.Context, scope ledger.WorkspaceID, id strin
 	return record, nil
 }
 
+// LetGo ends what one holder holds and has not answered, and names what it let go. A session whose
+// turn ended with no record holds a question nobody else can take, for nothing. The hold ends now
+// rather than going blank, so a digest reads it as a new item, and the next wake tells again. Nothing
+// held writes nothing, because this runs at the end of every turn.
+func (q *Questions) LetGo(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error) {
+	if !authority.Allowed(actor, authority.ActionTakeQuestion) {
+		return nil, workorders.ErrForbidden
+	}
+	var released []string
+	err := q.store.Write(ctx, scope, "question.let_go", func(tx ports.WriteTx) error {
+		released = nil
+		rows, err := tx.Questions().HeldBy(actor.ID)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			row.ClaimedBy = ""
+			if !keepsHoldTime() {
+				row.ClaimUntil = tx.Now()
+			}
+			crashpoint.Hit("question.let_go", "released")
+			if err := saveQuestion(tx, row, actor); err != nil {
+				return err
+			}
+			released = append(released, row.ID)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return released, nil
+}
+
 // held reads a question the caller may work: unresolved, and held by it with time left.
 func held(tx ports.WriteTx, id string, actor ledger.Actor) (questions.Question, error) {
 	record, err := tx.Questions().Question(id)

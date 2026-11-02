@@ -17,6 +17,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
 	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -182,5 +183,7 @@ func orchestratorVariants() []variant {
 	return []variant{{
 		name: sabotageDropsWake, check: "crash",
 		crash: func() (crashCase, string) { return orchestratorWakeCase("a lost wake", "handing"), "handing" },
+	}, {
+		name: "a hold that ended and kept its time", control: control.Sabotage{KeepsHoldTime: true}, check: "Q26",
 	}}
 }

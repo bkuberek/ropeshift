@@ -77,6 +77,9 @@ func takesInUnaccepted() bool { return false }
 // movesPlanCursor is false: a commit a person accepted is not where a source stands.
 func movesPlanCursor() bool { return false }
 
+// keepsHoldTime is false: a hold that ends has ended, so a wake reads its question now.
+func keepsHoldTime() bool { return false }
+
 // rebuildsPack is false: a lane keeps its pack.
 func rebuildsPack() bool { return false }
 

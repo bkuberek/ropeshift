@@ -134,6 +134,7 @@ func (r *laneRun) briefOrchestrator() string {
 func (r *laneRun) orchestratorRests(ctx context.Context, turn *ports.TurnResult) {
 	r.w.wakeLanded(r.pendingWake())
 	r.setWake(nil)
+	r.letGo(ctx)
 	if r.currentFlight() != nil {
 		return
 	}
@@ -142,6 +143,18 @@ func (r *laneRun) orchestratorRests(ctx context.Context, turn *ports.TurnResult)
 		return
 	}
 	r.contextAtRest(ctx)
+}
+
+// letGo ends what a turn took and left with no record, so the question stands free for whoever reads
+// it next. A call that fails leaves the hold to run out, which is all a session that died leaves, and
+// one from a run a member stopped speaks for nobody.
+func (r *laneRun) letGo(ctx context.Context) {
+	bounded, cancel := context.WithTimeout(ctx, digestDeadline)
+	defer cancel()
+	call := ledger.OrchestratorCall{Auth: r.w.Auth(), Epoch: r.w.epoch(), Lane: r.lease.Lane}
+	if _, err := r.w.link.Orchestrate(bounded, ledger.VerbLetGo, call); err != nil && !errors.Is(err, workorders.ErrForbidden) {
+		r.w.config.Report(fmt.Errorf("lane %s: letting go of what it held: %w", r.lease.Lane, err))
+	}
 }
 
 // wakeDue reads the batch.

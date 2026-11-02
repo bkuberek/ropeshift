@@ -15,7 +15,8 @@ import (
 )
 
 // ladderHold is how long an orchestrator holds a question it took. A holder takes again to keep its
-// hold, so this bounds what a session that died leaves held.
+// hold, a turn's end lets go of what it left unanswered, and so this bounds what a session that died
+// leaves held.
 const ladderHoldMs = 10 * 60 * 1000
 
 // candidateLimit bounds what one rung's lookup reads.
@@ -99,6 +100,8 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		return w.nextQuestion(ctx, actor)
 	case ledger.VerbTake:
 		return w.questions.Take(ctx, w.scope, call.Question, ladderHoldMs, actor)
+	case ledger.VerbLetGo:
+		return w.questions.LetGo(ctx, w.scope, actor)
 	case ledger.VerbClimb:
 		var step questions.Step
 		if err := readBody(call, &step); err != nil {

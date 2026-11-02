@@ -58,6 +58,7 @@ var childRoles = map[string]func(*child) error{
 	"add-category":      roleAddCategory,
 	"ask":               roleAsk,
 	"take":              roleTake,
+	"let-go":            roleLetGo,
 	"climb":             roleClimb,
 	"escalate":          roleEscalate,
 	"resolve":           roleResolve,
@@ -243,6 +244,11 @@ func roleAnswer(c *child) error {
 
 func roleTake(c *child) error {
 	_, err := c.ops.Take(c.ctx, c.scope, c.spec.Key, c.spec.TTLMs, c.orchestrator())
+	return err
+}
+
+func roleLetGo(c *child) error {
+	_, err := c.ops.LetGo(c.ctx, c.scope, c.orchestrator())
 	return err
 }
 
