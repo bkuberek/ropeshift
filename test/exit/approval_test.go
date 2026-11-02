@@ -20,13 +20,17 @@ import (
 	"ropeshift.dev/ropeshift/test/gittest"
 )
 
-// runningLane starts one lane on a fixture, and returns its work order.
-func (in *install) runningLane(fixture, profile string) (string, *gittest.Repo, *daemon) {
+// runningLane starts one lane on a fixture, with these files in its repository, and returns its work
+// order.
+func (in *install) runningLane(fixture, profile string, files ...string) (string, *gittest.Repo, *daemon) {
 	in.t.Helper()
 	repo := gittest.New(in.t)
 	repo.Commit(".ropeshift/profile.toml", profile)
 	repo.Commit("requirements.md", packRequirementsFile)
 	repo.Commit("contract.md", packContractFile)
+	for _, file := range files {
+		repo.Commit(file, "text")
+	}
 	in.path = doubles.InstallFakeClaude(in.t, fixture)
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--wake-tick", "20ms", "--source", repo.Dir)
 	in.waitReady(d)
@@ -172,6 +176,48 @@ func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 		if strings.Contains(prompt, "make it again") || strings.Contains(prompt, "did not finish") {
 			t.Errorf("a resume told the session to repeat a call that comes back by itself: %s", prompt)
 		}
+	}
+}
+
+// A real hook waits on a real edit, and a link takes the place of its file while it waits. The input
+// is the same to the byte, so only where the call lands can show the decision is not about this
+// call: it is void, the hook denies, and the file a write would have reached through the link holds
+// what it held.
+func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
+	in := newInstall(t)
+	_, repo, d := in.runningLane("lane-edits-a-file", "[lifecycle]\napproval_wait = \"60s\"\nhandoff_timeout = \"2s\"\nmax_restarts = 0\n", "docs/notes.md")
+	defer d.kill()
+	a := in.awaitRequest(authority.ApprovalPending)
+	if a.Path != "docs/notes.md" {
+		t.Fatalf("request %+v", a)
+	}
+	worktree := filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", "lane-1")
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte("kept"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notes := filepath.Join(worktree, "docs", "notes.md")
+	if err := os.Remove(notes); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, notes); err != nil {
+		t.Fatal(err)
+	}
+	in.must("approval", "approve", a.ID, "--digest", a.SubjectDigest)
+	in.waitFor("the decision to void", func() bool { return in.approvals()[0].State == authority.ApprovalVoid })
+	dir := doubles.BinDir(in.path)
+	in.waitFor("the hook's denial", func() bool {
+		_, err := os.Stat(filepath.Join(dir, "denied.log"))
+		return err == nil
+	})
+	if denied := logged(t, dir, "denied"); len(denied) != 1 || denied[0] != lanes.ReasonRequestClosed {
+		t.Errorf("denied %q", denied)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran.log")); err == nil {
+		t.Error("the edit ran on a decision about another file")
+	}
+	if kept, err := os.ReadFile(secret); err != nil || string(kept) != "kept" {
+		t.Errorf("the file behind the link reads %q: %v", kept, err)
 	}
 }
 

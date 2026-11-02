@@ -2,6 +2,7 @@ package authority_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"ropeshift.dev/ropeshift/internal/authority"
@@ -51,6 +52,39 @@ func TestADigestCoversTheToolAndEveryByteOfItsInput(t *testing.T) {
 		if other.Digest == same.Digest {
 			t.Errorf("%s reads as the same call", name)
 		}
+	}
+}
+
+// One input can land in two places, so a decision covers where it lands. A hook knows no worktree,
+// and it goes on naming the call by its input.
+func TestADigestCoversWhereACallLands(t *testing.T) {
+	read := call(t, "Edit", `{"file_path":"docs/a.md"}`)
+	if read.Digest != read.Seen || read.Seen != authority.ToolDigest("Edit", read.Input) {
+		t.Fatalf("before a worker reads it: %+v", read)
+	}
+	here, there := read.Lands("docs/a.md"), read.Lands("/outside/a.md")
+	if here.Digest == read.Digest || here.Digest == there.Digest {
+		t.Errorf("two landings read as one: %s and %s", here.Digest, there.Digest)
+	}
+	if here.Seen != read.Seen || there.Seen != read.Seen {
+		t.Errorf("a landing moved what a hook names: %+v", there)
+	}
+	if here.Digest != authority.LandingDigest("Edit", read.Input, "docs/a.md") {
+		t.Errorf("a call's digest is not the one a request is held to: %s", here.Digest)
+	}
+	if here.Summary != read.Summary {
+		t.Errorf("a call that lands where it says reads %q", here.Summary)
+	}
+	if !strings.HasPrefix(there.Summary, read.Summary) || !strings.Contains(there.Summary, "/outside/a.md") {
+		t.Errorf("a reviewer reads %q", there.Summary)
+	}
+	command := call(t, "Bash", `{"command":"go test"}`)
+	if bound := command.Lands(""); bound.Digest != command.Digest || bound.Summary != command.Summary {
+		t.Errorf("a call with no path: %+v", bound)
+	}
+	spelled := call(t, "Edit", `{"file_path":"a\u0000b"}`)
+	if strings.ContainsRune(spelled.Input, 0) {
+		t.Errorf("an input can spell the byte a landing follows: %q", spelled.Input)
 	}
 }
 
@@ -334,6 +368,15 @@ func TestARequestBindsToWhatItNames(t *testing.T) {
 	forged.Input = `{"command":"rm -rf ."}`
 	if err := forged.Validate(); !errors.Is(err, authority.ErrBadApproval) {
 		t.Errorf("a digest that does not cover its input: %v", err)
+	}
+	moved := good
+	moved.Path = "docs/a.md"
+	if err := moved.Validate(); !errors.Is(err, authority.ErrBadApproval) {
+		t.Errorf("a digest that does not cover its path: %v", err)
+	}
+	moved.SubjectDigest = authority.LandingDigest(moved.Subject, moved.Input, moved.Path)
+	if err := moved.Validate(); err != nil {
+		t.Errorf("a request bound to where its call lands: %v", err)
 	}
 	for name, change := range map[string]func(*authority.Approval){
 		"no digest":    func(a *authority.Approval) { a.SubjectDigest = "" },

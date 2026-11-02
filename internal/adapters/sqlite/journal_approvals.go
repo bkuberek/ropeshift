@@ -15,9 +15,9 @@ func (j *Journal) BeginApproval(ctx context.Context, open lanes.OpenApproval, ev
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	result, err := tx.ExecContext(ctx, `INSERT INTO open_approvals (id, lane, generation, tool, digest, deadline_ms)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (lane, digest) DO NOTHING`,
-		open.ID, open.Lane, open.Generation, open.Tool, open.Digest, open.DeadlineMs)
+	result, err := tx.ExecContext(ctx, `INSERT INTO open_approvals (id, lane, generation, tool, digest, deadline_ms, seen)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT (lane, digest) DO NOTHING`,
+		open.ID, open.Lane, open.Generation, open.Tool, open.Digest, open.DeadlineMs, open.Seen)
 	if err != nil {
 		return false, err
 	}
@@ -40,7 +40,7 @@ func (j *Journal) RenewApproval(ctx context.Context, id string, generation, dead
 
 // OpenApprovals lists what a lane has asked and not heard back on, oldest deadline first.
 func (j *Journal) OpenApprovals(ctx context.Context, lane string) ([]lanes.OpenApproval, error) {
-	rows, err := j.db.QueryContext(ctx, `SELECT id, lane, generation, tool, digest, deadline_ms FROM open_approvals
+	rows, err := j.db.QueryContext(ctx, `SELECT id, lane, generation, tool, digest, deadline_ms, seen FROM open_approvals
  WHERE lane = ?1 ORDER BY deadline_ms, id`, lane)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func (j *Journal) OpenApprovals(ctx context.Context, lane string) ([]lanes.OpenA
 	var out []lanes.OpenApproval
 	for rows.Next() {
 		var open lanes.OpenApproval
-		if err := rows.Scan(&open.ID, &open.Lane, &open.Generation, &open.Tool, &open.Digest, &open.DeadlineMs); err != nil {
+		if err := rows.Scan(&open.ID, &open.Lane, &open.Generation, &open.Tool, &open.Digest, &open.DeadlineMs, &open.Seen); err != nil {
 			return nil, err
 		}
 		out = append(out, open)

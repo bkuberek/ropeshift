@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/authority"
@@ -26,6 +27,8 @@ const (
 	// hook inside its budget, which goes on without it.
 	lookDeadline = 2 * time.Second
 	peekDeadline = 30 * time.Millisecond
+	// maxLinks ends a walk through links that never arrives, past what a kernel would follow.
+	maxLinks = 64
 )
 
 // What a closed request says of how a person answered at a terminal.
@@ -50,44 +53,90 @@ func (w *Worker) takeApproval(ctx context.Context, lane lanes.Record, request la
 	if err != nil {
 		return refused(lanes.CodeInvalid, err.Error())
 	}
-	call.Path = insideWorktree(lane.Worktree, call.Path)
-	return run.lookAt(ctx, lane, call, request)
+	return run.lookAt(ctx, lane, call.Lands(insideWorktree(lane.Worktree, call.Path)), request)
 }
 
-// insideWorktree reads a path as a delegation class reads it: relative to the worktree, with its
-// links followed as far as they exist, because a class that covers `docs/**` must not reach through
-// a link a lane made there. A path that leaves the worktree stays absolute, which no class covers.
+// insideWorktree reads where a call lands, which is what a decision binds to. This runs on every
+// look, so what a decision covered is read again at its use, and a link moved after a request was
+// raised makes it another call. A path a class may cover comes back relative to the worktree, under
+// the one name its file has. Anything else comes back absolute, which no class covers: a landing
+// outside the worktree, a file with a second name no class can see, a path that cannot be walked, and
+// a climb, because a tool reads `..` off the text and this reads it off the disk.
 func insideWorktree(worktree, target string) string {
 	if target == "" || worktree == "" {
 		return target
 	}
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(worktree, target)
+	absolute := target
+	if !filepath.IsAbs(absolute) {
+		absolute = worktree + string(filepath.Separator) + target
 	}
-	root, err := filepath.EvalSymlinks(worktree)
-	if err != nil {
-		root = worktree
+	root, rootWalked := walkPath(worktree)
+	landing, walked := walkPath(absolute)
+	if !rootWalked || !walked {
+		return filepath.Clean(absolute)
 	}
-	resolved := resolveExisting(filepath.Clean(target))
-	relative, err := filepath.Rel(root, resolved)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return target
+	relative, err := filepath.Rel(root, landing)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || climbs(target) || namedTwice(landing) {
+		return landing
 	}
 	return filepath.ToSlash(relative)
 }
 
-// resolveExisting follows the links of the part of a path that exists, because a file a call is
-// about to write does not.
-func resolveExisting(target string) string {
-	rest := ""
-	for current := target; ; current = filepath.Dir(current) {
-		if resolved, err := filepath.EvalSymlinks(current); err == nil {
-			return filepath.Join(resolved, rest)
-		} else if !errors.Is(err, os.ErrNotExist) || current == filepath.Dir(current) {
-			return target
-		}
-		rest = filepath.Join(filepath.Base(current), rest)
+func climbs(target string) bool {
+	return slices.Contains(strings.Split(filepath.ToSlash(target), "/"), "..")
+}
+
+// namedTwice says a file has another name, which can lie anywhere on its volume.
+func namedTwice(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
 	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Nlink > 1
+}
+
+// walkPath follows a path one part at a time, the way the kernel does. A link to nothing yet is
+// followed too, because a write creates its file through the link, and the parts past what exists
+// are kept as they read, because a file a call is about to write does not exist yet. It says false
+// of a path it cannot follow to its end.
+func walkPath(path string) (string, bool) {
+	done, rest := string(filepath.Separator), strings.Split(filepath.ToSlash(path), "/")
+	for links := 0; len(rest) != 0; {
+		part := rest[0]
+		rest = rest[1:]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			done = filepath.Dir(done)
+			continue
+		}
+		next := filepath.Join(done, part)
+		info, err := os.Lstat(next)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			done = next
+			continue
+		case err != nil:
+			return "", false
+		case info.Mode()&os.ModeSymlink == 0:
+			done = next
+			continue
+		}
+		if links++; links > maxLinks {
+			return "", false
+		}
+		link, err := os.Readlink(next)
+		if err != nil {
+			return "", false
+		}
+		if filepath.IsAbs(link) {
+			done = string(filepath.Separator)
+		}
+		rest = append(strings.Split(filepath.ToSlash(link), "/"), rest...)
+	}
+	return done, true
 }
 
 // approvalWait reads a profile's limit, the way askWait does.
@@ -250,7 +299,7 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 	if err != nil {
 		return lanes.OpenApproval{}, err
 	}
-	open := lanes.OpenApproval{ID: id, Lane: lane.ID, Generation: lane.Generation, Tool: call.Tool, Digest: call.Digest, DeadlineMs: deadline}
+	open := lanes.OpenApproval{ID: id, Lane: lane.ID, Generation: lane.Generation, Tool: call.Tool, Digest: call.Digest, Seen: call.Seen, DeadlineMs: deadline}
 	payload, err := json.Marshal(authority.Approval{
 		ID: id, Lane: lane.ID, WorkOrder: lane.WorkOrder, Generation: lane.Generation, Kind: authority.KindToolCall, Subject: call.Tool,
 		SubjectDigest: call.Digest, Input: call.Input, Command: call.Command, Path: call.Path, Summary: call.Summary,
@@ -408,8 +457,8 @@ func (r *laneRun) requestsOfThisGeneration(ctx context.Context) ([]lanes.OpenApp
 
 // terminalAnswer records what a tool's end showed of a call with an open request: a person answered
 // on the screen the hook is waiting behind. It closes the request and grants nothing, and the ledger
-// hears of it in the write that closes it.
-func (r *laneRun) terminalAnswer(ctx context.Context, digest, note string) {
+// hears of it in the write that closes it. A hook names a call by its input alone, so seen is that.
+func (r *laneRun) terminalAnswer(ctx context.Context, seen, note string) {
 	if r.state.approvalsOpen() == 0 {
 		return
 	}
@@ -420,7 +469,7 @@ func (r *laneRun) terminalAnswer(ctx context.Context, digest, note string) {
 	}
 	left := len(rows)
 	for _, row := range rows {
-		if digest != "" && row.Digest != digest {
+		if seen != "" && row.Seen != seen {
 			continue
 		}
 		payload, err := json.Marshal(authority.TerminalAnswer{Digest: row.Digest, Note: note})

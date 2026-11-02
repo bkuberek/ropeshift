@@ -122,6 +122,9 @@ type OpenApproval struct {
 	Lane       string
 	Generation int64
 	Tool       string
+	// Digest is what a decision on this call binds to, and Seen how a hook names the call, which
+	// knows no worktree and so covers its input alone.
 	Digest     string
+	Seen       string
 	DeadlineMs int64
 }

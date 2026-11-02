@@ -15,13 +15,17 @@ A lane or orchestrator token works only on the worker's local socket. It ends wh
 
 ## A request binds to what it asks
 
-When a call needs a person, its hook reports the tool and its input to the worker, and the worker works out the rest. The digest covers the tool's name and the canonical form of its input, and what a reviewer reads comes from that same input. A lane's own words reach neither.
+When a call needs a person, its hook reports the tool and its input to the worker, and the worker works out the rest. The digest covers the tool's name, the canonical form of its input, and the path the call lands on, and what a reviewer reads comes from those same facts. A lane's own words reach neither.
+
+A path is a fact about the disk, so one input can land somewhere else later. The worker walks the path on every look, part by part, the way the kernel does, and follows every link, including a link to something that does not exist yet, because a write creates its file through the link. So a link swapped in after a request was raised, or after a decision, makes it another call.
 
 - A decision names the digest its reviewer read. A digest that is not the request's is refused.
 - An approval runs one call. The same call again is a new request.
-- A call that differs from what was approved voids the approval, and the changed call asks again. A void approval never comes back.
+- A call that differs from what was approved voids the approval, and the changed call asks again. That covers a call whose input is the same and which lands somewhere else. A void approval never comes back.
 - A denial stands for that call.
 - A request whose lane ends is marked `expired`, and so is one past its time.
+
+The last look is the one that answers the hook, and no hook runs between that answer and the tool opening the file. A process the lane left running can swap a link in that window, which is one more case of the limit below.
 
 ## Where each rule lives
 
@@ -58,7 +62,7 @@ tool = "Edit"
 path = "docs/**"
 ```
 
-A class names a tool and exactly one of a command prefix or a path, and a call that carries the other field goes to a member. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A prefix admits any arguments, so declare only a command whose arguments cannot start something else: `go test -exec` can. A path is read inside the lane's worktree, with links followed as far as they exist, so a link a lane made under `docs/` leads nowhere a class covers. A path is read when the request is raised, and a link made after that is not seen. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
+A class names a tool and exactly one of a command prefix or a path, and a call that carries the other field goes to a member. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A prefix admits any arguments, so declare only a command whose arguments cannot start something else: `go test -exec` can. A class reads where a call lands, inside the lane's worktree, so a link a lane made under `docs/` leads nowhere a class covers. A path with a `..` in it goes to a member, because a tool reads that off the text and the disk may disagree, and so does a file with a second name, which could lie anywhere. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
 
 ## The limit of same-user isolation
 

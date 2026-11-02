@@ -28,8 +28,13 @@ const approvalProfile = profileAt + "[lifecycle]\napproval_wait = \"5m\"\nhandof
 // aLaneThatWaits leaves a lane in a turn that holds at a tool call.
 func aLaneThatWaits(t *testing.T, next ...[]fake.DriverStep) (*laneRig, *gate) {
 	t.Helper()
+	return aLaneThatWaitsUnder(t, approvalProfile, next...)
+}
+
+func aLaneThatWaitsUnder(t *testing.T, profile string, next ...[]fake.DriverStep) (*laneRig, *gate) {
+	t.Helper()
 	g := newGate()
-	r := laneRigWith(t, approvalProfile)
+	r := laneRigWith(t, profile)
 	r.finishLater(g)
 	turns := append([][]fake.DriverStep{{{Bound: true}, g.step(), completed(0.01)}}, next...)
 	r.driver.Play(script(turns...))
@@ -47,12 +52,21 @@ func aLaneThatWaits(t *testing.T, next ...[]fake.DriverStep) (*laneRig, *gate) {
 // earlier one arrived.
 func (r *laneRig) look(t *testing.T, input, call string, raised bool) lanes.Reply {
 	t.Helper()
+	return r.lookAtTool(t, "Bash", input, call, raised)
+}
+
+func (r *laneRig) lookAtTool(t *testing.T, tool, input, call string, raised bool) lanes.Reply {
+	t.Helper()
 	request := lanes.Request{
 		Version: lanes.SocketProtocol, Token: r.token(t),
-		Approval: &lanes.ApprovalRequest{Tool: "Bash", Input: json.RawMessage(input), Call: call, Raised: raised},
+		Approval: &lanes.ApprovalRequest{Tool: tool, Input: json.RawMessage(input), Call: call, Raised: raised},
 	}
 	if !raised {
-		request.Hook = &lanes.HookEvent{Event: "PermissionRequest", Subject: "s", Tool: "Bash", Digest: digestOf(t, input), AtMs: time.Now().UnixMilli()}
+		read, err := authority.ReadToolCall(tool, []byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Hook = &lanes.HookEvent{Event: "PermissionRequest", Subject: "s", Tool: tool, Digest: read.Digest, AtMs: time.Now().UnixMilli()}
 	}
 	line, err := json.Marshal(request)
 	if err != nil {

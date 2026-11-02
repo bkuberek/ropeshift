@@ -86,11 +86,11 @@ type Approval struct {
 	// Subject is what is asked about, which a later request of the same lane can replace: a tool's
 	// name, or an artifact's ID.
 	Subject string `json:"subject"`
-	// SubjectDigest is the exact artifact. Input is what it covers, for a tool call.
+	// SubjectDigest is the exact artifact. For a tool call it covers Input and Path.
 	SubjectDigest string `json:"subject_digest"`
 	Input         string `json:"input,omitempty"`
-	// Command and Path are what a delegation class reads. They come from Input, and Path is read
-	// against the lane's worktree.
+	// Command and Path are what a delegation class reads. Command comes from Input, and Path is where
+	// the call lands on disk, which a worker reads against the lane's worktree.
 	Command string `json:"command,omitempty"`
 	Path    string `json:"path,omitempty"`
 	// Summary is what a person reads, and it is built from Input, never from what a lane wrote.
@@ -141,7 +141,7 @@ func (a Approval) Validate() error {
 		return fmt.Errorf("%w: it names no requester", ErrBadApproval)
 	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract:
 		return fmt.Errorf("%w: kind %q", ErrBadApproval, a.Kind)
-	case a.Kind == KindToolCall && a.SubjectDigest != ToolDigest(a.Subject, a.Input):
+	case a.Kind == KindToolCall && a.SubjectDigest != LandingDigest(a.Subject, a.Input, a.Path):
 		return fmt.Errorf("%w: its digest does not cover its tool call", ErrBadApproval)
 	}
 	return nil
@@ -308,20 +308,46 @@ func CanonicalInput(raw []byte) (string, error) {
 	return strings.TrimSuffix(out.String(), "\n"), nil
 }
 
-// ToolDigest covers a tool's name and its canonical input.
+// ToolDigest covers a tool's name and its canonical input, which is all a hook can read of a call.
 func ToolDigest(tool, canonical string) string {
 	sum := sha256.Sum256([]byte(tool + "\x00" + canonical))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// ToolCall is what a request says of a call, from its input alone.
+// LandingDigest is what a decision binds to: a call's input, and the path it lands on. A path is a
+// fact about the disk and not about the input, so one input can land somewhere else later, and a
+// digest of the input alone would call that the same call. JSON escapes a zero byte, so the one here
+// cannot be spelled in an input. A call with no path binds to its input.
+func LandingDigest(tool, canonical, landing string) string {
+	if landing == "" {
+		return ToolDigest(tool, canonical)
+	}
+	sum := sha256.Sum256([]byte(tool + "\x00" + canonical + "\x00" + landing))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// ToolCall is what a request says of a call.
 type ToolCall struct {
-	Tool    string
-	Input   string
+	Tool  string
+	Input string
+	// Digest is what a decision binds to, and it covers the input alone until Lands reads where the
+	// call goes. Seen always does, because a hook knows no worktree: it is how a hook names this call.
 	Digest  string
+	Seen    string
 	Command string
 	Path    string
 	Summary string
+}
+
+// Lands binds a call to where it lands, which only a worker can read. A reviewer reads that too when
+// it is not what the input says, because a call that names one path and lands on another must not
+// read as the first.
+func (c ToolCall) Lands(landing string) ToolCall {
+	if landing != c.Path {
+		c.Summary += " (this lands on " + landing + ")"
+	}
+	c.Path, c.Digest = landing, LandingDigest(c.Tool, c.Input, landing)
+	return c
 }
 
 // maxSummary bounds what a person reads of one call. A longer call says so, because a person must
@@ -345,7 +371,8 @@ func ReadToolCall(tool string, raw []byte) (ToolCall, error) {
 		value, _ := fields[key].(string)
 		return value
 	}
-	call := ToolCall{Tool: tool, Input: canonical, Digest: ToolDigest(tool, canonical), Command: field("command"), Path: field("file_path")}
+	digest := ToolDigest(tool, canonical)
+	call := ToolCall{Tool: tool, Input: canonical, Digest: digest, Seen: digest, Command: field("command"), Path: field("file_path")}
 	if notebook := field("notebook_path"); call.Path == "" {
 		call.Path = notebook
 	} else if notebook != "" && notebook != call.Path {
