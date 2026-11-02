@@ -242,7 +242,9 @@ type Facts struct {
 }
 
 // Conditions derives a lane's conditions, in the design's order. `waiting_external`
-// suppresses `stalled` and not `overdue`.
+// suppresses `stalled` and not `overdue`. A compaction reports nothing while it runs and nothing if
+// it hangs, so the same limit bounds it, and it holds no tool call, so a call a hook left open
+// excuses nothing.
 func Conditions(f Facts) []Condition {
 	var out []Condition
 	waiting := f.WaitDeclared || f.ToolInFlight
@@ -251,7 +253,8 @@ func Conditions(f Facts) []Condition {
 			out = append(out, condition)
 		}
 	}
-	raise(Stalled, f.State == Working && f.StallAfter > 0 && f.SinceProgress >= f.StallAfter && !waiting)
+	quiet := f.StallAfter > 0 && f.SinceProgress >= f.StallAfter
+	raise(Stalled, quiet && ((f.State == Working && !waiting) || (f.State == Compacting && !f.WaitDeclared)))
 	raise(Overdue, f.PastDeadline)
 	raise(WaitingExternal, waiting)
 	raise(NearBudget, f.WarnTokens > 0 && f.ContextTokens >= f.WarnTokens)

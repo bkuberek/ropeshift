@@ -165,6 +165,29 @@ func TestConditions(t *testing.T) {
 			facts: lanes.Facts{State: lanes.Idle, SinceProgress: 30, StallAfter: 20},
 		},
 		{
+			name:  "a compaction past the limit is stalled",
+			facts: lanes.Facts{State: lanes.Compacting, SinceProgress: 30, StallAfter: 20},
+			want:  []lanes.Condition{lanes.Stalled},
+		},
+		{
+			name:  "a compaction inside the limit is not",
+			facts: lanes.Facts{State: lanes.Compacting, SinceProgress: 10, StallAfter: 20},
+		},
+		{
+			name:  "a limit of zero leaves a compaction alone",
+			facts: lanes.Facts{State: lanes.Compacting, SinceProgress: 30},
+		},
+		{
+			name:  "a compaction holds no tool call, so a hook's open one excuses nothing",
+			facts: lanes.Facts{State: lanes.Compacting, SinceProgress: 30, StallAfter: 20, ToolInFlight: true},
+			want:  []lanes.Condition{lanes.Stalled, lanes.WaitingExternal},
+		},
+		{
+			name:  "a declared wait suppresses a compaction's stall too",
+			facts: lanes.Facts{State: lanes.Compacting, SinceProgress: 30, StallAfter: 20, WaitDeclared: true},
+			want:  []lanes.Condition{lanes.WaitingExternal},
+		},
+		{
 			name:  "no threshold set",
 			facts: lanes.Facts{State: lanes.Working, SinceProgress: 30},
 		},

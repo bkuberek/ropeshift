@@ -319,8 +319,10 @@ func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 	s := r.state
 	switch event.Event {
 	case hookPreCompact:
+		r.progressed()
 		r.signal(ctx, lanes.OnCompactionStarted)
 	case hookPostCompact:
+		r.progressed()
 		r.signal(ctx, lanes.OnCompactionFinished)
 	case hookSessionStart:
 		if event.Detail == lanes.SourceClear {

@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -106,6 +107,32 @@ func TestAFailedCompactionLeavesThroughWorking(t *testing.T) {
 	r.eventually("a compaction", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Compacting) })
 	r.hook(t, lanes.HookEvent{Event: "PreToolUse", Subject: "toolu_1", Tool: "Bash", AtMs: 2})
 	r.eventually("a turn again", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+}
+
+// A compaction that hangs reports nothing, so nothing but a clock can say so. Its start counts as
+// progress, because a lane that was quiet before it has not been stuck in it, and its end does too,
+// because a turn goes on from there.
+func TestAHungCompactionStalls(t *testing.T) {
+	stalled := func(view ledger.LaneView) bool { return slices.Contains(view.Conditions, string(lanes.Stalled)) }
+	r := laneRigWith(t, "[lifecycle]\nstall_after = \"20m\"\n")
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.clock.Advance(19 * time.Minute)
+	r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "s", Detail: "auto", AtMs: 1})
+	r.eventually("a compaction", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Compacting) })
+	r.clock.Advance(19 * time.Minute)
+	if view := r.read(); stalled(view) {
+		t.Errorf("a compaction inside its limit reads %v", view.Conditions)
+	}
+	r.clock.Advance(2 * time.Minute)
+	view := r.read()
+	if !stalled(view) || view.ActualState != string(lanes.Compacting) {
+		t.Fatalf("a compaction past its limit reads %s with %v", view.ActualState, view.Conditions)
+	}
+	r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "s", Detail: "auto", AtMs: 2})
+	r.eventually("a turn again", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) && !stalled(view) })
 }
 
 // A compaction whose end no hook reported ends with its turn, or a lane reads `compacting` for
