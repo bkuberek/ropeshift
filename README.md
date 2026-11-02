@@ -59,4 +59,4 @@ Anthropic's [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) res
 
 ## License and contributions
 
-Ropeshift is intended to be fair source under the [Functional Source License](https://fsl.software/), FSL-1.1-ALv2. This repository has no license file yet, so no license is granted at this stage. Outside code contributions are not open yet.
+Ropeshift is fair source under the [Functional Source License](https://fsl.software/), FSL-1.1-ALv2. See [LICENSE.md](LICENSE.md). Each version also becomes available under Apache-2.0 two years after its release. Outside code contributions are not open yet.
