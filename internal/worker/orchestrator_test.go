@@ -87,6 +87,21 @@ func (o *orchestratorRig) asked(t *testing.T, id, text string) {
 	}
 }
 
+// awaitNoted waits for a worker to read what was asked. A run reads nothing until it has its profile,
+// which comes on a goroutine of its own, and a debounce starts where the worker reads an item, so a
+// clock moved before that moves past nothing.
+func (o *orchestratorRig) awaitNoted(t *testing.T, want int) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		o.tick(t)
+		if o.subject.WakeWaiting() >= want {
+			return
+		}
+	}
+	t.Fatalf("%d items noted, want %d", o.subject.WakeWaiting(), want)
+}
+
 // specs lists the orchestrator's sessions, which is what a wake spends.
 func (o *orchestratorRig) specs() []ports.SessionSpec {
 	var out []ports.SessionSpec
@@ -120,7 +135,7 @@ func (o *orchestratorRig) wokenOnce(t *testing.T) {
 	o.start(t)
 	o.tick(t)
 	o.asked(t, "q1", "Which retry budget?")
-	o.tick(t)
+	o.awaitNoted(t, 1)
 	o.clock.Advance(31 * time.Second)
 	o.awaitSessions(t, 1)
 	o.awaitRest(t)
@@ -191,7 +206,7 @@ func TestThreeItemsMakeOneSession(t *testing.T) {
 	o.start(t)
 	o.tick(t)
 	o.asked(t, "q1", "Which retry budget?")
-	o.tick(t)
+	o.awaitNoted(t, 1)
 	o.clock.Advance(10 * time.Second)
 	o.asked(t, "q2", "Which log level?")
 	o.asked(t, "q3", "Which queue?")
@@ -297,7 +312,7 @@ func TestACrashedOrchestratorStopsNoLane(t *testing.T) {
 	o.start(t)
 	o.tick(t)
 	o.asked(t, "q1", "Which retry budget?")
-	o.tick(t)
+	o.awaitNoted(t, 1)
 	o.clock.Advance(31 * time.Second)
 	o.awaitSessions(t, 1)
 	o.await(t, "a backoff", func(row ledger.Orchestrator) bool { return row.Actual == string(lanes.Backoff) })
@@ -392,7 +407,7 @@ func TestAnOrchestratorHandsOffOnItsOwnBudget(t *testing.T) {
 	o.start(t)
 	o.tick(t)
 	o.asked(t, "q1", "Which retry budget?")
-	o.tick(t)
+	o.awaitNoted(t, 1)
 	o.clock.Advance(31 * time.Second)
 	o.awaitSessions(t, 1)
 	o.await(t, "a next generation", func(row ledger.Orchestrator) bool { return row.Generation == 2 })
@@ -417,7 +432,7 @@ func TestAnOrchestratorComesBackAfterARestart(t *testing.T) {
 	o.start(t)
 	o.tick(t)
 	o.asked(t, "q1", "Which retry budget?")
-	o.tick(t)
+	o.awaitNoted(t, 1)
 	o.clock.Advance(31 * time.Second)
 	o.awaitSessions(t, 1)
 	row := o.row(t)
