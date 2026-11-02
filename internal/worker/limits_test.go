@@ -31,11 +31,43 @@ type scriptedLanes struct {
 	*fake.AgentDriver
 	mu     sync.Mutex
 	script func(spec ports.SessionSpec) fake.DriverScript
+	// fleet counts the sessions a fleet still has to start.
+	fleet *fleetGate
+}
+
+// fleetGate holds one session's limit until the whole fleet has a session. A limit stops a lane that
+// has not started, so a rejection that landed first would leave the rest claimed, and a test of a
+// fleet at its limit would wait on work that was never going to park.
+type fleetGate struct {
+	left atomic.Int64
+	full chan struct{}
+}
+
+func newFleetGate(count int) *fleetGate {
+	gate := &fleetGate{full: make(chan struct{})}
+	gate.left.Store(int64(count))
+	return gate
+}
+
+func (g *fleetGate) started() {
+	if g.left.Add(-1) == 0 {
+		close(g.full)
+	}
+}
+
+func (g *fleetGate) up(ports.SessionSpec) {
+	select {
+	case <-g.full:
+	case <-time.After(20 * time.Second):
+	}
 }
 
 func (d *scriptedLanes) Start(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.fleet != nil && spec.Generation == 1 {
+		d.fleet.started()
+	}
 	d.Play(d.script(spec))
 	return d.AgentDriver.Start(ctx, spec)
 }
@@ -52,6 +84,12 @@ type limitRig struct {
 	*laneRig
 	orders []string
 	lanes  []string
+	gate   *fleetGate
+}
+
+// limitOnceAllStart is the first session of a fleet: its limit lands with every lane running.
+func (r *limitRig) limitOnceAllStart() fake.DriverScript {
+	return script([]fake.DriverStep{{Bound: true}, {Do: r.gate.up}, *rejected(0), {Hold: true}})
 }
 
 func fleetOf(t *testing.T, count int, profile string, script func(spec ports.SessionSpec) fake.DriverScript) *limitRig {
@@ -64,9 +102,9 @@ func fleetOn(t *testing.T, base *rig, count int, profile string, script func(spe
 	t.Helper()
 	line := newLaneRigFor(t, base)
 	line.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", profile)
-	r := &limitRig{laneRig: line.dispatched(), orders: []string{"wo"}, lanes: []string{"lane-1"}}
+	r := &limitRig{laneRig: line.dispatched(), orders: []string{"wo"}, lanes: []string{"lane-1"}, gate: newFleetGate(count)}
 	r.clock.Advance(time.Since(r.clock.Now()))
-	r.config.Driver = &scriptedLanes{AgentDriver: r.driver, script: script}
+	r.config.Driver = &scriptedLanes{AgentDriver: r.driver, script: script, fleet: r.gate}
 	for i := 2; i <= count; i++ {
 		order, lane := fmt.Sprintf("wo-%d", i), fmt.Sprintf("lane-%d", i)
 		r.secondLane(order, lane)
@@ -354,7 +392,7 @@ func TestNoKnownResetReadsUsageAndProbes(t *testing.T) {
 	r = fleetOf(t, 3, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
 		switch {
 		case spec.Generation == 1 && spec.Lane == "lane-1":
-			return script([]fake.DriverStep{{Bound: true}, *rejected(0), {Hold: true}})
+			return r.limitOnceAllStart()
 		case spec.Generation == 1:
 			return atRest()
 		case spec.Lane != "lane-1":
@@ -429,7 +467,7 @@ func TestAProbeThatGetsThroughWakesTheOthers(t *testing.T) {
 			r = fleetOf(t, 2, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
 				switch {
 				case spec.Generation == 1 && spec.Lane == "lane-1":
-					return script([]fake.DriverStep{{Bound: true}, *rejected(0), {Hold: true}})
+					return r.limitOnceAllStart()
 				case spec.Generation == 1:
 					return atRest()
 				case spec.Lane == "lane-1":
@@ -496,7 +534,7 @@ func TestAWriteThatFailedEndsNoLimit(t *testing.T) {
 	r = fleetOn(t, base, 2, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
 		switch {
 		case spec.Generation == 1 && spec.Lane == "lane-1":
-			return script([]fake.DriverStep{{Bound: true}, *rejected(0), {Hold: true}})
+			return r.limitOnceAllStart()
 		case spec.Generation == 1:
 			return atRest()
 		}
@@ -517,7 +555,7 @@ func TestAProbeThatEndsReleasesTheOthers(t *testing.T) {
 	r = fleetOf(t, 2, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
 		switch {
 		case spec.Generation == 1 && spec.Lane == "lane-1":
-			return script([]fake.DriverStep{{Bound: true}, *rejected(0), {Hold: true}})
+			return r.limitOnceAllStart()
 		case spec.Generation == 1:
 			return atRest()
 		case spec.Lane == "lane-1":
