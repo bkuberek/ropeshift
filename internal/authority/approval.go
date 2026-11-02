@@ -329,23 +329,27 @@ type ToolCall struct {
 const maxSummary = 4096
 
 // ReadToolCall reads a call's input. A tool's fields have no shape this code owns, so anything but
-// a command or a path reads as the whole of the input.
+// a command or a path reads as the whole of the input. It reads each by its exact key, because a
+// decoder that folds a key's case would take a field the tool never reads for the one it does, and
+// a call that names two paths names none a class can read.
 func ReadToolCall(tool string, raw []byte) (ToolCall, error) {
 	canonical, err := CanonicalInput(raw)
 	if err != nil {
 		return ToolCall{}, err
 	}
-	var fields struct {
-		Command  string `json:"command"`
-		File     string `json:"file_path"`
-		Notebook string `json:"notebook_path"`
-	}
+	var fields map[string]any
 	if err := json.Unmarshal([]byte(canonical), &fields); err != nil {
-		fields.Command, fields.File = "", ""
+		fields = nil
 	}
-	call := ToolCall{Tool: tool, Input: canonical, Digest: ToolDigest(tool, canonical), Command: fields.Command, Path: fields.File}
-	if call.Path == "" {
-		call.Path = fields.Notebook
+	field := func(key string) string {
+		value, _ := fields[key].(string)
+		return value
+	}
+	call := ToolCall{Tool: tool, Input: canonical, Digest: ToolDigest(tool, canonical), Command: field("command"), Path: field("file_path")}
+	if notebook := field("notebook_path"); call.Path == "" {
+		call.Path = notebook
+	} else if notebook != "" && notebook != call.Path {
+		call.Path = ""
 	}
 	text := canonical
 	if call.Command != "" {
@@ -400,19 +404,20 @@ type DelegationClass struct {
 const shellMeta = ";&|<>$`\\\n\r(){}"
 
 // covers says a class reaches a call. A prefix reaches one simple command, and any shell syntax
-// falls to a member, because `go test; rm -rf .` starts with `go test`.
+// falls to a member, because `go test; rm -rf .` starts with `go test`. A class reads one field, so
+// a call that also carries the other is more than the class declared.
 func (c DelegationClass) covers(a Approval) bool {
 	if a.Kind != KindToolCall || a.Subject != c.Tool {
 		return false
 	}
 	if c.CommandPrefix != "" {
 		command := a.Command
-		if strings.ContainsAny(command, shellMeta) {
+		if a.Path != "" || strings.ContainsAny(command, shellMeta) {
 			return false
 		}
 		return command == c.CommandPrefix || strings.HasPrefix(command, c.CommandPrefix+" ")
 	}
-	return c.Path != "" && pathCovered(c.Path, a.Path)
+	return c.Path != "" && a.Command == "" && pathCovered(c.Path, a.Path)
 }
 
 // pathCovered reads a worktree-relative path against a class's pattern, where a trailing `/**`

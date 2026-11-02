@@ -58,7 +58,7 @@ tool = "Edit"
 path = "docs/**"
 ```
 
-A class names a tool and exactly one of a command prefix or a path. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A path is read inside the lane's worktree, with links followed as far as they exist, so a link a lane made under `docs/` leads nowhere a class covers. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
+A class names a tool and exactly one of a command prefix or a path, and a call that carries the other field goes to a member. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A prefix admits any arguments, so declare only a command whose arguments cannot start something else: `go test -exec` can. A path is read inside the lane's worktree, with links followed as far as they exist, so a link a lane made under `docs/` leads nowhere a class covers. A path is read when the request is raised, and a link made after that is not seen. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
 
 ## The limit of same-user isolation
 
@@ -68,7 +68,7 @@ A lane with a shell can, as that user:
 
 - Read another lane's token or a member's session from a process's environment, where the platform shows it.
 - Read the worker's credential, and act as that worker's orchestrator for whatever a member delegated.
-- Connect to any socket the user can reach.
+- Connect to any socket the user can reach, which includes the private terminal server, so a lane in a pane can press the key that answers its own prompt.
 - Read and write the ledger and journal files directly. A database check stops a statement that breaks it, and it does not stop one that names a member as the decider. The event log would then disagree with the row, which a replay shows.
 - Read the stored passphrase hash, and guess at it offline.
 - Change the generated settings and hook commands, past the guardrails that deny that write. A hook is a guardrail and not a sandbox.

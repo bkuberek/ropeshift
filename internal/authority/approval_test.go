@@ -54,6 +54,32 @@ func TestADigestCoversTheToolAndEveryByteOfItsInput(t *testing.T) {
 	}
 }
 
+// A class reads the field a tool reads. A second key that only folds to its name must not stand in
+// for it, or a call could show a covered path and act on another.
+func TestACallIsReadByItsExactKeys(t *testing.T) {
+	tests := []struct {
+		name, input, command, path string
+	}{
+		{name: "a command", input: `{"command":"go test"}`, command: "go test"},
+		{name: "a file", input: `{"file_path":"docs/a.md"}`, path: "docs/a.md"},
+		{name: "a notebook", input: `{"notebook_path":"docs/a.ipynb"}`, path: "docs/a.ipynb"},
+		{name: "a key in capitals", input: `{"COMMAND":"go test"}`},
+		{name: "a key that folds to a notebook", input: "{\"notebook_path\":\"/etc/keys\",\"notebooK_path\":\"docs/a.ipynb\"}", path: "/etc/keys"},
+		{name: "a value of the wrong type", input: `{"command":1,"file_path":"docs/a.md"}`, path: "docs/a.md"},
+		{name: "two paths, which name none", input: `{"file_path":"docs/a.md","notebook_path":"/etc/keys"}`},
+		{name: "the same path twice", input: `{"file_path":"docs/a.md","notebook_path":"docs/a.md"}`, path: "docs/a.md"},
+		{name: "no object", input: `["go test"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := call(t, "Bash", tt.input)
+			if got.Command != tt.command || got.Path != tt.path {
+				t.Errorf("command %q, path %q", got.Command, got.Path)
+			}
+		})
+	}
+}
+
 // What a person reads comes from what the digest covers, and a call too long to show says so.
 func TestASummaryComesFromTheCallAndSaysWhatItLeftOut(t *testing.T) {
 	long := make([]byte, 5000)
@@ -352,6 +378,8 @@ func TestDelegationClassesReachOnlyWhatTheyDeclare(t *testing.T) {
 		{"a file under the directory", "Edit", "", "docs/a.md", true},
 		{"a file deep under it", "Edit", "", "docs/a/b/c.md", true},
 		{"the directory's name in a longer one", "Edit", "", "docs2/a.md", false},
+		{"a path class on a call that also runs a command", "Edit", "rm -rf .", "docs/a.md", false},
+		{"a prefix class on a call that also names a path", "Bash", "go test", "docs/a.md", false},
 		{"a way out of it", "Edit", "", "docs/../secrets", false},
 		{"a parent", "Edit", "", "../docs/a.md", false},
 		{"an absolute path", "Edit", "", "/etc/docs/a.md", false},
