@@ -90,6 +90,7 @@ var pureStandardLibrary = map[string]bool{
 	"bytes":           true,
 	"cmp":             true,
 	"context":         true,
+	"crypto/hmac":     true,
 	"crypto/sha256":   true,
 	"encoding/base32": true,
 	"encoding/hex":    true,
