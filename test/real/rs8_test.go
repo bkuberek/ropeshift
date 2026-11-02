@@ -120,6 +120,16 @@ func standInAnswers(lane string) []any {
 // pins, so on any other this suite could spend turns and prove nothing. `--version` starts no session.
 func (s *suite) requireQualified() string {
 	s.t.Helper()
+	word := s.installedVersion()
+	if !claudecode.Qualified(word) {
+		s.t.Fatalf("STOP: version %s passed no check of the socket, and this suite would prove nothing on it", word)
+	}
+	return word
+}
+
+// installedVersion reads the version a session would run, through a suite's clean environment.
+func (s *suite) installedVersion() string {
+	s.t.Helper()
 	env := s.environment()
 	path, err := claudeOn(env)
 	if err != nil {
@@ -132,9 +142,6 @@ func (s *suite) requireQualified() string {
 		s.t.Fatalf("the version: %v", err)
 	}
 	word, _, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
-	if !claudecode.Qualified(word) {
-		s.t.Fatalf("STOP: version %s passed no check of the socket, and this suite would prove nothing on it", word)
-	}
 	return word
 }
 

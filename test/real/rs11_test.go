@@ -229,7 +229,7 @@ func TestRS11(t *testing.T) {
 	t.Cleanup(s.killTerminal)
 	s.reapGenerations(rs11HeadlessLane)
 	s.build()
-	version := s.requireQualified()
+	version := s.installedVersion()
 
 	headless := gittest.NewIn(t, s.subdirectory("h"))
 	headless.Commit(".ropeshift/profile.toml", rs11Profile(lanes.ProfileRunHeadless, rs11HeadlessWait))
