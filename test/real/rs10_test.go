@@ -27,6 +27,8 @@ const (
 	rs10HeadlessLane = "rs10-headless"
 	rs10PaneLane     = "rs10-pane"
 	rs10Question     = "rs10 question"
+	// rs10PaneHalf is the value of envOnly that runs only the pane.
+	rs10PaneHalf = "pane"
 	// rs10MaxTurns caps each input of a headless lane, with room for a session to correct one call,
 	// because a handoff can arrive inside the turn that follows a compaction and share its cap.
 	rs10MaxTurns = "4"
@@ -310,6 +312,33 @@ func (s *suite) checkPaneContext(id string, state workorders.State, compacted la
 	}
 }
 
+// runHeadlessContext takes a headless lane through a compaction that cannot pass, and its handoff.
+func (s *suite) runHeadlessContext() string {
+	s.t.Helper()
+	s.playStandIn(standInHeadless(), nil)
+	flags := append(append([]string{}, guardFlags...), "--max-turns", rs10MaxTurns)
+	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
+	s.t.Cleanup(first.stop)
+	id := s.dispatch(first, rs10HeadlessLane)
+	watch := func() {
+		s.checkStream(first.stop)
+		s.checkedStream(first.stop)
+	}
+	s.poll(first.stop, "the headless lane's compaction", func() bool {
+		watch()
+		return eventCount(s.hookRecords(rs10HeadlessLane), "PostCompact") != 0
+	})
+	s.poll(first.stop, "the headless lane's handoff", func() bool {
+		watch()
+		return s.laneView(rs10HeadlessLane).Generation == 2
+	})
+	s.awaitState(first, id, rs10HeadlessLane, workorders.Acceptance, 2, watch)
+	state := s.workOrder(id).State
+	first.stop()
+	s.checkHeadlessContext(id, state)
+	return id
+}
+
 // TestRS10 takes real sessions through their context. A headless lane's compaction cannot fall under
 // its threshold, so the next call's usage fails it and the lane hands off. A pane's does, and a clear
 // typed at its prompt then begins a generation in the same process. Only a real session can show
@@ -337,33 +366,21 @@ func TestRS10(t *testing.T) {
 	s.repo = headless.Dir
 	s.worktree = worktree(headless.Dir, rs10HeadlessLane)
 	s.others = []string{headless.Dir, s.worktree, pane.Dir, worktree(pane.Dir, rs10PaneLane)}
-	for session, turns := range map[string]int{"headless": rs10HeadlessCharge - 4, "next": 4, "pane": rs10PaneCharge - 3, "cleared": 3} {
+	paneOnly := os.Getenv(envOnly) == rs10PaneHalf
+	charges := map[string]int{"pane": rs10PaneCharge - 3, "cleared": 3}
+	if !paneOnly {
+		charges["headless"], charges["next"] = rs10HeadlessCharge-4, 4
+	}
+	for session, turns := range charges {
 		if err := s.spend.charge(session, turns); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	s.playStandIn(standInHeadless(), nil)
-	flags := append(append([]string{}, guardFlags...), "--max-turns", rs10MaxTurns)
-	first := s.startDaemonWith(map[string]any{"args": flags, "stream_log": s.stream})
-	t.Cleanup(first.stop)
-	id := s.dispatch(first, rs10HeadlessLane)
-	watch := func() {
-		s.checkStream(first.stop)
-		s.checkedStream(first.stop)
+	id := ""
+	if !paneOnly {
+		id = s.runHeadlessContext()
 	}
-	s.poll(first.stop, "the headless lane's compaction", func() bool {
-		watch()
-		return eventCount(s.hookRecords(rs10HeadlessLane), "PostCompact") != 0
-	})
-	s.poll(first.stop, "the headless lane's handoff", func() bool {
-		watch()
-		return s.laneView(rs10HeadlessLane).Generation == 2
-	})
-	s.awaitState(first, id, rs10HeadlessLane, workorders.Acceptance, 2, watch)
-	headlessState := s.workOrder(id).State
-	first.stop()
-	s.checkHeadlessContext(id, headlessState)
 
 	s.repo = pane.Dir
 	s.playStandIn(standInPane(), nil)
