@@ -40,6 +40,10 @@ const (
 	rs12MaxTurns    = "4"
 	// rs12ToolLimit ends a session that keeps calling tools past that charge.
 	rs12ToolLimit = 4
+	// rs12TurnLimit ends a session that keeps ending its turn with no record. A turn's end lets go of
+	// the question and the next wake names it again, so one more turn is the product working, and
+	// a further one would spend past that charge.
+	rs12TurnLimit = 2
 	rs12Member    = "member-rs12"
 	rs12PlanOrder = "rs12-plan"
 	rs12PlanLane  = "rs12-plan-lane"
@@ -333,8 +337,12 @@ func (s *suite) rs12Run(log *rs12Log, mode string, run int64, overrides map[stri
 		if mode == lanes.ProfileRunTmux {
 			s.watchPane(running.stop, lane+"-g1", screens)
 		}
-		if tools := eventCount(s.hookRecords(lane), "PreToolUse"); tools > rs12ToolLimit {
+		records := s.hookRecords(lane)
+		if tools := eventCount(records, "PreToolUse"); tools > rs12ToolLimit {
 			s.stopWith(running.stop, "%d tool calls passed the limit of %d", tools, rs12ToolLimit)
+		}
+		if turns := eventCount(records, "Stop"); turns > rs12TurnLimit {
+			s.stopWith(running.stop, "%d turns ended with no record, past the limit of %d", turns, rs12TurnLimit)
 		}
 		s.rs12Read(func(tx ports.ReadTx) error {
 			var err error
