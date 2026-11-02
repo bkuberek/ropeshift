@@ -66,9 +66,11 @@ chaos:
 	@$(MAKE) --no-print-directory canary
 
 # The one layer that starts real sessions, and only when asked by name. The guards'
-# own tests run first, so a broken guard stops the run before it spends anything.
+# own tests run first, so a broken guard stops the run before it spends anything. A test
+# timeout ends a run with no cleanup, which leaves its sessions behind, so the bound sits
+# past anything a suite's own polls allow.
 SUITE ?= RS1
 
 real:
 	$(GO) test -tags realsession -count=1 -run '^Test(Ledger|Refused|Environment|Canary|Stop|Init|Hook|Leftover)' ./test/real/...
-	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout 8m -v -run '^Test$(SUITE)$$' ./test/real/...
+	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout 20m -v -run '^Test$(SUITE)$$' ./test/real/...
