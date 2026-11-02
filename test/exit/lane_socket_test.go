@@ -263,6 +263,21 @@ func (s *mcpSession) report(arguments map[string]any) toolResult {
 	return result
 }
 
+// A lane's session names the decision tool through the real binary and the real socket, and the
+// worker hears of no decision. The tool is not listed either, which the test below reads.
+func TestALaneSessionCannotCallTheDecisionTool(t *testing.T) {
+	env := newHookEnv(t)
+	newLaneWorker(t, env)
+	session := startMCP(t, env)
+	session.open()
+	reply := session.call("tools/call", map[string]any{
+		"name": lanes.ToolApprovalDecide, "arguments": map[string]any{"id": "a1", "digest": "sha256:1", "allow": true},
+	})
+	if reply.Error == nil {
+		t.Fatalf("a lane reached the decision tool: %s", reply.Result)
+	}
+}
+
 func TestMCPListsAndCallsLaneReport(t *testing.T) {
 	env := newHookEnv(t)
 	w := newLaneWorker(t, env)

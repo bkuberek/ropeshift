@@ -642,6 +642,38 @@ func TestPolicyCommands(t *testing.T) {
 	}
 }
 
+// A decision says what it read, so a person cannot approve a request they have not looked at.
+func TestADecisionNeedsItsDigest(t *testing.T) {
+	s := newSession(t)
+	for _, verb := range []string{"approve", "deny"} {
+		code, _, stderr := s.run("approval", verb, "a1")
+		if code != cli.ExitUsage || !strings.Contains(stderr, "--digest") {
+			t.Errorf("%s: exit %d: %s", verb, code, stderr)
+		}
+	}
+}
+
+func TestDelegationPolicyCommands(t *testing.T) {
+	s := newSession(t)
+	if text := s.must("policy", "show", "--kind", "delegation", "1"); text != authority.BuiltInDelegationBody {
+		t.Fatalf("policy show %q", text)
+	}
+	file := filepath.Join(t.TempDir(), "delegation.toml")
+	body := "[delegation_policy]\nversion = 2\n\n[[delegation_policy.classes]]\ntool = \"Bash\"\ncommand_prefix = \"go test\"\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if text := s.must("policy", "publish", "--file", file); !strings.HasPrefix(text, "2\tmember") {
+		t.Fatalf("policy publish %q", text)
+	}
+	if text := s.must("policy", "list", "--kind", "delegation"); !strings.HasPrefix(text, "2\tmember") {
+		t.Fatalf("policy list %q", text)
+	}
+	if text := s.must("policy", "show", "--kind", "delegation", "2"); text != body {
+		t.Fatalf("policy show %q", text)
+	}
+}
+
 func TestLanePolicyCommands(t *testing.T) {
 	s := newSession(t)
 	if text := s.must("policy", "list", "--kind", "lane"); !strings.Contains(text, "1\tbuilt-in\tsha256:") {

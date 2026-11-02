@@ -233,6 +233,81 @@ func TestALanePolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
 	}
 }
 
+const delegationBody = `[delegation_policy]
+version = 2
+
+[[delegation_policy.classes]]
+tool = "Bash"
+command_prefix = "go test"
+`
+
+// A new workspace delegates nothing, and what a member publishes is what a store holds in force.
+func TestADelegationPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
+	daemon := apitest.Start(t)
+	ctx := t.Context()
+	before, err := daemon.Client.DelegationPolicies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || before[0].Version != 1 || before[0].Body != authority.BuiltInDelegationBody {
+		t.Fatalf("a new workspace reviews %+v", before)
+	}
+	published, err := daemon.Client.PublishPolicy(ctx, delegationBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Kind != authority.PolicyDelegation || published.Version != 2 {
+		t.Fatalf("published %+v", published)
+	}
+	read, err := daemon.Client.DelegationPolicy(ctx, 2)
+	if err != nil || read.Digest != published.Digest || read.Body != delegationBody {
+		t.Fatalf("read %+v: %v", read, err)
+	}
+	var inForce authority.DelegationPolicy
+	err = daemon.Store.Read(ctx, apitest.Scope, func(tx ports.ReadTx) error {
+		version, err := tx.Policies().InForce(authority.PolicyDelegation)
+		if err != nil {
+			return err
+		}
+		inForce, err = authority.ReadDelegation(version)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inForce.Classes) != 1 || inForce.Classes[0] != (authority.DelegationClass{Tool: "Bash", CommandPrefix: "go test"}) {
+		t.Errorf("in force %+v", inForce)
+	}
+}
+
+// A version older than the one in force is refused even where nothing holds that number, because
+// a publish must not hand back what a member took away.
+func TestADelegationPolicyOnlyMovesForward(t *testing.T) {
+	daemon := apitest.Start(t)
+	if _, err := daemon.Client.PublishPolicy(t.Context(), strings.Replace(delegationBody, "version = 2", "version = 5", 1)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := daemon.Client.PublishPolicy(t.Context(), strings.Replace(delegationBody, "version = 2", "version = 4", 1))
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+}
+
+func TestADelegationPolicyBodyMustBeComplete(t *testing.T) {
+	daemon := apitest.Start(t)
+	tests := []struct{ name, body string }{
+		{"a misspelled key", strings.Replace(delegationBody, "command_prefix", "command_start", 1)},
+		{"no version", strings.Replace(delegationBody, "version = 2\n", "", 1)},
+		{"an old version", strings.Replace(delegationBody, "version = 2", "version = 1", 1)},
+		{"a whole tool", strings.Replace(delegationBody, "command_prefix = \"go test\"\n", "", 1)},
+		{"shell syntax in a prefix", strings.Replace(delegationBody, "go test", "go test; rm", 1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := daemon.Client.PublishPolicy(t.Context(), tt.body)
+			refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+		})
+	}
+}
+
 func TestALanePolicyBodyMustBeComplete(t *testing.T) {
 	daemon := apitest.Start(t)
 	base := strings.Replace(authority.BuiltInLanePolicyBody, "version = 1", "version = 2", 1)

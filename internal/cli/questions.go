@@ -329,7 +329,7 @@ func policyLine(p authority.PolicyVersion) string {
 // policyKind reads `--kind`, which names the decision policy unless it says otherwise.
 func policyKind(kind string) (authority.PolicyKind, bool) {
 	switch authority.PolicyKind(kind) {
-	case authority.PolicyDecision, authority.PolicyLane:
+	case authority.PolicyDecision, authority.PolicyLane, authority.PolicyDelegation:
 		return authority.PolicyKind(kind), true
 	}
 	return "", false
@@ -337,7 +337,7 @@ func policyKind(kind string) (authority.PolicyKind, bool) {
 
 func (c *invocation) policyList(args []string) int {
 	set := c.flags()
-	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision or lane")
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, or delegation")
 	positional, ok := parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -352,8 +352,11 @@ func (c *invocation) policyList(args []string) int {
 	client := c.client()
 	defer client.Close()
 	read := client.Policies
-	if named == authority.PolicyLane {
+	switch named {
+	case authority.PolicyLane:
 		read = client.LanePolicies
+	case authority.PolicyDelegation:
+		read = client.DelegationPolicies
 	}
 	rows, err := read(c.ctx)
 	return c.finish(err, api.PolicyList{Versions: rows}, func() string {
@@ -367,7 +370,7 @@ func (c *invocation) policyList(args []string) int {
 
 func (c *invocation) policyShow(args []string) int {
 	set := c.flags()
-	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision or lane")
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, or delegation")
 	positional, ok := parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -386,8 +389,11 @@ func (c *invocation) policyShow(args []string) int {
 	client := c.client()
 	defer client.Close()
 	read := client.Policy
-	if named == authority.PolicyLane {
+	switch named {
+	case authority.PolicyLane:
 		read = client.LanePolicy
+	case authority.PolicyDelegation:
+		read = client.DelegationPolicy
 	}
 	row, err := read(c.ctx, version)
 	return c.finish(err, row, func() string { return row.Body })
