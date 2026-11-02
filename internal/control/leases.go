@@ -47,7 +47,7 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		case !errors.Is(err, ports.ErrNotFound):
 			return err
 		}
-		if err := checkEligible(tx, request); err != nil {
+		if err := checkEligible(tx, request, actor); err != nil {
 			return err
 		}
 		crashpoint.Hit("claim", "eligible")
@@ -166,7 +166,7 @@ func replayGrant(tx ports.WriteTx, claim workorders.Claim, request workorders.Cl
 
 // checkEligible reads the workspace after the revision was taken, so no count can change
 // before the grant, and a claim that races another at a cap loses.
-func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest) error {
+func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest, actor ledger.Actor) error {
 	workspace, err := tx.Workspace()
 	if err != nil {
 		return err
@@ -202,6 +202,13 @@ func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest) error {
 			return fmt.Errorf("%w: worker %s has %s", workorders.ErrIneligible, request.Worker, why)
 		}
 		limit = tighter(limit, record.Manifest.Capacity.MaxLanes)
+		if actor.Kind != ledger.ActorMember {
+			bound, err := holdToAutonomy(tx, record, order)
+			if err != nil {
+				return err
+			}
+			limit = tighter(limit, bound)
+		}
 	case !errors.Is(err, ports.ErrNotFound):
 		return err
 	}
@@ -895,6 +902,19 @@ func (l *Leases) RespawnLane(ctx context.Context, scope ledger.WorkspaceID, work
 		claim, err := tx.Claims().Find(current.ClaimID)
 		if err != nil {
 			return err
+		}
+		if actor.Kind != ledger.ActorMember {
+			record, err := tx.Workers().Find(claim.Worker)
+			if err != nil {
+				return err
+			}
+			facts, err := readAutonomy(tx.Policies(), tx.Workers(), record, tx.Now())
+			if err != nil {
+				return err
+			}
+			if err := withinRespawns(tx.Lanes(), claim.Lane, facts, tx.Now()); err != nil {
+				return err
+			}
 		}
 		if err := tx.Lanes().Respawn(claim.Lane); err != nil {
 			return err

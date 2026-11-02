@@ -17,6 +17,10 @@ Only a member can start an orchestrator, and no session starts until there is so
 
 An orchestrator reads a request in the wake that names it, which states the request's summary and the digest a decision binds to. Only a request a member's delegation covers reaches it, and none it made itself. It reaches the ledger through its worker, and the ledger holds each act to the run a member asked for: a worker's credential with no such run acts for nobody. Its session holds its own tools and none of the vendor's, because it has no repository to work in and nobody to answer a prompt.
 
+A worker's level says how far it goes with nobody there. At `manual`, members claim by hand and an orchestrator only works the question ladder. At `attended`, it claims and starts lanes only inside a run window a member opened. At `unattended`, it claims whenever capacity exists. A subscription starts at `attended`, and so does a sign-in nobody could read. A key starts at `unattended`. Below `unattended`, a worker is held to a bound on lanes and on generations a day, which an `[autonomy_policy]` states.
+
+Only a member opens a window, chooses a level, or acknowledges the risk, and no tool, route, or act gives an agent any of these. A subscription worker reaches `unattended` only after a member acknowledges the stated risk for that worker, as an event naming the text they read. That is a record that a person accepted a risk. It is not permission from anyone, and it does not make automated use acceptable under any vendor's terms. A level is read again at each claim, so a worker that comes back on a subscription falls to `attended`, and so does one whose statement changed. A member's own claim needs none of this, and a lane a wake brought back goes on outside a window, up to the bound on generations, because a wake must bring a lane back with nobody there to dispatch it.
+
 A hook that cannot reach the worker appends to a spool, and that is a file anything this user runs can write. Taken at its word, a line could end another lane's request or give it a generation, so a line carries a seal, keyed from the token of the lane it names. The line holds neither the token nor its digest, so reading the spool gives a lane nothing to speak with. A line with no seal, a seal from any other token, a line changed after its seal, and a line whose token has ended all count for nothing, and the worker reports how many it dropped. A lane can copy a sealed line and append it again, which says only what that session already said, and a repeat merges by meaning.
 
 ## A request binds to what it asks
@@ -49,6 +53,9 @@ A session that comes back to an approved call hears that exact call first, with 
 | An orchestrator's token reaches no lane's tool | The worker socket, which refuses a report, a wait, an ask, and a reply from it |
 | Only a member starts an orchestrator | The route, which takes only a session, and the authorization function |
 | An orchestrator runs only what its worker holds | The control plane, which reads the lease before it starts or stops a lane |
+| Only a member opens a window or acknowledges the risk | The route, which takes only a session, the authorization function, and a database check on the opener's and the acknowledger's kind |
+| A claim no member made follows the level and the window | The claim's transaction, which reads both as it grants |
+| `unattended` on a subscription needs a current acknowledgement | The route that sets a level, and the claim, which reads it again |
 | A message is never a decision | Nothing in the decision path reads a message |
 
 ## A person at the terminal
@@ -85,7 +92,7 @@ A lane with a shell can, as that user:
 - Read another lane's token or a member's session from a process's environment, where the platform shows it.
 - Read the worker's credential, and act as that worker's orchestrator for whatever a member delegated.
 - Connect to any socket the user can reach, which includes the private terminal server, so a lane in a pane can press the key that answers its own prompt.
-- Read and write the ledger and journal files directly. A database check stops a statement that breaks it, and it does not stop one that names a member as the decider. The event log would then disagree with the row, which a replay shows. The journal holds each token's digest, which is what a spool line's seal is keyed from.
+- Read and write the ledger and journal files directly. A database check stops a statement that breaks it, and it does not stop one that names a member as the decider. A window or an acknowledgement written that way passes for a member's. The event log would then disagree with the row, which a replay shows. The journal holds each token's digest, which is what a spool line's seal is keyed from.
 - Read the stored passphrase hash, and guess at it offline.
 - Change the generated settings and hook commands, past the guardrails that deny that write. A hook is a guardrail and not a sandbox.
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
@@ -73,7 +74,7 @@ func (w *Workers) Orchestrate(ctx context.Context, verb string, call ledger.Orch
 func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.OrchestratorCall, actor ledger.Actor) (any, error) {
 	switch verb {
 	case ledger.VerbCandidates:
-		return w.Offered(ctx, actor.ID)
+		return w.candidates(ctx, actor.ID)
 	case ledger.VerbClaim:
 		return w.Claim(ctx, call.Auth, workorders.ClaimRequest{WorkOrder: call.WorkOrder, ClaimID: call.Target})
 	case ledger.VerbDecline:
@@ -82,9 +83,15 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		if err := w.holdsWork(ctx, actor.ID, call.WorkOrder); err != nil {
 			return nil, err
 		}
+		if err := w.heldToStanding(ctx, actor.ID, authority.AutonomyStanding.MayClaim); err != nil {
+			return nil, err
+		}
 		return w.leases.Dispatch(ctx, w.scope, call.WorkOrder, call.Target, actor)
 	case ledger.VerbStop:
 		if err := w.holdsWork(ctx, actor.ID, call.WorkOrder); err != nil {
+			return nil, err
+		}
+		if err := w.heldToStanding(ctx, actor.ID, authority.AutonomyStanding.MayWork); err != nil {
 			return nil, err
 		}
 		return nil, w.leases.RespawnLane(ctx, w.scope, call.WorkOrder, actor)
@@ -115,9 +122,42 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 		}
 		return w.questions.Rule(ctx, w.scope, call.Question, ruling, actor)
 	case ledger.VerbAccept:
+		if err := w.heldToStanding(ctx, actor.ID, authority.AutonomyStanding.MayWork); err != nil {
+			return nil, err
+		}
 		return w.accepting.Accept(ctx, w.scope, call.WorkOrder, actor)
 	}
 	return nil, fmt.Errorf("%w: no such act: %q", workorders.ErrInvalid, verb)
+}
+
+// heldToStanding refuses an act this worker's level does not leave its orchestrator. A start reads
+// the same rule as a claim, because the session is what runs with nobody there: work claimed in a
+// window that closed waits for the next one, or for a member.
+func (w *Workers) heldToStanding(ctx context.Context, worker string, may func(authority.AutonomyStanding) bool) error {
+	return w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		facts, err := autonomyOf(tx, worker)
+		if err != nil {
+			return err
+		}
+		if !may(facts.standing) {
+			return fmt.Errorf("%w: worker %s is %s, with no run window open", workorders.ErrIneligible, worker, facts.standing.Level)
+		}
+		return nil
+	})
+}
+
+// candidates is what an orchestrator may take now, which is nothing when its level leaves claims to a
+// person, so a session does not spend a turn on work it could only be refused.
+func (w *Workers) candidates(ctx context.Context, worker string) ([]workorders.WorkOrder, error) {
+	offered, err := w.Offered(ctx, worker)
+	if err != nil {
+		return nil, err
+	}
+	err = w.heldToStanding(ctx, worker, authority.AutonomyStanding.MayClaim)
+	if errors.Is(err, workorders.ErrIneligible) {
+		return []workorders.WorkOrder{}, nil
+	}
+	return offered, err
 }
 
 func readBody(call ledger.OrchestratorCall, into any) error {

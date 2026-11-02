@@ -30,6 +30,15 @@ type Breaker struct {
 	Backoff time.Duration
 }
 
+// Bounded holds the daily cap to what a worker's autonomy says. A bound only tightens it, and zero
+// says nothing.
+func (b Breaker) Bounded(perDay int64) Breaker {
+	if perDay > 0 && (b.MaxPerDay == 0 || perDay < b.MaxPerDay) {
+		b.MaxPerDay = perDay
+	}
+	return b
+}
+
 // BreakerVerdict says whether one more restart may run, and after how long.
 type BreakerVerdict struct {
 	Tripped bool

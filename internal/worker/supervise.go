@@ -144,7 +144,7 @@ func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, boo
 				return charge, true
 			}
 		}
-		verdict := r.state.breaker().Judge(charges, from)
+		verdict := r.state.breaker().Bounded(r.w.respawnBound(ctx)).Judge(charges, from)
 		if reset {
 			verdict.Delay = 0
 		}
@@ -162,6 +162,17 @@ func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, boo
 		}
 		from, reset = r.w.clock.Now(), true
 	}
+}
+
+// respawnBound reads what this worker's autonomy holds a lane's generations to. A journal that cannot
+// answer leaves the profile's cap, which still stands.
+func (w *Worker) respawnBound(ctx context.Context) int64 {
+	state, err := w.desired(ctx)
+	if err != nil {
+		w.config.Report(fmt.Errorf("reading this worker's bound on respawns: %w", err))
+		return 0
+	}
+	return state.MaxRespawnsPerDay
 }
 
 // waitUntil waits on the worker's clock, and a lost lease or a stopping worker ends it.

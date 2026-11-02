@@ -61,6 +61,7 @@ type handler struct {
 	messages   *control.Messages
 	sessions   *control.Sessions
 	approvals  *control.Approvals
+	autonomy   *control.Autonomy
 }
 
 // New returns the versioned API.
@@ -77,6 +78,7 @@ func New(config Config) http.Handler {
 		messages:   control.NewMessages(config.Store, config.Windows),
 		sessions:   control.NewSessions(config.Store, config.Identity),
 		approvals:  control.NewApprovals(config.Store),
+		autonomy:   control.NewAutonomy(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens, Matcher: config.Matcher,
@@ -90,6 +92,7 @@ func New(config Config) http.Handler {
 	h.sessionRoutes(mux)
 	h.approvalRoutes(mux)
 	h.orchestratorRoutes(mux)
+	h.autonomyRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
@@ -157,8 +160,14 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, messages.ErrInvalid):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
+	case errors.Is(err, authority.ErrRiskNotAcknowledged):
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeRiskNotAcknowledged, Message: err.Error()})
+	case errors.Is(err, authority.ErrStaleStatement):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleStatement, Message: err.Error()})
+	case errors.Is(err, authority.ErrWindowOpen):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeWindowOpen, Message: err.Error()})
 	case errors.Is(err, questions.ErrResolved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})
 	case errors.As(err, &overlap):

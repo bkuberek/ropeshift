@@ -59,6 +59,12 @@ func signalsAnyKind() bool { return false }
 // dropsPackEvent is false: every pack is on the log.
 func dropsPackEvent() bool { return false }
 
+// ignoresAutonomy is false: a claim no member made reads the level and the window.
+func ignoresAutonomy() bool { return false }
+
+// dropsAutonomyEvent is false: every change of autonomy is on the log.
+func dropsAutonomyEvent() bool { return false }
+
 // rebuildsPack is false: a lane keeps its pack.
 func rebuildsPack() bool { return false }
 

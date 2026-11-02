@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
@@ -56,7 +57,103 @@ VALUES (:workspace_id, :id, :digest, :created_by)`)
 VALUES (:workspace_id, :id, :worker, :desired_state, :run, :resets, :actual_state, :generation)
 ON CONFLICT (workspace_id, id) DO UPDATE
    SET desired_state = :desired_state, run = :run, resets = :resets, actual_state = :actual_state, generation = :generation`)
+
+	stmtFindAutonomy = define("autonomy.of_worker",
+		`SELECT worker_id, level, acknowledged_by, acknowledged_kind, acknowledged_digest, acknowledged_at FROM worker_autonomy
+ WHERE workspace_id = :workspace_id AND worker_id = :worker`)
+
+	stmtSaveAutonomy = define("autonomy.save",
+		`INSERT INTO worker_autonomy (workspace_id, worker_id, level, acknowledged_by, acknowledged_kind, acknowledged_digest, acknowledged_at)
+VALUES (:workspace_id, :worker, :level, :acknowledged_by, :acknowledged_kind, :acknowledged_digest, :acknowledged_at)
+ON CONFLICT (workspace_id, worker_id) DO UPDATE
+   SET level = :level, acknowledged_by = :acknowledged_by, acknowledged_kind = :acknowledged_kind,
+       acknowledged_digest = :acknowledged_digest, acknowledged_at = :acknowledged_at`)
+
+	stmtInsertWindow = define("run_window.insert",
+		`INSERT INTO run_windows (workspace_id, id, worker_id, opened_by, opened_kind, opened_at, closes_at, closed_by, closed_at)
+VALUES (:workspace_id, :id, :worker, :opened_by, :opened_kind, :opened_at, :closes_at, '', 0)`)
+
+	stmtReadWindow = define("run_window.read",
+		`SELECT id, worker_id, opened_by, opened_kind, opened_at, closes_at, closed_by, closed_at FROM run_windows
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtOpenWindow = define("run_window.open",
+		`SELECT id, worker_id, opened_by, opened_kind, opened_at, closes_at, closed_by, closed_at FROM run_windows
+ WHERE workspace_id = :workspace_id AND worker_id = :worker AND closed_at = 0
+   AND opened_at <= CAST(:now AS BIGINT) AND closes_at > CAST(:now AS BIGINT)
+ ORDER BY closes_at DESC, id LIMIT 1`)
+
+	stmtCloseWindow = define("run_window.close",
+		`UPDATE run_windows SET closed_by = :closed_by, closed_at = :closed_at
+ WHERE workspace_id = :workspace_id AND id = :id AND closed_at = 0`)
 )
+
+// Autonomy returns what the ledger holds of a worker beyond the policy.
+func (t workerTx) Autonomy(worker string) (authority.WorkerAutonomy, error) {
+	found, err := t.row(stmtFindAutonomy, t.scoped(params{"worker": worker}))
+	if err != nil {
+		return authority.WorkerAutonomy{}, err
+	}
+	row := authority.WorkerAutonomy{WorkerID: worker}
+	var level string
+	err = found.Scan(&row.WorkerID, &level, &row.AcknowledgedBy, &row.AcknowledgedKind, &row.AcknowledgedDigest, &row.AcknowledgedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return authority.WorkerAutonomy{WorkerID: worker}, nil
+	}
+	row.Level = authority.Level(level)
+	return row, err
+}
+
+// SaveAutonomy writes what the ledger holds of a worker.
+func (t workerTx) SaveAutonomy(row authority.WorkerAutonomy) error {
+	_, err := t.exec(stmtSaveAutonomy, t.scoped(params{
+		"worker": row.WorkerID, "level": string(row.Level), "acknowledged_by": row.AcknowledgedBy,
+		"acknowledged_kind": row.AcknowledgedKind, "acknowledged_digest": row.AcknowledgedDigest, "acknowledged_at": row.AcknowledgedAt,
+	}))
+	return err
+}
+
+func scanWindow(row scanner, name string) (authority.RunWindow, error) {
+	var out authority.RunWindow
+	err := row.Scan(&out.ID, &out.WorkerID, &out.OpenedBy, &out.OpenedKind, &out.OpenedAt, &out.ClosesAt, &out.ClosedBy, &out.ClosedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return authority.RunWindow{}, fmt.Errorf("run window %s: %w", name, ports.ErrNotFound)
+	}
+	return out, err
+}
+
+// Window returns one run window, or ErrNotFound.
+func (t workerTx) Window(id string) (authority.RunWindow, error) {
+	found, err := t.row(stmtReadWindow, t.scoped(params{"id": id}))
+	if err != nil {
+		return authority.RunWindow{}, err
+	}
+	return scanWindow(found, id)
+}
+
+// OpenWindow returns the run window that stands for a worker at a time, or ErrNotFound.
+func (t workerTx) OpenWindow(worker string, now int64) (authority.RunWindow, error) {
+	found, err := t.row(stmtOpenWindow, t.scoped(params{"worker": worker, "now": now}))
+	if err != nil {
+		return authority.RunWindow{}, err
+	}
+	return scanWindow(found, "of "+worker)
+}
+
+// InsertWindow adds a run window.
+func (t workerTx) InsertWindow(row authority.RunWindow) error {
+	_, err := t.exec(stmtInsertWindow, t.scoped(params{
+		"id": row.ID, "worker": row.WorkerID, "opened_by": row.OpenedBy, "opened_kind": row.OpenedKind,
+		"opened_at": row.OpenedAt, "closes_at": row.ClosesAt,
+	}))
+	return err
+}
+
+// CloseWindow is the compare-and-set that ends a window.
+func (t workerTx) CloseWindow(id, by string, at int64) (bool, error) {
+	changed, err := t.exec(stmtCloseWindow, t.scoped(params{"id": id, "closed_by": by, "closed_at": at}))
+	return changed == 1, err
+}
 
 // Orchestrator returns one worker's orchestrator, or ErrNotFound.
 func (t workerTx) Orchestrator(worker string) (ledger.Orchestrator, error) {

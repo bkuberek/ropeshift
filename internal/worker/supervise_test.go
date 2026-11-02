@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -276,6 +277,31 @@ func TestTheSlidingWindowTrips(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 	if specs := r.driver.Specs(); len(specs) != 3 {
 		t.Errorf("a tripped lane started: %d sessions", len(specs))
+	}
+}
+
+// A worker held below unattended reads a bound its profile may not state, and a lane that crashes
+// past it waits for a person, as a breaker's trip does.
+func TestAWorkerBelowUnattendedHoldsARestartToItsPolicy(t *testing.T) {
+	r := laneRigWith(t, restarts)
+	worker := r.subject.Auth().WorkerID
+	ops := control.NewAutonomy(r.store)
+	if err := ops.SetLevel(t.Context(), scope, worker, authority.LevelAttended, member); err != nil {
+		t.Fatal(err)
+	}
+	bound := authority.DefaultAutonomyPolicy()
+	bound.Version, bound.AttendedMaxRespawnsPerDay = 2, 1
+	if _, err := ops.PublishAutonomyPolicy(t.Context(), scope, authority.AutonomyDraft{Body: "[autonomy_policy]\nversion = 2\n", Policy: bound}, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.subject.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.driver.Play(script(crashed()))
+	r.start()
+	r.laneState(lanes.Tripped)
+	if specs := r.driver.Specs(); len(specs) != 1 {
+		t.Errorf("a restart past the bound: %d sessions", len(specs))
 	}
 }
 

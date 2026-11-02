@@ -43,6 +43,13 @@ const (
 	CodeOverlap = "overlap"
 	// CodeDecisionEnded means a decision was already overturned or replaced.
 	CodeDecisionEnded = "decision_ended"
+	// CodeRiskNotAcknowledged means a subscription worker stays below unattended until a member
+	// acknowledges the stated risk for it.
+	CodeRiskNotAcknowledged = "risk_not_acknowledged"
+	// CodeWindowOpen means this worker has a run window that stands.
+	CodeWindowOpen = "window_open"
+	// CodeStaleStatement means an acknowledgement names text other than the current statement.
+	CodeStaleStatement = "stale_statement"
 )
 
 // ErrorBody is every error response.

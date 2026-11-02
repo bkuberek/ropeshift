@@ -70,6 +70,12 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift orchestrator start <worker>` | Asks for its orchestrator, or resets a breaker that stopped it. No agent can ask for one, and no session starts until there is something to judge |
 | `ropeshift orchestrator stop <worker>` | Stops its orchestrator, which stops no lane |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
+| `ropeshift worker autonomy <id>` | Shows a worker's sign-in, the level that holds, any run window, and whether its orchestrator can claim now |
+| `ropeshift worker level <id> manual\|attended\|unattended` | Chooses a worker's level. `unattended` on a subscription is refused until a member acknowledges the stated risk for that worker |
+| `ropeshift worker risk` | Prints the statement a member acknowledges, and its digest |
+| `ropeshift worker acknowledge-risk <id> --digest D` | Records that a member read the statement that digest names, for one worker, as an event. It changes no level, and a changed statement asks again |
+| `ropeshift worker window-open <id> [--for D] [--id I]` | Opens a run window, inside which an `attended` worker's orchestrator claims. It lasts 4 hours by default and 12 at most, and closes by itself. A worker holds one at a time |
+| `ropeshift worker window-close <id>` | Ends a run window. No lane stops, and work claimed but not started waits for the next window or a member |
 
 `ropeshift mcp` lists 9 tools for a lane and 15 for an orchestrator, by the token it runs with. `lane_stop` ends a stuck session and starts the lane's next generation, because canceling work is a member's.
 

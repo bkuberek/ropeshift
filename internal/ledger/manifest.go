@@ -85,6 +85,26 @@ func (m Manifest) Runs(needs map[string]string) (bool, string) {
 	return true, ""
 }
 
+// SignInKind says what this worker's sessions stand on, for what autonomy reads (FR-ORCH-6). Only a
+// worker whose every usable driver holds a key is keyed: one subscription among them, a kind nobody
+// could read, or no driver at all reads as a subscription, because that keeps a person nearer.
+func (m Manifest) SignInKind() string {
+	keyed := false
+	for _, driver := range m.Drivers {
+		if !driver.usable() {
+			continue
+		}
+		if driver.SignIn.Kind != SignInAPIKey {
+			return SignInSubscription
+		}
+		keyed = true
+	}
+	if keyed {
+		return SignInAPIKey
+	}
+	return SignInSubscription
+}
+
 func (m Manifest) hasDriver(name string) bool {
 	for _, driver := range m.Drivers {
 		if driver.Driver == name && driver.usable() {

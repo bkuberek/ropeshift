@@ -92,6 +92,12 @@ const usage = `usage: ropeshift <command>
   orchestrator stop <worker>                         stop it, which stops no lane
   worker list                                        list registered workers
   worker token                                       make a join token
+  worker autonomy <id>                               show a worker's level and run window
+  worker level <id> manual|attended|unattended       choose a worker's level
+  worker risk                                        print the stated risk and its digest
+  worker acknowledge-risk <id> --digest D            stand behind that statement, for one worker
+  worker window-open <id> [--for D] [--id I]         let an attended worker claim for a while
+  worker window-close <id>                           end its window, which stops no lane
   version                                            print the version
 
 Every command takes --json and --socket. docs/cli.md lists the exit codes.
@@ -151,66 +157,72 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		return ExitUsage
 	}
 	commands := map[string]func(*invocation, []string) int{
-		"work create":        (*invocation).workCreate,
-		"work list":          (*invocation).workList,
-		"work show":          (*invocation).workShow,
-		"work review":        (*invocation).workReview,
-		"work acceptance":    (*invocation).workAcceptance,
-		"work accept":        (*invocation).workAccept,
-		"work rework":        (*invocation).workRework,
-		"work claim":         (*invocation).workClaim,
-		"work release":       (*invocation).workRelease,
-		"work reassign":      (*invocation).workReassign,
-		"work send-back":     (*invocation).workSendBack,
-		"plan list":          (*invocation).planList,
-		"plan show":          (*invocation).planShow,
-		"requirement list":   (*invocation).requirementList,
-		"requirement get":    (*invocation).requirementGet,
-		"document list":      (*invocation).documentList,
-		"document show":      (*invocation).documentShow,
-		"document versions":  (*invocation).documentVersions,
-		"question list":      (*invocation).questionList,
-		"question show":      (*invocation).questionShow,
-		"question record":    (*invocation).questionRecord,
-		"question dismiss":   (*invocation).questionDismiss,
-		"question answer":    (*invocation).questionAnswer,
-		"question batches":   (*invocation).questionBatches,
-		"decision list":      (*invocation).decisionList,
-		"decision show":      (*invocation).decisionShow,
-		"decision record":    (*invocation).decisionRecord,
-		"decision overturn":  (*invocation).decisionOverturn,
-		"policy list":        (*invocation).policyList,
-		"policy show":        (*invocation).policyShow,
-		"policy publish":     (*invocation).policyPublish,
-		"category list":      (*invocation).categoryList,
-		"category add":       (*invocation).categoryAdd,
-		"approval list":      (*invocation).approvalList,
-		"approval show":      (*invocation).approvalShow,
-		"approval approve":   (*invocation).approvalApprove,
-		"approval deny":      (*invocation).approvalDeny,
-		"lane start":         (*invocation).laneStart,
-		"lane reset":         (*invocation).laneReset,
-		"lane respawn":       (*invocation).laneRespawn,
-		"lane resume":        (*invocation).laneResume,
-		"lane archive":       (*invocation).laneArchive,
-		"lane list":          (*invocation).laneList,
-		"lane show":          (*invocation).laneShow,
-		"message send":       (*invocation).messageSend,
-		"message show":       (*invocation).messageShow,
-		"message list":       (*invocation).messageList,
-		"source list":        (*invocation).sourceList,
-		"fleet show":         (*invocation).fleetShow,
-		"fleet run":          setsFleet(ledger.FleetRun),
-		"fleet pause":        setsFleet(ledger.FleetPause),
-		"fleet drain":        setsFleet(ledger.FleetDrain),
-		"fleet caps":         (*invocation).fleetCaps,
-		"passphrase set":     (*invocation).passphraseSet,
-		"worker doctor":      (*invocation).workerDoctor,
-		"worker list":        (*invocation).workerList,
-		"worker token":       (*invocation).workerToken,
-		"orchestrator show":  (*invocation).orchestratorShow,
-		"orchestrator start": setsOrchestrator(ledger.OrchestratorRunning),
-		"orchestrator stop":  setsOrchestrator(ledger.OrchestratorStopped),
+		"work create":             (*invocation).workCreate,
+		"work list":               (*invocation).workList,
+		"work show":               (*invocation).workShow,
+		"work review":             (*invocation).workReview,
+		"work acceptance":         (*invocation).workAcceptance,
+		"work accept":             (*invocation).workAccept,
+		"work rework":             (*invocation).workRework,
+		"work claim":              (*invocation).workClaim,
+		"work release":            (*invocation).workRelease,
+		"work reassign":           (*invocation).workReassign,
+		"work send-back":          (*invocation).workSendBack,
+		"plan list":               (*invocation).planList,
+		"plan show":               (*invocation).planShow,
+		"requirement list":        (*invocation).requirementList,
+		"requirement get":         (*invocation).requirementGet,
+		"document list":           (*invocation).documentList,
+		"document show":           (*invocation).documentShow,
+		"document versions":       (*invocation).documentVersions,
+		"question list":           (*invocation).questionList,
+		"question show":           (*invocation).questionShow,
+		"question record":         (*invocation).questionRecord,
+		"question dismiss":        (*invocation).questionDismiss,
+		"question answer":         (*invocation).questionAnswer,
+		"question batches":        (*invocation).questionBatches,
+		"decision list":           (*invocation).decisionList,
+		"decision show":           (*invocation).decisionShow,
+		"decision record":         (*invocation).decisionRecord,
+		"decision overturn":       (*invocation).decisionOverturn,
+		"policy list":             (*invocation).policyList,
+		"policy show":             (*invocation).policyShow,
+		"policy publish":          (*invocation).policyPublish,
+		"category list":           (*invocation).categoryList,
+		"category add":            (*invocation).categoryAdd,
+		"approval list":           (*invocation).approvalList,
+		"approval show":           (*invocation).approvalShow,
+		"approval approve":        (*invocation).approvalApprove,
+		"approval deny":           (*invocation).approvalDeny,
+		"lane start":              (*invocation).laneStart,
+		"lane reset":              (*invocation).laneReset,
+		"lane respawn":            (*invocation).laneRespawn,
+		"lane resume":             (*invocation).laneResume,
+		"lane archive":            (*invocation).laneArchive,
+		"lane list":               (*invocation).laneList,
+		"lane show":               (*invocation).laneShow,
+		"message send":            (*invocation).messageSend,
+		"message show":            (*invocation).messageShow,
+		"message list":            (*invocation).messageList,
+		"source list":             (*invocation).sourceList,
+		"fleet show":              (*invocation).fleetShow,
+		"fleet run":               setsFleet(ledger.FleetRun),
+		"fleet pause":             setsFleet(ledger.FleetPause),
+		"fleet drain":             setsFleet(ledger.FleetDrain),
+		"fleet caps":              (*invocation).fleetCaps,
+		"passphrase set":          (*invocation).passphraseSet,
+		"worker doctor":           (*invocation).workerDoctor,
+		"worker list":             (*invocation).workerList,
+		"worker token":            (*invocation).workerToken,
+		"worker autonomy":         (*invocation).workerAutonomy,
+		"worker level":            (*invocation).workerLevel,
+		"worker risk":             (*invocation).workerRisk,
+		"worker acknowledge-risk": (*invocation).workerAcknowledge,
+		"worker window-open":      (*invocation).workerWindowOpen,
+		"worker window-close":     (*invocation).workerWindowClose,
+		"orchestrator show":       (*invocation).orchestratorShow,
+		"orchestrator start":      setsOrchestrator(ledger.OrchestratorRunning),
+		"orchestrator stop":       setsOrchestrator(ledger.OrchestratorStopped),
 	}
 	base.name = args[0] + " " + args[1]
 	command, ok := commands[base.name]
@@ -312,14 +324,14 @@ func exitOf(refused *api.Error) int {
 	switch refused.Detail.Code {
 	case api.CodeNotFound:
 		return ExitNotFound
-	case api.CodeForbidden, api.CodeSessionRequired, api.CodeBadPassphrase, api.CodeNotEnrolled, api.CodeOneWay:
+	case api.CodeForbidden, api.CodeSessionRequired, api.CodeBadPassphrase, api.CodeNotEnrolled, api.CodeOneWay, api.CodeRiskNotAcknowledged:
 		return ExitForbidden
 	case api.CodeFenced:
 		return ExitFenced
 	case api.CodeLapsed:
 		return ExitLapsed
 	case api.CodeNotAcceptable, api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
-		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit:
+		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement:
 		return ExitConflict
 	case api.CodeInvalid:
 		return ExitUsage

@@ -695,6 +695,13 @@ type WorkerReader interface {
 	JoinGrant(id string) (ledger.JoinGrant, error)
 	// Orchestrator returns one worker's orchestrator, or ErrNotFound.
 	Orchestrator(worker string) (ledger.Orchestrator, error)
+	// Autonomy returns what the ledger holds of a worker beyond the policy, which is a row with only
+	// its worker's ID for a worker nobody chose anything for.
+	Autonomy(worker string) (authority.WorkerAutonomy, error)
+	// Window returns one run window, or ErrNotFound.
+	Window(id string) (authority.RunWindow, error)
+	// OpenWindow returns the run window that stands for a worker at a time, or ErrNotFound.
+	OpenWindow(worker string, now int64) (authority.RunWindow, error)
 }
 
 // WorkerWriter writes the worker plane's records.
@@ -702,6 +709,13 @@ type WorkerWriter interface {
 	WorkerReader
 	// SaveOrchestrator writes an orchestrator's projection.
 	SaveOrchestrator(ledger.Orchestrator) error
+	// SaveAutonomy writes what the ledger holds of a worker. The store refuses an acknowledgement
+	// from anyone but a member.
+	SaveAutonomy(authority.WorkerAutonomy) error
+	// InsertWindow adds a run window. The store refuses one from anyone but a member.
+	InsertWindow(authority.RunWindow) error
+	// CloseWindow is the compare-and-set that ends a window that stands, and reports whether it did.
+	CloseWindow(id, by string, at int64) (bool, error)
 	// InsertJoinGrant records a join token by its digest.
 	InsertJoinGrant(ledger.JoinGrant) error
 	// SpendJoinGrant marks a grant used by a worker.

@@ -134,8 +134,20 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 		if err := w.checkSession(tx, request.Auth, request.Epoch); err != nil {
 			return err
 		}
-		for _, gather := range []func(ports.ReadTx, string) ([]ledger.WakeItem, error){wakeWork, wakeQuestions, wakeFinished, wakeLanes, wakeApprovals} {
-			items, err := gather(tx, worker)
+		facts, err := autonomyOf(tx, worker)
+		if err != nil {
+			return err
+		}
+		var gather []func(ports.ReadTx, string) ([]ledger.WakeItem, error)
+		if facts.standing.MayClaim() {
+			gather = append(gather, func(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) { return wakeWork(tx, worker, facts) })
+		}
+		gather = append(gather, wakeQuestions)
+		if facts.standing.MayWork() {
+			gather = append(gather, wakeFinished, wakeLanes, wakeApprovals)
+		}
+		for _, read := range gather {
+			items, err := read(tx, worker)
 			if err != nil {
 				return err
 			}
@@ -146,9 +158,24 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 	return digest, err
 }
 
+// autonomyOf reads a worker's standing, for a read with no transaction of its own to write in.
+func autonomyOf(tx ports.ReadTx, worker string) (autonomyFacts, error) {
+	record, err := tx.Workers().Find(worker)
+	if err != nil {
+		return autonomyFacts{}, err
+	}
+	now, err := tx.Now()
+	if err != nil {
+		return autonomyFacts{}, err
+	}
+	return readAutonomy(tx.Policies(), tx.Workers(), record, now)
+}
+
 // wakeWork is claimable work, while this worker has room for it. A fleet that takes no claims has
-// none, and a wake it could only decline would still read a whole context.
-func wakeWork(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
+// none, and a wake it could only decline would still read a whole context. A window's start is in the
+// stamp, so a window that opens counts what an earlier one left, and a person who opened one hears of
+// it.
+func wakeWork(tx ports.ReadTx, worker string, facts autonomyFacts) ([]ledger.WakeItem, error) {
 	workspace, err := tx.Workspace()
 	if err != nil {
 		return nil, err
@@ -164,8 +191,12 @@ func wakeWork(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	if capacity := record.Manifest.Capacity.MaxLanes; capacity != 0 && int64(len(held)) >= capacity {
+	if room := tighter(record.Manifest.Capacity.MaxLanes, facts.lanes()); room != 0 && int64(len(held)) >= room {
 		return nil, nil
+	}
+	var opened int64
+	if facts.window != nil {
+		opened = facts.window.OpenedAt
 	}
 	rows, err := tx.WorkOrders().List()
 	if err != nil {
@@ -181,7 +212,7 @@ func wakeWork(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 			return nil, err
 		}
 		if offered {
-			out = append(out, ledger.WakeItem{Kind: ledger.WakeWork, ID: row.ID, Stamp: row.Rev, Text: row.Title})
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeWork, ID: row.ID, Stamp: row.Rev + opened, Text: row.Title})
 		}
 	}
 	return out, nil

@@ -6,6 +6,28 @@ import (
 	"time"
 )
 
+// A bound can only tighten a daily cap, and a bound of zero says nothing, because a worker with no
+// autonomy to hold it runs on its profile.
+func TestABoundOnlyTightensTheDay(t *testing.T) {
+	cases := []struct {
+		name       string
+		day, bound int64
+		want       int64
+	}{
+		{"a tighter bound", 8, 2, 2},
+		{"a looser bound", 2, 8, 2},
+		{"no bound", 8, 0, 8},
+		{"no daily cap", 0, 3, 3},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := (Breaker{MaxPerDay: tt.day}).Bounded(tt.bound).MaxPerDay; got != tt.want {
+				t.Fatalf("MaxPerDay = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func chargesAt(now time.Time, ages ...time.Duration) []Restart {
 	out := make([]Restart, 0, len(ages))
 	for i, age := range ages {

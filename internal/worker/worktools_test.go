@@ -100,6 +100,70 @@ func TestAnUnknownToolIsRefused(t *testing.T) {
 	}
 }
 
+// A window and an acknowledgement are what keep a person near this session, so no token reaches
+// either, whatever the call is named. What a tool does not exist for, the worker refuses on its own,
+// because a session can reach this socket without `ropeshift mcp`.
+func TestNoSessionOpensAWindowOrAcknowledgesTheRisk(t *testing.T) {
+	r := aToolRig(t)
+	worker := r.subject.Auth().WorkerID
+	names := []string{
+		"window_open", "run_window_open", "window_close", "open_window", "autonomy", "autonomy_set", "worker_level",
+		"risk_acknowledge", "acknowledge_risk", "policy_publish",
+	}
+	for _, token := range []string{r.token, r.laneRig.token(t)} {
+		for _, name := range names {
+			args := map[string]any{"worker": worker, "digest": authority.RiskDigest(), "level": "unattended"}
+			if reply := callTool(t, r.subject, token, name, args); reply.OK {
+				t.Errorf("%s: %+v", name, reply)
+			}
+		}
+	}
+	view, err := control.NewAutonomy(r.store).View(t.Context(), scope, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Window != nil || view.Acknowledged || view.Chosen != "" {
+		t.Fatalf("something moved: %+v", view)
+	}
+	for _, tool := range lanes.OrchestratorTools {
+		if strings.Contains(tool, "window") || strings.Contains(tool, "risk") || strings.Contains(tool, "autonomy") || strings.Contains(tool, "level") {
+			t.Errorf("an orchestrator holds %s", tool)
+		}
+	}
+}
+
+// A window closed after a claim leaves the claim, and a session that goes on to start a lane hears
+// why it cannot: a session starts on a person's say, and that person has gone.
+func TestAStartWaitsForAWindowAsAClaimDoes(t *testing.T) {
+	r := aToolRig(t)
+	ops := control.NewAutonomy(r.store)
+	worker := r.subject.Auth().WorkerID
+	if err := ops.SetLevel(t.Context(), scope, worker, authority.LevelAttended, member); err != nil {
+		t.Fatal(err)
+	}
+	if reply := r.tool(t, lanes.ToolWorkCandidates, nil); !reply.OK || strings.TrimSpace(string(reply.Work)) != "[]" {
+		t.Fatalf("candidates with no window: %+v, %s", reply, reply.Work)
+	}
+	r.addOrder(t, "wo-window", 1, nil)
+	if reply := r.tool(t, lanes.ToolWorkClaim, map[string]any{"work_order": "wo-window"}); reply.OK || !strings.Contains(reply.Message, "no run window") {
+		t.Fatalf("a claim with no window: %+v", reply)
+	}
+	if _, err := ops.OpenWindow(t.Context(), scope, worker, "w1", 60_000, member); err != nil {
+		t.Fatal(err)
+	}
+	r.done(t, lanes.ToolWorkClaim, map[string]any{"work_order": "wo-window"})
+	if err := ops.CloseWindow(t.Context(), scope, worker, member); err != nil {
+		t.Fatal(err)
+	}
+	if reply := r.tool(t, lanes.ToolLaneStart, map[string]any{"work_order": "wo-window"}); reply.OK || !strings.Contains(reply.Message, "no run window") {
+		t.Fatalf("a start after the window closed: %+v", reply)
+	}
+	if _, err := ops.OpenWindow(t.Context(), scope, worker, "w2", 60_000, member); err != nil {
+		t.Fatal(err)
+	}
+	r.done(t, lanes.ToolLaneStart, map[string]any{"work_order": "wo-window"})
+}
+
 // Rung 1: a decision on record answers it, and the core holds the answer to what the policy lets an
 // orchestrator rely on.
 func TestRungOneAnswersFromTheRecord(t *testing.T) {

@@ -46,6 +46,10 @@ type Sabotage struct {
 	SignalsAnyKey, SignalsAnyKind bool
 	// DropsPackEvent stores a pack the log never hears of.
 	DropsPackEvent bool
+	// IgnoresAutonomy grants a claim whatever a worker's level and window say.
+	IgnoresAutonomy bool
+	// DropsAutonomyEvent keeps a change of autonomy the log never hears of.
+	DropsAutonomyEvent bool
 	// RebuildsPack gives a claim that brings a lane back a new pack.
 	RebuildsPack bool
 	// KeepsParkWanted leaves what a policy asked of a lane that parked.
@@ -103,6 +107,10 @@ func signalsAnyKey() bool { return current().SignalsAnyKey }
 func signalsAnyKind() bool { return current().SignalsAnyKind }
 
 func dropsPackEvent() bool { return current().DropsPackEvent }
+
+func ignoresAutonomy() bool { return current().IgnoresAutonomy }
+
+func dropsAutonomyEvent() bool { return current().DropsAutonomyEvent }
 
 func rebuildsPack() bool { return current().RebuildsPack }
 

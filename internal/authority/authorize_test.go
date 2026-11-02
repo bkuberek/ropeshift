@@ -16,6 +16,18 @@ func TestAMemberMayDoEverything(t *testing.T) {
 	}
 }
 
+// No principal but a member keeps a person near automated use. An action added to a row of the table
+// would hand an agent the window that holds it back.
+func TestNoAgentHoldsItsOwnAutonomy(t *testing.T) {
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		for _, action := range []authority.Action{authority.ActionSetAutonomy, authority.ActionOpenWindow, authority.ActionAcknowledgeRisk} {
+			if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, action) {
+				t.Errorf("%s may %s", kind, action)
+			}
+		}
+	}
+}
+
 func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 	tests := []struct {
 		name   string

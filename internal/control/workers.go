@@ -351,6 +351,11 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 		if state.Orchestrator, err = desiredOrchestrator(tx, request.Auth.WorkerID); err != nil {
 			return err
 		}
+		facts, err := autonomyOf(tx, request.Auth.WorkerID)
+		if err != nil {
+			return err
+		}
+		state.MaxRespawnsPerDay = facts.respawns()
 		state.Woken, err = wokenFor(tx, request.Auth.WorkerID)
 		return err
 	})

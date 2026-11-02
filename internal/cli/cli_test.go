@@ -696,7 +696,10 @@ func TestLanePolicyCommands(t *testing.T) {
 	if text := s.must("policy", "list"); strings.Contains(text, "2\tmember") {
 		t.Fatalf("the decision policy lists %q", text)
 	}
-	if code, _, _ := s.run("policy", "list", "--kind", "autonomy"); code != cli.ExitUsage {
+	if text := s.must("policy", "list", "--kind", "autonomy"); !strings.Contains(text, "1\tbuilt-in\tsha256:") {
+		t.Fatalf("autonomy lists %q", text)
+	}
+	if code, _, _ := s.run("policy", "list", "--kind", "takeover"); code != cli.ExitUsage {
 		t.Fatalf("exit %d for a kind nobody named", code)
 	}
 }

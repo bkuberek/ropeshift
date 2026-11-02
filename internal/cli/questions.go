@@ -329,7 +329,7 @@ func policyLine(p authority.PolicyVersion) string {
 // policyKind reads `--kind`, which names the decision policy unless it says otherwise.
 func policyKind(kind string) (authority.PolicyKind, bool) {
 	switch authority.PolicyKind(kind) {
-	case authority.PolicyDecision, authority.PolicyLane, authority.PolicyDelegation:
+	case authority.PolicyDecision, authority.PolicyLane, authority.PolicyDelegation, authority.PolicyAutonomy:
 		return authority.PolicyKind(kind), true
 	}
 	return "", false
@@ -337,7 +337,7 @@ func policyKind(kind string) (authority.PolicyKind, bool) {
 
 func (c *invocation) policyList(args []string) int {
 	set := c.flags()
-	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, or delegation")
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, or autonomy")
 	positional, ok := parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -370,7 +370,7 @@ func (c *invocation) policyList(args []string) int {
 
 func (c *invocation) policyShow(args []string) int {
 	set := c.flags()
-	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, or delegation")
+	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, or autonomy")
 	positional, ok := parse(set, args)
 	if !ok {
 		return ExitUsage

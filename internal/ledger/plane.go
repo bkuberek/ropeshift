@@ -281,6 +281,9 @@ type DesiredState struct {
 	Woken []DesiredWoken `json:"woken,omitempty"`
 	// Orchestrator is the session this worker should run, which only a member can ask for.
 	Orchestrator *DesiredOrchestrator `json:"orchestrator,omitempty"`
+	// MaxRespawnsPerDay is what this worker's autonomy holds a lane's generations to, where zero
+	// leaves that to its profile (FR-ORCH-6).
+	MaxRespawnsPerDay int64 `json:"max_respawns_per_day,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.
