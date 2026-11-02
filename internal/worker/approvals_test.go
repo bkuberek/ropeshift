@@ -560,7 +560,8 @@ func TestARequestStandsWithTheControlPlaneAway(t *testing.T) {
 }
 
 // aDeferredTurn is a session whose gated call a hook deferred, which ends its turn with a request
-// standing for the call.
+// standing for the call. A peek has milliseconds of real time, and a hook that misses them defers
+// nothing and leaves the call to PermissionRequest, so what defers a call is a peek that landed.
 func (r *laneRig) aDeferredTurn(t *testing.T) []fake.DriverStep {
 	t.Helper()
 	peek := fake.DriverStep{Do: func(ports.SessionSpec) {
@@ -572,7 +573,12 @@ func (r *laneRig) aDeferredTurn(t *testing.T) []fake.DriverStep {
 			t.Error(err)
 			return
 		}
-		if got := r.subject.AnswerLane(t.Context(), line); !got.OK || got.Approval == nil || got.Approval.Decision != lanes.ApprovalWaiting {
+		got := r.subject.AnswerLane(t.Context(), line)
+		for deadline := time.Now().Add(20 * time.Second); got.Code == lanes.CodeUnavailable && time.Now().Before(deadline); {
+			time.Sleep(time.Millisecond)
+			got = r.subject.AnswerLane(t.Context(), line)
+		}
+		if !got.OK || got.Approval == nil || got.Approval.Decision != lanes.ApprovalWaiting {
 			t.Errorf("a peek: %+v", got)
 		}
 	}}
