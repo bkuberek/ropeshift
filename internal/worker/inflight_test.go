@@ -143,7 +143,16 @@ func TestARefusedRequestEndsItsCallAlone(t *testing.T) {
 func adoptedRead(t *testing.T, r *laneRig, g *gate) ledger.LaneView {
 	t.Helper()
 	g.release <- struct{}{}
-	r.takeOver(t, script([]fake.DriverStep{{Hold: true}}))
+	driver := r.takeOver(t, script([]fake.DriverStep{{Hold: true}}))
+	// The hooks are read before the session is adopted, and reading one counts as progress, so a clock
+	// that moved ahead of that would measure nothing.
+	deadline := time.Now().Add(20 * time.Second)
+	for len(driver.Adopted()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the session was never adopted")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	r.clock.Advance(21 * time.Minute)
 	return r.eventually("a condition", func(view ledger.LaneView) bool { return len(view.Conditions) != 0 })
 }
