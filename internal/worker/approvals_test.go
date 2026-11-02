@@ -114,6 +114,33 @@ func (r *laneRig) onlyRequest(t *testing.T) authority.Approval {
 	return rows[0]
 }
 
+// requestOf finds the one request for a call. A list sorts by the millisecond each was raised in, and
+// two raised in one come in either order, so nothing here reads a position.
+func requestOf(t *testing.T, rows []authority.Approval, digest string) authority.Approval {
+	t.Helper()
+	var found []authority.Approval
+	for _, row := range rows {
+		if row.SubjectDigest == digest {
+			found = append(found, row)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d requests for %s in %+v", len(found), digest, rows)
+	}
+	return found[0]
+}
+
+// requestsIn counts the requests that stand one way.
+func requestsIn(rows []authority.Approval, state authority.ApprovalState) int {
+	count := 0
+	for _, row := range rows {
+		if row.State == state {
+			count++
+		}
+	}
+	return count
+}
+
 func (r *laneRig) memberSays(t *testing.T, a authority.Approval, allow bool) authority.Approval {
 	t.Helper()
 	decided, err := control.NewApprovals(r.store).Decide(t.Context(), scope, authority.Decision{ID: a.ID, Digest: a.SubjectDigest, Allow: allow}, member)
@@ -274,7 +301,7 @@ func TestADecisionRunsOneCall(t *testing.T) {
 		t.Fatalf("a replay: decision %s", got)
 	}
 	rows := r.requests(t)
-	if len(rows) != 2 || rows[0].State != authority.ApprovalUsed || rows[1].State != authority.ApprovalPending {
+	if len(rows) != 2 || requestsIn(rows, authority.ApprovalUsed) != 1 || requestsIn(rows, authority.ApprovalPending) != 1 {
 		t.Errorf("requests %+v", rows)
 	}
 }
@@ -288,7 +315,7 @@ func TestAChangedCallVoidsItsApproval(t *testing.T) {
 		t.Fatalf("decision %s", got)
 	}
 	rows := r.requests(t)
-	if len(rows) != 2 || rows[0].State != authority.ApprovalVoid || rows[1].SubjectDigest != digestOf(t, changedCall) {
+	if requestOf(t, rows, digestOf(t, gatedCall)).State != authority.ApprovalVoid || requestOf(t, rows, digestOf(t, changedCall)).State != authority.ApprovalPending {
 		t.Fatalf("requests %+v", rows)
 	}
 	if got := decisionIn(t, r.look(t, gatedCall, "call-3", false)); got != lanes.ApprovalWaiting {

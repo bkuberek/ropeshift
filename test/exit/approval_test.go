@@ -54,6 +54,19 @@ func (in *install) approvals() []authority.Approval {
 	return list.Approvals
 }
 
+// approval reads one request by its ID. A list sorts by the millisecond each was raised in, and two
+// raised in one come in either order, so nothing here reads a position.
+func (in *install) approval(id string) authority.Approval {
+	in.t.Helper()
+	for _, row := range in.approvals() {
+		if row.ID == id {
+			return row
+		}
+	}
+	in.t.Fatalf("no request %s", id)
+	return authority.Approval{}
+}
+
 func (in *install) awaitRequest(state authority.ApprovalState) authority.Approval {
 	in.t.Helper()
 	var found authority.Approval
@@ -138,7 +151,7 @@ func TestExitE7NoSelfApproval(t *testing.T) {
 
 	in.must("approval", "approve", a.ID, "--digest", a.SubjectDigest)
 	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
-	decided := in.approvals()[0]
+	decided := in.approval(a.ID)
 	if decided.State != authority.ApprovalUsed || !strings.HasPrefix(decided.DecidedBy, "member:") || decided.DecidedDigest != a.SubjectDigest {
 		t.Errorf("request %+v", decided)
 	}
@@ -204,7 +217,7 @@ func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	in.must("approval", "approve", a.ID, "--digest", a.SubjectDigest)
-	in.waitFor("the decision to void", func() bool { return in.approvals()[0].State == authority.ApprovalVoid })
+	in.waitFor("the decision to void", func() bool { return in.approval(a.ID).State == authority.ApprovalVoid })
 	dir := doubles.BinDir(in.path)
 	in.waitFor("the hook's denial", func() bool {
 		_, err := os.Stat(filepath.Join(dir, "denied.log"))
@@ -239,11 +252,15 @@ func TestExitE7DigestVoid(t *testing.T) {
 	var second authority.Approval
 	in.waitFor("the changed call's request", func() bool {
 		rows := in.approvals()
-		if len(rows) != 2 || rows[0].State != authority.ApprovalVoid || rows[1].State != authority.ApprovalPending {
+		if len(rows) != 2 || in.approval(first.ID).State != authority.ApprovalVoid {
 			return false
 		}
-		second = rows[1]
-		return true
+		for _, row := range rows {
+			if row.ID != first.ID {
+				second = row
+			}
+		}
+		return second.State == authority.ApprovalPending
 	})
 	dir := doubles.BinDir(in.path)
 	if second.SubjectDigest == first.SubjectDigest || !strings.Contains(second.Summary, "second-call-ran") {

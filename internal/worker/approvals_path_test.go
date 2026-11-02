@@ -218,8 +218,8 @@ func TestAWaitingHookSeesACallMove(t *testing.T) {
 	if got := decisionIn(t, f.lookAtEdit(t, input, "call-1", true)); got != lanes.ApprovalDeny {
 		t.Fatalf("decision %s", got)
 	}
-	if rows := f.requests(t); rows[0].State != authority.ApprovalVoid {
-		t.Errorf("requests %+v", rows)
+	if row := f.onlyRequest(t); row.State != authority.ApprovalVoid {
+		t.Errorf("request %+v", row)
 	}
 }
 
