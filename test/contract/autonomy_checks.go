@@ -813,5 +813,9 @@ func checkManualKeepsToTheLadder(r *Rig) error {
 			return Violatedf("%s at manual: %v", verb, err)
 		}
 	}
+	decision := authority.WorkerDecision{Auth: a.auth, Epoch: a.epoch, Decision: authority.Decision{ID: "a-request"}}
+	if _, err := a.plane.DecideApproval(r.Ctx, decision); !errors.Is(err, workorders.ErrIneligible) {
+		return Violatedf("a request at manual: %v", err)
+	}
 	return nil
 }

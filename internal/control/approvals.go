@@ -478,6 +478,9 @@ func (w *Workers) DecideApproval(ctx context.Context, decision authority.WorkerD
 	if err != nil {
 		return authority.Approval{}, err
 	}
+	if err := w.heldToStanding(ctx, decision.Auth.WorkerID, authority.AutonomyStanding.MayWork); err != nil {
+		return authority.Approval{}, err
+	}
 	actor := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: decision.Auth.WorkerID}
 	return NewApprovals(w.store).Decide(ctx, w.scope, decision.Decision, actor)
 }
