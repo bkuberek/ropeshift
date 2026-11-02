@@ -156,10 +156,14 @@ func fetchRefs(from *ledger.DesiredResume) []string {
 
 // resumeRecord is a lane as it stands in its next generation. A native resume continues the
 // session and its running total, and a fresh start owes the document everything. The checkpoint's
-// pending instruction goes along on both paths.
+// pending instruction goes along on both paths, except to a session that deferred a call: it runs
+// that call again by itself and goes on from it, so words that repeat the work would repeat the call.
 func (r *laneRun) resumeRecord(record lanes.Record, next int64, choice lanes.ResumeChoice, session string) lanes.Record {
 	from := r.lease.Resume
 	pending := lanes.WithApprovals(from.Pending, from.Approvals)
+	if choice.Path == lanes.ResumeNative && record.Parking.Deferred() {
+		pending = ""
+	}
 	stored := lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence, Generation: next,
 		State: lanes.StateRunning, Actual: lanes.Provisioning, Worktree: record.Worktree, Branch: record.Branch,

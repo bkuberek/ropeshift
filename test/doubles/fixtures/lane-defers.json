@@ -1,5 +1,5 @@
 {
-  "source": "Documented only, on the hooks page, and RS11: a gated call a hook defers on a headless lane, and the same call again on a resume",
+  "source": "Observed on RS11, with no permission host: a gated call a hook defers ends the turn with stop_reason tool_deferred, and a native resume runs the same call by itself",
   "version": "2.1.316",
   "model": "claude-fixture-5-5",
   "turns": [

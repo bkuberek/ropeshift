@@ -60,6 +60,12 @@ type ParkProgress struct {
 // Open says a lane has parking left to finish.
 func (p *ParkProgress) Open() bool { return p != nil && !p.Begun }
 
+// Deferred says a lane parked on a call its session deferred. Its turn did not end as a turn ends:
+// a native resume runs that call again by itself, and the turn goes on from it (RS11).
+func (p *ParkProgress) Deferred() bool {
+	return p != nil && p.Trigger == ParkApproval && p.SkipNarrative
+}
+
 // WakeID names the wake of one generation. A lane parks at most once in a generation, so a
 // restart that begins parking again asks for the same wake, and the ledger stores it once.
 func WakeID(lane string, generation int64) string {

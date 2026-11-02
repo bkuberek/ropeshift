@@ -166,6 +166,13 @@ func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 	if rows := in.approvals(); len(rows) != 1 || rows[0].State != authority.ApprovalUsed {
 		t.Errorf("requests %+v", rows)
 	}
+	// RS11 saw this on a real session: a native resume runs the deferred call by itself, so a prompt
+	// that says to make it again runs it twice, or raises a request for a call already made.
+	for _, prompt := range logged(t, dir, "prompts") {
+		if strings.Contains(prompt, "make it again") || strings.Contains(prompt, "did not finish") {
+			t.Errorf("a resume told the session to repeat a call that comes back by itself: %s", prompt)
+		}
+	}
 }
 
 // TestExitE7DigestVoid holds a decision to what its reviewer saw, across a park and a resume: a lane
