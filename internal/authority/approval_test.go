@@ -359,6 +359,32 @@ func TestADeniedOrOpenRequestRunsNothing(t *testing.T) {
 	}
 }
 
+// Only a decision nobody has spent names a call to make, and a call too long to state says so by its
+// summary, so a session that cannot repeat it asks again.
+func TestOnlyAnApprovedRequestNamesACallToMake(t *testing.T) {
+	a := request(t, theLane)
+	for _, state := range []authority.ApprovalState{
+		authority.ApprovalPending, authority.ApprovalDenied, authority.ApprovalUsed, authority.ApprovalVoid,
+		authority.ApprovalExpired, authority.ApprovalAnswered,
+	} {
+		a.State = state
+		if got := a.Repeat(); got != "" {
+			t.Errorf("%s names %q", state, got)
+		}
+	}
+	a.State = authority.ApprovalApproved
+	if got := a.Repeat(); got != "Tool: Bash\nInput: "+a.Input {
+		t.Errorf("approved names %q", got)
+	}
+	if got := a.Outcome(); got != "" {
+		t.Errorf("an approved request also says %q", got)
+	}
+	a.Input = strings.Repeat("x", 1<<16+1)
+	if got := a.Repeat(); got != a.Summary {
+		t.Errorf("a long call names %d bytes", len(got))
+	}
+}
+
 func TestARequestBindsToWhatItNames(t *testing.T) {
 	good := request(t, theLane)
 	if err := good.Validate(); err != nil {

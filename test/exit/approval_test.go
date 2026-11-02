@@ -173,7 +173,7 @@ func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 	// RS11 saw this on a real session: a native resume runs the deferred call by itself, so a prompt
 	// that says to make it again runs it twice, or raises a request for a call already made.
 	for _, prompt := range logged(t, dir, "prompts") {
-		if strings.Contains(prompt, "make it again") || strings.Contains(prompt, "did not finish") {
+		if strings.Contains(prompt, "make the call below") || strings.Contains(prompt, "did not finish") {
 			t.Errorf("a resume told the session to repeat a call that comes back by itself: %s", prompt)
 		}
 	}

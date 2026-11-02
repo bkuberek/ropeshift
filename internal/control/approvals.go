@@ -224,20 +224,22 @@ func useApproval(tx ports.WriteTx, use authority.ApprovalUse) (authority.Approva
 }
 
 // approvalOutcomes reads how the requests of a generation that parked came out, for its next
-// generation's first prompt. It reads every request of the lane, because each one decides what a
-// session is told.
-func approvalOutcomes(reader ports.ApprovalReader, lane string, generation int64) ([]string, error) {
+// generation's first prompt, and the calls a decision still covers. A decision nobody has spent is
+// owed whichever generation asked, because it covers the call until one is made.
+func approvalOutcomes(reader ports.ApprovalReader, lane string, generation int64) (outcomes, calls []string, err error) {
 	rows, err := reader.OfLane(lane)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var out []string
 	for _, row := range rows {
+		if call := row.Repeat(); call != "" {
+			calls = append(calls, call)
+		}
 		if outcome := row.Outcome(); outcome != "" && row.Generation == generation {
-			out = append(out, outcome)
+			outcomes = append(outcomes, outcome)
 		}
 	}
-	return out, nil
+	return outcomes, calls, nil
 }
 
 // answeredAtTerminal records what a session's own hooks showed: a person answered at the terminal.

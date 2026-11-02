@@ -421,7 +421,7 @@ func desiredResume(tx ports.ReadTx, lane string) (*ledger.DesiredResume, error) 
 			resume.Responded, resume.SinceResponseMs = true, now-generation.LastResponseAt
 		}
 	}
-	if resume.Approvals, err = approvalOutcomes(tx.Approvals(), lane, row.Generation); err != nil {
+	if resume.Approvals, resume.Calls, err = approvalOutcomes(tx.Approvals(), lane, row.Generation); err != nil {
 		return nil, err
 	}
 	resume.Facts, err = messageFacts(tx.Messages(), lane, row.Generation)

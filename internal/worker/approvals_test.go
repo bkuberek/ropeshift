@@ -422,6 +422,84 @@ func TestAWaitPastItsBoundParksUntilADecision(t *testing.T) {
 	}
 }
 
+// wholeCall is a call as a session makes one, with fields a person never reads. The digest covers
+// each of them, so a session told only the command would write a description of its own.
+const wholeCall = `{"command":"git tag v1","description":"Tag the release","timeout":5000}`
+
+// parkedOnACall leaves a lane parked on a call that outlasted its wait, in a turn a hook's denial
+// ended, and a member's decision on it, which wakes the lane.
+func parkedOnACall(t *testing.T, input string, before func(*handoffRig)) (*handoffRig, authority.Approval) {
+	t.Helper()
+	r := &handoffRig{laneRig: laneRigWith(t, approvalProfile), release: make(chan struct{}), reached: make(chan struct{})}
+	t.Cleanup(func() {
+		r.driver.StopEverySession()
+		r.subject.Wait()
+	})
+	if before != nil {
+		before(r)
+	}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Do: func(ports.SessionSpec) { close(r.reached) }}, {Hold: true}}))
+	r.driver.PlayAfter(r.toldToGoOn())
+	r.start()
+	<-r.reached
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	r.look(t, input, "call-1", false)
+	r.clock.Advance(6 * time.Minute)
+	if got := decisionIn(t, r.look(t, input, "call-1", true)); got != lanes.ApprovalDeny {
+		t.Fatalf("decision %s", got)
+	}
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	a := r.onlyRequest(t)
+	r.memberSays(t, a, true)
+	return r, a
+}
+
+// A session that comes back has to make its call again to the byte, or a decision about it is void.
+// A session that starts fresh remembers nothing of it, so it hears the whole input, ahead of the work
+// order it would otherwise start from the top.
+func TestASessionThatComesBackHearsTheExactCallFirst(t *testing.T) {
+	tests := []struct {
+		name   string
+		before func(*handoffRig)
+		native bool
+		start  string
+	}{
+		{name: "a fresh session", before: func(r *handoffRig) { r.driver.SetNativeResume(false) }, start: "You are working in a ropeshift lane"},
+		{name: "a session that goes on", native: true, start: "This lane parked"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, _ := parkedOnACall(t, wholeCall, tt.before)
+			r.resumed(t)
+			if got := len(r.driver.Resumed()) == 1; got != tt.native {
+				t.Fatalf("native %v, want %v", got, tt.native)
+			}
+			brief := r.driver.Specs()[1].Brief
+			at := strings.Index(brief, wholeCall)
+			if at < 0 || !strings.Contains(brief, "Bash") {
+				t.Fatalf("the prompt does not hold the call: %q", brief)
+			}
+			if start := strings.Index(brief, tt.start); start < at {
+				t.Errorf("the prompt reaches the work before the call: %q", brief)
+			}
+		})
+	}
+}
+
+// A kill after a resume began finds what it owes in the journal, because no ledger read comes again.
+func TestAResumeKeepsTheCallItOwes(t *testing.T) {
+	r, _ := parkedOnACall(t, wholeCall, func(r *handoffRig) { r.driver.SetNativeResume(false) })
+	r.resumed(t)
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Parking == nil || !strings.Contains(record.Parking.Repeat, wholeCall) {
+		t.Errorf("parking %+v", record.Parking)
+	}
+}
+
 // A worker that returns goes on from what its journal holds: the lane still waits, on the deadline
 // the last worker set.
 func TestARestartKeepsARequestAndItsBound(t *testing.T) {
@@ -454,10 +532,10 @@ func TestARequestStandsWithTheControlPlaneAway(t *testing.T) {
 	}
 }
 
-// A turn that ended on a deferred call parks at once, with nothing to ask the session, and its wake
-// is the request.
-func TestADeferredTurnParksOnItsRequest(t *testing.T) {
-	var r *laneRig
+// aDeferredTurn is a session whose gated call a hook deferred, which ends its turn with a request
+// standing for the call.
+func (r *laneRig) aDeferredTurn(t *testing.T) []fake.DriverStep {
+	t.Helper()
 	peek := fake.DriverStep{Do: func(ports.SessionSpec) {
 		line, err := json.Marshal(lanes.Request{
 			Version: lanes.SocketProtocol, Token: r.token(t),
@@ -471,8 +549,31 @@ func TestADeferredTurnParksOnItsRequest(t *testing.T) {
 			t.Errorf("a peek: %+v", got)
 		}
 	}}
-	r = laneRigWith(t, approvalProfile)
-	r.driver.Play(script([]fake.DriverStep{{Bound: true}, peek, {Turn: &fake.DriverTurn{Status: ports.TurnCompleted, Deferred: true, TotalUSD: 0.01}}}))
+	return []fake.DriverStep{{Bound: true}, peek, {Turn: &fake.DriverTurn{Status: ports.TurnCompleted, Deferred: true, TotalUSD: 0.01}}}
+}
+
+// A native resume runs a deferred call by itself, so it hears nothing of it. A resume that fails
+// starts a session that never saw the call, and that one has to hear it.
+func TestAResumeThatStallsStatesADeferredCall(t *testing.T) {
+	r := laneRigWith(t, approvalProfile)
+	r.driver.Play(script(r.aDeferredTurn(t)))
+	r.driver.PlayAfter(r.toldToGoOn())
+	r.start()
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	r.config.Driver = stalledResume{AgentDriver: r.driver}
+	r.memberSays(t, r.onlyRequest(t), true)
+	r.resumed(t)
+	if brief := r.driver.Specs()[1].Brief; !strings.Contains(brief, gatedCall) {
+		t.Errorf("a fresh session never heard its call: %q", brief)
+	}
+}
+
+// A turn that ended on a deferred call parks at once, with nothing to ask the session, and its wake
+// is the request.
+func TestADeferredTurnParksOnItsRequest(t *testing.T) {
+	r := laneRigWith(t, approvalProfile)
+	r.driver.Play(script(r.aDeferredTurn(t)))
 	r.start()
 	r.awaitOrder(t, workorders.Parked)
 	r.subject.Wait()

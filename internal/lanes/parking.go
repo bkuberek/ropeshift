@@ -51,6 +51,10 @@ type ParkProgress struct {
 	Seq int64 `json:"seq,omitempty"`
 	// Pending is what that generation was doing when it stopped.
 	Pending string `json:"pending,omitempty"`
+	// Repeat states the calls a decision covers, which the next session makes first. RunsItself says
+	// that session is one a resume runs them in by itself, and nothing should tell it to.
+	Repeat     string `json:"repeat,omitempty"`
+	RunsItself bool   `json:"runs_itself,omitempty"`
 	// Begun says the next generation exists, so nothing is left to finish.
 	Begun bool `json:"begun,omitempty"`
 	// Fetch names what a worker that never ran this lane must bring from a remote.

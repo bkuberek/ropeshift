@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/crashpoint"
@@ -158,17 +159,22 @@ func fetchRefs(from *ledger.DesiredResume) []string {
 // session and its running total, and a fresh start owes the document everything. The checkpoint's
 // pending instruction goes along on both paths, except to a session that deferred a call: it runs
 // that call again by itself and goes on from it, so words that repeat the work would repeat the call.
+// What a decision covers is kept all the same, because a resume that fails starts a fresh session,
+// and that one has to hear it.
 func (r *laneRun) resumeRecord(record lanes.Record, next int64, choice lanes.ResumeChoice, session string) lanes.Record {
 	from := r.lease.Resume
 	pending := lanes.WithApprovals(from.Pending, from.Approvals)
-	if choice.Path == lanes.ResumeNative && record.Parking.Deferred() {
+	runsItself := choice.Path == lanes.ResumeNative && record.Parking.Deferred()
+	if runsItself {
 		pending = ""
 	}
 	stored := lanes.Record{
 		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence, Generation: next,
 		State: lanes.StateRunning, Actual: lanes.Provisioning, Worktree: record.Worktree, Branch: record.Branch,
 		Handoff: &lanes.HandoffProgress{Reason: string(choice.Rule), Document: from.Handoff, Begun: true},
-		Parking: &lanes.ParkProgress{Generation: from.Generation, Pending: pending, Begun: true},
+		Parking: &lanes.ParkProgress{
+			Generation: from.Generation, Pending: pending, Repeat: strings.Join(from.Calls, "\n\n"), RunsItself: runsItself, Begun: true,
+		},
 	}
 	if leavesParked() {
 		stored.Actual = lanes.Parked
@@ -219,10 +225,23 @@ func (r *laneRun) pendingInstruction() string {
 // resumePrompt is what a session is told on the native path, because a resume alone starts no
 // turn.
 func (r *laneRun) resumePrompt() string {
-	if parking := r.woken(); parking != nil {
-		return lanes.ResumePrompt(parking.Pending, r.factsOwed()...)
+	parking := r.woken()
+	if parking == nil {
+		return lanes.RestartPrompt(r.factsOwed()...)
 	}
-	return lanes.RestartPrompt(r.factsOwed()...)
+	prompt := lanes.ResumePrompt(parking.Pending, r.factsOwed()...)
+	if parking.RunsItself {
+		return prompt
+	}
+	return lanes.FirstCall(parking.Repeat, prompt)
+}
+
+// callsOwed is what a generation's first prompt must put ahead of everything else.
+func (r *laneRun) callsOwed() string {
+	if parking := r.woken(); parking != nil {
+		return parking.Repeat
+	}
+	return ""
 }
 
 // fetchNames is what this generation must bring from a remote before its worktree exists.

@@ -154,5 +154,21 @@ func WithApprovals(pending string, outcomes []string) string {
 	return pending + "\n\n" + strings.Join(outcomes, "\n")
 }
 
+// FirstCall puts a call a decision covers ahead of everything else a session is told. A session with
+// no memory of the call would otherwise start its work order from the top, and the first other call
+// that asks for permission voids the decision.
+func FirstCall(calls, prompt string) string {
+	if calls == "" {
+		return prompt
+	}
+	return firstCallNotice + "\n\n" + calls + "\n\n" + prompt
+}
+
+// firstCallNotice says what a decision covers, and what ends it.
+const firstCallNotice = "Before anything else in this prompt, and before any other tool call, make the call below. A decision came back " +
+	"on a call this lane made, and it covers that exact call and no other. Use this tool with this input, copying every field as " +
+	"written, adding none, and leaving none out. Any other call that asks for permission voids the decision. What came before this " +
+	"call is already done, so do not repeat it. Once this call has run, go on from there."
+
 // pendingNotice introduces what a stopped generation was doing.
 const pendingNotice = "The turn in progress when it stopped did not finish, and it will not continue by itself. This instruction is still open:"

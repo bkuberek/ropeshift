@@ -204,12 +204,28 @@ func (a Approval) Replaced(generation int64) bool {
 	return a.State == ApprovalApproved || (a.State == ApprovalPending && a.Generation < generation)
 }
 
+// maxRepeated bounds the input a prompt states whole. Past it a session hears the summary, and a call
+// it cannot make again exactly asks again.
+const maxRepeated = 1 << 16
+
+// Repeat names the one call a decision covers, to a session that has to make it again. It states the
+// whole input and not the summary, because the digest covers every field, and a session that
+// remembers nothing of the call would write its own description.
+func (a Approval) Repeat() string {
+	if a.State != ApprovalApproved {
+		return ""
+	}
+	if a.Input == "" || len(a.Input) > maxRepeated {
+		return a.Summary
+	}
+	return "Tool: " + a.Subject + "\nInput: " + a.Input
+}
+
 // Outcome says how a request came out, in words the session that made it reads when it comes back.
-// A request that is still open or that ran says nothing.
+// A request that is still open or that ran says nothing, and one that was approved is a call to
+// make, which Repeat states.
 func (a Approval) Outcome() string {
 	switch a.State {
-	case ApprovalApproved:
-		return "A request this lane made was approved, for this call exactly as it was made, so make it again unchanged: " + a.Summary
 	case ApprovalDenied:
 		outcome := "A request this lane made was denied, so do not make this call again: " + a.Summary
 		if a.Reason != "" {

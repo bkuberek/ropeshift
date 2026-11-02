@@ -244,6 +244,8 @@ type DesiredResume struct {
 	SinceResponseMs int64 `json:"since_response_ms,omitempty"`
 	// Approvals says how each request of the generation that parked came out.
 	Approvals []string `json:"approvals,omitempty"`
+	// Calls states each call a decision covers and no session has made yet.
+	Calls []string `json:"calls,omitempty"`
 	// Facts are what the next generation's first prompt owes, as they stood at this read.
 	Facts []MessageFact `json:"facts,omitempty"`
 }

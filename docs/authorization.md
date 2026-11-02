@@ -27,6 +27,8 @@ A path is a fact about the disk, so one input can land somewhere else later. The
 
 The last look is the one that answers the hook, and no hook runs between that answer and the tool opening the file. A process the lane left running can swap a link in that window, which is one more case of the limit below.
 
+A session that comes back to an approved call hears that exact call first, with its whole input, because the digest covers every field and a fresh session remembers none of them. A session that makes any other call that asks for permission still voids the approval.
+
 ## Where each rule lives
 
 | Rule | Enforced by |

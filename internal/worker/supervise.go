@@ -333,10 +333,10 @@ func (r *laneRun) retryBrief(ctx context.Context) {
 }
 
 func (r *laneRun) briefText() string {
-	return lanes.Brief(lanes.BriefSpec{
+	return lanes.FirstCall(r.callsOwed(), lanes.Brief(lanes.BriefSpec{
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
 		Pack: r.readPack() != nil, Handoff: r.inherited, Pending: r.pendingInstruction(), Facts: r.factsOwed(),
-	})
+	}))
 }
 
 // declareWait keeps a lane's own word that it waits on something outside, for a time it
