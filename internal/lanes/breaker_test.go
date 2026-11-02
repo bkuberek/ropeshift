@@ -95,6 +95,32 @@ func TestAPlannedGenerationCountsTowardTheDayOnly(t *testing.T) {
 	}
 }
 
+// A generation nothing crashed to cause ignores the crash window, and the day still limits it.
+func TestAPlannedGenerationAsksOnlyTheDay(t *testing.T) {
+	now := time.UnixMilli(1_800_000_000_000)
+	tests := []struct {
+		name string
+		day  int64
+		ages []time.Duration
+		over bool
+	}{
+		{name: "no cap", day: 0, ages: []time.Duration{time.Minute, time.Minute, time.Minute}},
+		{name: "room left", day: 3, ages: []time.Duration{time.Hour}},
+		{name: "the last room goes", day: 3, ages: []time.Duration{time.Hour, 2 * time.Hour}, over: true},
+		{name: "a first generation uses a cap of one", day: 1, over: true},
+		{name: "a charge a day old has left it", day: 3, ages: []time.Duration{time.Hour, 24 * time.Hour}},
+		{name: "a crash loop in the window is not the day's", day: 8, ages: []time.Duration{time.Second, time.Second, time.Second}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			breaker := Breaker{MaxRestarts: 2, Window: 10 * time.Minute, MaxPerDay: tt.day, Backoff: time.Second}
+			if got := breaker.OverDay(chargesAt(now, tt.ages...), now); got != tt.over {
+				t.Errorf("OverDay = %v, want %v", got, tt.over)
+			}
+		})
+	}
+}
+
 func TestBreakerDelayStopsAtTheWindow(t *testing.T) {
 	now := time.UnixMilli(1_800_000_000_000)
 	breaker := Breaker{MaxRestarts: 100, Window: time.Minute, Backoff: 30 * time.Second}

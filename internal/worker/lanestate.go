@@ -500,6 +500,15 @@ func (w *Worker) Publish(ctx context.Context) error {
 		return err
 	}
 	for _, record := range records {
+		w.mu.Lock()
+		run, held := w.running[record.ID]
+		w.mu.Unlock()
+		// A woken lane the day stopped stands parked in the journal, under the claim that parked it,
+		// until a person lets it go on, and that person needs to read why.
+		stopped := held && record.State == lanes.StateParked && run.state.current() == lanes.Tripped
+		if stopped {
+			record = run.record()
+		}
 		if record.State != lanes.StateRunning {
 			continue
 		}
@@ -507,9 +516,6 @@ func (w *Worker) Publish(ctx context.Context) error {
 			ActualState: string(record.Actual), Liveness: string(lanes.LivenessUnknown),
 			ModelReach: string(lanes.ReachUnknown), LedgerReach: string(lanes.ReachUnknown),
 		}
-		w.mu.Lock()
-		run, held := w.running[record.ID]
-		w.mu.Unlock()
 		if held {
 			status = run.status(ctx)
 			// The stamp is read after the status, and the record above may be older than

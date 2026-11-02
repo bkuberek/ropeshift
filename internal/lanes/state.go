@@ -127,6 +127,8 @@ var transitions = map[edge]ActualState{
 	{Compacting, OnSessionGone}:         Backoff,
 	{Backoff, OnDelayElapsed}:           Starting,
 	{Backoff, OnRestartLimit}:           Tripped,
+	{Retiring, OnRestartLimit}:          Tripped,
+	{Parked, OnRestartLimit}:            Tripped,
 	{Tripped, OnHumanReset}:             Starting,
 	{Idle, OnOutcomeReported}:           Retiring,
 	{Working, OnStopRequested}:          Retiring,

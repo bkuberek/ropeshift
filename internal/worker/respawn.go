@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
@@ -58,10 +57,7 @@ func (r *laneRun) respawning(ctx context.Context) bool {
 // a reset does not, and it counts toward the day and not toward the breaker, because nothing crashed.
 func (r *laneRun) respawnGeneration(ctx context.Context) bool {
 	next := r.currentGeneration() + 1
-	now := r.w.clock.Now().UnixMilli()
-	charge := lanes.Restart{Key: "g" + strconv.FormatInt(next, 10), AtMs: now, NotBeforeMs: now, Planned: true}
-	if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
-		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	if !r.chargePlanned(ctx, next) {
 		return false
 	}
 	r.signal(ctx, lanes.OnNextGeneration)

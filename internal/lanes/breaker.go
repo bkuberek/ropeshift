@@ -39,26 +39,40 @@ func (b Breaker) Bounded(perDay int64) Breaker {
 	return b
 }
 
+// OverDay says the day has no room for one more generation. A generation nothing crashed to cause
+// asks only this: it is no crash loop, so the window has no word on it, and it is a generation, so the
+// day does. The first generation of a lane is on no charge, which the count makes room for.
+func (b Breaker) OverDay(charges []Restart, now time.Time) bool {
+	if b.MaxPerDay <= 0 {
+		return false
+	}
+	var inDay int64
+	for _, charge := range charges {
+		if now.Sub(time.UnixMilli(charge.AtMs)) < oneDay {
+			inDay++
+		}
+	}
+	return inDay+1 >= b.MaxPerDay
+}
+
 // BreakerVerdict says whether one more restart may run, and after how long.
 type BreakerVerdict struct {
 	Tripped bool
 	Delay   time.Duration
+	// Planned says the charge that follows pays for a generation nothing crashed to cause.
+	Planned bool
 }
 
 // Judge reads what is on record. Time is the only thing that clears a charge short of a
 // human reset, so a crash loop trips however many workers it outlives.
 func (b Breaker) Judge(charges []Restart, now time.Time) BreakerVerdict {
-	var inWindow, inDay int64
+	var inWindow int64
 	for _, charge := range charges {
-		age := now.Sub(time.UnixMilli(charge.AtMs))
-		if age < b.Window && !charge.Planned {
+		if now.Sub(time.UnixMilli(charge.AtMs)) < b.Window && !charge.Planned {
 			inWindow++
 		}
-		if age < oneDay {
-			inDay++
-		}
 	}
-	if inWindow >= b.MaxRestarts || (b.MaxPerDay > 0 && inDay+1 >= b.MaxPerDay) {
+	if inWindow >= b.MaxRestarts || b.OverDay(charges, now) {
 		return BreakerVerdict{Tripped: true}
 	}
 	delay := b.Backoff

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -98,10 +97,9 @@ func (r *laneRun) resume(ctx context.Context) error {
 	local := from.Worker == r.w.Auth().WorkerID && session != ""
 	choice := lanes.ChooseResume(r.resumeFacts(ctx, record, local))
 	next := from.Generation + 1
-	now := r.w.clock.Now().UnixMilli()
-	charge := lanes.Restart{Key: "g" + strconv.FormatInt(next, 10), AtMs: now, NotBeforeMs: now, Planned: true}
-	if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
-		return err
+	r.loadProfile(ctx)
+	if !r.chargePlanned(ctx, next) {
+		return nil
 	}
 	crashpoint.Hit("worker.resume", "charged")
 	stored := r.resumeRecord(record, next, choice, session)

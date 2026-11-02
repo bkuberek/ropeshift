@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -302,15 +301,13 @@ func (r *laneRun) handedOff(ctx context.Context) bool {
 	return !r.abandons(ctx) && len(flight.read().Document) != 0
 }
 
-// handoffGeneration begins what a handoff leads to. It counts toward the day's cap on
-// generations and asks nothing of the breaker, because a handoff cannot block. A drain lets a
-// lane end by doing its work, and this is that work going on.
+// handoffGeneration begins what a handoff leads to. It asks nothing of the breaker's window, and a
+// drain lets a lane end by doing its work, and this is that work going on. The day's cap on
+// generations still holds it: a lane that keeps filling its context stops there with its handoff
+// kept, and a person's reset goes on from that handoff.
 func (r *laneRun) handoffGeneration(ctx context.Context) bool {
 	next := r.currentGeneration() + 1
-	now := r.w.clock.Now().UnixMilli()
-	charge := lanes.Restart{Key: "g" + strconv.FormatInt(next, 10), AtMs: now, NotBeforeMs: now, Planned: true}
-	if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
-		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+	if !r.chargePlanned(ctx, next) {
 		return false
 	}
 	r.signal(ctx, lanes.OnNextGeneration)

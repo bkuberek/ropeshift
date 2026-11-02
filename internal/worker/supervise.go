@@ -132,7 +132,28 @@ func (r *laneRun) backOff(ctx context.Context) bool {
 // clears what the breaker counted and starts the lane at once, because a person is waiting
 // to see it run.
 func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, bool) {
-	from, reset := r.crashedAt, false
+	return r.charged(ctx, key, r.crashedAt, func(breaker lanes.Breaker, charges []lanes.Restart, from time.Time) lanes.BreakerVerdict {
+		return breaker.Judge(charges, from)
+	})
+}
+
+// chargePlanned pays for a generation nothing crashed to cause: a handoff, a resume, or a respawn.
+// The window has no word on one, and the day limits it as it limits any generation (architecture,
+// "Per-lane resources and admission"), so a lane past its day waits for a person with what it needs
+// to go on kept. It reports false when the lane has no next generation.
+func (r *laneRun) chargePlanned(ctx context.Context, next int64) bool {
+	key := "g" + strconv.FormatInt(next, 10)
+	_, ok := r.charged(ctx, key, r.w.clock.Now(), func(breaker lanes.Breaker, charges []lanes.Restart, from time.Time) lanes.BreakerVerdict {
+		return lanes.BreakerVerdict{Tripped: breaker.OverDay(charges, from), Planned: true}
+	})
+	return ok
+}
+
+// judging reads what is on record for one generation.
+type judging func(breaker lanes.Breaker, charges []lanes.Restart, from time.Time) lanes.BreakerVerdict
+
+func (r *laneRun) charged(ctx context.Context, key string, from time.Time, judge judging) (lanes.Restart, bool) {
+	reset := false
 	for {
 		charges, err := r.w.journal.Restarts(ctx, r.lease.Lane)
 		if err != nil {
@@ -144,12 +165,15 @@ func (r *laneRun) chargeFor(ctx context.Context, key string) (lanes.Restart, boo
 				return charge, true
 			}
 		}
-		verdict := r.state.breaker().Bounded(r.w.respawnBound(ctx)).Judge(charges, from)
+		verdict := judge(r.state.breaker().Bounded(r.w.respawnBound(ctx)), charges, from)
 		if reset {
-			verdict.Delay = 0
+			verdict.Delay, verdict.Tripped = 0, false
 		}
 		if !verdict.Tripped {
-			charge := lanes.Restart{Key: chargeKey(key), AtMs: from.UnixMilli(), NotBeforeMs: from.Add(verdict.Delay).UnixMilli(), Reset: reset}
+			charge := lanes.Restart{
+				Key: chargeKey(key), AtMs: from.UnixMilli(), NotBeforeMs: from.Add(verdict.Delay).UnixMilli(),
+				Planned: verdict.Planned, Reset: reset && !verdict.Planned,
+			}
 			if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 				return lanes.Restart{}, false
