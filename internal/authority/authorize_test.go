@@ -20,7 +20,7 @@ func TestAMemberMayDoEverything(t *testing.T) {
 // would hand an agent the window that holds it back.
 func TestNoAgentHoldsItsOwnAutonomy(t *testing.T) {
 	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
-		for _, action := range []authority.Action{authority.ActionSetAutonomy, authority.ActionOpenWindow, authority.ActionAcknowledgeRisk} {
+		for _, action := range []authority.Action{authority.ActionSetAutonomy, authority.ActionOpenWindow, authority.ActionAcknowledgeRisk, authority.ActionPassAutonomy} {
 			if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, action) {
 				t.Errorf("%s may %s", kind, action)
 			}

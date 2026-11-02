@@ -46,6 +46,9 @@ const (
 	ActionTakeQuestion  Action = "question.take"
 	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
 	ActionDecideApproval Action = "approval.decide"
+	// ActionPassAutonomy claims or respawns whatever a worker's level says: a person being there is
+	// what a level stands in for, so a member needs no window and no agent has this.
+	ActionPassAutonomy Action = "autonomy.pass"
 	// ActionSetAutonomy chooses a worker's level, ActionOpenWindow opens or closes a run window, and
 	// ActionAcknowledgeRisk stands behind the stated risk. These are what keep a person near automated
 	// use, so no agent has them, and no row below may ever grant one.
@@ -65,7 +68,7 @@ func Actions() []Action {
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
-		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk,
+		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy,
 	}
 }
 

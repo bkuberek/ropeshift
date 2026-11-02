@@ -107,7 +107,7 @@ func (r *LinkRig) register(t *testing.T, ctx context.Context, id string) ledger.
 
 func (r *LinkRig) session(t *testing.T, ctx context.Context, auth ledger.WorkerAuth) ledger.Session {
 	t.Helper()
-	session, err := r.Link.OpenSession(ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion})
+	session, err := r.Link.OpenSession(ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest})
 	if err != nil {
 		t.Fatal(err)
 	}

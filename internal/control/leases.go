@@ -202,7 +202,7 @@ func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest, actor ledg
 			return fmt.Errorf("%w: worker %s has %s", workorders.ErrIneligible, request.Worker, why)
 		}
 		limit = tighter(limit, record.Manifest.Capacity.MaxLanes)
-		if actor.Kind != ledger.ActorMember {
+		if !authority.Allowed(actor, authority.ActionPassAutonomy) {
 			bound, err := holdToAutonomy(tx, record, order)
 			if err != nil {
 				return err
@@ -903,7 +903,7 @@ func (l *Leases) RespawnLane(ctx context.Context, scope ledger.WorkspaceID, work
 		if err != nil {
 			return err
 		}
-		if actor.Kind != ledger.ActorMember {
+		if !authority.Allowed(actor, authority.ActionPassAutonomy) {
 			record, err := tx.Workers().Find(claim.Worker)
 			if err != nil {
 				return err
