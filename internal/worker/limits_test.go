@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -469,6 +470,44 @@ func TestAProbeThatGetsThroughWakesTheOthers(t *testing.T) {
 				t.Errorf("the probe reads %s", got)
 			}
 		})
+	}
+}
+
+// refusedSignal is a journal that cannot take the first word on a sign-in's end.
+type refusedSignal struct {
+	ports.Journal
+	refused atomic.Bool
+}
+
+func (j *refusedSignal) SaveSignIn(ctx context.Context, state lanes.SignInState, events ...ledger.UploadEvent) error {
+	if len(events) != 0 && j.refused.CompareAndSwap(false, true) {
+		return errors.New("the disk is full")
+	}
+	return j.Journal.SaveSignIn(ctx, state, events...)
+}
+
+// TestAWriteThatFailedEndsNoLimit keeps memory behind the journal: a worker that thought a limit was
+// over, with no word of that written, would leave every other lane waiting for good.
+func TestAWriteThatFailedEndsNoLimit(t *testing.T) {
+	base := newRig(t)
+	journal := &refusedSignal{Journal: base.journal}
+	base.workerJournal = journal
+	var r *limitRig
+	r = fleetOn(t, base, 2, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
+		switch {
+		case spec.Generation == 1 && spec.Lane == "lane-1":
+			return script([]fake.DriverStep{{Bound: true}, *rejected(0), {Hold: true}})
+		case spec.Generation == 1:
+			return atRest()
+		}
+		return finishes(r.laneRig)
+	})
+	r.start()
+	r.awaitOrders(t, workorders.Parked)
+	r.passTime(t, lanes.DefaultUsageBackoff+time.Second)
+	r.awaitOrders(t, workorders.Acceptance)
+	if !journal.refused.Load() {
+		t.Error("the journal was never asked")
 	}
 }
 

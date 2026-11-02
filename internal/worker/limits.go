@@ -57,19 +57,27 @@ func (w *Worker) moveSignIn(ctx context.Context, change func(*lanes.SignInState)
 	if !changed {
 		return nil
 	}
+	if err := w.keepSignIn(context.WithoutCancel(ctx), next, events); err != nil {
+		return err
+	}
 	w.sign = next
+	return nil
+}
+
+// keepSignIn is one journal write, because a state that moved with no word of it on its way would
+// leave a kill with every lane waiting on a signal no worker will send.
+func (w *Worker) keepSignIn(ctx context.Context, state lanes.SignInState, events []ledger.UploadEvent) error {
 	if forgetsLimit() {
 		return nil
 	}
-	ctx = context.WithoutCancel(ctx)
 	if !splitsSignal() || len(events) == 0 {
-		return w.journal.SaveSignIn(ctx, next, events...)
+		return w.journal.SaveSignIn(ctx, state, events...)
 	}
-	if err := w.journal.SaveSignIn(ctx, next); err != nil {
+	if err := w.journal.SaveSignIn(ctx, state); err != nil {
 		return err
 	}
 	crashpoint.Hit("worker.limit", "split")
-	return w.journal.SaveSignIn(ctx, next, events...)
+	return w.journal.SaveSignIn(ctx, state, events...)
 }
 
 // readingOf merges what a session said into what was known. A reading can leave anything out, and
