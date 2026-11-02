@@ -169,6 +169,11 @@ func TestAMeasuredBaselineCanReadOversized(t *testing.T) {
 			r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Context: &lanes.Usage{InputTokens: tt.first}}, {Context: &lanes.Usage{InputTokens: 90}}, g.step()}))
 			r.atGate(g)
 			r.eventually("a status", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+			// The gate opens on the session's side, so a status can come before the worker read the call.
+			r.eventually("the first call", func(ledger.LaneView) bool {
+				record, err := r.journal.Lane(t.Context(), "lane-1")
+				return err == nil && record.Progress.BaselineTokens == tt.first
+			})
 			if err := r.subject.Publish(t.Context()); err != nil {
 				t.Fatal(err)
 			}
