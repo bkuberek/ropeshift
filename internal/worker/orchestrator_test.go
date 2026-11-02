@@ -305,6 +305,29 @@ func TestAnOrchestratorsTokenReachesOnlyItsOwnTools(t *testing.T) {
 	}
 }
 
+// An orchestrator judges through its own tools. It has no repository to read, a call that prompts has
+// nobody to answer it, and every vendor tool would sit in each generation's baseline.
+func TestAnOrchestratorHoldsNothingButItsTools(t *testing.T) {
+	o := newOrchestratorRig(t, aSession())
+	o.wokenOnce(t)
+	if !o.specs()[0].OnlyTools {
+		t.Error("an orchestrator holds more than its tools")
+	}
+	lanesSeen := 0
+	for _, spec := range o.driver.Specs() {
+		if spec.WorkOrder == "" {
+			continue
+		}
+		lanesSeen++
+		if spec.OnlyTools {
+			t.Errorf("lane %s lost its tools", spec.Lane)
+		}
+	}
+	if lanesSeen == 0 {
+		t.Fatal("no lane ran here")
+	}
+}
+
 // A failed orchestrator stops nothing that is running (FR-ORCH-4), and it comes back under the
 // breaker. The wake it died in told nobody, so the next generation starts on that.
 func TestACrashedOrchestratorStopsNoLane(t *testing.T) {

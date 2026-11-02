@@ -117,6 +117,9 @@ type SessionSpec struct {
 	Binary string
 	// Tools are this caller's ropeshift MCP tools, which the settings allow.
 	Tools []string
+	// OnlyTools has a session hold nothing but Tools. A vendor's own tools would not be a caller's
+	// to use, and each adds to what every prompt costs.
+	OnlyTools bool
 	// Repository is the checkout the worktree came from, whose local settings a worktree
 	// session shares.
 	Repository string

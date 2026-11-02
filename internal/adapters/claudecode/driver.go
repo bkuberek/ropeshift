@@ -304,13 +304,18 @@ func args(spec ports.SessionSpec) []string {
 	return append(append(out, packArgs(spec)...), spec.Override.Args()...)
 }
 
-// packArgs puts a generation's pack in its system prompt, which every start and every resume
-// states, so generations of one version share a cache.
+// packArgs states what every start and every resume says of a session beyond its files: its pack,
+// which sits in its system prompt, so generations of one version share a cache, and the vendor tools
+// it holds, which an MCP server's tools outlast.
 func packArgs(spec ports.SessionSpec) []string {
-	if spec.SystemPromptFile == "" {
-		return nil
+	var out []string
+	if spec.OnlyTools {
+		out = append(out, "--tools", "")
 	}
-	return []string{"--append-system-prompt-file", spec.SystemPromptFile}
+	if spec.SystemPromptFile != "" {
+		out = append(out, "--append-system-prompt-file", spec.SystemPromptFile)
+	}
+	return out
 }
 
 // StartArgs is the command of a new session.

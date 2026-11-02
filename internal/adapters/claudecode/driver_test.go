@@ -93,6 +93,23 @@ func TestAPackGoesInTheSystemPrompt(t *testing.T) {
 	}
 }
 
+// `--tools ""` takes away the vendor's tools and leaves an MCP server's, which RS12 read in a real
+// session's init. A lane keeps its own, because it has work to do with them.
+func TestASessionHoldsOnlyItsToolsWhenItSaysSo(t *testing.T) {
+	spec := goldenSpec()
+	if slices.Contains(claudecode.StartArgs(spec), "--tools") {
+		t.Errorf("a lane lost its tools: %v", claudecode.StartArgs(spec))
+	}
+	spec.OnlyTools = true
+	from := ports.ResumeRef{SessionID: "session-1"}
+	for name, got := range map[string][]string{"start": claudecode.StartArgs(spec), "resume": claudecode.ResumeArgs(spec, from)} {
+		at := slices.Index(got, "--tools")
+		if at < 0 || got[at+1] != "" {
+			t.Errorf("%s: flags %v", name, got)
+		}
+	}
+}
+
 func TestNoBareFlagAndAnExplicitPermissionMode(t *testing.T) {
 	got := claudecode.StartArgs(goldenSpec())
 	if slices.Contains(got, "--bare") {

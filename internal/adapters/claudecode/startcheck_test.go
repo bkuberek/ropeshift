@@ -65,6 +65,19 @@ func TestTrustFocusAboveAccept(t *testing.T) {
 	}
 }
 
+func TestAPaneHoldsOnlyItsToolsWhenItSaysSo(t *testing.T) {
+	spec := ports.SessionSpec{Lane: "lane-1", Generation: 1, Model: "opus", PermissionMode: "default", ConfigDir: "/state"}
+	if slices.Contains(paneArgs(spec), "--tools") {
+		t.Errorf("a lane lost its tools: %v", paneArgs(spec))
+	}
+	spec.OnlyTools = true
+	got := paneArgs(spec)
+	at := slices.Index(got, "--tools")
+	if at < 0 || got[at+1] != "" {
+		t.Errorf("args %v", got)
+	}
+}
+
 func TestAPaneHoldsItsPack(t *testing.T) {
 	spec := ports.SessionSpec{Lane: "lane-1", Generation: 1, Model: "opus", PermissionMode: "default", ConfigDir: "/state"}
 	if slices.Contains(paneArgs(spec), "--append-system-prompt-file") {

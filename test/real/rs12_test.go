@@ -35,6 +35,10 @@ const (
 	rs12Member    = "member-rs12"
 )
 
+// rs12PaneFlags leave out paneGuardFlags' `--tools Bash`, which a lane's suites need and which would
+// hand an orchestrator what its worker took away.
+var rs12PaneFlags = []string{"--setting-sources", "project", "--strict-mcp-config"}
+
 func rs12Profile(mode string) string {
 	return fmt.Sprintf(`run_mode = %q
 
@@ -173,6 +177,16 @@ func (s *suite) rs12Run(mode string, run int64, overrides map[string]any) {
 	screens := &screenLog{}
 	var asked questions.Question
 	offered := 0
+	// A run that stops leaves nothing behind to read, so what it saw goes in the log, by name only.
+	defer func() {
+		if !s.t.Failed() {
+			return
+		}
+		for _, record := range s.hookRecords(lane) {
+			s.t.Logf("rs12 %s: hook %s tool=%s count=%d", mode, record.Event, record.Tool, record.Count)
+		}
+		s.t.Logf("rs12 %s: screens=%v", mode, screens.names())
+	}()
 	s.poll(running.stop, "the orchestrator's decision", func() bool {
 		s.checkStream(running.stop)
 		offered = s.rs12Init(running.stop)
@@ -250,5 +264,5 @@ func TestRS12(t *testing.T) {
 	s.build()
 	flags := append(slices.Clone(guardFlags), "--max-turns", rs12MaxTurns)
 	s.rs12Run(lanes.ProfileRunHeadless, 1, map[string]any{"args": flags, "stream_log": s.stream})
-	s.rs12Run(lanes.ProfileRunTmux, 2, map[string]any{"args": paneGuardFlags, "env": paneEnv})
+	s.rs12Run(lanes.ProfileRunTmux, 2, map[string]any{"args": rs12PaneFlags, "env": paneEnv})
 }
