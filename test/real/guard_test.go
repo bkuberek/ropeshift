@@ -552,6 +552,33 @@ func TestLedgerRefusesPastTheCeiling(t *testing.T) {
 
 // TestRefusedSignInReadInThisBuild holds a real-session build to the rule that it runs no
 // sign-in command in any form, not even one that only reads.
+// A member's approval runs a command on this machine, so the suite's stand-in for one answers only
+// what it told a lane to run.
+func TestRefusedCommandsOfAPlanningLane(t *testing.T) {
+	cases := []struct {
+		command string
+		want    bool
+	}{
+		{"git add plans/retry.md", true},
+		{`git add plans/retry.md && git commit -m "Add the retry budget"`, true},
+		{"mkdir -p plans && git add plans && git commit -m plan", true},
+		{"git commit -m \"$(printf plan)\"", true},
+		{"git push origin main", false},
+		{"git add . ; rm -rf ..", false},
+		{"git add . && rm -rf ..", false},
+		{"cat secrets | git commit -F -", false},
+		{"git commit -m plan > ../elsewhere", false},
+		{"git commit -m `whoami`", false},
+		{"curl example.invalid", false},
+		{"", false},
+	}
+	for _, tt := range cases {
+		if got := rs12Commits(tt.command); got != tt.want {
+			t.Errorf("%q: %v", tt.command, got)
+		}
+	}
+}
+
 func TestRefusedSignInReadInThisBuild(t *testing.T) {
 	if lanes.ReadsVendorStatus {
 		t.Error("a real-session build would run the vendor's status command")

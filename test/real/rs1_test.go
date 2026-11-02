@@ -135,10 +135,7 @@ func (s *suite) finish() {
 	sessions, turns := s.spend.used()
 	sessionCeiling, turnCeiling := s.spend.ceilings()
 	s.t.Logf("charged: sessions=%d turns=%d of %d and %d", sessions, turns, sessionCeiling, turnCeiling)
-	left, err := processesHolding(s.scratch)
-	if err != nil {
-		s.t.Error(err)
-	}
+	left := s.processesLeft()
 	for _, process := range left {
 		s.t.Errorf("a process remains: %s", process)
 	}
@@ -165,6 +162,21 @@ func (s *suite) finish() {
 		s.t.Error(err)
 	}
 	s.t.Logf("scratch path, for the leftovers report: %s", s.scratch)
+}
+
+// processesLeft gives a pane a killed terminal server just ended time to exit: a run with a stopped
+// pane read a session and its MCP server here that were gone a moment later.
+func (s *suite) processesLeft() []string {
+	s.t.Helper()
+	for deadline := time.Now().Add(rs5EndLimit); ; time.Sleep(rs5EndPoll) {
+		left, err := processesHolding(s.scratch)
+		if err != nil {
+			s.t.Error(err)
+		}
+		if len(left) == 0 || !time.Now().Before(deadline) {
+			return left
+		}
+	}
 }
 
 // ledgerSessions names every session this run's ledger holds, because a suite that resumes keeps
@@ -522,14 +534,20 @@ func (s *suite) waitForWorkOrder(stop func()) string {
 
 func (s *suite) poll(stop func(), what string, done func() bool) {
 	s.t.Helper()
-	deadline := time.Now().Add(turnLimit)
+	s.pollFor(turnLimit, stop, what, done)
+}
+
+// pollFor is a poll with a limit of its own.
+func (s *suite) pollFor(limit time.Duration, stop func(), what string, done func() bool) {
+	s.t.Helper()
+	deadline := time.Now().Add(limit)
 	for time.Now().Before(deadline) {
 		if done() {
 			return
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	s.stopWith(stop, "%s did not happen within %v", what, turnLimit)
+	s.stopWith(stop, "%s did not happen within %v", what, limit)
 }
 
 // checkStream applies the stop conditions to the lane's raw stream and stderr.

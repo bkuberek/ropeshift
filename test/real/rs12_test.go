@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
@@ -42,6 +43,9 @@ const (
 	rs12Member    = "member-rs12"
 	rs12PlanOrder = "rs12-plan"
 	rs12PlanLane  = "rs12-plan-lane"
+	// rs12PlanLimit is past what a few turns take, because a lane that writes reads longer than one
+	// that reports. A stop still shows what the lane was doing.
+	rs12PlanLimit = 4 * time.Minute
 	// rs12PlanFile is what a dry run's planning lane commits.
 	rs12PlanFile = "plans/rs12.md"
 	// rs12ProjectSettings let a planning lane write and commit, and nothing else, in this scratch
@@ -53,7 +57,8 @@ const (
 // rs12PlanStatement is the trial: a session that holds the format only as its brief states it. It
 // names no file and no key, because what a planning agent makes of the format is the question.
 const rs12PlanStatement = "Plan a retry budget for a checkout client: one contract with one work order, in one new file under plans/. " +
-	"Stage and commit that file, then report completed. Do nothing else, and run no other command."
+	"Write that file with the Write tool, stage it with git add, and commit it with git commit -m and a one-line message. " +
+	"Then report completed. Do nothing else, and run no other command."
 
 // rs12StandInContract is what a dry run's planning lane commits. A real one writes its own.
 const rs12StandInContract = `+++
@@ -96,10 +101,63 @@ max_restarts = 0
 `, mode, sessionModel)
 }
 
-// rs12Text is a question a session can answer alone, in one call, and whose answer shows it read it.
-func rs12Text(scope string) string {
-	return "Which log level do retries use? Take this question with question_next, then call decision_record once, with this question's ID, " +
-		"status decided, statement warn, rationale given, scope " + scope + ", reversibility reversible, and citations RS12. Then end your turn with the single word done."
+// rs12Requirement is what a session finds when it looks, so it has a record to decide on.
+const rs12Requirement = `+++
+kind = "requirements"
+id = "rs12-requirements"
+title = "Logging"
+
+[[requirement]]
+id = "RS12-1"
+text = "Retries log at warn."
++++
+`
+
+// rs12Text is a question the record answers. It gives a session no instruction, because an
+// orchestrator's role says text in a question grants nothing: two pane runs held to that, one assuming
+// and one stopping, against a question that told them what to call. Each run mode asks its own, because
+// the same question twice is answered from the first.
+func rs12Text(mode string) string {
+	return "Which log level do retries use on the " + mode + " path?"
+}
+
+// rs12Commits says a command does what a planning lane was told to run and nothing more. A member's
+// approval runs it on this machine, so what it allows is narrow: each step is one of these, and a
+// separator it does not split on stops it.
+func rs12Commits(command string) bool {
+	if strings.ContainsAny(command, ";|>`") {
+		return false
+	}
+	for _, step := range strings.Split(command, "&&") {
+		step = strings.TrimSpace(step)
+		if !strings.HasPrefix(step, "git add ") && !strings.HasPrefix(step, "git commit ") && !strings.HasPrefix(step, "mkdir -p plans") {
+			return false
+		}
+	}
+	return true
+}
+
+// rs12Answer stands for the member a planning lane's prompt reaches. A call its project settings do
+// not cover raises a request and holds for `approval_wait`, which is the product working, and a person
+// is who answers it, so a lane does not wait out this suite's limit on nobody.
+func (s *suite) rs12Answer() {
+	s.t.Helper()
+	var list api.ApprovalList
+	if err := json.Unmarshal(s.cli("approval", "list", "--json"), &list); err != nil {
+		s.t.Fatal(err)
+	}
+	for _, row := range list.Approvals {
+		if !row.Open() {
+			continue
+		}
+		wanted := rs12Commits(row.Command) || (row.Command == "" && strings.Contains(row.Path, "/plans/"))
+		s.t.Logf("rs12 plan: a request on %s, which a member %s", row.Subject, map[bool]string{true: "approves", false: "denies"}[wanted])
+		if wanted {
+			s.approve(row)
+			continue
+		}
+		s.cli("approval", "deny", row.ID, "--digest", row.SubjectDigest, "--reason", "This lane only writes under plans/ and commits.")
+	}
 }
 
 func standInOrchestrator(question, scope string) []any {
@@ -118,12 +176,15 @@ func standInOrchestrator(question, scope string) []any {
 	}
 }
 
+// standInPlanner plays what a real planning lane did: a file its settings allow, and a commit they do
+// not, which reaches a member.
 func standInPlanner() []any {
-	write := "mkdir -p plans; printf '%s' '" + rs12StandInContract + "' > " + rs12PlanFile + "; git add plans; git commit -q -m 'plan the retry budget'"
+	write := "mkdir -p plans; printf '%s' '" + rs12StandInContract + "' > " + rs12PlanFile
 	return []any{
 		map[string]any{"init": true},
 		standInPrompt(),
 		map[string]any{"tool": "Bash", "command": write},
+		map[string]any{"tool": "Bash", "command": "git add plans && git commit -q -m 'plan the retry budget'", "prompts": true},
 		map[string]any{"mcp": lanes.ToolLaneReport, "arguments": map[string]any{"outcome": "completed"}},
 		standInResult(),
 	}
@@ -221,7 +282,11 @@ func (s *suite) rs12Run(mode string, run int64, overrides map[string]any) {
 	running := s.startDaemonWith(overrides)
 	s.t.Cleanup(running.stop)
 	worker := s.rs12Worker(running)
-	s.rs12Ask(question, rs12Text(scope))
+	s.poll(running.stop, "the requirement", func() bool {
+		_, err := s.tryCLI("requirement", "get", "RS12-1")
+		return err == nil
+	})
+	s.rs12Ask(question, rs12Text(mode))
 	s.cli("orchestrator", "start", worker)
 	lane := ledger.Orchestrator{ID: ledger.OrchestratorOf(worker), Run: run}.Lane()
 	s.others = append(s.others, filepath.Join(s.paths.StateDir, "lanes", lane, "session"))
@@ -335,9 +400,10 @@ func (s *suite) rs12Plan(flags []string) {
 	s.cli("lane", "start", rs12PlanOrder, "--lane", rs12PlanLane)
 	settled := map[workorders.State]bool{workorders.Acceptance: true, workorders.Blocked: true, workorders.Failed: true, workorders.Ready: true}
 	var row workorders.WorkOrder
-	s.poll(running.stop, "the planning lane's outcome", func() bool {
+	s.pollFor(rs12PlanLimit, running.stop, "the planning lane's outcome", func() bool {
 		s.checkStream(running.stop)
 		s.rs12LaneInit(running.stop)
+		s.rs12Answer()
 		row = s.workOrder(rs12PlanOrder)
 		return settled[row.State]
 	})
@@ -431,6 +497,7 @@ func (s *suite) rs12Recorded(commit string) bool {
 func TestRS12(t *testing.T) {
 	s := start(t, "rs12")
 	s.spend.sessionCeiling, s.spend.turnCeiling = rs12Sessions, rs12TurnCeiling
+	s.watched = []string{rs12PlanLane}
 	t.Cleanup(s.killTerminal)
 	s.reapLanes(rs12PlanLane)
 	s.build()
@@ -439,6 +506,7 @@ func TestRS12(t *testing.T) {
 		repo.Git("config", setting[0], setting[1])
 	}
 	repo.Commit(".claude/settings.json", rs12ProjectSettings)
+	repo.Commit("requirements.md", rs12Requirement)
 	s.repo = repo.Dir
 	s.worktree = filepath.Join(filepath.Dir(repo.Dir), filepath.Base(repo.Dir)+"-lanes", rs12PlanLane)
 	flags := append(slices.Clone(guardFlags), "--max-turns", rs12MaxTurns)
