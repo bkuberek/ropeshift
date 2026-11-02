@@ -304,8 +304,7 @@ func TestATurnThatFailedAtALimitParks(t *testing.T) {
 
 // TestAStopFailureParks is the signal a pane has, which reaches a headless lane as a hook too.
 func TestAStopFailureParks(t *testing.T) {
-	var r *limitRig
-	r = fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript { return atRest() })
+	r := fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript { return atRest() })
 	r.start()
 	r.eventually("the lane at work", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
 	if reply := r.hookEvent(t, lanes.HookEvent{Event: "StopFailure", Detail: lanes.FailureUsageLimit}); !reply.OK {
@@ -315,8 +314,7 @@ func TestAStopFailureParks(t *testing.T) {
 }
 
 func TestAStopFailureOfAnythingElseParksNothing(t *testing.T) {
-	var r *limitRig
-	r = fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript { return atRest() })
+	r := fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript { return atRest() })
 	r.start()
 	r.eventually("the lane at work", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
 	if reply := r.hookEvent(t, lanes.HookEvent{Event: "StopFailure", Detail: "server_error"}); !reply.OK {
@@ -334,8 +332,7 @@ func TestAStopFailureOfAnythingElseParksNothing(t *testing.T) {
 // time, so a worker uses the last one any lane read.
 func TestTheLastReadingNamesTheReset(t *testing.T) {
 	reset := time.Now().Add(time.Hour).UnixMilli()
-	var r *limitRig
-	r = fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript {
+	r := fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript {
 		return script([]fake.DriverStep{
 			{Bound: true}, {Limit: &lanes.UsageReading{Status: lanes.UsageAllowed, ResetsAtMs: reset}},
 			{Retry: lanes.FailureUsageLimit, Attempt: lanes.RetriesBeforeLimit}, {Hold: true},
