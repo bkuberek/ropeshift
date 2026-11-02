@@ -448,11 +448,15 @@ func (w *Workers) UseApproval(ctx context.Context, use authority.ApprovalUse) (a
 		if order.LeaseWorker != use.Auth.WorkerID || order.Fence != use.Fence {
 			return &workorders.FencedError{Current: order.Fence, State: order.State}
 		}
+		row, err := tx.Lanes().Row(use.Lane)
+		if err != nil {
+			return err
+		}
 		generation, err := tx.Lanes().Generation(use.Lane)
 		if err != nil {
 			return err
 		}
-		if generation != use.Generation {
+		if row.WorkOrder != use.WorkOrder || generation != use.Generation {
 			return &workorders.FencedError{Current: order.Fence, State: order.State}
 		}
 		return nil

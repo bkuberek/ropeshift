@@ -35,6 +35,7 @@ var ApprovalChecks = []Check{
 	{"AP17", "a write moves a request only from the state it read", checkSaveComparesItsState},
 	{"AP18", "a worker session that ended reads no answer", checkEndedSessionReadsNothing},
 	{"AP19", "a decision sent twice is one decision", checkRetryDecidesOnce},
+	{"AP20", "a worker reads only the lane of the work order it holds", checkLaneOfThatWorkOrder},
 }
 
 var (
@@ -541,6 +542,39 @@ func checkExpiryWakes(r *Rig) error {
 		return Violatedf("a request past its time is %s", row.State)
 	}
 	return s.wakeFired(wake, true)
+}
+
+// checkLaneOfThatWorkOrder holds a look to the lane of the work order a worker named, so a lease on
+// one work order reaches no other lane's decision.
+func checkLaneOfThatWorkOrder(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	a, err := s.raised(gatedInput)
+	if err != nil {
+		return err
+	}
+	if _, err := s.decide(a, true, theMember); err != nil {
+		return err
+	}
+	holder, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	holder.lane = s.lane
+	var fenced *workorders.FencedError
+	if _, err := holder.use(a.SubjectDigest, "call-1"); !errors.As(err, &fenced) {
+		return Violatedf("a worker read a lane of a work order it does not hold: %v", err)
+	}
+	row, err := s.approval(a.ID)
+	if err != nil {
+		return err
+	}
+	if row.State != authority.ApprovalApproved {
+		return Violatedf("the approval reads %s", row.State)
+	}
+	return nil
 }
 
 // checkEndedSessionReadsNothing holds a look at a call to the worker session that makes it, because
