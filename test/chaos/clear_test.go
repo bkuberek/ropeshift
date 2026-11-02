@@ -86,13 +86,16 @@ func (d *clearDriver) finish() fake.DriverStep {
 	}}
 }
 
-// atWork clears itself, ends the turn that held it, and answers the brief it is owed.
+// atWork clears itself, ends the turn that held it, and holds the turn its brief starts. It answers
+// that brief only under the worker that takes over, because a report here could reach the journal
+// before the kill at `briefed` lands, and a lane that already ended owes nothing a broken restart
+// could send again.
 func (d *clearDriver) atWork() fake.DriverScript {
 	clear := fake.DriverStep{Do: d.clearedBy}
 	tick := fake.DriverStep{Do: func(ports.SessionSpec) { d.tick() }}
 	return fake.DriverScript{SessionID: "session-1", Model: "fixture", Turns: [][]fake.DriverStep{
 		{{Bound: true}, clear, tick, clearedTurn(0.01)},
-		{d.finish(), clearedTurn(0.02)},
+		{{Hold: true}},
 	}}
 }
 
