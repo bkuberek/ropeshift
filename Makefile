@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test
+.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test linux-bundle
 
 check: format vet lint test web-test licenses canary
 
@@ -70,6 +70,29 @@ service-test:
 	$(GO) test -tags service -count=1 -v -timeout 15m ./test/service/...
 	$(GO) test -count=1 -v -run '^TestAnOutlivingProcessLeavesTheControlGroup$$' ./test/contract/
 	@$(MAKE) --no-print-directory canary
+
+# The Linux check for a machine with no Go: the binaries, the doubles, and the compiled service, scope,
+# pty, shim and pane kill, and bench tests for linux/amd64, with test/bundle/run.sh, which runs them
+# from the bundle. BUNDLE names a directory that must not exist yet. The builds trim this machine's
+# paths, so the bundle carries none of them.
+BUNDLE_ARCH ?= amd64
+BUNDLE_ENV := CGO_ENABLED=0 GOOS=linux GOARCH=$(BUNDLE_ARCH)
+
+linux-bundle:
+	@test -n "$(BUNDLE)" || (echo "set BUNDLE to the directory to write" && exit 1)
+	@test ! -e "$(BUNDLE)" || (echo "$(BUNDLE) exists" && exit 1)
+	mkdir -p "$(BUNDLE)/bin/canary" "$(BUNDLE)/tests"
+	$(BUNDLE_ENV) $(GO) build -trimpath -o "$(BUNDLE)/bin/ropeshift" ./cmd/ropeshift
+	$(BUNDLE_ENV) $(GO) build -trimpath -o "$(BUNDLE)/bin/ropeshiftd" ./cmd/ropeshiftd
+	$(BUNDLE_ENV) $(GO) build -trimpath -tags chaos -o "$(BUNDLE)/bin/ropeshift-chaos" ./cmd/ropeshift
+	$(BUNDLE_ENV) $(GO) build -trimpath -o "$(BUNDLE)/bin/fakeclaude" ./test/doubles/fakeclaude
+	cp test/doubles/canary/claude "$(BUNDLE)/bin/canary/claude"
+	$(BUNDLE_ENV) $(GO) test -c -trimpath -tags service -o "$(BUNDLE)/tests/service.test" ./test/service
+	$(BUNDLE_ENV) $(GO) test -c -trimpath -o "$(BUNDLE)/tests/contract.test" ./test/contract
+	$(BUNDLE_ENV) $(GO) test -c -trimpath -o "$(BUNDLE)/tests/localauth.test" ./internal/adapters/localauth
+	$(BUNDLE_ENV) $(GO) test -c -trimpath -tags chaos -o "$(BUNDLE)/tests/chaos.test" ./test/chaos
+	$(BUNDLE_ENV) $(GO) test -c -trimpath -tags bench -o "$(BUNDLE)/tests/bench.test" ./test/bench
+	cp test/bundle/run.sh "$(BUNDLE)/run.sh"
 
 # The contract suite on a private Postgres, which also prepares every statement
 # on a real server, and the two defects only Postgres shows (D7). It needs initdb
