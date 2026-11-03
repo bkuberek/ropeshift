@@ -10,6 +10,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 
 | Command | Does |
 |---------|------|
+| `ropeshift health` | Says the control plane answered and read its ledger, and the revision it stands at. It exits 9 when nothing answers |
 | `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review`. With `--kind plan --repository R`, its lane writes repository files on its branch, and intake reads them at the commit a member accepts. `source list` names R, and reports a file intake could not read |
 | `ropeshift work list [--state S] [--worker W]` | Lists work orders. With `--worker`, it lists only ready work that worker's manifest can run |
 | `ropeshift work show <id>` | Shows one work order |
@@ -19,6 +20,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work rework <id> --reason R` | Sends completed work back to `ready` for another attempt. Its evidence stays on record and stops counting |
 | `ropeshift work claim <id> --worker W [--claim-id C]` | Claims a work order for a worker. A retry with the same claim ID returns the grant |
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
+| `ropeshift work write <id> --claim-id C --fence N [--write-id W] [--lane L --generation G] --payload P` | Stores one event under a claim's fence. A retry with the same write ID stores one event, and a stale fence exits 5 with the current one in the message |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |
 | `ropeshift work cancel <id> --reason R` | Ends a work order for good, from any state that is not terminal, which only a member can do. Any claim ends and the fence moves, so a lane can write nothing more. A parked lane ends at once. A lane with a process stops through the guard when its worker hears, saves what it holds to a ref, and reads as last reported until then. Canceling work that is already canceled changes nothing, and finished or failed work exits 4 |
 | `ropeshift work send-back <id> --reason R` | Returns a work order in review to `planning`, because its contract must change. It voids the review, and the contract's next version returns the work to review |

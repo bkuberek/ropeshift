@@ -321,6 +321,44 @@ func (c *invocation) workReassign(args []string) int {
 	}{id}, func() string { return id + "\treassigned\n" })
 }
 
+// workWrite stores one event under a claim's fence, which is how anything that holds a claim keeps a
+// note the ledger will refuse once that claim is stale. The client generates the ID, so a retry stores
+// one event.
+func (c *invocation) workWrite(args []string) int {
+	set := c.flags()
+	var request api.WriteRequest
+	var payload string
+	set.StringVar(&request.ClaimID, "claim-id", "", "the claim this write comes under")
+	set.Int64Var(&request.Fence, "fence", 0, "the claim's fence")
+	set.StringVar(&request.WriteID, "write-id", "", "a client-generated ID, so a retry stores one event")
+	set.StringVar(&request.Lane, "lane", "", "the lane writing, if one is")
+	set.Int64Var(&request.Generation, "generation", 0, "that lane's generation")
+	set.StringVar(&payload, "payload", "", "what to store")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	if request.ClaimID == "" || request.Fence == 0 {
+		return c.usageError("--claim-id and --fence are required")
+	}
+	if request.WriteID == "" {
+		generated, err := newID()
+		if err != nil {
+			return c.failure(err)
+		}
+		request.WriteID = generated
+	}
+	request.Payload = []byte(payload)
+	client := c.client()
+	defer client.Close()
+	written, err := client.Write(c.ctx, id, request)
+	return c.finish(err, written, func() string { return fmt.Sprintf("%s\t%s\trevision %d\n", id, written.ID, written.Rev) })
+}
+
 // workCancel ends work for good. It answers when the ledger holds that, and a lane with a process
 // stops when its worker hears, so `lane show` follows the lane from there.
 func (c *invocation) workCancel(args []string) int {
@@ -571,6 +609,17 @@ func (c *invocation) laneArchive(args []string) int {
 	in := api.ArchiveLane{LaneID: id, Force: force}
 	err = client.ArchiveLane(c.ctx, lane.WorkOrder, in)
 	return c.finish(err, in, func() string { return fmt.Sprintf("lane %s: the worker removes its worktree on its next pass\n", id) })
+}
+
+// health says the control plane read its ledger, which an answer on the socket alone would not.
+func (c *invocation) health(args []string) int {
+	client, ok, code := c.noArguments(args)
+	if !ok {
+		return code
+	}
+	defer client.Close()
+	health, err := client.Health(c.ctx)
+	return c.finish(err, health, func() string { return fmt.Sprintf("%s\trevision %d\n", health.Status, health.Revision) })
 }
 
 func fleetLine(fleet api.Fleet) string {

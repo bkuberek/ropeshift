@@ -405,6 +405,48 @@ func TestWorkSendBack(t *testing.T) {
 	}
 }
 
+func TestHealthSaysWhereTheLedgerStands(t *testing.T) {
+	s := newSession(t)
+	if text := s.must("health"); !strings.HasPrefix(text, "ok\trevision ") {
+		t.Errorf("text %q", text)
+	}
+	var health api.Health
+	if err := json.Unmarshal([]byte(s.must("health", "--json")), &health); err != nil {
+		t.Fatal(err)
+	}
+	if health.Status != "ok" || health.Revision == 0 {
+		t.Errorf("health %+v", health)
+	}
+	if code, _, _ := s.run("health", "extra"); code != cli.ExitUsage {
+		t.Errorf("an argument: exit %d", code)
+	}
+}
+
+func TestWorkWriteGoesUnderAFence(t *testing.T) {
+	s := newSession(t)
+	s.claimed("wo")
+	fence := s.fenceOf("wo")
+	if code, _, _ := s.run("work", "write", "wo", "--claim-id", "claim-wo"); code != cli.ExitUsage {
+		t.Errorf("no fence: exit %d", code)
+	}
+	args := []string{"work", "write", "wo", "--claim-id", "claim-wo", "--fence", fence, "--write-id", "write-1", "--payload", "a note"}
+	var first api.WriteResponse
+	if err := json.Unmarshal([]byte(s.must(append(args, "--json")...)), &first); err != nil {
+		t.Fatal(err)
+	}
+	var again api.WriteResponse
+	if err := json.Unmarshal([]byte(s.must(append(args, "--json")...)), &again); err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != "write-1" || first != again {
+		t.Errorf("a retry wrote again: %+v, %+v", first, again)
+	}
+	stale := []string{"work", "write", "wo", "--claim-id", "claim-wo", "--fence", "99", "--write-id", "write-2", "--payload", "late"}
+	if code, _, _ := s.run(stale...); code != cli.ExitFenced {
+		t.Errorf("a stale fence: exit %d", code)
+	}
+}
+
 func TestWorkCancel(t *testing.T) {
 	s := newSession(t)
 	s.ready("wo")

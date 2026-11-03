@@ -9,6 +9,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/authority"
@@ -31,12 +33,17 @@ const (
 
 const usage = `usage: ropeshift <command>
 
-  work create --title T [--criterion C]... [flags]   record a work order, or planning work with --kind plan, or planning work with --kind plan
+  health                                             say the control plane answers, and at what revision
+  work create --title T [--criterion C]... [flags]   record a work order, or planning work with --kind plan
   work list [--state S] [--worker W]                 list work orders, or what a worker can run
   work show <id>                                     show one work order
   work review <id>                                   record a passed review
+  work acceptance <id>                               show what a work order's evidence leaves to do
+  work accept <id>                                   move completed work to done
+  work rework <id> --reason R                        send completed work back for another attempt
   work claim <id> --worker W [--claim-id C]          claim a work order
   work release <id> --claim-id C --fence N           give a claim back
+  work write <id> --claim-id C --fence N --payload P store one event under a fence
   work reassign <id> --reason R                      end a lapsed holder's ownership
   work cancel <id> --reason R                        end work for good, which stops its lane
   work send-back <id> --reason R                     return reviewed work to planning
@@ -118,7 +125,7 @@ func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
 		"question", "decision", "policy", "category", "search", "login", "sign-out", "passphrase", "message", "approval", "orchestrator",
-		"effect", "view", "events":
+		"effect", "view", "events", "health":
 		return true
 	}
 	return false
@@ -155,10 +162,6 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
 		session: opts.Session, readPassphrase: opts.ReadPassphrase,
 	}
-	if len(args) > 0 && args[0] == "search" {
-		base.name = args[0]
-		return base.search(args[1:])
-	}
 	if len(args) > 0 {
 		if command, ok := singleWords[args[0]]; ok {
 			base.name = args[0]
@@ -183,6 +186,8 @@ var singleWords = map[string]func(*invocation, []string) int{
 	"login":    (*invocation).login,
 	"sign-out": (*invocation).signOut,
 	"events":   (*invocation).events,
+	"search":   (*invocation).search,
+	"health":   (*invocation).health,
 }
 
 // HasCommand reports a command, as a person would type it.
@@ -192,6 +197,12 @@ func HasCommand(words string) bool {
 	}
 	_, ok := commands()[words]
 	return ok
+}
+
+// Commands lists every command, as a person would type it.
+func Commands() []string {
+	names := slices.Collect(maps.Keys(singleWords))
+	return slices.Sorted(slices.Values(append(names, slices.Collect(maps.Keys(commands()))...)))
 }
 
 // commands maps two words to a command.
@@ -207,6 +218,7 @@ func commands() map[string]func(*invocation, []string) int {
 		"work claim":              (*invocation).workClaim,
 		"work release":            (*invocation).workRelease,
 		"work reassign":           (*invocation).workReassign,
+		"work write":              (*invocation).workWrite,
 		"work cancel":             (*invocation).workCancel,
 		"work send-back":          (*invocation).workSendBack,
 		"work resolve":            (*invocation).workResolve,
