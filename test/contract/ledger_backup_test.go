@@ -2,6 +2,8 @@ package contract
 
 import (
 	"database/sql"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -58,6 +60,20 @@ func TestLedgerBackupContract(t *testing.T) {
 // workspaces, which is where the rig writes its marks.
 func readWorkspaces(t *testing.T, path string) []string {
 	t.Helper()
+	header := make([]byte, 100)
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.ReadFull(file, header)
+	_ = file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bytes 18 and 19 of a SQLite header are 2 for a database in WAL mode, which wants a log beside it.
+	if header[18] != 1 || header[19] != 1 {
+		t.Errorf("the copy is in WAL mode, so it is not one file: header bytes %d and %d", header[18], header[19])
+	}
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		t.Fatal(err)
