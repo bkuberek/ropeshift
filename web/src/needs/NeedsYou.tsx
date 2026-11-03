@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 import type { NeedItem, NeedsYou as View } from "../api/types";
 import { useArrivalFocus } from "../app/route";
-import { Line, useClock } from "../parts/parts";
+import { Line, useClock, ViewTime } from "../parts/parts";
 import { ApprovalCard } from "./ApprovalCard";
 import { EffectCard } from "./EffectCard";
 import { QuestionBatch } from "./QuestionBatch";
@@ -99,11 +99,13 @@ export function NeedsYou({ view, readAt, after, active = true }: { view: View; r
       {count === 0 ? (
         <p className="empty">Every lane has what it needs from you.</p>
       ) : (
-        <ol className="queue" role="list">
-          {view.items.map((item) => (
-            <Waiting key={`${item.kind}:${item.id}`} item={item} waitedMs={view.as_of - item.since + elapsed} after={after} />
-          ))}
-        </ol>
+        <ViewTime.Provider value={{ asOf: view.as_of, elapsed }}>
+          <ol className="queue" role="list">
+            {view.items.map((item) => (
+              <Waiting key={`${item.kind}:${item.id}`} item={item} waitedMs={view.as_of - item.since + elapsed} after={after} />
+            ))}
+          </ol>
+        </ViewTime.Provider>
       )}
     </>
   );

@@ -13,7 +13,10 @@ const hostile = `<img src=x onerror=alert(1)><script>alert(2)</script>`;
 // What no page may ever hold, whatever a record or a document says.
 const built = "img, script, iframe, object, embed, svg, style, link, meta, base, form[action]";
 
-const pages = ["/", "/roadmap", "/plans", "/requirements", "/specs", "/designs", "/documents", "/decisions", "/questions"];
+const pages = [
+  "/", "/roadmap", "/plans", "/requirements", "/specs", "/designs", "/documents", "/decisions", "/questions",
+  "/in-progress", "/on-hold", "/stuck", "/completed", "/shop-floor", "/operations",
+];
 
 // Every link in the application is one it built itself, to one of its own addresses.
 function links(): string[] {
@@ -68,6 +71,20 @@ describe("markup in what a person reads", () => {
     serveViews();
     openPage("/questions");
     expect((await screen.findByText(/^May the/)).textContent).toContain(hostile);
+    expect(document.querySelector("main img, main script")).toBeNull();
+  });
+
+  it("stays text in what a lane said when it failed", async () => {
+    serveViews();
+    openPage("/completed");
+    expect((await screen.findByText(/^It gave up on/)).textContent).toContain(hostile);
+    expect(document.querySelector("main img, main script")).toBeNull();
+  });
+
+  it("stays text in what a source could not read", async () => {
+    serveViews();
+    openPage("/operations");
+    expect((await screen.findByText("plans/bad.md")).parentElement?.textContent).toContain(hostile);
     expect(document.querySelector("main img, main script")).toBeNull();
   });
 

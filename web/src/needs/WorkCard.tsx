@@ -2,6 +2,8 @@ import { useState } from "react";
 
 import { actOnWork, workActions } from "../api/client";
 import type { WorkAction, WorkNeed } from "../api/types";
+import { Freshness } from "../floor/LaneFacts";
+import { laneLabel } from "../floor/states";
 import { useAct } from "./useAct";
 
 export const workLabels: Record<string, string> = {
@@ -60,10 +62,8 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
           <div>
             <dt>State</dt>
             <dd>
-              {work.lane.actual_state}
-              <span className={work.lane.freshness === "observed" ? "fresh" : "fresh fresh-old"}>
-                {work.lane.freshness === "observed" ? "observed" : "last reported"}
-              </span>
+              {laneLabel(work.lane.actual_state)}
+              <Freshness freshness={work.lane.freshness} at={work.lane.as_of} />
             </dd>
           </div>
           {work.detail ? (

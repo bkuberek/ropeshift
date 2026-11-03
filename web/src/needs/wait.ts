@@ -54,3 +54,12 @@ export function agoWords(ms: number): string {
 export function forWords(ms: number): string {
   return ms < minute ? "for under a minute" : `for ${spanWords(ms)}`;
 }
+
+// inLabel says how far off something is, and inWords says it to a screen reader.
+export function inLabel(ms: number): string {
+  return ms < minute ? "now" : `in ${waitLabel(ms)}`;
+}
+
+export function inWords(ms: number): string {
+  return ms < minute ? "now" : `in ${spanWords(ms)}`;
+}

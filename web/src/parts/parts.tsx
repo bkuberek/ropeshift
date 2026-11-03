@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import type { Stamp } from "../api/types";
 import { useArrivalFocus } from "../app/route";
-import { agoLabel, agoWords, forWords, waitLabel } from "../needs/wait";
+import { agoLabel, agoWords, forWords, inLabel, inWords, waitLabel } from "../needs/wait";
 
 const clockMs = 30_000;
 
@@ -36,15 +36,28 @@ export function Ago({ at }: { at: number }) {
   );
 }
 
-// Lasted is the large age that heads a line of work.
-export function Lasted({ at }: { at: number }) {
+// Until says how far off a moment is, by the same clock.
+export function Until({ at }: { at: number }) {
+  const { asOf, elapsed } = useContext(ViewTime);
+  const left = Math.max(0, at - asOf - elapsed);
+  return (
+    <>
+      <span aria-hidden="true">{inLabel(left)}</span>
+      <span className="visually-hidden">{inWords(left)}</span>
+    </>
+  );
+}
+
+// Lasted is the large age that heads a line of work. `ended` reads it as a time past, and otherwise it
+// is how long something has gone on.
+export function Lasted({ at, ended = false }: { at: number; ended?: boolean }) {
   const age = useAge(at);
   return (
     <>
       <span aria-hidden="true" className="wait-time">
         {waitLabel(age)}
       </span>
-      <span className="visually-hidden">{forWords(age)}</span>
+      <span className="visually-hidden">{ended ? agoWords(age) : forWords(age)}</span>
     </>
   );
 }

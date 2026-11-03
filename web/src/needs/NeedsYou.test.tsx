@@ -327,7 +327,7 @@ describe("waiting work", () => {
   it("keeps a last reported value apart from an observed one", () => {
     const view = goldenNeedsYou();
     show(view);
-    expect(screen.getAllByText("last reported").length + screen.getAllByText("observed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^Last reported/).length + screen.getAllByText(/^Observed/).length).toBeGreaterThan(0);
   });
 });
 

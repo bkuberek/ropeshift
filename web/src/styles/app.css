@@ -702,6 +702,109 @@ progress::-moz-progress-bar {
   font-weight: 600;
 }
 
+/* The floor */
+
+.card-id {
+  margin-top: 0.125rem;
+}
+
+.lane-facts {
+  display: grid;
+  gap: 0.5rem;
+}
+
+/*
+ * What a worker confirmed and what it said before going quiet must not look alike (FR-UI-5). A value
+ * that is only the last one received stands behind a broken edge, the same slack a parked lane shows,
+ * and its words lean.
+ */
+.lane-old {
+  outline: 2px dashed var(--muted);
+  outline-offset: -2px;
+}
+
+.lane-old .facts dd {
+  font-style: italic;
+}
+
+.fresh-old {
+  color: var(--ink);
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  gap: 0.875rem;
+}
+
+.lane-card {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  height: 100%;
+}
+
+.lane-card .facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lane-facts .fresh {
+  margin-left: 0;
+}
+
+.lane-id {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  align-items: start;
+  gap: 0 2.5rem;
+}
+
+.counts {
+  width: 100%;
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+  border-collapse: collapse;
+}
+
+.counts caption {
+  padding-bottom: 0.25rem;
+  border-bottom: 0.1875rem solid var(--hemp);
+  font-family: var(--display);
+  font-size: clamp(1.5rem, 2.6vw, 1.875rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: left;
+}
+
+.counts th,
+.counts td {
+  padding: 0.3125rem 0;
+  border-bottom: 2px solid var(--lane);
+  font-weight: 400;
+  text-align: left;
+}
+
+.counts td {
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: right;
+}
+
+.count-none th,
+.count-none td {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 /* A document's own text: what came from outside stands behind a strand of its own. */
 
 .outside {

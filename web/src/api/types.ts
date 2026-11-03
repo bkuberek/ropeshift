@@ -224,4 +224,58 @@ export type Decisions = Stamp & { decisions: Decision[] };
 
 export type Questions = Stamp & { categories: string[]; questions: Question[] };
 
+export type WorkLine = { work_order: WorkOrder; lane?: Lane; since: number };
+
+export type InProgress = Stamp & { items: WorkLine[] };
+
+export type Wake = { id: string; expression: string; next_eval_at?: number };
+
+export type HeldLane = { work_order: WorkOrder; lane?: Lane; wakes: Wake[]; since: number };
+
+export type OnHold = Stamp & { items: HeldLane[] };
+
+export type StuckItem = WorkNeed & { id: string; since: number };
+
+export type Stuck = Stamp & { items: StuckItem[] };
+
+export type Assessment = { criteria: { criterion_id: string; standing: string }[]; failed?: string[]; needs: string };
+
+export type CheckRecord = { id: string; name: string; status: string; source: string; criterion_id?: string; details_uri?: string };
+
+export type Standing = { work_order_id: string; state: string; assessment: Assessment; artifacts: Artifact[]; checks: CheckRecord[] };
+
+export type CompletedWork = { work_order: WorkOrder; standing: Standing; since: number; reason?: string };
+
+export type Completed = Stamp & { items: CompletedWork[] };
+
+export type Worker = { id: string; name: string; epoch: number; protocol: number; last_handshake_at?: number; manifest: { capacity?: { max_lanes?: number } } };
+
+export type Orchestrator = { id: string; worker_id: string; desired_state: string; run: number; resets: number; actual_state?: string; current_generation?: number };
+
+export type WorkerLine = { worker: Worker; freshness: "observed" | "last_reported"; orchestrator?: Orchestrator };
+
+export type ShopFloor = Stamp & { workers: WorkerLine[]; lanes: Lane[] };
+
+export type SourceBinding = {
+  id: string;
+  port: string;
+  adapter: string;
+  instance: string;
+  health: string;
+  detail?: string;
+  problems?: { path: string; detail: string }[];
+};
+
+export type Fleet = { fleet_mode: string; wip_limit: number; lanes_per_repository: number; lanes_per_worker: number };
+
+export type Operations = Stamp & {
+  fleet: Fleet;
+  work_orders: Record<string, number>;
+  lanes: Record<string, number>;
+  workers: number;
+  workers_fresh: number;
+  waiting_for_a_person: number;
+  sources: SourceBinding[];
+};
+
 export type Route = { method: string; pattern: string; command: string };

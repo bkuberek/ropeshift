@@ -17,6 +17,22 @@ const groups = [
       { path: "/questions", label: "Open questions" },
     ],
   },
+  {
+    name: "Work",
+    pages: [
+      { path: "/in-progress", label: "In progress" },
+      { path: "/on-hold", label: "On hold" },
+      { path: "/stuck", label: "Stuck" },
+      { path: "/completed", label: "Completed" },
+    ],
+  },
+  {
+    name: "Fleet",
+    pages: [
+      { path: "/shop-floor", label: "Shop floor" },
+      { path: "/operations", label: "Operations" },
+    ],
+  },
 ];
 
 // The list is always there on a wide screen, and folds behind one button on a phone, where a long list

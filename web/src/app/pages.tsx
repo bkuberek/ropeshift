@@ -2,9 +2,25 @@ import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 import { readView } from "../api/client";
-import type { Decisions as DecisionsView, Documents, Plans, Questions, Roadmap as RoadmapView, Stamp } from "../api/types";
+import type {
+  Completed as CompletedView,
+  Decisions as DecisionsView,
+  Documents,
+  InProgress as InProgressView,
+  OnHold as OnHoldView,
+  Operations as OperationsView,
+  Plans,
+  Questions,
+  Roadmap as RoadmapView,
+  ShopFloor as ShopFloorView,
+  Stamp,
+  Stuck as StuckView,
+} from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { Operations } from "../floor/Operations";
+import { ShopFloor } from "../floor/ShopFloor";
+import { Completed, InProgress, OnHold, Stuck } from "../floor/Work";
 import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentList, DocumentPage, OneRequirement, Requirements } from "../planning/Documents";
@@ -65,6 +81,12 @@ const titles: Record<string, string> = {
   "/document": "Document",
   "/decisions": "Decisions",
   "/questions": "Open questions",
+  "/in-progress": "In progress",
+  "/on-hold": "On hold",
+  "/stuck": "Stuck",
+  "/completed": "Completed",
+  "/shop-floor": "Shop floor",
+  "/operations": "Operations",
 };
 
 export function useDocumentTitle(path: string): void {
@@ -153,7 +175,7 @@ function questionsPage(live: Live, category: string, id: string) {
 
 // PageFor shows the view an address names. Needs you is not here, because it stays mounted behind every
 // other view, so a half-written answer survives a look elsewhere.
-export function PageFor({ route, live }: { route: Route; live: Live; after: () => Promise<void> }) {
+export function PageFor({ route, live, after }: { route: Route; live: Live; after: () => Promise<void> }) {
   const { path, params } = route;
   const param = (name: string) => params.get(name) ?? "";
   switch (path) {
@@ -175,6 +197,18 @@ export function PageFor({ route, live }: { route: Route; live: Live; after: () =
       return decisionsPage(live, param("id"));
     case "/questions":
       return questionsPage(live, param("category"), param("id"));
+    case "/in-progress":
+      return <ViewPage<InProgressView> name="in-progress" live={live} title="In progress" note={(view) => `${view.items.length} running`} body={(view) => <InProgress view={view} />} />;
+    case "/on-hold":
+      return <ViewPage<OnHoldView> name="on-hold" live={live} title="On hold" note={(view) => `${view.items.length} parked`} body={(view) => <OnHold view={view} />} />;
+    case "/stuck":
+      return <ViewPage<StuckView> name="stuck" live={live} title="Stuck" note={(view) => `${view.items.length} stopped`} body={(view) => <Stuck view={view} after={after} />} />;
+    case "/completed":
+      return <ViewPage<CompletedView> name="completed" live={live} title="Completed" note={(view) => `${view.items.length} ended`} body={(view) => <Completed view={view} />} />;
+    case "/shop-floor":
+      return <ViewPage<ShopFloorView> name="shop-floor" live={live} title="Shop floor" note={(view) => count(view.lanes.length, "lane")} body={(view) => <ShopFloor view={view} />} />;
+    case "/operations":
+      return <ViewPage<OperationsView> name="operations" live={live} title="Operations" body={(view) => <Operations view={view} />} />;
     default:
       return (
         <Page title="No such view">
