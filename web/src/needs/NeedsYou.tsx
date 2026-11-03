@@ -1,13 +1,13 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import type { NeedItem, NeedsYou as View } from "../api/types";
+import { useArrivalFocus } from "../app/route";
+import { Line, useClock } from "../parts/parts";
 import { ApprovalCard } from "./ApprovalCard";
 import { EffectCard } from "./EffectCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { waitLabel, waitWords } from "./wait";
-import { WorkCard } from "./WorkCard";
-
-const clockMs = 30_000;
+import { WorkCard, workLabels } from "./WorkCard";
 
 function headingOf(item: NeedItem): string {
   switch (item.kind) {
@@ -23,16 +23,6 @@ function headingOf(item: NeedItem): string {
       return item.work.work_order?.title || item.work.lane?.id || item.id;
   }
 }
-
-const workLabels: Record<string, string> = {
-  acceptance: "Accept",
-  blocked: "Blocked",
-  human_resume: "Parked",
-  lapsed: "Lapsed",
-  long_parked: "Long parked",
-  stalled: "Stalled",
-  tripped: "Tripped",
-};
 
 function kindOf(item: NeedItem): string {
   switch (item.kind) {
@@ -61,55 +51,40 @@ function Card({ item, after }: { item: NeedItem; after: () => Promise<void> }) {
 }
 
 function Waiting({ item, waitedMs, after }: { item: NeedItem; waitedMs: number; after: () => Promise<void> }) {
-  const heading = useId();
+  const side = (
+    <>
+      <span aria-hidden="true" className="wait-time">
+        {waitLabel(waitedMs)}
+      </span>
+      <span className="visually-hidden">{waitWords(waitedMs)}</span>
+    </>
+  );
   return (
-    <li className="need">
-      <article aria-labelledby={heading}>
-        <div className="wait">
-          <span aria-hidden="true" className="wait-time">
-            {waitLabel(waitedMs)}
-          </span>
-          <span className="visually-hidden">{waitWords(waitedMs)}</span>
-          <span className="wait-kind">{kindOf(item)}</span>
-        </div>
-        <div className="card">
-          <h2 className="card-title" id={heading}>
-            {headingOf(item)}
-          </h2>
-          <Card item={item} after={after} />
-        </div>
-      </article>
-    </li>
+    <Line side={side} kind={kindOf(item)} title={headingOf(item)}>
+      <Card item={item} after={after} />
+    </Line>
   );
 }
 
-// A wait runs on between reads, so the page counts on from the one the server stated.
-function useClock(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), clockMs);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
-
-// The order is the server's: the longest wait first.
-export function NeedsYou({ view, readAt, after }: { view: View; readAt: number; after: () => Promise<void> }) {
+// The order is the server's: the longest wait first. A wait runs on between reads, so the page counts
+// on from the one the server stated.
+export function NeedsYou({ view, readAt, after, active = true }: { view: View; readAt: number; after: () => Promise<void>; active?: boolean }) {
   const now = useClock();
   const elapsed = Math.max(0, now - readAt);
   const count = view.items.length;
   const title = useRef<HTMLHeadingElement>(null);
   const shown = useRef(count);
+  useArrivalFocus(title, active);
 
   // An answered item leaves with the button that answered it, so keyboard focus would fall out of the
   // page. It lands on the title, and the next item is one tab away. A page that just opened keeps its
   // own start, so the skip link stays the first stop.
   useEffect(() => {
-    if (count < shown.current && document.activeElement === document.body) {
+    if (active && count < shown.current && document.activeElement === document.body) {
       title.current?.focus();
     }
     shown.current = count;
-  }, [count]);
+  }, [count, active]);
 
   return (
     <>

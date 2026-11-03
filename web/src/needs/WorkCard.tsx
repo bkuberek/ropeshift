@@ -4,6 +4,16 @@ import { actOnWork, workActions } from "../api/client";
 import type { WorkAction, WorkNeed } from "../api/types";
 import { useAct } from "./useAct";
 
+export const workLabels: Record<string, string> = {
+  acceptance: "Accept",
+  blocked: "Blocked",
+  human_resume: "Parked",
+  lapsed: "Lapsed",
+  long_parked: "Long parked",
+  stalled: "Stalled",
+  tripped: "Tripped",
+};
+
 const reasonWords: Record<string, string> = {
   lapsed: "Its worker stopped renewing its lease, and it may come back.",
   blocked: "Its lane stopped, and no answer to a question would change that.",

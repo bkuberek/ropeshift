@@ -1,4 +1,15 @@
-import type { EffectOutcome, NeedsYou, WorkAction } from "./types";
+import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, WorkAction } from "./types";
+
+function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
+  const query = new URLSearchParams({ path });
+  if (instance) {
+    query.set("instance", instance);
+  }
+  if (version) {
+    query.set("version", version);
+  }
+  return query;
+}
 
 // The API's own names. A test holds them to the list the web listener serves, which a Go test writes,
 // and each row of that list names a CLI command, so the UI reaches nothing the CLI cannot.
@@ -7,6 +18,9 @@ export const paths = {
   signOut: "/v1/sessions/end",
   events: "/v1/events",
   needsYou: "/v1/views/needs-you",
+  view: (name: string, category = "") => `/v1/views/${encodeURIComponent(name)}${category ? `?${new URLSearchParams({ category })}` : ""}`,
+  documentRead: (ref: DocumentRef) => `/v1/documents/read?${documentQuery(ref)}`,
+  documentVersions: (ref: DocumentRef) => `/v1/documents/versions?${documentQuery(ref)}`,
   answer: (id: string) => `/v1/questions/${encodeURIComponent(id)}/answer`,
   decideApproval: (id: string) => `/v1/approvals/${encodeURIComponent(id)}/decide`,
   decideEffect: (id: string) => `/v1/effects/${encodeURIComponent(id)}/decide`,
@@ -74,6 +88,19 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export function readNeedsYou(): Promise<NeedsYou> {
   return call("GET", paths.needsYou);
+}
+
+// readView reads one read model. The server filters, so a page never holds what a filter left out.
+export function readView<T>(name: string, category = ""): Promise<T> {
+  return call("GET", paths.view(name, category));
+}
+
+export function readDocument(ref: DocumentRef): Promise<DocumentRow> {
+  return call("GET", paths.documentRead(ref));
+}
+
+export function readDocumentVersions(ref: DocumentRef): Promise<DocumentVersions> {
+  return call("GET", paths.documentVersions(ref));
 }
 
 export function signIn(passphrase: string): Promise<unknown> {

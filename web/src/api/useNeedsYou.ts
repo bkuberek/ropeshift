@@ -12,17 +12,22 @@ type Read = {
   failure: string;
   needsSession: boolean;
   connection: Connection;
+  // heard counts what happened since the page opened, so any other view knows to read again.
+  heard: number;
 };
 
-// A burst of events is one change to a person, so one read follows it.
+// A burst of events is one change to a person, so one read follows it. A burst that never ends still
+// reads at this bound, so a busy fleet cannot hold a page on an old read.
 const settleMs = 80;
+const settleBoundMs = 2000;
 const reopenMs = 2000;
 
-export function useNeedsYou(): Read & { reload: () => Promise<void>; forget: () => void } {
-  const [read, setRead] = useState<Read>({ view: null, readAt: 0, failure: "", needsSession: false, connection: "connecting" });
+export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSession: () => Promise<void>; forget: () => void } {
+  const [read, setRead] = useState<Read>({ view: null, readAt: 0, failure: "", needsSession: false, connection: "connecting", heard: 0 });
   const revision = useRef<number | null>(null);
 
-  const reload = useCallback(async () => {
+  // checkSession reads this view alone, which is how a view that was refused learns why.
+  const checkSession = useCallback(async () => {
     try {
       const view = await readNeedsYou();
       revision.current = view.revision;
@@ -37,6 +42,11 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; forget: () 
     }
   }, []);
 
+  const reload = useCallback(async () => {
+    await checkSession();
+    setRead((was) => ({ ...was, heard: was.heard + 1 }));
+  }, [checkSession]);
+
   // A session that ran out keeps the page behind a sign-in, for whoever comes back to finish. Signing
   // out says the opposite, so nothing of the ledger stays in the page.
   const forget = useCallback(() => {
@@ -45,8 +55,8 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; forget: () 
   }, []);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    void checkSession();
+  }, [checkSession]);
 
   const ready = read.view !== null && !read.needsSession;
   useEffect(() => {
@@ -56,12 +66,19 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; forget: () 
     let source: EventSource;
     let settling: ReturnType<typeof setTimeout> | undefined;
     let reopening: ReturnType<typeof setTimeout> | undefined;
+    let firstHeard = 0;
     const connection = (state: Connection) => setRead((was) => ({ ...was, connection: state }));
+    const settled = () => {
+      firstHeard = 0;
+      void reload();
+    };
     const open = () => {
       source = followEvents(revision.current ?? 0);
       source.addEventListener("ledger", () => {
+        const now = Date.now();
+        firstHeard = firstHeard === 0 ? now : firstHeard;
         clearTimeout(settling);
-        settling = setTimeout(() => void reload(), settleMs);
+        settling = setTimeout(settled, Math.min(settleMs, Math.max(0, firstHeard + settleBoundMs - now)));
       });
       source.onopen = () => connection("live");
       source.onerror = () => {
@@ -81,5 +98,5 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; forget: () 
     };
   }, [ready, reload]);
 
-  return { ...read, reload, forget };
+  return { ...read, reload, checkSession, forget };
 }

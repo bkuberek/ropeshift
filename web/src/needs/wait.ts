@@ -20,11 +20,8 @@ export function waitLabel(ms: number): string {
   return hours === 0 ? `${days}d` : `${days}d ${hours}h`;
 }
 
-// waitWords is the same wait for a screen reader, which reads "3h" badly.
-export function waitWords(ms: number): string {
-  if (ms < minute) {
-    return "waiting since just now";
-  }
+// spanWords says a stretch of time in the words a screen reader reads well.
+function spanWords(ms: number): string {
   const parts: string[] = [];
   const add = (amount: number, unit: string) => {
     if (amount > 0) {
@@ -36,5 +33,24 @@ export function waitWords(ms: number): string {
   if (ms < day) {
     add(Math.floor((ms % hour) / minute), "minute");
   }
-  return `waiting ${parts.join(" ")}`;
+  return parts.join(" ");
+}
+
+// waitWords is the same wait for a screen reader, which reads "3h" badly.
+export function waitWords(ms: number): string {
+  return ms < minute ? "waiting since just now" : `waiting ${spanWords(ms)}`;
+}
+
+// agoLabel says how long ago something was true, and agoWords says it to a screen reader.
+export function agoLabel(ms: number): string {
+  return ms < minute ? "just now" : `${waitLabel(ms)} ago`;
+}
+
+export function agoWords(ms: number): string {
+  return ms < minute ? "just now" : `${spanWords(ms)} ago`;
+}
+
+// forWords says how long something has lasted, to a screen reader.
+export function forWords(ms: number): string {
+  return ms < minute ? "for under a minute" : `for ${spanWords(ms)}`;
 }

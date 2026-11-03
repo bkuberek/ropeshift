@@ -31,18 +31,30 @@ main:focus,
 
 h1,
 h2,
+h3,
+h4,
 p,
 dl,
 dd,
 ol,
+ul,
+pre,
+blockquote,
 fieldset,
 legend {
   margin: 0;
   padding: 0;
 }
 
-ol {
+ol,
+ul {
   list-style: none;
+}
+
+a {
+  color: var(--marker);
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.16em;
 }
 
 fieldset {
@@ -147,6 +159,116 @@ fieldset {
   text-underline-offset: 0.16em;
 }
 
+/*
+ * The rail of views. A phone folds it behind one button, and a wide screen keeps it beside the page,
+ * with a length of the project's strand marking where a person stands.
+ */
+
+.rail {
+  padding: 0 var(--gutter);
+}
+
+.rail-toggle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.25rem 0;
+  border: 0;
+  border-bottom: 2px solid var(--muted);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+}
+
+.rail-toggle .rail-count {
+  font-size: 1.125rem;
+}
+
+.rail-lists {
+  display: none;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem 2rem;
+  padding: 0.75rem 0 0.25rem;
+}
+
+.rail-open .rail-lists {
+  display: grid;
+}
+
+.rail-name {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.rail a {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0 0.25rem 0.75rem;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+  line-height: 1.1;
+  text-decoration: none;
+}
+
+.rail a:hover {
+  color: var(--marker);
+  text-decoration: underline;
+}
+
+.rail a[aria-current="page"] {
+  box-shadow: inset 0.3125rem 0 0 var(--hemp);
+  font-weight: 900;
+}
+
+.rail-count {
+  color: var(--marker);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+@media (min-width: 64rem) {
+  .frame {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    padding: 1.25rem 0 2rem var(--gutter);
+    overflow-y: auto;
+  }
+
+  .rail-toggle {
+    display: none;
+  }
+
+  .rail-lists {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+  }
+
+  .frame .page {
+    padding-left: 2.5rem;
+  }
+}
+
 /* The page */
 
 .page {
@@ -168,6 +290,12 @@ fieldset {
   font-variation-settings: "opsz" 72;
   font-weight: 800;
   line-height: 0.95;
+  overflow-wrap: anywhere;
+}
+
+.title-long {
+  font-size: clamp(2.25rem, 5vw, 3.75rem);
+  line-height: 1.02;
 }
 
 .count {
@@ -218,6 +346,25 @@ fieldset {
   background: var(--marker);
 }
 
+/*
+ * A lane no person is wanted on: the hemp strand runs alone, with no yarn and no rung, so a rung on any
+ * page means the same thing it means in the queue.
+ */
+.queue-work {
+  --strand-x: 0rem;
+  --text-x: 1.5rem;
+}
+
+.queue-work::after,
+.need-plain::before {
+  display: none;
+}
+
+/* Parked lanes hold no process, so their strand has slack in it. */
+.queue-slack::before {
+  background: repeating-linear-gradient(to bottom, var(--hemp) 0 0.875rem, transparent 0.875rem 1.375rem);
+}
+
 .need {
   position: relative;
   padding-bottom: 2rem;
@@ -252,6 +399,14 @@ fieldset {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+.wait-word {
+  font-family: var(--display);
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.05;
 }
 
 .wait-kind {
@@ -331,6 +486,305 @@ fieldset {
 
 .fresh-old {
   font-style: italic;
+}
+
+/* Parts of a view */
+
+.group {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+}
+
+.group-title {
+  padding-bottom: 0.25rem;
+  border-bottom: 0.1875rem solid var(--hemp);
+  font-family: var(--display);
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.group > .card .card-title {
+  margin-bottom: 0.5rem;
+  font-size: clamp(1.5rem, 2.4vw, 1.875rem);
+}
+
+.rows {
+  display: grid;
+}
+
+.row {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem 0;
+  border-bottom: 2px solid var(--lane);
+}
+
+.row-title {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.row-title.mono {
+  font-family: var(--mono);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.row-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The rope of a plan: hemp is the work, and the marker is how far it got. */
+progress {
+  width: 100%;
+  height: 0.625rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--hemp);
+  appearance: none;
+}
+
+progress::-webkit-progress-bar {
+  background: var(--hemp);
+}
+
+progress::-webkit-progress-value {
+  background: var(--marker);
+}
+
+progress::-moz-progress-bar {
+  background: var(--marker);
+}
+
+.measures,
+.criteria {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 62ch;
+}
+
+.measures li,
+.criteria li {
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--hemp);
+  overflow-wrap: anywhere;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.875rem;
+}
+
+.links-stacked {
+  display: grid;
+}
+
+.back {
+  margin-bottom: 1rem;
+}
+
+.stamp {
+  margin-top: 2.5rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.statement {
+  max-width: 68ch;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.statement-page {
+  margin-bottom: 1rem;
+  font-size: clamp(1.25rem, 2vw, 1.5rem);
+  line-height: 1.35;
+}
+
+.facts-page {
+  margin-bottom: 1rem;
+}
+
+.facts dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.version {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.version + .version {
+  padding-top: 1rem;
+  border-top: 2px solid var(--hemp);
+}
+
+.version-title {
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.older > summary {
+  min-height: 2.75rem;
+  padding: 0.5rem 0;
+  color: var(--marker);
+  cursor: pointer;
+}
+
+.older[open] > summary {
+  margin-bottom: 0.25rem;
+}
+
+.lineage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0;
+}
+
+.lineage li {
+  display: flex;
+  align-items: center;
+}
+
+.lineage li + li::before {
+  content: "";
+  width: 1.25rem;
+  height: 0.1875rem;
+  margin: 0 0.5rem;
+  background: var(--hemp);
+}
+
+.lineage [aria-current] {
+  font-weight: 700;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.filters a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.25rem 0.875rem;
+  border: 2px solid var(--muted);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.filters a:hover {
+  border-color: var(--marker);
+}
+
+.filters a[aria-current] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
+  font-weight: 600;
+}
+
+/* A document's own text: what came from outside stands behind a strand of its own. */
+
+.outside {
+  max-width: 62ch;
+  padding: 0.5rem 0.75rem;
+  border-left: 0.3125rem solid var(--hemp);
+  background: var(--lane);
+  font-size: 1rem;
+}
+
+.prose {
+  display: grid;
+  gap: 0.875rem;
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+}
+
+.prose h2,
+.prose h3,
+.prose h4 {
+  margin-top: 0.75rem;
+  font-family: var(--display);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.prose h2 {
+  font-size: 2rem;
+}
+
+.prose h3 {
+  font-size: 1.625rem;
+}
+
+.prose h4 {
+  font-size: 1.375rem;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5rem;
+}
+
+.prose ul {
+  list-style: disc;
+}
+
+.prose ol {
+  list-style: decimal;
+}
+
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.875em;
+}
+
+.prose pre {
+  padding: 0.625rem 0.75rem;
+  overflow-x: auto;
+  border-left: 0.3125rem solid var(--hemp);
+  background: var(--lane);
+  font-family: var(--mono);
+  font-size: 0.9375rem;
+  overflow-wrap: normal;
+}
+
+.prose blockquote {
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--muted);
+  color: var(--muted);
+}
+
+.prose hr {
+  width: 100%;
+  border: 0;
+  border-top: 2px solid var(--hemp);
+}
+
+.address {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.875em;
 }
 
 /* Questions */

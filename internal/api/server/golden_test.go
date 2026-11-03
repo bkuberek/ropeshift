@@ -134,6 +134,14 @@ type everyState struct {
 	Views           map[string]any       `json:"views"`
 }
 
+func aWorldInEveryState(t *testing.T) *apitest.Daemon {
+	t.Helper()
+	clock := apitest.NewClock()
+	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
+	apitest.EveryState(apitest.NewWorld(t, d), clock)
+	return d
+}
+
 // TestFixtureCoversEveryState walks both state tables into one ledger and writes what it reads back,
 // which `every-state.test.tsx` holds to the views. A new state fails here until a walk reaches it and
 // a read model shows it, and then fails there until a view has words for it.
@@ -143,10 +151,7 @@ func TestFixtureCoversEveryState(t *testing.T) {
 			t.Fatalf("no walk reaches %s", state)
 		}
 	}
-	clock := apitest.NewClock()
-	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
-	apitest.EveryState(apitest.NewWorld(t, d), clock)
-
+	d := aWorldInEveryState(t)
 	fixture := everyState{
 		WorkOrderStates: workorders.States(), LaneStates: lanes.ActualStates, Conditions: lanes.EveryCondition, Liveness: apitest.EveryLiveness,
 		Reach: apitest.EveryReach, Freshness: []string{ledger.FreshnessObserved, ledger.FreshnessLastReported}, Views: map[string]any{},

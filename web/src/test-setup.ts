@@ -6,4 +6,5 @@ afterEach(() => {
   vi.unstubAllGlobals();
   document.cookie = "ropeshift_csrf=; max-age=0";
   localStorage.clear();
+  window.history.replaceState(null, "", "/");
 });

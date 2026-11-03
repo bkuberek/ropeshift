@@ -8,6 +8,17 @@ export function goldenNeedsYou(): NeedsYou {
   return structuredClone(needsYou) as unknown as NeedsYou;
 }
 
+const goldens = import.meta.glob("../testdata/*.json", { eager: true, import: "default" });
+
+// golden reads what a Go test wrote, by the name of its file, in a copy a test may change.
+export function golden<T>(name: string): T {
+  const found = goldens[`../testdata/${name}.json`];
+  if (!found) {
+    throw new Error(`no golden named ${name}`);
+  }
+  return structuredClone(found) as T;
+}
+
 export type Sent = { method: string; path: string; body: unknown; csrf: string | null };
 
 type Answer = { status: number; body?: unknown };
@@ -36,6 +47,28 @@ export function serveApi(answers: (sent: Sent) => Answer | undefined) {
 }
 
 export const refusal = (status: number, code: string, message = code) => ({ status, body: { error: { code, message } } });
+
+// serveViews answers every view from its golden, and a document's reads from theirs. A test answers
+// anything else, or answers differently, by returning something from `answer`.
+export function serveViews(answer?: (sent: Sent) => Answer | undefined) {
+  return serveApi((call) => {
+    const own = answer?.(call);
+    if (own) {
+      return own;
+    }
+    const view = /^\/v1\/views\/([a-z-]+)/.exec(call.path)?.[1];
+    if (view) {
+      return { status: 200, body: golden(view) };
+    }
+    if (call.path.startsWith("/v1/documents/read")) {
+      return { status: 200, body: golden("document") };
+    }
+    if (call.path.startsWith("/v1/documents/versions")) {
+      return { status: 200, body: golden("document-versions") };
+    }
+    return undefined;
+  });
+}
 
 // FakeEvents stands for a browser's stream, which jsdom does not have.
 export class FakeEvents {
