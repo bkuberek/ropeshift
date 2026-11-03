@@ -213,6 +213,12 @@ func (e *Exporter) Run(ctx context.Context) {
 	}
 	defer close(e.done)
 	for {
+		// A stop comes before the queue, because a select picks among ready cases at random, and each
+		// request sent outside the drain could hold a stop one more timeout.
+		if ctx.Err() != nil {
+			e.drain()
+			return
+		}
 		select {
 		case request := <-e.queue:
 			e.send(ctx, context.WithoutCancel(ctx), request)

@@ -76,6 +76,8 @@ func exportThrough(t *testing.T, config otel.ExportConfig, path, body string) {
 
 // TestAStopDrainsWithinOneTimeout queues requests for a backend that never answers and stops the
 // exporter: the drain gives up after one timeout in all, rather than one per request or none at all.
+// A stop that sends a queued request outside the drain costs a second timeout, and Go picks among
+// ready cases at random, so the stop is repeated until such a pick would almost surely show.
 func TestAStopDrainsWithinOneTimeout(t *testing.T) {
 	held := make(chan struct{})
 	var heard atomic.Int32
@@ -88,27 +90,29 @@ func TestAStopDrainsWithinOneTimeout(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	t.Cleanup(func() { close(held) })
-	const timeout = 300 * time.Millisecond
-	exporter := otel.NewExporter(otel.ExportConfig{Endpoints: map[otel.Signal]string{otel.Logs: server.URL + "/v1/logs"}, Timeout: timeout, Backoff: time.Millisecond})
+	const timeout = 200 * time.Millisecond
 	request, err := otel.Decode(otel.Logs, []byte(logsBody))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range 5 {
-		exporter.Forward(request)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	started := time.Now()
-	exporter.Run(ctx)
-	if took := time.Since(started); took > 3*timeout {
-		t.Errorf("a stop took %v against a backend that does not answer, with a timeout of %v", took, timeout)
+	for stop := range 6 {
+		exporter := otel.NewExporter(otel.ExportConfig{Endpoints: map[otel.Signal]string{otel.Logs: server.URL + "/v1/logs"}, Timeout: timeout, Backoff: time.Millisecond})
+		for range 5 {
+			exporter.Forward(request)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		started := time.Now()
+		exporter.Run(ctx)
+		if took := time.Since(started); took > timeout+timeout/2 {
+			t.Fatalf("stop %d took %v against a backend that does not answer, with a timeout of %v", stop, took, timeout)
+		}
+		if sent, _ := exporter.Counts(); sent != 0 {
+			t.Errorf("%d requests counted as sent to a backend that never answered", sent)
+		}
 	}
 	if heard.Load() == 0 {
 		t.Error("the drain sent nothing of what was queued")
-	}
-	if sent, _ := exporter.Counts(); sent != 0 {
-		t.Errorf("%d requests counted as sent to a backend that never answered", sent)
 	}
 }
 
