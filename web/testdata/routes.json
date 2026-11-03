@@ -66,6 +66,11 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/work-orders/{id}/cancel",
+    "command": "work cancel"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/work-orders/{id}/lane-reset",
     "command": "lane reset"
   },

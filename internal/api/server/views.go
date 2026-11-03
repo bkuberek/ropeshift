@@ -198,9 +198,9 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 		need := api.WorkNeed{WorkOrder: order, Lane: f.ofWork[order.ID]}
 		switch order.State {
 		case workorders.Lapsed:
-			need.Reason, need.Actions = api.ReasonLapsed, []string{api.ActReassign}
+			need.Reason, need.Actions = api.ReasonLapsed, []string{api.ActReassign, api.ActCancel}
 		case workorders.Blocked:
-			need.Reason, need.Actions = api.ReasonBlocked, []string{api.ActResolve, api.ActReplan}
+			need.Reason, need.Actions = api.ReasonBlocked, []string{api.ActResolve, api.ActReplan, api.ActCancel}
 			if need.Detail, err = arrivalReason(tx, *order); err != nil {
 				return nil, err
 			}
@@ -208,9 +208,9 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 			if now-since < h.longParked() {
 				continue
 			}
-			need.Reason = api.ReasonLongParked
+			need.Reason, need.Actions = api.ReasonLongParked, []string{api.ActCancel}
 			if need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) {
-				need.Actions = []string{api.ActResume}
+				need.Actions = []string{api.ActResume, api.ActCancel}
 			}
 		}
 		add(order.ID, since, need)
@@ -224,26 +224,19 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 		if at := slices.IndexFunc(f.orders, func(row workorders.WorkOrder) bool { return row.ID == lane.WorkOrder }); at >= 0 {
 			order = &f.orders[at]
 		}
-		id := lane.WorkOrder
-		if id == "" {
-			id = lane.ID
+		if order == nil || workorders.Terminal(order.State) {
+			continue
 		}
 		need := api.WorkNeed{WorkOrder: order, Lane: lane}
 		switch {
 		case lane.ActualState == "tripped":
-			need.Reason = api.ReasonTripped
-			if order != nil {
-				need.Actions = []string{api.ActReset}
-			}
+			need.Reason, need.Actions = api.ReasonTripped, []string{api.ActReset, api.ActCancel}
 		case slices.Contains(lane.Conditions, "stalled"):
-			need.Reason = api.ReasonStalled
-			if order != nil {
-				need.Actions = []string{api.ActRespawn}
-			}
+			need.Reason, need.Actions = api.ReasonStalled, []string{api.ActRespawn, api.ActCancel}
 		default:
 			continue
 		}
-		add(id, f.rows[lane.ID].ReportedAt, need)
+		add(lane.WorkOrder, f.rows[lane.ID].ReportedAt, need)
 	}
 	slices.SortStableFunc(items, func(a, b api.StuckItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil

@@ -7,7 +7,8 @@
       "since": 1790000060001,
       "work": {
         "actions": [
-          "reassign"
+          "reassign",
+          "cancel"
         ],
         "lane": {
           "actual_state": "working",
@@ -57,7 +58,8 @@
       "work": {
         "actions": [
           "resolve",
-          "replan"
+          "replan",
+          "cancel"
         ],
         "detail": "no_outcome",
         "lane": {
@@ -317,7 +319,8 @@
       "since": 1790000540001,
       "work": {
         "actions": [
-          "respawn"
+          "respawn",
+          "cancel"
         ],
         "lane": {
           "actual_state": "working",
@@ -369,7 +372,8 @@
       "since": 1790000540001,
       "work": {
         "actions": [
-          "reset"
+          "reset",
+          "cancel"
         ],
         "lane": {
           "actual_state": "tripped",

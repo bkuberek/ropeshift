@@ -217,6 +217,9 @@ type LeaseWriter interface {
 	End(lease workorders.Lease, to workorders.State, attempts int64) (bool, error)
 	// Park releases a running lease with its process gone, and moves the fence.
 	Park(lease workorders.Lease) (bool, error)
+	// Cancel ends a work order from the state and fence read, and clears any holder. The fence
+	// moves when the state held a lease.
+	Cancel(workOrder string, from workorders.State, fence int64, held bool) (bool, error)
 }
 
 // ClaimReader reads claims.

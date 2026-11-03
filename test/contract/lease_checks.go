@@ -1559,7 +1559,7 @@ func checkMovesFollowTheTable(r *Rig) error {
 	if err := ops.Move(r.Ctx, r.Scope, id, workorders.TriggerBackToReview, r.Actor); err != nil {
 		return err
 	}
-	if err := ops.Move(r.Ctx, r.Scope, id, workorders.TriggerCanceled, r.Actor); err != nil {
+	if err := ops.Cancel(r.Ctx, r.Scope, id, "no longer wanted", r.Actor); err != nil {
 		return err
 	}
 	if err := ops.Move(r.Ctx, r.Scope, id, workorders.TriggerReadyPassed, r.Actor); !errors.Is(err, workorders.ErrIllegalMove) {

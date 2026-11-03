@@ -101,6 +101,7 @@ type Ops interface {
 	Return(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, ttlMs int64, actor ledger.Actor) error
 	Release(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, actor ledger.Actor) error
 	Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrder, reason string, actor ledger.Actor) error
+	Cancel(ctx context.Context, scope ledger.WorkspaceID, workOrder, reason string, actor ledger.Actor) error
 	StartLane(ctx context.Context, scope ledger.WorkspaceID, lease workorders.Lease, lane string, actor ledger.Actor) (int64, error)
 	Write(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, writeID string, payload []byte, actor ledger.Actor) (ledger.Event, error)
 	Handoff(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, actor ledger.Actor) (int64, error)

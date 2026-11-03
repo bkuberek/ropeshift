@@ -449,6 +449,139 @@ func (l *Leases) Reassign(ctx context.Context, scope ledger.WorkspaceID, workOrd
 	})
 }
 
+// Cancel ends a work order for good, from any state that is not terminal, in one transaction. Only a
+// member can ask, because no automatic step and no agent may throw away work. The fence moves with any
+// holder's ownership, so a lane still running can write nothing more, and its worker stops it because
+// desired state no longer names its claim. A lane with no process has nothing to stop, so it ends
+// here. A retry that finds the work canceled is done.
+func (l *Leases) Cancel(ctx context.Context, scope ledger.WorkspaceID, workOrder, reason string, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionCancelWork) {
+		return workorders.ErrForbidden
+	}
+	if reason == "" {
+		return fmt.Errorf("%w: a cancel needs a reason", workorders.ErrInvalid)
+	}
+	return l.store.Write(ctx, scope, "cancel", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(workOrder)
+		if err != nil {
+			return err
+		}
+		if current.State == workorders.Canceled {
+			return nil
+		}
+		edge, ok := workorders.Next(current.State, workorders.TriggerCanceled)
+		if !ok {
+			return fmt.Errorf("%w: canceling %s work", workorders.ErrIllegalMove, current.State)
+		}
+		won, err := tx.Leases().Cancel(workOrder, edge.From, current.Fence, edge.Leased)
+		if err != nil {
+			return err
+		}
+		if !won {
+			return fmt.Errorf("%w: canceling %s work", workorders.ErrIllegalMove, current.State)
+		}
+		crashpoint.Hit("cancel", "moved")
+		change := workorders.Change{Trigger: workorders.TriggerCanceled, ClaimID: current.ClaimID, Reason: reason}
+		if edge.Leased {
+			change.Fence = current.Fence + 1
+			if err := tx.Claims().End(current.ClaimID, workorders.EndCanceled); err != nil {
+				return err
+			}
+		}
+		if err := endParkedLanes(tx, workOrder, actor); err != nil {
+			return err
+		}
+		crashpoint.Hit("cancel", "lanes-ended")
+		if err := rollWorkOrder(tx, workOrder, actor); err != nil {
+			return err
+		}
+		if err := retireWakes(tx, workOrder, parking.RetiredCanceled); err != nil {
+			return err
+		}
+		event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerCanceled), workOrder, change, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+}
+
+// endParkedLanes ends the lanes of canceled work that have no process, which no worker will report.
+// A lane still parking has one, and its worker ends it.
+func endParkedLanes(tx ports.WriteTx, workOrder string, actor ledger.Actor) error {
+	if leavesParkedLanes() {
+		return nil
+	}
+	rows, err := tx.Lanes().Rows()
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.WorkOrder != workOrder || row.Status.ActualState != ledger.StateParked {
+			continue
+		}
+		data, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonCanceled})
+		if err != nil {
+			return err
+		}
+		draft := ledger.EventDraft{Type: ledger.EventLaneEnded, Actor: actor, Data: data, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: row.ID}}
+		if err := closeLane(tx, row, draft); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// closeLane records the end of a lane of canceled work, with the event that says so.
+func closeLane(tx ports.WriteTx, row ledger.LaneRow, draft ledger.EventDraft) error {
+	if err := tx.Lanes().MarkEnded(row.ID); err != nil {
+		return err
+	}
+	if err := tx.Lanes().EndGeneration(row.ID, row.Generation, workorders.ReasonCanceled); err != nil {
+		return err
+	}
+	_, err := tx.Append(draft)
+	return err
+}
+
+// endCanceled takes the end of a lane whose work a member canceled. It moves no work order, and the
+// fence would refuse it, so it answers to who ran the lane: this worker, under the claim the lane
+// started on, at its current generation. Anything else is a stranger's word, and the fence answers it.
+func endCanceled(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp func(*ledger.EventDraft)) (bool, error) {
+	order, err := tx.WorkOrders().Get(e.WorkOrder)
+	if err != nil || order.State != workorders.Canceled {
+		return false, err
+	}
+	row, err := tx.Lanes().Row(e.Lane)
+	if errors.Is(err, ports.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	claim, err := tx.Claims().Find(e.ClaimID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	ran := row.WorkOrder == e.WorkOrder && claim.WorkOrder == e.WorkOrder && claim.Worker == worker && claim.Fence == row.StartedFence
+	if (!ran && !endsAnyCanceledLane()) || row.Generation != e.Generation || row.Status.ActualState == ledger.StateEnded {
+		return false, nil
+	}
+	draft := ledger.EventDraft{
+		Type: ledger.EventLaneEnded, Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, Data: e.Payload,
+		Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: e.Lane},
+	}
+	stamp(&draft)
+	if err := closeLane(tx, row, draft); err != nil {
+		return false, err
+	}
+	return true, rollMessages(tx, e.Lane, e.Generation, false, draft.Actor)
+}
+
 // StartLane moves a claimed work order to running and records the lane's first
 // generation under this fence. A retry after a lost answer returns the generation
 // the lane already has.

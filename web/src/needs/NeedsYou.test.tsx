@@ -316,6 +316,18 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ path: "/v1/work-orders/wo-lapsed/reassign", body: { reason: "The worker is gone." } });
   });
 
+  it("cancels work only once a person says why", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show();
+    const card = cardNamed(/Move the archive/);
+    await userEvent.click(within(card).getByRole("button", { name: "Cancel this work" }));
+    expect(sent).toHaveLength(0);
+    await userEvent.type(within(card).getByRole("textbox", { name: "Why" }), "The plan changed.");
+    await userEvent.click(within(card).getByRole("button", { name: "Cancel this work" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-blocked/cancel", body: { reason: "The plan changed." } });
+  });
+
   it("offers both ways out of blocked", () => {
     show();
     const card = cardNamed(/Move the archive/);

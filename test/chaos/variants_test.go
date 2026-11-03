@@ -841,7 +841,7 @@ func allVariants() []variant {
 	noStateGuard := sqlstore.Sabotage{Rewrite: replace("lease.grant", stateGuard, "")}
 	noFencePredicate := sqlstore.Sabotage{Rewrite: replace("lease.guard", fenceGuard, "")}
 	memoryFences := sqlstore.Sabotage{Rewrite: fenceInMemory}
-	return append(slices.Concat(handoffVariants(), wakeVariants(), parkVariants(), orchestratorVariants(), autonomyVariants(), planLaneVariants(), resumeVariants(), messageVariants(), effectVariants(), limitVariants(), packVariants()), []variant{
+	return append(slices.Concat(handoffVariants(), wakeVariants(), parkVariants(), orchestratorVariants(), autonomyVariants(), planLaneVariants(), resumeVariants(), messageVariants(), effectVariants(), limitVariants(), packVariants(), cancelVariants()), []variant{
 		{
 			name:     "revision taken last",
 			sabotage: sqlstore.Sabotage{RevisionLast: true},
@@ -1420,6 +1420,8 @@ func runVariant(t *testing.T, v variant) error {
 		return runCrashCase(newWorld(t, v.name), c, step)
 	case "paused":
 		return checkPausedWorker(newWorld(t, v.name))
+	case "canceled":
+		return checkCanceledStops(newWorld(t, v.name))
 	case "plane":
 		sqlstore.Sabotaged(v.sabotage)
 		defer sqlstore.Sabotaged(sqlstore.Sabotage{})

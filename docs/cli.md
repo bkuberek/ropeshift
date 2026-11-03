@@ -20,6 +20,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift work claim <id> --worker W [--claim-id C]` | Claims a work order for a worker. A retry with the same claim ID returns the grant |
 | `ropeshift work release <id> --claim-id C --fence N` | Gives back a claim whose lane has not started |
 | `ropeshift work reassign <id> --reason R` | Ends a lapsed holder's ownership, which moves the fence |
+| `ropeshift work cancel <id> --reason R` | Ends a work order for good, from any state that is not terminal, which only a member can do. Any claim ends and the fence moves, so a lane can write nothing more. A parked lane ends at once. A lane with a process stops through the guard when its worker hears, saves what it holds to a ref, and reads as last reported until then. Canceling work that is already canceled changes nothing, and finished or failed work exits 4 |
 | `ropeshift work send-back <id> --reason R` | Returns a work order in review to `planning`, because its contract must change. It voids the review, and the contract's next version returns the work to review |
 | `ropeshift work resolve <id> --reason R` | Returns blocked work to `ready` with its review standing, once whatever stopped the lane is fixed |
 | `ropeshift work replan <id> --reason R` | Returns blocked work to `planning`, which voids its review, because its contract must change. Only a member can take work out of `blocked` |

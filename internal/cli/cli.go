@@ -38,6 +38,7 @@ const usage = `usage: ropeshift <command>
   work claim <id> --worker W [--claim-id C]          claim a work order
   work release <id> --claim-id C --fence N           give a claim back
   work reassign <id> --reason R                      end a lapsed holder's ownership
+  work cancel <id> --reason R                        end work for good, which stops its lane
   work send-back <id> --reason R                     return reviewed work to planning
   work resolve <id> --reason R                       return blocked work to ready
   work replan <id> --reason R                        return blocked work to planning
@@ -206,6 +207,7 @@ func commands() map[string]func(*invocation, []string) int {
 		"work claim":              (*invocation).workClaim,
 		"work release":            (*invocation).workRelease,
 		"work reassign":           (*invocation).workReassign,
+		"work cancel":             (*invocation).workCancel,
 		"work send-back":          (*invocation).workSendBack,
 		"work resolve":            (*invocation).workResolve,
 		"work replan":             (*invocation).workReplan,

@@ -108,6 +108,7 @@ const (
 	EndReleased   = "released"
 	EndReassigned = "reassigned"
 	EndParked     = "parked"
+	EndCanceled   = "canceled"
 )
 
 // Reject turns a guarded statement's row count of 0 into an instruction, because

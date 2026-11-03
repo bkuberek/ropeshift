@@ -654,6 +654,10 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		if err := json.Unmarshal(e.Payload, &result); err != nil {
 			return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
 		}
+		ended, err := endCanceled(tx, worker, e, stamp)
+		if ended || err != nil {
+			return err
+		}
 		holder := workorders.Holder{Lease: lease, Lane: e.Lane, Generation: e.Generation}
 		return endLane(tx, holder, result, ledger.Actor{Kind: ledger.ActorLane, ID: e.Lane}, stamp)
 	}

@@ -76,6 +76,7 @@ const (
 	ActResume   = "resume"
 	ActAccept   = "accept"
 	ActRework   = "rework"
+	ActCancel   = "cancel"
 )
 
 // EffectView is an effect with what a person can say of it.

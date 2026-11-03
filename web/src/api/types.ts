@@ -96,7 +96,7 @@ export type WorkOrder = {
   review_pins?: string[];
 };
 
-export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework";
+export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel";
 
 export type WorkNeed = {
   reason: string;

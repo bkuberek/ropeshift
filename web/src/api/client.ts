@@ -33,6 +33,7 @@ export const workActions: Record<WorkAction, { verb: string; needsReason: boolea
   resolve: { verb: "resolve", needsReason: true },
   replan: { verb: "replan", needsReason: true },
   rework: { verb: "rework", needsReason: true },
+  cancel: { verb: "cancel", needsReason: true },
   accept: { verb: "accept", needsReason: false },
   reset: { verb: "lane-reset", needsReason: false },
   respawn: { verb: "lane-respawn", needsReason: false },

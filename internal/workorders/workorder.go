@@ -342,6 +342,14 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 		w.ResumeLaneID = change.Lane
 	case TriggerContractChange:
 		w.ReviewedBy = ""
+	case TriggerCanceled:
+		if edge.Leased {
+			if change.Fence <= w.Fence {
+				return w, fmt.Errorf("%w: canceled at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
+			}
+			w.Fence = change.Fence
+		}
+		w.ClaimID, w.LeaseWorker, w.LeaseUntil, w.ResumeLaneID = "", "", 0, ""
 	}
 	w.State = edge.To
 	return w, nil

@@ -20,6 +20,9 @@ const (
 	ReasonNoRepository    = "no_repository"
 	ReasonWorkerRestarted = "worker_restarted"
 	ReasonFenced          = "fenced"
+	// ReasonCanceled says a member canceled the work this lane ran. The ledger records it, because a
+	// worker hears only that its lease went.
+	ReasonCanceled = "canceled"
 	// ReasonUnknownScreen says a checked start stopped on a screen the driver does not
 	// know. It stands for the human_resume wake until lanes can park.
 	ReasonUnknownScreen = "unknown_screen"

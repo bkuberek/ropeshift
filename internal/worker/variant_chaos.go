@@ -53,6 +53,8 @@ const (
 	SabotageSplitsEffect = "splits-effect"
 	// SabotageDropsFacts starts a generation that was told nothing of what it inherited.
 	SabotageDropsFacts = "drops-facts"
+	// SabotageKeepsLostLanes stops a lane only when a beat says its lease went.
+	SabotageKeepsLostLanes = "keeps-lost-lanes"
 	// SabotageSplitsSignal clears a limit in one journal write and says so in another.
 	SabotageSplitsSignal = "splits-signal"
 	// SabotageForgetsLimit keeps what a worker knows of a sign-in in memory alone.
@@ -102,6 +104,8 @@ func splitsMessage() bool { return sabotaged(SabotageSplitsMessage) }
 func splitsEffect() bool { return sabotaged(SabotageSplitsEffect) }
 
 func dropsFacts() bool { return sabotaged(SabotageDropsFacts) }
+
+func keepsLostLanes() bool { return sabotaged(SabotageKeepsLostLanes) }
 
 func splitsSignal() bool { return sabotaged(SabotageSplitsSignal) }
 

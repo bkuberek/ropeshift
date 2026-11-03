@@ -321,6 +321,29 @@ func (c *invocation) workReassign(args []string) int {
 	}{id}, func() string { return id + "\treassigned\n" })
 }
 
+// workCancel ends work for good. It answers when the ledger holds that, and a lane with a process
+// stops when its worker hears, so `lane show` follows the lane from there.
+func (c *invocation) workCancel(args []string) int {
+	set := c.flags()
+	var request api.CancelWork
+	set.StringVar(&request.Reason, "reason", "", "why this work is over")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	if request.Reason == "" {
+		return c.usageError("--reason is required")
+	}
+	client := c.client()
+	defer client.Close()
+	result, err := client.CancelWork(c.ctx, id, request)
+	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.State) })
+}
+
 // laneStart asks the worker holding a claim to run a lane (FR-WO-9). It returns as soon
 // as the ledger holds the request, and `work show` follows the lane from there.
 func (c *invocation) laneStart(args []string) int {

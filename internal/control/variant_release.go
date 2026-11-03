@@ -88,3 +88,9 @@ func keepsParkWanted() bool { return false }
 
 // ignoresPins is false: a notice finds every lane whose pack holds what changed.
 func ignoresPins() bool { return false }
+
+// leavesParkedLanes is false: a cancel ends a lane with no process, which no worker will report.
+func leavesParkedLanes() bool { return false }
+
+// endsAnyCanceledLane is false: only the worker that ran a lane says it ended.
+func endsAnyCanceledLane() bool { return false }

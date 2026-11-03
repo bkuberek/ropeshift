@@ -17,6 +17,9 @@ const (
 	ActionAddCategory     Action = "category.add"
 	ActionAnswerQuestion  Action = "question.answer"
 	ActionArchiveLane     Action = "lane.archive"
+	// ActionCancelWork ends a work order for good. It throws away a claim and whatever a lane was
+	// doing, so no row below may ever grant it.
+	ActionCancelWork Action = "work_order.cancel"
 	// ActionAddPackItem adds a record to a work order's next context pack.
 	ActionAddPackItem     Action = "pack.add_item"
 	ActionChangeFleet     Action = "fleet.change"
@@ -69,7 +72,7 @@ const (
 func Actions() []Action {
 	return []Action{
 		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAddCategory, ActionAddPackItem, ActionAnswerQuestion,
-		ActionArchiveLane, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
+		ActionArchiveLane, ActionCancelWork, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,

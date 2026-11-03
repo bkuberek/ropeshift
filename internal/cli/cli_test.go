@@ -405,6 +405,39 @@ func TestWorkSendBack(t *testing.T) {
 	}
 }
 
+func TestWorkCancel(t *testing.T) {
+	s := newSession(t)
+	s.ready("wo")
+	if code, _, _ := s.run("work", "cancel", "wo"); code != cli.ExitUsage {
+		t.Errorf("no reason: exit %d", code)
+	}
+	if text := s.must("work", "cancel", "wo", "--reason", "The plan changed"); text != "wo\tcanceled\n" {
+		t.Errorf("text %q", text)
+	}
+	if text := s.must("work", "show", "wo"); !strings.Contains(text, "canceled") {
+		t.Errorf("show %q", text)
+	}
+	var answer api.Accepted
+	if err := json.Unmarshal([]byte(s.must("work", "cancel", "wo", "--reason", "A retry", "--json")), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if answer.State != workorders.Canceled {
+		t.Errorf("answer %+v", answer)
+	}
+	if code, _, _ := s.run("work", "cancel", "no-such-work", "--reason", "Gone"); code != cli.ExitNotFound {
+		t.Errorf("unknown work: exit %d", code)
+	}
+	s.completed("finished")
+	s.must("work", "accept", "finished")
+	if code, _, stderr := s.run("work", "cancel", "finished", "--reason", "Too late"); code != cli.ExitConflict {
+		t.Errorf("finished work: exit %d, %s", code, stderr)
+	}
+	s.ready("held")
+	if code, _, _ := run(t, s.daemon.Socket, "work", "cancel", "held", "--reason", "No session"); code != cli.ExitForbidden {
+		t.Errorf("no session: exit %d", code)
+	}
+}
+
 // A work order in any other state refuses, and the route that refuses is what this test holds: the
 // contract suite walks blocked work through both edges.
 func TestWorkResolveAndReplanReachTheLedger(t *testing.T) {

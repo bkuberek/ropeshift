@@ -286,7 +286,7 @@ func (r *laneRun) lost(ctx context.Context) {
 // parked wrote that to its journal before the ledger heard, so it is no loss.
 func (w *Worker) stopLost(ctx context.Context) {
 	state, err := w.desired(ctx)
-	if err != nil || state.Rev == 0 {
+	if err != nil || state.Rev == 0 || keepsLostLanes() {
 		return
 	}
 	named := map[string]bool{}

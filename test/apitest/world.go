@@ -103,6 +103,9 @@ func NewWorld(t *testing.T, d *Daemon) *World {
 // must not be.
 func (w *World) Credential() string { return w.auth.Credential }
 
+// Epoch is this world's worker's session, for a test that speaks as it.
+func (w *World) Epoch() int64 { return w.epoch }
+
 // Lane is a lane a world runs, and the claim it runs under.
 type Lane struct {
 	w     *World
@@ -140,10 +143,10 @@ func (w *World) Ready(id, title string) {
 	}
 }
 
-// Cancel takes a work order to `canceled`, an edge no route of the API offers yet.
+// Cancel takes a work order to `canceled`, for a reason a read model shows.
 func (w *World) Cancel(id string) {
 	w.t.Helper()
-	if err := control.NewWorkOrders(w.Daemon.Store).Move(w.ctx, Scope, id, workorders.TriggerCanceled, worldMember); err != nil {
+	if err := control.NewLeases(w.Daemon.Store).Cancel(w.ctx, Scope, id, "The plan changed", worldMember); err != nil {
 		w.t.Fatal(err)
 	}
 }
@@ -178,17 +181,23 @@ func (l *Lane) Upload(eventType string, payload any) {
 		}
 		raw = encoded
 	}
+	if rejected := l.Refused(eventType, raw); len(rejected) != 0 {
+		l.w.t.Fatalf("%s was refused: %+v", eventType, rejected)
+	}
+}
+
+// Refused sends one event of this lane and returns what the ledger refused of it.
+func (l *Lane) Refused(eventType string, payload []byte) []ledger.UploadResult {
+	l.w.t.Helper()
 	l.w.seq++
 	reply, err := l.w.plane.Upload(l.w.ctx, ledger.UploadBatch{Auth: l.w.auth, Epoch: l.w.epoch, Events: []ledger.UploadEvent{{
 		Epoch: l.w.epoch, Seq: l.w.seq, Type: eventType, WorkOrder: l.Grant.WorkOrder, ClaimID: l.Grant.ClaimID,
-		Fence: l.Grant.Fence, Lane: l.ID, Generation: 1, Payload: raw, OccurredAt: 1,
+		Fence: l.Grant.Fence, Lane: l.ID, Generation: 1, Payload: payload, OccurredAt: 1,
 	}}})
 	if err != nil {
 		l.w.t.Fatal(err)
 	}
-	if len(reply.Rejected) != 0 {
-		l.w.t.Fatalf("%s was refused: %+v", eventType, reply.Rejected)
-	}
+	return reply.Rejected
 }
 
 // Status reports a lane's state.

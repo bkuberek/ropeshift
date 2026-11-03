@@ -168,10 +168,10 @@ func TestNeedsYouCarriesWhatItTakesToAnswer(t *testing.T) {
 		t.Errorf("effect %+v", effect)
 	}
 	cases := map[string][]string{
-		api.ReasonLapsed:     {api.ActReassign},
-		api.ReasonBlocked:    {api.ActResolve, api.ActReplan},
-		api.ReasonTripped:    {api.ActReset},
-		api.ReasonStalled:    {api.ActRespawn},
+		api.ReasonLapsed:     {api.ActReassign, api.ActCancel},
+		api.ReasonBlocked:    {api.ActResolve, api.ActReplan, api.ActCancel},
+		api.ReasonTripped:    {api.ActReset, api.ActCancel},
+		api.ReasonStalled:    {api.ActRespawn, api.ActCancel},
 		api.ReasonAcceptance: {api.ActAccept, api.ActRework},
 		api.ReasonResume:     {api.ActResume},
 	}
@@ -443,7 +443,7 @@ func TestALongParkedLaneStandsOnceInNeedsYou(t *testing.T) {
 	if len(found) != 1 {
 		t.Fatalf("items %+v", found)
 	}
-	if work := found[0].Work; work.Reason != api.ReasonLongParked || !slices.Equal(work.Actions, []string{api.ActResume}) {
+	if work := found[0].Work; work.Reason != api.ReasonLongParked || !slices.Equal(work.Actions, []string{api.ActResume, api.ActCancel}) {
 		t.Errorf("work %+v", work)
 	}
 }

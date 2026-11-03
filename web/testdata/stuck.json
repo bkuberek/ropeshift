@@ -3,7 +3,8 @@
   "items": [
     {
       "actions": [
-        "reassign"
+        "reassign",
+        "cancel"
       ],
       "id": "wo-lapsed",
       "lane": {
@@ -50,7 +51,8 @@
     {
       "actions": [
         "resolve",
-        "replan"
+        "replan",
+        "cancel"
       ],
       "detail": "no_outcome",
       "id": "wo-blocked",
@@ -107,7 +109,8 @@
     },
     {
       "actions": [
-        "respawn"
+        "respawn",
+        "cancel"
       ],
       "id": "wo-stalled",
       "lane": {
@@ -156,7 +159,8 @@
     },
     {
       "actions": [
-        "reset"
+        "reset",
+        "cancel"
       ],
       "id": "wo-tripped",
       "lane": {

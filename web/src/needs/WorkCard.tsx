@@ -35,6 +35,7 @@ const actionWords: Record<WorkAction, string> = {
   resume: "Resume",
   accept: "Accept",
   rework: "Send back for rework",
+  cancel: "Cancel this work",
 };
 
 // Some answers change who owns work, so they say why. Those ask only after the press, and an action

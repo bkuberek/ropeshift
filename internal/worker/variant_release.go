@@ -55,6 +55,9 @@ func splitsEffect() bool { return false }
 // dropsFacts is false: a generation's first prompt states what it inherited.
 func dropsFacts() bool { return false }
 
+// keepsLostLanes is false: a lane desired state stopped naming stops.
+func keepsLostLanes() bool { return false }
+
 // splitsSignal is false: a normal build keeps a limit's end and its signal together.
 func splitsSignal() bool { return false }
 

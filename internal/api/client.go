@@ -198,6 +198,13 @@ func (c *Client) Rework(ctx context.Context, id string, in ReworkRequest) (Accep
 	return out, err
 }
 
+// CancelWork ends a work order for good.
+func (c *Client) CancelWork(ctx context.Context, id string, in CancelWork) (Accepted, error) {
+	var out Accepted
+	err := c.Do(ctx, http.MethodPost, workOrderPath(id, "cancel"), in, &out)
+	return out, err
+}
+
 // StartLane asks the claim's worker to run a lane.
 func (c *Client) StartLane(ctx context.Context, id string, in StartLane) (LaneDispatched, error) {
 	var out LaneDispatched

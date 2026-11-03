@@ -719,7 +719,7 @@ func checkTerminalNotWoken(r *Rig) error {
 		return err
 	}
 	ops := r.NewOps(s)
-	if err := ops.Move(r.Ctx, r.Scope, request.WorkOrder, workorders.TriggerCanceled, r.Actor); err != nil {
+	if err := ops.Cancel(r.Ctx, r.Scope, request.WorkOrder, "no longer wanted", r.Actor); err != nil {
 		return err
 	}
 	r.DB.ShiftClock(aheadMs + 1)

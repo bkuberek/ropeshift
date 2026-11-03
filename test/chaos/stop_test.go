@@ -24,6 +24,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/control"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/worker"
@@ -159,6 +160,8 @@ func applyStopVariant(variant string) {
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageNoGuard)
 	case sabotageKeeps:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageKeepResources)
+	case sabotageKeepsLost:
+		_ = os.Setenv(worker.EnvSabotage, worker.SabotageKeepsLostLanes)
 	}
 }
 
@@ -214,10 +217,22 @@ func roleWorkerStop(c *child) error {
 		stop := beatUntilDone(c.ctx, subject)
 		defer stop()
 	}
+	if c.spec.Script == laneCanceled {
+		driver.fence = c.cancelsWork()
+	}
 	driver.Play(driver.script())
 	_, err = client.StartLane(c.ctx, c.spec.WorkOrder, api.StartLane{LaneID: c.spec.Lane})
 	if err != nil && !errors.As(err, &refused) {
 		return err
+	}
+	if c.spec.Script == laneCanceled {
+		return c.passUntilEnded(subject, func(ctx context.Context) (bool, error) {
+			record, err := journal.Lane(ctx, c.spec.Lane)
+			if errors.Is(err, ports.ErrNotFound) {
+				return false, nil
+			}
+			return record.State == lanes.StateEnded, err
+		})
 	}
 	if err := subject.Converge(c.ctx); err != nil {
 		return err

@@ -112,6 +112,7 @@ func New(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/work-orders/{id}/claims", h.claim)
 	mux.HandleFunc("POST /v1/work-orders/{id}/claims/{claim}/release", h.member(h.release))
 	mux.HandleFunc("POST /v1/work-orders/{id}/reassign", h.member(h.reassign))
+	mux.HandleFunc("POST /v1/work-orders/{id}/cancel", h.member(h.cancel))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.member(h.startLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.member(h.write))
 	return mux
@@ -441,6 +442,20 @@ func (h *handler) reassign(w http.ResponseWriter, r *http.Request, actor ledger.
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// cancel ends work for good. The answer comes before any lane has stopped: a lane with a process hears
+// from desired state, and reads as last reported until its worker says it ended.
+func (h *handler) cancel(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.CancelWork
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := h.leases.Cancel(r.Context(), h.Scope, r.PathValue("id"), in.Reason, actor); err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.Accepted{State: workorders.Canceled})
 }
 
 // startLane records a member's request to run a lane (FR-WO-9). The worker holding the

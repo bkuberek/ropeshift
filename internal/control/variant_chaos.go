@@ -66,6 +66,10 @@ type Sabotage struct {
 	KeepsParkWanted bool
 	// IgnoresPins tells only the lanes a decision's scope reaches, and renews no pack.
 	IgnoresPins bool
+	// LeavesParkedLanes cancels work and leaves its parked lane reading parked for good.
+	LeavesParkedLanes bool
+	// EndsAnyCanceledLane takes any worker's word that a canceled lane ended.
+	EndsAnyCanceledLane bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -137,3 +141,7 @@ func rebuildsPack() bool { return current().RebuildsPack }
 func keepsParkWanted() bool { return current().KeepsParkWanted }
 
 func ignoresPins() bool { return current().IgnoresPins }
+
+func leavesParkedLanes() bool { return current().LeavesParkedLanes }
+
+func endsAnyCanceledLane() bool { return current().EndsAnyCanceledLane }

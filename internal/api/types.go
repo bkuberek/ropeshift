@@ -182,6 +182,11 @@ type Accepted struct {
 	State workorders.State `json:"state"`
 }
 
+// CancelWork ends a work order for good, and says why.
+type CancelWork struct {
+	Reason string `json:"reason"`
+}
+
 // ReassignRequest ends a lapsed holder's ownership.
 type ReassignRequest struct {
 	Reason string `json:"reason"`

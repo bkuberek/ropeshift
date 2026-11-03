@@ -47,6 +47,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/work-orders/{id}/reassign", "work reassign"},
 		{http.MethodPost, "/v1/work-orders/{id}/resolve", "work resolve"},
 		{http.MethodPost, "/v1/work-orders/{id}/replan", "work replan"},
+		{http.MethodPost, "/v1/work-orders/{id}/cancel", "work cancel"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-reset", "lane reset"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-respawn", "lane respawn"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-resume", "lane resume"},

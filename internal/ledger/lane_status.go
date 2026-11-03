@@ -26,6 +26,9 @@ const EventLaneAffinityEased = "lane.affinity_eased"
 
 // The events of a lane's stop and removal.
 const (
+	// EventLaneEnded records the end of a lane whose work a member canceled, which belongs to the
+	// lane and to no work order: a work order that canceled has no later state to reach.
+	EventLaneEnded = "lane.ended"
 	// EventLaneGuarded records how a stop left a worktree. It is the one thing a fenced
 	// holder may still say, because it adds no ownership and keeps a person's work in view.
 	EventLaneGuarded = "lane.guarded"

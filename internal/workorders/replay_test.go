@@ -56,6 +56,11 @@ func TestGeneratedEventSequences(t *testing.T) {
 				TriggerLaneBlocked, TriggerLaneFailedRetry, TriggerAttemptsExhausted, TriggerLaneParked:
 				fence++
 				change.Fence = fence
+			case TriggerCanceled:
+				if edge.Leased {
+					fence++
+					change.Fence = fence
+				}
 			}
 			events = append(events, changeEvent(t, rev, change))
 			state = edge.To
@@ -111,6 +116,19 @@ func TestReplayRefusesWhatTheMachineForbids(t *testing.T) {
 					changeEvent(t, 5, Change{Trigger: TriggerClaimGranted, Fence: 1}),
 					changeEvent(t, 6, Change{Trigger: TriggerLaneStarted, Fence: 1}),
 					changeEvent(t, 7, Change{Trigger: TriggerLaneParked, Fence: 1}),
+				}
+			},
+		},
+		{
+			name: "a cancel of held work that leaves the fence behind",
+			events: func(t *testing.T) []ledger.Event {
+				return []ledger.Event{
+					createdEvent(t),
+					changeEvent(t, 2, Change{Trigger: TriggerAccepted}),
+					changeEvent(t, 3, Change{Trigger: TriggerContractSubmitted}),
+					changeEvent(t, 4, Change{Trigger: TriggerReadyPassed}),
+					changeEvent(t, 5, Change{Trigger: TriggerClaimGranted, Fence: 1}),
+					changeEvent(t, 6, Change{Trigger: TriggerCanceled, Fence: 1}),
 				}
 			},
 		},

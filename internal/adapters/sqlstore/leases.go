@@ -235,6 +235,30 @@ func (t leaseTx) Park(lease workorders.Lease) (bool, error) {
 	return t.matched(stmtParkLane, t.leaseParams(lease))
 }
 
+// stmtCancel repeats the state and fence the use case read, and moves the fence in the statement that
+// ends any ownership, so a holder's token is stale at once.
+var stmtCancel = define("lease.cancel",
+	`UPDATE work_orders
+   SET state = 'canceled',
+       fence = fence + CAST(:moved AS BIGINT),
+       claim_id = NULL,
+       lease_worker = NULL,
+       lease_until = NULL,
+       resume_lane_id = NULL
+ WHERE workspace_id = :workspace_id
+   AND id = :id
+   AND state = :from_state
+   AND fence = :fence`)
+
+func (t leaseTx) Cancel(workOrder string, from workorders.State, fence int64, held bool) (bool, error) {
+	p := t.params(workOrder)
+	p["from_state"], p["fence"], p["moved"] = string(from), fence, int64(0)
+	if held {
+		p["moved"] = int64(1)
+	}
+	return t.matched(stmtCancel, p)
+}
+
 func (t leaseTx) End(lease workorders.Lease, to workorders.State, attempts int64) (bool, error) {
 	p := t.leaseParams(lease)
 	p["to_state"], p["attempts"] = string(to), attempts
