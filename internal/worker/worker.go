@@ -78,6 +78,9 @@ type Worker struct {
 	polledAt  time.Time
 	laneGroup sync.WaitGroup
 	marked    sync.Once
+	// performingLock guards performing, the effects a goroutine of this process is performing now.
+	performingLock sync.Mutex
+	performing     map[string]bool
 
 	// qualLock guards qual, the probe result in force, probe, the one probe running, and life, the
 	// context a probe runs under, which outlives any one lane.

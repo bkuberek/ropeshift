@@ -56,8 +56,13 @@ var effectSteps = map[lanes.EffectKind]struct{ started, performed, finished func
 // bracket performs one external effect between two journal writes, so a crash at any
 // point leaves a record of it. It reports whether perform ran. An effect already on
 // record runs only if a retry cleared it to started, or if its kind repeats from where it
-// stands, because a stop that failed or a guard that reads again is safe.
+// stands, because a stop that failed or a guard that reads again is safe. The journal reads an
+// effect another goroutine of this process is performing as started too, so that one is left to it.
 func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func() error) (bool, error) {
+	if !w.takeEffect(effect.Key) {
+		return false, nil
+	}
+	defer w.leaveEffect(effect.Key)
 	begun, err := w.journal.BeginEffect(ctx, effect)
 	if err != nil {
 		return false, err
@@ -92,6 +97,26 @@ func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func(
 	}
 	steps.finished()
 	return true, failure
+}
+
+// takeEffect holds an effect for one goroutine, and says no while another holds it.
+func (w *Worker) takeEffect(key string) bool {
+	w.performingLock.Lock()
+	defer w.performingLock.Unlock()
+	if w.performing[key] {
+		return false
+	}
+	if w.performing == nil {
+		w.performing = map[string]bool{}
+	}
+	w.performing[key] = true
+	return true
+}
+
+func (w *Worker) leaveEffect(key string) {
+	w.performingLock.Lock()
+	defer w.performingLock.Unlock()
+	delete(w.performing, key)
 }
 
 // markUnknown runs once in a process, before it begins any effect: whatever an earlier

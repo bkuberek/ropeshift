@@ -272,6 +272,66 @@ func TestAClearedLaneAtRestIsToldItsWorkOnce(t *testing.T) {
 	}
 }
 
+// heldSend holds the first input it is handed once armed, until a test lets it go, and counts every
+// input it is handed from then, which a session that already ended would not.
+type heldSend struct {
+	ports.AgentDriver
+	armed   atomic.Bool
+	sends   atomic.Int32
+	once    sync.Once
+	inside  chan struct{}
+	release chan struct{}
+}
+
+func (d *heldSend) Send(ctx context.Context, h ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {
+	held := false
+	if d.armed.Load() {
+		d.sends.Add(1)
+		d.once.Do(func() { held = true })
+	}
+	if held {
+		close(d.inside)
+		<-d.release
+	}
+	return d.AgentDriver.Send(ctx, h, in)
+}
+
+// Two passes of one worker can overlap, as one a caller runs does one of the worker's own loop. The
+// journal reads an effect one of them is performing as started, as it reads one a retry cleared, so
+// a pass that finds the brief on its way leaves it, or a cleared session is told its work twice.
+func TestTwoPassesAtOnceTellAClearedSessionItsWorkOnce(t *testing.T) {
+	r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\n")
+	held := &heldSend{AgentDriver: r.driver, inside: make(chan struct{}), release: make(chan struct{})}
+	r.config.Driver = held
+	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.asking("What is the retry budget?"), completed(0.01)}, []fake.DriverStep{finish, completed(0.02)}))
+	r.start()
+	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	r.cleared(t, clearedSession)
+	held.armed.Store(true)
+	first := make(chan error, 1)
+	go func() {
+		_, err := r.subject.Reconcile(t.Context())
+		first <- err
+	}()
+	select {
+	case <-held.inside:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no pass handed the brief")
+	}
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	close(held.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if told := held.sends.Load(); told != 1 {
+		t.Fatalf("told its work %d times", told)
+	}
+	r.awaitOrderState(t, workorders.Acceptance)
+}
+
 // A headless `/clear` ends with a result of its own, which is no turn the lane ran: it owes the
 // session its work, not a nudge.
 func TestTheEndOfAClearIsNoTurnOfTheLanes(t *testing.T) {
