@@ -75,16 +75,20 @@ single word done.
 `
 }
 
-func standInTelemetryReport(word string) []any {
-	return []any{
-		map[string]any{"init": true},
-		map[string]any{"status": map[string]any{"context_window": map[string]any{"current_usage": map[string]any{"input_tokens": 9000}}}},
+// standInTelemetryReport is what a dry run's lane plays: one report, as the brief asks. A pane draws a
+// status line first, which a headless session never runs.
+func standInTelemetryReport(word string, pane bool) []any {
+	steps := []any{map[string]any{"init": true}}
+	if pane {
+		steps = append(steps, map[string]any{"status": map[string]any{"context_window": map[string]any{"current_usage": map[string]any{"input_tokens": 9000}}}})
+	}
+	return append(steps,
 		map[string]any{"mcp": lanes.ToolLaneReport, "arguments": map[string]any{
 			"outcome": "completed", "reason": word, "artifacts": []string{"none"},
 			"checks": []map[string]any{{"name": "stand-in", "passed": true}},
 		}},
 		standInResult(),
-	}
+	)
 }
 
 // rs13Collector is the one place this suite's export goes: a stand-in OTLP endpoint on loopback,
@@ -230,7 +234,7 @@ func TestRS13(t *testing.T) {
 	settled := map[workorders.State]bool{workorders.Acceptance: true, workorders.Blocked: true, workorders.Failed: true, workorders.Ready: true}
 	results := map[string]rs13Lane{}
 
-	s.playStandIn([]any{standInTelemetryReport(words["headless"])}, nil)
+	s.playStandIn([]any{standInTelemetryReport(words["headless"], false)}, nil)
 	first := s.startDaemonWith(map[string]any{
 		"args": append(append([]string{}, guardFlags...), "--max-turns", rs13MaxTurns), "stream_log": s.stream,
 	})
@@ -252,7 +256,7 @@ func TestRS13(t *testing.T) {
 	results["headless"] = result
 
 	s.repo = pane.Dir
-	s.playStandIn([]any{standInTelemetryReport(words["pane"])}, nil)
+	s.playStandIn([]any{standInTelemetryReport(words["pane"], true)}, nil)
 	second := s.startDaemonWith(map[string]any{"args": paneGuardFlags, "env": paneEnv})
 	t.Cleanup(second.stop)
 	var paneID string
