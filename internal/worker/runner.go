@@ -80,6 +80,8 @@ type laneRun struct {
 	fenced  atomic.Bool
 	// stopAsked says this run heard its lease is gone.
 	stopAsked atomic.Bool
+	// reached says the driver holds this generation's session, so a stop can find it.
+	reached atomic.Bool
 	// stopOnce holds to one stop per generation, and the handle's lock guards it.
 	stopOnce *sync.Once
 	stopped  sync.WaitGroup
@@ -280,7 +282,17 @@ func (r *laneRun) lost(ctx context.Context) {
 	if !r.stopAsked.Swap(true) {
 		r.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
 	}
-	if r.sessionHandle().ID != "" && !r.sessionOver.Load() {
+	if r.reached.Load() && !r.sessionOver.Load() {
+		r.stop(ctx, ports.StopInterrupt)
+	}
+}
+
+// reach says the driver holds this generation's session. A stop asked of a session it does not hold
+// yet fails, and would spend the generation's one stop, so a lane that lost its lease before this is
+// stopped here. lost sets what this reads before it reads what this sets, so one of them stops it.
+func (r *laneRun) reach(ctx context.Context) {
+	r.reached.Store(true)
+	if r.stopAsked.Load() && !r.sessionOver.Load() {
 		r.stop(ctx, ports.StopInterrupt)
 	}
 }
@@ -475,6 +487,7 @@ func (r *laneRun) adopt(ctx context.Context) error {
 		return r.unread(ctx)
 	}
 	crashpoint.Hit("worker.lane", "adopted")
+	r.reach(ctx)
 	r.signal(ctx, lanes.OnDriverReady)
 	events, err := r.rt.Driver.Events(ctx, r.sessionHandle())
 	if err != nil {
@@ -612,6 +625,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return failed(workorders.ReasonWorkerRestarted)
 	}
 	crashpoint.Hit("worker.lane", "spawned")
+	r.reach(ctx)
 	r.noteProcess(r.sessionHandle())
 	if r.woken() != nil {
 		crashpoint.Hit("worker.resume", "launched")

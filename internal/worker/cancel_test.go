@@ -1,6 +1,8 @@
 package worker_test
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,6 +131,52 @@ func TestALaneCanceledWhileItIsSetUpStartsNoSession(t *testing.T) {
 	r.expectCanceled(t)
 	if specs := r.driver.Specs(); len(specs) != 0 {
 		t.Errorf("a session started on canceled work: %+v", specs)
+	}
+}
+
+// slowAdoption takes a session over only once the worker asked it to stop, or after a moment, as an
+// adoption still on its way to the session does when a stop overtakes it.
+type slowAdoption struct {
+	ports.AgentDriver
+	asked chan struct{}
+	once  sync.Once
+}
+
+func (d *slowAdoption) Stop(ctx context.Context, h ports.SessionHandle, how ports.StopMode) error {
+	d.once.Do(func() { close(d.asked) })
+	return d.AgentDriver.Stop(ctx, h, how)
+}
+
+func (d *slowAdoption) Adopt(ctx context.Context, h ports.SessionHandle, from ports.AdoptFrom) error {
+	select {
+	case <-d.asked:
+	case <-time.After(time.Second):
+	}
+	return d.AgentDriver.Adopt(ctx, h, from)
+}
+
+// A restart takes over a session whose claim desired state no longer names. The pass that adopts it
+// also stops it, and a stop that reaches the driver before the adoption finds no session there: that
+// failure must not be the lane's only stop, or the session runs on and the pass waits on it forever.
+func TestALaneLostAsItsSessionIsAdoptedStops(t *testing.T) {
+	w := newWorldRig(t)
+	w.config.Driver = &slowAdoption{AgentDriver: w.driver, asked: make(chan struct{})}
+	w.record("lane-1", lanes.StateRunning)
+	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
+	w.driver.Leave("lane-1", 1, sessionAlive)
+	w.driver.Play(script([]fake.DriverStep{{Hold: true}}))
+	converged := make(chan error, 1)
+	go func() { converged <- w.subject.Converge(t.Context()) }()
+	select {
+	case err := <-converged:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the pass still waits on a lane whose claim went")
+	}
+	if got := w.lane("lane-1"); got.State == lanes.StateRunning {
+		t.Errorf("the lane reads %s", got.State)
 	}
 }
 

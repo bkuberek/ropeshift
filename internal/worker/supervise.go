@@ -325,6 +325,8 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.flightLock.Lock()
 	r.flight, r.left = nil, nil
 	r.flightLock.Unlock()
+	// Unreached first, so a stop that reads the last session over never takes the next as reached.
+	r.reached.Store(false)
 	r.sessionOver.Store(false)
 	r.resumeFrom = resume
 	r.bound, r.crashed, r.cursor, r.fellBack = false, false, 0, false
