@@ -352,6 +352,21 @@ func TestOpenQuestionsFilterByCategory(t *testing.T) {
 	}
 }
 
+// A filter comes from a link, so its text is a name to match and never a pattern to run.
+func TestACategoryFilterIsNeverAPattern(t *testing.T) {
+	d, _, _ := aWorld(t)
+	for _, category := range []string{"%", "pro%", "produc_", `product"%`, `\`} {
+		t.Run(category, func(t *testing.T) {
+			if found := readView[api.Questions](t, d, api.ViewQuestions, category); len(found.Questions) != 0 {
+				t.Errorf("questions found %d", len(found.Questions))
+			}
+			if found := readView[api.Decisions](t, d, api.ViewDecisions, category); len(found.Decisions) != 0 {
+				t.Errorf("decisions found %d", len(found.Decisions))
+			}
+		})
+	}
+}
+
 func TestOpenQuestionsLeaveOutAnsweredOnes(t *testing.T) {
 	d, _, _ := aWorld(t)
 	all := readView[api.Questions](t, d, api.ViewQuestions, "")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/ports"
@@ -24,12 +25,12 @@ const (
 	questionFilter = `
    AND (CAST(:status AS TEXT) = '' OR q.status = CAST(:status AS TEXT))
    AND (CAST(:scope AS TEXT) = '' OR q.subject_id = CAST(:scope AS TEXT))
-   AND (CAST(:category AS TEXT) = '' OR q.categories LIKE CAST(:category AS TEXT))
+   AND (CAST(:category AS TEXT) = '' OR q.categories LIKE CAST(:category AS TEXT) ESCAPE '!')
    AND (CAST(:after AS TEXT) = '' OR q.id > CAST(:after AS TEXT))`
 	decisionFilter = `
    AND (CAST(:status AS TEXT) = '' OR d.status = CAST(:status AS TEXT))
    AND (CAST(:scope AS TEXT) = '' OR d.scope = CAST(:scope AS TEXT))
-   AND (CAST(:category AS TEXT) = '' OR d.categories LIKE CAST(:category AS TEXT))
+   AND (CAST(:category AS TEXT) = '' OR d.categories LIKE CAST(:category AS TEXT) ESCAPE '!')
    AND (CAST(:after AS TEXT) = '' OR d.id > CAST(:after AS TEXT))`
 )
 
@@ -250,12 +251,15 @@ func (t questionTx) scoped(p params) params {
 	return p
 }
 
-// recordFilter binds what a filter asks for. A category is matched inside its JSON list,
-// and CheckCategoryName keeps a name free of the marks a pattern reads.
+// patternMarks escapes what a LIKE pattern reads. CheckCategoryName keeps these out of a stored name,
+// and a filter comes from a caller, so its text must match only itself.
+var patternMarks = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
+
+// recordFilter binds what a filter asks for. A category is matched inside its JSON list.
 func recordFilter(filter ports.RecordFilter) params {
 	category := ""
 	if filter.Category != "" {
-		category = `%"` + filter.Category + `"%`
+		category = `%"` + patternMarks.Replace(filter.Category) + `"%`
 	}
 	limit := filter.Limit
 	if limit <= 0 || limit > ports.MaxRecords {
