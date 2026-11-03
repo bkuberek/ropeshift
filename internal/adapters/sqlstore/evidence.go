@@ -30,7 +30,7 @@ ON CONFLICT (workspace_id, id) DO UPDATE SET status = :status, details_uri = :de
   FROM artifacts a
   JOIN lanes l ON l.workspace_id = a.workspace_id AND l.id = a.lane_id
  WHERE a.workspace_id = :workspace_id AND l.work_order_id = :work_order_id
- ORDER BY a.created_at, a.id`)
+ ORDER BY a.created_at, a.kind, a.uri, a.id`)
 )
 
 // evidenceTx is the acceptance area of one transaction.

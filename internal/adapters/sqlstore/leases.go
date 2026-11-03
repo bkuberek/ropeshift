@@ -480,7 +480,7 @@ VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :fence, :now)`)
 
 	stmtListArtifacts = define("artifact.list",
 		`SELECT id, lane_id, kind, uri, digest, fence, created_at FROM artifacts
- WHERE workspace_id = :workspace_id AND lane_id = :lane_id ORDER BY created_at, id`)
+ WHERE workspace_id = :workspace_id AND lane_id = :lane_id ORDER BY created_at, kind, uri, id`)
 
 	stmtRequestArchive = define("lane.request_archive",
 		`UPDATE lanes SET archive_request = :request WHERE workspace_id = :workspace_id AND id = :id`)
