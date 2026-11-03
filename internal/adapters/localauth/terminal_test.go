@@ -18,9 +18,13 @@ import (
 
 // The helper processes of the terminal tests find their part here: envShell makes the test binary a
 // shell that leads a terminal's session, and envPrompt the program it runs, which asks with that prompt.
+// envPadding says how many times the prompt starts with padding, because Linux holds one variable to
+// 128 KiB, and a prompt longer than a terminal holds is longer than that.
 const (
-	envShell  = "ROPESHIFT_TEST_PASSPHRASE_SHELL"
-	envPrompt = "ROPESHIFT_TEST_PASSPHRASE_PROMPT"
+	envShell   = "ROPESHIFT_TEST_PASSPHRASE_SHELL"
+	envPrompt  = "ROPESHIFT_TEST_PASSPHRASE_PROMPT"
+	envPadding = "ROPESHIFT_TEST_PASSPHRASE_PADDING"
+	padding    = "a long prompt "
 )
 
 // asking is a person's terminal, with a shell that runs a program asking for a passphrase. The shell
@@ -39,12 +43,13 @@ type asking struct {
 	mu      sync.Mutex
 }
 
-// ask starts the shell on a new pseudo-terminal, which is its controlling terminal.
-func ask(t *testing.T, prompt string) *asking {
+// ask starts the shell on a new pseudo-terminal, which is its controlling terminal. The program's
+// prompt is padded that many times before the prompt itself.
+func ask(t *testing.T, padded int, prompt string) *asking {
 	t.Helper()
 	master, slave := openPTY(t)
 	shell := exec.Command(os.Args[0], "-test.run=^TestHelperRunsAProgram$")
-	shell.Env = append(os.Environ(), envShell+"=1", envPrompt+"="+prompt)
+	shell.Env = append(os.Environ(), envShell+"=1", envPrompt+"="+prompt, envPadding+"="+strconv.Itoa(padded))
 	shell.Stdin = slave
 	shell.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	out, err := shell.StdoutPipe()
@@ -164,7 +169,7 @@ func termiosOf(f *os.File) (*unix.Termios, error) {
 // Input typed once the prompt shows must not show. The prompt here is longer than a terminal holds,
 // so the program is still writing it until the test reads it: echo must be off by then.
 func TestEchoIsOffBeforeThePromptShows(t *testing.T) {
-	a := ask(t, strings.Repeat("a long prompt ", 1<<16)+"Passphrase: ")
+	a := ask(t, 1<<16, "Passphrase: ")
 	a.awaitQuiet("the prompt was on its way with echo still on")
 	a.read()
 	if _, err := a.master.Write([]byte("hunter2\n")); err != nil {
@@ -186,7 +191,7 @@ func TestEchoIsOffBeforeThePromptShows(t *testing.T) {
 
 // An interrupt ends the program as it always did, and the terminal echoes again after it.
 func TestAnInterruptPutsEchoBack(t *testing.T) {
-	a := ask(t, "Passphrase: ")
+	a := ask(t, 0, "Passphrase: ")
 	a.read()
 	a.awaitQuiet("echo never went off")
 	if _, err := a.master.Write([]byte{0x03}); err != nil {
@@ -226,7 +231,12 @@ func TestHelperAsksForAPassphrase(t *testing.T) {
 	if !ok || os.Getenv(envShell) != "" {
 		t.Skip("a helper of the terminal tests")
 	}
-	passphrase, err := ReadPassphrase(prompt)
+	padded, err := strconv.Atoi(os.Getenv(envPadding))
+	if err != nil {
+		fmt.Printf("error %v\n", err)
+		os.Exit(1)
+	}
+	passphrase, err := ReadPassphrase(strings.Repeat(padding, padded) + prompt)
 	if err != nil {
 		fmt.Printf("error %v\n", err)
 		os.Exit(1)
