@@ -134,10 +134,18 @@ const (
 	HealthBadFiles    = "bad_files"
 )
 
-// SourceProblem is one thing a source could not read.
+// SourceProblem is one thing a source could not read. A problem where the source stands is found
+// again by each read that moves, so it names no more. A commit a person accepted for a `plan` work
+// order is read once, so a problem found there names that work order and the version it read, and it
+// stays until a later read of the file settles it (D17).
 type SourceProblem struct {
 	Path   string `json:"path"`
 	Detail string `json:"detail"`
+	// Conflict says the file could be read, and changed a base that moved.
+	Conflict bool `json:"conflict,omitempty"`
+	// WorkOrder is the accepted plan whose commit held the file, and Source the version found there.
+	WorkOrder string `json:"work_order,omitempty"`
+	Source    string `json:"source,omitempty"`
 }
 
 // SourceBinding is one configured source, with how far intake has read it.

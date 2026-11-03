@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 
@@ -124,6 +125,136 @@ func (l *lineageRig) wantConflict(path string) error {
 		return Violatedf("problems %+v", problems)
 	}
 	return nil
+}
+
+// wantProblems says the source reports these files, the ones an accepted commit held marked by the
+// plan that read them.
+func (l *lineageRig) wantProblems(want map[string]bool) error {
+	problems, err := l.problems()
+	if err != nil {
+		return err
+	}
+	got := map[string]bool{}
+	for _, problem := range problems {
+		got[problem.Path] = problem.WorkOrder != ""
+		if problem.WorkOrder != "" && problem.WorkOrder != l.plan {
+			return Violatedf("a problem names plan %q, want %q", problem.WorkOrder, l.plan)
+		}
+	}
+	if len(problems) != len(want) || !maps.Equal(got, want) {
+		return Violatedf("problems %+v, want %v", problems, want)
+	}
+	return l.r.CheckProjection(l.s)
+}
+
+const brokenFile = "+++\nkind = \"contract\"\nid = broken\n+++\n"
+
+// A plan's commit is read once, so what it could not read stays reported through every later read
+// that does not read that file, and a commit that fixes the file settles it.
+func checkPlanProblemStays(r *Rig) error {
+	l, err := r.onMain(alphaOn("One."))
+	if err != nil {
+		return err
+	}
+	branch := l.main.Fork()
+	branch.Write("broken.md", []byte(brokenFile))
+	if err := l.takeIn(branch); err != nil {
+		return err
+	}
+	if err := l.poll(); err != nil {
+		return err
+	}
+	if err := l.wantProblems(map[string]bool{"broken.md": true}); err != nil {
+		return err
+	}
+	if err := l.commit("notes.md", "# Ordinary prose\n"); err != nil {
+		return err
+	}
+	if err := l.commit(intakeFile, ContractText("alpha", "Alpha", "Two.")); err != nil {
+		return err
+	}
+	if err := l.wantProblems(map[string]bool{"broken.md": true}); err != nil {
+		return err
+	}
+	if err := l.commit("broken.md", ContractText("broken", "Broken", "Fixed.")); err != nil {
+		return err
+	}
+	return l.wantNoProblem()
+}
+
+// A merge that brings the broken file to main makes it main's own problem, once.
+func checkMergedPlanProblem(r *Rig) error {
+	l, err := r.onMain(alphaOn("One."))
+	if err != nil {
+		return err
+	}
+	branch := l.main.Fork()
+	branch.Write("broken.md", []byte(brokenFile))
+	if err := l.takeIn(branch); err != nil {
+		return err
+	}
+	l.main.Merge(branch, "broken.md", []byte(brokenFile))
+	if err := l.poll(); err != nil {
+		return err
+	}
+	return l.wantProblems(map[string]bool{"broken.md": false})
+}
+
+// Reading an accepted commit is not reading main, so it keeps what main could not read.
+func checkPlanKeepsMainProblems(r *Rig) error {
+	l, err := r.onMain(alphaOn("One."))
+	if err != nil {
+		return err
+	}
+	branch := l.main.Fork()
+	if err := l.commit("main.md", brokenFile); err != nil {
+		return err
+	}
+	// A recorded change moves the cursor, so the next read of main reads nothing again.
+	if err := l.commit(intakeFile, ContractText("alpha", "Alpha", "Two.")); err != nil {
+		return err
+	}
+	if err := l.takeIn(branch); err != nil {
+		return err
+	}
+	if err := l.poll(); err != nil {
+		return err
+	}
+	return l.wantProblems(map[string]bool{"main.md": false})
+}
+
+// A conflict a plan's commit found is settled by a version that holds the plan's text, and a later
+// version on main that never held it still conflicts with it.
+func checkPlanConflictStays(r *Rig) error {
+	l, err := r.onMain(alphaOn("One."))
+	if err != nil {
+		return err
+	}
+	branch := l.main.Fork()
+	if err := l.commit(intakeFile, ContractText("alpha", "Alpha", "On main.")); err != nil {
+		return err
+	}
+	branch.Write(intakeFile, []byte(ContractText("alpha", "Alpha", "From the plan.")))
+	if err := l.takeIn(branch); err != nil {
+		return err
+	}
+	if err := l.commit(intakeFile, ContractText("alpha", "Alpha", "Later.")); err != nil {
+		return err
+	}
+	if err := l.wantStatements("One.", "On main.", "Later."); err != nil {
+		return err
+	}
+	if err := l.wantConflict(intakeFile); err != nil {
+		return err
+	}
+	l.main.Merge(branch, intakeFile, []byte(ContractText("alpha", "Alpha", "Both.")))
+	if err := l.poll(); err != nil {
+		return err
+	}
+	if err := l.wantStatements("One.", "On main.", "Later.", "Both."); err != nil {
+		return err
+	}
+	return l.wantNoProblem()
 }
 
 func alphaOn(statement string) map[string]string {

@@ -122,14 +122,15 @@ func (s *Source) Poll(ctx context.Context, cursor ports.Cursor) (ports.ChangeBat
 			return ports.ChangeBatch{}, err
 		}
 		doc, err := ParseFile(raw)
+		source := blob.Path + "@" + commit
 		switch {
 		case errors.Is(err, planning.ErrNotOurs):
 			continue
 		case err != nil:
-			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: blob.Path, Detail: err.Error()})
+			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: blob.Path, Detail: err.Error(), Source: source})
 			continue
 		case doc.Contract == nil:
-			if record, ok := ports.RecordOf(doc, description.Adapter, description.Instance, blob.Path, blob.Path+"@"+commit); ok {
+			if record, ok := ports.RecordOf(doc, description.Adapter, description.Instance, blob.Path, source); ok {
 				batch.Records = append(batch.Records, record)
 			}
 			continue
@@ -138,6 +139,7 @@ func (s *Source) Poll(ctx context.Context, cursor ports.Cursor) (ports.ChangeBat
 			batch.Problems = append(batch.Problems, planning.SourceProblem{
 				Path:   blob.Path,
 				Detail: fmt.Sprintf("%v: contract %s is already in %s", planning.ErrBadFile, doc.Contract.ID, first),
+				Source: source,
 			})
 			continue
 		}

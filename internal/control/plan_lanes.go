@@ -282,12 +282,13 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 	}
 	binding := planning.SourceBinding{
 		ID: BindingID(description.Adapter, description.Instance), Port: planning.PortWork, Adapter: description.Adapter, Instance: description.Instance,
-		Health: health.State, Detail: health.Detail, Problems: report.Problems,
+		Health: health.State, Detail: health.Detail,
 	}
 	if movesPlanCursor() {
 		binding.Cursor = string(batch.Cursor)
 	}
-	if err := i.settle(ctx, scope, binding, false, movesPlanCursor()); err != nil {
+	read := settling{binding: binding, report: report, plan: plan.order.ID, recorded: movesPlanCursor()}
+	if err := i.settle(ctx, scope, source, read); err != nil {
 		return err
 	}
 	crashpoint.Hit("intake.plan", "settled")

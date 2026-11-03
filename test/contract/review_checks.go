@@ -45,6 +45,10 @@ var PlanLaneChecks = []Check{
 	{"PL24", "a changed requirement on a stale plan is a conflict", checkRequirementConflict},
 	{"PL25", "a source with one line of history records every change", checkOneLineOfHistory},
 	{"PL26", "a source that cannot say records nothing, and is read again", checkLineageFailure},
+	{"PL27", "a file a plan's commit could not read stays reported until a commit fixes it", checkPlanProblemStays},
+	{"PL28", "a merge of a file a plan could not read reports it once", checkMergedPlanProblem},
+	{"PL29", "reading a plan's commit keeps what main could not read", checkPlanKeepsMainProblems},
+	{"PL30", "a plan's conflict stays until a version holds the plan's text", checkPlanConflictStays},
 }
 
 const (

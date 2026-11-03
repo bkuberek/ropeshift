@@ -208,7 +208,8 @@ func TestOnlyReadyCanBeClaimed(t *testing.T) {
 
 // TestAPlanningLaneReachesTheLedgerAtItsAcceptedCommit is D17 through the real daemon: a lane on a
 // `plan` work order commits repository files on its branch, nothing it wrote is a record until a
-// member accepts, and then intake reads that commit. A file it could not read is reported.
+// member accepts, and then intake reads that commit. A file it could not read is reported, and stays
+// reported when main moves on.
 func TestAPlanningLaneReachesTheLedgerAtItsAcceptedCommit(t *testing.T) {
 	in := newInstall(t)
 	repo := gittest.New(t)
@@ -277,14 +278,27 @@ func TestAPlanningLaneReachesTheLedgerAtItsAcceptedCommit(t *testing.T) {
 		t.Fatalf("work %+v", contractPlan.WorkOrders)
 	}
 	in.waitFor("the mark on the work order", func() bool { return in.show("plan-1").PlanCommit == commit })
-	in.waitFor("the file nobody could read", func() bool {
+	broken := func() bool {
 		for _, source := range in.sources() {
 			for _, problem := range source.Problems {
 				if problem.Path == "plans/broken.md" {
-					return source.Health == planning.HealthBadFiles
+					return source.Health == planning.HealthBadFiles && problem.WorkOrder == "plan-1" && strings.HasSuffix(problem.Source, "@"+commit)
 				}
 			}
 		}
 		return false
-	})
+	}
+	if !broken() {
+		t.Fatalf("the file nobody could read is not reported: %+v", in.sources())
+	}
+
+	// Main moves on without the plan's branch, and the file the plan's commit held is still unread.
+	repo.Commit("later.md", contract.ContractText("later", "Later", "Read main again."))
+	in.waitFor("main's next commit", func() bool { return slices.Contains(titles(), "Later") })
+	if !broken() {
+		t.Fatalf("a read of main dropped the plan's problem: %+v", in.sources())
+	}
+	if listed := in.must("source", "list"); !strings.Contains(listed, "plans/broken.md") {
+		t.Errorf("source list reads %q", listed)
+	}
 }

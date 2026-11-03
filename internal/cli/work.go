@@ -486,9 +486,25 @@ func (c *invocation) sourceList(args []string) int {
 		var out strings.Builder
 		for _, source := range list.Sources {
 			fmt.Fprintf(&out, "%s\t%s\t%s\n", source.ID, source.Health, source.Detail)
+			for _, problem := range source.Problems {
+				fmt.Fprintf(&out, "\t%s\t%s\n", problemPlace(problem), problem.Detail)
+			}
 		}
 		return out.String()
 	})
+}
+
+// problemPlace names the file a problem is in, and for a file a plan's accepted commit held, the
+// version intake read and the plan.
+func problemPlace(problem planning.SourceProblem) string {
+	if problem.WorkOrder == "" {
+		return problem.Path
+	}
+	place := problem.Path
+	if problem.Source != "" {
+		place = problem.Source
+	}
+	return place + ", accepted in " + problem.WorkOrder
 }
 
 func (c *invocation) workerList(args []string) int {

@@ -33,6 +33,11 @@ type IntakeReport struct {
 	// Conflicts counts the files a poll left out because the base under them moved.
 	Conflicts int
 	Problems  []planning.SourceProblem
+
+	// read names the version a poll found of each file it named, and changed the files whose version
+	// or record it wrote. They are what settles a problem an accepted commit found.
+	read    map[string]string
+	changed map[string]bool
 }
 
 // Intake records what a work source holds. A poll reads with no transaction, and
@@ -87,20 +92,25 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 	}
 	binding := planning.SourceBinding{
 		ID: id, Port: planning.PortWork, Adapter: description.Adapter, Instance: description.Instance,
-		Cursor: string(batch.Cursor), Health: health.State, Detail: health.Detail, Problems: report.Problems,
+		Cursor: string(batch.Cursor), Health: health.State, Detail: health.Detail,
 	}
-	return report, i.settle(ctx, scope, binding, batch.Cursor == cursor, report.Versions+report.Records > 0)
+	read := settling{binding: binding, report: report, unmoved: batch.Cursor == cursor, recorded: report.Versions+report.Records > 0}
+	return report, i.settle(ctx, scope, source, read)
 }
 
 // record stores what one read of a source found, item by item.
 func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, batch ports.ChangeBatch) (IntakeReport, error) {
-	var report IntakeReport
+	report := IntakeReport{read: map[string]string{}, changed: map[string]bool{}}
 	report.Problems = slices.Clone(batch.Problems)
+	for _, problem := range batch.Problems {
+		report.saw(problem.Path, problem.Source)
+	}
 	held := map[string]string{}
 	for _, item := range batch.Records {
+		report.saw(item.Path, item.Source)
 		if key, first := repeatedRequirement(item, held); key != "" {
 			detail := fmt.Sprintf("%v: requirement %s is already in %s", planning.ErrBadFile, key, first)
-			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: detail})
+			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: detail, Source: item.Source})
 			continue
 		}
 		outcome, err := i.recordFile(ctx, scope, source, item)
@@ -108,24 +118,34 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 			return report, err
 		}
 		report.Records += outcome.records
-		report.note(item.Path, outcome)
+		report.note(item.Path, item.Source, outcome)
 	}
 	for _, item := range batch.Items {
+		report.saw(item.Path, item.Source)
 		outcome, err := i.recordItem(ctx, scope, source, item)
 		if err != nil {
 			return report, err
 		}
 		report.Versions += outcome.versions
 		report.WorkOrders += outcome.workOrders
-		report.note(item.Path, outcome)
+		report.note(item.Path, item.Source, outcome)
 	}
 	return report, nil
 }
 
-func (r *IntakeReport) note(path string, outcome itemOutcome) {
+func (r *IntakeReport) saw(path, source string) {
+	if source != "" {
+		r.read[path] = source
+	}
+}
+
+func (r *IntakeReport) note(path, source string, outcome itemOutcome) {
 	r.Conflicts += outcome.conflicts
+	if outcome.versions+outcome.records > 0 {
+		r.changed[path] = true
+	}
 	if outcome.problem != "" {
-		r.Problems = append(r.Problems, planning.SourceProblem{Path: path, Detail: outcome.problem})
+		r.Problems = append(r.Problems, planning.SourceProblem{Path: path, Detail: outcome.problem, Source: source, Conflict: outcome.conflicts > 0})
 	}
 }
 
@@ -213,42 +233,111 @@ func (i *Intake) cursor(ctx context.Context, scope ledger.WorkspaceID, id string
 	return cursor, err
 }
 
+// settling is one read of a source, for its binding to record.
+type settling struct {
+	binding planning.SourceBinding
+	report  IntakeReport
+	// plan is the accepted `plan` work order whose commit this read is of, and empty for a read of
+	// where the source stands.
+	plan string
+	// unmoved says where the source stands did not move, so this read found nothing.
+	unmoved bool
+	// recorded says this read changed a record, which is what moves the cursor.
+	recorded bool
+}
+
 // settle records a binding that changed. The cursor moves only with a record, so a
 // commit that touches nothing the ledger holds appends nothing, and an unmoved
-// source keeps the problems its last read found.
-func (i *Intake) settle(ctx context.Context, scope ledger.WorkspaceID, next planning.SourceBinding, unmoved, recorded bool) error {
-	return i.store.Write(ctx, scope, "intake.settle", func(tx ports.WriteTx) error {
-		current, err := tx.Planning().Binding(next.ID)
-		bound := err == nil
-		if err != nil && !errors.Is(err, ports.ErrNotFound) {
-			return err
-		}
-		if unmoved {
-			next.Problems = current.Problems
-		}
-		if next.Health == planning.HealthOK && len(next.Problems) > 0 {
-			next.Health = planning.HealthBadFiles
-			next.Detail = fmt.Sprintf("%d files cannot be read", len(next.Problems))
-		}
-		if !recorded {
-			next.Cursor = current.Cursor
-			if !bound {
-				next.Cursor = ""
+// source keeps the problems its last read found. Settling a problem an accepted commit found can
+// need what only the source says of a file's history, which withLineage asks with no transaction open.
+func (i *Intake) settle(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, read settling) error {
+	return withLineage(ctx, source, func(known lineages) error {
+		return i.store.Write(ctx, scope, "intake.settle", func(tx ports.WriteTx) error {
+			next := read.binding
+			current, err := tx.Planning().Binding(next.ID)
+			bound := err == nil
+			if err != nil && !errors.Is(err, ports.ErrNotFound) {
+				return err
 			}
-		}
-		if bound && sameBinding(current, next) {
-			return nil
-		}
-		if err := tx.Planning().SaveBinding(next); err != nil {
+			if next.Problems, err = read.problems(current.Problems, known); err != nil {
+				return err
+			}
+			if next.Health == planning.HealthOK && len(next.Problems) > 0 {
+				next.Health = planning.HealthBadFiles
+				next.Detail = fmt.Sprintf("%d files cannot be read", len(next.Problems))
+			}
+			if !read.recorded {
+				next.Cursor = current.Cursor
+				if !bound {
+					next.Cursor = ""
+				}
+			}
+			if bound && sameBinding(current, next) {
+				return nil
+			}
+			if err := tx.Planning().SaveBinding(next); err != nil {
+				return err
+			}
+			event, err := planning.RecordEvent(planning.EventBindingChanged, planning.SubjectBinding, next.ID, next, intakeActor)
+			if err != nil {
+				return err
+			}
+			_, err = tx.Append(event)
 			return err
-		}
-		event, err := planning.RecordEvent(planning.EventBindingChanged, planning.SubjectBinding, next.ID, next, intakeActor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(event)
-		return err
+		})
 	})
+}
+
+// problems is what the binding reports after this read. A read of where the source stands replaces
+// what the last such read found, unless the source did not move, and names no version, because the
+// next read that moves finds the same again. A read of an accepted commit keeps those, and adds what
+// it found under its plan. A problem an accepted commit found is read once, so it stays through both
+// until a read of its file settles it (D17).
+func (s settling) problems(current []planning.SourceProblem, known lineages) ([]planning.SourceProblem, error) {
+	var standing, held []planning.SourceProblem
+	for _, problem := range current {
+		if problem.WorkOrder == "" {
+			standing = append(standing, problem)
+			continue
+		}
+		settled, err := s.settles(problem, known)
+		if err != nil {
+			return nil, err
+		}
+		if !settled {
+			held = append(held, problem)
+		}
+	}
+	switch {
+	case s.plan != "":
+		for _, problem := range s.report.Problems {
+			problem.WorkOrder = s.plan
+			held = append(held, problem)
+		}
+	case !s.unmoved:
+		standing = nil
+		for _, problem := range s.report.Problems {
+			problem.Source = ""
+			standing = append(standing, problem)
+		}
+	}
+	return slices.Concat(standing, held), nil
+}
+
+// settles says this read settles a problem an accepted commit found: it read the file at a version
+// whose history holds the one the problem names, or, for a file nobody could read, the ledger took the
+// file from this read. A conflict needs the history, because a version that never held the plan's text
+// still conflicts with it.
+func (s settling) settles(problem planning.SourceProblem, known lineages) (bool, error) {
+	read, named := s.report.read[problem.Path]
+	if !named {
+		return false, nil
+	}
+	if s.report.changed[problem.Path] && !problem.Conflict {
+		return true, nil
+	}
+	stands, err := known.of(read, problem.Source)
+	return stands == ports.LineageAhead, err
 }
 
 func sameBinding(a, b planning.SourceBinding) bool {

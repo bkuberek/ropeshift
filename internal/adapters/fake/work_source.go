@@ -173,7 +173,7 @@ func (s *WorkSource) Poll(_ context.Context, cursor ports.Cursor) (ports.ChangeB
 		case errors.Is(err, planning.ErrNotOurs):
 			continue
 		case err != nil:
-			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: name, Detail: err.Error()})
+			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: name, Detail: err.Error(), Source: s.source(name)})
 			continue
 		case doc.Contract == nil:
 			if record, ok := ports.RecordOf(doc, sourceAdapter, sourceInstance, name, s.source(name)); ok {
