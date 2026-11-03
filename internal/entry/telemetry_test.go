@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,6 +164,29 @@ func TestNoConfigurationSendsNothingOffTheMachine(t *testing.T) {
 	}
 	if !strings.Contains(configured.stdout.String(), "telemetry export") {
 		t.Errorf("the daemon does not say where it exports: %s", configured.stdout.String())
+	}
+}
+
+// TestAStopExportsWhatItLastFlushed emits ropeshift's own telemetry and closes at once: the emitter's
+// last flush still reaches a configured exporter, because the exporter drains after it.
+func TestAStopExportsWhatItLastFlushed(t *testing.T) {
+	var mu sync.Mutex
+	var paths []string
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		paths = append(paths, req.URL.Path)
+		mu.Unlock()
+		_, _ = io.WriteString(w, "{}")
+	}))
+	defer collector.Close()
+	r := newTelemetryRig(t)
+	telemetry := r.start(map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": collector.URL}, true)
+	emitOwn(telemetry)
+	telemetry.close()
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Contains(paths, "/v1/traces") || !slices.Contains(paths, "/v1/metrics") {
+		t.Errorf("the collector heard %v of what the last flush wrote", paths)
 	}
 }
 

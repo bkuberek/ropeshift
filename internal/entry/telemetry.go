@@ -75,6 +75,9 @@ type soloTelemetry struct {
 	loops    sync.WaitGroup
 	cancel   context.CancelFunc
 	every    time.Duration
+	// The exporter drains after the emitter's last flush, so it runs apart and stops last.
+	exported      sync.WaitGroup
+	cancelExports context.CancelFunc
 }
 
 // soloTelemetrySettings reads the worker's part of the user's layer. A layer that does not parse
@@ -208,11 +211,14 @@ func (t *soloTelemetry) listen(ctx context.Context, paths api.Paths, address str
 func (t *soloTelemetry) run(ctx context.Context, report func(error), deps telemetryDeps) {
 	now := deps.Now
 	t.every = deps.every()
-	t.loops.Add(3)
+	exports, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	t.cancelExports = cancel
+	t.exported.Add(1)
 	go func() {
-		defer t.loops.Done()
-		t.exporter.Run(ctx)
+		defer t.exported.Done()
+		t.exporter.Run(exports)
 	}()
+	t.loops.Add(2)
 	go func() {
 		defer t.loops.Done()
 		t.emitter.Run(ctx, flushesPerReadings*t.every)
@@ -235,8 +241,8 @@ func (t *soloTelemetry) run(ctx context.Context, report func(error), deps teleme
 	}()
 }
 
-// close stops the receiver, waits for the emitter's last flush and the exporter's last send, and
-// closes the store. Correctness needs none of it, because the daemon is crash-only.
+// close stops the receiver, waits for the emitter's last flush, then for the exporter to send what that
+// flush queued, and closes the store. Correctness needs none of it, because the daemon is crash-only.
 func (t *soloTelemetry) close() {
 	t.cancel()
 	if t.receiver != nil {
@@ -245,6 +251,8 @@ func (t *soloTelemetry) close() {
 		_ = t.receiver.Shutdown(shutdown)
 	}
 	t.loops.Wait()
+	t.cancelExports()
+	t.exported.Wait()
 	_ = t.store.Close()
 }
 

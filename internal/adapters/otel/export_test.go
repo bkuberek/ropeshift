@@ -74,6 +74,44 @@ func exportThrough(t *testing.T, config otel.ExportConfig, path, body string) {
 	exporter.Wait()
 }
 
+// TestAStopDrainsWithinOneTimeout queues requests for a backend that never answers and stops the
+// exporter: the drain gives up after one timeout in all, rather than one per request or none at all.
+func TestAStopDrainsWithinOneTimeout(t *testing.T) {
+	held := make(chan struct{})
+	var heard atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		heard.Add(1)
+		select {
+		case <-held:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(held) })
+	const timeout = 300 * time.Millisecond
+	exporter := otel.NewExporter(otel.ExportConfig{Endpoints: map[otel.Signal]string{otel.Logs: server.URL + "/v1/logs"}, Timeout: timeout, Backoff: time.Millisecond})
+	request, err := otel.Decode(otel.Logs, []byte(logsBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		exporter.Forward(request)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	started := time.Now()
+	exporter.Run(ctx)
+	if took := time.Since(started); took > 3*timeout {
+		t.Errorf("a stop took %v against a backend that does not answer, with a timeout of %v", took, timeout)
+	}
+	if heard.Load() == 0 {
+		t.Error("the drain sent nothing of what was queued")
+	}
+	if sent, _ := exporter.Counts(); sent != 0 {
+		t.Errorf("%d requests counted as sent to a backend that never answered", sent)
+	}
+}
+
 func TestExportDropsAccountAttributesByDefault(t *testing.T) {
 	c := newCollector(t)
 	config, ok, err := otel.ConfigFromEnv(env(map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": c.server.URL}))

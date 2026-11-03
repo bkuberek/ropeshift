@@ -42,6 +42,8 @@ type ExportConfig struct {
 	Report      func(error)
 	// Backoff is the wait before a retry. Zero takes one second.
 	Backoff time.Duration
+	// Timeout bounds one request, and the whole drain when the exporter stops. Zero takes ten seconds.
+	Timeout time.Duration
 }
 
 // ErrProtocol refuses an exporter configured for a protocol it does not speak.
@@ -159,9 +161,12 @@ func NewExporter(config ExportConfig) *Exporter {
 	if len(config.Endpoints) == 0 {
 		return nil
 	}
+	if config.Timeout <= 0 {
+		config.Timeout = exportTimeout
+	}
 	dial := config.Dial
 	if dial == nil {
-		dial = (&net.Dialer{Timeout: exportTimeout}).DialContext
+		dial = (&net.Dialer{Timeout: config.Timeout}).DialContext
 	}
 	if config.Report == nil {
 		config.Report = func(error) {}
@@ -172,8 +177,8 @@ func NewExporter(config ExportConfig) *Exporter {
 	e := &Exporter{
 		config: config,
 		client: &http.Client{
-			Timeout:       exportTimeout,
-			Transport:     &http.Transport{DialContext: dial, ResponseHeaderTimeout: exportTimeout, Proxy: nil},
+			Timeout:       config.Timeout,
+			Transport:     &http.Transport{DialContext: dial, ResponseHeaderTimeout: config.Timeout, Proxy: nil},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		queue: make(chan Request, exportQueue),
@@ -210,18 +215,25 @@ func (e *Exporter) Run(ctx context.Context) {
 	for {
 		select {
 		case request := <-e.queue:
-			e.send(ctx, request)
+			e.send(ctx, context.WithoutCancel(ctx), request)
 		case <-ctx.Done():
-			drain, cancel := context.WithTimeout(context.Background(), exportTimeout)
-			defer cancel()
-			for {
-				select {
-				case request := <-e.queue:
-					e.send(drain, request)
-				default:
-					return
-				}
-			}
+			e.drain()
+			return
+		}
+	}
+}
+
+// drain sends what is queued within one timeout in all, so a backend that does not answer holds a stop
+// that long and no longer, and what is left is dropped.
+func (e *Exporter) drain() {
+	ctx, cancel := context.WithTimeout(context.Background(), e.config.Timeout)
+	defer cancel()
+	for ctx.Err() == nil {
+		select {
+		case request := <-e.queue:
+			e.send(ctx, ctx, request)
+		default:
+			return
 		}
 	}
 }
@@ -240,7 +252,9 @@ func (e *Exporter) Counts() (sent, dropped int64) {
 	return e.sent, e.dropped
 }
 
-func (e *Exporter) send(ctx context.Context, request Request) {
+// send posts one request under postCtx, and retries while ctx lasts. A request on its way while Run is
+// told to stop finishes under the client's timeout, and a request of the drain under the drain's.
+func (e *Exporter) send(ctx, postCtx context.Context, request Request) {
 	if !e.config.KeepAccount {
 		request = request.WithoutAccount()
 	}
@@ -250,7 +264,7 @@ func (e *Exporter) send(ctx context.Context, request Request) {
 		return
 	}
 	for attempt := 1; ; attempt++ {
-		retry, err := e.post(context.WithoutCancel(ctx), request.Signal, body)
+		retry, err := e.post(postCtx, request.Signal, body)
 		if err == nil {
 			e.mu.Lock()
 			e.sent++
