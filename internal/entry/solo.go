@@ -149,18 +149,32 @@ func runSolo(args []string, stdout, stderr io.Writer) int {
 
 var errBusy = errors.New("already running for this installation")
 
-// holdInstallation takes the lock that makes this daemon the only one. The kernel
-// releases it when the process dies, so a crash leaves nothing to clean up.
+// holdInstallation takes the lock that makes this daemon the only one. It is a record
+// lock, which belongs to this process, so the kernel releases it when the process dies
+// and a crash leaves nothing to clean up. A flock would belong to the open file instead,
+// and a child forked an instant before a kill shares that file until it execs, which
+// under load kept a killed daemon's installation held for hundreds of milliseconds. Only
+// this file opens the lock, because closing any descriptor of it would end the lock.
 func holdInstallation(stateDir string) (*os.File, error) {
 	file, err := os.OpenFile(filepath.Join(stateDir, lockFileName), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = file.Close()
-		return nil, errBusy
+	whole := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: io.SeekStart}
+	for {
+		err = syscall.FcntlFlock(file.Fd(), syscall.F_SETLK, &whole)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
 	}
-	return file, nil
+	switch {
+	case err == nil:
+		return file, nil
+	case errors.Is(err, syscall.EAGAIN), errors.Is(err, syscall.EACCES):
+		err = errBusy
+	}
+	_ = file.Close()
+	return nil, err
 }
 
 func openLedger(ctx context.Context, stateDir string) (ports.Store, error) {
