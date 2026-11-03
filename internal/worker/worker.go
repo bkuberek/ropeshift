@@ -85,6 +85,8 @@ type Worker struct {
 	qual     lanes.Qualification
 	probe    *probeRun
 	life     context.Context
+	// probes holds the probe goroutine, which Wait also waits for.
+	probes sync.WaitGroup
 }
 
 // New returns a worker that has not started.
@@ -305,8 +307,11 @@ func (w *Worker) applyBeat(ctx context.Context, held []ledger.HeldLease, reply l
 	return w.journal.SaveLeases(ctx, kept)
 }
 
-// Wait returns when every lane this worker runs has ended.
-func (w *Worker) Wait() { w.laneGroup.Wait() }
+// Wait returns when every lane this worker runs has ended, and any qualification probe with them.
+func (w *Worker) Wait() {
+	w.laneGroup.Wait()
+	w.probes.Wait()
+}
 
 // Deadline returns when a lease may have ended, by this worker's own count.
 func (w *Worker) Deadline(workOrder string) (time.Time, bool) {

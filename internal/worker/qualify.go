@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -111,7 +110,7 @@ func (w *Worker) qualify(ctx context.Context) (<-chan struct{}, error) {
 	}
 	p := &probeRun{version: capabilities.Version, done: make(chan struct{})}
 	w.probe = p
-	go w.runProbe(life, p)
+	w.probes.Go(func() { w.runProbe(life, p) })
 	return p.done, nil
 }
 
@@ -131,13 +130,6 @@ func (w *Worker) runProbe(life context.Context, p *probeRun) {
 	spec := ports.ProbeSpec{
 		Dir: filepath.Join(rt.StateDir, "probe"), TempDir: rt.probeTempDir(), Model: probeModel,
 		Binary: rt.Binary, SignIn: w.signInKind(), Override: rt.Override,
-	}
-	for _, dir := range []string{spec.Dir, spec.TempDir} {
-		_ = os.RemoveAll(dir)
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			w.config.Report(fmt.Errorf("the probe of %s: %w", p.version, err))
-		}
-		defer os.RemoveAll(dir)
 	}
 	q, err := rt.Driver.Probe(ctx, spec)
 	switch {

@@ -74,6 +74,17 @@ func (d *Driver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualifi
 	if len(spec.Env) == 0 {
 		spec.Env = d.versionEnv()
 	}
+	// The probe owns its directories: it clears what a worker that died during the last one left,
+	// and leaves nothing behind.
+	for _, dir := range []string{spec.Dir, spec.TempDir} {
+		if err := os.RemoveAll(dir); err != nil {
+			return lanes.Qualification{}, err
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return lanes.Qualification{}, err
+		}
+		defer os.RemoveAll(dir)
+	}
 	binary, err := findBinary(spec.Env)
 	if err != nil {
 		return lanes.Qualification{}, err
