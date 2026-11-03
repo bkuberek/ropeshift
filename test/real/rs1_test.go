@@ -86,6 +86,8 @@ type suite struct {
 	limits []string
 	// keep runs first in cleanup, while everything a run left still stands.
 	keep func()
+	// daemonEnv is what a suite adds to its daemons' environment beyond the allowlist.
+	daemonEnv []string
 }
 
 // start refuses to run without the explicit start, and takes the settings digest before
@@ -471,7 +473,7 @@ func (s *suite) startDaemonWith(overrides map[string]any) *daemon {
 	}
 	cmd := exec.Command(filepath.Join(s.binDir, "ropeshiftd"), "solo",
 		"--source", s.repo, "--intake-tick", "200ms", "--heartbeat", "1s", "--lease-tick", "1s")
-	cmd.Env = s.environment(append(s.daemonTags(), "ROPESHIFT_SESSION_OVERRIDE="+string(override), api.EnvWeb+"="+api.WebOff)...)
+	cmd.Env = s.environment(append(append(s.daemonTags(), s.daemonEnv...), "ROPESHIFT_SESSION_OVERRIDE="+string(override), api.EnvWeb+"="+api.WebOff)...)
 	d := &daemon{cmd: cmd, exited: make(chan error, 1), stderr: &bytes.Buffer{}}
 	cmd.Stderr = d.stderr
 	if err := cmd.Start(); err != nil {
