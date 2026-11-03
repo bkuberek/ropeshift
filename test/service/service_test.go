@@ -12,7 +12,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -46,13 +45,9 @@ var binaries struct {
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "rsbin")
 	if err == nil {
-		binaries.cli = filepath.Join(dir, "ropeshift")
 		binaries.daemon = filepath.Join(dir, "ropeshiftd")
-		build := exec.Command("go", "build", "-o", binaries.cli, "ropeshift.dev/ropeshift/cmd/ropeshift")
-		build.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if out, buildErr := build.CombinedOutput(); buildErr != nil {
-			err = fmt.Errorf("build: %v\n%s", buildErr, out)
-		} else {
+		binaries.cli, err = doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
+		if err == nil {
 			err = os.Symlink(binaries.cli, binaries.daemon)
 		}
 	}
@@ -185,8 +180,16 @@ type installation struct {
 	manager manager
 }
 
+// EnvServicePrefix replaces the start of every service name a test installs, so a runner that gives a
+// run a name of its own can find and remove what a killed run left.
+const EnvServicePrefix = "ROPESHIFT_TEST_SERVICE_PREFIX"
+
+// randomName names one service, after the run's prefix when it has one.
 func randomName(t *testing.T, prefix string) string {
 	t.Helper()
+	if own := os.Getenv(EnvServicePrefix); own != "" {
+		prefix = own
+	}
 	raw := make([]byte, 6)
 	if _, err := rand.Read(raw); err != nil {
 		t.Fatal(err)

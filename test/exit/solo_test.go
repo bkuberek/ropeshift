@@ -36,13 +36,9 @@ var binaries struct {
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "rsbin")
 	if err == nil {
-		binaries.cli = filepath.Join(dir, "ropeshift")
 		binaries.daemon = filepath.Join(dir, "ropeshiftd")
-		build := exec.Command("go", "build", "-o", binaries.cli, "ropeshift.dev/ropeshift/cmd/ropeshift")
-		build.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if out, buildErr := build.CombinedOutput(); buildErr != nil {
-			err = fmt.Errorf("build: %v\n%s", buildErr, out)
-		} else {
+		binaries.cli, err = doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
+		if err == nil {
 			err = os.Symlink(binaries.cli, binaries.daemon)
 		}
 	}

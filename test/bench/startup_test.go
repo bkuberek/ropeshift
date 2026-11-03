@@ -24,13 +24,19 @@ const (
 	daemonBudget  = time.Second // NFR-PERF-1
 )
 
-func TestCommandStartup(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "ropeshift")
-	build := exec.Command("go", "build", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
+// benchBinary is the binary a bench times: the prebuilt one when a bundle runs, and otherwise one built
+// from cmd into dir.
+func benchBinary(t *testing.T, dir, name, cmd string) string {
+	t.Helper()
+	binary, err := doubles.Binary(dir, name, "ropeshift.dev/ropeshift/"+cmd)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return binary
+}
+
+func TestCommandStartup(t *testing.T) {
+	binary := benchBinary(t, t.TempDir(), doubles.PrebuiltRopeshift, "cmd/ropeshift")
 	samples := make([]time.Duration, 0, startupRuns)
 	for range startupRuns {
 		start := time.Now()
@@ -52,15 +58,8 @@ func TestCommandStartup(t *testing.T) {
 // command that shares the binary.
 func TestTopStartsWithinTheBudget(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "ropeshift")
-	daemon := filepath.Join(dir, "ropeshiftd")
-	for name, target := range map[string]string{binary: "cmd/ropeshift", daemon: "cmd/ropeshiftd"} {
-		build := exec.Command("go", "build", "-o", name, "ropeshift.dev/ropeshift/"+target)
-		build.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if out, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("build: %v\n%s", err, out)
-		}
-	}
+	binary := benchBinary(t, dir, doubles.PrebuiltRopeshift, "cmd/ropeshift")
+	daemon := benchBinary(t, dir, doubles.PrebuiltDaemon, "cmd/ropeshiftd")
 	state, err := os.MkdirTemp("", "rsb")
 	if err != nil {
 		t.Fatal(err)
@@ -108,12 +107,7 @@ func TestTopStartsWithinTheBudget(t *testing.T) {
 // TestDaemonAcceptsWithinOneSecond times a real ropeshiftd from exec to its first
 // answer on the socket, on a new installation, so the time includes the migrations.
 func TestDaemonAcceptsWithinOneSecond(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "ropeshiftd")
-	build := exec.Command("go", "build", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshiftd")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	binary := benchBinary(t, t.TempDir(), doubles.PrebuiltDaemon, "cmd/ropeshiftd")
 	samples := make([]time.Duration, 0, daemonRuns)
 	for range daemonRuns {
 		samples = append(samples, timeDaemon(t, binary))

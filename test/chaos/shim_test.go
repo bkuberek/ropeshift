@@ -23,6 +23,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api/shimlink"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.dev/ropeshift/test/doubles"
 )
 
 // The two processes this file adds to the test binary.
@@ -195,15 +196,13 @@ type shimRig struct {
 }
 
 var shimBinary = sync.OnceValues(func() (string, error) {
-	dir, err := os.MkdirTemp("/tmp", "rsshim")
+	dir, err := os.MkdirTemp(doubles.ShortTemp(), "rsshim")
 	if err != nil {
 		return "", err
 	}
-	binary := filepath.Join(dir, "ropeshift")
-	build := exec.Command("go", "build", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build: %v\n%s", err, out)
+	binary, err := doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
+	if err != nil {
+		return "", err
 	}
 	previous := afterTests
 	afterTests = func() error {
@@ -219,7 +218,7 @@ func newShimRig(t *testing.T) *shimRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, err := os.MkdirTemp("/tmp", "rs")
+	dir, err := os.MkdirTemp(doubles.ShortTemp(), "rs")
 	if err != nil {
 		t.Fatal(err)
 	}

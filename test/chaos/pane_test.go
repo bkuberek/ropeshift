@@ -56,15 +56,13 @@ const paneProfile = "run_mode = \"tmux\"\n[lifecycle]\nready_timeout = \"4s\"\nb
 const paneFlagWait = 30 * time.Second
 
 var chaosDaemon = sync.OnceValues(func() (string, error) {
-	dir, err := os.MkdirTemp("/tmp", "rspane")
+	dir, err := os.MkdirTemp(doubles.ShortTemp(), "rspane")
 	if err != nil {
 		return "", err
 	}
-	binary := filepath.Join(dir, "ropeshift")
-	build := exec.Command("go", "build", "-tags", "chaos", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build: %v\n%s", err, out)
+	binary, err := doubles.Binary(dir, doubles.PrebuiltChaos, "ropeshift.dev/ropeshift/cmd/ropeshift", "chaos")
+	if err != nil {
+		return "", err
 	}
 	if err := os.Symlink(binary, filepath.Join(dir, "ropeshiftd")); err != nil {
 		return "", err

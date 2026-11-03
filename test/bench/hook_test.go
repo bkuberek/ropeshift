@@ -24,6 +24,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/worker"
+	"ropeshift.dev/ropeshift/test/doubles"
 )
 
 const (
@@ -75,12 +76,7 @@ func hookScenarios() []hookScenario {
 // TestHookLatency times the real binary as a process, from start to exit, as an agent
 // CLI experiences it. No session is involved.
 func TestHookLatency(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "ropeshift")
-	build := exec.Command("go", "build", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	binary := benchBinary(t, t.TempDir(), doubles.PrebuiltRopeshift, "cmd/ropeshift")
 	worst := time.Duration(0)
 	for _, s := range hookScenarios() {
 		t.Run(s.name, func(t *testing.T) {

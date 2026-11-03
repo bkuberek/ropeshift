@@ -81,18 +81,52 @@ func moduleRoot() string {
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
+// EnvPrebuilt names a directory of binaries built ahead of a run, for a machine with no Go, such as
+// the bundle `make linux-bundle` writes. A test takes each binary from it by name when it is set, and
+// builds the binary when it is not. A name the directory lacks fails the test, so a run that must not
+// need Go never builds.
+const EnvPrebuilt = "ROPESHIFT_TEST_PREBUILT"
+
+// The names of the binaries in a prebuilt directory, and of the directory that holds the canary.
+const (
+	PrebuiltRopeshift  = "ropeshift"
+	PrebuiltDaemon     = "ropeshiftd"
+	PrebuiltFakeClaude = "fakeclaude"
+	// PrebuiltChaos is ropeshift built with the chaos tag.
+	PrebuiltChaos  = "ropeshift-chaos"
+	PrebuiltCanary = "canary"
+)
+
+// Binary returns one binary of this module: the prebuilt one called name when EnvPrebuilt is set,
+// and otherwise pkg built with these tags and no cgo, as dir/name.
+func Binary(dir, name, pkg string, tags ...string) (string, error) {
+	if prebuilt := os.Getenv(EnvPrebuilt); prebuilt != "" {
+		path := filepath.Join(prebuilt, name)
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("the prebuilt %s: %w", name, err)
+		}
+		return path, nil
+	}
+	path := filepath.Join(dir, name)
+	args := []string{"build", "-o", path}
+	if len(tags) != 0 {
+		args = append(args, "-tags", strings.Join(tags, ","))
+	}
+	build := exec.Command("go", append(args, pkg)...)
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build %s: %v\n%s", pkg, err, out)
+	}
+	return path, nil
+}
+
 func buildFakeClaude() (string, error) {
 	built.once.Do(func() {
 		built.dir, built.err = os.MkdirTemp("", "rsfake")
 		if built.err != nil {
 			return
 		}
-		built.path = filepath.Join(built.dir, "fakeclaude")
-		build := exec.Command("go", "build", "-o", built.path, "ropeshift.dev/ropeshift/test/doubles/fakeclaude")
-		build.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if out, err := build.CombinedOutput(); err != nil {
-			built.err = fmt.Errorf("build fakeclaude: %v\n%s", err, out)
-		}
+		built.path, built.err = Binary(built.dir, PrebuiltFakeClaude, "ropeshift.dev/ropeshift/test/doubles/fakeclaude")
 	})
 	return built.path, built.err
 }
@@ -106,12 +140,7 @@ func Ropeshift(t testing.TB) string {
 		if builtBinary.err != nil {
 			return
 		}
-		builtBinary.path = filepath.Join(builtBinary.dir, "ropeshift")
-		build := exec.Command("go", "build", "-o", builtBinary.path, "ropeshift.dev/ropeshift/cmd/ropeshift")
-		build.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if out, err := build.CombinedOutput(); err != nil {
-			builtBinary.err = fmt.Errorf("build ropeshift: %v\n%s", err, out)
-		}
+		builtBinary.path, builtBinary.err = Binary(builtBinary.dir, PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
 	})
 	if builtBinary.err != nil {
 		t.Fatal(builtBinary.err)
@@ -263,10 +292,23 @@ func PrivateTmux(t testing.TB) *tmux.Terminal {
 	return terminal
 }
 
+// maxShortTemp keeps a socket under the 104-byte limit with a directory, a run directory, and a
+// socket name below it.
+const maxShortTemp = 20
+
+// ShortTemp is where a test makes a directory that holds a socket: the temporary directory when its
+// path is short enough, and /tmp when it is not. A run that sets a short TMPDIR keeps every file there.
+func ShortTemp() string {
+	if base := os.TempDir(); len(base) <= maxShortTemp {
+		return base
+	}
+	return "/tmp"
+}
+
 // NewTmux returns a terminal and the function that ends its server.
 func NewTmux(t testing.TB) (*tmux.Terminal, func()) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "rsmux")
+	dir, err := os.MkdirTemp(ShortTemp(), "rsmux")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,10 +377,13 @@ func BinDir(path string) string {
 }
 
 // CanaryPath returns a PATH that finds the canary first, and fails the test if the
-// canary runs.
+// canary runs. A prebuilt bundle holds its own, because the source tree is not there.
 func CanaryPath(t testing.TB) string {
 	t.Helper()
-	dir := filepath.Join(moduleRoot(), "test", "doubles", "canary")
+	dir := filepath.Join(moduleRoot(), "test", "doubles", PrebuiltCanary)
+	if prebuilt := os.Getenv(EnvPrebuilt); prebuilt != "" {
+		dir = filepath.Join(prebuilt, PrebuiltCanary)
+	}
 	t.Cleanup(func() {
 		if _, err := os.Stat(filepath.Join(dir, "tripped")); err == nil {
 			t.Errorf("the claude canary ran during this test")

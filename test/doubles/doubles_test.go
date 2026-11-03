@@ -3,6 +3,7 @@ package doubles
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,5 +29,31 @@ func TestSessionsReadInTheOrderTheyStarted(t *testing.T) {
 	seen := SeenBy(t, dir)
 	if len(seen) != 2 || seen[0].Args[0] != "first" || seen[1].Args[0] != "second" {
 		t.Errorf("seen %+v", seen)
+	}
+}
+
+// A machine with no Go runs what a bundle holds: each binary by its name, and the canary from its own
+// directory there. A name the bundle lacks fails, and nothing is built.
+func TestAPrebuiltBundleNeedsNoGo(t *testing.T) {
+	bundle := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bundle, PrebuiltFakeClaude), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvPrebuilt, bundle)
+	t.Setenv("PATH", t.TempDir())
+	out := t.TempDir()
+
+	path, err := Binary(out, PrebuiltFakeClaude, "ropeshift.dev/ropeshift/test/doubles/fakeclaude")
+	if err != nil || path != filepath.Join(bundle, PrebuiltFakeClaude) {
+		t.Errorf("the double is %q: %v", path, err)
+	}
+	if path, err := Binary(out, PrebuiltChaos, "ropeshift.dev/ropeshift/cmd/ropeshift", "chaos"); err == nil {
+		t.Errorf("a binary the bundle lacks is %q", path)
+	}
+	if entries, err := os.ReadDir(out); err != nil || len(entries) != 0 {
+		t.Errorf("something was built: %v, %v", entries, err)
+	}
+	if dir, _, _ := strings.Cut(CanaryPath(t), string(os.PathListSeparator)); dir != filepath.Join(bundle, PrebuiltCanary) {
+		t.Errorf("the canary is in %q", dir)
 	}
 }
