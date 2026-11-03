@@ -79,12 +79,14 @@ func (w *Worker) bracket(ctx context.Context, effect lanes.Effect, perform func(
 	}
 	steps := effectSteps[effect.Kind]
 	steps.started()
+	started := w.clock.Now()
 	failure := perform()
 	steps.performed()
 	state, detail := lanes.EffectCompleted, ""
 	if failure != nil {
 		state, detail = lanes.EffectFailed, failure.Error()
 	}
+	w.measureEffect(effect, state, started)
 	if err := w.journal.FinishEffect(context.WithoutCancel(ctx), effect.Key, state, detail); err != nil {
 		return true, errors.Join(failure, err)
 	}

@@ -566,7 +566,7 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 	daemon.Env = append([]string{
 		"HOME=" + w.target.Dir, "PATH=" + doubles.InstallFakeClaude(w.t, "no-session"),
 		api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
-		crashpoint.EnvPause + "=sweep/candidates-read=150ms",
+		api.EnvTelemetry + "=127.0.0.1:0", crashpoint.EnvPause + "=sweep/candidates-read=150ms",
 	}, sabotage...)
 	if err := daemon.Start(); err != nil {
 		return err

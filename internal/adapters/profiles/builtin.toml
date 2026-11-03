@@ -47,6 +47,16 @@ branch_prefix = "lane/"
 ports_per_lane = 10
 compose_project_prefix = "rs"
 
+# Telemetry stays on the machine unless an exporter is configured, and content stays out (D3).
+# The retention bounds are proposals, reviewed against measured overhead.
+[telemetry]
+traces = false
+content = false
+omit_repository = false
+retention_age = "168h"
+retention_bytes = 268435456
+export_account_attributes = false
+
 [admission]
 max_lanes = 4
 max_lanes_per_sign_in = 4

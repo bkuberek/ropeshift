@@ -138,6 +138,13 @@ func TestALaneLayerNarrowsAndCannotWiden(t *testing.T) {
 		{name: "a repository cannot admit more", repository: "[admission]\nmax_lanes_per_sign_in = 99\n", refused: true},
 		{name: "a repository cannot lower the floor", user: "[admission]\nmin_free_memory_mb = 512\n", repository: "[admission]\nmin_free_memory_mb = 0\n", refused: true},
 		{name: "a user sets what a machine admits", user: "[admission]\nmax_lanes = 9\n"},
+		{name: "a user turns content capture on", user: "[telemetry]\ncontent = true\n"},
+		{name: "a lane cannot turn content capture on", lane: "[telemetry]\ncontent = true\n", refused: true},
+		{name: "a repository cannot turn content capture on", repository: "[telemetry]\ncontent = true\n", refused: true},
+		{name: "a repository can turn content capture off", user: "[telemetry]\ncontent = true\n", repository: "[telemetry]\ncontent = false\n"},
+		{name: "a repository asks for traces", repository: "[telemetry]\ntraces = true\nomit_repository = true\n"},
+		{name: "a repository cannot keep account identifiers on export", repository: "[telemetry]\nexport_account_attributes = true\n", refused: true},
+		{name: "a lane cannot change retention", lane: "[telemetry]\nretention_age = \"1h\"\n", refused: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

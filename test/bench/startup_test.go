@@ -67,7 +67,8 @@ func TestTopStartsWithinTheBudget(t *testing.T) {
 	}
 	defer os.RemoveAll(state)
 	paths := api.Paths{StateDir: filepath.Join(state, "state"), RunDir: filepath.Join(state, "run")}
-	env := []string{"HOME=" + state, "PATH=" + doubles.InstallFakeClaude(t, "no-session"), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff}
+	env := []string{"HOME=" + state, "PATH=" + doubles.InstallFakeClaude(t, "no-session"), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
+		api.EnvTelemetry + "=127.0.0.1:0"}
 	cmd := exec.Command(daemon, "solo")
 	cmd.Env = env
 	if err := cmd.Start(); err != nil {
@@ -134,7 +135,8 @@ func timeDaemon(t *testing.T, binary string) time.Duration {
 	defer os.RemoveAll(dir)
 	paths := api.Paths{StateDir: filepath.Join(dir, "state"), RunDir: filepath.Join(dir, "run")}
 	cmd := exec.Command(binary, "solo")
-	cmd.Env = []string{"HOME=" + dir, "PATH=" + doubles.InstallFakeClaude(t, "no-session"), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff}
+	cmd.Env = []string{"HOME=" + dir, "PATH=" + doubles.InstallFakeClaude(t, "no-session"), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
+		api.EnvTelemetry + "=127.0.0.1:0"}
 	client := api.NewUnixClient(paths.ControlSocket())
 	defer client.Close()
 	start := time.Now()

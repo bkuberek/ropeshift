@@ -633,30 +633,34 @@ func TestAStreamEndsWithItsSession(t *testing.T) {
 	}
 }
 
-func TestTheWebListenerBindsLoopbackOnly(t *testing.T) {
-	for _, address := range []string{"127.0.0.1:0", "localhost:0", "[::1]:0"} {
-		t.Run(address, func(t *testing.T) {
-			listener, err := server.ListenWeb(address)
-			if err != nil {
-				if strings.Contains(err.Error(), "cannot assign") {
-					t.Skip("this machine has no such address")
+// TestTheTCPListenersBindLoopbackOnly holds both TCP listeners the design names, the web UI's and the
+// OTLP receiver's, to loopback addresses.
+func TestTheTCPListenersBindLoopbackOnly(t *testing.T) {
+	for name, listen := range map[string]func(string) (net.Listener, error){"web": server.ListenWeb, "telemetry": server.ListenTelemetry} {
+		for _, address := range []string{"127.0.0.1:0", "localhost:0", "[::1]:0"} {
+			t.Run(name+"/"+address, func(t *testing.T) {
+				listener, err := listen(address)
+				if err != nil {
+					if strings.Contains(err.Error(), "cannot assign") {
+						t.Skip("this machine has no such address")
+					}
+					t.Fatal(err)
 				}
-				t.Fatal(err)
-			}
-			defer listener.Close()
-			if ip := listener.Addr().(*net.TCPAddr).IP; !ip.IsLoopback() {
-				t.Errorf("bound %s", ip)
-			}
-		})
-	}
-	for _, address := range []string{"0.0.0.0:0", "[::]:0", ":0", "192.168.1.2:0", "10.0.0.1:0", "attacker.example:80", "127.0.0.1.attacker.example:80", "no port"} {
-		t.Run(address, func(t *testing.T) {
-			listener, err := server.ListenWeb(address)
-			if err == nil {
-				listener.Close()
-				t.Fatalf("bound %s", address)
-			}
-		})
+				defer listener.Close()
+				if ip := listener.Addr().(*net.TCPAddr).IP; !ip.IsLoopback() {
+					t.Errorf("bound %s", ip)
+				}
+			})
+		}
+		for _, address := range []string{"0.0.0.0:0", "[::]:0", ":0", "192.168.1.2:0", "10.0.0.1:0", "attacker.example:80", "127.0.0.1.attacker.example:80", "no port"} {
+			t.Run(name+"/"+address, func(t *testing.T) {
+				listener, err := listen(address)
+				if err == nil {
+					listener.Close()
+					t.Fatalf("bound %s", address)
+				}
+			})
+		}
 	}
 }
 

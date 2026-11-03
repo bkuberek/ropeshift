@@ -123,6 +123,8 @@ type Profile struct {
 	Hooks     map[string][]string `toml:"hooks" json:"hooks"`
 	// Messages says how long a message stays useful, per kind.
 	Messages map[string]MessageWindow `toml:"messages" json:"messages"`
+	// Telemetry says what a lane's agent sends to the worker's receiver, and how long the worker keeps it.
+	Telemetry TelemetrySettings `toml:"telemetry" json:"telemetry"`
 }
 
 // The values of `run_mode`. The default waits for the doctor, and until then an empty

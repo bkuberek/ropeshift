@@ -30,6 +30,8 @@ type laneRig struct {
 	dir     string
 	// stopWorker ends the context the lanes run under.
 	stopWorker func()
+	// telemetry is what the worker emitted.
+	telemetry *fake.Telemetry
 }
 
 func newLaneRig(t *testing.T) *laneRig {
@@ -65,7 +67,7 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 		Socket:     "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
 		StateDir: dir, RunDir: dir,
 	}
-	r := &laneRig{rig: base, driver: driver, config: config, dir: dir}
+	r := &laneRig{rig: base, driver: driver, config: config, dir: dir, telemetry: fake.NewTelemetry()}
 	var journal ports.Journal = base.journal
 	if base.workerJournal != nil {
 		journal = base.workerJournal
@@ -75,6 +77,7 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
 		Lanes:     config,
 		Spool:     filepath.Join(dir, "spool"),
+		Telemetry: r.telemetry,
 	})
 	if err := r.subject.Start(t.Context()); err != nil {
 		t.Fatal(err)

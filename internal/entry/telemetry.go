@@ -1,0 +1,251 @@
+package entry
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"ropeshift.dev/ropeshift/internal/adapters/otel"
+	"ropeshift.dev/ropeshift/internal/adapters/profiles"
+	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
+	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.dev/ropeshift/internal/api/server"
+	"ropeshift.dev/ropeshift/internal/control"
+	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.dev/ropeshift/internal/worker"
+)
+
+// The telemetry store's files, inside the state directory. The token is what a lane's agent sends the
+// receiver, and it survives a restart, because a lane outlives its worker and keeps its environment.
+const (
+	telemetryFileName  = "telemetry.db"
+	telemetryTokenFile = "telemetry.token"
+)
+
+// How often each telemetry loop runs.
+const (
+	emitEvery      = 10 * time.Second
+	retentionEvery = time.Minute
+	spansEvery     = 5 * time.Second
+)
+
+// telemetryDeps is every way telemetry reaches past this process, so a test can hold all of them.
+type telemetryDeps struct {
+	Lookup func(string) (string, bool)
+	// Dial opens every connection the exporter opens. Nil is the exporter's own.
+	Dial otel.Dial
+	Now  func() time.Time
+}
+
+func liveTelemetryDeps() telemetryDeps {
+	return telemetryDeps{Lookup: os.LookupEnv, Now: time.Now}
+}
+
+// soloTelemetry is the worker's telemetry: its store, its receiver, the emitter of its own spans and
+// metrics, and an exporter only when one is configured.
+type soloTelemetry struct {
+	store    *sqlite.TelemetryStore
+	emitter  *otel.Emitter
+	exporter *otel.Exporter
+	receiver *http.Server
+	lane     worker.LaneTelemetry
+	settings lanes.TelemetrySettings
+	loops    sync.WaitGroup
+	cancel   context.CancelFunc
+}
+
+// soloTelemetrySettings reads the worker's part of the user's layer. A layer that does not parse
+// leaves the defaults, and a lane that reads it reports the fault.
+func soloTelemetrySettings(paths api.Paths) lanes.TelemetrySettings {
+	raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		raw = nil
+	}
+	profile, err := profiles.Resolve(string(raw))
+	if err != nil {
+		profile, _ = profiles.Resolve()
+	}
+	return profile.Telemetry.WorkerSettings()
+}
+
+// telemetryToken reads the receiver's token, or makes one on a first start.
+func telemetryToken(paths api.Paths) (string, error) {
+	path := filepath.Join(paths.StateDir, telemetryTokenFile)
+	raw, err := os.ReadFile(path)
+	if err == nil && len(strings.TrimSpace(string(raw))) >= 32 {
+		return strings.TrimSpace(string(raw)), nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	secret := make([]byte, 16)
+	if _, err := rand.Read(secret); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(secret)
+	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// startTelemetry opens the store and starts the loops. Nothing leaves this machine unless the
+// standard OTLP exporter settings name an endpoint (NFR-PRIV-1), and a setting this exporter cannot
+// honor stops the daemon, because a person asked for something it would not do.
+func startTelemetry(parent context.Context, paths api.Paths, address string, deps telemetryDeps, stdout, stderr io.Writer) (*soloTelemetry, error) {
+	ctx, cancel := context.WithCancel(parent)
+	t, err := openTelemetry(ctx, paths, address, deps, stdout, stderr)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	t.cancel = cancel
+	return t, nil
+}
+
+func openTelemetry(ctx context.Context, paths api.Paths, address string, deps telemetryDeps, stdout, stderr io.Writer) (*soloTelemetry, error) {
+	store, err := sqlite.OpenTelemetry(filepath.Join(paths.StateDir, telemetryFileName))
+	if err != nil {
+		return nil, err
+	}
+	if err := store.Migrate(ctx); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	report := func(err error) { fmt.Fprintf(stderr, "ropeshiftd: telemetry: %v\n", err) }
+	t := &soloTelemetry{store: store, settings: soloTelemetrySettings(paths)}
+	config, configured, err := otel.ConfigFromEnv(deps.Lookup)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	if configured {
+		config.KeepAccount, config.Dial, config.Report = t.settings.ExportAccount, deps.Dial, report
+		t.exporter = otel.NewExporter(config)
+		fmt.Fprintf(stdout, "ropeshiftd: telemetry export: %s\n", strings.Join(config.Hosts(), ", "))
+	}
+	var forward otel.Forwarder
+	if t.exporter != nil {
+		forward = t.exporter
+	}
+	t.emitter = otel.NewEmitter(otel.EmitterConfig{
+		Resource: []ports.Attribute{
+			{Key: "service.name", Value: "ropeshift"}, {Key: "service.version", Value: version},
+			{Key: lanes.AttrWorkspace, Value: string(soloScope)}, {Key: lanes.AttrWorker, Value: "solo"},
+		},
+		Store: store, Forward: forward, Now: deps.Now, Report: report,
+	})
+	if err := t.listen(ctx, paths, address, forward, deps, stdout, report); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	t.run(ctx, report, deps.Now)
+	return t, nil
+}
+
+// listen serves the receiver on loopback. A port something else holds costs only telemetry, so the
+// daemon goes on, and its lanes are told nothing about where to send.
+func (t *soloTelemetry) listen(ctx context.Context, paths api.Paths, address string, forward otel.Forwarder, deps telemetryDeps, stdout io.Writer, report func(error)) error {
+	if address == api.WebOff {
+		return nil
+	}
+	listener, err := server.ListenTelemetry(address)
+	if errors.Is(err, syscall.EADDRINUSE) {
+		report(err)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	token, err := telemetryToken(paths)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	t.receiver = &http.Server{
+		Handler:           otel.NewReceiver(otel.ReceiverConfig{Store: t.store, Forward: forward, Token: token, Now: deps.Now, Report: report}),
+		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
+	}
+	bound := listener.Addr().String()
+	t.lane = worker.LaneTelemetry{Endpoint: "http://" + bound, Header: otel.HeaderToken + "=" + token, Workspace: string(soloScope)}
+	t.loops.Add(1)
+	go func() {
+		defer t.loops.Done()
+		if err := t.receiver.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			report(err)
+		}
+	}()
+	fmt.Fprintf(stdout, "ropeshiftd: telemetry http://%s\n", bound)
+	return nil
+}
+
+func (t *soloTelemetry) run(ctx context.Context, report func(error), now func() time.Time) {
+	t.loops.Add(3)
+	go func() {
+		defer t.loops.Done()
+		t.exporter.Run(ctx)
+	}()
+	go func() {
+		defer t.loops.Done()
+		t.emitter.Run(ctx, emitEvery)
+	}()
+	go func() {
+		defer t.loops.Done()
+		maxAge, _ := time.ParseDuration(t.settings.RetentionAge)
+		ticker := time.NewTicker(retentionEvery)
+		defer ticker.Stop()
+		for {
+			if _, err := t.store.Retain(ctx, now().UnixMilli(), maxAge, t.settings.RetentionBytes); err != nil && ctx.Err() == nil {
+				report(err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+}
+
+// close stops the receiver, waits for the emitter's last flush and the exporter's last send, and
+// closes the store. Correctness needs none of it, because the daemon is crash-only.
+func (t *soloTelemetry) close() {
+	t.cancel()
+	if t.receiver != nil {
+		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = t.receiver.Shutdown(shutdown)
+	}
+	t.loops.Wait()
+	_ = t.store.Close()
+}
+
+// spansTick follows the ledger into spans and metrics, from where the log stood when the daemon
+// started.
+func spansTick(ctx context.Context, store ports.Store, telemetry ports.Telemetry) (control.Tick, error) {
+	spans := control.NewSpans(store, telemetry)
+	if err := spans.StartAtHead(ctx, soloScope); err != nil {
+		return control.Tick{}, err
+	}
+	return control.Tick{
+		Name:  "telemetry",
+		Every: spansEvery,
+		Run: func(ctx context.Context) error {
+			_, err := spans.Project(ctx, soloScope)
+			return err
+		},
+	}, nil
+}

@@ -15,7 +15,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -516,11 +515,74 @@ func sessionHandleID(spec ports.SessionSpec) string {
 // sessionEnv adds the driver's own variables. An undocumented one goes only to a
 // version that passed its check.
 func sessionEnv(spec ports.SessionSpec, qualified bool) []string {
-	env := append(slices.Clone(spec.Env), envSessionState, lanes.EnvPolicy+"="+policyPath(spec))
+	env := append(withoutTelemetry(spec.Env), envSessionState, lanes.EnvPolicy+"="+policyPath(spec))
 	if spec.TempDir != "" && qualified {
 		env = append(env, envTempDir+spec.TempDir)
 	}
+	return append(env, TelemetryEnv(spec)...)
+}
+
+// ContentFlags are the agent's switches for prompt, response, and tool content in its telemetry. All
+// are off by default in the CLI, and only a profile's opt-in turns them on (FR-OBS-5).
+func ContentFlags() []string {
+	return []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT", "OTEL_LOG_RAW_API_BODIES"}
+}
+
+// The export intervals, in milliseconds. A short log interval keeps the `api_request` log useful as
+// the second context source, and the metric interval keeps `top` current.
+const (
+	metricExportMs = "10000"
+	logsExportMs   = "5000"
+)
+
+// TelemetryEnv points the session's telemetry at the worker's receiver. Telemetry is enabled only
+// through the environment, because a repository's settings files cannot set its destination. The
+// protocol is OTLP/HTTP JSON, which is what the receiver takes (D3).
+func TelemetryEnv(spec ports.SessionSpec) []string {
+	t := spec.Telemetry
+	if t.Endpoint == "" {
+		return nil
+	}
+	env := []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY=1",
+		"OTEL_METRICS_EXPORTER=otlp",
+		"OTEL_LOGS_EXPORTER=otlp",
+		"OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=" + t.Endpoint,
+		"OTEL_METRIC_EXPORT_INTERVAL=" + metricExportMs,
+		"OTEL_LOGS_EXPORT_INTERVAL=" + logsExportMs,
+	}
+	if t.Header != "" {
+		env = append(env, "OTEL_EXPORTER_OTLP_HEADERS="+t.Header)
+	}
+	if attributes := t.Tags.ResourceAttributes(); attributes != "" {
+		env = append(env, "OTEL_RESOURCE_ATTRIBUTES="+attributes)
+	}
+	if t.Traces {
+		env = append(env, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1", "OTEL_TRACES_EXPORTER=otlp")
+	}
+	if t.Content {
+		for _, flag := range ContentFlags() {
+			env = append(env, flag+"=1")
+		}
+	}
 	return env
+}
+
+// withoutTelemetry drops every telemetry variable a lane's environment holds, so only the driver says
+// where telemetry goes and whether content is in it. A profile can pass a variable through by name,
+// and none of these may reach a session that way.
+func withoutTelemetry(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(name, "OTEL_") || name == "CLAUDE_CODE_ENABLE_TELEMETRY" || name == "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA" ||
+			name == "ENABLE_ENHANCED_TELEMETRY_BETA" {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // openStderr keeps a session's stderr beside its generated files.

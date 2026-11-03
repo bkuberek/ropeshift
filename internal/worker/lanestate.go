@@ -361,6 +361,7 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 		r.progressed()
 		_, waiting, _ := s.compactionAsked()
 		baseline := s.noteContext(event.ContextTokens)
+		r.measureContext(event.ContextTokens, baseline)
 		r.noteModel(lanes.Reachable)
 		r.signal(ctx, lanes.OnActivity)
 		r.recordBaseline(ctx, baseline)

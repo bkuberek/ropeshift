@@ -47,6 +47,8 @@ type LaneRuntime struct {
 	Machine ports.Machine
 	// Override carries a real-session suite's guard flags.
 	Override lanes.SessionOverride
+	// Telemetry is where each session's telemetry goes. Empty sends none.
+	Telemetry LaneTelemetry
 }
 
 // laneRun is one lane this process is running.
@@ -677,6 +679,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
+		Telemetry: r.sessionTelemetry(prepared, repository),
 	}
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
@@ -725,6 +728,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		}
 		if r.anotherCompaction(ctx, event) {
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.measureTurn(event.Turn)
 			r.progressed()
 			r.saveProgress(ctx, event.Seq)
 			continue
@@ -735,6 +739,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.bind(ctx, event)
 		case ports.EventTurnEnded:
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
+			r.measureTurn(event.Turn)
 			r.finishTurn(event.Turn)
 			r.noteResponse(ctx, event.Turn)
 			r.afterTurn(ctx, event.Turn)

@@ -144,12 +144,12 @@ func paneName(spec ports.SessionSpec) string {
 
 // paneEnv is the session's environment, which the launcher sets exactly.
 func paneEnv(spec ports.SessionSpec, qualified bool) []string {
-	env := append(slices.Clone(spec.Env), lanes.EnvPolicy+"="+policyPath(spec))
+	env := append(withoutTelemetry(spec.Env), lanes.EnvPolicy+"="+policyPath(spec))
 	env = append(env, spec.Override.Env()...)
 	if spec.TempDir != "" && qualified {
 		env = append(env, envTempDir+spec.TempDir)
 	}
-	return env
+	return append(env, TelemetryEnv(spec)...)
 }
 
 // launchPath holds a launch in the session's private directory, or beside its generated

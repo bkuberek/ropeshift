@@ -80,7 +80,7 @@ func newInstall(t *testing.T) *install {
 func (in *install) env() []string {
 	return []string{
 		"HOME=" + in.home, "PATH=" + in.path, "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state"),
-		api.EnvWeb + "=" + api.WebOff,
+		api.EnvWeb + "=" + api.WebOff, api.EnvTelemetry + "=127.0.0.1:0",
 	}
 }
 
@@ -280,9 +280,13 @@ func TestSoloPrivateSocket(t *testing.T) {
 		t.Log("no lsof, so only the source rule checks for a TCP listener")
 		return
 	}
+	// With the web UI off, the one TCP socket is the OTLP receiver's listener, on loopback, because an
+	// agent's exporter reaches a host and port and never a unix socket (FR-OBS-3). Anything else, or a
+	// listener on another address, fails.
 	out, _ := exec.Command(lsof, "-a", "-nP", "-iTCP", "-p", fmt.Sprint(d.cmd.Process.Pid)).Output()
-	if len(bytes.TrimSpace(out)) != 0 {
-		t.Errorf("a TCP socket is open:\n%s", out)
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[1], "TCP 127.0.0.1:") || !strings.HasSuffix(lines[1], "(LISTEN)") {
+		t.Errorf("TCP sockets other than the receiver's loopback listener are open:\n%s", out)
 	}
 }
 

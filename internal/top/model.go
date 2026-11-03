@@ -17,6 +17,8 @@ import (
 type Snapshot struct {
 	Needs api.NeedsYou  `json:"needs_you"`
 	Floor api.ShopFloor `json:"shop_floor"`
+	// Telemetry is what the worker's local store says of each lane, which needs no backend.
+	Telemetry api.LaneTelemetryList `json:"telemetry"`
 }
 
 // Revision is the newest revision this read saw.
@@ -260,7 +262,11 @@ func Reader(client *api.Client) func(context.Context) (Snapshot, error) {
 		if err := client.ReadView(ctx, api.ViewNeedsYou, "", &snapshot.Needs); err != nil {
 			return snapshot, err
 		}
-		err := client.ReadView(ctx, api.ViewShopFloor, "", &snapshot.Floor)
+		if err := client.ReadView(ctx, api.ViewShopFloor, "", &snapshot.Floor); err != nil {
+			return snapshot, err
+		}
+		var err error
+		snapshot.Telemetry, err = client.LaneTelemetry(ctx)
 		return snapshot, err
 	}
 }

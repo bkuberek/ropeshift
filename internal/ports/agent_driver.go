@@ -141,6 +141,20 @@ type SessionSpec struct {
 	// Override carries a real-session suite's guard flags. It is empty outside the
 	// realsession build.
 	Override lanes.SessionOverride
+	// Telemetry says where the session's own telemetry goes. An empty endpoint sends none.
+	Telemetry SessionTelemetry
+}
+
+// SessionTelemetry points a session's telemetry at the worker's receiver, tagged with what produced it
+// (FR-OBS-2). Content stays out unless the profile's opt-in says otherwise (FR-OBS-5).
+type SessionTelemetry struct {
+	// Endpoint is the receiver's base URL, on loopback.
+	Endpoint string
+	// Header is the `name=value` header the receiver requires, so only a lane writes to it.
+	Header  string
+	Tags    lanes.TelemetryTags
+	Traces  bool
+	Content bool
 }
 
 // SessionHandle names one running session.

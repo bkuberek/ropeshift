@@ -48,6 +48,8 @@ type Config struct {
 	PackTokens int64
 	// LongParkedMs is how long a lane stays parked before it reads as stuck. Zero takes the default.
 	LongParkedMs int64
+	// Telemetry reads the local worker's telemetry store. Nil has none, and its reads answer empty.
+	Telemetry ports.TelemetryReader
 }
 
 type handler struct {
@@ -84,6 +86,7 @@ func New(config Config) http.Handler {
 	h.viewRoutes(mux)
 	h.eventRoutes(mux)
 	h.noticeRoutes(mux)
+	h.telemetryRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))

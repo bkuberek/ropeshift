@@ -80,6 +80,13 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	if profile.Admission != below.Admission {
 		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change what this machine admits", lanes.ErrBadProfile)
 	}
+	// Content in telemetry is a person's choice, and the worker's store and export are the machine's.
+	if profile.Telemetry.Content && !below.Telemetry.Content {
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot turn content capture on", lanes.ErrBadProfile)
+	}
+	if profile.Telemetry.WorkerSettings() != below.Telemetry.WorkerSettings() {
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change the worker's telemetry store or export", lanes.ErrBadProfile)
+	}
 	return profile, nil
 }
 

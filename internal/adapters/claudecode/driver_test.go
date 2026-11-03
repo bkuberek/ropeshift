@@ -229,6 +229,86 @@ func TestTheSessionEnvironmentIsTheSpecs(t *testing.T) {
 	}
 }
 
+func telemetrySpec() ports.SessionSpec {
+	spec := goldenSpec()
+	spec.Telemetry = ports.SessionTelemetry{
+		Endpoint: "http://127.0.0.1:7318", Header: "x-ropeshift-telemetry=0123abcd",
+		Tags: lanes.TelemetryTags{
+			Workspace: "default", WorkOrder: "wo-1", Lane: "lane-1", Role: lanes.RoleWriter, Generation: 2, Profile: "default",
+			Repo: "example service", Branch: "lane/checkout,retry", Worker: "solo", Driver: claudecode.DriverName,
+		},
+	}
+	return spec
+}
+
+// TestTelemetryEnvironment is the golden list of what a lane's agent is told about telemetry: on,
+// sent to the worker's receiver over OTLP/HTTP JSON, tagged, and with no content flag (FR-OBS-2,
+// FR-OBS-5).
+func TestTelemetryEnvironment(t *testing.T) {
+	got := claudecode.TelemetryEnv(telemetrySpec())
+	golden(t, "telemetry.env", got)
+	for _, entry := range got {
+		name, value, _ := strings.Cut(entry, "=")
+		if name == "OTEL_RESOURCE_ATTRIBUTES" {
+			for pair := range strings.SplitSeq(value, ",") {
+				if _, tag, _ := strings.Cut(pair, "="); strings.ContainsAny(tag, " ,") {
+					t.Errorf("attribute %q holds a space or a comma", pair)
+				}
+			}
+		}
+		if slices.Contains(claudecode.ContentFlags(), name) {
+			t.Errorf("%s is set with no opt-in", name)
+		}
+	}
+}
+
+func TestContentFlagsNeedTheProfilesOptIn(t *testing.T) {
+	spec := telemetrySpec()
+	spec.Telemetry.Content = true
+	got := claudecode.TelemetryEnv(spec)
+	for _, flag := range claudecode.ContentFlags() {
+		if !slices.Contains(got, flag+"=1") {
+			t.Errorf("%s is unset under the opt-in", flag)
+		}
+	}
+	spec.Telemetry.Content, spec.Telemetry.Traces = false, true
+	got = claudecode.TelemetryEnv(spec)
+	if !slices.Contains(got, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1") || !slices.Contains(got, "OTEL_TRACES_EXPORTER=otlp") {
+		t.Errorf("traces asked for and not set: %v", got)
+	}
+}
+
+func TestNoReceiverSendsNoTelemetry(t *testing.T) {
+	spec := goldenSpec()
+	if got := claudecode.TelemetryEnv(spec); len(got) != 0 {
+		t.Errorf("a lane with no receiver was told %v", got)
+	}
+}
+
+// A lane's environment holds what its profile passed through, and nothing it passed can point the
+// agent's telemetry elsewhere or turn content on.
+func TestTheSessionSeesOnlyTheDriversTelemetry(t *testing.T) {
+	driver, path, spec := session(t, "two-turns", func(spec *ports.SessionSpec) {
+		spec.Env = append(spec.Env, "OTEL_LOG_USER_PROMPTS=1", "OTEL_EXPORTER_OTLP_ENDPOINT=https://elsewhere.example", "OTEL_LOG_RAW_API_BODIES=1")
+		spec.Telemetry = telemetrySpec().Telemetry
+	})
+	play(t, driver, spec)
+	seen := doubles.SeenBy(t, doubles.BinDir(path))
+	if len(seen) != 1 {
+		t.Fatalf("%d sessions", len(seen))
+	}
+	env := seen[0].Env
+	for _, flag := range claudecode.ContentFlags() {
+		if value, set := env[flag]; set {
+			t.Errorf("%s=%s reached the session", flag, value)
+		}
+	}
+	if env["OTEL_EXPORTER_OTLP_ENDPOINT"] != "http://127.0.0.1:7318" || env["CLAUDE_CODE_ENABLE_TELEMETRY"] != "1" ||
+		env["OTEL_EXPORTER_OTLP_PROTOCOL"] != "http/json" || !strings.Contains(env["OTEL_RESOURCE_ATTRIBUTES"], "ropeshift.lane.id=lane-1") {
+		t.Errorf("env %v", env)
+	}
+}
+
 func TestAResumeStatesEveryFlagAndContinuesTheCost(t *testing.T) {
 	driver, path, spec := session(t, "two-turns", nil)
 	handle, err := driver.Resume(t.Context(), spec, ports.ResumeRef{SessionID: "the-session", SessionTotalUSD: 0.05})

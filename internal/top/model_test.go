@@ -249,6 +249,31 @@ func TestEveryActionNamesACommand(t *testing.T) {
 	}
 }
 
+// TestALaneShowsItsContextTokensAndCost reads the worker's local telemetry beside the shop floor, so an
+// operator sees each lane's context, tokens, and cost with no backend.
+func TestALaneShowsItsContextTokensAndCost(t *testing.T) {
+	snapshot := golden(t)
+	snapshot.Telemetry = api.LaneTelemetryList{Available: true, Lanes: []api.LaneTelemetry{
+		{Lane: "lane-wo-accept", ContextTokens: 42000, Tokens: map[string]int64{"input": 1000, "output": 200, "cache_read": 40000}, CostUSD: 0.1234},
+	}}
+	wide, _ := loaded(t, snapshot).Update(top.Resized(240, 40))
+	frame := wide.View()
+	var line string
+	for candidate := range strings.Lines(frame) {
+		if strings.Contains(candidate, "lane-wo-accept") && strings.Contains(candidate, "liveness") {
+			line = candidate
+		}
+	}
+	if !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.Contains(line, "cost $0.1234") {
+		t.Errorf("the lane line says nothing of its telemetry: %q", line)
+	}
+	for candidate := range strings.Lines(frame) {
+		if strings.Contains(candidate, "lane-wo-approval") && strings.Contains(candidate, "context") {
+			t.Errorf("a lane with no telemetry shows figures: %q", candidate)
+		}
+	}
+}
+
 func TestTheFrameIsWhatItWas(t *testing.T) {
 	snapshot := golden(t)
 	frame := loaded(t, snapshot).View()

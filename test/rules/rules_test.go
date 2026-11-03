@@ -236,12 +236,13 @@ func TestPortWithAFakePasses(t *testing.T) {
 // offTheMachine matches each way Go code opens a connection, or reaches a client that can.
 var offTheMachine = regexp.MustCompile(`http\.Default(Client|Transport)|http\.(Get|Post|PostForm|Head)\(|(net|[dD]ialer)\.Dial(Timeout)?\(|\.DialContext\b`)
 
-// webhookFile is the one file that may open a connection off this machine, and only for a webhook a
-// member published.
-const webhookFile = "internal/adapters/notify/webhook.go"
+// offTheMachineFiles are the only files that may open a connection off this machine: the webhook a
+// member published (FR-API-4), and the telemetry exporter a workspace configured (FR-OBS-4). Each
+// takes a dial a test counts, and neither dials with nothing configured (NFR-PRIV-1).
+var offTheMachineFiles = []string{"internal/adapters/notify/webhook.go", "internal/adapters/otel/export.go"}
 
-// TestOneWayOffTheMachine is what lets a test of the webhook's dial say that no connection opened: any
-// other dial must name a unix socket, and nothing may reach for Go's default client.
+// TestOneWayOffTheMachine is what lets a test of a configured channel's dial say that no connection
+// opened: any other dial must name a unix socket, and nothing may reach for Go's default client.
 func TestOneWayOffTheMachine(t *testing.T) {
 	root := repoRoot(t)
 	found := 0
@@ -263,7 +264,7 @@ func TestOneWayOffTheMachine(t *testing.T) {
 					continue
 				}
 				found++
-				if filepath.ToSlash(rel) != webhookFile {
+				if !slices.Contains(offTheMachineFiles, filepath.ToSlash(rel)) {
 					t.Errorf("%s may open a connection: %s", rel, strings.TrimSpace(line))
 				}
 			}
@@ -273,8 +274,8 @@ func TestOneWayOffTheMachine(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if found == 0 {
-		t.Fatal("the scan found not even the webhook, so it reads nothing")
+	if found < len(offTheMachineFiles) {
+		t.Fatal("the scan found fewer dials than the files allowed one, so it reads nothing")
 	}
 	for _, line := range []string{`http.Get(url)`, `client := http.DefaultClient`, `net.Dial("tcp", address)`, `dialer.DialContext(ctx, "tcp", address)`} {
 		if !offTheMachine.MatchString(line) {
@@ -283,12 +284,14 @@ func TestOneWayOffTheMachine(t *testing.T) {
 	}
 }
 
-// webListenerFile is the one file that may open a TCP listener: ListenWeb, which refuses anything but
-// a loopback address, and a test holds it to that.
+// webListenerFile is the one file that may open a TCP listener, through one bind that refuses anything
+// but a loopback address, and a test holds it to that. Two listeners use it: the web UI's and the
+// worker's OTLP receiver, because an agent's OTLP exporter reaches a host and port and never a unix
+// socket (FR-OBS-3).
 const webListenerFile = "internal/api/server/listen.go"
 
-// TestOneTCPListener holds solo mode to its unix sockets and the one loopback web listener the design
-// names (FR-DEP-1), so a second way onto the network cannot arrive unnoticed.
+// TestOneTCPListener holds solo mode to its unix sockets and the loopback listeners the design names
+// (FR-DEP-1), so another way onto the network cannot arrive unnoticed.
 func TestOneTCPListener(t *testing.T) {
 	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, []string{
 		`ListenAndServe(`, `ListenConfig{`, `net.ListenTCP(`,

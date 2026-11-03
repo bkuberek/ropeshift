@@ -68,6 +68,7 @@ type soloOptions struct {
 	ref        string
 	directory  string
 	web        string
+	telemetry  string
 	leaseTick  time.Duration
 	intakeTick time.Duration
 	batchTick  time.Duration
@@ -94,6 +95,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.StringVar(&opts.ref, "ref", "", "the ref intake reads, by default the default branch")
 	flags.StringVar(&opts.directory, "dir", "", "the directory intake reads, by default the whole repository")
 	flags.StringVar(&opts.web, "web", cmp.Or(os.Getenv(api.EnvWeb), api.DefaultWebAddress), "the loopback address of the web UI, or off")
+	flags.StringVar(&opts.telemetry, "telemetry", cmp.Or(os.Getenv(api.EnvTelemetry), api.DefaultTelemetryAddress), "the loopback address of the OTLP receiver, or off")
 	flags.DurationVar(&opts.leaseTick, "lease-tick", 5*time.Second, "how often expired leases lapse")
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
@@ -195,11 +197,17 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
+	telemetry, err := startTelemetry(ctx, paths, opts.telemetry, liveTelemetryDeps(), stdout, stderr)
+	if err != nil {
+		return err
+	}
+	defer telemetry.close()
 	batches, windows := soloBatches(paths), soloWindows(paths)
 	config := server.Config{
 		Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
+		Telemetry: telemetry.store,
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
@@ -213,7 +221,11 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		defer webServer.Close()
 	}
 
-	ticks := append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick))
+	spans, err := spansTick(ctx, store, telemetry.emitter)
+	if err != nil {
+		return err
+	}
+	ticks := append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick), spans)
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)
@@ -221,7 +233,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 			fmt.Fprintf(stderr, "ropeshiftd: %s tick: %v\n", name, err)
 		})
 	}()
-	workerDone, err := startSoloWorker(ctx, paths, store, opts, stderr)
+	workerDone, err := startSoloWorker(ctx, paths, store, opts, telemetry, stderr)
 	if err != nil {
 		return err
 	}
@@ -280,7 +292,7 @@ func startWeb(config server.Config, address string, stdout, stderr io.Writer) (*
 // private socket, so solo mode exercises the path a group's worker takes. A first
 // start makes its own join token, because the person who started the daemon owns
 // the control plane.
-func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, stderr io.Writer) (<-chan struct{}, error) {
+func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, telemetry *soloTelemetry, stderr io.Writer) (<-chan struct{}, error) {
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
 		return nil, err
 	}
@@ -297,6 +309,7 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		_ = journal.Close()
 		return nil, err
 	}
+	runtime.Telemetry = telemetry.lane
 	socket, err := server.Listen(paths.WorkerSocket())
 	if err != nil {
 		_ = journal.Close()
@@ -311,9 +324,10 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		JoinToken: func(ctx context.Context) (string, error) {
 			return plane.CreateJoinToken(ctx, tickActor("solo"))
 		},
-		Manifest: soloManifest(paths),
-		Spool:    paths.Spool(),
-		Lanes:    runtime,
+		Manifest:  soloManifest(paths),
+		Spool:     paths.Spool(),
+		Lanes:     runtime,
+		Telemetry: telemetry.emitter,
 		Report: func(err error) {
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},

@@ -148,6 +148,8 @@ type Options struct {
 	NoMember bool
 	// Windows says how long a message stays useful, per kind.
 	Windows messages.Windows
+	// Telemetry is the local telemetry store the API reads. Nil has none.
+	Telemetry ports.TelemetryReader
 }
 
 // Start serves the API until the test ends.
@@ -186,6 +188,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	config := server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
+		Telemetry: options.Telemetry,
 	}
 	handler := server.New(config)
 	if options.Wrap != nil {

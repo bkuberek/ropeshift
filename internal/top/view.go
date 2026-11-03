@@ -175,16 +175,33 @@ func (m Model) needLines() []string {
 
 func (m Model) laneLines() []string {
 	lanes := LaneOrder(m.snapshot)
+	figures := map[string]api.LaneTelemetry{}
+	for _, lane := range m.snapshot.Telemetry.Lanes {
+		figures[lane.Lane] = lane
+	}
 	lines := make([]string, 0, len(lanes))
 	for _, lane := range lanes {
 		conditions := strings.Join(lane.Conditions, ",")
 		if conditions == "" {
 			conditions = "-"
 		}
-		lines = append(lines, fmt.Sprintf("  %s  %s  %s  liveness %s  model %s  ledger %s  %s  %s", clean(lane.ID), clean(lane.WorkOrder), clean(lane.ActualState),
-			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf)))
+		line := fmt.Sprintf("  %s  %s  %s  liveness %s  model %s  ledger %s  %s  %s", clean(lane.ID), clean(lane.WorkOrder), clean(lane.ActualState),
+			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf))
+		if figure, ok := figures[lane.ID]; ok {
+			line += fmt.Sprintf("  context %d  tokens %d  cost $%.4f", figure.ContextTokens, laneTokens(figure), figure.CostUSD)
+		}
+		lines = append(lines, line)
 	}
 	return lines
+}
+
+// laneTokens sums every type, the way a person reads a lane's total.
+func laneTokens(figure api.LaneTelemetry) int64 {
+	var total int64
+	for _, tokens := range figure.Tokens {
+		total += tokens
+	}
+	return total
 }
 
 func (m Model) workerLines() []string {

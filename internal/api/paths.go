@@ -36,6 +36,14 @@ const (
 	WebOff            = "off"
 )
 
+// The OTLP receiver's address. EnvTelemetry replaces the default, and WebOff turns the receiver off,
+// which leaves every lane's telemetry unset. A fixed port keeps a lane that outlived its worker
+// pointed at the receiver that came back.
+const (
+	DefaultTelemetryAddress = "127.0.0.1:7318"
+	EnvTelemetry            = "ROPESHIFT_TELEMETRY"
+)
+
 // Paths says where one installation keeps its files (D19).
 type Paths struct {
 	StateDir string

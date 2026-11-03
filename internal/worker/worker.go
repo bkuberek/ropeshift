@@ -41,6 +41,8 @@ type Config struct {
 	Report func(error)
 	// Lanes runs the lanes a member dispatches. A worker with none only holds leases.
 	Lanes *LaneRuntime
+	// Telemetry receives the worker's own spans and metrics. Nil emits nothing.
+	Telemetry ports.Telemetry
 }
 
 // Worker holds the machine's connection to the control plane. Everything it must
@@ -88,6 +90,9 @@ func New(link ports.WorkerLink, journal ports.Journal, clock ports.Clock, config
 	}
 	if config.Report == nil {
 		config.Report = func(error) {}
+	}
+	if config.Telemetry == nil {
+		config.Telemetry = noTelemetry{}
 	}
 	return &Worker{
 		link: link, journal: journal, clock: clock, config: config,

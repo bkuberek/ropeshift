@@ -16,9 +16,19 @@ const (
 )
 
 // ListenWeb binds the web listener, on a loopback address and nothing else, because solo mode binds no
-// public listener. A name other than `localhost` could resolve anywhere, so only literal addresses
-// count, and this is the one TCP listener in the module.
-func ListenWeb(address string) (net.Listener, error) {
+// public listener.
+func ListenWeb(address string) (net.Listener, error) { return listenLoopback("web listener", address) }
+
+// ListenTelemetry binds the worker's OTLP receiver, on a loopback address and nothing else. An agent's
+// OTLP exporter speaks HTTP to a host and port, and cannot reach a unix socket, so the receiver is the
+// second TCP listener the design names (FR-OBS-3).
+func ListenTelemetry(address string) (net.Listener, error) {
+	return listenLoopback("telemetry receiver", address)
+}
+
+// listenLoopback is the one TCP bind in the module. A name other than `localhost` could resolve
+// anywhere, so only literal addresses count.
+func listenLoopback(what, address string) (net.Listener, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
@@ -27,7 +37,7 @@ func ListenWeb(address string) (net.Listener, error) {
 		host = "127.0.0.1"
 	}
 	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-		return nil, fmt.Errorf("the web listener binds a loopback address, and %q is none", address)
+		return nil, fmt.Errorf("the %s binds a loopback address, and %q is none", what, address)
 	}
 	return net.Listen("tcp", net.JoinHostPort(host, port))
 }
