@@ -13,6 +13,19 @@
         "print_keeps_login": "passed",
         "start_screens": "passed"
       }
+    },
+    {
+      "version": "2.1.317",
+      "checks": {
+        "socket_line": "passed",
+        "receipts": "passed",
+        "peer_message_hold": "passed",
+        "socket_dir": "passed",
+        "unified_windows": "passed",
+        "command_lifecycle": "passed",
+        "print_keeps_login": "passed",
+        "start_screens": "passed"
+      }
     }
   ]
 }
