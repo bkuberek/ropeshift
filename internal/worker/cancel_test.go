@@ -104,6 +104,34 @@ func TestACanceledLaneStopsThroughTheGuardAndTheLedgerHearsItEnd(t *testing.T) {
 	}
 }
 
+// Setting a lane up can take minutes, and a cancel can land in them. A session that started after that
+// would run on work nobody wants.
+func TestALaneCanceledWhileItIsSetUpStartsNoSession(t *testing.T) {
+	r := laneRigWith(t, profileAt+"[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n")
+	reached, release := make(chan struct{}), make(chan struct{})
+	r.config.Provisioner.Hooks.(*fake.HookRunner).Programs["./scripts/setup.sh"] = func(ports.HookCommand) ports.HookResult {
+		close(reached)
+		<-release
+		return ports.HookResult{}
+	}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	r.start()
+	<-reached
+	r.cancelWork(t)
+	if err := r.subject.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	r.waitEnded(t)
+	r.expectCanceled(t)
+	if specs := r.driver.Specs(); len(specs) != 0 {
+		t.Errorf("a session started on canceled work: %+v", specs)
+	}
+}
+
 func TestACanceledLaneWaitingOnItsBreakerEnds(t *testing.T) {
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script(crashed()))

@@ -520,9 +520,6 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if r.orchestrating() && !r.awaitWake(ctx) {
 		return failed(workorders.ReasonWorkerRestarted)
 	}
-	if r.fenced.Load() {
-		return failed(workorders.ReasonFenced)
-	}
 	repository, err := r.repository(ctx)
 	if err != nil {
 		return r.failStart(workorders.ReasonNoRepository, err)
@@ -568,6 +565,13 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	record := r.record()
 	record.TokenDigest, record.Worktree, record.Branch = lanes.TokenDigest(token), prepared.Worktree.Path, prepared.Worktree.Branch
+	// Setting a lane up can outlast its lease, and the worktree it left is what the guard reads.
+	if r.fenced.Load() {
+		if err := r.w.journal.SaveLane(ctx, record); err != nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		}
+		return failed(workorders.ReasonFenced)
+	}
 	record.RunMode, record.Process = spec.RunMode, record.Generation
 	r.setProcess(record.Generation)
 	if err := r.w.journal.SaveLane(ctx, record); err != nil {
