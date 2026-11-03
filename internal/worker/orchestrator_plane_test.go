@@ -3,6 +3,7 @@ package worker_test
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -59,7 +60,7 @@ func TestOneOrchestratorPerWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first != second || second.ID != ledger.OrchestratorOf(worker) || second.Run != 1 {
+	if !reflect.DeepEqual(first, second) || second.ID != ledger.OrchestratorOf(worker) || second.Run != 1 {
 		t.Errorf("first %+v, second %+v", first, second)
 	}
 	if after := r.orchestratorEvents(t); len(after) != len(before) {
@@ -212,7 +213,7 @@ func TestReplayHoldsAnOrchestrator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := replayed[want.ID]; got != want {
+	if got := replayed[want.ID]; !reflect.DeepEqual(got, want) {
 		t.Errorf("replay %+v, projection %+v", got, want)
 	}
 }

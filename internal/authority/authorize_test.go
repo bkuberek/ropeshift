@@ -28,6 +28,15 @@ func TestNoAgentHoldsItsOwnAutonomy(t *testing.T) {
 	}
 }
 
+// Canceling throws away a claim and whatever a lane was doing, and a person answers for that.
+func TestOnlyAMemberCancelsWork(t *testing.T) {
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionCancelWork) {
+			t.Errorf("%s may cancel work", kind)
+		}
+	}
+}
+
 func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 	tests := []struct {
 		name   string

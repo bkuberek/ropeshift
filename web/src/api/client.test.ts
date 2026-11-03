@@ -16,6 +16,7 @@ import {
   readView,
   signIn,
   signOut,
+  startOrchestrator,
   workActions,
 } from "./client";
 import type { Route, WorkAction } from "./types";
@@ -41,6 +42,7 @@ describe("the client", () => {
     for (const action of Object.keys(workActions) as WorkAction[]) {
       await actOnWork("wo", action, "because");
     }
+    await startOrchestrator("worker-a");
     for (const route of routes as Route[]) {
       const view = /^\/v1\/views\/(.+)$/.exec(route.pattern)?.[1];
       if (view) {

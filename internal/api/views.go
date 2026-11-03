@@ -77,6 +77,9 @@ const (
 	ActAccept   = "accept"
 	ActRework   = "rework"
 	ActCancel   = "cancel"
+	// ActStartOrchestrator asks for a worker's orchestrator, which resets a breaker that stopped it
+	// and replaces a session that stalled.
+	ActStartOrchestrator = "start_orchestrator"
 )
 
 // EffectView is an effect with what a person can say of it.
@@ -85,14 +88,15 @@ type EffectView struct {
 	Offers []ledger.EffectOutcome `json:"offers"`
 }
 
-// WorkNeed is work that waits for a person, or for no one yet and is going nowhere. A lane's breaker or
-// an orchestrator's lane has no work order, and a work order may have no lane.
+// WorkNeed is work that waits for a person, or for no one yet and is going nowhere. An orchestrator has
+// no work order and no lane of the kind a work order runs, and a work order may have no lane.
 type WorkNeed struct {
-	Reason    string                `json:"reason"`
-	Detail    string                `json:"detail,omitempty"`
-	WorkOrder *workorders.WorkOrder `json:"work_order,omitempty"`
-	Lane      *ledger.LaneView      `json:"lane,omitempty"`
-	Actions   []string              `json:"actions"`
+	Reason       string                `json:"reason"`
+	Detail       string                `json:"detail,omitempty"`
+	WorkOrder    *workorders.WorkOrder `json:"work_order,omitempty"`
+	Lane         *ledger.LaneView      `json:"lane,omitempty"`
+	Orchestrator *ledger.Orchestrator  `json:"orchestrator,omitempty"`
+	Actions      []string              `json:"actions"`
 }
 
 // NeedItem is one thing that waits for a person. Since is database time, and Kind says which field

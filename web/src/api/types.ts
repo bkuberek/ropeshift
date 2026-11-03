@@ -98,12 +98,16 @@ export type WorkOrder = {
 
 export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel";
 
+// An orchestrator has no work order, so what a person does about one goes to its worker.
+export type OrchestratorAction = "start_orchestrator";
+
 export type WorkNeed = {
   reason: string;
   detail?: string;
   work_order?: WorkOrder;
   lane?: Lane;
-  actions: WorkAction[];
+  orchestrator?: Orchestrator;
+  actions: (WorkAction | OrchestratorAction)[];
 };
 
 export type NeedItem = {

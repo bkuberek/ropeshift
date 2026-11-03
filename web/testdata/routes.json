@@ -85,6 +85,11 @@
     "command": "lane resume"
   },
   {
+    "method": "PUT",
+    "pattern": "/v1/workers/{id}/orchestrator",
+    "command": "orchestrator start"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/views/needs-you",
     "command": "view needs-you"

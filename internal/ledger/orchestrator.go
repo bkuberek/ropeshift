@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -40,7 +41,16 @@ type Orchestrator struct {
 	Resets     int64  `json:"resets"`
 	Actual     string `json:"actual_state,omitempty"`
 	Generation int64  `json:"current_generation,omitempty"`
+	// Conditions are what its worker last said beside its state, and ReportedAt when.
+	Conditions []string `json:"conditions,omitempty"`
+	ReportedAt int64    `json:"reported_at,omitempty"`
 }
+
+// Tripped says its breaker stopped it, and only a person may reset that.
+func (o Orchestrator) Tripped() bool { return o.Actual == "tripped" }
+
+// Stalled says its session shows no progress. Nothing supervises an orchestrator but a person.
+func (o Orchestrator) Stalled() bool { return slices.Contains(o.Conditions, "stalled") }
 
 // OrchestratorOf names a worker's orchestrator. One per worker is the rule, and the name holds it.
 func OrchestratorOf(worker string) string { return orchestratorPrefix + worker }
@@ -72,6 +82,9 @@ type OrchestratorReport struct {
 	Generation int64  `json:"generation"`
 	Actual     string `json:"actual_state,omitempty"`
 	Kind       string `json:"kind"`
+	// Conditions and At travel with a status, and At is database time.
+	Conditions []string `json:"conditions,omitempty"`
+	At         int64    `json:"at,omitempty"`
 }
 
 // Apply moves the projection. A report of a start this one replaced says nothing of it.
@@ -80,7 +93,10 @@ func (o Orchestrator) Apply(report OrchestratorReport) Orchestrator {
 		return o
 	}
 	if report.Actual != "" {
-		o.Actual = report.Actual
+		o.Actual, o.Conditions = report.Actual, report.Conditions
+	}
+	if report.At != 0 {
+		o.ReportedAt = report.At
 	}
 	o.Generation = max(o.Generation, report.Generation)
 	return o

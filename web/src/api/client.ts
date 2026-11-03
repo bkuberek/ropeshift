@@ -25,6 +25,7 @@ export const paths = {
   decideApproval: (id: string) => `/v1/approvals/${encodeURIComponent(id)}/decide`,
   decideEffect: (id: string) => `/v1/effects/${encodeURIComponent(id)}/decide`,
   work: (id: string, verb: string) => `/v1/work-orders/${encodeURIComponent(id)}/${verb}`,
+  orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
 };
 
 // What each action of a work item calls, and whether it asks a person why.
@@ -128,6 +129,11 @@ export function decideEffect(id: string, outcome: EffectOutcome, reason: string)
 export function actOnWork(id: string, action: WorkAction, reason: string): Promise<unknown> {
   const { verb, needsReason } = workActions[action];
   return call("POST", paths.work(id, verb), needsReason ? { reason } : {});
+}
+
+// Asking for an orchestrator that runs resets a breaker that stopped it and replaces one that stalled.
+export function startOrchestrator(worker: string): Promise<unknown> {
+  return call("PUT", paths.orchestrator(worker), { desired_state: "running" });
 }
 
 // The stream every open page follows. A browser's own reconnect names the last revision it saw.

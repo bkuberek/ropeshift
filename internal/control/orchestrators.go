@@ -29,7 +29,8 @@ func (w *Workers) Orchestrator(ctx context.Context, worker string) (ledger.Orche
 }
 
 // SetOrchestrator records what a member asks of a worker's orchestrator. A start of one that is
-// running asks for nothing new, unless its breaker tripped, which only a person may reset.
+// running asks for nothing new, unless its breaker tripped, which only a person may reset, or its
+// session stalled, which a new run replaces: a worker stops the run nobody asks for any more.
 func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, actor ledger.Actor) (ledger.Orchestrator, error) {
 	if !authority.Allowed(actor, authority.ActionRunOrchestrator) {
 		return ledger.Orchestrator{}, workorders.ErrForbidden
@@ -50,12 +51,14 @@ func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, a
 		}
 		row = current
 		switch {
-		case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Actual == "tripped":
+		case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Tripped():
 			row.Resets++
+		case desired == ledger.OrchestratorRunning && current.Desired == ledger.OrchestratorRunning && current.Stalled():
+			row = nextRun(current)
 		case desired == current.Desired:
 			return nil
 		case desired == ledger.OrchestratorRunning:
-			row.Run, row.Desired, row.Actual, row.Generation = max(current.Run+1, firstRun), desired, "", 0
+			row = nextRun(current)
 		default:
 			row.Desired = desired
 		}
@@ -73,6 +76,13 @@ func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, a
 		return err
 	})
 	return row, err
+}
+
+// nextRun is a new start, which says nothing yet.
+func nextRun(current ledger.Orchestrator) ledger.Orchestrator {
+	current.Run, current.Desired = max(current.Run+1, firstRun), ledger.OrchestratorRunning
+	current.Actual, current.Generation, current.Conditions, current.ReportedAt = "", 0, nil, 0
+	return current
 }
 
 func desiredOrchestrator(tx ports.ReadTx, worker string) (*ledger.DesiredOrchestrator, error) {
@@ -100,14 +110,14 @@ func orchestratorUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEven
 	if !row.Belongs(e.Lane) {
 		return fmt.Errorf("%w: %s is not this worker's orchestrator", workorders.ErrInvalid, e.Lane)
 	}
-	report := ledger.OrchestratorReport{Lane: e.Lane, Generation: e.Generation, Kind: e.Type}
+	report := ledger.OrchestratorReport{Lane: e.Lane, Generation: e.Generation, Kind: e.Type, At: tx.Now()}
 	switch e.Type {
 	case ledger.UploadLaneStatus:
 		var status ledger.LaneStatus
 		if err := json.Unmarshal(e.Payload, &status); err != nil {
 			return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
 		}
-		report.Actual = status.ActualState
+		report.Actual, report.Conditions = status.ActualState, status.Conditions
 	case ledger.UploadLaneEnded:
 		report.Actual = "ended"
 	}

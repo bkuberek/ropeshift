@@ -170,6 +170,39 @@ func (w *World) Running(id, title string) *Lane {
 	return l
 }
 
+// Orchestrator starts this world's worker's orchestrator through a member, and has its worker report
+// a status of the run it started.
+func (w *World) Orchestrator(status ledger.LaneStatus) {
+	w.t.Helper()
+	if _, err := w.plane.SetOrchestrator(w.ctx, WorldWorker, ledger.OrchestratorRunning, worldMember); err != nil {
+		w.t.Fatal(err)
+	}
+	w.OrchestratorStatus(status)
+}
+
+// OrchestratorStatus has this world's worker report on its orchestrator's current run.
+func (w *World) OrchestratorStatus(status ledger.LaneStatus) {
+	w.t.Helper()
+	row, err := w.plane.Orchestrator(w.ctx, WorldWorker)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	raw, err := json.Marshal(status)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.seq++
+	reply, err := w.plane.Upload(w.ctx, ledger.UploadBatch{Auth: w.auth, Epoch: w.epoch, Events: []ledger.UploadEvent{{
+		Epoch: w.epoch, Seq: w.seq, Type: ledger.UploadLaneStatus, Lane: row.Lane(), Generation: 1, Payload: raw, OccurredAt: 1,
+	}}})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if len(reply.Rejected) != 0 {
+		w.t.Fatalf("the orchestrator's status was refused: %+v", reply.Rejected)
+	}
+}
+
 // Upload sends one event of this lane, and the ledger must take it.
 func (l *Lane) Upload(eventType string, payload any) {
 	l.w.t.Helper()

@@ -328,6 +328,21 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-blocked/cancel", body: { reason: "The plan changed." } });
   });
 
+  it("starts a stuck orchestrator through its worker, which has no work order", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    const view = goldenNeedsYou();
+    const orchestrator = { id: "orchestrator-worker-a", worker_id: "worker-a", desired_state: "running", run: 1, resets: 0, actual_state: "tripped" };
+    view.items = [
+      { kind: "work", id: orchestrator.id, since: view.as_of, work: { reason: "tripped", orchestrator, actions: ["start_orchestrator"] } },
+    ];
+    show(view);
+    const card = screen.getByRole("article");
+    expect(within(card).getByText(/breaker stopped it/)).toBeTruthy();
+    await userEvent.click(within(card).getByRole("button", { name: "Start it again" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "PUT", path: "/v1/workers/worker-a/orchestrator", body: { desired_state: "running" } });
+  });
+
   it("offers both ways out of blocked", () => {
     show();
     const card = cardNamed(/Move the archive/);

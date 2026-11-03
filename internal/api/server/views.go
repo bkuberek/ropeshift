@@ -238,8 +238,44 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 		}
 		add(lane.WorkOrder, f.rows[lane.ID].ReportedAt, need)
 	}
+	if err := stuckOrchestrators(tx, add); err != nil {
+		return nil, err
+	}
 	slices.SortStableFunc(items, func(a, b api.StuckItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
 	return items, nil
+}
+
+// stuckOrchestrators finds the sessions a member asked for that stopped working. An orchestrator has no
+// work order and no lane row, and nothing supervises it but a person, so one that stopped would
+// otherwise go unseen while the ladder it works waits.
+func stuckOrchestrators(tx ports.ReadTx, add func(string, int64, api.WorkNeed)) error {
+	workers, err := tx.Workers().List()
+	if err != nil {
+		return err
+	}
+	for _, worker := range workers {
+		row, err := tx.Workers().Orchestrator(worker.ID)
+		if isNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if row.Desired != ledger.OrchestratorRunning {
+			continue
+		}
+		need := api.WorkNeed{Orchestrator: &row, Actions: []string{api.ActStartOrchestrator}}
+		switch {
+		case row.Tripped():
+			need.Reason = api.ReasonTripped
+		case row.Stalled():
+			need.Reason = api.ReasonStalled
+		default:
+			continue
+		}
+		add(row.ID, row.ReportedAt, need)
+	}
+	return nil
 }
 
 // waitingEffects lists what a person can decide of effects, with what they can say.

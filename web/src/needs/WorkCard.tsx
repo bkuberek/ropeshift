@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import { actOnWork, workActions } from "../api/client";
-import type { WorkAction, WorkNeed } from "../api/types";
+import { actOnWork, startOrchestrator, workActions } from "../api/client";
+import type { OrchestratorAction, WorkAction, WorkNeed } from "../api/types";
 import { Freshness } from "../floor/LaneFacts";
 import { laneLabel } from "../floor/states";
 import { useAct } from "./useAct";
@@ -26,7 +26,12 @@ const reasonWords: Record<string, string> = {
   human_resume: "Its lane is parked until a person says go.",
 };
 
-const actionWords: Record<WorkAction, string> = {
+const orchestratorWords: Record<string, string> = {
+  tripped: "This orchestrator crashed too often, and its breaker stopped it. Questions wait until it runs.",
+  stalled: "This orchestrator shows no progress. Questions wait until it runs.",
+};
+
+const actionWords: Record<WorkAction | OrchestratorAction, string> = {
   reassign: "End this claim",
   resolve: "Back to ready",
   replan: "Back to planning",
@@ -36,6 +41,7 @@ const actionWords: Record<WorkAction, string> = {
   accept: "Accept",
   rework: "Send back for rework",
   cancel: "Cancel this work",
+  start_orchestrator: "Start it again",
 };
 
 // Some answers change who owns work, so they say why. Those ask only after the press, and an action
@@ -51,9 +57,26 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
       setReason("");
     }
   };
+  const press = (action: WorkAction | OrchestratorAction) => {
+    if (action === "start_orchestrator") {
+      void act(() => startOrchestrator(work.orchestrator?.worker_id ?? id));
+    } else if (workActions[action].needsReason) {
+      setAsking(action);
+    } else {
+      void send(action, "");
+    }
+  };
   return (
     <div className="card-body">
-      <p className="lead">{reasonWords[work.reason] ?? work.reason}</p>
+      <p className="lead">{(work.orchestrator ? orchestratorWords[work.reason] : reasonWords[work.reason]) ?? work.reason}</p>
+      {work.orchestrator ? (
+        <dl className="facts">
+          <div>
+            <dt>Worker</dt>
+            <dd className="mono">{work.orchestrator.worker_id}</dd>
+          </div>
+        </dl>
+      ) : null}
       {work.lane ? (
         <dl className="facts">
           <div>
@@ -104,7 +127,7 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
               className="button"
               type="button"
               disabled={busy}
-              onClick={() => (workActions[action].needsReason ? setAsking(action) : void send(action, ""))}
+              onClick={() => press(action)}
             >
               {actionWords[action]}
             </button>

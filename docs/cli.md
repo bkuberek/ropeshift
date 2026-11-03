@@ -77,7 +77,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift worker doctor` | Reports each agent CLI on this machine: whether it is present, its version, whether that version is qualified, and the kind of its sign-in. It uses the vendor's status command, reads no credential, and needs no daemon. It exits 1 when no CLI is usable |
 | `ropeshift worker list` | Lists registered workers, each with its epoch and protocol |
 | `ropeshift orchestrator show <worker>` | Shows a worker's orchestrator: what a member asked of it, and how it reads |
-| `ropeshift orchestrator start <worker>` | Asks for its orchestrator, or resets a breaker that stopped it. No agent can ask for one, and no session starts until there is something to judge |
+| `ropeshift orchestrator start <worker>` | Asks for its orchestrator, resets a breaker that stopped it, or replaces a session that stalled. `view stuck` and `needs-you` list one that tripped or stalled. No agent can ask for one, and no session starts until there is something to judge |
 | `ropeshift orchestrator stop <worker>` | Stops its orchestrator, which stops no lane |
 | `ropeshift worker token` | Makes a join token for one worker. It is shown once |
 | `ropeshift worker autonomy <id>` | Shows a worker's sign-in, the level that holds, any run window, and whether its orchestrator can claim now |
