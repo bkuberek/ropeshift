@@ -2,7 +2,9 @@ package server_test
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -62,6 +64,34 @@ func gapless(t *testing.T, events []api.StreamEvent, after int64) {
 		if want := after + int64(i) + 1; event.Rev != want {
 			t.Fatalf("event %d is revision %d, want %d", i, event.Rev, want)
 		}
+	}
+}
+
+// A browser may hold a stream's headers back until the first byte of its body, as WebKit does, and a
+// page says it is live only when its stream opens. So a stream on a quiet ledger speaks at once.
+func TestAQuietStreamSpeaksAtOnce(t *testing.T) {
+	r := webOn(t, apitest.Start(t))
+	cookies, _ := r.signedIn(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL(api.EventsPath+"?after="+strconv.FormatInt(revisionOf(t, r.d), 10)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response, err := r.web.HTTP.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	first := make([]byte, 1)
+	if _, err := io.ReadFull(response.Body, first); err != nil {
+		t.Fatalf("no byte of the stream arrived: %v", err)
+	}
+	if first[0] != ':' {
+		t.Errorf("the stream opened with %q, which a reader would take for an event", first)
 	}
 }
 

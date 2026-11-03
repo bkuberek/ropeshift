@@ -57,6 +57,10 @@ func (h *handler) streamEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
+	// A browser may hold headers back until the body starts, so a quiet ledger still gets a first line.
+	if _, err := fmt.Fprint(w, ": open\n\n"); err != nil {
+		return
+	}
 	flusher.Flush()
 	reading := time.NewTicker(streamEvery)
 	defer reading.Stop()
