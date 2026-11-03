@@ -750,6 +750,9 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.saveProgress(ctx, event.Seq)
 			continue
 		}
+		// A turn that ends while its generation owes a brief is the clear's. It is read before the
+		// lane reads idle, because from then a pass may brief the session and settle what it owes.
+		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
 		r.observeEvent(ctx, event)
 		switch event.Kind {
 		case ports.EventSessionBound:
@@ -759,7 +762,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.measureTurn(event.Turn)
 			r.finishTurn(event.Turn)
 			r.noteResponse(ctx, event.Turn)
-			r.afterTurn(ctx, event.Turn)
+			r.afterTurn(ctx, event.Turn, clears)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
 			r.expireToken(ctx)
@@ -834,8 +837,8 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 }
 
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
-// it did not (FR-LANE-2). A turn that failed has nothing to nudge.
-func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
+// it did not (FR-LANE-2). A turn that failed has nothing to nudge, and neither has one a clear ended.
+func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult, clears bool) {
 	if r.orchestrating() {
 		r.orchestratorRests(ctx, turn)
 		return
@@ -861,7 +864,7 @@ func (r *laneRun) afterTurn(ctx context.Context, turn *ports.TurnResult) {
 		r.stop(ctx, ports.StopAtRest)
 		return
 	}
-	if r.owesBrief.Load() {
+	if clears || r.owesBrief.Load() {
 		return
 	}
 	if len(r.blockingQuestions()) != 0 {

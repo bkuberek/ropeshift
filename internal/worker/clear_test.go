@@ -332,6 +332,81 @@ func TestTwoPassesAtOnceTellAClearedSessionItsWorkOnce(t *testing.T) {
 	r.awaitOrderState(t, workorders.Acceptance)
 }
 
+// passAtRest runs a pass of the worker the moment a lane's end of turn reaches the journal, which is
+// after the lane reads idle and before its run decides what the turn left.
+type passAtRest struct {
+	ports.Journal
+	pass    func()
+	armed   atomic.Bool
+	once    sync.Once
+	ran     atomic.Bool
+	decided chan struct{}
+	after   sync.Once
+}
+
+func (j *passAtRest) SaveActual(ctx context.Context, lane string, state, from lanes.ActualState) error {
+	if j.armed.Load() && state == lanes.Idle {
+		j.once.Do(func() {
+			j.pass()
+			j.ran.Store(true)
+		})
+	}
+	return j.Journal.SaveActual(ctx, lane, state, from)
+}
+
+// SaveProgress follows the run's decision on a turn.
+func (j *passAtRest) SaveProgress(ctx context.Context, lane string, generation int64, progress lanes.Progress) (bool, error) {
+	saved, err := j.Journal.SaveProgress(ctx, lane, generation, progress)
+	if j.ran.Load() {
+		j.after.Do(func() { close(j.decided) })
+	}
+	return saved, err
+}
+
+// The pass that briefs a cleared session can come between the clear's end of turn and what its run
+// makes of that turn. The turn is still the clear's, so it draws no nudge on top of the brief.
+func TestABriefAsAClearsTurnEndsDrawsNoNudge(t *testing.T) {
+	base := newRig(t)
+	journal := &passAtRest{Journal: base.journal, decided: make(chan struct{})}
+	base.workerJournal = journal
+	r := newLaneRigFor(t, base).dispatched()
+	g := newGate()
+	r.finishLater(g)
+	journal.pass = func() {
+		if _, err := r.subject.Reconcile(t.Context()); err != nil {
+			t.Error(err)
+		}
+	}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), completed(0.01)}, []fake.DriverStep{{Hold: true}}))
+	r.start()
+	select {
+	case <-g.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the session never reached its gate")
+	}
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	r.cleared(t, clearedSession)
+	journal.armed.Store(true)
+	g.release <- struct{}{}
+	select {
+	case <-journal.decided:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the run never decided on the clear's turn")
+	}
+	briefs, nudges := 0, 0
+	for _, input := range r.driver.Sent() {
+		switch {
+		case input.Text == lanes.Nudge:
+			nudges++
+		case strings.Contains(input.Text, "wo"):
+			briefs++
+		}
+	}
+	if briefs != 1 || nudges != 0 {
+		t.Errorf("%d briefs and %d nudges: %+v", briefs, nudges, r.driver.Sent())
+	}
+}
+
 // A headless `/clear` ends with a result of its own, which is no turn the lane ran: it owes the
 // session its work, not a nudge.
 func TestTheEndOfAClearIsNoTurnOfTheLanes(t *testing.T) {
