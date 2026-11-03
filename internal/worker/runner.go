@@ -73,6 +73,8 @@ type laneRun struct {
 	cost    lanes.CostMeter
 	usage   lanes.Usage
 	fenced  atomic.Bool
+	// stopAsked says this run heard its lease is gone.
+	stopAsked atomic.Bool
 	// stopOnce holds to one stop per generation, and the handle's lock guards it.
 	stopOnce *sync.Once
 	stopped  sync.WaitGroup
@@ -261,9 +263,49 @@ func (w *Worker) stopFenced(ctx context.Context, lost ledger.FencedLease) {
 	defer w.mu.Unlock()
 	for _, run := range w.running {
 		if run.lease.WorkOrder == lost.WorkOrder && run.lease.Fence == lost.Fence {
-			run.fenced.Store(true)
-			run.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
-			run.stop(ctx, ports.StopInterrupt)
+			run.lost(ctx)
+		}
+	}
+}
+
+// lost ends a lane that no longer holds its lease. A run with no session yet starts none, and one
+// that races this sees its session stopped on the next pass.
+func (r *laneRun) lost(ctx context.Context) {
+	r.fenced.Store(true)
+	if !r.stopAsked.Swap(true) {
+		r.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
+	}
+	if r.sessionHandle().ID != "" && !r.sessionOver.Load() {
+		r.stop(ctx, ports.StopInterrupt)
+	}
+}
+
+// stopLost stops each lane whose claim desired state stopped naming, which is how a canceled or
+// reassigned lane hears. A beat only presents the leases the last read named, so a read that follows
+// a hint takes the lost lease out of the very beat that would have said so. A lane that ended or
+// parked wrote that to its journal before the ledger heard, so it is no loss.
+func (w *Worker) stopLost(ctx context.Context) {
+	state, err := w.desired(ctx)
+	if err != nil || state.Rev == 0 {
+		return
+	}
+	named := map[string]bool{}
+	for _, lease := range state.Leases {
+		named[lease.ClaimID] = true
+	}
+	w.mu.Lock()
+	runs := make([]*laneRun, 0, len(w.running))
+	for _, run := range w.running {
+		runs = append(runs, run)
+	}
+	w.mu.Unlock()
+	for _, run := range runs {
+		if run.orchestrating() || named[run.lease.ClaimID] {
+			continue
+		}
+		record, err := w.journal.Lane(ctx, run.lease.Lane)
+		if err == nil && record.State == lanes.StateRunning {
+			run.lost(ctx)
 		}
 	}
 }
@@ -477,6 +519,9 @@ func (r *laneRun) failStart(reason string, err error) workorders.Report {
 func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if r.orchestrating() && !r.awaitWake(ctx) {
 		return failed(workorders.ReasonWorkerRestarted)
+	}
+	if r.fenced.Load() {
+		return failed(workorders.ReasonFenced)
 	}
 	repository, err := r.repository(ctx)
 	if err != nil {

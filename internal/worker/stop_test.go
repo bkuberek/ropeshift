@@ -335,6 +335,49 @@ func TestAFencedLaneStopsThroughTheGuard(t *testing.T) {
 	}
 }
 
+// A hint usually reaches a worker before its next beat, and a read of desired state takes the lost
+// lease out of what the beat presents, so the beat can never say it was fenced. The session has to
+// stop anyway, because desired state is the rule and a beat is only how a worker hears sooner.
+func TestALaneNoDesiredStateNamesStopsWithNoBeatToSaySo(t *testing.T) {
+	r := laneRigWith(t, profileAt)
+	r.worktrees().UseRemote("origin")
+	wrote := make(chan struct{})
+	r.driver.Play(script([]fake.DriverStep{
+		{Bound: true}, r.dirtying(stopWorktree), r.committing(stopWorktree),
+		{Do: func(ports.SessionSpec) { close(wrote) }}, {Hold: true},
+	}))
+	r.start()
+	<-wrote
+	fence := r.grant.Fence
+	r.loseLease(t)
+	if err := r.subject.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := r.subject.Beat(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.Fenced) != 0 {
+		t.Fatalf("the beat presented a lease a read took out: %+v", reply.Fenced)
+	}
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	waited := make(chan struct{})
+	go func() {
+		r.subject.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(20 * time.Second):
+		t.Fatal("a lane no desired state names is still running")
+	}
+	if refs := r.worktrees().Snapshots(); refs[lanes.SalvageRef("lane-1", fence)] != stopWorktree {
+		t.Errorf("snapshots %v", refs)
+	}
+}
+
 // loseLease ends this worker's ownership, the way the ledger does when it answers a
 // heartbeat with a fence that moved.
 func (r *laneRig) loseLease(t *testing.T) {

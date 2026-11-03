@@ -309,6 +309,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	}
 	w.raiseUnknown(ctx, world.Unknown, seen.records)
 	w.settleDecided(ctx)
+	w.stopLost(ctx)
 	w.drainLanes(ctx)
 	w.briefCleared(ctx)
 	w.respawnLanes(ctx)
