@@ -86,8 +86,11 @@ type Driver struct {
 	linger   time.Duration
 	cap      int64
 
-	mu       sync.Mutex
-	env      []string
+	mu  sync.Mutex
+	env []string
+	// current is what a worker's probe observed of one version on this machine. Once a worker has
+	// handed one over, it alone qualifies a version, and only the version it names.
+	current  lanes.Qualification
 	sessions map[string]liveSession
 	// policies names the file each session's hooks read.
 	policies map[string]string
@@ -124,6 +127,31 @@ func New(runner ports.ProcessRunner, options Options) *Driver {
 		runner: runner, terminal: options.Terminal, grace: grace, linger: options.ShimLinger, cap: options.JournalCap, env: options.Env,
 		sessions: map[string]liveSession{}, policies: map[string]string{}, listed: map[string][]listedSession{},
 	}
+}
+
+// Qualify hands the driver what a probe observed of a version on this machine. From then on a
+// version qualifies only through it, so a version that changes under a worker runs on documented
+// surfaces until its own probe ends, whichever way the last one went.
+func (d *Driver) Qualify(q lanes.Qualification) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.current = q
+}
+
+// qualificationFor is what holds for a version this driver is about to run. Before a worker has
+// handed over a probe's result, the shipped matrix answers, as it does for the doctor.
+func (d *Driver) qualificationFor(version string) lanes.Qualification {
+	d.mu.Lock()
+	current := d.current
+	d.mu.Unlock()
+	interactive := d.terminal != nil
+	switch {
+	case current.Version == "":
+		return judged(MatrixRow(version), interactive)
+	case current.For(version):
+		return judged(current, interactive)
+	}
+	return unqualified(version)
 }
 
 // UseEnv replaces the environment of a version check.
@@ -195,12 +223,20 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 	if err != nil {
 		return ports.Capabilities{}, err
 	}
-	modes := []string{ports.RunModeHeadless}
+	q := d.qualificationFor(version)
+	use := UseOf(q)
+	var modes []string
+	// A probe on a subscription that saw `-p` lose its login leaves no headless lane there, and the
+	// tmux fallback in ADR-0002 is what is left. A version with no such probe keeps the mode, because
+	// an API key's lanes never needed the login.
+	if q.SignIn != ports.SignInSubscription || use.HeadlessOnSubscription {
+		modes = append(modes, ports.RunModeHeadless)
+	}
 	if d.terminal != nil {
 		modes = append(modes, ports.RunModeInteractive)
 	}
 	injection := ports.InjectionBetweenTools
-	if !Qualified(version) {
+	if !use.PeerInjection {
 		injection = ports.InjectionNone
 	}
 	return ports.Capabilities{
@@ -208,7 +244,7 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 		Injection: injection, ContextReport: ports.ContextLive, Compact: ports.CompactNative,
 		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
-		Version:     version, Degraded: !Qualified(version), Resume: resumeCosts,
+		Version:     version, Degraded: q.Degraded, Resume: resumeCosts,
 	}, nil
 }
 
@@ -236,7 +272,7 @@ func (d *Driver) Doctor(ctx context.Context) (ports.DoctorReport, error) {
 	}
 	kind, status := d.signIn(ctx)
 	return ports.DoctorReport{
-		Driver: DriverName, Present: true, Version: version, Qualified: Qualified(version), SignIn: kind, SignInStatus: status,
+		Driver: DriverName, Present: true, Version: version, Qualified: !d.qualificationFor(version).Degraded, SignIn: kind, SignInStatus: status,
 	}, nil
 }
 
@@ -352,7 +388,13 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
+	// What qualifies the version read here, at the launch, is what this session uses for its life:
+	// a version that changed since the worker last looked runs on documented surfaces.
+	q := d.qualificationFor(version)
 	if err := writeGenerated(spec); err != nil {
+		return ports.SessionHandle{}, err
+	}
+	if err := writeLaunchedVersion(spec, version); err != nil {
 		return ports.SessionHandle{}, err
 	}
 	stderr, err := openStderr(spec)
@@ -364,7 +406,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 		Linger: d.linger, JournalCap: d.cap,
 	}
 	process, err := d.runner.Start(ctx, ports.ProcessSpec{
-		Path: spec.Binary, Args: shimlink.Args(config), Dir: spec.Dir, Env: sessionEnv(spec, Qualified(version)),
+		Path: spec.Binary, Args: shimlink.Args(config), Dir: spec.Dir, Env: sessionEnv(spec, UseOf(q)),
 		Stderr: stderr, Detached: true,
 	})
 	_ = stderr.Close()
@@ -375,7 +417,8 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
-	s, err := d.follow(ctx, spec, ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID()}, client, 0, meter, Qualified(version))
+	handle := ports.SessionHandle{ID: sessionHandleID(spec), PID: process.PID(), Version: version, Degraded: q.Degraded}
+	s, err := d.follow(ctx, spec, handle, client, 0, meter, UseOf(q))
 	if err != nil {
 		_ = client.Signal(ctx, shimlink.SignalKill)
 		return ports.SessionHandle{}, err
@@ -438,7 +481,7 @@ func endRefused(ctx context.Context, process ports.Process, exited <-chan ports.
 }
 
 // follow attaches after a cursor and starts the one reader of a session's stream.
-func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, cursor int64, meter lanes.CostMeter, qualified bool) (*session, error) {
+func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, cursor int64, meter lanes.CostMeter, use Use) (*session, error) {
 	s := d.newSession(spec, handle, client, meter)
 	stream, err := client.Attach(ctx, cursor)
 	if err != nil {
@@ -449,7 +492,7 @@ func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle port
 		_ = stream.Close()
 		return nil, err
 	}
-	if err := s.listen(spec, qualified); err != nil {
+	if err := s.listen(spec, use); err != nil {
 		_ = stream.Close()
 		return nil, err
 	}
@@ -474,9 +517,9 @@ func (s *session) keepSocket(hooks []lanes.HookRecord) {
 }
 
 // listen opens this session's address for receipts, before anything can answer one.
-func (s *session) listen(spec ports.SessionSpec, qualified bool) error {
-	receipts, err := openReceiver(spec, qualified, s.refused)
-	s.qualified, s.receipts = qualified, receipts
+func (s *session) listen(spec ports.SessionSpec, use Use) error {
+	receipts, err := openReceiver(spec, use.Receipts, s.refused)
+	s.use, s.receipts = use, receipts
 	return err
 }
 
@@ -514,9 +557,9 @@ func sessionHandleID(spec ports.SessionSpec) string {
 
 // sessionEnv adds the driver's own variables. An undocumented one goes only to a
 // version that passed its check.
-func sessionEnv(spec ports.SessionSpec, qualified bool) []string {
+func sessionEnv(spec ports.SessionSpec, use Use) []string {
 	env := append(withoutTelemetry(spec.Env), envSessionState, lanes.EnvPolicy+"="+policyPath(spec))
-	if spec.TempDir != "" && qualified {
+	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}
 	return append(env, TelemetryEnv(spec)...)
@@ -600,6 +643,26 @@ func openStreamLog(spec ports.SessionSpec) (io.WriteCloser, error) {
 	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
+// launchedVersionPath names the file that says which version a generation's process started on.
+func launchedVersionPath(spec ports.SessionSpec) string {
+	return filepath.Join(spec.ConfigDir, fmt.Sprintf("version-%d", spec.Generation))
+}
+
+// writeLaunchedVersion keeps the version a session is about to start on, so a worker that adopts it
+// later qualifies the process and not whatever is installed by then.
+func writeLaunchedVersion(spec ports.SessionSpec, version string) error {
+	return os.WriteFile(launchedVersionPath(spec), []byte(version+"\n"), 0o600)
+}
+
+// launchedVersion reads that file, and empty when a launch left none.
+func launchedVersion(spec ports.SessionSpec) string {
+	raw, err := os.ReadFile(launchedVersionPath(spec))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
+
 // shimDir holds a generation's journal, state, and lock.
 func shimDir(spec ports.SessionSpec) string {
 	return filepath.Join(spec.ConfigDir, fmt.Sprintf("shim-%d", spec.Generation))
@@ -636,10 +699,10 @@ type session struct {
 	// its stream has ended.
 	peerSocket string
 	over       bool
-	// qualified says this version passed the check of the socket's surfaces, and receipts is where
-	// its receipts come back, when it has an address.
-	qualified bool
-	receipts  *receiver
+	// use is what this session's version passed, read once at its launch, and receipts is where its
+	// receipts come back, when it has an address.
+	use      Use
+	receipts *receiver
 }
 
 // read is the one reader of a session's stream. It ends at the child's exit, which is
@@ -728,7 +791,7 @@ func exitStatus(exit shimlink.Exit) ports.ExitStatus {
 }
 
 func (s *session) take(line []byte, seq int64) {
-	p, err := parseLine(line, s.qualified)
+	p, err := parseLine(line, s.use.WindowFigures)
 	if err != nil {
 		s.mu.Lock()
 		s.seen.Malformed++
@@ -930,7 +993,7 @@ func (s *session) send(ctx context.Context, in ports.Input) (ports.SendReceipt, 
 	if !in.Peer && !in.MidTurn {
 		return s.write(ctx, in)
 	}
-	if !s.qualified {
+	if !s.use.PeerInjection {
 		return ports.SendReceipt{}, fmt.Errorf("%s: %w: this version passed no check of the socket", s.handle.ID, ports.ErrNoChannel)
 	}
 	state, err := shimlink.ReadState(s.dir)

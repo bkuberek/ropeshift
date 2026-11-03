@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // paneScript says how a session behaves in a terminal. The screens follow what RS3 read on
@@ -78,9 +79,13 @@ const (
 	keyEnter = "<enter>"
 )
 
-// witness appends one line beside the binary, where a test reads what a pane took.
+// witness appends one line beside the binary, where a test reads what a pane took. A probe's
+// session writes to logs of its own, so a lane's logs hold only what lanes took.
 func witness(kind, line string) {
 	dir := filepath.Dir(os.Args[0])
+	if isProbe() {
+		kind = "probe-" + kind
+	}
 	file, err := os.OpenFile(filepath.Join(dir, kind+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		fail("%v", err)
@@ -98,7 +103,9 @@ func draw(text string) {
 // terminalInput turns off line buffering, so a key arrives when it is pressed. The
 // interrupt key still raises SIGINT.
 func terminalInput() {
-	cmd := exec.Command("stty", "-icanon", "-echo", "min", "1")
+	// The CLI reads its terminal raw, so Enter's carriage return and a typed line feed stay apart:
+	// the line feed is its documented newline inside a prompt, and only Enter submits.
+	cmd := exec.Command("stty", "-icanon", "-echo", "-icrnl", "min", "1")
 	cmd.Stdin = os.Stdin
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fail("stty: %v: %s", err, out)
@@ -114,7 +121,7 @@ func readKeys(keys chan<- string) {
 			return
 		}
 		switch first {
-		case '\r', '\n':
+		case '\r':
 			keys <- keyEnter
 		case 0x1b:
 			if _, err := reader.ReadByte(); err != nil {
@@ -194,7 +201,7 @@ func (s *session) awaitEnter(command string) {
 // listen binds the session's socket where the variable says, and takes each line.
 func listen(lines chan<- string) string {
 	dir := os.Getenv("CLAUDE_CODE_TMPDIR")
-	if dir == "" {
+	if dir == "" || dropped("socket_dir") {
 		// A version that gets no private directory binds in a shared one, which a double must
 		// stay out of. A test names a short directory for it.
 		dir = os.Getenv("FAKECLAUDE_SOCKETS")
@@ -319,6 +326,7 @@ func (s *session) paneLoop(keys <-chan string, messages <-chan string, interrupt
 	for {
 		select {
 		case <-interrupts:
+			witness("ended", strconv.FormatInt(time.Now().UnixMilli(), 10))
 			s.hook("SessionEnd", map[string]any{"reason": "other"})
 			if s.server != nil {
 				s.server.close()

@@ -143,10 +143,10 @@ func paneName(spec ports.SessionSpec) string {
 }
 
 // paneEnv is the session's environment, which the launcher sets exactly.
-func paneEnv(spec ports.SessionSpec, qualified bool) []string {
+func paneEnv(spec ports.SessionSpec, use Use) []string {
 	env := append(withoutTelemetry(spec.Env), lanes.EnvPolicy+"="+policyPath(spec))
 	env = append(env, spec.Override.Env()...)
-	if spec.TempDir != "" && qualified {
+	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}
 	return append(env, TelemetryEnv(spec)...)
@@ -184,7 +184,12 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
+	q := d.qualificationFor(version)
+	use := UseOf(q)
 	if err := writeGenerated(spec); err != nil {
+		return ports.SessionHandle{}, err
+	}
+	if err := writeLaunchedVersion(spec, version); err != nil {
 		return ports.SessionHandle{}, err
 	}
 	state := paneState{Name: paneName(spec), Phase: phaseOpening, Mode: mode, Timeout: readyTimeout(spec), Brief: spec.Brief}
@@ -194,13 +199,13 @@ func (d *Driver) launchPane(ctx context.Context, spec ports.SessionSpec, argumen
 	crashpoint.Hit("pane.start", "intent")
 	launch := launchPath(spec)
 	err = shimlink.WritePaneLaunch(launch, shimlink.PaneLaunch{
-		Dir: spec.Dir, Path: binary, Args: arguments, Env: paneEnv(spec, Qualified(version)),
+		Dir: spec.Dir, Path: binary, Args: arguments, Env: paneEnv(spec, use),
 	})
 	if err != nil {
 		return ports.SessionHandle{}, err
 	}
-	s := d.newPaneSession(spec, state.Name, ports.SessionHandle{ID: sessionHandleID(spec)}, meter)
-	if err := s.listen(spec, Qualified(version)); err != nil {
+	s := d.newPaneSession(spec, state.Name, ports.SessionHandle{ID: sessionHandleID(spec), Version: version, Degraded: q.Degraded}, meter)
+	if err := s.listen(spec, use); err != nil {
 		return ports.SessionHandle{}, err
 	}
 	d.keep(s.handle.ID, s, spec)
@@ -325,11 +330,7 @@ func (d *Driver) adoptPane(ctx context.Context, h ports.SessionHandle, from port
 	s := d.newPaneSession(spec, state.Name, h, from.Cost)
 	s.handle.PID = h.PID
 	s.floor = from.Cursor
-	version, err := d.version(ctx, d.versionEnv())
-	if err != nil {
-		version = ""
-	}
-	if err := s.listen(spec, Qualified(version)); err != nil {
+	if err := s.listen(spec, d.adoptedUse(ctx, launchedVersion(spec))); err != nil {
 		return err
 	}
 	records := slices.Clone(from.Hooks)
@@ -376,10 +377,10 @@ type paneSession struct {
 	socketKnown chan struct{}
 	follows     sync.Once
 	abandons    sync.Once
-	// qualified says this version passed the check of the socket's surfaces, and receipts is
-	// where its receipts come back, when it has an address.
-	qualified bool
-	receipts  *receiver
+	// use is what this session's version passed, read once at its launch, and receipts is where
+	// its receipts come back, when it has an address.
+	use      Use
+	receipts *receiver
 
 	mu       sync.Mutex
 	wake     *sync.Cond
@@ -413,9 +414,9 @@ func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle port
 }
 
 // listen opens this session's address for receipts, before anything can answer one.
-func (s *paneSession) listen(spec ports.SessionSpec, qualified bool) error {
-	receipts, err := openReceiver(spec, qualified, s.refused)
-	s.qualified, s.receipts = qualified, receipts
+func (s *paneSession) listen(spec ports.SessionSpec, use Use) error {
+	receipts, err := openReceiver(spec, use.Receipts, s.refused)
+	s.use, s.receipts = use, receipts
 	return err
 }
 
@@ -663,14 +664,45 @@ func (s *paneSession) send(ctx context.Context, in ports.Input) (ports.SendRecei
 	s.mu.Lock()
 	socket, pid := s.socket, s.handle.PID
 	s.mu.Unlock()
-	from := ""
 	if in.Peer || in.MidTurn {
-		if !s.qualified {
+		if !s.use.PeerInjection {
 			return ports.SendReceipt{}, fmt.Errorf("%s: %w: this version passed no check of the socket", s.handle.ID, ports.ErrNoChannel)
 		}
-		from = s.receipts.from()
+		return writeSocket(ctx, s.handle.ID, socket, pid, in, s.receipts.from())
 	}
-	return writeSocket(ctx, s.handle.ID, socket, pid, in, from)
+	if !s.use.PeerInjection {
+		return s.typeInput(ctx, in)
+	}
+	return writeSocket(ctx, s.handle.ID, socket, pid, in, "")
+}
+
+// typeInput is the worker's own input to a pane on a version whose socket line passed no check. It
+// goes by keys, which the ranked surfaces allow only as this fallback, and the lane shows degraded
+// mode while it does. A line feed is the CLI's documented newline inside a prompt, so a brief of many
+// lines stays one prompt, and Enter submits it. Nothing is read from the screen, and no key goes to
+// a session that is waiting for an answer, because the Enter would answer it.
+func (s *paneSession) typeInput(ctx context.Context, in ports.Input) (ports.SendReceipt, error) {
+	s.mu.Lock()
+	waiting := s.waiting || len(s.approvals) != 0
+	s.mu.Unlock()
+	if waiting {
+		return ports.SendReceipt{}, ports.ErrAwaitingAnswer
+	}
+	if in.ID == "" {
+		id, err := newUUID()
+		if err != nil {
+			return ports.SendReceipt{}, err
+		}
+		in.ID = id
+	}
+	if err := s.terminal.Type(ctx, s.name, strings.ReplaceAll(in.Text, "\r", "")); err != nil {
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
+	}
+	pause(ctx, compactPause)
+	if err := s.terminal.Keys(ctx, s.name, keyEnter); err != nil {
+		return ports.SendReceipt{}, fmt.Errorf("%s: %w: %v", s.handle.ID, ports.ErrNoSession, err)
+	}
+	return ports.SendReceipt{ID: in.ID, Path: ports.SendKeys}, nil
 }
 
 // refused reports what a receipt said.

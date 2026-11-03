@@ -50,6 +50,8 @@ type fixture struct {
 	Lanes map[string]laneScript `json:"lanes,omitempty"`
 	// Matrix names the qualification matrix's row this fixture stands for.
 	Matrix string `json:"matrix,omitempty"`
+	// ProbeDrops names the surfaces a qualification probe's session leaves out or changes.
+	ProbeDrops []string `json:"probe_drops,omitempty"`
 	// UsageText is what `/usage` prints.
 	UsageText string `json:"usage_text,omitempty"`
 	// ProjectHooks runs the hooks of the project settings in the session's directory too, as a run
@@ -216,6 +218,10 @@ func main() {
 		return
 	}
 	remember(self, os.Args[1:])
+	witness("started", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	if isProbe() {
+		script = probeScript(script)
+	}
 	if own, ok := script.Lanes[os.Getenv("ROPESHIFT_LANE_ID")]; ok {
 		script.Turns, script.ResumeTurns = own.Turns, own.ResumeTurns
 	}
@@ -352,7 +358,11 @@ func remember(self string, args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
+	// A probe's sessions are kept apart, so a test that counts a lane's sessions counts only those.
 	dir := filepath.Join(filepath.Dir(self), "seen")
+	if isProbe() {
+		dir = filepath.Join(filepath.Dir(self), "seen-probe")
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		fail("%v", err)
 	}
@@ -443,7 +453,9 @@ func (s *session) run() {
 	lines := make(chan string)
 	go readInput(lines)
 	s.peers = make(chan string)
-	if os.Getenv("CLAUDE_CODE_TMPDIR") != "" {
+	// A bare session binds no socket, and one that ignores the private directory binds where it
+	// would have anyway.
+	if (os.Getenv("CLAUDE_CODE_TMPDIR") != "" || dropped("socket_dir")) && !dropped("login") {
 		s.socket = listen(s.peers)
 		if err := os.Setenv("CLAUDE_CODE_MESSAGING_SOCKET", s.socket); err != nil {
 			fail("%v", err)
@@ -486,6 +498,9 @@ func (s *session) run() {
 			}
 			next()
 		case line := <-s.peers:
+			if dropped("socket_line") {
+				continue
+			}
 			if s.admits(line) {
 				s.replayPeer(line)
 				next()
@@ -537,10 +552,14 @@ func (s *session) admits(line string) bool {
 	}
 	switch policy {
 	case "refuse":
-		s.receipt(line, "expired", "refused")
+		if !dropped("receipts") {
+			s.receipt(line, "expired", "refused")
+		}
 		return false
 	case "hold":
-		s.emit(map[string]any{"type": "system", "subtype": "peer_message_hold", "state": "held", "message_uuid": messageID(line)})
+		if !dropped("peer_message_hold") {
+			s.emit(map[string]any{"type": "system", "subtype": "peer_message_hold", "state": "held", "message_uuid": messageID(line)})
+		}
 		s.receipt(line, "held", "")
 		return false
 	}
@@ -548,10 +567,15 @@ func (s *session) admits(line string) bool {
 	return true
 }
 
-// replayPeer is the headless acknowledgement: the sender's `uuid`, with a peer's origin.
+// replayPeer is the headless acknowledgement: the sender's `uuid`, with a peer's origin. A build
+// that changed the line answers with an ID of its own.
 func (s *session) replayPeer(line string) {
+	id := messageID(line)
+	if dropped("uuid") {
+		id = "00000000-0000-4000-8000-00000000beef"
+	}
 	s.emit(map[string]any{
-		"type": "user", "isReplay": true, "uuid": messageID(line), "origin": map[string]any{"kind": "peer"},
+		"type": "user", "isReplay": true, "uuid": id, "origin": map[string]any{"kind": "peer"},
 		"message": map[string]any{"role": "user", "content": messageText(line)},
 	})
 }
@@ -624,6 +648,7 @@ func (s *session) replay(line string) {
 }
 
 func (s *session) end() {
+	witness("ended", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	s.hook("SessionEnd", map[string]any{"reason": "other"})
 	if s.server != nil {
 		s.server.close()
@@ -743,6 +768,9 @@ func (s *session) init() map[string]any {
 	}
 	if s.socket != "" {
 		line["messaging_socket_path"] = s.socket
+	}
+	if dropped("login") {
+		line["apiKeySource"] = "ANTHROPIC_API_KEY"
 	}
 	return line
 }

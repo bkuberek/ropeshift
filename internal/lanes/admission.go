@@ -19,6 +19,8 @@ const (
 	HeldUsageLimit    = "usage_limit"
 	HeldNearLimit     = "near_limit"
 	HeldSignedOut     = "signed_out"
+	// HeldQualifying says the installed CLI version has no probe's result on this machine yet.
+	HeldQualifying = "qualifying"
 )
 
 // Admission holds what only a machine can see (FR-LANE-16). Zero leaves a cap off. These

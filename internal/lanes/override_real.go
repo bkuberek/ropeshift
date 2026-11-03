@@ -23,7 +23,10 @@ var refusedArguments = []string{
 // SessionOverride carries a real-session suite's guard flags to the production
 // driver. It exists only under the realsession tag.
 type SessionOverride struct {
-	Extra  []string `json:"args"`
+	Extra []string `json:"args"`
+	// Pane is the guard flags of an interactive session, for a run that starts both kinds, because
+	// some of a headless session's flags are an error in a pane.
+	Pane   []string `json:"pane_args"`
 	Stream string   `json:"stream_log"`
 	// Session lists variables a session starts with. A pane has no flag that keeps a
 	// transcript out of a person's home directory, and this is the documented way.
@@ -52,7 +55,7 @@ func ParseOverride(text string) (SessionOverride, error) {
 	if err := json.Unmarshal([]byte(text), &override); err != nil {
 		return SessionOverride{}, err
 	}
-	for _, arg := range override.Extra {
+	for _, arg := range append(slices.Clone(override.Extra), override.Pane...) {
 		if slices.Contains(refusedArguments, arg) || strings.Contains(arg, "bypassPermissions") {
 			return SessionOverride{}, fmt.Errorf("refused argument: %s", arg)
 		}
@@ -78,6 +81,15 @@ func (o SessionOverride) Inbound(generated string) string {
 
 // Args returns the guard flags.
 func (o SessionOverride) Args() []string { return o.Extra }
+
+// PaneArgs returns the guard flags of an interactive session, and the headless ones when a suite
+// named none of its own.
+func (o SessionOverride) PaneArgs() []string {
+	if o.Pane != nil {
+		return o.Pane
+	}
+	return o.Extra
+}
 
 // Env returns the variables a suite adds to a session.
 func (o SessionOverride) Env() []string { return o.Session }

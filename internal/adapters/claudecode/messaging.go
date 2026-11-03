@@ -17,7 +17,7 @@ import (
 )
 
 // The fields of a receipt, as the installed build writes them. The line is undocumented, so it is
-// a qualified surface: this code runs only on a version the matrix pins.
+// a qualified surface: this code runs only on a version whose receipts check passed.
 const (
 	receiptType    = "control"
 	receiptAction  = "peer_message_status"
@@ -67,11 +67,11 @@ func receiptPath(spec ports.SessionSpec) string {
 	return filepath.Join(spec.TempDir, socketsDir, "r"+strconv.FormatInt(spec.Generation, 10)+".sock")
 }
 
-// openReceiver binds the address and hands each refusal to take. A version the matrix does not pin
-// gets none, so `refused` is never read on a surface that passed no check, and a session with no
-// private directory has none it can answer. It replaces what a killed process left at that path.
-func openReceiver(spec ports.SessionSpec, qualified bool, take func(input string)) (*receiver, error) {
-	if !qualified || spec.TempDir == "" {
+// openReceiver binds the address and hands each refusal to take. A version whose receipts passed no
+// check gets none, so `refused` is never read on a surface that passed no check, and a session with
+// no private directory has none it can answer. It replaces what a killed process left at that path.
+func openReceiver(spec ports.SessionSpec, receipts bool, take func(input string)) (*receiver, error) {
+	if !receipts || spec.TempDir == "" {
 		return nil, nil
 	}
 	path := receiptPath(spec)

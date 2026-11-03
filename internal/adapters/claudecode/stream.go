@@ -57,7 +57,7 @@ type rateLimitInfo struct {
 	ResetsAt    int64    `json:"resetsAt"`
 	Window      string   `json:"rateLimitType"`
 	Utilization *float64 `json:"utilization"`
-	// Windows is where T8 saw the figure. Only a version the matrix pins is read here.
+	// Windows is where T8 saw the figure. Only a version whose check of it passed is read here.
 	Windows map[string]struct {
 		Utilization *float64 `json:"utilization"`
 	} `json:"unifiedWindows"`
@@ -65,7 +65,7 @@ type rateLimitInfo struct {
 
 // reading turns a notice into what a worker reads. No window is assumed, so the highest figure any
 // of them gives is the one that can hold work back.
-func (i rateLimitInfo) reading(qualified bool) lanes.UsageReading {
+func (i rateLimitInfo) reading(windows bool) lanes.UsageReading {
 	out := lanes.UsageReading{Status: i.Status, ResetsAtMs: i.ResetsAt * 1000, Window: i.Window}
 	take := func(fraction *float64) {
 		if fraction != nil {
@@ -73,7 +73,7 @@ func (i rateLimitInfo) reading(qualified bool) lanes.UsageReading {
 		}
 	}
 	take(i.Utilization)
-	if qualified {
+	if windows {
 		for _, window := range i.Windows {
 			take(window.Utilization)
 		}
@@ -101,7 +101,7 @@ type parsed struct {
 	socket string
 }
 
-func parseLine(raw []byte, qualified bool) (parsed, error) {
+func parseLine(raw []byte, windows bool) (parsed, error) {
 	var line streamLine
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return parsed{}, err
@@ -115,7 +115,7 @@ func parseLine(raw []byte, qualified bool) (parsed, error) {
 		return parseResult(line), nil
 	case "rate_limit_event":
 		if line.RateLimit != nil {
-			reading := line.RateLimit.reading(qualified)
+			reading := line.RateLimit.reading(windows)
 			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventLimit, Detail: reading.Status, Usage: &reading}}, nil
 		}
 	case "user":

@@ -106,6 +106,12 @@ type AgentDriver struct {
 	holds        []string
 	// midTurnRefused stands for a socket that takes nothing, on a version that says it can.
 	midTurnRefused bool
+	// qualified is what Qualify was handed, probes what each probe was asked, and probeHold and
+	// probeErr what the next probe does.
+	qualified lanes.Qualification
+	probes    []ports.ProbeSpec
+	probeHold chan struct{}
+	probeErr  error
 }
 
 // compactInput is what a compaction reads as, in a list of inputs.
@@ -280,10 +286,8 @@ func (d *AgentDriver) Specs() []ports.SessionSpec {
 func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	injection, compact := ports.InjectionBetweenTools, ports.CompactNative
-	if d.noPeerChannel {
-		injection = ports.InjectionNone
-	}
+	compact := ports.CompactNative
+	degraded, injection := d.gateLocked()
 	if d.noCompact {
 		compact = ""
 	}
@@ -292,8 +296,103 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 		Injection: injection, ContextReport: ports.ContextLive, Compact: compact,
 		NativeResume: !d.noResume, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
-		Version:     d.version, Degraded: d.degraded, Resume: d.costs,
+		Version:     d.version, Degraded: degraded, Resume: d.costs,
 	}, nil
+}
+
+// SurfacePeerChannel is the fake's one undocumented surface: a path for a peer's message.
+const SurfacePeerChannel lanes.Surface = "peer_channel"
+
+// gateLocked follows the real driver's rule: before any probe the version's own setting stands,
+// a probe's result answers only for its version, and any other version uses no undocumented surface.
+func (d *AgentDriver) gateLocked() (degraded bool, injection string) {
+	degraded, channel := d.degraded, !d.noPeerChannel
+	switch {
+	case d.qualified.Version == "":
+	case d.qualified.For(d.version):
+		degraded, channel = d.qualified.Degraded, channel && d.qualified.Passed(SurfacePeerChannel)
+	default:
+		degraded, channel = true, false
+	}
+	if !channel {
+		return degraded, ports.InjectionNone
+	}
+	return degraded, ports.InjectionBetweenTools
+}
+
+// Probe returns what a probe of the installed version observes: its peer channel as the script sets
+// it, and degraded as SetVersion says. A held probe waits for its release, and FailProbe makes it
+// fail.
+func (d *AgentDriver) Probe(ctx context.Context, spec ports.ProbeSpec) (lanes.Qualification, error) {
+	d.mu.Lock()
+	d.probes = append(d.probes, spec)
+	hold, err := d.probeHold, d.probeErr
+	d.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return lanes.Qualification{}, ctx.Err()
+		}
+	}
+	if err != nil {
+		return lanes.Qualification{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	result := lanes.CheckPassed
+	if d.noPeerChannel {
+		result = lanes.CheckFailed
+	}
+	return lanes.Qualification{
+		Driver: FakeDriverName, Version: d.version, Source: lanes.QualifiedByProbe, SignIn: spec.SignIn,
+		Checks: map[lanes.Surface]lanes.CheckResult{SurfacePeerChannel: result}, Degraded: d.degraded || d.noPeerChannel,
+	}, nil
+}
+
+// Qualify keeps a probe's result, which Capabilities then follows.
+func (d *AgentDriver) Qualify(q lanes.Qualification) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.qualified = q
+}
+
+// Qualified returns what Qualify was last handed.
+func (d *AgentDriver) Qualified() lanes.Qualification {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.qualified
+}
+
+// Probes lists every probe, in order.
+func (d *AgentDriver) Probes() []ports.ProbeSpec {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]ports.ProbeSpec{}, d.probes...)
+}
+
+// HoldProbes makes each probe wait until the returned function runs.
+func (d *AgentDriver) HoldProbes() (release func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	hold := make(chan struct{})
+	d.probeHold = hold
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			d.mu.Lock()
+			d.probeHold = nil
+			d.mu.Unlock()
+			close(hold)
+		})
+	}
+}
+
+// FailProbe makes every probe fail with err, until it is given nil.
+func (d *AgentDriver) FailProbe(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.probeErr = err
 }
 
 // Doctor reports the installed version.
@@ -305,8 +404,9 @@ func (d *AgentDriver) Doctor(context.Context) (ports.DoctorReport, error) {
 		status = lanes.SignedIn
 	}
 	d.doctors++
+	degraded, _ := d.gateLocked()
 	return ports.DoctorReport{
-		Driver: FakeDriverName, Present: d.present, Version: d.version, Qualified: !d.degraded, SignIn: d.signIn, SignInStatus: status,
+		Driver: FakeDriverName, Present: d.present, Version: d.version, Qualified: !degraded, SignIn: d.signIn, SignInStatus: status,
 	}, nil
 }
 
@@ -379,7 +479,8 @@ func (d *AgentDriver) open(spec ports.SessionSpec, from ports.ResumeRef) (ports.
 	}
 	d.started++
 	session := d.newSession(spec, lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD})
-	handle := ports.SessionHandle{ID: sessionID(spec.Lane, spec.Generation), PID: len(d.specs) + 1}
+	degraded, _ := d.gateLocked()
+	handle := ports.SessionHandle{ID: sessionID(spec.Lane, spec.Generation), PID: len(d.specs) + 1, Version: d.version, Degraded: degraded}
 	d.specs = append(d.specs, spec)
 	d.sessions[handle.ID] = session
 	session.inputs <- ports.Input{Text: spec.Brief}

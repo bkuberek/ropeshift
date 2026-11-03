@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real
+.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify
 
 check: format vet lint test web-test licenses canary
 
@@ -87,3 +87,8 @@ SUITE ?= RS1
 real:
 	$(GO) test -tags realsession -count=1 -run '^Test(Ledger|Refused|Environment|Canary|Stop|Init|Hook|Leftover)' ./test/real/...
 	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout 20m -v -run '^Test$(SUITE)$$' ./test/real/...
+
+# The release's qualification suite: the production probe on the installed CLI, which ends with that
+# version's row for the matrix the binary ships (internal/adapters/claudecode/matrix.json).
+qualify:
+	@$(MAKE) --no-print-directory real SUITE=RS14

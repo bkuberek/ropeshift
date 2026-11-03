@@ -52,6 +52,8 @@ func RunAgentDriver(t *testing.T, fresh func(*testing.T) DriverRig) {
 		{"an unknown handle reads unknown, not dead", checkUnknownHandle},
 		{"a session that never started is not found", checkFindNothing},
 		{"an adoption with nothing to take over refuses", checkAdoptNothing},
+		{"a probe's result qualifies its own version and no other", checkQualifiesOnlyItsVersion},
+		{"a session's handle names the version it started on", checkHandleNamesItsVersion},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -155,6 +157,43 @@ func checkDriverCapabilities(t *testing.T, ctx context.Context, rig DriverRig) {
 		got.Injection != ports.InjectionBetweenTools || !got.NativeResume {
 		t.Errorf("capabilities %+v", got)
 	}
+}
+
+// checkQualifiesOnlyItsVersion is the rule for a version that changes under a worker: once a probe's
+// result is handed over, a version it does not name uses no undocumented surface, whichever way the
+// result went, and the version it names follows it.
+func checkQualifiesOnlyItsVersion(t *testing.T, ctx context.Context, rig DriverRig) {
+	before, err := rig.Driver.Capabilities(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rig.Driver.Qualify(lanes.Qualification{Driver: "any", Version: before.Version + "-other", Source: lanes.QualifiedByProbe})
+	other, err := rig.Driver.Capabilities(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !other.Degraded || other.Injection != ports.InjectionNone {
+		t.Errorf("a version no probe named reads %+v", other)
+	}
+	report, err := rig.Driver.Doctor(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Qualified {
+		t.Error("the doctor calls a version no probe named qualified")
+	}
+}
+
+func checkHandleNamesItsVersion(t *testing.T, ctx context.Context, rig DriverRig) {
+	capabilities, err := rig.Driver.Capabilities(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := startScenario(t, ctx, rig, ScenarioTwoTurns)
+	if s.handle.Version != capabilities.Version || s.handle.Degraded != capabilities.Degraded {
+		t.Errorf("handle %+v for capabilities %s degraded %v", s.handle, capabilities.Version, capabilities.Degraded)
+	}
+	s.until(ports.EventTurnEnded)
 }
 
 func checkPreflight(t *testing.T, ctx context.Context, rig DriverRig) {

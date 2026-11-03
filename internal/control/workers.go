@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/planning"
@@ -649,6 +650,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return answeredUpload(tx, worker, e)
 	case ledger.UploadWakeSignal:
 		return signalUpload(tx, worker, e, stamp)
+	case ledger.UploadDriverQualified:
+		return qualifiedUpload(tx, worker, id, e)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {
@@ -665,6 +668,26 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 	if err != nil {
 		return err
 	}
+	_, err = tx.Append(draft)
+	return err
+}
+
+// qualifiedUpload records what a worker's probe observed of its driver's version. It belongs to the
+// worker and no lane, so no fence guards it, and a document that is not a probe's result is refused.
+func qualifiedUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	var q lanes.Qualification
+	if err := json.Unmarshal(e.Payload, &q); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if err := q.Check(); err != nil || e.WorkOrder != "" || e.Lane != "" {
+		return fmt.Errorf("%w: a qualification belongs to a worker: %v", workorders.ErrInvalid, err)
+	}
+	data, err := json.Marshal(q)
+	if err != nil {
+		return err
+	}
+	draft := workerEvent(ledger.EventDriverQualified, worker, ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
+	draft.ID, draft.OccurredAt, draft.Data = id, e.OccurredAt, data
 	_, err = tx.Append(draft)
 	return err
 }

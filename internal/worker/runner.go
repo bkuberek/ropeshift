@@ -438,6 +438,7 @@ func (w *Worker) adoptedRun(ctx context.Context, record lanes.Record, located po
 	run.setHandle(located.Handle)
 	run.bound, run.cursor = record.SessionID != "", record.Progress.Cursor
 	run.state = laneStateOf(record, w.clock.Now())
+	run.noteProcess(located.Handle)
 	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
 	run.loadProfile(ctx)
@@ -526,6 +527,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if r.orchestrating() && !r.awaitWake(ctx) {
 		return failed(workorders.ReasonWorkerRestarted)
 	}
+	if err := r.w.awaitQualified(ctx, r.lease); err != nil {
+		return failed(workorders.ReasonWorkerRestarted)
+	}
 	repository, err := r.repository(ctx)
 	if err != nil {
 		return r.failStart(workorders.ReasonNoRepository, err)
@@ -608,6 +612,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return failed(workorders.ReasonWorkerRestarted)
 	}
 	crashpoint.Hit("worker.lane", "spawned")
+	r.noteProcess(r.sessionHandle())
 	if r.woken() != nil {
 		crashpoint.Hit("worker.resume", "launched")
 	}

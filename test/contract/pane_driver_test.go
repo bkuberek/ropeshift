@@ -459,6 +459,55 @@ func socketOf(t *testing.T, r *paneRig) string {
 	return found[0]
 }
 
+// TestPaneBriefGoesByKeysWhereTheSocketPassedNoCheck is the fallback the ranked surfaces allow: on a
+// version whose socket line passed no check, nothing is written to the socket, the brief is typed
+// as one prompt of many lines, and the session reads as degraded.
+func TestPaneBriefGoesByKeysWhereTheSocketPassedNoCheck(t *testing.T) {
+	r := newPaneRig(t, "pane-two-turns")
+	version, err := r.driver.Capabilities(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := lanes.Qualification{
+		Driver: claudecode.DriverName, Version: version.Version, Source: lanes.QualifiedByProbe, Checks: map[lanes.Surface]lanes.CheckResult{},
+	}
+	for _, surface := range claudecode.Surfaces {
+		failed.Checks[surface] = lanes.CheckPassed
+	}
+	failed.Checks[claudecode.SurfaceSocketLine] = lanes.CheckFailed
+	r.driver.Qualify(failed)
+	r.spec.Brief = "the first line\nthe second line"
+	s := r.start()
+	if !s.handle.Degraded {
+		t.Error("a session on documented surfaces reads as qualified")
+	}
+	if turn := s.until(ports.EventTurnEnded).Turn; turn.Status != ports.TurnCompleted {
+		t.Errorf("turn %+v", turn)
+	}
+	if messages := r.log("messages"); len(messages) != 0 {
+		t.Errorf("the socket took a line on a version whose socket passed no check: %v", messages)
+	}
+	// The log keeps one key a line and loses a typed space, so the text is compared without them.
+	var typed strings.Builder
+	submits := 0
+	for _, key := range r.log("keys") {
+		text, ok := strings.CutPrefix(key, "prompt ")
+		switch {
+		case !ok:
+		case text == "<enter>":
+			submits++
+		default:
+			typed.WriteString(text)
+		}
+	}
+	if submits != 1 || !strings.Contains(typed.String(), "thefirstline") || !strings.Contains(typed.String(), "thesecondline") {
+		t.Errorf("the brief reached the pane as %d prompts of %q", submits, typed.String())
+	}
+	if _, err := r.driver.Send(t.Context(), s.handle, ports.Input{Text: "from a peer", Peer: true}); !errors.Is(err, ports.ErrNoChannel) {
+		t.Errorf("a peer's message found a path a check refused: %v", err)
+	}
+}
+
 func TestADriverWithATerminalDeclaresBothRunModes(t *testing.T) {
 	r := newPaneRig(t, "pane-two-turns")
 	got, err := r.driver.Capabilities(t.Context())

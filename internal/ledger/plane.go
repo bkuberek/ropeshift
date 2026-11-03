@@ -364,7 +364,14 @@ const (
 	// tool's end showed of one.
 	UploadApprovalRaised   = "approval_raised"
 	UploadApprovalAnswered = "approval_answered"
+	// UploadDriverQualified carries what a worker's probe observed of a CLI version, which belongs
+	// to the worker and no lane.
+	UploadDriverQualified = "driver_qualified"
 )
+
+// EventDriverQualified records a probe's result for one worker's driver: a version, its surfaces,
+// and their results, and nothing of a session or an account.
+const EventDriverQualified = "worker.driver_qualified"
 
 // UploadedEventID is the event ID of one uploaded event. The ledger's unique index
 // on event IDs then makes upload idempotent.

@@ -8,6 +8,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -150,6 +151,44 @@ func InstallFakeClaude(t testing.TB, fixture string) string {
 	return dir + string(os.PathListSeparator) + CanaryPath(t)
 }
 
+// InstallFakeClaudeVersion is InstallFakeClaude with the version the double reports, so a test can
+// stand for a version the matrix holds or one it does not.
+func InstallFakeClaudeVersion(t testing.TB, fixture, version string) string {
+	t.Helper()
+	path := InstallFakeClaude(t, fixture)
+	SetFakeClaudeVersion(t, path, version)
+	return path
+}
+
+// SetFakeClaudeVersion changes the version an installed double reports from its next run, which is
+// how a test stands for a CLI that updated itself under a running worker.
+func SetFakeClaudeVersion(t testing.TB, path, version string) {
+	t.Helper()
+	dir, _, _ := strings.Cut(path, string(os.PathListSeparator))
+	file := filepath.Join(dir, FixtureFile)
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var script map[string]any
+	if err := json.Unmarshal(raw, &script); err != nil {
+		t.Fatal(err)
+	}
+	script["version"] = version
+	raw, err = json.Marshal(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A rename, so a run that reads the fixture while it changes reads one whole version.
+	next := file + ".next"
+	if err := os.WriteFile(next, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(next, file); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // ReapShims stops what a generation's shim started, when a test ends, by the exact IDs
 // its state file names. A shim outlives its worker by design, so a test that fails with
 // a session running would otherwise leave both behind.
@@ -265,7 +304,22 @@ func CanaryPath(t testing.TB) string {
 // SeenBy reads what every fakeclaude process in a directory saw.
 func SeenBy(t testing.TB, dir string) []Seen {
 	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(dir, SeenDir))
+	return seenIn(t, filepath.Join(dir, SeenDir))
+}
+
+// ProbesSeenBy lists the qualification probe's sessions a double ran, which SeenBy leaves out.
+func ProbesSeenBy(t testing.TB, dir string) []Seen {
+	t.Helper()
+	path := filepath.Join(dir, SeenDir+"-probe")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return seenIn(t, path)
+}
+
+func seenIn(t testing.TB, path string) []Seen {
+	t.Helper()
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +334,7 @@ func SeenBy(t testing.TB, dir string) []Seen {
 	slices.SortStableFunc(entries, func(a, b os.DirEntry) int { return written(a).Compare(written(b)) })
 	var out []Seen
 	for _, entry := range entries {
-		raw, err := os.ReadFile(filepath.Join(dir, SeenDir, entry.Name()))
+		raw, err := os.ReadFile(filepath.Join(path, entry.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}

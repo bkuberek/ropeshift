@@ -38,6 +38,10 @@ var ErrNoChannel = errors.New("no channel for a peer's message")
 // ErrAwaitingAnswer means a session is waiting on an answer, so a key could give one.
 var ErrAwaitingAnswer = errors.New("the session is waiting for an answer")
 
+// ErrVersionMoved means the installed version changed while a probe ran, so its result names no
+// one version and a new probe is due.
+var ErrVersionMoved = errors.New("the installed version changed during the probe")
+
 // The two ways a checked start stops. Neither session ran a turn.
 var (
 	// ErrUnknownScreen means a fresh start never reached a screen the driver knows.
@@ -61,8 +65,8 @@ type Capabilities struct {
 	SignInKinds      []string
 	// Version is the installed version.
 	Version string
-	// Degraded says the version is outside the qualification matrix, so the driver
-	// uses documented, version-independent surfaces only.
+	// Degraded says a surface the driver relies on passed no check on this version, so it uses
+	// documented, version-independent surfaces in its place.
 	Degraded bool
 	// Resume is the driver's data for the resume table.
 	Resume lanes.ResumeCosts
@@ -161,6 +165,30 @@ type SessionTelemetry struct {
 type SessionHandle struct {
 	ID  string
 	PID int
+	// Version is the version the session's process started on, read at its launch, and Degraded
+	// says what qualified that version left it on documented surfaces only. Both are this process's
+	// own, because a version can change between a worker's look and a launch.
+	Version  string
+	Degraded bool
+}
+
+// ProbeSpec is one qualification probe: a few short sessions on this machine, with its settings and
+// its sign-in, that show which of a version's undocumented surfaces still work (FR-DRV-2).
+type ProbeSpec struct {
+	// Dir is a new directory the probe owns, where its sessions run and its files go.
+	Dir string
+	// TempDir is a short private directory for the probe's sockets.
+	TempDir string
+	// Env is the environment from the allowlist, as a lane gets it.
+	Env []string
+	// Model is the model the probe's sessions ask for.
+	Model string
+	// Binary is the stable path of the ropeshift binary, whose hook reports what a session did.
+	Binary string
+	// SignIn is the worker's kind of sign-in, because one check reads a subscription's login.
+	SignIn string
+	// Override carries a real-session suite's guard flags. It is empty outside the realsession build.
+	Override lanes.SessionOverride
 }
 
 // ResumeRef names an earlier session to continue as a new generation.
@@ -309,6 +337,8 @@ type Input struct {
 const (
 	SendStdin  = "stdin"
 	SendSocket = "socket"
+	// SendKeys is typing into a pane, the fallback on a version whose socket passed no check.
+	SendKeys = "keys"
 )
 
 // SendReceipt states what actually happened to an input.
@@ -343,6 +373,12 @@ type AgentDriver interface {
 	// Doctor reports presence, version, qualification, and sign-in kind. It uses
 	// vendor status commands and never reads credentials.
 	Doctor(ctx context.Context) (DoctorReport, error)
+	// Probe runs the qualification probe on the installed version, and returns what each check
+	// observed. A check that could not run reads unobserved, never passed.
+	Probe(ctx context.Context, spec ProbeSpec) (lanes.Qualification, error)
+	// Qualify hands the driver a probe's result. From then on an undocumented surface is used only
+	// on the version that result names, and only where its check passed.
+	Qualify(q lanes.Qualification)
 	// ReadUsage reads what a sign-in has used as free text, with no session and no tokens. Nothing
 	// outside this machine may see it, because it can name local plugins and subagents. A run mode
 	// with no such read says ErrUnsupported.

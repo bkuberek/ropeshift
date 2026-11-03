@@ -163,6 +163,10 @@ type Journal interface {
 	SignIn(ctx context.Context) (lanes.SignInState, error)
 	// SaveSignIn keeps a state and the words that follow from it, in one write.
 	SaveSignIn(ctx context.Context, state lanes.SignInState, events ...ledger.UploadEvent) error
+	// Qualification reads what this worker's last probe observed, and the zero value before any.
+	Qualification(ctx context.Context) (lanes.Qualification, error)
+	// SaveQualification keeps a probe's result and the event that records it, in one write.
+	SaveQualification(ctx context.Context, q lanes.Qualification, events ...ledger.UploadEvent) error
 	// CloseMessage stops holding a message nobody can be told of here. The ledger decides what a
 	// sender reads, so this stores no event.
 	CloseMessage(ctx context.Context, id string) error

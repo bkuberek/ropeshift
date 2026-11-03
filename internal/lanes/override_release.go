@@ -18,6 +18,9 @@ func ParseOverride(string) (SessionOverride, error) { return SessionOverride{}, 
 // Args adds nothing in a normal build.
 func (SessionOverride) Args() []string { return nil }
 
+// PaneArgs adds nothing in a normal build.
+func (SessionOverride) PaneArgs() []string { return nil }
+
 // Env adds nothing in a normal build.
 func (SessionOverride) Env() []string { return nil }
 

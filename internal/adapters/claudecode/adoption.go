@@ -93,6 +93,18 @@ func liveRows(rows []listedSession) []listedSession {
 // less is unknown, because unknown restarts nothing. The listing is a second opinion,
 // and it can only hold a session back from reading dead.
 func (d *Driver) Find(ctx context.Context, spec ports.SessionSpec) (ports.Located, error) {
+	located, err := d.find(ctx, spec)
+	if err != nil || !located.Found {
+		return located, err
+	}
+	// The process runs the version its launch wrote down, whatever is installed by now.
+	if version := launchedVersion(spec); version != "" {
+		located.Handle.Version, located.Handle.Degraded = version, d.qualificationFor(version).Degraded
+	}
+	return located, nil
+}
+
+func (d *Driver) find(ctx context.Context, spec ports.SessionSpec) (ports.Located, error) {
 	handle := ports.SessionHandle{ID: sessionHandleID(spec)}
 	if state, err := readPaneState(spec); err == nil {
 		return d.findPane(ctx, spec, state)
@@ -137,6 +149,18 @@ func answersPing(ctx context.Context, socket string) bool {
 	return err == nil && client.Ping(attempt) == nil
 }
 
+// adoptedUse is what a session an earlier worker started may use: what qualifies the version its
+// process runs, which the launch wrote down, because the installed version may have moved on since.
+// A launch that wrote none reads the installed one.
+func (d *Driver) adoptedUse(ctx context.Context, version string) Use {
+	if version == "" {
+		if installed, err := d.version(ctx, d.versionEnv()); err == nil {
+			version = installed
+		}
+	}
+	return UseOf(d.qualificationFor(version))
+}
+
 // Adopt takes over a session from where a worker stopped. A shim that answers carries on
 // the stream, and a shim that has gone left its journal, so a session that ended while
 // the worker was away still ends in order, with nothing of its last turn lost.
@@ -153,14 +177,11 @@ func (d *Driver) Adopt(ctx context.Context, h ports.SessionHandle, from ports.Ad
 	if _, err := shimlink.ReadState(shimDir(spec)); err != nil {
 		return fmt.Errorf("%s: %w: %v", h.ID, ports.ErrNoSession, err)
 	}
+	use := d.adoptedUse(ctx, launchedVersion(spec))
 	attempt, cancel := context.WithTimeout(ctx, shimDialDeadline)
 	defer cancel()
-	version, err := d.version(ctx, d.versionEnv())
-	if err != nil {
-		version = ""
-	}
 	if client, err := shimlink.Dial(attempt, shimSocket(spec)); err == nil {
-		s, err := d.follow(ctx, spec, h, client, from.Cursor, from.Cost, Qualified(version))
+		s, err := d.follow(ctx, spec, h, client, from.Cursor, from.Cost, use)
 		if err == nil {
 			s.keepSocket(from.Hooks)
 		}

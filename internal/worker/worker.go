@@ -78,6 +78,13 @@ type Worker struct {
 	polledAt  time.Time
 	laneGroup sync.WaitGroup
 	marked    sync.Once
+
+	// qualLock guards qual, the probe result in force, probe, the one probe running, and life, the
+	// context a probe runs under, which outlives any one lane.
+	qualLock sync.Mutex
+	qual     lanes.Qualification
+	probe    *probeRun
+	life     context.Context
 }
 
 // New returns a worker that has not started.
@@ -151,6 +158,9 @@ func (w *Worker) Start(ctx context.Context) error {
 		return err
 	}
 	if err := w.loadSignIn(ctx); err != nil {
+		return err
+	}
+	if err := w.loadQualification(ctx); err != nil {
 		return err
 	}
 	w.mu.Lock()
