@@ -123,6 +123,8 @@ const usage = `usage: ropeshift <command>
   worker window-close <id>                           end its window, which stops no lane
   init                                               set up this machine: passphrase, worker, doctor, sample
   backup <file>                                      copy the ledger to a new file while the daemon runs
+  service install [--name N] [-- daemon flags]       run the daemon as this machine's service, from now on
+  service uninstall [--name N]                       stop that service and remove it, which stops no lane
   version                                            print the version
 
 Every command takes --json and --socket. docs/cli.md lists the exit codes.
@@ -133,7 +135,7 @@ func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
 		"question", "decision", "policy", "category", "search", "login", "sign-out", "passphrase", "message", "approval", "orchestrator",
-		"effect", "view", "events", "health", "top", "notice", "telemetry", "measures", "init", "backup":
+		"effect", "view", "events", "health", "top", "notice", "telemetry", "measures", "init", "backup", "service":
 		return true
 	}
 	return false
@@ -155,6 +157,11 @@ type Options struct {
 	StartDaemon func(context.Context) (func() error, error)
 	// StateDir is the installation's own directory, where a first run writes its sample contract.
 	StateDir string
+	// InstallService writes the daemon's service definition under a name, with the daemon's own
+	// flags, and starts it. An empty name is the platform's. UninstallService stops that service and
+	// removes its definition. Nil means this platform has no service manager to write for.
+	InstallService   func(ctx context.Context, name string, daemonArgs []string) (Service, error)
+	UninstallService func(ctx context.Context, name string) (Service, error)
 }
 
 // invocation is one running command.
@@ -164,6 +171,8 @@ type invocation struct {
 	terminal       io.Reader
 	startDaemon    func(context.Context) (func() error, error)
 	stateDir       string
+	install        func(context.Context, string, []string) (Service, error)
+	uninstall      func(context.Context, string) (Service, error)
 	ctx            context.Context
 	stdout         io.Writer
 	stderr         io.Writer
@@ -179,7 +188,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
 		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
-		startDaemon: opts.StartDaemon, stateDir: opts.StateDir,
+		startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 	}
 	if len(args) > 0 {
 		if command, ok := singleWords[args[0]]; ok {
@@ -308,6 +317,8 @@ func commands() map[string]func(*invocation, []string) int {
 		"effect list":             (*invocation).effectList,
 		"effect show":             (*invocation).effectShow,
 		"effect decide":           (*invocation).effectDecide,
+		"service install":         (*invocation).serviceInstall,
+		"service uninstall":       (*invocation).serviceUninstall,
 	}
 	for _, name := range api.Views {
 		table["view "+name] = viewing(name)

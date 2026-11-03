@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -73,6 +75,60 @@ func TestTmuxStaysOnItsOwnSocket(t *testing.T) {
 	}
 	if _, err := os.Stat(socket); err != nil {
 		t.Errorf("no server on the given socket: %v", err)
+	}
+}
+
+// recording starts every process on the real runner and keeps each spec it started.
+type recording struct {
+	mu    sync.Mutex
+	specs []ports.ProcessSpec
+}
+
+func (r *recording) Start(ctx context.Context, spec ports.ProcessSpec) (ports.Process, error) {
+	r.mu.Lock()
+	r.specs = append(r.specs, spec)
+	r.mu.Unlock()
+	return osexec.Runner{}.Start(ctx, spec)
+}
+
+func (r *recording) started() []ports.ProcessSpec {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.specs)
+}
+
+// The call that opens a pane can start the private server, which holds every pane, so it must outlive
+// a stop of the worker's service (D20). A call that only reads or sends to the server ends at once.
+func TestTheTmuxServerOutlivesTheWorkersService(t *testing.T) {
+	doubles.RequireTmux(t)
+	dir := apitest.ShortDir(t)
+	runner := &recording{}
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+	terminal, err := tmux.New(runner, tmux.Options{Socket: filepath.Join(dir, "tmux.sock"), Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doubles.EndTmuxOn(t, filepath.Join(dir, "tmux.sock"))
+	path := doubles.InstallFakeClaude(t, "pane-terminal")
+	spec := ports.PaneSpec{Name: "pane", Dir: dir, Width: 130, Height: 45, Command: []string{filepath.Join(doubles.BinDir(path), "claude"), "--tui"}}
+	if _, err := terminal.Open(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := terminal.Capture(t.Context(), "pane"); err != nil {
+		t.Fatal(err)
+	}
+	if err := terminal.Close(t.Context(), "pane"); err != nil {
+		t.Fatal(err)
+	}
+	started := runner.started()
+	if len(started) != 3 {
+		t.Fatalf("%d calls", len(started))
+	}
+	for i, call := range started {
+		opens := slices.Contains(call.Args, "new-session")
+		if opens != (i == 0) || call.Outlive != opens || !call.Detached {
+			t.Errorf("call %d %v: outlive %v, detached %v", i, call.Args, call.Outlive, call.Detached)
+		}
 	}
 }
 

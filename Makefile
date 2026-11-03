@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify
+.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test
 
 check: format vet lint test web-test licenses canary
 
@@ -27,7 +27,7 @@ canary:
 
 vet:
 	$(GO) vet ./...
-	$(GO) vet -tags 'chaos postgres bench realsession' ./...
+	$(GO) vet -tags 'chaos postgres bench realsession service' ./...
 
 lint:
 	golangci-lint run ./...
@@ -61,6 +61,14 @@ cross:
 
 bench:
 	$(GO) test -tags bench -count=1 -v ./test/bench/...
+	@$(MAKE) --no-print-directory canary
+
+# The daemon under this machine's real service manager: launchd on macOS, and the user's systemd
+# manager on Linux, which also runs the scope check. Each test installs a service under a name of its
+# own, in a temporary installation, and removes it at its end.
+service-test:
+	$(GO) test -tags service -count=1 -v -timeout 15m ./test/service/...
+	$(GO) test -count=1 -v -run '^TestAnOutlivingProcessLeavesTheControlGroup$$' ./test/contract/
 	@$(MAKE) --no-print-directory canary
 
 # The contract suite on a private Postgres, which also prepares every statement

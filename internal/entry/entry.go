@@ -85,6 +85,9 @@ func cliOptions() cli.Options {
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
 		opts.Terminal = os.Stdin
 	}
+	if machine, err := liveServices(); err == nil {
+		opts.InstallService, opts.UninstallService = machine.install, machine.uninstall
+	}
 	paths, err := installationPaths()
 	if err != nil {
 		return opts

@@ -1,0 +1,16 @@
+# Written by ropeshift service install. Lanes and the worker's terminal server start in scopes
+# of their own, so a stop of this unit ends no lane.
+[Unit]
+Description=ropeshift daemon
+
+[Service]
+ExecStart="/opt/ropeshift/bin/ropeshiftd" "solo" "--source" "/home/a person/50%% \"R&D\" $$HOME\\x"
+Environment="LANG=en_US.UTF-8"
+Environment="PATH=/opt/ropeshift/bin:/usr/bin:/bin"
+Environment="ROPESHIFT_STATE_DIR=/home/a person/100%%"
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=default.target

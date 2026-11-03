@@ -292,3 +292,23 @@ func TestDetachedProcessLeavesTheGroup(t *testing.T) {
 		t.Errorf("process group %d of process %d, and this process's is %d", group, process.PID(), syscall.Getpgrp())
 	}
 }
+
+// TestOutlivingProcessLeavesTheGroup holds the least a process that must outlive the worker's
+// service gets from any runner: the group a service manager signals does not hold it (D20).
+func TestOutlivingProcessLeavesTheGroup(t *testing.T) {
+	process, err := osexec.Runner{}.Start(t.Context(), ports.ProcessSpec{Path: "/bin/sleep", Args: []string{"30"}, Outlive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = process.Signal(ports.SignalKill)
+		_, _ = process.Wait()
+	}()
+	group, err := syscall.Getpgid(process.PID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group != process.PID() || group == syscall.Getpgrp() {
+		t.Errorf("process group %d of process %d, and this process's is %d", group, process.PID(), syscall.Getpgrp())
+	}
+}

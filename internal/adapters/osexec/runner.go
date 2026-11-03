@@ -33,7 +33,9 @@ func (Runner) Start(_ context.Context, spec ports.ProcessSpec) (ports.Process, e
 		Stdout: spec.Stdout,
 		Stderr: spec.Stderr,
 	}
-	if spec.Detached {
+	// A process that must outlive the service leaves the group a service manager signals, which is all
+	// this runner can do. On Linux, the systemd adapter takes it out of the control group too.
+	if spec.Detached || spec.Outlive {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
 	if err := cmd.Start(); err != nil {

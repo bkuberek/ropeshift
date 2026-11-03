@@ -31,6 +31,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/secrets"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.dev/ropeshift/internal/adapters/systemd"
 	"ropeshift.dev/ropeshift/internal/adapters/tmux"
 	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
 	"ropeshift.dev/ropeshift/internal/api"
@@ -322,7 +323,7 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		_ = journal.Close()
 		return nil, err
 	}
-	runtime, err := soloLanes(paths, opts)
+	runtime, err := soloLanes(paths, opts, stderr)
 	if err != nil {
 		_ = journal.Close()
 		return nil, err
@@ -383,8 +384,25 @@ func soloManifest(paths api.Paths) ledger.Manifest {
 }
 
 // soloDriver is the agent CLI, as this machine would start it.
-func soloDriver(terminal ports.Terminal, env []string) *claudecode.Driver {
-	return claudecode.New(osexec.Runner{}, claudecode.Options{Env: env, Terminal: terminal})
+func soloDriver(runner ports.ProcessRunner, terminal ports.Terminal, env []string) *claudecode.Driver {
+	return claudecode.New(runner, claudecode.Options{Env: env, Terminal: terminal})
+}
+
+// laneRunner starts a lane's processes. A stop of a systemd unit ends its whole control group, so on
+// Linux a process that must outlive the worker's service starts in a scope of the user's manager
+// (D20). A machine with no user manager has no unit to stop, unless the daemon runs in one with no
+// way to reach it, which the daemon says, because a stop would then end its lanes.
+func laneRunner(goos string, getenv func(string) string, stderr io.Writer) ports.ProcessRunner {
+	if goos != "linux" {
+		return osexec.Runner{}
+	}
+	if scope, ok := systemd.UserScope(osexec.Runner{}, getenv); ok {
+		return scope
+	}
+	if getenv("INVOCATION_ID") != "" {
+		fmt.Fprintln(stderr, "ropeshiftd: no systemd user manager answers, so a stop of this service ends its lanes")
+	}
+	return osexec.Runner{}
 }
 
 // runDoctor is `ropeshift worker doctor`. It needs no daemon, because a person runs it
@@ -394,12 +412,12 @@ func runDoctor(ctx context.Context, paths api.Paths) (ledger.Manifest, error) {
 	if err != nil {
 		return ledger.Manifest{}, err
 	}
-	return worker.BuildManifest(ctx, soloDriver(nil, env), soloManifest(paths))
+	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env), soloManifest(paths))
 }
 
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this
 // daemon reads work from, and the worker's own paths.
-func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
+func soloLanes(paths api.Paths, opts soloOptions, stderr io.Writer) (*worker.LaneRuntime, error) {
 	override, err := lanes.ParseOverride(os.Getenv(envSessionOverride))
 	if err != nil {
 		return nil, err
@@ -408,12 +426,13 @@ func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	terminal, err := soloTerminal(paths, env)
+	runner := laneRunner(runtime.GOOS, os.Getenv, stderr)
+	terminal, err := soloTerminal(runner, paths, env)
 	if err != nil {
 		return nil, err
 	}
 	return &worker.LaneRuntime{
-		Driver: soloDriver(terminal, env),
+		Driver: soloDriver(runner, terminal, env),
 		Provisioner: worker.Provisioner{
 			Profiles:  profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)},
 			Worktrees: gitcli.Worktrees{},
@@ -434,8 +453,8 @@ func soloLanes(paths api.Paths, opts soloOptions) (*worker.LaneRuntime, error) {
 // soloTerminal is the worker's private server. A machine with no tmux runs headless lanes
 // and refuses an interactive one at its start, because a worker should still run what it
 // can.
-func soloTerminal(paths api.Paths, env []string) (ports.Terminal, error) {
-	terminal, err := tmux.New(osexec.Runner{}, tmux.Options{Socket: paths.TerminalSocket(), Env: env})
+func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (ports.Terminal, error) {
+	terminal, err := tmux.New(runner, tmux.Options{Socket: paths.TerminalSocket(), Env: env})
 	if errors.Is(err, tmux.ErrNoTmux) {
 		return nil, nil
 	}

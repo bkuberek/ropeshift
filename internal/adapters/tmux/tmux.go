@@ -82,10 +82,16 @@ func find(env []string) (string, error) {
 // run is one client call. `-f /dev/null` keeps a user's configuration out of the server,
 // and `-u` keeps a screen's glyphs whatever the locale says.
 func (t *Terminal) run(ctx context.Context, args ...string) (string, error) {
+	return t.call(ctx, false, args...)
+}
+
+// call is one client call. A call that can start the server outlives the worker's service, because
+// the server forks from it and holds every pane (D20).
+func (t *Terminal) call(ctx context.Context, starts bool, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	process, err := t.runner.Start(ctx, ports.ProcessSpec{
 		Path: t.binary, Args: append([]string{"-u", "-f", os.DevNull, "-S", t.socket}, args...), Env: t.env,
-		Stdout: &stdout, Stderr: &stderr, Detached: true,
+		Stdout: &stdout, Stderr: &stderr, Detached: true, Outlive: starts,
 	})
 	if err != nil {
 		return "", err
@@ -139,7 +145,7 @@ func (t *Terminal) Open(ctx context.Context, spec ports.PaneSpec) (ports.Pane, e
 		"new-session", "-d", "-P", "-F", "#{pane_pid}", "-s", spec.Name,
 		"-x", strconv.Itoa(spec.Width), "-y", strconv.Itoa(spec.Height), "-c" + spec.Dir, "--",
 	}
-	out, err := t.run(ctx, append(args, spec.Command...)...)
+	out, err := t.call(ctx, true, append(args, spec.Command...)...)
 	if err != nil {
 		return ports.Pane{}, err
 	}

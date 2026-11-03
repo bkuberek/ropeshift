@@ -30,6 +30,10 @@ type ProcessSpec struct {
 	// Detached starts the process in a session of its own, so a signal to the group of
 	// whatever started it does not reach it, and it has no terminal to lose.
 	Detached bool
+	// Outlive says the process must outlive a stop of the service that runs the worker, which
+	// on Linux ends the service's whole control group (D20). A runner that knows a service
+	// manager starts it outside that group, and every other runner treats it as Detached.
+	Outlive bool
 }
 
 // ExitStatus says how a process ended. Signal is empty for a normal exit.

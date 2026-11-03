@@ -407,7 +407,7 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 	}
 	process, err := d.runner.Start(ctx, ports.ProcessSpec{
 		Path: spec.Binary, Args: shimlink.Args(config), Dir: spec.Dir, Env: sessionEnv(spec, UseOf(q)),
-		Stderr: stderr, Detached: true,
+		Stderr: stderr, Detached: true, Outlive: true,
 	})
 	_ = stderr.Close()
 	if err != nil {

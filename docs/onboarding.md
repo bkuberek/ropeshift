@@ -49,6 +49,26 @@ The daemon reads work from the repositories it names, at the default branch, and
 
 To run the sample, copy `sample-contract.md` into the repository, change it to your own work, and commit it. Intake reads it, and its work order waits for a review: `ropeshift work list` names it, and `ropeshift work review <id>` passes the review. A member can then claim it and start its lane, or start the orchestrator and open a run window for it. [The command line](cli.md) lists every step.
 
+## Run the daemon as a service
+
+`ropeshift service install` runs the daemon under this machine's service manager from now on, with the flags that follow `--`. It runs the `ropeshiftd` beside the `ropeshift` that installs it, and a source needs its absolute path.
+
+```sh
+ropeshift service install -- --source /path/to/repository
+```
+
+On macOS, it writes a launchd agent to `~/Library/LaunchAgents` with `ProcessType` set to `Interactive`, because launchd throttles the CPU and I/O of a job with no process class, and loads it. The daemon's output goes to a log in the installation's directory. On Linux, it writes a systemd user unit to `~/.config/systemd/user`, enables it, and starts it, and the daemon's output goes to `journalctl --user`. Either manager restarts the daemon after a crash. A second install replaces the first, and `ropeshift service uninstall` stops the service and removes its definition.
+
+A stop of the service stops no lane. Each lane's session, and the worker's terminal server, runs outside the service: in a process session of its own on macOS, and in a transient systemd scope on Linux. The daemon that starts next adopts them.
+
+The service keeps this shell's `PATH`, so it finds the agent CLI, git, and tmux where this shell does. It keeps the locale and ropeshift's own location variables, and nothing else, so a variable that a profile passes to a lane by `env:` must reach the service another way, such as a systemd drop-in.
+
+On Linux, a user's systemd manager stops when that user's last session ends, and every lane under it stops too, unless lingering is on. Turn it on once, so that lanes keep running after you log out and the daemon starts at boot:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
 ## Before the first lane
 
 ### The limit of same-user isolation

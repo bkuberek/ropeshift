@@ -865,3 +865,43 @@ func TestPreflightRefusesWhatCannotStart(t *testing.T) {
 		})
 	}
 }
+
+// spawns starts every process on the real runner and keeps each spec it started.
+type spawns struct {
+	mu    sync.Mutex
+	specs []ports.ProcessSpec
+}
+
+func (s *spawns) Start(ctx context.Context, spec ports.ProcessSpec) (ports.Process, error) {
+	s.mu.Lock()
+	s.specs = append(s.specs, spec)
+	s.mu.Unlock()
+	return osexec.Runner{}.Start(ctx, spec)
+}
+
+func (s *spawns) started() []ports.ProcessSpec {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.specs)
+}
+
+// A shim must outlive a stop of the worker's service, so its spawn says so, and a version read,
+// which ends at once, does not (D20).
+func TestTheShimOutlivesTheWorkersService(t *testing.T) {
+	_, path, spec := session(t, "two-turns", nil)
+	runner := &spawns{}
+	play(t, claudecode.New(runner, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second}), spec)
+	shims := 0
+	for _, started := range runner.started() {
+		shim := started.Path == spec.Binary && slices.Contains(started.Args, "lane-shim")
+		if shim {
+			shims++
+		}
+		if started.Outlive != shim || (shim && !started.Detached) {
+			t.Errorf("%s %v: outlive %v, detached %v", started.Path, started.Args, started.Outlive, started.Detached)
+		}
+	}
+	if shims != 1 {
+		t.Errorf("%d shims started", shims)
+	}
+}
