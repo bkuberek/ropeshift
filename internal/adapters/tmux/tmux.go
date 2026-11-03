@@ -150,9 +150,12 @@ func (t *Terminal) Open(ctx context.Context, spec ports.PaneSpec) (ports.Pane, e
 	return ports.Pane{Name: spec.Name, PID: pid}, nil
 }
 
-// signalNames reads `pane_dead_signal`, which tmux prints as a lowercase short name.
+// signalNames reads `pane_dead_signal`, which tmux prints as a lowercase short name where the C
+// library names signals, as on macOS, and as a number where it does not, as on Linux.
 var signalNames = map[string]ports.Signal{
 	"int": ports.SignalInterrupt, "term": ports.SignalTerminate, "kill": ports.SignalKill,
+	strconv.Itoa(int(syscall.SIGINT)): ports.SignalInterrupt, strconv.Itoa(int(syscall.SIGTERM)): ports.SignalTerminate,
+	strconv.Itoa(int(syscall.SIGKILL)): ports.SignalKill,
 }
 
 // Pane reads one pane. A dead pane has no process ID any more, which is no loss, because
