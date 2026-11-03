@@ -290,13 +290,37 @@ func (p *prober) screens(ctx context.Context) {
 		return
 	}
 	defer p.closePane(context.WithoutCancel(ctx), name)
-	err = runStartCheck(ctx, terminal, name, startCheck{mode: checkFresh, timeout: probeScreenWait, poll: checkPoll, settle: checkSettle})
+	checking, stop := context.WithCancel(ctx)
+	died := p.watchPane(checking, stop, name)
+	err = runStartCheck(checking, terminal, name, startCheck{mode: checkFresh, timeout: probeScreenWait, poll: checkPoll, settle: checkSettle})
+	stop()
+	dead := <-died
 	switch {
 	case err == nil:
 		p.set(SurfaceStartScreens, lanes.CheckPassed)
-	case errors.Is(err, ports.ErrUnknownScreen):
+	case dead, errors.Is(err, ports.ErrUnknownScreen):
 		p.set(SurfaceStartScreens, lanes.CheckFailed)
 	}
+}
+
+// watchPane ends a start check whose session exited, because a dead pane keeps its last screen and
+// the check would read it until its wait ran out, holding every lane that waits on the probe. It
+// reports whether the pane died, once the check has stopped.
+func (p *prober) watchPane(ctx context.Context, stop context.CancelFunc, name string) <-chan bool {
+	died := make(chan bool, 1)
+	go func() {
+		for ctx.Err() == nil {
+			pane, err := p.d.terminal.Pane(ctx, name)
+			if errors.Is(err, ports.ErrNotFound) || (err == nil && pane.Dead) {
+				stop()
+				died <- true
+				return
+			}
+			pause(ctx, probePoll)
+		}
+		died <- false
+	}()
+	return died
 }
 
 // closePane ends the probe's pane by SIGINT, which ended an interactive process in the spikes, and

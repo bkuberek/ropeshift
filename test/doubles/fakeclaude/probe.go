@@ -44,5 +44,9 @@ func probeScript(script fixture) fixture {
 	if dropped("start_screens") {
 		script.Pane = paneScript{Stuck: "A screen no qualification has seen\n"}
 	}
+	if dropped("start_exit") {
+		code := 1
+		script.Pane = paneScript{ExitOnStart: &code}
+	}
 	return script
 }

@@ -134,6 +134,24 @@ func TestAProbeOnAnAPIKeyLeavesTheLoginUnobserved(t *testing.T) {
 	}
 }
 
+// A pane whose session exits during the start check ends the check at once, with the screens
+// failed, and does not hold every lane for the check's whole wait.
+func TestAProbePaneThatDiesEndsTheScreenCheck(t *testing.T) {
+	driver, spec, _ := probeRig(t, "start_exit")
+	t.Cleanup(claudecode.ShortenProbeWaits(30 * time.Second))
+	started := time.Now()
+	q, err := driver.Probe(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Checks[claudecode.SurfaceStartScreens] != lanes.CheckFailed {
+		t.Errorf("a pane that died reads %s", q.Checks[claudecode.SurfaceStartScreens])
+	}
+	if took := time.Since(started); took > 20*time.Second {
+		t.Errorf("the probe took %v, and waited on a pane that had died", took)
+	}
+}
+
 // A sign-in nobody could read is a subscription, as everywhere else, so the login check runs.
 func TestAProbeOnAnUnknownSignInChecksTheLogin(t *testing.T) {
 	driver, spec, _ := probeRig(t, "login")
