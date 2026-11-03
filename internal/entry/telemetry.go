@@ -116,7 +116,9 @@ func telemetryToken(paths api.Paths) (string, error) {
 // standard OTLP exporter settings name an endpoint (NFR-PRIV-1), and a setting this exporter cannot
 // honor stops the daemon, because a person asked for something it would not do.
 func startTelemetry(parent context.Context, paths api.Paths, address string, deps telemetryDeps, stdout, stderr io.Writer) (*soloTelemetry, error) {
-	ctx, cancel := context.WithCancel(parent)
+	// The loops outlive the daemon's signal, so what the last read of the ledger emits still reaches the
+	// store: close is what ends them.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	t, err := openTelemetry(ctx, paths, address, deps, stdout, stderr)
 	if err != nil {
 		cancel()
@@ -258,6 +260,17 @@ func (t *soloTelemetry) measuresTick(store ports.Store) control.Tick {
 		Name:  "measures",
 		Every: measuresEvery,
 		Run:   func(ctx context.Context) error { return measures.Export(ctx, soloScope) },
+	}
+}
+
+// lastRead reads what the ledger recorded since the spans tick last ran, as the daemon stops, so a
+// lane that ended just before a stop has its span. The emitter writes it on its last flush, which
+// close waits for. A crash skips this, and telemetry may lose what a crash cuts off.
+func (t *soloTelemetry) lastRead(spans control.Tick, stderr io.Writer) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := spans.Run(ctx); err != nil {
+		fmt.Fprintf(stderr, "ropeshiftd: telemetry: %v\n", err)
 	}
 }
 

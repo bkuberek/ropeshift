@@ -251,6 +251,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	}
 	<-ticksDone
 	<-workerDone
+	telemetry.lastRead(spans, stderr)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

@@ -51,6 +51,41 @@ func (c *collector) heard() []string {
 	return append([]string{}, c.bodies...)
 }
 
+// TestAStopWritesTheSpansItHasNotRead stops a daemon whose ledger moved after its last read into
+// spans: what the ledger recorded still reaches the store as the daemon stops, so a lane that ended
+// just before a stop has its span.
+func TestAStopWritesTheSpansItHasNotRead(t *testing.T) {
+	in := newInstall(t)
+	repo := gittest.New(t)
+	repo.Commit(".ropeshift/profile.toml", "[lifecycle]\nmax_restarts = 0\n")
+	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
+	in.path = doubles.InstallFakeClaude(t, "lane-completed")
+	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--telemetry-tick", "1h", "--source", repo.Dir)
+	in.waitReady(d)
+	in.waitFor("the worker's session", func() bool {
+		list := in.workers()
+		return len(list) == 1 && list[0].Epoch >= 1
+	})
+	id := in.onlyWorkOrder()
+	in.must("work", "review", id)
+	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", "c1")
+	in.must("lane", "start", id, "--lane", "lane-1")
+	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
+	d.stop()
+	store, err := sqlite.OpenTelemetry(filepath.Join(in.paths().StateDir, "telemetry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	spans, err := store.Records(t.Context(), ports.TelemetryQuery{Name: ledger.SpanLane})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(spans) != 1 || spans[0].Lane != "lane-1" {
+		t.Errorf("lane spans %+v", spans)
+	}
+}
+
 // TestLaneTelemetryReachesTheReceiver runs a lane on the real binary and the real driver: the agent
 // sends its telemetry to the worker's receiver, tagged with the lane, its work order, and its
 // generation, with no content in it. The local store keeps the account attributes, and the export a
