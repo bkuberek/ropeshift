@@ -2,8 +2,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import type { DocumentKind, Documents } from "../api/types";
 import { openPage } from "../opening";
-import { refusal, serveViews } from "../testing";
+import { golden, refusal, serveViews } from "../testing";
 
 const specLink = "/document?path=docs%2Fspecs%2Fretry.md&instance=memory";
 
@@ -29,6 +30,17 @@ describe("the document lists", () => {
     openPage("/documents");
     expect(await screen.findByRole("link", { name: "Notes from the first run" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "The retry spec" })).toBeNull();
+  });
+
+  it("keeps a document of a kind this build has no words for", async () => {
+    const view = golden<Documents>("documents");
+    const notes = view.documents.find((document) => document.path === "notes.md");
+    if (notes) {
+      notes.kind = "runbook" as DocumentKind;
+    }
+    serveViews((call) => (call.path.startsWith("/v1/views/documents") ? { status: 200, body: view } : undefined));
+    openPage("/documents");
+    expect(await screen.findByRole("link", { name: "Notes from the first run" })).toBeTruthy();
   });
 
   it("says where a document lives", async () => {

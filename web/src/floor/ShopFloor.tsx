@@ -5,7 +5,7 @@ import { Ago, Fact, Section, words } from "../parts/parts";
 import { Freshness, LaneFacts } from "./LaneFacts";
 import { laneLabel } from "./states";
 
-function OrchestratorFacts({ orchestrator }: { orchestrator?: Orchestrator }) {
+function OrchestratorFacts({ orchestrator, freshness }: { orchestrator?: Orchestrator; freshness: string }) {
   if (!orchestrator) {
     return <p className="quiet">No orchestrator.</p>;
   }
@@ -16,7 +16,15 @@ function OrchestratorFacts({ orchestrator }: { orchestrator?: Orchestrator }) {
           {orchestrator.id}
         </Fact>
         <Fact name="Wanted">{words(orchestrator.desired_state)}</Fact>
-        <Fact name="Actual">{orchestrator.actual_state ? laneLabel(orchestrator.actual_state) : "Not reported"}</Fact>
+        <Fact name="Actual">
+          {orchestrator.actual_state ? (
+            <>
+              {laneLabel(orchestrator.actual_state)} <Freshness freshness={freshness} />
+            </>
+          ) : (
+            "Not reported"
+          )}
+        </Fact>
         <Fact name="Generation">{orchestrator.current_generation ?? "None yet"}</Fact>
         <Fact name="Runs">{orchestrator.run}</Fact>
         <Fact name="Breaker resets">{orchestrator.resets}</Fact>
@@ -50,7 +58,7 @@ function WorkerCard({ line }: { line: WorkerLine }) {
           <Fact name="Epoch">{worker.epoch}</Fact>
           <Fact name="Protocol">{worker.protocol}</Fact>
         </dl>
-        <OrchestratorFacts orchestrator={line.orchestrator} />
+        <OrchestratorFacts orchestrator={line.orchestrator} freshness={line.freshness} />
       </div>
     </article>
   );

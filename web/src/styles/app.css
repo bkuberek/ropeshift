@@ -764,6 +764,10 @@ progress::-moz-progress-bar {
   gap: 0 2.5rem;
 }
 
+.tables-note {
+  margin-top: 0.75rem;
+}
+
 .counts {
   width: 100%;
   margin-top: clamp(1.75rem, 4vw, 2.75rem);

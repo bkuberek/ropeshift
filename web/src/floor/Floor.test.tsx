@@ -186,6 +186,21 @@ describe("stuck", () => {
     expect(card.closest("li")?.className).toContain("need-plain");
   });
 
+  it("names a lane parked too long, the fifth of the design's list", async () => {
+    serving<Stuck>("stuck", (view) => {
+      const first = view.items[0];
+      if (first) {
+        first.reason = "long_parked";
+        first.actions = ["resume"];
+      }
+    });
+    openPage("/stuck");
+    const card = await line("Rotate the keys");
+    expect(within(card).getByText("Long parked")).toBeTruthy();
+    expect(within(card).getByText("Its lane has stayed parked for a long time.")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+
   it("says so when nothing is stuck", async () => {
     serving<Stuck>("stuck", (view) => {
       view.items = [];
@@ -296,6 +311,20 @@ describe("the shop floor", () => {
     expect(within(orchestrator).getByText("Actual").closest("div")?.textContent).toContain("Not reported");
   });
 
+  it("labels an orchestrator's state as its worker's word is labeled", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const orchestrator = view.workers[0]?.orchestrator;
+      if (orchestrator) {
+        orchestrator.actual_state = "working";
+      }
+    });
+    openPage("/shop-floor");
+    const orchestrator = await screen.findByRole("group", { name: "Orchestrator" });
+    const actual = within(orchestrator).getByText("Actual").closest("div");
+    expect(actual?.textContent).toContain("Working");
+    expect(actual?.textContent).toContain("Last reported");
+  });
+
   it("says when a worker runs no orchestrator", async () => {
     serving<ShopFloor>("shop-floor", (view) => {
       if (view.workers[0]) {
@@ -402,6 +431,13 @@ describe("operations", () => {
     const table = await screen.findByRole("table", { name: "Work orders by state" });
     expect(within(table).getByRole("row", { name: "Claimed 0" })).toBeTruthy();
     expect(within(table).getByRole("row", { name: "Running 5" })).toBeTruthy();
+  });
+
+  it("says a lane's count is last word, and where its freshness stands", async () => {
+    serveViews();
+    openPage("/operations");
+    const note = await screen.findByText(/each lane's last state/);
+    expect(within(note).getByRole("link", { name: "the shop floor" }).getAttribute("href")).toBe("/shop-floor");
   });
 
   it("keeps a state this build has no words for in the count", async () => {

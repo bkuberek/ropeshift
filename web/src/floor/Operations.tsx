@@ -66,6 +66,9 @@ export function Operations({ view }: { view: View }) {
         <Counts caption="Work orders by state" rows={everyCount(workStates, view.work_orders)} label={workLabel} />
         <Counts caption="Lanes by state" rows={everyCount(laneStates, view.lanes)} label={laneLabel} />
       </div>
+      <p className="quiet tables-note">
+        Lanes count by each lane's last state, fresh or not, and <Link to="/shop-floor">the shop floor</Link> says which is which.
+      </p>
       <Section title="Sources">
         {view.sources.length ? (
           <ul className="rows">

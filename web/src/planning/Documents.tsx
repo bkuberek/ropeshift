@@ -25,8 +25,10 @@ function DocumentRows({ documents }: { documents: DocumentRow[] }) {
   );
 }
 
+// A kind this build has no page for lists with the rest, so no document falls out of every list.
 export function DocumentList({ view, kind, empty }: { view: View; kind: DocumentKind; empty: string }) {
-  const documents = view.documents.filter((document) => document.kind === kind);
+  const homeOf = (document: DocumentRow) => (document.kind in kindWords ? document.kind : "other");
+  const documents = view.documents.filter((document) => homeOf(document) === kind);
   return documents.length ? <DocumentRows documents={documents} /> : <p className="empty">{empty}</p>;
 }
 
