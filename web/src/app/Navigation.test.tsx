@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { openPage } from "../opening";
 import { FakeEvents, golden, refusal, serveViews } from "../testing";
@@ -190,6 +190,46 @@ describe("a view on the stream", () => {
     expect(screen.getByRole("region", { name: "Ship solo mode" })).toBeTruthy();
   });
 
+  it("holds a costly list to one read in its gap, however much a person hears", async () => {
+    const sent = serveViews();
+    openPage("/specs");
+    await screen.findByRole("link", { name: "The retry spec" });
+    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const reads = () => sent.filter((call) => call.path === "/v1/views/documents").length;
+    const first = reads();
+    for (let event = 0; event < 3; event += 1) {
+      FakeEvents.opened[0]?.emit();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(reads()).toBe(first);
+  });
+
+  it("reads a document once, because nothing on the stream changes it", async () => {
+    const sent = serveViews();
+    openPage("/document?path=docs%2Fspecs%2Fretry.md");
+    await screen.findByRole("heading", { level: 1, name: "The retry spec" });
+    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    FakeEvents.opened[0]?.emit();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(sent.filter((call) => call.path.startsWith("/v1/documents/read"))).toHaveLength(1);
+  });
+
+  it("reads through a burst that never settles, at a bound", async () => {
+    const sent = serveViews();
+    openPage("/roadmap");
+    await screen.findByRole("region", { name: "Ship solo mode" });
+    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const reads = () => sent.filter((call) => call.path === "/v1/views/needs-you").length;
+    const first = reads();
+    vi.useFakeTimers();
+    for (let event = 0; event < 45; event += 1) {
+      FakeEvents.opened[0]?.emit();
+      vi.advanceTimersByTime(50);
+    }
+    vi.useRealTimers();
+    await waitFor(() => expect(reads()).toBeGreaterThan(first));
+  });
+
   it("never lets an older answer replace a newer one", async () => {
     const answers: ((value: Response) => void)[] = [];
     const roadmap = golden<{ goals: { goal?: { title: string } }[] }>("roadmap");
@@ -228,6 +268,19 @@ describe("a view and a session", () => {
     await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
     live = false;
     FakeEvents.opened[0]?.emit();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
+  });
+
+  it("learns from a view's own refusal that the session ended", async () => {
+    let live = true;
+    serveViews((call) => {
+      if (call.path === "/v1/views/decisions") {
+        live = false;
+      }
+      return live ? undefined : refusal(401, "session_required");
+    });
+    openPage("/");
+    await go("Decisions");
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
   });
 
