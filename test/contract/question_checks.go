@@ -216,7 +216,7 @@ func (r *Rig) CheckQuestions(s ports.Store) error {
 	if err != nil {
 		return err
 	}
-	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
 		rows, err := walk(tx.Questions().Questions, questionID, ports.MaxRecords)
 		if err != nil {
 			return err
@@ -273,6 +273,10 @@ func (r *Rig) CheckQuestions(s ports.Store) error {
 		}
 		return checkDecisionsStand(tx, decisions, book)
 	})
+	if err != nil {
+		return err
+	}
+	return r.CheckExperiences(s)
 }
 
 // checkPoliciesReplay compares every policy version with the log, and each with its digest.

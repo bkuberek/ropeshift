@@ -1,6 +1,10 @@
 package workorders
 
-import "fmt"
+import (
+	"fmt"
+
+	"ropeshift.dev/ropeshift/internal/measures"
+)
 
 // Outcome is how a lane ended (FR-LANE-2).
 type Outcome string
@@ -94,4 +98,6 @@ type LaneResult struct {
 	UnknownCostTurns int64   `json:"unknown_cost_turns,omitempty"`
 	InputTokens      int64   `json:"input_tokens,omitempty"`
 	OutputTokens     int64   `json:"output_tokens,omitempty"`
+	// Settings are what the lane ran on, for the experience record of a lane that never bound.
+	Settings *measures.Settings `json:"settings,omitempty"`
 }

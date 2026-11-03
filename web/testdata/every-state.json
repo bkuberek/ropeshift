@@ -263,18 +263,18 @@
           }
         }
       ],
-      "revision": 327
+      "revision": 337
     },
     "decisions": {
       "as_of": 1790000132001,
       "decisions": [],
-      "revision": 327
+      "revision": 337
     },
     "documents": {
       "as_of": 1790000132001,
       "documents": [],
       "requirements": [],
-      "revision": 327
+      "revision": 337
     },
     "in-progress": {
       "as_of": 1790000132001,
@@ -912,7 +912,7 @@
           }
         }
       ],
-      "revision": 327
+      "revision": 337
     },
     "needs-you": {
       "as_of": 1790000132001,
@@ -1352,7 +1352,7 @@
           }
         }
       ],
-      "revision": 327
+      "revision": 337
     },
     "on-hold": {
       "as_of": 1790000132001,
@@ -1450,7 +1450,7 @@
           }
         }
       ],
-      "revision": 327
+      "revision": 337
     },
     "operations": {
       "as_of": 1790000132001,
@@ -1477,7 +1477,63 @@
         "tripped": 1,
         "working": 3
       },
-      "revision": 327,
+      "measures": {
+        "autonomous_decision_rate": {
+          "denominator": 0,
+          "numerator": 0,
+          "value": null
+        },
+        "completed": 1,
+        "cost_per_outcome": {
+          "change": {
+            "done": 1,
+            "lower_bound": false,
+            "per_done_usd": 0,
+            "total_usd": 0
+          }
+        },
+        "intake_to_done": {
+          "count": 1,
+          "median_ms": 0,
+          "p95_ms": 0
+        },
+        "interruptions": 0,
+        "interruptions_by_kind": {},
+        "interruptions_per_completed": {
+          "denominator": 1,
+          "numerator": 0,
+          "value": 0
+        },
+        "overturn_rate": {
+          "denominator": 0,
+          "numerator": 0,
+          "value": null
+        },
+        "park_time": {},
+        "prevented_repeats": 0,
+        "ready_to_done": {
+          "count": 1,
+          "median_ms": 0,
+          "p95_ms": 0
+        },
+        "repeated_question_rate": {
+          "denominator": 0,
+          "numerator": 0,
+          "value": null
+        },
+        "rework": {
+          "denominator": 1,
+          "numerator": 0,
+          "value": 0
+        },
+        "window": {
+          "from": 1789395332001,
+          "name": "7d",
+          "to": 1790000132002
+        },
+        "work_in_progress": 17
+      },
+      "revision": 337,
       "sources": [],
       "waiting_for_a_person": 8,
       "work_orders": {
@@ -2781,7 +2837,7 @@
           ]
         }
       ],
-      "revision": 327,
+      "revision": 337,
       "unplanned": [
         {
           "id": "wo-intake",
@@ -2806,7 +2862,7 @@
         "security"
       ],
       "questions": [],
-      "revision": 327
+      "revision": 337
     },
     "roadmap": {
       "as_of": 1790000132001,
@@ -3140,7 +3196,7 @@
           ]
         }
       ],
-      "revision": 327
+      "revision": 337
     },
     "shop-floor": {
       "as_of": 1790000132001,
@@ -3716,7 +3772,7 @@
           "worker_id": "worker-a"
         }
       ],
-      "revision": 327,
+      "revision": 337,
       "workers": [
         {
           "freshness": "observed",
@@ -3946,7 +4002,7 @@
           }
         }
       ],
-      "revision": 327
+      "revision": 337
     }
   }
 }

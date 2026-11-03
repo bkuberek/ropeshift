@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/measures"
 	"ropeshift.dev/ropeshift/internal/planning"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -276,7 +277,8 @@ type ShopFloor struct {
 	Lanes   []ledger.LaneView `json:"lanes"`
 }
 
-// Operations is fleet health. Product measures join it when the measures tick exists.
+// Operations is fleet health beside the product measures of the default window, which come from the
+// ledger alone.
 type Operations struct {
 	Stamp
 	Fleet      Fleet                      `json:"fleet"`
@@ -286,6 +288,7 @@ type Operations struct {
 	Fresh      int64                      `json:"workers_fresh"`
 	Waiting    int64                      `json:"waiting_for_a_person"`
 	Sources    []planning.SourceBinding   `json:"sources"`
+	Measures   measures.Report            `json:"measures"`
 }
 
 // ReadView reads one read model into out. An empty category does not filter.

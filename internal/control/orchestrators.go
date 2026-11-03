@@ -133,7 +133,32 @@ func orchestratorUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEven
 		Actor:   ledger.Actor{Kind: ledger.ActorWorker, ID: worker},
 		Subject: ledger.Subject{Kind: ledger.SubjectOrchestrator, ID: row.ID},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return orchestratorExperience(tx, worker, e)
+}
+
+// orchestratorExperience keeps an orchestrator's run on record as a lane's is: its settings from its
+// first binding, which its decisions' records name, and how it ended.
+func orchestratorExperience(tx ports.WriteTx, worker string, e ledger.UploadEvent) error {
+	actor := ledger.Actor{Kind: ledger.ActorWorker, ID: worker}
+	switch e.Type {
+	case ledger.UploadGenerationBound:
+		var binding workorders.GenerationBinding
+		if err := json.Unmarshal(e.Payload, &binding); err != nil {
+			return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+		}
+		return openLaneExperience(tx, e.Lane, "", boundSettings(binding), actor)
+	case ledger.UploadLaneEnded:
+		var result workorders.LaneResult
+		_ = json.Unmarshal(e.Payload, &result)
+		if result.Outcome == "" {
+			result.Outcome = workorders.Outcome(ledger.StateEnded)
+		}
+		return closeLaneExperience(tx, e.Lane, "", result, actor)
+	}
+	return nil
 }
 
 // WakeDigest reads what this worker's orchestrator could judge now. It reads only what the worker may

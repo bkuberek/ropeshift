@@ -228,7 +228,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
-	ticks := append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick), spans)
+	ticks := append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(store))
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)

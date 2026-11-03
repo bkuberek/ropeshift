@@ -1,6 +1,7 @@
 import type { Operations as View, SourceBinding } from "../api/types";
 import { Link } from "../app/route";
 import { Fact, Section, words } from "../parts/parts";
+import { Measures } from "./Measures";
 import { everyCount, laneLabel, laneStates, workLabel, workStates } from "./states";
 
 const cap = (limit: number) => (limit === 0 ? "No limit" : String(limit));
@@ -80,9 +81,7 @@ export function Operations({ view }: { view: View }) {
           <p className="quiet">No source is bound.</p>
         )}
       </Section>
-      <Section title="Product measures">
-        <p className="quiet">Product measures are not recorded yet, so this page shows the fleet's health and nothing more.</p>
-      </Section>
+      <Measures report={view.measures} />
     </>
   );
 }

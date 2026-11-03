@@ -246,6 +246,21 @@ func (t *soloTelemetry) close() {
 	_ = t.store.Close()
 }
 
+// measuresEvery is how often the product measures are copied out as metrics. They need no pipeline,
+// so this only feeds a backend's charts.
+const measuresEvery = 5 * time.Minute
+
+// measuresTick exports each window's measures through the emitter, to the local store and to an
+// exporter when one is configured.
+func (t *soloTelemetry) measuresTick(store ports.Store) control.Tick {
+	measures := control.NewMeasures(store, t.emitter)
+	return control.Tick{
+		Name:  "measures",
+		Every: measuresEvery,
+		Run:   func(ctx context.Context) error { return measures.Export(ctx, soloScope) },
+	}
+}
+
 // spansTick follows the ledger into spans and metrics, from where the log stood when the daemon
 // started.
 func (t *soloTelemetry) spansTick(ctx context.Context, store ports.Store) (control.Tick, error) {

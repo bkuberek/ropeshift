@@ -459,10 +459,58 @@ describe("operations", () => {
     expect(sources.textContent).toContain("plans/bad.md");
   });
 
-  it("says plainly that product measures are not here yet", async () => {
+  it("shows the north star beside the overturn rate and rework", async () => {
     serveViews();
     openPage("/operations");
-    expect((await screen.findByRole("region", { name: "Product measures" })).textContent).toContain("not recorded yet");
+    const measures = await screen.findByRole("region", { name: "Product measures" });
+    const star = within(measures).getByRole("group", { name: "The north star and its counterweights" });
+    const names = within(star)
+      .getAllByRole("term")
+      .map((term) => term.textContent);
+    expect(names).toEqual(["Interruptions per completed work order", "Overturn rate", "Rework", "Autonomous decision rate"]);
+    expect(within(star).getByText("Interruptions per completed work order").closest("div")?.textContent).toContain("1 (1 over 1)");
+    expect(within(star).getByText("Overturn rate").closest("div")?.textContent).toContain("0% (0 of 1)");
+    expect(measures.textContent).toContain("over the last 7d");
+  });
+
+  it("says a rate of nothing has no data, rather than zero", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.interruptions_per_completed = { numerator: 3, denominator: 0, value: null };
+    });
+    openPage("/operations");
+    const measures = await screen.findByRole("region", { name: "Product measures" });
+    expect(within(measures).getByText("Interruptions per completed work order").closest("div")?.textContent).toContain("No data yet");
+    expect(within(measures).getByText("Autonomous decision rate").closest("div")?.textContent).toContain("No data yet");
+  });
+
+  it("counts a batch of questions as one interruption, and names each kind", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.interruptions = 4;
+      view.measures.interruptions_by_kind = { batch: 2, approval: 1, forced: 1 };
+    });
+    openPage("/operations");
+    const measures = await screen.findByRole("region", { name: "Product measures" });
+    expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toContain(
+      "4: 2 batches of questions, 1 approvals, 1 forced actions",
+    );
+  });
+
+  it("states cost as a lower bound when some of it went unreported", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.cost_per_outcome = { change: { total_usd: 3, done: 2, per_done_usd: 1.5, lower_bound: true } };
+    });
+    openPage("/operations");
+    const table = await screen.findByRole("table", { name: "Cost per outcome" });
+    expect(within(table).getByRole("row").textContent).toContain("at least $1.5000 each");
+  });
+
+  it("states park time by trigger, at the median and the 95th percentile", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.park_time = { answer: { count: 3, median_ms: 1_800_000, p95_ms: 7_200_000 } };
+    });
+    openPage("/operations");
+    const table = await screen.findByRole("table", { name: "Park time by trigger" });
+    expect(within(table).getByRole("row").textContent).toContain("median 30m, 95th percentile 2h, of 3");
   });
 });
 

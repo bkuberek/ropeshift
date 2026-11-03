@@ -4,7 +4,7 @@ Ropeshift uses OpenTelemetry for system telemetry. Each worker runs an embedded 
 
 ## What a lane's agent is told
 
-At spawn, the driver points each lane's agent at the worker's receiver through its environment, because a repository's settings files cannot turn telemetry on or say where it goes:
+At spawn, the driver points each lane's agent at the worker's receiver through its environment, because a repository's settings files cannot turn telemetry on or say where it goes. The variables are Claude Code's, as its [monitoring documentation](https://code.claude.com/docs/en/monitoring-usage) names them:
 
 | Variable | Value |
 |----------|-------|
@@ -50,14 +50,14 @@ The worker emits ropeshift's spans and metrics into the same store. The lifecycl
 |------|-------|
 | Spans | `ropeshift.work_order`, `ropeshift.claim`, `ropeshift.lane`, `ropeshift.generation`, `ropeshift.effect`, `ropeshift.handoff`, `ropeshift.park`, `ropeshift.approval.wait`, `ropeshift.question.ladder`, `ropeshift.message.send`, `ropeshift.message.inject` |
 | Per-lane metrics | `ropeshift.lane.context.tokens`, `ropeshift.lane.context.baseline`, `ropeshift.lane.tokens`, `ropeshift.lane.cost`, `ropeshift.lane.stall.duration`, `ropeshift.lane.respawns`, `ropeshift.approval.wait.duration`, `ropeshift.message.reply.latency` |
-| Other metrics | `ropeshift.lane.breaker.trips`, `ropeshift.lane.liveness.unknown`, `ropeshift.approval.pending`, `ropeshift.message.state`, `ropeshift.lease.lapsed`, and `ropeshift.effect.duration` |
+| Other metrics | `ropeshift.lane.breaker.trips`, `ropeshift.lane.liveness.unknown`, `ropeshift.approval.pending`, `ropeshift.message.state`, `ropeshift.lease.lapsed`, `ropeshift.effect.duration`, and the product measures as `ropeshift.measure.*` gauges, by window. See [measures](measures.md) |
 
-They carry IDs, states, kinds, and times. A question's text, a message's body, an approval's summary, and an effect's detail stay in the ledger.
+They carry IDs, states, kinds, and times. A question's text, a message's body, an approval's summary, and an effect's detail stay in the ledger. The ledger is read into spans every 5 seconds, which `ropeshiftd solo --telemetry-tick` changes, and the emitter writes at twice that interval, so a crash loses at most one interval of ropeshift's own telemetry and nothing of the ledger's. A daemon reads from where the ledger stood when it started.
 
 ## Export
 
 Ropeshift exports only when the standard settings name an endpoint: `OTEL_EXPORTER_OTLP_ENDPOINT`, or a per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, or `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, read from the daemon's environment. `OTEL_EXPORTER_OTLP_HEADERS` and the per-signal headers apply, and `OTEL_TRACES_EXPORTER=none` and its siblings turn a signal off. The daemon prints where it exports when it starts.
 
-The exporter speaks OTLP over HTTP with JSON, and a daemon configured for `grpc` or `http/protobuf` refuses to start. A backend that takes only protobuf needs an OpenTelemetry Collector in between.
+The exporter speaks OTLP over HTTP with JSON, and a daemon configured for `grpc` or `http/protobuf` refuses to start. The [OTLP specification](https://opentelemetry.io/docs/specs/otlp/) says a server should take both encodings, so a backend that takes only protobuf needs an OpenTelemetry Collector in between.
 
 Before anything leaves, the exporter drops every attribute in the `user.` and `organization.` namespaces, wherever it appears, and changes nothing else. `export_account_attributes = true` keeps them. Export forwards the worker's own telemetry and its lanes' telemetry, and a full queue drops what it cannot send, because a lane never waits on a backend.

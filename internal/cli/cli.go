@@ -91,6 +91,7 @@ const usage = `usage: ropeshift <command>
   telemetry query [--signal S] [--name N] [--lane L] [--since D] [--limit N]
                                                      read the worker's local telemetry, newest first
   telemetry lanes                                    print each lane's context, tokens, and cost
+  measures [--window D]                              print the product measures, the north star first
   view <name> [--category C]                         print a read model, the web UI's data
   events [--after N] [--limit N]                     follow the ledger's events from a revision
   lane reset <work-order>                            let a lane its breaker stopped start again
@@ -130,7 +131,7 @@ func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
 		"question", "decision", "policy", "category", "search", "login", "sign-out", "passphrase", "message", "approval", "orchestrator",
-		"effect", "view", "events", "health", "top", "notice", "telemetry":
+		"effect", "view", "events", "health", "top", "notice", "telemetry", "measures":
 		return true
 	}
 	return false
@@ -197,6 +198,7 @@ var singleWords = map[string]func(*invocation, []string) int{
 	"search":   (*invocation).search,
 	"health":   (*invocation).health,
 	"top":      (*invocation).runTop,
+	"measures": (*invocation).measuresCommand,
 }
 
 // HasCommand reports a command, as a person would type it.

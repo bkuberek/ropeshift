@@ -99,9 +99,15 @@ const (
 	EventDecisionRecorded = "decision.recorded"
 	EventDecisionEnded    = "decision.ended"
 	EventDecisionNoticed  = "decision.noticed"
-	EventOutcomeFilled    = "experience.outcome"
 	EventCategoryAdded    = "category.added"
 	EventPolicyPublished  = "policy.published"
+)
+
+// EventExperienceRecorded holds a whole experience record, of a lane or a decision, and
+// EventOutcomeFilled the outcome it gains once.
+const (
+	EventExperienceRecorded = "experience.recorded"
+	EventOutcomeFilled      = "experience.outcome"
 )
 
 // Errors of the question use cases.
@@ -254,7 +260,12 @@ type Book struct {
 	Notices     map[string]Notice
 	Outcomes    map[string]measures.Outcome
 	Policies    map[string]authority.PolicyVersion
+	// Experiences are the records as written, with no outcome, by ExperienceKey.
+	Experiences map[string]measures.Experience
 }
+
+// ExperienceKey identifies an experience record in a Book.
+func ExperienceKey(kind, subject string) string { return kind + "/" + subject }
 
 // AttachmentKey identifies an attachment in a Book.
 func AttachmentKey(question, lane string) string { return question + "/" + lane }
@@ -273,6 +284,7 @@ func Replay(events []ledger.Event) (Book, error) {
 		Questions: map[string]Question{}, Attachments: map[string]Attachment{},
 		Decisions: map[string]Decision{}, Categories: map[string]bool{}, Batches: map[string]Batch{},
 		Notices: map[string]Notice{}, Outcomes: map[string]measures.Outcome{}, Policies: map[string]authority.PolicyVersion{},
+		Experiences: map[string]measures.Experience{},
 	}
 	for _, e := range events {
 		if err := book.apply(e); err != nil {
@@ -313,7 +325,20 @@ func (b Book) apply(e ledger.Event) error {
 		if err := json.Unmarshal(e.Data, &outcome); err != nil {
 			return err
 		}
+		if _, filled := b.Outcomes[e.Subject.ID]; filled {
+			return fmt.Errorf("%w: the outcome of %s is filled twice", ErrInvalid, e.Subject.ID)
+		}
 		b.Outcomes[e.Subject.ID] = outcome
+	case EventExperienceRecorded:
+		var record measures.Experience
+		if err := json.Unmarshal(e.Data, &record); err != nil {
+			return err
+		}
+		key := ExperienceKey(record.SubjectKind, record.SubjectID)
+		if _, written := b.Experiences[key]; written {
+			return fmt.Errorf("%w: the experience of %s is written twice", ErrInvalid, key)
+		}
+		b.Experiences[key] = record
 	case EventPolicyPublished:
 		var version authority.PolicyVersion
 		if err := json.Unmarshal(e.Data, &version); err != nil {

@@ -494,8 +494,12 @@ func (q *Questions) overturnIn(tx ports.WriteTx, id string, overturn questions.O
 	}
 	crashpoint.Hit("decision.overturn", "repacked")
 	outcome := measures.Outcome{Status: measures.OutcomeOverturned, ReworkWorkOrders: result.Rework}
-	if err := fillOutcome(tx, id, outcome, actor); err != nil {
+	filled, err := fillOutcome(tx, measures.SubjectDecision, id, outcome, actor)
+	if err != nil {
 		return questions.Overturned{}, err
+	}
+	if !filled {
+		return questions.Overturned{}, fmt.Errorf("%w: the outcome of %s is already filled", questions.ErrDecisionEnded, id)
 	}
 	crashpoint.Hit("decision.overturn", "measured")
 	return result, nil
@@ -595,39 +599,34 @@ func pinnedVersion(reader ports.PlanningReader, order workorders.WorkOrder) (int
 	return latest.Version, nil
 }
 
-func fillOutcome(tx ports.WriteTx, decision string, outcome measures.Outcome, actor ledger.Actor) error {
-	filled, err := tx.Measures().FillOutcome(measures.SubjectDecision, decision, outcome, tx.Now())
-	if err != nil {
-		return err
-	}
-	if !filled {
-		return fmt.Errorf("%w: the outcome of %s is already filled", questions.ErrDecisionEnded, decision)
-	}
-	event, err := questions.RecordEvent(questions.EventOutcomeFilled, questions.SubjectDecision, decision, outcome, actor)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Append(event)
-	return err
-}
-
-// writeExperience opens a decision's experience record. U51 adds the settings of the
-// session that decided.
-func writeExperience(tx ports.WriteTx, record questions.Decision) error {
+// writeExperience opens a decision's experience record, with the policy version in force, the options
+// its question offered, and the settings of the session that decided (FR-EXP-1, FR-EXP-2). A question
+// about a work order gives the record that work's size.
+func writeExperience(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {
 	var options []string
+	settings, err := deciderSettings(tx, actor)
+	if err != nil {
+		return err
+	}
+	settings.WorkOrderSize = measures.SizeUnknown
 	if record.QuestionID != "" {
 		question, err := tx.Questions().Question(record.QuestionID)
 		if err != nil && !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
 		options = question.Options
+		if question.SubjectKind == workorders.SubjectKind {
+			if order, err := tx.WorkOrders().Get(question.SubjectID); err == nil {
+				settings.WorkOrderSize = measures.SizeOf(order.Size)
+			}
+		}
 	}
 	id, err := newID(tx.Now())
 	if err != nil {
 		return err
 	}
-	return tx.Measures().InsertExperience(measures.Experience{
+	return insertExperience(tx, measures.Experience{
 		ID: id, SubjectKind: measures.SubjectDecision, SubjectID: record.ID, PolicyVersion: record.PolicyVersion,
-		OptionsConsidered: options, Chosen: record.Statement,
-	})
+		Settings: settings, OptionsConsidered: options, Chosen: record.Statement,
+	}, actor)
 }

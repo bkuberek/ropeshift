@@ -136,12 +136,15 @@ func (t measureTx) scoped(p params) params {
 
 func scanExperience(row scanner) (measures.Experience, error) {
 	var e measures.Experience
-	var options string
+	var settings, options string
 	var outcome sql.NullString
 	var observedAt sql.NullInt64
-	err := row.Scan(&e.ID, &e.SubjectKind, &e.SubjectID, &e.PolicyVersion, &e.Settings, &options, &e.Chosen, &outcome, &observedAt)
+	err := row.Scan(&e.ID, &e.SubjectKind, &e.SubjectID, &e.PolicyVersion, &settings, &options, &e.Chosen, &outcome, &observedAt)
 	if err != nil {
 		return measures.Experience{}, err
+	}
+	if err := json.Unmarshal([]byte(settings), &e.Settings); err != nil {
+		return measures.Experience{}, fmt.Errorf("experience %s: %w", e.ID, err)
 	}
 	if err := json.Unmarshal([]byte(options), &e.OptionsConsidered); err != nil {
 		return measures.Experience{}, fmt.Errorf("experience %s: %w", e.ID, err)
@@ -191,13 +194,13 @@ func (t measureTx) InsertExperience(e measures.Experience) error {
 	if err != nil {
 		return err
 	}
-	settings := e.Settings
-	if settings == "" {
-		settings = "{}"
+	settings, err := json.Marshal(e.Settings)
+	if err != nil {
+		return err
 	}
 	_, err = t.exec(stmtInsertExperience, t.scoped(params{
 		"id": e.ID, "subject_kind": e.SubjectKind, "subject_id": e.SubjectID, "policy_version": e.PolicyVersion,
-		"settings": settings, "options_considered": string(options), "chosen": e.Chosen,
+		"settings": string(settings), "options_considered": string(options), "chosen": e.Chosen,
 	}))
 	return err
 }

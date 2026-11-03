@@ -172,7 +172,7 @@ func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Ac
 		return err
 	}
 	crashpoint.Hit("decision.record", "indexed")
-	if err := writeExperience(tx, record); err != nil {
+	if err := writeExperience(tx, record, actor); err != nil {
 		return err
 	}
 	event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, actor)

@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/measures"
 )
 
 // Kind says what a work order produces.
@@ -214,6 +215,8 @@ type GenerationBinding struct {
 	// PackID and PackVersion name the context pack this generation read.
 	PackID      string `json:"pack_id,omitempty"`
 	PackVersion int64  `json:"pack_version,omitempty"`
+	// Settings are what the lane runs on, which its experience record holds (FR-EXP-2).
+	Settings *measures.Settings `json:"settings,omitempty"`
 }
 
 // PinEvent is the event of unstarted work taking a new contract version.

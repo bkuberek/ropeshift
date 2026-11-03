@@ -817,8 +817,16 @@ func (h *handler) readOperations(tx ports.ReadTx, _ *http.Request, stamp api.Sta
 	}
 	view.Waiting = int64(len(waiting))
 	bindings, err := tx.Planning().Bindings()
-	if err == nil && bindings != nil {
+	if err != nil {
+		return nil, err
+	}
+	if bindings != nil {
 		view.Sources = bindings
 	}
+	length, err := api.ParseWindow(api.DefaultMeasureWindow)
+	if err != nil {
+		return nil, err
+	}
+	view.Measures, err = control.ReportIn(tx, api.DefaultMeasureWindow, length)
 	return view, err
 }

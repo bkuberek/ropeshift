@@ -87,6 +87,7 @@ func New(config Config) http.Handler {
 	h.eventRoutes(mux)
 	h.noticeRoutes(mux)
 	h.telemetryRoutes(mux)
+	h.measureRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))

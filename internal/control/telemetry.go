@@ -10,7 +10,6 @@ import (
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/messages"
-	"ropeshift.dev/ropeshift/internal/parking"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/questions"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -292,28 +291,12 @@ func (s *Spans) parked(tx ports.ReadTx, e ledger.Event, change workorders.Change
 	if start == 0 {
 		return nil
 	}
-	trigger := wakeTrigger(tx, e.Subject.ID, lane)
 	s.telemetry.Span(ports.Span{
 		Name: ledger.SpanPark, Kind: ports.SpanInternal, TraceID: ledger.WorkOrderTrace(e.Subject.ID),
 		SpanID: ledger.SpanID("park", lane, strconv.FormatInt(generation, 10)), ParentID: ledger.LaneSpan(lane), Start: start, End: e.RecordedAt,
-		Attributes: append(laneAttrs(e.Subject.ID, lane, generation), attr(ledger.AttrParkTrigger, trigger)),
+		Attributes: append(laneAttrs(e.Subject.ID, lane, generation), attr(ledger.AttrParkTrigger, WakeTrigger(change.Reason))),
 	})
 	return nil
-}
-
-// wakeTrigger names what fired the lane's last wake.
-func wakeTrigger(tx ports.ReadTx, workOrder, lane string) string {
-	wakes, err := tx.Wakes().All()
-	if err != nil {
-		return ""
-	}
-	var fired parking.Wake
-	for _, wake := range wakes {
-		if wake.Lane == lane && wake.FiredAt >= fired.FiredAt && wake.FiredAt != 0 {
-			fired = wake
-		}
-	}
-	return fired.FiredBy
 }
 
 // laneEvent reads a lane's reported status: the time it spent flagged `stalled`, a liveness read that

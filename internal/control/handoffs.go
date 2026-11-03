@@ -1,6 +1,7 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/measures"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -48,8 +50,23 @@ func bindGeneration(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) e
 	if err := carryMessages(tx, worker, e.Lane, e.Generation, binding.Carried); err != nil {
 		return err
 	}
-	_, err = tx.Append(draft)
-	return err
+	if _, err = tx.Append(draft); err != nil {
+		return err
+	}
+	return openLaneExperience(tx, e.Lane, e.WorkOrder, boundSettings(binding), ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
+}
+
+// boundSettings are what a binding says a lane runs on. A worker that sent no settings still says
+// which model it asked for and which answered.
+func boundSettings(binding workorders.GenerationBinding) *measures.Settings {
+	settings := measures.Settings{}
+	if binding.Settings != nil {
+		settings = *binding.Settings
+	}
+	settings.ModelRequested = cmp.Or(settings.ModelRequested, binding.ModelRequested)
+	settings.ModelResolved = cmp.Or(settings.ModelResolved, binding.ModelResolved)
+	settings.ProfileDigest = cmp.Or(settings.ProfileDigest, binding.ProfileDigest)
+	return &settings
 }
 
 // fellBack corrects a generation that began as a resume and started from its handoff, because a

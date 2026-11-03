@@ -118,6 +118,9 @@ func (r *laneRun) binding(session, model string) workorders.GenerationBinding {
 		SessionID: session, ModelRequested: r.model, ModelResolved: model,
 		ProfileDigest: r.profileDigest, DriverVersion: r.version, DegradedMode: r.degraded, Carried: r.carried,
 	}
+	settings := r.settings
+	settings.ModelRequested, settings.ModelResolved, settings.ProfileDigest = r.model, model, r.profileDigest
+	binding.Settings = &settings
 	r.handleLock.Unlock()
 	if read := r.readPack(); read != nil {
 		binding.PackID, binding.PackVersion = read.ID, read.Version

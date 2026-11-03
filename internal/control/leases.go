@@ -541,6 +541,13 @@ func closeLane(tx ports.WriteTx, row ledger.LaneRow, draft ledger.EventDraft) er
 	if err := tx.Lanes().EndGeneration(row.ID, row.Generation, workorders.ReasonCanceled); err != nil {
 		return err
 	}
+	// A canceled lane's outcome is the cancel, whatever its session was doing when it stopped.
+	var result workorders.LaneResult
+	_ = json.Unmarshal(draft.Data, &result)
+	result.Outcome, result.Reason = workorders.Outcome(workorders.Canceled), workorders.ReasonCanceled
+	if err := closeLaneExperience(tx, row.ID, row.WorkOrder, result, draft.Actor); err != nil {
+		return err
+	}
 	_, err := tx.Append(draft)
 	return err
 }
@@ -760,6 +767,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 		return err
 	}
 	crashpoint.Hit("lane.end", "evidence")
+	if err := closeLaneExperience(tx, holder.Lane, holder.WorkOrder, result, actor); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return err

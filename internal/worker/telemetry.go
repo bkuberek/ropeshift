@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/measures"
 	"ropeshift.dev/ropeshift/internal/ports"
 )
 
@@ -70,6 +71,32 @@ func (w *Worker) measureEffect(effect lanes.Effect, state lanes.EffectState, sta
 		Name: ledger.MetricEffectDuration, Kind: ports.MetricHistogram, Unit: "ms", Value: float64(end.Sub(started).Milliseconds()),
 		At: end.UnixMilli(), Attributes: attributes,
 	})
+}
+
+// laneSettings are what a lane runs on, as its experience record holds them (FR-EXP-2): the agent, the
+// model, the effort, the run mode, and the context thresholds of its role. The models and the work's
+// size join them later, because only a binding and the ledger know those.
+func laneSettings(profile lanes.Profile, role, runMode string) measures.Settings {
+	thresholds := profile.Context.Roles[role]
+	return measures.Settings{
+		Driver: profile.Driver, ModelRequested: profile.Agent.Model, Effort: profile.Agent.Effort, RunMode: runMode,
+		Context: measures.ContextSettings{
+			Role: role, WarnTokens: thresholds.WarnTokens, CompactTokens: thresholds.CompactTokens, HandoffTokens: thresholds.HandoffTokens,
+		},
+	}
+}
+
+// endSettings are this lane's settings as its end reports them, for a record its binding never opened.
+// A run that never reached its spec reports none.
+func (r *laneRun) endSettings() *measures.Settings {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if r.settings.Driver == "" {
+		return nil
+	}
+	settings := r.settings
+	settings.ModelResolved, settings.ProfileDigest = r.resolved, r.profileDigest
+	return &settings
 }
 
 // laneAttributes are what every per-lane measurement carries, so it joins the agent's own data.

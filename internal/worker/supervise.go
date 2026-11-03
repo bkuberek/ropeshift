@@ -43,6 +43,11 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 		return
 	}
 	r.state.thresholds(profile, r.role())
+	r.handleLock.Lock()
+	if r.settings.Driver == "" {
+		r.settings = laneSettings(profile, r.role(), r.startedMode)
+	}
+	r.handleLock.Unlock()
 }
 
 // mayRestart says a generation ended in a way a new one could mend: it crashed, nothing

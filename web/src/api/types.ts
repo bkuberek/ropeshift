@@ -280,6 +280,32 @@ export type Operations = Stamp & {
   workers_fresh: number;
   waiting_for_a_person: number;
   sources: SourceBinding[];
+  measures: MeasureReport;
+};
+
+// A rate of nothing has no value, so value is null when nothing was counted under it.
+export type Ratio = { numerator: number; denominator: number; value: number | null };
+
+export type Durations = { count: number; median_ms: number | null; p95_ms: number | null };
+
+export type Cost = { total_usd: number; done: number; per_done_usd: number | null; lower_bound: boolean };
+
+export type MeasureReport = {
+  window: { name: string; from: number; to: number };
+  interruptions: number;
+  interruptions_by_kind: Record<string, number>;
+  completed: number;
+  interruptions_per_completed: Ratio;
+  overturn_rate: Ratio;
+  rework: Ratio;
+  autonomous_decision_rate: Ratio;
+  repeated_question_rate: Ratio;
+  prevented_repeats: number;
+  park_time: Record<string, Durations>;
+  ready_to_done: Durations;
+  intake_to_done: Durations;
+  work_in_progress: number;
+  cost_per_outcome: Record<string, Cost>;
 };
 
 export type Route = { method: string; pattern: string; command: string };
