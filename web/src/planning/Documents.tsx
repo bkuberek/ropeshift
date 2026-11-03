@@ -127,14 +127,15 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
   const still: Live = { heard: 0, checkSession: live.checkSession };
   const read = useView(() => readDocument(reference), `${reference.instance}:${reference.path}:${reference.version}`, still);
   const document = read.view;
-  if (read.failure || reference.path === "") {
+  const failure = read.failure ? (
+    <p className="refusal" role="alert">
+      {read.failure}
+    </p>
+  ) : null;
+  if (read.refusedCode === "not_found" || reference.path === "") {
     return (
       <Page title="No such document">
-        {read.failure ? (
-          <p className="refusal" role="alert">
-            {read.failure}
-          </p>
-        ) : null}
+        {failure}
         <p className="back">
           <Link to="/documents">Other documents</Link>
         </p>
@@ -143,6 +144,7 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
   }
   return (
     <Page title={document?.title ?? "Document"}>
+      {failure}
       {document ? (
         <>
           <dl className="facts facts-page">
@@ -168,7 +170,7 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
           </section>
           <Versions reference={reference} current={document.version} still={still} />
         </>
-      ) : (
+      ) : failure ? null : (
         <p className="quiet">Reading.</p>
       )}
     </Page>

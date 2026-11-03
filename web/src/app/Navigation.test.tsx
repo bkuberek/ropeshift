@@ -202,6 +202,7 @@ describe("a view on the stream", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(reads()).toBe(first);
+    expect(screen.getByRole("main").querySelector("[aria-busy='true']")).toBeNull();
   });
 
   it("reads a document once, because nothing on the stream changes it", async () => {

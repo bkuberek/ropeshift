@@ -124,6 +124,14 @@ describe("reading a document", () => {
     expect(screen.getByRole("alert").textContent).toContain("not found");
   });
 
+  it("tells a read that failed from a document that is not there", async () => {
+    serveViews((call) => (call.path.startsWith("/v1/documents") ? refusal(503, "unavailable", "The repository did not answer.") : undefined));
+    openPage("/document?path=docs%2Fspecs%2Fretry.md");
+    expect((await screen.findByRole("alert")).textContent).toContain("did not answer");
+    expect(screen.queryByRole("heading", { name: "No such document" })).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Document" })).toBeTruthy();
+  });
+
   it("says so when the address names no document", async () => {
     serveViews();
     openPage("/document");

@@ -9,8 +9,9 @@ export type ViewRead<T> = {
   view: T | null;
   readAt: number;
   failure: string;
+  // refusedCode is what a failed read's refusal was, which a view decides on, and never on its text.
   refusedCode: string;
-  // busy says a read is out for a new address, so what stands here is about to change.
+  // busy says a read is out, so what stands here may be about to change.
   busy: boolean;
 };
 
@@ -34,6 +35,7 @@ export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapM
       asked.current += 1;
       const mine = asked.current;
       lastRead.current = Date.now();
+      setState((was) => (was.view === null ? was : { ...was, busy: true }));
       try {
         const view = await latest.current();
         if (mine === asked.current) {
@@ -52,7 +54,6 @@ export function useView<T>(read: () => Promise<T>, key: string, live: Live, gapM
         setState((was) => ({ ...was, failure: refused.message, refusedCode: refused.code, busy: false }));
       }
     };
-    setState((was) => (was.view === null ? was : { ...was, busy: true }));
     const wait = lastRead.current === 0 ? 0 : lastRead.current + gapMs - Date.now();
     if (wait <= 0) {
       void run();
