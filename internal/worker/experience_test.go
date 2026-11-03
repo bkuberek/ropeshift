@@ -3,10 +3,13 @@ package worker_test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.dev/ropeshift/internal/ledger"
 	"ropeshift.dev/ropeshift/internal/measures"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -81,6 +84,28 @@ func TestMeasuresExportAsMetrics(t *testing.T) {
 	}
 	if err := control.NewMeasures(r.store, nil).Export(t.Context(), scope); err != nil {
 		t.Errorf("an export with no telemetry: %v", err)
+	}
+}
+
+// TestOnlyAPersonsApprovalInterrupts reads approvals from the log: one a member decided reached a
+// person, and one an orchestrator decided under delegation reached nobody.
+func TestOnlyAPersonsApprovalInterrupts(t *testing.T) {
+	r := newRig(t)
+	for _, decided := range []struct {
+		id   string
+		kind ledger.ActorKind
+	}{{"approval-person", ledger.ActorMember}, {"approval-delegated", ledger.ActorOrchestrator}} {
+		approval := authority.Approval{ID: decided.id, Lane: "lane-9", WorkOrder: "wo-9", Generation: 1, Kind: "tool", State: authority.ApprovalPending}
+		r.appendEvent(t, approvalEvent(t, approval))
+		approval.State, approval.DecidedKind = authority.ApprovalApproved, string(decided.kind)
+		r.appendEvent(t, approvalEvent(t, approval))
+	}
+	report, err := control.NewMeasures(r.store, nil).Report(t.Context(), scope, "7d", 7*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Interruptions != 1 || report.InterruptionsByKind[measures.InterruptionApproval] != 1 {
+		t.Errorf("interruptions %d %v, want the member's approval alone", report.Interruptions, report.InterruptionsByKind)
 	}
 }
 
