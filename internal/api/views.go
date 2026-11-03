@@ -82,6 +82,11 @@ const (
 	ActStartOrchestrator = "start_orchestrator"
 )
 
+// WorkActions lists what a read model can offer, so every surface can be held to knowing each one.
+var WorkActions = []string{
+	ActReassign, ActResolve, ActReplan, ActReset, ActRespawn, ActResume, ActAccept, ActRework, ActCancel, ActStartOrchestrator,
+}
+
 // EffectView is an effect with what a person can say of it.
 type EffectView struct {
 	ledger.UnknownEffect

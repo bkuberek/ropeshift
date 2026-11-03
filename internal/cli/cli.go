@@ -33,6 +33,7 @@ const (
 
 const usage = `usage: ropeshift <command>
 
+  top [--once]                                       watch the fleet, by who needs a person
   health                                             say the control plane answers, and at what revision
   work create --title T [--criterion C]... [flags]   record a work order, or planning work with --kind plan
   work list [--state S] [--worker W]                 list work orders, or what a worker can run
@@ -125,7 +126,7 @@ func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
 		"question", "decision", "policy", "category", "search", "login", "sign-out", "passphrase", "message", "approval", "orchestrator",
-		"effect", "view", "events", "health":
+		"effect", "view", "events", "health", "top":
 		return true
 	}
 	return false
@@ -140,12 +141,15 @@ type Options struct {
 	Session string
 	// ReadPassphrase asks a person on their terminal. Nil means there is no terminal.
 	ReadPassphrase func(prompt string) (string, error)
+	// Terminal is the keyboard, when both ends of this process are a terminal. A live view needs one.
+	Terminal io.Reader
 }
 
 // invocation is one running command.
 type invocation struct {
 	doctor         func(context.Context) (ledger.Manifest, error)
 	readPassphrase func(prompt string) (string, error)
+	terminal       io.Reader
 	ctx            context.Context
 	stdout         io.Writer
 	stderr         io.Writer
@@ -160,7 +164,7 @@ type invocation struct {
 func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
-		session: opts.Session, readPassphrase: opts.ReadPassphrase,
+		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 	}
 	if len(args) > 0 {
 		if command, ok := singleWords[args[0]]; ok {
@@ -188,6 +192,7 @@ var singleWords = map[string]func(*invocation, []string) int{
 	"events":   (*invocation).events,
 	"search":   (*invocation).search,
 	"health":   (*invocation).health,
+	"top":      (*invocation).runTop,
 }
 
 // HasCommand reports a command, as a person would type it.

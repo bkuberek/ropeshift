@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"golang.org/x/term"
+
 	"ropeshift.dev/ropeshift/internal/adapters/localauth"
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/cli"
@@ -80,6 +82,9 @@ func Main(args []string, stdout, stderr io.Writer) int {
 // socket empty, and the command reports it cannot reach anything.
 func cliOptions() cli.Options {
 	opts := cli.Options{Session: os.Getenv(authority.EnvMemberToken), ReadPassphrase: localauth.ReadPassphrase}
+	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
+		opts.Terminal = os.Stdin
+	}
 	paths, err := installationPaths()
 	if err != nil {
 		return opts

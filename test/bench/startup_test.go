@@ -47,6 +47,63 @@ func TestCommandStartup(t *testing.T) {
 	}
 }
 
+// TestTopStartsWithinTheBudget times `ropeshift top` from exec to a frame read from a real daemon, on
+// the binary that carries the terminal library, so that library's cost lands here and on every other
+// command that shares the binary.
+func TestTopStartsWithinTheBudget(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "ropeshift")
+	daemon := filepath.Join(dir, "ropeshiftd")
+	for name, target := range map[string]string{binary: "cmd/ropeshift", daemon: "cmd/ropeshiftd"} {
+		build := exec.Command("go", "build", "-o", name, "ropeshift.dev/ropeshift/"+target)
+		build.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build: %v\n%s", err, out)
+		}
+	}
+	state, err := os.MkdirTemp("", "rsb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(state)
+	paths := api.Paths{StateDir: filepath.Join(state, "state"), RunDir: filepath.Join(state, "run")}
+	env := []string{"HOME=" + state, "PATH=" + doubles.InstallFakeClaude(t, "no-session"), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff}
+	cmd := exec.Command(daemon, "solo")
+	cmd.Env = env
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	client := api.NewUnixClient(paths.ControlSocket())
+	defer client.Close()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := client.Health(context.Background()); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	samples := make([]time.Duration, 0, startupRuns)
+	for range startupRuns {
+		frame := exec.Command(binary, "top", "--once", "--socket", paths.ControlSocket())
+		frame.Env = env
+		start := time.Now()
+		if err := frame.Run(); err != nil {
+			t.Fatal(err)
+		}
+		samples = append(samples, time.Since(start))
+	}
+	slices.Sort(samples)
+	p50, p99 := samples[len(samples)/2], samples[len(samples)*99/100]
+	t.Logf("runs=%d p50=%v p90=%v p95=%v p99=%v max=%v", len(samples), p50, samples[len(samples)*90/100], samples[len(samples)*95/100], p99, samples[len(samples)-1])
+	if p99 > startupBudget {
+		t.Errorf("p99 %v exceeds %v", p99, startupBudget)
+	}
+}
+
 // TestDaemonAcceptsWithinOneSecond times a real ropeshiftd from exec to its first
 // answer on the socket, on a new installation, so the time includes the migrations.
 func TestDaemonAcceptsWithinOneSecond(t *testing.T) {

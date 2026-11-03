@@ -95,6 +95,28 @@ func other(actor ledger.Actor) bool {
 	}
 }
 
+// TestNoClientImportsTheStore names FR-UI-4 on the tree as it stands, through every path a client's
+// imports take, and it holds to a list of what must be there, so a client moved out of a layer's
+// reach cannot pass by having nothing to read. The fixtures below show the check can fail.
+func TestNoClientImportsTheStore(t *testing.T) {
+	root := repoRoot(t)
+	pkgs, err := LoadPackages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"internal/cli", "internal/top", "internal/hook", "internal/mcpserver", "internal/shim"} {
+		if !slices.ContainsFunc(pkgs, func(pkg Package) bool { return pkg.Rel == name }) {
+			t.Errorf("client %s is not in the tree", name)
+		}
+		if Classify(name) != LayerClient {
+			t.Errorf("%s reads as %s", name, Classify(name))
+		}
+		for _, v := range checkClosure(module, pkgs, name, "clients-through-api", behindTheAPI) {
+			t.Error(v)
+		}
+	}
+}
+
 func TestDependencyDirectionFixtures(t *testing.T) {
 	tests := []struct {
 		name    string

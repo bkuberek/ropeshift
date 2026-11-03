@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/top"
 )
 
 // viewing prints one read model. Text and JSON hold the same document, because a read model is data
@@ -36,6 +38,36 @@ func viewing(name string) func(*invocation, []string) int {
 			return string(indented) + "\n"
 		})
 	}
+}
+
+// runTop is `ropeshift top`. The first read comes before the screen changes, so a daemon that is down
+// exits 9 as any other command does. With no terminal it prints one frame, because a pipe cannot hold
+// a live view.
+func (c *invocation) runTop(args []string) int {
+	set := c.flags()
+	once := set.Bool("once", false, "print one frame and stop")
+	positional, ok := parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 0 {
+		return c.usageError("unexpected argument %q", positional[0])
+	}
+	client := c.client()
+	defer client.Close()
+	read := top.Reader(client)
+	snapshot, err := read(c.ctx)
+	if err != nil {
+		return c.failure(err)
+	}
+	if *once || c.asJSON || c.terminal == nil {
+		return c.finish(nil, snapshot, func() string { return top.Frame(snapshot, time.Now()) })
+	}
+	config := top.Config{Read: read, Follow: client.Events, Now: time.Now}
+	if err := top.Run(c.ctx, config, c.terminal, c.stdout); err != nil {
+		return c.failure(err)
+	}
+	return ExitOK
 }
 
 func effectLine(row ledger.UnknownEffect) string {
