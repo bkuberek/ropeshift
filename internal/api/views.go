@@ -153,10 +153,12 @@ type PlanDetail struct {
 	WorkOrders []workorders.WorkOrder `json:"work_orders"`
 }
 
-// Plans is the plans and contracts view.
+// Plans is the plans and contracts view. Unplanned is work no plan holds, which stands nowhere else
+// until it starts.
 type Plans struct {
 	Stamp
-	Plans []PlanDetail `json:"plans"`
+	Plans     []PlanDetail           `json:"plans"`
+	Unplanned []workorders.WorkOrder `json:"unplanned"`
 }
 
 // Documents is requirements, specs, and designs. Bodies stay out, and a reader asks for one at a time.
@@ -187,10 +189,11 @@ type Questions struct {
 	Questions  []questions.Question `json:"questions"`
 }
 
-// WorkLine is a work order and the lane on it.
+// WorkLine is a work order, the lane on it, and when it reached the state it stands in.
 type WorkLine struct {
 	WorkOrder workorders.WorkOrder `json:"work_order"`
 	Lane      *ledger.LaneView     `json:"lane,omitempty"`
+	Since     int64                `json:"since"`
 }
 
 // InProgress is claimed and running work.
@@ -233,13 +236,17 @@ type Stuck struct {
 	Items []StuckItem `json:"items"`
 }
 
-// CompletedWork is an outcome with its artifacts and check results.
+// CompletedWork is an outcome with its artifacts and check results, when it came, and what the lane
+// said of it.
 type CompletedWork struct {
 	WorkOrder workorders.WorkOrder      `json:"work_order"`
 	Standing  workorders.AcceptanceView `json:"standing"`
+	Since     int64                     `json:"since"`
+	Reason    string                    `json:"reason,omitempty"`
 }
 
-// Completed is finished work, waiting for acceptance or past it.
+// Completed is work that ended, by any way a work order can end, the newest end first. Work that
+// waits for acceptance stands here too.
 type Completed struct {
 	Stamp
 	Items []CompletedWork `json:"items"`

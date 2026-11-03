@@ -110,8 +110,17 @@ type Lane struct {
 	Grant workorders.Grant
 }
 
-// Ready records a work order and passes its review.
-func (w *World) Ready(id, title string) {
+// Created records a work order that stays in `intake`, with no plan and no contract.
+func (w *World) Created(id, title string) {
+	w.t.Helper()
+	draft := workorders.WorkOrder{ID: id, Kind: workorders.KindChange, Title: title, MaxAttempts: 1, RepositoryID: "repository-1"}
+	if _, err := control.NewWorkOrders(w.Daemon.Store).Create(w.ctx, Scope, draft, worldMember); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// Recorded records a work order with a plan and a contract, which waits in `contract_review`.
+func (w *World) Recorded(id, title string) {
 	w.t.Helper()
 	work := control.LedgerWork{
 		Order:     workorders.WorkOrder{ID: id, Kind: workorders.KindChange, Title: title, MaxAttempts: 1, RepositoryID: "repository-1"},
@@ -120,7 +129,21 @@ func (w *World) Ready(id, title string) {
 	if _, err := control.NewWorkOrders(w.Daemon.Store).Record(w.ctx, Scope, work, worldMember); err != nil {
 		w.t.Fatal(err)
 	}
+}
+
+// Ready records a work order and passes its review.
+func (w *World) Ready(id, title string) {
+	w.t.Helper()
+	w.Recorded(id, title)
 	if _, err := control.NewReviews(w.Daemon.Store).Pass(w.ctx, Scope, id, worldMember); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// Cancel takes a work order to `canceled`, an edge no route of the API offers yet.
+func (w *World) Cancel(id string) {
+	w.t.Helper()
+	if err := control.NewWorkOrders(w.Daemon.Store).Move(w.ctx, Scope, id, workorders.TriggerCanceled, worldMember); err != nil {
 		w.t.Fatal(err)
 	}
 }

@@ -454,6 +454,84 @@ func TestCompletedHoldsOutcomesWithArtifacts(t *testing.T) {
 	}
 }
 
+// Work that ended is outcomes to a person, whichever way it ended, and each says why when it can.
+func TestCompletedHoldsEveryWayWorkEnds(t *testing.T) {
+	d, w, clock := aWorld(t)
+	w.Running("wo-failed", "Try the impossible").End(workorders.OutcomeFailed, "crashed")
+	clock.Advance(time.Minute)
+	w.Recorded("wo-canceled", "Drop the old plan")
+	w.Cancel("wo-canceled")
+	clock.Advance(time.Minute)
+	w.Running("wo-done", "Finish the job").End(workorders.OutcomeCompleted, "")
+	if _, err := d.Client.Accept(t.Context(), "wo-done"); err != nil {
+		t.Fatal(err)
+	}
+	view := readView[api.Completed](t, d, api.ViewCompleted, "")
+	got := map[string]api.CompletedWork{}
+	var order []string
+	for _, item := range view.Items {
+		got[item.WorkOrder.ID] = item
+		order = append(order, item.WorkOrder.ID)
+		if item.Since == 0 {
+			t.Errorf("%s says no time", item.WorkOrder.ID)
+		}
+	}
+	for id, state := range map[string]workorders.State{
+		"wo-failed": workorders.Failed, "wo-canceled": workorders.Canceled, "wo-done": workorders.Done, "wo-accept": workorders.Acceptance,
+	} {
+		if got[id].WorkOrder.State != state {
+			t.Errorf("%s reads %q, want %q", id, got[id].WorkOrder.State, state)
+		}
+	}
+	if got["wo-failed"].Reason != "crashed" {
+		t.Errorf("the failure says %q", got["wo-failed"].Reason)
+	}
+	if want := []string{"wo-done", "wo-canceled", "wo-failed", "wo-accept"}; !slices.Equal(order, want) {
+		t.Errorf("order %v, want the newest end first", order)
+	}
+}
+
+func TestInProgressSaysSinceWhenTheLongestFirst(t *testing.T) {
+	d, _, _ := aWorld(t)
+	view := readView[api.InProgress](t, d, api.ViewInProgress, "")
+	for i, item := range view.Items {
+		if item.Since == 0 {
+			t.Errorf("%s says no time", item.WorkOrder.ID)
+		}
+		if i > 0 && view.Items[i-1].Since > item.Since {
+			t.Errorf("%s stands after a later start", item.WorkOrder.ID)
+		}
+	}
+}
+
+// Work with no contract belongs to no plan, and it must stand somewhere a person can find it.
+func TestPlansListWorkNoPlanHolds(t *testing.T) {
+	d, w, _ := aWorld(t)
+	w.Created("wo-loose", "Not planned yet")
+	view := readView[api.Plans](t, d, api.ViewPlans, "")
+	if len(view.Unplanned) != 1 || view.Unplanned[0].ID != "wo-loose" {
+		t.Fatalf("unplanned %+v", view.Unplanned)
+	}
+	for _, plan := range view.Plans {
+		for _, order := range plan.WorkOrders {
+			if order.ID == "wo-loose" {
+				t.Errorf("plan %s holds it", plan.Plan.ID)
+			}
+		}
+	}
+}
+
+func TestPlansLeaveOutOfUnplannedWhatAPlanHolds(t *testing.T) {
+	d, _, _ := aWorld(t)
+	plan := readView[api.Plans](t, d, api.ViewPlans, "").Plans[0]
+	if _, err := d.Client.ReviewPlan(t.Context(), plan.Plan.ID, api.ReviewPlan{ID: "review-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if left := readView[api.Plans](t, d, api.ViewPlans, "").Unplanned; len(left) != 0 {
+		t.Errorf("unplanned %+v", left)
+	}
+}
+
 func TestShopFloorSeparatesObservedFromLastReported(t *testing.T) {
 	d, _, clock := aWorld(t)
 	view := readView[api.ShopFloor](t, d, api.ViewShopFloor, "")

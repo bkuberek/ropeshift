@@ -105,12 +105,7 @@ func enteredAt(tx ports.ReadTx, order workorders.WorkOrder) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	into := map[string]bool{}
-	for _, edge := range workorders.Transitions() {
-		if edge.To == order.State {
-			into[workorders.EventType(edge.Trigger)] = true
-		}
-	}
+	into := edgesInto(order.State)
 	for i := len(events) - 1; i >= 0; i-- {
 		if into[events[i].Type] {
 			return events[i].RecordedAt, nil
@@ -122,14 +117,27 @@ func enteredAt(tx ports.ReadTx, order workorders.WorkOrder) (int64, error) {
 	return 0, nil
 }
 
-// blockedReason reads what a lane said when it stopped its work.
-func blockedReason(tx ports.ReadTx, order workorders.WorkOrder) (string, error) {
+// edgesInto names the events that bring a work order to a state.
+func edgesInto(state workorders.State) map[string]bool {
+	into := map[string]bool{}
+	for _, edge := range workorders.Transitions() {
+		if edge.To == state {
+			into[workorders.EventType(edge.Trigger)] = true
+		}
+	}
+	return into
+}
+
+// arrivalReason reads what was said when a work order reached the state it stands in, which is where
+// a lane says why it stopped.
+func arrivalReason(tx ports.ReadTx, order workorders.WorkOrder) (string, error) {
 	events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: order.ID})
 	if err != nil {
 		return "", err
 	}
+	into := edgesInto(order.State)
 	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Type != workorders.EventType(workorders.TriggerLaneBlocked) {
+		if !into[events[i].Type] {
 			continue
 		}
 		var change workorders.Change
@@ -193,7 +201,7 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 			need.Reason, need.Actions = api.ReasonLapsed, []string{api.ActReassign}
 		case workorders.Blocked:
 			need.Reason, need.Actions = api.ReasonBlocked, []string{api.ActResolve, api.ActReplan}
-			if need.Detail, err = blockedReason(tx, *order); err != nil {
+			if need.Detail, err = arrivalReason(tx, *order); err != nil {
 				return nil, err
 			}
 		default:
@@ -462,7 +470,8 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if err != nil {
 		return nil, err
 	}
-	view := api.Plans{Stamp: stamp, Plans: []api.PlanDetail{}}
+	view := api.Plans{Stamp: stamp, Plans: []api.PlanDetail{}, Unplanned: []workorders.WorkOrder{}}
+	held := map[string]bool{}
 	for _, plan := range plans {
 		detail := api.PlanDetail{Plan: plan, Contracts: []api.ContractHistory{}, Reviews: []api.PlanReview{}, WorkOrders: []workorders.WorkOrder{}}
 		if plan.GoalID != "" {
@@ -485,6 +494,7 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 			detail.Contracts = append(detail.Contracts, api.ContractHistory{ID: contract.ID, Versions: []planning.Contract{contract}})
 		}
 		for _, order := range orders {
+			held[order.ID] = held[order.ID] || order.ReviewsPlan == plan.ID || ofPlan[order.ContractID]
 			switch {
 			case order.ReviewsPlan == plan.ID:
 				review := api.PlanReview{WorkOrder: order, Open: []questions.Question{}}
@@ -499,6 +509,11 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 			}
 		}
 		view.Plans = append(view.Plans, detail)
+	}
+	for _, order := range orders {
+		if !held[order.ID] {
+			view.Unplanned = append(view.Unplanned, order)
+		}
 	}
 	return view, nil
 }
@@ -601,10 +616,18 @@ func (h *handler) readInProgress(tx ports.ReadTx, _ *http.Request, stamp api.Sta
 	}
 	view := api.InProgress{Stamp: stamp, Items: []api.WorkLine{}}
 	for _, order := range f.orders {
-		if order.State == workorders.Claimed || order.State == workorders.Running {
-			view.Items = append(view.Items, api.WorkLine{WorkOrder: order, Lane: f.ofWork[order.ID]})
+		if order.State != workorders.Claimed && order.State != workorders.Running {
+			continue
 		}
+		since, err := enteredAt(tx, order)
+		if err != nil {
+			return nil, err
+		}
+		view.Items = append(view.Items, api.WorkLine{WorkOrder: order, Lane: f.ofWork[order.ID], Since: since})
 	}
+	slices.SortStableFunc(view.Items, func(a, b api.WorkLine) int {
+		return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.WorkOrder.ID, b.WorkOrder.ID))
+	})
 	return view, nil
 }
 
@@ -634,6 +657,9 @@ func (h *handler) readOnHold(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) 
 		}
 		view.Items = append(view.Items, item)
 	}
+	slices.SortStableFunc(view.Items, func(a, b api.HeldLane) int {
+		return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.WorkOrder.ID, b.WorkOrder.ID))
+	})
 	return view, nil
 }
 
@@ -644,15 +670,26 @@ func (h *handler) readCompleted(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	}
 	view := api.Completed{Stamp: stamp, Items: []api.CompletedWork{}}
 	for _, order := range orders {
-		if !order.State.Completed() && order.State != workorders.Failed {
+		if !order.State.Completed() && !workorders.Terminal(order.State) {
 			continue
 		}
 		standing, err := control.StandingIn(tx, order.ID)
 		if err != nil {
 			return nil, err
 		}
-		view.Items = append(view.Items, api.CompletedWork{WorkOrder: order, Standing: standing})
+		since, err := enteredAt(tx, order)
+		if err != nil {
+			return nil, err
+		}
+		reason, err := arrivalReason(tx, order)
+		if err != nil {
+			return nil, err
+		}
+		view.Items = append(view.Items, api.CompletedWork{WorkOrder: order, Standing: standing, Since: since, Reason: reason})
 	}
+	slices.SortStableFunc(view.Items, func(a, b api.CompletedWork) int {
+		return cmp.Or(cmp.Compare(b.Since, a.Since), cmp.Compare(a.WorkOrder.ID, b.WorkOrder.ID))
+	})
 	return view, nil
 }
 

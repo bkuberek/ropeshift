@@ -4,46 +4,6 @@
     {
       "lane": {
         "actual_state": "working",
-        "as_of": 1790000300001,
-        "freshness": "last_reported",
-        "generation": 1,
-        "generations": [
-          {
-            "lane_id": "lane-wo-approval",
-            "number": 1,
-            "start_reason": "initial",
-            "started_at": 1790000300001
-          }
-        ],
-        "id": "lane-wo-approval",
-        "ledger_reach": "reachable",
-        "liveness": "alive",
-        "model_reach": "reachable",
-        "reported_by_epoch": 1,
-        "work_order": "wo-approval",
-        "worker_id": "worker-a"
-      },
-      "work_order": {
-        "claim_id": "claim-wo-approval",
-        "contract_id": "generated-1",
-        "contract_version": 1,
-        "fence": 1,
-        "id": "wo-approval",
-        "kind": "change",
-        "lease_until": 1790000360001,
-        "lease_worker": "worker-a",
-        "max_attempts": 1,
-        "repository_id": "repository-1",
-        "rev": 1,
-        "reviewed_by": "member-1",
-        "size": "unknown",
-        "state": "running",
-        "title": "Tag the release"
-      }
-    },
-    {
-      "lane": {
-        "actual_state": "working",
         "as_of": 1790000180001,
         "freshness": "last_reported",
         "generation": 1,
@@ -63,9 +23,10 @@
         "work_order": "wo-effect",
         "worker_id": "worker-a"
       },
+      "since": 1790000180001,
       "work_order": {
         "claim_id": "claim-wo-effect",
-        "contract_id": "generated-2",
+        "contract_id": "generated-1",
         "contract_version": 1,
         "fence": 1,
         "id": "wo-effect",
@@ -79,6 +40,47 @@
         "size": "unknown",
         "state": "running",
         "title": "Add the retry budget"
+      }
+    },
+    {
+      "lane": {
+        "actual_state": "working",
+        "as_of": 1790000300001,
+        "freshness": "last_reported",
+        "generation": 1,
+        "generations": [
+          {
+            "lane_id": "lane-wo-approval",
+            "number": 1,
+            "start_reason": "initial",
+            "started_at": 1790000300001
+          }
+        ],
+        "id": "lane-wo-approval",
+        "ledger_reach": "reachable",
+        "liveness": "alive",
+        "model_reach": "reachable",
+        "reported_by_epoch": 1,
+        "work_order": "wo-approval",
+        "worker_id": "worker-a"
+      },
+      "since": 1790000300001,
+      "work_order": {
+        "claim_id": "claim-wo-approval",
+        "contract_id": "generated-2",
+        "contract_version": 1,
+        "fence": 1,
+        "id": "wo-approval",
+        "kind": "change",
+        "lease_until": 1790000360001,
+        "lease_worker": "worker-a",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "running",
+        "title": "Tag the release"
       }
     },
     {
@@ -103,6 +105,7 @@
         "work_order": "wo-running",
         "worker_id": "worker-a"
       },
+      "since": 1790000540001,
       "work_order": {
         "claim_id": "claim-wo-running",
         "contract_id": "generated-3",
@@ -146,6 +149,7 @@
         "work_order": "wo-stalled",
         "worker_id": "worker-a"
       },
+      "since": 1790000540001,
       "work_order": {
         "claim_id": "claim-wo-stalled",
         "contract_id": "generated-4",
@@ -186,6 +190,7 @@
         "work_order": "wo-tripped",
         "worker_id": "worker-a"
       },
+      "since": 1790000540001,
       "work_order": {
         "claim_id": "claim-wo-tripped",
         "contract_id": "generated-5",
