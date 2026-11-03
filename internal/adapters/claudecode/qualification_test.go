@@ -1,9 +1,12 @@
 package claudecode_test
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
@@ -165,6 +168,59 @@ func TestASelfUpdateNeedsAProbeEitherWay(t *testing.T) {
 				t.Errorf("the doctor says qualified %v of a version that is degraded %v", report.Qualified, tt.degraded)
 			}
 		})
+	}
+}
+
+// TestAnAdoptedSessionKeepsTheVersionItStartedOn is a self-update under a worker that then restarts:
+// the session's process still runs the version it started on, so a new driver qualified for the new
+// version finds it degraded and gives it no surface the old version's checks refused.
+func TestAnAdoptedSessionKeepsTheVersionItStartedOn(t *testing.T) {
+	first, path, spec := session(t, "lane-survives", nil)
+	doubles.SetFakeClaudeVersion(t, path, "2.1.399")
+	first.Qualify(probed("2.1.399", claudecode.SurfaceSocketLine))
+	handle, err := first.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle.Version != "2.1.399" || !handle.Degraded {
+		t.Fatalf("handle %+v", handle)
+	}
+	events, err := first.Events(t.Context(), handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range events {
+		if event.Kind == ports.EventSessionBound {
+			break
+		}
+	}
+	doubles.SetFakeClaudeVersion(t, path, "2.1.400")
+	next := claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second})
+	next.Qualify(probed("2.1.400"))
+	located, err := next.Find(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if located.Handle.Version != "2.1.399" || !located.Handle.Degraded {
+		t.Errorf("found %+v, which is the installed version's and not the process's", located.Handle)
+	}
+	// The session's socket is known before anything is read, as its SessionStart hook would name it.
+	sockets, err := filepath.Glob(filepath.Join(spec.TempDir, "cc-socks", "[0-9]*.sock"))
+	if err != nil || len(sockets) != 1 {
+		t.Fatalf("sockets %v, %v", sockets, err)
+	}
+	hooks := []lanes.HookRecord{{HookEvent: lanes.HookEvent{Lane: spec.Lane, Generation: spec.Generation, Event: "SessionStart", Socket: sockets[0]}}}
+	if err := next.Adopt(t.Context(), located.Handle, ports.AdoptFrom{Spec: spec, Hooks: hooks}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := next.Send(t.Context(), located.Handle, ports.Input{Text: "from a peer", Peer: true}); !errors.Is(err, ports.ErrNoChannel) {
+		t.Errorf("an adopted session on a version whose socket failed took a peer's message: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(doubles.BinDir(path), "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Stop(t.Context(), located.Handle, ports.StopNow); err != nil {
+		t.Fatal(err)
 	}
 }
 
