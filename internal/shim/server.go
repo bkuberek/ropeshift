@@ -69,19 +69,59 @@ type write struct {
 	close bool
 }
 
+// The generations a shim of this process holds. A record lock keeps other processes out but not its
+// own, and closing any descriptor of its file ends it, so a second shim here is turned away before
+// it opens the file.
+var (
+	heldLock sync.Mutex
+	held     = map[string]bool{}
+)
+
+// lock takes a generation for this shim. It is a record lock, which belongs to this process, so the
+// kernel releases it when the process dies. A flock would belong to the open file instead, and the
+// child a shim forks shares that file until it execs, so a shim killed in that moment would leave
+// its generation held and the next shim for it refused.
 func lock(dir string) (*os.File, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(filepath.Join(dir, lockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	whole, err := filepath.Abs(filepath.Join(dir, lockFile))
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("%w: %v", ErrLocked, err)
+	heldLock.Lock()
+	defer heldLock.Unlock()
+	if held[whole] {
+		return nil, fmt.Errorf("%w: by this process", ErrLocked)
 	}
+	file, err := os.OpenFile(whole, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	all := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: io.SeekStart}
+	for {
+		err = syscall.FcntlFlock(file.Fd(), syscall.F_SETLK, &all)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	if err != nil {
+		_ = file.Close()
+		if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EACCES) {
+			return nil, fmt.Errorf("%w: %v", ErrLocked, err)
+		}
+		return nil, err
+	}
+	held[whole] = true
 	return file, nil
+}
+
+// unlock gives a generation back.
+func unlock(file *os.File) {
+	heldLock.Lock()
+	defer heldLock.Unlock()
+	_ = file.Close()
+	delete(held, file.Name())
 }
 
 // Run owns one child until it ends and the linger passes. The kernel drops the lock with
@@ -93,11 +133,11 @@ func Run(ctx context.Context, config shimlink.Config) error {
 	if config.Linger == 0 {
 		config.Linger = shimlink.DefaultLinger
 	}
-	held, err := lock(config.Dir)
+	generation, err := lock(config.Dir)
 	if err != nil {
 		return err
 	}
-	defer held.Close()
+	defer unlock(generation)
 	if err := shimlink.WriteState(config.Dir, shimlink.State{Version: shimlink.Version, ShimPID: os.Getpid()}); err != nil {
 		return err
 	}
