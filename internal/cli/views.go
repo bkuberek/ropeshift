@@ -70,6 +70,31 @@ func (c *invocation) runTop(args []string) int {
 	return ExitOK
 }
 
+// noticeList says what each channel was told. More than one attempt with a delivery is a notice its
+// channel may have heard twice, because delivery is at least once.
+func (c *invocation) noticeList(args []string) int {
+	client, ok, code := c.noArguments(args)
+	if !ok {
+		return code
+	}
+	defer client.Close()
+	rows, err := client.Notices(c.ctx)
+	if rows == nil {
+		rows = []ledger.NoticeLine{}
+	}
+	return c.finish(err, api.NoticeList{Notices: rows}, func() string {
+		var out strings.Builder
+		for _, row := range rows {
+			state := "delivered"
+			if !row.Delivered {
+				state = "not delivered"
+			}
+			fmt.Fprintf(&out, "%s\t%s\t%s\t%s\tattempts %d\t%s\n", row.Delivery, row.Channel, row.Kind, row.Reason, row.Attempts, state)
+		}
+		return out.String()
+	})
+}
+
 func effectLine(row ledger.UnknownEffect) string {
 	state := "waiting"
 	if !row.Waiting() {

@@ -94,3 +94,9 @@ func leavesParkedLanes() bool { return false }
 
 // endsAnyCanceledLane is false: only the worker that ran a lane says it ended.
 func endsAnyCanceledLane() bool { return false }
+
+// forgetsAttempts is false: an attempt goes on record before it is made.
+func forgetsAttempts() bool { return false }
+
+// recordsBeforeSending is false: a delivery goes on record once a channel took it.
+func recordsBeforeSending() bool { return false }

@@ -182,6 +182,11 @@ type Accepted struct {
 	State workorders.State `json:"state"`
 }
 
+// NoticeList says how each notice stands on each channel.
+type NoticeList struct {
+	Notices []ledger.NoticeLine `json:"notices"`
+}
+
 // CancelWork ends a work order for good, and says why.
 type CancelWork struct {
 	Reason string `json:"reason"`

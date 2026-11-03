@@ -70,6 +70,10 @@ type Sabotage struct {
 	LeavesParkedLanes bool
 	// EndsAnyCanceledLane takes any worker's word that a canceled lane ended.
 	EndsAnyCanceledLane bool
+	// ForgetsAttempts sends with nothing on record, so a repeat leaves no trace.
+	ForgetsAttempts bool
+	// RecordsBeforeSending says a notice was delivered before it goes, so a kill loses it.
+	RecordsBeforeSending bool
 }
 
 var sabotage atomic.Pointer[Sabotage]
@@ -145,3 +149,7 @@ func ignoresPins() bool { return current().IgnoresPins }
 func leavesParkedLanes() bool { return current().LeavesParkedLanes }
 
 func endsAnyCanceledLane() bool { return current().EndsAnyCanceledLane }
+
+func forgetsAttempts() bool { return current().ForgetsAttempts }
+
+func recordsBeforeSending() bool { return current().RecordsBeforeSending }

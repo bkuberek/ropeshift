@@ -104,6 +104,7 @@ var operations = map[string]string{
 	"PUT /v1/passphrase":                               "passphrase set",
 	"GET /v1/workers/{id}/orchestrator":                "orchestrator show",
 	"PUT /v1/workers/{id}/orchestrator":                "orchestrator start",
+	"GET /v1/notices":                                  "notice list",
 	"GET /v1/approvals":                                "approval list",
 	"GET /v1/approvals/{id}":                           "approval show",
 	"POST /v1/approvals/{id}/decide":                   "approval approve",

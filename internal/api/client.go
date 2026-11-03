@@ -198,6 +198,13 @@ func (c *Client) Rework(ctx context.Context, id string, in ReworkRequest) (Accep
 	return out, err
 }
 
+// Notices says how each notice stands on each channel.
+func (c *Client) Notices(ctx context.Context) ([]ledger.NoticeLine, error) {
+	var out NoticeList
+	err := c.Do(ctx, http.MethodGet, "/v1/notices", nil, &out)
+	return out.Notices, err
+}
+
 // CancelWork ends a work order for good.
 func (c *Client) CancelWork(ctx context.Context, id string, in CancelWork) (Accepted, error) {
 	var out Accepted

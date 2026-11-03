@@ -176,7 +176,7 @@ func crashMatrix() []crashCase {
 		uploadCase("worker.upload", []string{"read", "answered", "acknowledged"}),
 		uploadCase("journal.append", []string{"appended"}),
 		worktreeCase(),
-	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases(), parkCases(), resumeCases(), messageCases(), effectCases(), limitCases(), orchestratorCases(), autonomyCases(), planLaneCases(), cancelCases())...)
+	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases(), parkCases(), resumeCases(), messageCases(), effectCases(), limitCases(), orchestratorCases(), autonomyCases(), planLaneCases(), cancelCases(), noticeCases())...)
 }
 
 const longTTL = int64(60_000)
@@ -1365,6 +1365,7 @@ func TestEveryNamedStepIsInTheMatrix(t *testing.T) {
 	rows["worker.clear/split"] = true
 	rows["worker.approval/split"] = true
 	rows["worker.effect/split"] = true
+	rows["notify/recorded-first"] = true
 	for _, step := range literal {
 		if !rows[step] {
 			t.Errorf("named step %s has no matrix row", step)

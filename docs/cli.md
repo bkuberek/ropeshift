@@ -42,9 +42,9 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift decision show <id>` | Shows one decision |
 | `ropeshift decision record --statement S [--rationale R] [--scope S] [--category C]... [--citation C]... [--reversibility R] [--question Q] [--assumed] [--supersedes D] [--no-conflict D]...` | Records a decision, or with `--assumed` a reversible assumption. The answer lists decisions with an overlapping scope. `--supersedes` replaces one, with no rework |
 | `ropeshift decision overturn <id> --statement S [--rationale R] [--citation C]...` | Reverses a decision in one transaction: rework for each completed work order, a notice for each lane, and the outcome on its experience record |
-| `ropeshift policy list [--kind K]` | Lists the versions of a policy, newest first. `--kind` is `decision`, the default, `lane`, or `delegation` |
+| `ropeshift policy list [--kind K]` | Lists the versions of a policy, newest first. `--kind` is `decision`, the default, `lane`, `delegation`, `autonomy`, or `notify` |
 | `ropeshift policy show <version> [--kind K]` | Prints one version as its author wrote it |
-| `ropeshift policy publish --file F` | Publishes a new version of the policy its table names, `[decision_policy]`, `[lane_policy]`, or `[delegation_policy]`. A body names its version, and it must be newer than the one in force. Only a member can |
+| `ropeshift policy publish --file F` | Publishes a new version of the policy its table names, `[decision_policy]`, `[lane_policy]`, `[delegation_policy]`, `[autonomy_policy]`, or `[notify_policy]`. A body names its version, and it must be newer than the one in force. Only a member can |
 | `ropeshift approval list [--state S]` | Lists requests, each with what it asks and how it stands |
 | `ropeshift approval show <id>` | Shows one request: its call, its digest, and how it stands |
 | `ropeshift approval approve <id> --digest D [--reason R]` | Approves the one call a request names, and `--digest` says what you read. See [authorization](authorization.md) |
@@ -52,6 +52,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift effect list` | Lists the effects a crash left unknown that nothing can observe, such as an input to a session or a profile's hook, each with its worker, lane, and how it stands |
 | `ropeshift effect show <id>` | Shows one |
 | `ropeshift effect decide <id> --outcome O [--reason R]` | Says what became of one, which only a member can. `happened` and `not_happened` settle it. `retry` lets a run perform it again, so it may happen twice, and an ended lane has nothing left to retry it. An effect is decided once, and a retry a crash cuts short asks again |
+| `ropeshift notice list` | Says how each notice stands on each channel: its kind, its attempts, and whether a channel took it. Delivery is at least once, so more than one attempt with a delivery is a notice its channel may have heard twice. See [notifications](notifications.md) |
 | `ropeshift view <name> [--category C]` | Prints one read model of the web UI, as JSON: `needs-you`, `roadmap`, `plans`, `documents`, `decisions`, `questions`, `in-progress`, `on-hold`, `stuck`, `completed`, `shop-floor`, or `operations`. `--category` narrows `questions` and `decisions` |
 | `ropeshift events [--after N] [--limit N]` | Follows the ledger from a revision, one line for each event: what happened and to what, with none of a record's content. With `--limit` it stops after that many |
 | `ropeshift category list` | Lists the workspace's categories: the built-in ones and those it added |

@@ -87,6 +87,7 @@ const usage = `usage: ropeshift <command>
   effect list                                        list effects a crash left for a person to decide
   effect show <id>                                   show one, and what it lets a person say
   effect decide <id> --outcome O [--reason R]        say happened, not_happened, or retry
+  notice list                                        say what each channel was told, and how many times
   view <name> [--category C]                         print a read model, the web UI's data
   events [--after N] [--limit N]                     follow the ledger's events from a revision
   lane reset <work-order>                            let a lane its breaker stopped start again
@@ -126,7 +127,7 @@ func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
 		"question", "decision", "policy", "category", "search", "login", "sign-out", "passphrase", "message", "approval", "orchestrator",
-		"effect", "view", "events", "health", "top":
+		"effect", "view", "events", "health", "top", "notice":
 		return true
 	}
 	return false
@@ -284,6 +285,7 @@ func commands() map[string]func(*invocation, []string) int {
 		"orchestrator show":       (*invocation).orchestratorShow,
 		"orchestrator start":      setsOrchestrator(ledger.OrchestratorRunning),
 		"orchestrator stop":       setsOrchestrator(ledger.OrchestratorStopped),
+		"notice list":             (*invocation).noticeList,
 		"effect list":             (*invocation).effectList,
 		"effect show":             (*invocation).effectShow,
 		"effect decide":           (*invocation).effectDecide,

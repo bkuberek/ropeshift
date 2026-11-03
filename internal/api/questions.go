@@ -224,6 +224,20 @@ func (c *Client) LanePolicy(ctx context.Context, version int64) (authority.Polic
 	return out, err
 }
 
+// PoliciesOf lists the versions of one kind of policy, newest first.
+func (c *Client) PoliciesOf(ctx context.Context, kind authority.PolicyKind) ([]authority.PolicyVersion, error) {
+	var out PolicyList
+	err := c.Do(ctx, http.MethodGet, "/v1/policies?kind="+string(kind), nil, &out)
+	return out.Versions, err
+}
+
+// PolicyOf reads one version of one kind of policy.
+func (c *Client) PolicyOf(ctx context.Context, kind authority.PolicyKind, version int64) (authority.PolicyVersion, error) {
+	var out authority.PolicyVersion
+	err := c.Do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(kind), nil, &out)
+	return out, err
+}
+
 // PublishPolicy records a new version of the policy its body's table names.
 func (c *Client) PublishPolicy(ctx context.Context, body string) (authority.PolicyVersion, error) {
 	var out authority.PolicyVersion

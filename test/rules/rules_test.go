@@ -1,10 +1,12 @@
 package rules
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -228,6 +230,56 @@ func TestPortWithAFakePasses(t *testing.T) {
 	}
 	if len(violations) != 0 {
 		t.Errorf("a port with a fake reported %v", violations)
+	}
+}
+
+// offTheMachine matches each way Go code opens a connection, or reaches a client that can.
+var offTheMachine = regexp.MustCompile(`http\.Default(Client|Transport)|http\.(Get|Post|PostForm|Head)\(|(net|[dD]ialer)\.Dial(Timeout)?\(|\.DialContext\b`)
+
+// webhookFile is the one file that may open a connection off this machine, and only for a webhook a
+// member published.
+const webhookFile = "internal/adapters/notify/webhook.go"
+
+// TestOneWayOffTheMachine is what lets a test of the webhook's dial say that no connection opened: any
+// other dial must name a unix socket, and nothing may reach for Go's default client.
+func TestOneWayOffTheMachine(t *testing.T) {
+	root := repoRoot(t)
+	found := 0
+	for _, dir := range []string{"cmd", "internal"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !isSource(d.Name()) {
+				return err
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			for line := range strings.Lines(string(raw)) {
+				if !offTheMachine.MatchString(line) || strings.Contains(line, `"unix"`) {
+					continue
+				}
+				found++
+				if filepath.ToSlash(rel) != webhookFile {
+					t.Errorf("%s may open a connection: %s", rel, strings.TrimSpace(line))
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if found == 0 {
+		t.Fatal("the scan found not even the webhook, so it reads nothing")
+	}
+	for _, line := range []string{`http.Get(url)`, `client := http.DefaultClient`, `net.Dial("tcp", address)`, `dialer.DialContext(ctx, "tcp", address)`} {
+		if !offTheMachine.MatchString(line) {
+			t.Errorf("the scan would miss %s", line)
+		}
 	}
 }
 

@@ -405,6 +405,54 @@ func TestWorkSendBack(t *testing.T) {
 	}
 }
 
+// Each kind reads its own versions. A kind with no read of its own used to list the decision policy.
+func TestPolicyListReadsTheKindItNames(t *testing.T) {
+	s := newSession(t)
+	for _, kind := range []authority.PolicyKind{authority.PolicyDecision, authority.PolicyLane, authority.PolicyDelegation, authority.PolicyAutonomy, authority.PolicyNotify} {
+		var list api.PolicyList
+		if err := json.Unmarshal([]byte(s.must("policy", "list", "--kind", string(kind), "--json")), &list); err != nil {
+			t.Fatal(err)
+		}
+		if len(list.Versions) != 1 || list.Versions[0].Kind != kind {
+			t.Errorf("--kind %s listed %+v", kind, list.Versions)
+		}
+		var one authority.PolicyVersion
+		if err := json.Unmarshal([]byte(s.must("policy", "show", "1", "--kind", string(kind), "--json")), &one); err != nil {
+			t.Fatal(err)
+		}
+		if one.Kind != kind {
+			t.Errorf("--kind %s showed %+v", kind, one)
+		}
+	}
+}
+
+func TestANotifyPolicyPublishesAndHoldsNoSecret(t *testing.T) {
+	s := newSession(t)
+	path := filepath.Join(t.TempDir(), "notify.toml")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("[notify_policy]\nversion = 2\nwebhook_url = \"https://hooks.example.com/r?token=hunter2\"\n")
+	if code, _, _ := s.run("policy", "publish", "--file", path); code != cli.ExitUsage {
+		t.Errorf("a secret in the address: exit %d", code)
+	}
+	write("[notify_policy]\nversion = 2\ndesktop = true\nwebhook_channel = \"loud\"\n")
+	if code, _, _ := s.run("policy", "publish", "--file", path); code != cli.ExitUsage {
+		t.Errorf("a setting nobody reads: exit %d", code)
+	}
+	write("[notify_policy]\nversion = 2\ndesktop = true\nwebhook_url = \"https://hooks.example.com/r\"\nwebhook_secret_env = \"ROPESHIFT_WEBHOOK_KEY\"\n")
+	s.must("policy", "publish", "--file", path)
+	if text := s.must("policy", "show", "2", "--kind", "notify", "--json"); !strings.Contains(text, "ROPESHIFT_WEBHOOK_KEY") {
+		t.Errorf("show %q", text)
+	}
+	if text := s.must("notice", "list"); text != "" {
+		t.Errorf("no tick ran, and the list reads %q", text)
+	}
+}
+
 func TestHealthSaysWhereTheLedgerStands(t *testing.T) {
 	s := newSession(t)
 	if text := s.must("health"); !strings.HasPrefix(text, "ok\trevision ") {

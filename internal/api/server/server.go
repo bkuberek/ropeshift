@@ -65,11 +65,45 @@ type handler struct {
 	approvals  *control.Approvals
 	autonomy   *control.Autonomy
 	effects    *control.Effects
+	notices    *control.Notices
 }
 
 // New returns the versioned API.
 func New(config Config) http.Handler {
-	h := &handler{
+	h := newHandler(config)
+	mux := http.NewServeMux()
+	h.workerRoutes(mux)
+	h.planningRoutes(mux)
+	h.questionRoutes(mux)
+	h.messageRoutes(mux)
+	h.sessionRoutes(mux)
+	h.approvalRoutes(mux)
+	h.orchestratorRoutes(mux)
+	h.autonomyRoutes(mux)
+	h.effectRoutes(mux)
+	h.viewRoutes(mux)
+	h.eventRoutes(mux)
+	h.noticeRoutes(mux)
+	mux.HandleFunc("GET /v1/health", h.health)
+	mux.HandleFunc("GET /v1/sources", h.sources)
+	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
+	mux.HandleFunc("GET /v1/work-orders", h.listWorkOrders)
+	mux.HandleFunc("GET /v1/work-orders/{id}", h.showWorkOrder)
+	mux.HandleFunc("POST /v1/work-orders/{id}/review", h.member(h.review))
+	mux.HandleFunc("GET /v1/work-orders/{id}/acceptance", h.acceptance)
+	mux.HandleFunc("POST /v1/work-orders/{id}/accept", h.member(h.accept))
+	mux.HandleFunc("POST /v1/work-orders/{id}/rework", h.member(h.rework))
+	mux.HandleFunc("POST /v1/work-orders/{id}/claims", h.claim)
+	mux.HandleFunc("POST /v1/work-orders/{id}/claims/{claim}/release", h.member(h.release))
+	mux.HandleFunc("POST /v1/work-orders/{id}/reassign", h.member(h.reassign))
+	mux.HandleFunc("POST /v1/work-orders/{id}/cancel", h.member(h.cancel))
+	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.member(h.startLane))
+	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.member(h.write))
+	return mux
+}
+
+func newHandler(config Config) *handler {
+	return &handler{
 		Config:     config,
 		workOrders: control.NewWorkOrders(config.Store),
 		leases:     control.NewLeases(config.Store).Budgeted(config.PackTokens),
@@ -87,35 +121,8 @@ func New(config Config) http.Handler {
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens, Matcher: config.Matcher,
 		}),
+		notices: control.NewNotices(config.Store, func(authority.NotifyPolicy) []ports.Notifier { return nil }),
 	}
-	mux := http.NewServeMux()
-	h.workerRoutes(mux)
-	h.planningRoutes(mux)
-	h.questionRoutes(mux)
-	h.messageRoutes(mux)
-	h.sessionRoutes(mux)
-	h.approvalRoutes(mux)
-	h.orchestratorRoutes(mux)
-	h.autonomyRoutes(mux)
-	h.effectRoutes(mux)
-	h.viewRoutes(mux)
-	h.eventRoutes(mux)
-	mux.HandleFunc("GET /v1/health", h.health)
-	mux.HandleFunc("GET /v1/sources", h.sources)
-	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
-	mux.HandleFunc("GET /v1/work-orders", h.listWorkOrders)
-	mux.HandleFunc("GET /v1/work-orders/{id}", h.showWorkOrder)
-	mux.HandleFunc("POST /v1/work-orders/{id}/review", h.member(h.review))
-	mux.HandleFunc("GET /v1/work-orders/{id}/acceptance", h.acceptance)
-	mux.HandleFunc("POST /v1/work-orders/{id}/accept", h.member(h.accept))
-	mux.HandleFunc("POST /v1/work-orders/{id}/rework", h.member(h.rework))
-	mux.HandleFunc("POST /v1/work-orders/{id}/claims", h.claim)
-	mux.HandleFunc("POST /v1/work-orders/{id}/claims/{claim}/release", h.member(h.release))
-	mux.HandleFunc("POST /v1/work-orders/{id}/reassign", h.member(h.reassign))
-	mux.HandleFunc("POST /v1/work-orders/{id}/cancel", h.member(h.cancel))
-	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.member(h.startLane))
-	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.member(h.write))
-	return mux
 }
 
 func decode(w http.ResponseWriter, r *http.Request, into any) bool {
@@ -168,7 +175,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, authority.ErrRiskNotAcknowledged):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeRiskNotAcknowledged, Message: err.Error()})

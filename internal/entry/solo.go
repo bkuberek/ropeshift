@@ -72,6 +72,7 @@ type soloOptions struct {
 	intakeTick time.Duration
 	batchTick  time.Duration
 	wakeTick   time.Duration
+	notifyTick time.Duration
 	leaseTTL   time.Duration
 	heartbeat  time.Duration
 }
@@ -97,6 +98,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.DurationVar(&opts.intakeTick, "intake-tick", 30*time.Second, "how often sources are polled")
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
 	flags.DurationVar(&opts.wakeTick, "wake-tick", time.Second, "how often due wakes are evaluated")
+	flags.DurationVar(&opts.notifyTick, "notify-tick", 30*time.Second, "how often members are told what waits")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
 	if err := flags.Parse(args); err != nil {
@@ -211,7 +213,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		defer webServer.Close()
 	}
 
-	ticks := soloTicks(store, opts, batches, windows)
+	ticks := append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick))
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)

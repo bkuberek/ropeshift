@@ -28,6 +28,7 @@ var childRoles = map[string]func(*child) error{
 	"release":           roleRelease,
 	"reassign":          roleReassign,
 	"cancel":            roleCancel,
+	"notify":            roleNotify,
 	"lane-start":        roleLaneStart,
 	"fenced-write":      roleFencedWrite,
 	"handoff":           roleHandoff,
