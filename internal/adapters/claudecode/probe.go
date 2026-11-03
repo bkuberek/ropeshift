@@ -166,7 +166,9 @@ func (p *prober) accept(ctx context.Context) {
 	p.set(SurfaceSocketDir, observed(socket != "", s.private(socket)))
 	p.set(SurfaceUnifiedWindows, observed(hasLimit, windows))
 	p.set(SurfaceCommandLifecycle, observed(turn, s.saw("command_lifecycle")))
-	if p.spec.SignIn == ports.SignInSubscription {
+	// A sign-in nobody could read is a subscription, as it is everywhere else, so only an API key's
+	// probe leaves the login unchecked.
+	if p.spec.SignIn != ports.SignInAPIKey {
 		login := init.APIKeySource == "none" && init.MessagingSocket != "" && hasLimit
 		p.set(SurfacePrintKeepsLogin, observed(hasInit, login))
 	}

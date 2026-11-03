@@ -14,10 +14,10 @@ Each surface has one check and one use. A surface whose check failed, or could n
 | `socket_dir` | `CLAUDE_CODE_TMPDIR` moves the socket into the lane's own directory, within the path limit | The socket stays where the CLI puts it |
 | `unified_windows` | A `rate_limit_event` carries a window's `utilization` | The near-limit watch reads the top-level figures only |
 | `command_lifecycle` | The stream reports it | Nothing: the design does not need it |
-| `print_keeps_login` | On a subscription, `system/init` reports `apiKeySource` `none` and a `messaging_socket_path`, and a `rate_limit_event` arrives | A subscription has no headless lane, and its lanes run in tmux |
+| `print_keeps_login` | On a subscription, `system/init` reports `apiKeySource` `none` and a `messaging_socket_path`, and a `rate_limit_event` arrives | A subscription has no headless lane, and a new lane its profile sends headless starts in tmux |
 | `start_screens` | A pane in a new directory reaches the prompt through the start check | Nothing beyond the start check, which stops on any screen it does not know |
 
-A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle` and `peer_message_hold` are reported and never degrade a version, and the login check counts only on a subscription.
+A version where any surface ropeshift relies on did not pass runs in `degraded_mode`. The lane shows the condition, and the driver uses documented surfaces in its place. `command_lifecycle` and `peer_message_hold` are reported and never degrade a version. The login check runs on every sign-in but an API key, because a sign-in nobody could read counts as a subscription.
 
 ## Where results come from
 

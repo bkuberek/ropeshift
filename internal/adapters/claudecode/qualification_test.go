@@ -86,6 +86,11 @@ func TestASurfaceOnlyCountsWhereItIsUsed(t *testing.T) {
 	if claudecode.Judge(probed("9.9.9", claudecode.SurfaceStartScreens), false).Degraded {
 		t.Error("a driver with no terminal matches no screen, and the screens degraded it")
 	}
+	unknown := probed("9.9.9", claudecode.SurfacePrintKeepsLogin)
+	unknown.SignIn = ""
+	if !claudecode.Judge(unknown, true).Degraded {
+		t.Error("a sign-in nobody could read is a subscription, and its lost login degraded nothing")
+	}
 }
 
 func TestTheShippedMatrixIsWellFormed(t *testing.T) {
@@ -237,10 +242,20 @@ func TestALostLoginOnPrintRemovesHeadlessForASubscription(t *testing.T) {
 	if slices.Contains(got.RunModes, ports.RunModeHeadless) || !slices.Contains(got.RunModes, ports.RunModeInteractive) {
 		t.Errorf("run modes %v", got.RunModes)
 	}
+	unknown := probed("2.1.399", claudecode.SurfacePrintKeepsLogin)
+	unknown.SignIn = ""
+	driver.Qualify(unknown)
+	if got, _ := driver.Capabilities(t.Context()); slices.Contains(got.RunModes, ports.RunModeHeadless) {
+		t.Errorf("a sign-in nobody could read kept headless lanes after its login check failed: %v", got.RunModes)
+	}
 	key := probed("2.1.399", claudecode.SurfacePrintKeepsLogin)
 	key.SignIn = ports.SignInAPIKey
 	driver.Qualify(key)
 	if got, _ := driver.Capabilities(t.Context()); !slices.Contains(got.RunModes, ports.RunModeHeadless) {
 		t.Errorf("an API key lost its headless lanes: %v", got.RunModes)
+	}
+	driver.Qualify(lanes.Qualification{})
+	if got, _ := driver.Capabilities(t.Context()); !slices.Contains(got.RunModes, ports.RunModeHeadless) {
+		t.Errorf("a version no probe has checked lost its headless lanes: %v", got.RunModes)
 	}
 }

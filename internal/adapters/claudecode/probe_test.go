@@ -134,6 +134,19 @@ func TestAProbeOnAnAPIKeyLeavesTheLoginUnobserved(t *testing.T) {
 	}
 }
 
+// A sign-in nobody could read is a subscription, as everywhere else, so the login check runs.
+func TestAProbeOnAnUnknownSignInChecksTheLogin(t *testing.T) {
+	driver, spec, _ := probeRig(t, "login")
+	spec.SignIn = ""
+	q, err := driver.Probe(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Checks[claudecode.SurfacePrintKeepsLogin] != lanes.CheckFailed || !q.Degraded {
+		t.Errorf("qualification %+v", q)
+	}
+}
+
 // A version that changes while the probe runs leaves a result that names no one version.
 func TestAProbeRefusesAVersionThatMovedUnderIt(t *testing.T) {
 	driver, spec, path := probeRig(t, "start_screens")

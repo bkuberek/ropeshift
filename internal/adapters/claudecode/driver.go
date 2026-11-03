@@ -226,10 +226,10 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 	q := d.qualificationFor(version)
 	use := UseOf(q)
 	var modes []string
-	// A probe on a subscription that saw `-p` lose its login leaves no headless lane there, and the
-	// tmux fallback in ADR-0002 is what is left. A version with no such probe keeps the mode, because
-	// an API key's lanes never needed the login.
-	if q.SignIn != ports.SignInSubscription || use.HeadlessOnSubscription {
+	// A probe on a subscription, or on a sign-in nobody could read, that did not see `-p` keep its
+	// login leaves no headless lane, and the tmux fallback in ADR-0002 is what is left. A version no
+	// probe checked keeps the mode, and so does an API key, whose lanes never needed the login.
+	if q.Source != lanes.QualifiedByProbe || q.SignIn == ports.SignInAPIKey || use.HeadlessOnSubscription {
 		modes = append(modes, ports.RunModeHeadless)
 	}
 	if d.terminal != nil {

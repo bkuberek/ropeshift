@@ -112,6 +112,8 @@ type AgentDriver struct {
 	probes    []ports.ProbeSpec
 	probeHold chan struct{}
 	probeErr  error
+	// noHeadless stands for a version whose `-p` lost a subscription's login.
+	noHeadless bool
 }
 
 // compactInput is what a compaction reads as, in a list of inputs.
@@ -160,6 +162,13 @@ func (d *AgentDriver) SetPeerChannel(on bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.noPeerChannel = !on
+}
+
+// SetHeadless says whether this driver offers headless sessions.
+func (d *AgentDriver) SetHeadless(on bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.noHeadless = !on
 }
 
 // SetNativeResume says whether this driver can continue a session.
@@ -291,8 +300,12 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 	if d.noCompact {
 		compact = ""
 	}
+	modes := []string{ports.RunModeHeadless, ports.RunModeInteractive}
+	if d.noHeadless {
+		modes = modes[1:]
+	}
 	return ports.Capabilities{
-		RunModes: []string{ports.RunModeHeadless, ports.RunModeInteractive}, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
+		RunModes: modes, ApprovalChannel: ports.ApprovalHook, DeferredTurn: true,
 		Injection: injection, ContextReport: ports.ContextLive, Compact: compact,
 		NativeResume: !d.noResume, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},

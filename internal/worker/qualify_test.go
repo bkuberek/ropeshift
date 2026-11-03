@@ -10,6 +10,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/adapters/fake"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/worker"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
@@ -123,6 +124,29 @@ func TestAQualificationReplaysFromTheLog(t *testing.T) {
 	if got := replayed[key]; got.Version != stored.Version || got.Degraded != stored.Degraded || len(replayed) != 1 {
 		t.Errorf("the log replays to %+v, and the worker holds %+v", replayed, stored)
 	}
+}
+
+// TestALaneWithNoHeadlessModeRunsInTmux is ADR-0002's fallback: a version whose `-p` lost a
+// subscription's login offers no headless lane, so a lane its profile sends headless starts in tmux.
+func TestALaneWithNoHeadlessModeRunsInTmux(t *testing.T) {
+	r := laneRigWith(t, "run_mode = \"headless\"\n")
+	r.driver.SetHeadless(false)
+	r.driver.Play(completedLane(r))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.subject.Wait()
+	specs := r.driver.Specs()
+	if len(specs) != 1 || specs[0].RunMode != ports.RunModeInteractive {
+		t.Fatalf("sessions %d, the first in %q", len(specs), firstMode(specs))
+	}
+}
+
+func firstMode(specs []ports.SessionSpec) string {
+	if len(specs) == 0 {
+		return ""
+	}
+	return specs[0].RunMode
 }
 
 // A CLI that updates itself under a running worker is probed again before its next session, and

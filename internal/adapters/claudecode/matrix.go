@@ -150,16 +150,16 @@ func unqualified(version string) lanes.Qualification {
 	return q
 }
 
-// judged sets Degraded: a surface this driver relies on did not pass. The login check counts only
-// where a subscription's login was there to read, and the screens only for a driver with a
-// terminal, because neither surface is used anywhere else.
+// judged sets Degraded: a surface this driver relies on did not pass. The login check counts
+// wherever a probe ran on anything but an API key, because a sign-in nobody could read is a
+// subscription, and the screens count only for a driver with a terminal.
 func judged(q lanes.Qualification, interactive bool) lanes.Qualification {
 	q.Degraded = false
 	for _, surface := range Surfaces {
 		switch {
 		case isNoted(surface):
 			continue
-		case surface == SurfacePrintKeepsLogin && q.Source == lanes.QualifiedByProbe && q.SignIn != ports.SignInSubscription:
+		case surface == SurfacePrintKeepsLogin && q.Source == lanes.QualifiedByProbe && q.SignIn == ports.SignInAPIKey:
 			continue
 		case surface == SurfaceStartScreens && !interactive:
 			continue

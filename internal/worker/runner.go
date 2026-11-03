@@ -664,6 +664,13 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if r.resumeFrom != "" && r.startedMode != "" {
 		mode = r.startedMode
 	}
+	// A version whose `-p` lost a subscription's login offers no headless lane, and ADR-0002 falls
+	// back to tmux. A session that goes on cannot change its mode, so only a fresh one moves.
+	if mode == ports.RunModeHeadless && r.resumeFrom == "" && !slices.Contains(capabilities.RunModes, mode) &&
+		slices.Contains(capabilities.RunModes, ports.RunModeInteractive) {
+		r.w.config.Report(fmt.Errorf("lane %s: version %s offers no headless lane on this sign-in, so it runs in tmux", r.lease.Lane, capabilities.Version))
+		mode = ports.RunModeInteractive
+	}
 	r.startedMode = mode
 	if !slices.Contains(capabilities.RunModes, mode) {
 		return ports.SessionSpec{}, fmt.Errorf("the driver has no run mode %q", mode)
