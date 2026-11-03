@@ -1,8 +1,9 @@
 // Command fakeclaude stands for the agent CLI in every layer but the real one. It
 // reads the flags the real driver passes, speaks stream-json from a fixture, runs the
 // generated hook commands, and calls the generated MCP server, so the real driver,
-// hooks, and MCP server run with no session. It holds no credential and reaches no
-// network.
+// hooks, and MCP server run with no session. It holds no credential and reaches nothing
+// past loopback: with telemetry on, it sends what the real CLI would to the receiver its
+// environment names.
 package main
 
 import (
@@ -164,6 +165,8 @@ type session struct {
 	settings settings
 	server   *mcpClient
 	costUSD  float64
+	// telemetrySent says the first prompt's telemetry went out.
+	telemetrySent bool
 	// pane means this session draws on a terminal and writes no stream, and keys is what it reads.
 	pane bool
 	keys <-chan string
@@ -468,6 +471,10 @@ func (s *session) run() {
 				return
 			}
 			witness("prompts", strconv.Quote(messageText(line)))
+			if !s.telemetrySent {
+				s.telemetrySent = true
+				sendTelemetry(messageText(line))
+			}
 			s.replay(line)
 			if messageText(line) == "/clear" {
 				s.clearOnStream()

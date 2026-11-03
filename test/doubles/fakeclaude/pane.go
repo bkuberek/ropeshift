@@ -268,6 +268,7 @@ func (s *session) runPane() {
 		fail("%v", err)
 	}
 	draw(fmt.Sprintf(screenReady, ""))
+	sendTelemetry("")
 	if !script.NoSessionStart {
 		source := "startup"
 		if s.opts.resume != "" {

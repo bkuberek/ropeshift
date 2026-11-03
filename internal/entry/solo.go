@@ -74,8 +74,10 @@ type soloOptions struct {
 	batchTick  time.Duration
 	wakeTick   time.Duration
 	notifyTick time.Duration
-	leaseTTL   time.Duration
-	heartbeat  time.Duration
+	// telemetryTick is how often the ledger is read into spans, and the emitter flushes at twice it.
+	telemetryTick time.Duration
+	leaseTTL      time.Duration
+	heartbeat     time.Duration
 }
 
 type repeatedFlag []string
@@ -101,6 +103,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
 	flags.DurationVar(&opts.wakeTick, "wake-tick", time.Second, "how often due wakes are evaluated")
 	flags.DurationVar(&opts.notifyTick, "notify-tick", 30*time.Second, "how often members are told what waits")
+	flags.DurationVar(&opts.telemetryTick, "telemetry-tick", defaultSpansEvery, "how often the ledger is read into spans and metrics")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
 	if err := flags.Parse(args); err != nil {
@@ -197,7 +200,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
-	telemetry, err := startTelemetry(ctx, paths, opts.telemetry, liveTelemetryDeps(), stdout, stderr)
+	telemetry, err := startTelemetry(ctx, paths, opts.telemetry, liveTelemetryDeps(opts.telemetryTick), stdout, stderr)
 	if err != nil {
 		return err
 	}
@@ -221,7 +224,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		defer webServer.Close()
 	}
 
-	spans, err := spansTick(ctx, store, telemetry.emitter)
+	spans, err := telemetry.spansTick(ctx, store)
 	if err != nil {
 		return err
 	}

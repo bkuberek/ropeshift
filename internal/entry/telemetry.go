@@ -34,11 +34,12 @@ const (
 	telemetryTokenFile = "telemetry.token"
 )
 
-// How often each telemetry loop runs.
+// How often the store is held to its bounds, and the default of how often the ledger is read into
+// spans. The emitter flushes at twice the reading's interval.
 const (
-	emitEvery      = 10 * time.Second
-	retentionEvery = time.Minute
-	spansEvery     = 5 * time.Second
+	retentionEvery     = time.Minute
+	defaultSpansEvery  = 5 * time.Second
+	flushesPerReadings = 2
 )
 
 // telemetryDeps is every way telemetry reaches past this process, so a test can hold all of them.
@@ -47,10 +48,19 @@ type telemetryDeps struct {
 	// Dial opens every connection the exporter opens. Nil is the exporter's own.
 	Dial otel.Dial
 	Now  func() time.Time
+	// Every is how often the ledger is read into spans. Zero takes the default.
+	Every time.Duration
 }
 
-func liveTelemetryDeps() telemetryDeps {
-	return telemetryDeps{Lookup: os.LookupEnv, Now: time.Now}
+func liveTelemetryDeps(every time.Duration) telemetryDeps {
+	return telemetryDeps{Lookup: os.LookupEnv, Now: time.Now, Every: every}
+}
+
+func (d telemetryDeps) every() time.Duration {
+	if d.Every <= 0 {
+		return defaultSpansEvery
+	}
+	return d.Every
 }
 
 // soloTelemetry is the worker's telemetry: its store, its receiver, the emitter of its own spans and
@@ -64,6 +74,7 @@ type soloTelemetry struct {
 	settings lanes.TelemetrySettings
 	loops    sync.WaitGroup
 	cancel   context.CancelFunc
+	every    time.Duration
 }
 
 // soloTelemetrySettings reads the worker's part of the user's layer. A layer that does not parse
@@ -151,7 +162,7 @@ func openTelemetry(ctx context.Context, paths api.Paths, address string, deps te
 		_ = store.Close()
 		return nil, err
 	}
-	t.run(ctx, report, deps.Now)
+	t.run(ctx, report, deps)
 	return t, nil
 }
 
@@ -192,7 +203,9 @@ func (t *soloTelemetry) listen(ctx context.Context, paths api.Paths, address str
 	return nil
 }
 
-func (t *soloTelemetry) run(ctx context.Context, report func(error), now func() time.Time) {
+func (t *soloTelemetry) run(ctx context.Context, report func(error), deps telemetryDeps) {
+	now := deps.Now
+	t.every = deps.every()
 	t.loops.Add(3)
 	go func() {
 		defer t.loops.Done()
@@ -200,7 +213,7 @@ func (t *soloTelemetry) run(ctx context.Context, report func(error), now func() 
 	}()
 	go func() {
 		defer t.loops.Done()
-		t.emitter.Run(ctx, emitEvery)
+		t.emitter.Run(ctx, flushesPerReadings*t.every)
 	}()
 	go func() {
 		defer t.loops.Done()
@@ -235,14 +248,14 @@ func (t *soloTelemetry) close() {
 
 // spansTick follows the ledger into spans and metrics, from where the log stood when the daemon
 // started.
-func spansTick(ctx context.Context, store ports.Store, telemetry ports.Telemetry) (control.Tick, error) {
-	spans := control.NewSpans(store, telemetry)
+func (t *soloTelemetry) spansTick(ctx context.Context, store ports.Store) (control.Tick, error) {
+	spans := control.NewSpans(store, t.emitter)
 	if err := spans.StartAtHead(ctx, soloScope); err != nil {
 		return control.Tick{}, err
 	}
 	return control.Tick{
 		Name:  "telemetry",
-		Every: spansEvery,
+		Every: t.every,
 		Run: func(ctx context.Context) error {
 			_, err := spans.Project(ctx, soloScope)
 			return err
