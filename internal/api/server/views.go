@@ -370,12 +370,33 @@ func (h *handler) readStuck(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	return api.Stuck{Stamp: stamp, Items: items}, err
 }
 
-// plansByTitle lists plans the way a person looks one up. Most plan IDs are generated, so an order by
-// ID would read as no order at all.
+// plansByTitle lists the plans a person made, the way a person looks one up. Most plan IDs are
+// generated, so an order by ID would read as no order at all. Recording a review makes a plan to carry
+// its contract, which is how the ledger holds work, and the review stands under the plan it reads.
 func plansByTitle(tx ports.ReadTx) ([]planning.Plan, error) {
 	plans, err := tx.Planning().Plans()
+	if err != nil {
+		return nil, err
+	}
+	contracts, err := tx.Planning().Contracts()
+	if err != nil {
+		return nil, err
+	}
+	orders, err := tx.WorkOrders().List()
+	if err != nil {
+		return nil, err
+	}
+	reviewing := map[string]bool{}
+	for _, order := range orders {
+		reviewing[order.ContractID] = order.ReviewsPlan != ""
+	}
+	carriers := map[string]bool{}
+	for _, contract := range contracts {
+		carriers[contract.PlanID] = carriers[contract.PlanID] || reviewing[contract.ID]
+	}
+	plans = slices.DeleteFunc(plans, func(plan planning.Plan) bool { return carriers[plan.ID] })
 	slices.SortStableFunc(plans, func(a, b planning.Plan) int { return cmp.Or(cmp.Compare(a.Title, b.Title), cmp.Compare(a.ID, b.ID)) })
-	return plans, err
+	return plans, nil
 }
 
 func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {

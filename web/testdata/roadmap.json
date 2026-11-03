@@ -95,18 +95,6 @@
           "plan": {
             "id": "generated-7",
             "status": "active",
-            "title": "Review Write the docs"
-          },
-          "states": {
-            "ready": 1
-          },
-          "total": 1
-        },
-        {
-          "done": 0,
-          "plan": {
-            "id": "generated-8",
-            "status": "active",
             "title": "Rotate the keys"
           },
           "states": {
@@ -117,7 +105,7 @@
         {
           "done": 1,
           "plan": {
-            "id": "generated-9",
+            "id": "generated-8",
             "status": "active",
             "title": "Ship the first cut"
           },
@@ -129,7 +117,7 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-10",
+            "id": "generated-9",
             "status": "active",
             "title": "Tag the release"
           },
@@ -141,7 +129,7 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-11",
+            "id": "generated-10",
             "status": "active",
             "title": "Trim the log"
           },
@@ -153,7 +141,7 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-12",
+            "id": "generated-11",
             "status": "active",
             "title": "Try the impossible"
           },
@@ -165,7 +153,7 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-13",
+            "id": "generated-12",
             "status": "active",
             "title": "Wait for the check"
           },

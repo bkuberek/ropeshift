@@ -536,6 +536,28 @@ func TestPlansListWorkNoPlanHolds(t *testing.T) {
 	}
 }
 
+// Recording a review makes a plan and a contract to carry it, which is how the ledger holds work and
+// nothing a person planned. A review stands under the plan it reads.
+func TestAReviewAddsNoPlanToWhatAPersonReads(t *testing.T) {
+	d, _, _ := aWorld(t)
+	before := readView[api.Plans](t, d, api.ViewPlans, "")
+	plan := before.Plans[0]
+	if _, err := d.Client.ReviewPlan(t.Context(), plan.Plan.ID, api.ReviewPlan{ID: "review-1"}); err != nil {
+		t.Fatal(err)
+	}
+	after := readView[api.Plans](t, d, api.ViewPlans, "")
+	if len(after.Plans) != len(before.Plans) {
+		t.Errorf("%d plans became %d", len(before.Plans), len(after.Plans))
+	}
+	planned := 0
+	for _, group := range readView[api.Roadmap](t, d, api.ViewRoadmap, "").Goals {
+		planned += len(group.Plans)
+	}
+	if planned != len(before.Plans) {
+		t.Errorf("the roadmap holds %d plans, want %d", planned, len(before.Plans))
+	}
+}
+
 func TestPlansLeaveOutOfUnplannedWhatAPlanHolds(t *testing.T) {
 	d, _, _ := aWorld(t)
 	plan := readView[api.Plans](t, d, api.ViewPlans, "").Plans[0]
