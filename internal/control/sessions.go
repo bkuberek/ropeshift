@@ -140,6 +140,11 @@ func (s *Sessions) End(ctx context.Context, scope ledger.WorkspaceID, token stri
 	})
 }
 
+// Enrolled says whether a passphrase is set, so a first run knows whether to ask for one.
+func (s *Sessions) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool, error) {
+	return s.identity.Enrolled(ctx, scope)
+}
+
 // Enroll sets a passphrase. A caller with no session counts as the first enrollment, and
 // the provider refuses that once a passphrase is set.
 func (s *Sessions) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof, token string) error {

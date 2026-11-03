@@ -224,7 +224,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
-		Telemetry: telemetry.store,
+		Telemetry: telemetry.store, Backup: sqlite.LedgerBackup{File: filepath.Join(paths.StateDir, api.LedgerFileName)},
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)

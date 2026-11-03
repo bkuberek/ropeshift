@@ -91,6 +91,8 @@ func cliOptions() cli.Options {
 	}
 	opts.Socket = paths.ControlSocket()
 	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx, paths) }
+	opts.StartDaemon = startDaemonForInit(paths)
+	opts.StateDir = paths.StateDir
 	return opts
 }
 

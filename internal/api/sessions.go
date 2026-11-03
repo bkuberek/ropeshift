@@ -28,6 +28,18 @@ type SetPassphrase struct {
 	Passphrase string `json:"passphrase"`
 }
 
+// PassphraseState says whether a passphrase is set. It says nothing else of it.
+type PassphraseState struct {
+	Set bool `json:"set"`
+}
+
+// Passphrase reads whether a passphrase is set, which needs no session.
+func (c *Client) Passphrase(ctx context.Context) (PassphraseState, error) {
+	var out PassphraseState
+	err := c.Do(ctx, http.MethodGet, "/v1/passphrase", nil, &out)
+	return out, err
+}
+
 // SignIn opens a session.
 func (c *Client) SignIn(ctx context.Context, in SignIn) (Session, error) {
 	var out Session

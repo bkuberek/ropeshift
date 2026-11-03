@@ -121,6 +121,8 @@ const usage = `usage: ropeshift <command>
   worker acknowledge-risk <id> --digest D            stand behind that statement, for one worker
   worker window-open <id> [--for D] [--id I]         let an attended worker claim for a while
   worker window-close <id>                           end its window, which stops no lane
+  init                                               set up this machine: passphrase, worker, doctor, sample
+  backup <file>                                      copy the ledger to a new file while the daemon runs
   version                                            print the version
 
 Every command takes --json and --socket. docs/cli.md lists the exit codes.
@@ -131,7 +133,7 @@ func IsCommand(word string) bool {
 	switch word {
 	case "work", "lane", "source", "worker", "fleet", "plan", "requirement", "document",
 		"question", "decision", "policy", "category", "search", "login", "sign-out", "passphrase", "message", "approval", "orchestrator",
-		"effect", "view", "events", "health", "top", "notice", "telemetry", "measures":
+		"effect", "view", "events", "health", "top", "notice", "telemetry", "measures", "init", "backup":
 		return true
 	}
 	return false
@@ -148,6 +150,11 @@ type Options struct {
 	ReadPassphrase func(prompt string) (string, error)
 	// Terminal is the keyboard, when both ends of this process are a terminal. A live view needs one.
 	Terminal io.Reader
+	// StartDaemon runs the daemon for the length of one command, and returns how to stop it. A first
+	// run needs one, because a daemon's first start registers its worker.
+	StartDaemon func(context.Context) (func() error, error)
+	// StateDir is the installation's own directory, where a first run writes its sample contract.
+	StateDir string
 }
 
 // invocation is one running command.
@@ -155,6 +162,8 @@ type invocation struct {
 	doctor         func(context.Context) (ledger.Manifest, error)
 	readPassphrase func(prompt string) (string, error)
 	terminal       io.Reader
+	startDaemon    func(context.Context) (func() error, error)
+	stateDir       string
 	ctx            context.Context
 	stdout         io.Writer
 	stderr         io.Writer
@@ -170,6 +179,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
 		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
+		startDaemon: opts.StartDaemon, stateDir: opts.StateDir,
 	}
 	if len(args) > 0 {
 		if command, ok := singleWords[args[0]]; ok {
@@ -199,6 +209,8 @@ var singleWords = map[string]func(*invocation, []string) int{
 	"health":   (*invocation).health,
 	"top":      (*invocation).runTop,
 	"measures": (*invocation).measuresCommand,
+	"init":     (*invocation).initMachine,
+	"backup":   (*invocation).backup,
 }
 
 // HasCommand reports a command, as a person would type it.

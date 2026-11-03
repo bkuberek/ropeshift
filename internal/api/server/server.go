@@ -50,6 +50,9 @@ type Config struct {
 	LongParkedMs int64
 	// Telemetry reads the local worker's telemetry store. Nil has none, and its reads answer empty.
 	Telemetry ports.TelemetryReader
+	// Backup copies the ledger while it runs. Nil has none, as on Postgres, which a team backs up
+	// with its own tooling.
+	Backup ports.LedgerBackup
 }
 
 type handler struct {
@@ -88,6 +91,7 @@ func New(config Config) http.Handler {
 	h.noticeRoutes(mux)
 	h.telemetryRoutes(mux)
 	h.measureRoutes(mux)
+	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
