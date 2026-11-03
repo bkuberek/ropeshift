@@ -74,7 +74,11 @@ func newInstall(t *testing.T) *install {
 	if binaries.err != nil {
 		t.Fatal(binaries.err)
 	}
-	return &install{t: t, home: apitest.ShortDir(t), path: doubles.InstallFakeClaude(t, "no-session"), member: true}
+	in := &install{t: t, home: apitest.ShortDir(t), path: doubles.InstallFakeClaude(t, "no-session"), member: true}
+	// A daemon's terminal server outlives it by design, and a qualification probe can open a pane on
+	// it in any lane's test, so every install ends its server, after its daemons and before its files.
+	doubles.EndTmuxOn(t, in.paths().TerminalSocket())
+	return in
 }
 
 func (in *install) env() []string {

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -142,6 +143,7 @@ func InstallFakeClaude(t testing.TB, fixture string) string {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
+	t.Cleanup(func() { reapProbes(dir) })
 	if err := os.Symlink(path, filepath.Join(dir, "claude")); err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +151,35 @@ func InstallFakeClaude(t testing.TB, fixture string) string {
 		t.Fatal(err)
 	}
 	return dir + string(os.PathListSeparator) + CanaryPath(t)
+}
+
+// reapProbes ends what a qualification probe of a killed daemon left of this double, before its
+// directory goes: each session it recorded under its process ID, and only while that process still
+// runs this double's binary, so a reused ID is left alone.
+func reapProbes(dir string) {
+	entries, err := os.ReadDir(filepath.Join(dir, SeenDir+"-probe"))
+	if err != nil {
+		return
+	}
+	var held []int
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(strings.TrimSuffix(entry.Name(), ".json"))
+		if err != nil || pid <= 0 {
+			continue
+		}
+		out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+		if err != nil || !strings.Contains(string(out), dir) {
+			continue
+		}
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		held = append(held, pid)
+	}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		alive := slices.DeleteFunc(slices.Clone(held), func(pid int) bool { return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) })
+		if len(alive) == 0 {
+			return
+		}
+	}
 }
 
 // InstallFakeClaudeVersion is InstallFakeClaude with the version the double reports, so a test can
@@ -274,6 +305,21 @@ func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
 		}
 	})
 	return terminal
+}
+
+// EndTmuxOn ends the terminal server on a socket when a test ends, if one is running there, with no
+// terminal of the test's own.
+func EndTmuxOn(t testing.TB, socket string) {
+	t.Helper()
+	t.Cleanup(func() {
+		binary, err := exec.LookPath(tmux.Binary)
+		if err != nil {
+			return
+		}
+		kill := exec.Command(binary, "-S", socket, "kill-server")
+		kill.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket)}
+		_ = kill.Run()
+	})
 }
 
 // KillTmux closes one pane when a test ends, which ends a server with no other pane.
