@@ -219,6 +219,11 @@ const (
 	Drifted          Condition = "drifted"
 )
 
+// EveryCondition lists the conditions, in the design's order.
+var EveryCondition = []Condition{
+	Stalled, Overdue, WaitingExternal, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode, UnpushedWork, Drifted,
+}
+
 // Facts is what a lane's conditions derive from.
 type Facts struct {
 	State ActualState

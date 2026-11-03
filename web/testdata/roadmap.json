@@ -1,10 +1,15 @@
 {
-  "as_of": 1790000540001,
+  "as_of": 1790000780001,
   "goals": [
     {
       "goal": {
         "id": "goal-1",
+        "statement": "One machine runs the whole product.",
         "status": "active",
+        "success_measures": [
+          "A lane survives a restart",
+          "A person reads <img src=x onerror=alert(1)><script>alert(2)</script>"
+        ],
         "title": "Ship solo mode"
       },
       "plans": [
@@ -42,6 +47,18 @@
           "plan": {
             "id": "generated-3",
             "status": "active",
+            "title": "Drop the old plan"
+          },
+          "states": {
+            "canceled": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-4",
+            "status": "active",
             "title": "Fix the flaky test"
           },
           "states": {
@@ -52,7 +69,7 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-4",
+            "id": "generated-5",
             "status": "active",
             "title": "Move the archive"
           },
@@ -64,7 +81,7 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-5",
+            "id": "generated-6",
             "status": "active",
             "title": "Read the logs"
           },
@@ -76,7 +93,19 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-6",
+            "id": "generated-7",
+            "status": "active",
+            "title": "Review Write the docs"
+          },
+          "states": {
+            "ready": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-8",
             "status": "active",
             "title": "Rotate the keys"
           },
@@ -86,9 +115,21 @@
           "total": 1
         },
         {
+          "done": 1,
+          "plan": {
+            "id": "generated-9",
+            "status": "active",
+            "title": "Ship the first cut"
+          },
+          "states": {
+            "done": 1
+          },
+          "total": 1
+        },
+        {
           "done": 0,
           "plan": {
-            "id": "generated-7",
+            "id": "generated-10",
             "status": "active",
             "title": "Tag the release"
           },
@@ -100,7 +141,7 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-8",
+            "id": "generated-11",
             "status": "active",
             "title": "Trim the log"
           },
@@ -112,7 +153,19 @@
         {
           "done": 0,
           "plan": {
-            "id": "generated-9",
+            "id": "generated-12",
+            "status": "active",
+            "title": "Try the impossible"
+          },
+          "states": {
+            "failed": 1
+          },
+          "total": 1
+        },
+        {
+          "done": 0,
+          "plan": {
+            "id": "generated-13",
             "status": "active",
             "title": "Wait for the check"
           },
@@ -124,5 +177,5 @@
       ]
     }
   ],
-  "revision": 142
+  "revision": 195
 }

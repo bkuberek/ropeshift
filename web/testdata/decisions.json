@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000540001,
+  "as_of": 1790000780001,
   "decisions": [
     {
       "categories": [
@@ -9,7 +9,8 @@
       "id": "decision-1",
       "lineage": [
         "decision-1",
-        "decision-2"
+        "decision-2",
+        "decision-3"
       ],
       "policy_version": 1,
       "rationale": "It covers the outage.",
@@ -27,7 +28,8 @@
       "id": "decision-2",
       "lineage": [
         "decision-1",
-        "decision-2"
+        "decision-2",
+        "decision-3"
       ],
       "overlaps": [
         "decision-1"
@@ -37,9 +39,36 @@
       "reversibility": "reversible",
       "scope": "retries",
       "statement": "Retry three times.",
-      "status": "decided",
+      "status": "replaced",
+      "superseded_by": "decision-3",
       "supersedes": "decision-1"
+    },
+    {
+      "categories": [
+        "product",
+        "operations"
+      ],
+      "citations": [
+        "requirement:FR-RETRY-1"
+      ],
+      "decided_by": "member-1",
+      "id": "decision-3",
+      "lineage": [
+        "decision-1",
+        "decision-2",
+        "decision-3"
+      ],
+      "overlaps": [
+        "decision-2"
+      ],
+      "policy_version": 1,
+      "rationale": "A count cannot know the outage: <img src=x onerror=alert(1)><script>alert(2)</script>",
+      "reversibility": "reversible",
+      "scope": "retries",
+      "statement": "Retry until the budget runs out.",
+      "status": "assumed",
+      "supersedes": "decision-2"
     }
   ],
-  "revision": 142
+  "revision": 195
 }

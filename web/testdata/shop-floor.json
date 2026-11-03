@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000540001,
+  "as_of": 1790000780001,
   "lanes": [
     {
       "actual_state": "ended",
@@ -91,6 +91,48 @@
       "worker_id": "worker-a"
     },
     {
+      "actual_state": "ended",
+      "artifacts": [
+        {
+          "created_at": 1790000660001,
+          "digest": "abc123",
+          "fence": 2,
+          "id": "generated-3",
+          "kind": "branch",
+          "lane_id": "lane-wo-done",
+          "uri": "lane/lane-wo-done"
+        },
+        {
+          "created_at": 1790000660001,
+          "fence": 2,
+          "id": "generated-4",
+          "kind": "report",
+          "lane_id": "lane-wo-done",
+          "uri": "javascript:alert(3)"
+        }
+      ],
+      "as_of": 1790000660001,
+      "freshness": "observed",
+      "generation": 1,
+      "generations": [
+        {
+          "end_reason": "completed",
+          "ended_at": 1790000660001,
+          "lane_id": "lane-wo-done",
+          "number": 1,
+          "start_reason": "initial",
+          "started_at": 1790000660001
+        }
+      ],
+      "id": "lane-wo-done",
+      "ledger_reach": "unknown",
+      "liveness": "dead",
+      "model_reach": "unknown",
+      "reported_by_epoch": 1,
+      "work_order": "wo-done",
+      "worker_id": "worker-a"
+    },
+    {
       "actual_state": "working",
       "as_of": 1790000180001,
       "freshness": "last_reported",
@@ -109,6 +151,40 @@
       "model_reach": "reachable",
       "reported_by_epoch": 1,
       "work_order": "wo-effect",
+      "worker_id": "worker-a"
+    },
+    {
+      "actual_state": "ended",
+      "artifacts": [
+        {
+          "created_at": 1790000720001,
+          "digest": "def456",
+          "fence": 2,
+          "id": "generated-5",
+          "kind": "branch",
+          "lane_id": "lane-wo-failed",
+          "uri": "lane/lane-wo-failed"
+        }
+      ],
+      "as_of": 1790000720001,
+      "freshness": "observed",
+      "generation": 1,
+      "generations": [
+        {
+          "end_reason": "failed",
+          "ended_at": 1790000720001,
+          "lane_id": "lane-wo-failed",
+          "number": 1,
+          "start_reason": "initial",
+          "started_at": 1790000720001
+        }
+      ],
+      "id": "lane-wo-failed",
+      "ledger_reach": "unknown",
+      "liveness": "dead",
+      "model_reach": "unknown",
+      "reported_by_epoch": 1,
+      "work_order": "wo-failed",
       "worker_id": "worker-a"
     },
     {
@@ -158,7 +234,7 @@
     {
       "actual_state": "working",
       "as_of": 1790000540001,
-      "freshness": "observed",
+      "freshness": "last_reported",
       "generation": 1,
       "generations": [
         {
@@ -182,7 +258,7 @@
       "conditions": [
         "stalled"
       ],
-      "freshness": "observed",
+      "freshness": "last_reported",
       "generation": 1,
       "generations": [
         {
@@ -203,7 +279,7 @@
     {
       "actual_state": "tripped",
       "as_of": 1790000540001,
-      "freshness": "observed",
+      "freshness": "last_reported",
       "generation": 1,
       "generations": [
         {
@@ -222,10 +298,17 @@
       "worker_id": "worker-a"
     }
   ],
-  "revision": 142,
+  "revision": 195,
   "workers": [
     {
-      "freshness": "observed",
+      "freshness": "last_reported",
+      "orchestrator": {
+        "desired_state": "running",
+        "id": "orchestrator-worker-a",
+        "resets": 0,
+        "run": 1,
+        "worker_id": "worker-a"
+      },
       "worker": {
         "epoch": 1,
         "id": "worker-a",

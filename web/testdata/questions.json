@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000540001,
+  "as_of": 1790000780001,
   "categories": [
     "architecture",
     "business",
@@ -79,7 +79,20 @@
       "rung": 5,
       "status": "needs_human",
       "text": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
+    },
+    {
+      "asked_by": "lane-asking",
+      "categories": [
+        "security"
+      ],
+      "id": "question-review",
+      "normalized_hash": "sha256:9fb7f63c4e67e74a3e575ee434beec99577e65a4175964afefcddfd4940f4643",
+      "rung": 1,
+      "status": "open",
+      "subject_id": "generated-2",
+      "subject_kind": "plan",
+      "text": "Does the plan cover a restart?"
     }
   ],
-  "revision": 142
+  "revision": 195
 }

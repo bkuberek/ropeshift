@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000540001,
+  "as_of": 1790000780001,
   "items": [
     {
       "lane": {
@@ -87,7 +87,7 @@
       "lane": {
         "actual_state": "working",
         "as_of": 1790000540001,
-        "freshness": "observed",
+        "freshness": "last_reported",
         "generation": 1,
         "generations": [
           {
@@ -131,7 +131,7 @@
         "conditions": [
           "stalled"
         ],
-        "freshness": "observed",
+        "freshness": "last_reported",
         "generation": 1,
         "generations": [
           {
@@ -172,7 +172,7 @@
       "lane": {
         "actual_state": "tripped",
         "as_of": 1790000540001,
-        "freshness": "observed",
+        "freshness": "last_reported",
         "generation": 1,
         "generations": [
           {
@@ -210,5 +210,5 @@
       }
     }
   ],
-  "revision": 142
+  "revision": 195
 }

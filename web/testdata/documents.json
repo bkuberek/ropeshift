@@ -1,17 +1,64 @@
 {
-  "as_of": 1790000540001,
+  "as_of": 1790000780001,
   "documents": [
     {
       "adapter": "fake-knowledge",
-      "digest": "sha256:082d1fde95b7ed5569a557dd167368455b5dc361f7cb8057a37b6f0b21da251d",
+      "digest": "sha256:962457ff5e7fcf428c3ef5c699729f1a1cc50b1ff8739b853001ce2b54cc7aaf",
       "instance": "memory",
       "kind": "design",
       "path": "design.md",
-      "source": "design.md@1",
+      "source": "design.md@2",
       "title": "The retry budget",
-      "version": "1"
+      "version": "2"
+    },
+    {
+      "adapter": "fake-knowledge",
+      "digest": "sha256:a8cea6482ac0e46a946eeda17c5ec22629184f1acf85df3d1ce86adfefbc8489",
+      "instance": "memory",
+      "kind": "requirements",
+      "path": "docs/requirements.md",
+      "source": "docs/requirements.md@3",
+      "title": "What retries must do",
+      "version": "3"
+    },
+    {
+      "adapter": "fake-knowledge",
+      "digest": "sha256:f0bb905c1ad05e549b8a2e7bf6d80c089b576ef1f623a0c631994073aafe1441",
+      "instance": "memory",
+      "kind": "spec",
+      "path": "docs/specs/retry.md",
+      "source": "docs/specs/retry.md@4",
+      "title": "The retry spec",
+      "version": "4"
+    },
+    {
+      "adapter": "fake-knowledge",
+      "digest": "sha256:3583b0d8ef9da88999067a52a0b51e7f4fd2a6fdbe48756336fa138eaf97ca5f",
+      "instance": "memory",
+      "kind": "other",
+      "path": "notes.md",
+      "source": "notes.md@5",
+      "title": "Notes from the first run",
+      "version": "5"
     }
   ],
-  "requirements": [],
-  "revision": 142
+  "requirements": [
+    {
+      "digest": "sha256:97f96007241d734b4f47ff5cd4b616b5646ef5a7609db9b5ef3b1ff5d0784b63",
+      "id": "requirement-FR-RETRY-1",
+      "key": "FR-RETRY-1",
+      "source": "docs/requirements.md@1",
+      "text": "A lane must stop retrying at its budget.",
+      "version": 1
+    },
+    {
+      "digest": "sha256:03c313e8266f03151cb8fafd51a353f04ce3e53d6f098f894097a45f0723c98e",
+      "id": "requirement-FR-RETRY-2",
+      "key": "FR-RETRY-2",
+      "source": "docs/requirements.md@1",
+      "text": "A person can read why <img src=x onerror=alert(1)><script>alert(2)</script> stopped.",
+      "version": 1
+    }
+  ],
+  "revision": 195
 }

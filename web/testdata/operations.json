@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000540001,
+  "as_of": 1790000780001,
   "fleet": {
     "fleet_mode": "run",
     "lanes_per_repository": 0,
@@ -7,21 +7,40 @@
     "wip_limit": 0
   },
   "lanes": {
-    "ended": 2,
+    "ended": 4,
     "parked": 1,
     "tripped": 1,
     "working": 5
   },
-  "revision": 142,
-  "sources": [],
+  "revision": 195,
+  "sources": [
+    {
+      "adapter": "repofiles",
+      "health": "ok",
+      "id": "source-1",
+      "instance": "repository-1",
+      "port": "work",
+      "problems": [
+        {
+          "detail": "no kind in <img src=x onerror=alert(1)><script>alert(2)</script>",
+          "path": "plans/bad.md"
+        }
+      ]
+    }
+  ],
   "waiting_for_a_person": 9,
   "work_orders": {
     "acceptance": 1,
     "blocked": 1,
+    "canceled": 1,
+    "done": 1,
+    "failed": 1,
+    "intake": 1,
     "lapsed": 1,
     "parked": 1,
+    "ready": 1,
     "running": 5
   },
   "workers": 1,
-  "workers_fresh": 1
+  "workers_fresh": 0
 }

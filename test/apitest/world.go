@@ -297,18 +297,33 @@ func (w *World) Deliver() {
 // Contract adds a version of the contract a work order pins, as intake would.
 func (w *World) Contract(id string) {
 	w.t.Helper()
+	w.ChangeContract(id, func(next *planning.Contract) { next.Statement += " Now with a budget." })
+}
+
+// ChangeContract adds a version of the newest contract behind a work order, changed as a test says.
+func (w *World) ChangeContract(id string, change func(*planning.Contract)) {
+	w.t.Helper()
 	err := w.Daemon.Store.Write(w.ctx, Scope, "test.contract", func(tx ports.WriteTx) error {
 		order, err := tx.WorkOrders().Get(id)
 		if err != nil {
 			return err
 		}
-		current, err := tx.Planning().Contract(order.ContractID, order.ContractVersion)
+		contracts, err := tx.Planning().Contracts()
 		if err != nil {
 			return err
 		}
+		var current planning.Contract
+		for _, contract := range contracts {
+			if contract.ID == order.ContractID && contract.Version > current.Version {
+				current = contract
+			}
+		}
 		next := current
 		next.Version++
-		next.Statement += " Now with a budget."
+		change(&next)
+		if next.Digest, err = planning.LedgerDigest(next); err != nil {
+			return err
+		}
 		if err := tx.Planning().InsertContract(next); err != nil {
 			return err
 		}
@@ -325,8 +340,15 @@ func (w *World) Contract(id string) {
 // Goal adds a goal and puts a work order's plan under it, as intake would.
 func (w *World) Goal(id, title, workOrder string) {
 	w.t.Helper()
+	w.SaveGoal(planning.Goal{ID: id, Title: title, Status: planning.StatusActive}, workOrder)
+}
+
+// SaveGoal writes a goal whole and puts a work order's plan under it, as intake would.
+func (w *World) SaveGoal(goal planning.Goal, workOrder string) {
+	w.t.Helper()
+	id := goal.ID
 	err := w.Daemon.Store.Write(w.ctx, Scope, "test.goal", func(tx ports.WriteTx) error {
-		if err := tx.Planning().SaveGoal(planning.Goal{ID: id, Title: title, Status: planning.StatusActive}); err != nil {
+		if err := tx.Planning().SaveGoal(goal); err != nil {
 			return err
 		}
 		order, err := tx.WorkOrders().Get(workOrder)
