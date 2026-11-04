@@ -1,0 +1,11 @@
+{
+  "source": "Documented only, not observed: a session reaches a limit, and the event names when it ends",
+  "matrix": "`rate_limit_event` `status` `allowed_warning` and `rejected`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [[
+    {"init": true},
+    {"emit": {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": "$resets_at", "rateLimitType": "five_hour"}}, "resets_in_s": 3600},
+    {"hold": true}
+  ]]
+}

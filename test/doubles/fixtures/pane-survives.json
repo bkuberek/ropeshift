@@ -1,0 +1,8 @@
+{
+  "source": "RS3 shape: FR-LANE-17 in a pane, with a turn that outlives its worker",
+  "pane": {"trust": true},
+  "turns": [
+    [{"wait_file": "release"}],
+    [{"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}}]
+  ]
+}

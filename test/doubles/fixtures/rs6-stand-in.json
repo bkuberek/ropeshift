@@ -1,0 +1,21 @@
+{
+  "source": "RS6 dry run: the harness on a scripted CLI, which spends nothing",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": [
+    [
+      {"init": true},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"init": true},
+      {"mcp": "ask", "arguments": {"text": "what should this lane do next", "blocking": true}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"mcp": "lane_handoff", "arguments": {"done": ["Asked the question"], "in_progress": [], "next_steps": ["Wait for the answer"], "risks": [], "carries_next_step": true}},
+      {"hold": true}
+    ]
+  ]
+}

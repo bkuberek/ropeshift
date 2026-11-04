@@ -1,0 +1,33 @@
+{
+  "source": "Documented in part: a lane that compacts at rest, crosses its handoff threshold in a turn, is denied a tool, and takes its instruction between two tool calls",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"after_first": "went-on", "then": [
+        {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}}
+      ]},
+      {"first_time": "went-on", "then": [
+        {"emit": {"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "message_start", "message": {"usage": {"input_tokens": 30, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}}}}},
+        {"emit": {"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "message_start", "message": {"usage": {"input_tokens": 60, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 0, "output_tokens": 0}}}}}
+      ]},
+      {"hook": "Stop", "input": {}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the session is told to go on"}},
+      {"emit": {"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "message_start", "message": {"usage": {"input_tokens": 40, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}}}}},
+      {"emit": {"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "message_start", "message": {"usage": {"input_tokens": 185, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}}}}},
+      {"await_hold": "held"},
+      {"tool": "Bash", "command": "touch denied-tool-ran"},
+      {"await_peer": true},
+      {"await_hold": "free"},
+      {"tool": "Bash", "command": "touch free-tool-ran"},
+      {"mcp": "lane_handoff", "arguments": {"done": ["Compacted once"], "in_progress": ["The work"], "next_steps": ["Finish the work"], "risks": [], "carries_next_step": true}},
+      {"hook": "Stop", "input": {}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "source": "matrix: unknown type on a stream-json line ignored",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "raw": "{not json"
+      },
+      {
+        "emit": {
+          "type": "a_type_no_version_has"
+        }
+      },
+      {
+        "emit": {
+          "type": "stream_event",
+          "parent_tool_use_id": null,
+          "event": {
+            "type": "message_start",
+            "message": {
+              "usage": {
+                "input_tokens": 7,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "output_tokens": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.01,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ]
+  ]
+}

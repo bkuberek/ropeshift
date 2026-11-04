@@ -1,0 +1,25 @@
+# The state diagram of the work order state machine, one edge per line, as
+# "from trigger to". Cancellation is generated for every non-terminal state.
+intake accepted planning
+planning contract_submitted contract_review
+contract_review contract_must_change planning
+contract_review ready_passed ready
+ready back_to_review contract_review
+ready claim_granted claimed
+claimed claim_released ready
+claimed lane_started running
+claimed lease_expired lapsed
+running lane_parked parked
+parked wake_fired ready
+running lease_expired lapsed
+lapsed worker_returned_started running
+lapsed worker_returned_unstarted claimed
+lapsed takeover ready
+running lane_completed acceptance
+acceptance acceptance_passed done
+acceptance rework ready
+running lane_blocked blocked
+blocked replan planning
+blocked resolved ready
+running lane_failed_retry ready
+running attempts_exhausted failed

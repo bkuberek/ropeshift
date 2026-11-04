@@ -1,0 +1,20 @@
+/*
+ * The two families the project's site uses, served by this binary, so a page asks nothing of any other
+ * host. Only the Latin files ship, because the interface is in English and a document's other scripts
+ * fall back to the system's serif.
+ */
+@font-face {
+  font-family: "Big Shoulders";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/big-shoulders/files/big-shoulders-latin-opsz-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-normal.woff2") format("woff2-variations");
+}

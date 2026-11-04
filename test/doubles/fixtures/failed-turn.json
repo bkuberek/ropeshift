@@ -1,0 +1,26 @@
+{
+  "source": "matrix: result subtypes error_during_execution and error_max_turns",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "error_max_turns",
+          "is_error": true,
+          "terminal_reason": "max_turns",
+          "num_turns": 1,
+          "total_cost_usd": 0.02,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ]
+  ]
+}

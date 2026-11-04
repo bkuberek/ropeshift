@@ -1,0 +1,13 @@
+{
+  "source": "T6: crossSessionInbound refuse, which answers a sender's address with an expired receipt",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "inbound": "refuse",
+  "pane": {"trust": true},
+  "turns": [
+    [
+      {"init": true},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

@@ -53,9 +53,18 @@ Ropeshift is designed to support Claude subscription accounts by running the unm
 
 Anthropic's [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) restrict automated use of subscription accounts, and its [usage limits assume ordinary, individual usage](https://code.claude.com/docs/en/legal-and-compliance). Running the unmodified binary does not by itself resolve that, and autonomous operation moves further from ordinary use. Running automated sessions will carry account risk that you accept.
 
+A subscription worker is designed to start at `attended`, where it claims work only inside a run window a person opened, and to go further only after a member acknowledges the stated risk for that worker. No vendor has approved this use. [Onboarding](docs/onboarding.md#claude-subscriptions-and-automated-use) states the risk in full.
+
 ## Documentation
 
 - [Vision](docs/vision.md): the problem, the principles, and the non-goals.
+- [Onboarding](docs/onboarding.md): from an empty machine to a first lane, and what to know before it runs.
+- [Command line](docs/cli.md): every command and its exit codes.
+- [Authorization](docs/authorization.md): who may approve what, and the limit of same-user isolation.
+- [Qualification](docs/qualification.md): how each Claude Code version is checked before ropeshift relies on it.
+- [Notifications](docs/notifications.md): what a notice says, and where it goes.
+- [Telemetry](docs/telemetry.md): what is recorded, where it stays, and when it leaves the machine.
+- [Product measures](docs/measures.md): the north star and how each measure is computed.
 
 ## License and contributions
 

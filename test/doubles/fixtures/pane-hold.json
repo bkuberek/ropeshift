@@ -1,0 +1,5 @@
+{
+  "source": "SIGINT in an interactive lane ends the process, from T2",
+  "pane": {"trust": true},
+  "turns": [[{"hold": true}]]
+}

@@ -1,0 +1,14 @@
+{
+  "source": "U43: a contract review lane asks every question it finds, then ends, and two of them block the plan's work",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"mcp": "ask", "arguments": {"text": "Which retry budget applies to checkout?", "categories": ["product"], "blocking": true}},
+      {"mcp": "ask", "arguments": {"text": "Does a retry keep its idempotency key?", "categories": ["product"], "blocking": true}},
+      {"mcp": "ask", "arguments": {"text": "Should the log name the attempt?", "categories": ["product"]}},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "checks": [{"name": "read every contract", "passed": true, "criterion": "r1"}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

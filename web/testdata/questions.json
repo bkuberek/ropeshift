@@ -1,0 +1,98 @@
+{
+  "as_of": 1790000780001,
+  "categories": [
+    "architecture",
+    "business",
+    "compliance",
+    "data",
+    "design",
+    "operations",
+    "product",
+    "security"
+  ],
+  "questions": [
+    {
+      "asked_by": "lane-asking",
+      "batch_id": "generated-1",
+      "blocking": true,
+      "categories": [
+        "product"
+      ],
+      "escalation_reason": "scope_change",
+      "id": "question-1",
+      "ladder_trace": [
+        {
+          "candidates": [
+            "decision:decision-1"
+          ],
+          "outcome": "no match",
+          "rung": 1
+        },
+        {
+          "candidates": [
+            "decision:decision-1"
+          ],
+          "outcome": "no match",
+          "rung": 2
+        }
+      ],
+      "normalized_hash": "sha256:bc32eb18065080392b8af8f2b0d47faa6cbc0e1ee07a47616058c6d8123e47d4",
+      "options": [
+        "Keep the budget",
+        "Drop it"
+      ],
+      "recommendation": "Keep the budget",
+      "rung": 5,
+      "status": "needs_human",
+      "text": "Should the budget hold across restarts?"
+    },
+    {
+      "asked_by": "lane-asking",
+      "batch_id": "generated-1",
+      "categories": [
+        "product"
+      ],
+      "escalation_reason": "scope_change",
+      "id": "question-2",
+      "ladder_trace": [
+        {
+          "candidates": [
+            "decision:decision-1"
+          ],
+          "outcome": "no match",
+          "rung": 1
+        },
+        {
+          "candidates": [
+            "decision:decision-1"
+          ],
+          "outcome": "no match",
+          "rung": 2
+        }
+      ],
+      "normalized_hash": "sha256:1c806d093143d367b4531ced95fbc8a73c458cad53dde13a164bba877985f705",
+      "options": [
+        "Keep the budget",
+        "Drop it"
+      ],
+      "recommendation": "Keep the budget",
+      "rung": 5,
+      "status": "needs_human",
+      "text": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
+    },
+    {
+      "asked_by": "lane-asking",
+      "categories": [
+        "security"
+      ],
+      "id": "question-review",
+      "normalized_hash": "sha256:9fb7f63c4e67e74a3e575ee434beec99577e65a4175964afefcddfd4940f4643",
+      "rung": 1,
+      "status": "open",
+      "subject_id": "generated-2",
+      "subject_kind": "plan",
+      "text": "Does the plan cover a restart?"
+    }
+  ],
+  "revision": 206
+}

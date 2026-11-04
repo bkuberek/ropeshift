@@ -1,0 +1,8 @@
+{
+  "source": "Documented only: free text, which a worker keeps as a hint and never reads for a time",
+  "matrix": "`system/api_retry` with `retry_delay_ms`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "usage_text": "Current session: at its limit",
+  "turns": []
+}

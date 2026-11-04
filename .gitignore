@@ -20,3 +20,11 @@ desktop.ini
 # Go build output
 dist/
 bin/
+
+# The web application's packages, and its build, which a release commit adds (D28).
+web/node_modules/
+/web/static/*
+!/web/static/placeholder.html
+
+# The mark the claude canary leaves when it runs.
+test/doubles/canary/tripped

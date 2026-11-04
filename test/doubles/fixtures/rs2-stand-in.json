@@ -1,0 +1,64 @@
+{
+  "source": "RS2: a dry run of the harness against a scripted CLI",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "emit": {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed"
+          }
+        }
+      },
+      {
+        "sleep_ms": 1500
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.01,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ],
+    [
+      {
+        "init": true
+      },
+      {
+        "mcp": "lane_report",
+        "arguments": {
+          "outcome": "completed"
+        }
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.03,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ]
+  ]
+}

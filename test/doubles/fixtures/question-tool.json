@@ -1,0 +1,15 @@
+{
+  "source": "RS5: PreToolUse defer on AskUserQuestion, which the matrix lists as documented only",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"hook": "PreToolUse", "input": {
+        "tool_name": "AskUserQuestion", "tool_use_id": "toolu_ask",
+        "tool_input": {"questions": [{"question": "Which retry budget?", "options": [{"label": "Three"}, {"label": "Five"}]}]}
+      }},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "stop_reason": "tool_deferred", "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}},
+      {"hold": true}
+    ]
+  ]
+}

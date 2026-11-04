@@ -1,0 +1,10 @@
+{
+  "source": "Documented with no definition: a turn that ends on terminal_reason blocking_limit",
+  "matrix": "`terminal_reason` `blocking_limit`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [[
+    {"init": true},
+    {"emit": {"type": "result", "subtype": "error_during_execution", "is_error": true, "terminal_reason": "blocking_limit", "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 0}}}
+  ]]
+}

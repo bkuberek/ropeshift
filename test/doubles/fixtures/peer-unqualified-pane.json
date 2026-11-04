@@ -1,0 +1,7 @@
+{
+  "source": "A version the matrix does not pin, in a pane: the worker's own input still takes the socket",
+  "version": "9.9.9",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": [[]]
+}

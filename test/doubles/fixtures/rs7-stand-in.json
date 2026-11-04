@@ -1,0 +1,7 @@
+{
+  "source": "RS7 dry run: the harness on a scripted CLI, which spends nothing. The suite writes each session's turns",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": []
+}

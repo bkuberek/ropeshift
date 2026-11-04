@@ -1,0 +1,73 @@
+//go:build chaos
+
+package sqlstore
+
+import (
+	"os"
+	"strings"
+	"sync/atomic"
+	"time"
+)
+
+// EnvCut removes text from one statement, as "statement|text", so a broken variant
+// reaches a daemon that runs as its own process.
+const EnvCut = "ROPESHIFT_CHAOS_CUT"
+
+func init() {
+	statement, text, found := strings.Cut(os.Getenv(EnvCut), "|")
+	if !found {
+		return
+	}
+	Sabotaged(Sabotage{Rewrite: func(name, in string) string {
+		if name != statement {
+			return in
+		}
+		return strings.Replace(in, text, "", 1)
+	}})
+}
+
+// Sabotage is a broken variant of the adapter, used only to prove that a check
+// can fail. The chaos build holds these seams, and a normal build has none.
+type Sabotage struct {
+	// Rewrite replaces a statement's text.
+	Rewrite func(name, text string) string
+	// RevisionLast takes the revision when the first event is appended, after
+	// every read in the transaction.
+	RevisionLast bool
+	// CommitEmpty commits a transaction that appended no event.
+	CommitEmpty bool
+	// ClientClock reads time from the host instead of the database.
+	ClientClock bool
+}
+
+var sabotage atomic.Pointer[Sabotage]
+
+// Sabotaged installs a variant for this process.
+func Sabotaged(s Sabotage) { sabotage.Store(&s) }
+
+func (t *writeTx) open() error {
+	if s := sabotage.Load(); s != nil && s.RevisionLast {
+		var err error
+		t.now, err = t.readClock()
+		return err
+	}
+	if err := t.openRevisionFirst(); err != nil {
+		return err
+	}
+	if s := sabotage.Load(); s != nil && s.ClientClock {
+		t.now = time.Now().UnixMilli()
+	}
+	return nil
+}
+
+func rewritten(name, text string) string {
+	if s := sabotage.Load(); s != nil && s.Rewrite != nil {
+		return s.Rewrite(name, text)
+	}
+	return text
+}
+
+func commitsWithoutEvents() bool {
+	s := sabotage.Load()
+	return s != nil && s.CommitEmpty
+}
