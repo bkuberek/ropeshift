@@ -19,8 +19,10 @@ import (
 	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/control"
 	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.dev/ropeshift/internal/mcpserver"
 	"ropeshift.dev/ropeshift/internal/messages"
 	"ropeshift.dev/ropeshift/internal/questions"
+	buildversion "ropeshift.dev/ropeshift/internal/version"
 )
 
 func TestDispatchOnStartedName(t *testing.T) {
@@ -89,36 +91,109 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
-// TestOneBinaryTwoNames builds the CLI with no cgo and starts it through a link,
-// as a release package does.
-func TestOneBinaryTwoNames(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the real binary")
-	}
-	dir := t.TempDir()
+// buildCLI builds the CLI with no cgo into dir, with the given linker flags.
+func buildCLI(t *testing.T, dir string, ldflags string) string {
+	t.Helper()
 	binary := filepath.Join(dir, "ropeshift")
-	build := exec.Command("go", "build", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
+	build := exec.Command("go", "build", "-ldflags", ldflags, "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
+	return binary
+}
+
+func runVersionJSON(t *testing.T, path string) versionInfo {
+	t.Helper()
+	out, err := exec.Command(path, "version", "--json").Output()
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	var got versionInfo
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("%s: %v: %q", path, err, out)
+	}
+	return got
+}
+
+// TestOneBinaryTwoNames builds the CLI with no cgo and the stamp a release build sets, and starts it
+// through a link, as a release package does. Both names, and the MCP server it serves, report the
+// stamp.
+func TestOneBinaryTwoNames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the real binary")
+	}
+	const (
+		stamped  = "ropeshift.dev/ropeshift/internal/version"
+		release  = "v0.9.0-rc.2"
+		revision = "0123456789abcdef0123456789abcdef01234567"
+		built    = "2026-11-08T10:00:00Z"
+	)
+	dir := t.TempDir()
+	binary := buildCLI(t, dir, strings.Join([]string{
+		"-X", stamped + ".version=" + release, "-X", stamped + ".commit=" + revision,
+		"-X", stamped + ".date=" + built, "-X", stamped + ".modified=false",
+	}, " "))
 	link := filepath.Join(dir, "ropeshiftd")
 	if err := os.Symlink(binary, link); err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{binary: "ropeshift", link: "ropeshiftd"} {
-		out, err := exec.Command(path, "version", "--json").Output()
-		if err != nil {
-			t.Fatalf("%s: %v", want, err)
-		}
-		var got versionInfo
-		if err := json.Unmarshal(out, &got); err != nil {
-			t.Fatalf("%s: %v: %q", want, err, out)
-		}
+		got := runVersionJSON(t, path)
 		if got.Command != want {
 			t.Errorf("started as %s, ran as %s", want, got.Command)
 		}
+		if got.Version != release || got.Commit != revision || got.Date != built || got.Modified {
+			t.Errorf("%s does not report its stamp: %+v", want, got)
+		}
 	}
+	mcp := exec.Command(binary, "mcp")
+	mcp.Stdin = strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n")
+	out, err := mcp.Output()
+	if err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	if got := serverVersion(t, out); got != release {
+		t.Errorf("the MCP server reports version %q, want %q", got, release)
+	}
+}
+
+// A build with no release stamp at a commit, as go build and make do, is a development build, even
+// though the toolchain records a pseudo-version for it.
+func TestAPlainBuildReportsADevelopmentVersion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the real binary")
+	}
+	got := runVersionJSON(t, buildCLI(t, t.TempDir(), ""))
+	if got.Version != buildversion.Development {
+		t.Errorf("a plain build reports version %q, want %q", got.Version, buildversion.Development)
+	}
+}
+
+func TestTheMCPServerReportsTheBinaryVersion(t *testing.T) {
+	var out bytes.Buffer
+	in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n")
+	if err := mcpserver.Serve(in, &out, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := serverVersion(t, out.Bytes()), buildversion.Read("ropeshift").Version; got != want {
+		t.Errorf("serverInfo.version %q, want %q", got, want)
+	}
+}
+
+func serverVersion(t *testing.T, line []byte) string {
+	t.Helper()
+	var reply struct {
+		Result struct {
+			ServerInfo struct {
+				Version string `json:"version"`
+			} `json:"serverInfo"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(line, &reply); err != nil {
+		t.Fatalf("%v: %q", err, line)
+	}
+	return reply.Result.ServerInfo.Version
 }
 
 // A wake with a timer comes due with nothing to touch it, so the daemon has to run this tick.

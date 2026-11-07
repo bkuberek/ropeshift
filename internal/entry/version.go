@@ -5,44 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"runtime"
-	"runtime/debug"
+
+	buildversion "ropeshift.dev/ropeshift/internal/version"
 )
 
-// version is set at release time with -ldflags.
-var version = "dev"
+// versionInfo is what `version` prints; internal/version owns it and the release stamp.
+type versionInfo = buildversion.Info
 
-type versionInfo struct {
-	Command string `json:"command"`
-	Version string `json:"version"`
-	Commit  string `json:"commit,omitempty"`
-	Go      string `json:"go"`
-	OS      string `json:"os"`
-	Arch    string `json:"arch"`
-}
-
-func readVersion(command string) versionInfo {
-	info := versionInfo{
-		Command: command,
-		Version: version,
-		Go:      runtime.Version(),
-		OS:      runtime.GOOS,
-		Arch:    runtime.GOARCH,
-	}
-	build, ok := debug.ReadBuildInfo()
-	if !ok {
-		return info
-	}
-	if info.Version == "dev" && build.Main.Version != "" && build.Main.Version != "(devel)" {
-		info.Version = build.Main.Version
-	}
-	for _, setting := range build.Settings {
-		if setting.Key == "vcs.revision" {
-			info.Commit = setting.Value
-		}
-	}
-	return info
-}
+// version is this binary's version, which telemetry reports as service.version. It is read once, at
+// start: a release build matches no pattern to read it, and a development build compiles two small ones.
+var version = buildversion.Read(commandCLI).Version
 
 func runVersion(command string, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet(command+" version", flag.ContinueOnError)
@@ -55,9 +27,9 @@ func runVersion(command string, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s version: unexpected argument %q\n", command, flags.Arg(0))
 		return exitUsage
 	}
-	info := readVersion(command)
+	info := buildversion.Read(command)
 	if !*asJSON {
-		fmt.Fprintf(stdout, "%s %s (%s, %s/%s)\n", info.Command, info.Version, info.Go, info.OS, info.Arch)
+		fmt.Fprintln(stdout, info.String())
 		return exitOK
 	}
 	encoder := json.NewEncoder(stdout)

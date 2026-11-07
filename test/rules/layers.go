@@ -77,7 +77,7 @@ func Classify(rel string) Layer {
 			return LayerAPIServer
 		}
 		return LayerAPI
-	case "crashpoint":
+	case "crashpoint", "version":
 		return LayerSupport
 	}
 	return LayerUnclassified

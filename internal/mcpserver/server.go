@@ -17,6 +17,7 @@ import (
 	"ropeshift.dev/ropeshift/internal/contextpacks"
 	"ropeshift.dev/ropeshift/internal/lanes"
 	"ropeshift.dev/ropeshift/internal/questions"
+	"ropeshift.dev/ropeshift/internal/version"
 	"ropeshift.dev/ropeshift/internal/workorders"
 )
 
@@ -102,7 +103,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 		out.Result = map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "ropeshift", "version": "0"},
+			"serverInfo":      map[string]any{"name": "ropeshift", "version": version.Read("ropeshift").Version},
 		}
 	case "ping":
 		out.Result = map[string]any{}
