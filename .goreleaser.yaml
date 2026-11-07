@@ -1,0 +1,125 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# GoReleaser builds a release from its tag, and a snapshot from any commit with `make snapshot`.
+# docs/releasing.md describes the whole process. The Homebrew formula is not built here: GoReleaser
+# deprecated formulas in favor of casks, a cask cannot run under `brew services`, so
+# scripts/homebrew-formula.sh renders the project's own template from checksums.txt (ADR-0001).
+version: 2
+
+project_name: ropeshift
+
+before:
+  hooks:
+    # A snapshot builds the web UI into web/static. A release embeds the UI its tag's release commit
+    # holds, and stops if that commit holds none (D28).
+    - sh scripts/release-ui.sh {{ if .IsSnapshot }}build{{ else }}verify{{ end }}
+
+# One binary per platform. Every channel links ropeshiftd to it, and the name a process starts under
+# picks the command (D5).
+builds:
+  - id: ropeshift
+    main: ./cmd/ropeshift
+    binary: ropeshift
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [arm64, amd64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X ropeshift.dev/ropeshift/internal/version.version=v{{ .Version }}
+      - -X ropeshift.dev/ropeshift/internal/version.commit={{ .FullCommit }}
+      - -X ropeshift.dev/ropeshift/internal/version.date={{ .Date }}
+      - -X ropeshift.dev/ropeshift/internal/version.modified={{ .IsGitDirty }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: archives
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # The archive records no name from the machine that built it.
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE.md
+        info:
+          owner: root
+          group: root
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info:
+          owner: root
+          group: root
+          mtime: "{{ .CommitDate }}"
+
+# Neither package installs a service: `ropeshift service install` writes a systemd user unit for the
+# person who runs it.
+nfpms:
+  - id: packages
+    package_name: ropeshift
+    vendor: Destiny Ventures Group LLC
+    maintainer: Destiny Ventures Group LLC
+    license: FSL-1.1-ALv2
+    homepage: https://ropeshift.com/
+    description: A self-hosted software factory that runs supervised agent CLIs from a work ledger.
+    file_name_template: "{{ .ConventionalFileName }}"
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    section: devel
+    recommends:
+      - git
+      - tmux
+    contents:
+      - src: ropeshift
+        dst: /usr/bin/ropeshiftd
+        type: symlink
+      - src: LICENSE.md
+        dst: /usr/share/doc/ropeshift/LICENSE.md
+        file_info:
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        dst: /usr/share/doc/ropeshift/README.md
+        file_info:
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# A snapshot's version can never be mistaken for a release: it names the commit it came from.
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+# Release notes from the Conventional Commits since the previous release. Documentation, test,
+# chore, CI, and style commits change nothing a user runs, so they are left out.
+changelog:
+  use: git
+  sort: asc
+  abbrev: 7
+  filters:
+    exclude:
+      - '^(docs|test|chore|ci|style)(\([^)]*\))?!?:'
+  groups:
+    - title: Features
+      regexp: '^feat(\([^)]*\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\([^)]*\))?!?:'
+      order: 1
+    - title: Others
+      order: 999
+
+# A tag build creates a draft, which a maintainer reads and then publishes by hand. A snapshot
+# publishes nothing.
+release:
+  github:
+    owner: bkuberek
+    name: ropeshift
+  draft: true
+  prerelease: auto
+  name_template: "v{{ .Version }}"

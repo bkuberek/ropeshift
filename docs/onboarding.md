@@ -11,7 +11,9 @@ go build -o ropeshift ./cmd/ropeshift
 ln -s ropeshift ropeshiftd
 ```
 
-A build from a plain checkout serves a placeholder in place of the web UI. `make web-build` writes the application that the next build embeds.
+A build from a plain checkout serves a placeholder in place of the web UI. `make web-build` writes the application that the next build embeds. Such a build reports its version as `dev`, because only a release build reports a release version ([Versioning](versioning.md)).
+
+Once a release is published, it installs through the install script, Homebrew, a `.deb` or `.rpm` package, or `go install` at its tag, each with the web UI built in and both names on `PATH`. [Releasing](releasing.md#install-channels) lists the commands.
 
 ## Install and sign in to an agent CLI
 
@@ -56,6 +58,8 @@ To run the sample, copy `sample-contract.md` into the repository, change it to y
 ```sh
 ropeshift service install -- --source /path/to/repository
 ```
+
+The `.deb` and `.rpm` packages install no service, so this command is how a daemon runs as a service on those channels. A Homebrew install runs it through `brew services start ropeshift` instead, with no repository source. Use one or the other, because two daemons for one installation conflict.
 
 On macOS, it writes a launchd agent to `~/Library/LaunchAgents` with `ProcessType` set to `Interactive`, because launchd throttles the CPU and I/O of a job with no process class, and loads it. The daemon's output goes to a log in the installation's directory. On Linux, it writes a systemd user unit to `~/.config/systemd/user`, enables it, and starts it, and the daemon's output goes to `journalctl --user`. Either manager restarts the daemon after a crash. A second install replaces the first, and `ropeshift service uninstall` stops the service and removes its definition.
 

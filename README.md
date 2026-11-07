@@ -65,6 +65,8 @@ A subscription worker is designed to start at `attended`, where it claims work o
 - [Notifications](docs/notifications.md): what a notice says, and where it goes.
 - [Telemetry](docs/telemetry.md): what is recorded, where it stays, and when it leaves the machine.
 - [Product measures](docs/measures.md): the north star and how each measure is computed.
+- [Versioning](docs/versioning.md): how versions are chosen, and what `ropeshift version` reports.
+- [Releasing](docs/releasing.md): how a release is built, tested, and published, and each install channel.
 
 ## License and contributions
 

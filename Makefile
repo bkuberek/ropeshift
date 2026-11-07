@@ -12,9 +12,9 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test linux-bundle
+.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test linux-bundle release-check snapshot install-test
 
-check: format vet lint test web-test licenses canary
+check: format vet lint test web-test licenses release-check canary
 
 # The list goes through a variable, because gofmt exits 0 when it finds a file to change.
 format:
@@ -27,7 +27,7 @@ canary:
 
 vet:
 	$(GO) vet ./...
-	$(GO) vet -tags 'chaos postgres bench realsession service' ./...
+	$(GO) vet -tags 'chaos postgres bench realsession service install' ./...
 
 lint:
 	golangci-lint run ./...
@@ -118,6 +118,37 @@ SUITE ?= RS1
 real:
 	$(GO) test -tags realsession -count=1 -run '^Test(Ledger|Refused|Environment|Canary|Stop|Init|Hook|Leftover)' ./test/real/...
 	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout 20m -v -run '^Test$(SUITE)$$' ./test/real/...
+
+# The release configuration, checked by GoReleaser when it is installed. A contributor without it
+# skips the check, because only a maintainer cuts releases (docs/releasing.md).
+release-check:
+	@if command -v goreleaser >/dev/null 2>&1; then \
+		goreleaser check; \
+	else \
+		echo "release-check: goreleaser is not installed, so the release configuration was not checked"; \
+	fi
+	@sh -n install.sh scripts/release.sh scripts/release-ui.sh scripts/homebrew-formula.sh
+
+# A release as a tag would build it, from this commit with no tag and no publishing: the four
+# archives with the web UI embedded, the .deb and .rpm packages, the checksums, the release notes, and
+# the Homebrew formula, all in dist/. FORMULA_URL is where the formula fetches the archives, by default
+# the release page of the snapshot's version.
+FORMULA_URL ?=
+
+snapshot:
+	goreleaser release --snapshot --clean
+	sh scripts/homebrew-formula.sh dist/checksums.txt "$(FORMULA_URL)" dist/homebrew/ropeshift.rb
+
+# Installs the snapshot through every channel in a clean environment and asks each install its
+# version: the install script on this machine and in Linux containers, the .deb and .rpm packages, the
+# Homebrew formula, and go install at a release tag made in a scratch clone. It needs Docker, Node.js,
+# and GoReleaser, and builds a fresh snapshot unless INSTALL_DIST names one.
+INSTALL_DIST ?=
+
+install-test:
+	@if [ -z "$(INSTALL_DIST)" ]; then $(MAKE) --no-print-directory snapshot; fi
+	ROPESHIFT_DIST="$(if $(INSTALL_DIST),$(abspath $(INSTALL_DIST)),$(CURDIR)/dist)" \
+		$(GO) test -tags install -count=1 -v -timeout 30m ./test/install/...
 
 # The release's qualification suite: the production probe on the installed CLI, which ends with that
 # version's row for the matrix the binary ships (internal/adapters/claudecode/matrix.json).
