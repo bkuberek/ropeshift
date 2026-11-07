@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
@@ -211,6 +212,10 @@ func TestHelperRunsAProgram(t *testing.T) {
 	if os.Getenv(envShell) == "" {
 		t.Skip("a helper of the terminal tests")
 	}
+	// A person's shell starts its foreground job with the interrupt at its default. This one inherits
+	// what started the tests, and a script that runs them in the background starts them with it
+	// ignored. A signal this process catches goes back to its default in the program it runs.
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGINT)
 	program := exec.Command(os.Args[0], "-test.run=^TestHelperAsksForAPassphrase$")
 	program.Env = append(os.Environ(), envShell+"=")
 	program.Stdin, program.Stdout = os.Stdin, os.Stdout
