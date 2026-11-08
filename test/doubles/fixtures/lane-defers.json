@@ -1,0 +1,24 @@
+{
+  "source": "Observed on RS11, with no permission host: a gated call a hook defers ends the turn with stop_reason tool_deferred, and a native resume runs the same call by itself",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"tool": "Bash", "command": "touch gated-call-ran", "prompts": true},
+      {"hook": "Stop", "input": {}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ],
+  "resume_turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the session is back"}},
+      {"tool": "Bash", "command": "touch gated-call-ran", "prompts": true},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}},
+      {"hook": "Stop", "input": {}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

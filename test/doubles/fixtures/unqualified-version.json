@@ -1,0 +1,27 @@
+{
+  "source": "architecture: an unqualified version sets degraded_mode",
+  "version": "9.9.9",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.01,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ]
+  ]
+}

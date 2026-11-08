@@ -1,0 +1,11 @@
+{
+  "adapter": "fake-knowledge",
+  "instance": "memory",
+  "path": "docs/specs/retry.md",
+  "title": "The retry spec",
+  "kind": "spec",
+  "version": "4",
+  "digest": "sha256:f0bb905c1ad05e549b8a2e7bf6d80c089b576ef1f623a0c631994073aafe1441",
+  "source": "docs/specs/retry.md@4",
+  "body": "# The retry spec\n\nA lane retries <img src=x onerror=alert(1)><script>alert(2)</script> twice.\n\n<script>alert(4)</script>\n\n## Links and pictures\n\n[Sign in again](javascript:alert(5)) and ![a pixel](http://attacker.example/pixel.png)\n\n<iframe src=\"http://attacker.example\"></iframe>\n\n- The first rule\n- A rule with `code` in it\n\n```html\n<svg onload=alert(6)></svg>\n```\n"
+}

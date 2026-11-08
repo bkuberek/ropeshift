@@ -1,0 +1,30 @@
+{
+  "source": "matrix: SIGINT in a headless turn, exit 0 with an error result",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "emit": {
+          "type": "stream_event",
+          "parent_tool_use_id": null,
+          "event": {
+            "type": "message_start",
+            "message": {
+              "usage": {
+                "input_tokens": 3,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "output_tokens": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "hold": true
+      }
+    ]
+  ]
+}

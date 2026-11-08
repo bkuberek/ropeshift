@@ -1,0 +1,34 @@
+{
+  "source": "Documented only, not observed: a limit nobody gave a time for. A session stops on StopFailure, and the first lane back finds it still there",
+  "matrix": "`StopFailure` with `rate_limit`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "usage_text": "Current session: at its limit",
+  "turns": [[
+    {"init": true},
+    {"hold": true}
+  ]],
+  "resume_turns": [[
+    {"init": true},
+    {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+    {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+  ]],
+  "lanes": {
+    "lane-6": {
+      "turns": [[
+        {"init": true},
+        {"hook": "StopFailure", "input": {"error": "rate_limit"}},
+        {"hold": true}
+      ]],
+      "resume_turns": [[
+        {"init": true},
+        {"first_time": "tried", "then": [
+          {"hook": "StopFailure", "input": {"error": "rate_limit"}},
+          {"hold": true}
+        ]},
+        {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+        {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+      ]]
+    }
+  }
+}

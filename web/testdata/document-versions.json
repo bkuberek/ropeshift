@@ -1,0 +1,12 @@
+{
+  "versions": [
+    {
+      "version": "2",
+      "digest": "sha256:962457ff5e7fcf428c3ef5c699729f1a1cc50b1ff8739b853001ce2b54cc7aaf"
+    },
+    {
+      "version": "1",
+      "digest": "sha256:082d1fde95b7ed5569a557dd167368455b5dc361f7cb8057a37b6f0b21da251d"
+    }
+  ]
+}

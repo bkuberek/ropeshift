@@ -1,0 +1,6 @@
+#!/bin/sh
+# A `claude` that must never run. It sits first on PATH during the default, chaos,
+# and bench layers. If anything executes it, it leaves a mark that fails the run.
+: >>"$(dirname "$0")/tripped"
+echo "the claude canary ran: the default suite must start no session" >&2
+exit 70

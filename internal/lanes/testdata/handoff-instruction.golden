@@ -1,0 +1,11 @@
+Hand off now. This session is about to end, and a new generation takes this work order over from what you write here (ropeshift.handoff/v1).
+
+Call the lane_handoff tool once, with only what you alone know. The worker records the branch, the commits, the changed files, the open questions, and the checks itself.
+
+- done: what you finished
+- in_progress: what you were part way through
+- next_steps: what the next generation should do first
+- risks: what could go wrong, and what you are unsure of
+- carries_next_step: true only if this holds everything the next step needs
+
+Then end your turn, and start nothing new.

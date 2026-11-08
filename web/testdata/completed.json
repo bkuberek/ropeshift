@@ -1,0 +1,201 @@
+{
+  "as_of": 1790000780001,
+  "items": [
+    {
+      "reason": "The plan changed",
+      "since": 1790000780001,
+      "standing": {
+        "artifacts": [],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "checks": [],
+        "state": "canceled",
+        "work_order_id": "wo-canceled"
+      },
+      "work_order": {
+        "contract_id": "generated-1",
+        "contract_version": 1,
+        "id": "wo-canceled",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "size": "unknown",
+        "state": "canceled",
+        "title": "Drop the old plan"
+      }
+    },
+    {
+      "reason": "It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>",
+      "since": 1790000720001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000720001,
+            "digest": "def456",
+            "fence": 2,
+            "id": "generated-2",
+            "kind": "branch",
+            "lane_id": "lane-wo-failed",
+            "uri": "lane/lane-wo-failed"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "failed"
+            }
+          ],
+          "failed": [
+            "go vet"
+          ],
+          "needs": "member"
+        },
+        "checks": [
+          {
+            "artifact_id": "generated-2",
+            "created_at": 1790000720001,
+            "criterion_id": "c1",
+            "fence": 2,
+            "id": "generated-3",
+            "lane_id": "lane-wo-failed",
+            "name": "go vet",
+            "source": "lane",
+            "status": "failed",
+            "work_order_id": "wo-failed"
+          }
+        ],
+        "state": "failed",
+        "work_order_id": "wo-failed"
+      },
+      "work_order": {
+        "attempts": 1,
+        "contract_id": "generated-4",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-failed",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "failed",
+        "title": "Try the impossible"
+      }
+    },
+    {
+      "since": 1790000660001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000660001,
+            "digest": "abc123",
+            "fence": 2,
+            "id": "generated-5",
+            "kind": "branch",
+            "lane_id": "lane-wo-done",
+            "uri": "lane/lane-wo-done"
+          },
+          {
+            "created_at": 1790000660001,
+            "fence": 2,
+            "id": "generated-6",
+            "kind": "report",
+            "lane_id": "lane-wo-done",
+            "uri": "javascript:alert(3)"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "second_principal"
+            }
+          ],
+          "needs": "second_principal"
+        },
+        "checks": [
+          {
+            "artifact_id": "generated-5",
+            "created_at": 1790000660001,
+            "criterion_id": "c1",
+            "fence": 2,
+            "id": "generated-7",
+            "lane_id": "lane-wo-done",
+            "name": "go test",
+            "source": "lane",
+            "status": "passed",
+            "work_order_id": "wo-done"
+          }
+        ],
+        "state": "done",
+        "work_order_id": "wo-done"
+      },
+      "work_order": {
+        "contract_id": "generated-8",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-done",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "done",
+        "title": "Ship the first cut"
+      }
+    },
+    {
+      "since": 1790000240001,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000240001,
+            "digest": "abc123",
+            "fence": 2,
+            "id": "generated-9",
+            "kind": "branch",
+            "lane_id": "lane-wo-accept",
+            "uri": "lane/lane-wo-accept"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "checks": [],
+        "state": "acceptance",
+        "work_order_id": "wo-accept"
+      },
+      "work_order": {
+        "contract_id": "generated-10",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-accept",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "acceptance",
+        "title": "Trim the log"
+      }
+    }
+  ],
+  "revision": 206
+}

@@ -1,0 +1,152 @@
+[
+  {
+    "method": "POST",
+    "pattern": "/v1/sessions",
+    "command": "login"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/sessions/end",
+    "command": "sign-out"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/events",
+    "command": "events"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/documents/read",
+    "command": "document show"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/documents/versions",
+    "command": "document versions"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/questions/{id}/answer",
+    "command": "question answer"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/approvals/{id}/decide",
+    "command": "approval approve"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/effects/{id}/decide",
+    "command": "effect decide"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/accept",
+    "command": "work accept"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/rework",
+    "command": "work rework"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/reassign",
+    "command": "work reassign"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/resolve",
+    "command": "work resolve"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/replan",
+    "command": "work replan"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/cancel",
+    "command": "work cancel"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/lane-reset",
+    "command": "lane reset"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/lane-respawn",
+    "command": "lane respawn"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/lane-resume",
+    "command": "lane resume"
+  },
+  {
+    "method": "PUT",
+    "pattern": "/v1/workers/{id}/orchestrator",
+    "command": "orchestrator start"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/needs-you",
+    "command": "view needs-you"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/roadmap",
+    "command": "view roadmap"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/plans",
+    "command": "view plans"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/documents",
+    "command": "view documents"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/decisions",
+    "command": "view decisions"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/questions",
+    "command": "view questions"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/in-progress",
+    "command": "view in-progress"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/on-hold",
+    "command": "view on-hold"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/stuck",
+    "command": "view stuck"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/completed",
+    "command": "view completed"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/shop-floor",
+    "command": "view shop-floor"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/views/operations",
+    "command": "view operations"
+  }
+]

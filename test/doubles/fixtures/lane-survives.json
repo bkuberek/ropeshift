@@ -1,0 +1,65 @@
+{
+  "source": "RS2: a session surviving a worker SIGKILL under the production shim, and a reattach",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "wait_file": "release"
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.01,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ],
+    [
+      {
+        "init": true
+      },
+      {
+        "mcp": "lane_report",
+        "arguments": {
+          "outcome": "completed",
+          "artifacts": [
+            "branch"
+          ],
+          "checks": [
+            {
+              "name": "unit",
+              "passed": true
+            }
+          ]
+        }
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.03,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ]
+  ]
+}

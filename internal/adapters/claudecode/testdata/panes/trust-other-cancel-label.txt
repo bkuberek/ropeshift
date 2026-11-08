@@ -1,0 +1,8 @@
+ Accessing workspace:
+
+ /scratch/repository-lanes/lane-1
+
+ ❯ No, continue without these permissions
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel

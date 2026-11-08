@@ -1,0 +1,6 @@
+ Auto mode lets Claude handle permission prompts automatically.
+
+ ❯ No, exit
+   Yes, I accept
+
+ Enter to select · Esc to exit

@@ -1,0 +1,39 @@
+{
+  "source": "E4: two lanes ask one question. One parks on it, and one holds at rest and takes the answer as a message",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [
+    [
+      {"init": true},
+      {"mcp": "ask", "arguments": {"text": "What should this lane do next?", "blocking": true}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"mcp": "lane_handoff", "arguments": {"done": ["Asked the question"], "in_progress": [], "next_steps": ["Read the answer"], "risks": [], "carries_next_step": false}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ],
+  "resume_turns": [
+    [
+      {"init": true},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ],
+  "lanes": {
+    "lane-2": {
+      "turns": [
+        [
+          {"init": true},
+          {"mcp": "ask", "arguments": {"text": "What should this lane do next?", "blocking": true}},
+          {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+        ],
+        [
+          {"init": true},
+          {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+          {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+        ]
+      ]
+    }
+  }
+}

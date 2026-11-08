@@ -1,0 +1,28 @@
+ropeshift top   9 need you   11 lanes   1 workers   read 0s ago
+NEEDS YOU
+>   12m  work      wo-lapsed  lapsed  Rotate the keys
+    11m  work      wo-blocked  blocked  Move the archive  no_outcome
+    10m  effect    worker-a:1:8  a crash left input unknown
+     9m  work      wo-accept  acceptance  Trim the log
+     8m  approval  approval-1  lane lane-wo-approval asks about Bash
+     6m  questions generated-6  2 to answer
+     5m  work      wo-parked  human_resume  Wait for the check
+     4m  work      wo-stalled  stalled  Read the logs
+     4m  work      wo-tripped  tripped  Fix the flaky test
+    ropeshift work reassign wo-lapsed --reason R
+    ropeshift work cancel wo-lapsed --reason R
+LANES
+  lane-wo-lapsed  wo-lapsed  working  liveness alive  model reachable  ledger reachable  -  last reported 13m ago
+  lane-wo-blocked  wo-blocked  ended  liveness dead  model unknown  ledger unknown  -  observed
+  lane-wo-accept  wo-accept  ended  liveness dead  model unknown  ledger unknown  -  observed
+  lane-wo-parked  wo-parked  parked  liveness dead  model unknown  ledger unknown  -  observed
+  lane-wo-stalled  wo-stalled  working  liveness alive  model reachable  ledger reachable  stalled  last reported 4m ago
+  lane-wo-tripped  wo-tripped  tripped  liveness dead  model reachable  ledger reachable  -  last reported 4m ago
+  lane-wo-approval  wo-approval  working  liveness alive  model reachable  ledger reachable  -  last reported 8m ago
+  lane-wo-done  wo-done  ended  liveness dead  model unknown  ledger unknown  -  observed
+  lane-wo-effect  wo-effect  working  liveness alive  model reachable  ledger reachable  -  last reported 10m ago
+  lane-wo-failed  wo-failed  ended  liveness dead  model unknown  ledger unknown  -  observed
+  lane-wo-running  wo-running  working  liveness alive  model reachable  ledger reachable  -  last reported 4m ago
+WORKERS
+  worker-a  solo  epoch 1  last reported  orchestrator not reported, wanted running
+j/k move   r read now   q quit

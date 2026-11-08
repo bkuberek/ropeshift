@@ -1,0 +1,13 @@
+{
+  "source": "RS5: ask through ropeshift mcp returns at once, and the lane goes on",
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
+      {"mcp": "ask", "arguments": {"text": "What is the retry budget?", "categories": ["product"], "blocking": true}},
+      {"mcp": "ask", "arguments": {"text": "what is the retry budget"}},
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ]
+  ]
+}

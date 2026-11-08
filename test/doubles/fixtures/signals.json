@@ -1,0 +1,50 @@
+{
+  "source": "matrix: rate_limit_event, system/api_retry, and compact_boundary",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "emit": {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed"
+          }
+        }
+      },
+      {
+        "emit": {
+          "type": "system",
+          "subtype": "api_retry",
+          "retry_delay_ms": 1000
+        }
+      },
+      {
+        "emit": {
+          "type": "system",
+          "subtype": "compact_boundary",
+          "compact_metadata": {
+            "trigger": "auto"
+          }
+        }
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.01,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ]
+  ]
+}

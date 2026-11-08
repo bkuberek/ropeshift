@@ -1,0 +1,266 @@
+package rules
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+// Module is one module in the build list.
+type Module struct {
+	Path    string
+	Version string
+	Dir     string
+}
+
+// License is the classification of one module.
+type License struct {
+	Name    string
+	Allowed bool
+}
+
+// licenseFile matches the names modules use for a license at their root.
+var licenseFile = regexp.MustCompile(`(?i)^(licen[cs]e|copying|unlicense)([._-].*)?$`)
+
+// notALicense lists files named like a license that cover no code. Anything else
+// with an unknown text fails, so an entry here is a reviewed decision.
+var notALicense = map[string]bool{
+	"LICENSE-LOGO": true, // The attribution of a logo image.
+}
+
+// mplSecondaryClause is the part of the MPL-2.0 text that names the AGPL as a
+// possible secondary license. It grants nothing under the AGPL, so it must not
+// read as an AGPL dependency, and it is the only text the denied scan skips.
+const mplSecondaryClause = "the gnu affero general public license, version 3.0, or any later versions of those licenses"
+
+// A denied license is found first, because a restricted text can quote a
+// permissive one. NFR-LIC-2 asks that every license allow hosted use.
+var deniedLicenses = []struct{ name, phrase string }{
+	{"SSPL", "server side public license"},
+	{"BUSL", "business source license"},
+	{"Elastic", "elastic license"},
+	{"Commons-Clause", "commons clause"},
+	{"FSL", "functional source license"},
+	{"PolyForm", "polyform"},
+	{"AGPL", "gnu affero general public license"},
+}
+
+// allowedLicenses are OSI-approved or public domain (NFR-LIC-1), and all of them
+// allow hosted use. Every phrase in a row must appear.
+var allowedLicenses = []struct {
+	name    string
+	phrases []string
+}{
+	{"Apache-2.0", []string{"apache license", "version 2.0"}},
+	{"MPL-2.0", []string{"mozilla public license", "version 2.0"}},
+	{"MIT", []string{"permission is hereby granted, free of charge", "shall be included in all copies"}},
+	{"ISC", []string{"permission to use, copy, modify, and/or distribute this software for any purpose"}},
+	{"BSD-3-Clause", []string{"redistribution and use in source and binary forms", "neither the name"}},
+	{"BSD-3-Clause", []string{"redistribution and use in source and binary forms", "names of its contributors may not be used"}},
+	{"BSD-2-Clause", []string{"redistribution and use in source and binary forms"}},
+	{"Public-Domain", []string{"released into the public domain"}},
+	{"Public-Domain", []string{"the author disclaims copyright to this source code"}},
+	{"Public-Domain", []string{"has been dedicated to the public domain"}},
+}
+
+// ClassifyModule reads the license files at a module's root. A module with no
+// recognized license fails, so that an unknown text is a decision and not a pass.
+func ClassifyModule(dir string) (License, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return License{}, err
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() || !licenseFile.MatchString(entry.Name()) || notALicense[entry.Name()] {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return License{}, err
+		}
+		name, allowed := classifyText(string(raw))
+		if !allowed && name != "unknown" {
+			return License{Name: name}, nil
+		}
+		if allowed && !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+		if !allowed {
+			names = append(names, "unknown")
+		}
+	}
+	if len(names) == 0 {
+		return License{Name: "none"}, nil
+	}
+	if slices.Contains(names, "unknown") {
+		return License{Name: "unknown"}, nil
+	}
+	return License{Name: strings.Join(names, " AND "), Allowed: true}, nil
+}
+
+var spaces = regexp.MustCompile(`\s+`)
+
+func classifyText(text string) (string, bool) {
+	normalized := spaces.ReplaceAllString(strings.ToLower(text), " ")
+	scanned := strings.ReplaceAll(normalized, mplSecondaryClause, "")
+	for _, denied := range deniedLicenses {
+		if strings.Contains(scanned, denied.phrase) {
+			return denied.name, false
+		}
+	}
+	for _, license := range allowedLicenses {
+		matched := true
+		for _, phrase := range license.phrases {
+			matched = matched && strings.Contains(normalized, phrase)
+		}
+		if matched {
+			return license.name, true
+		}
+	}
+	return "unknown", false
+}
+
+// CheckLicenses returns one report line per module and a violation per module
+// that fails the rule.
+func CheckLicenses(modules []Module) (report []string, violations []Violation) {
+	for _, module := range modules {
+		license, err := ClassifyModule(module.Dir)
+		if err != nil {
+			report = append(report, fmt.Sprintf("%s %s ERROR", module.Path, module.Version))
+			violations = append(violations, Violation{"license", module.Path, err.Error()})
+			continue
+		}
+		report = append(report, fmt.Sprintf("%s %s %s", module.Path, module.Version, license.Name))
+		if !license.Allowed {
+			violations = append(violations, Violation{"license", module.Path, "license " + license.Name + " is not allowed"})
+		}
+	}
+	return report, violations
+}
+
+// webLicenses are what a web package may state: OSI-approved (NFR-LIC-1), with no limit on hosted use
+// (NFR-LIC-2). OFL-1.1 covers a font, which ships inside the build.
+var webLicenses = map[string]bool{
+	"0BSD": true, "Apache-2.0": true, "BSD-2-Clause": true, "BSD-3-Clause": true, "ISC": true, "MIT": true, "MPL-2.0": true, "OFL-1.1": true,
+}
+
+// webPackage is one row of a lockfile.
+type webPackage struct {
+	Version string `json:"version"`
+	License string `json:"license"`
+}
+
+// allowedExpression reads an SPDX expression. Either side of an OR is a choice this project can make,
+// and both sides of an AND bind it.
+func allowedExpression(expression string) bool {
+	trimmed := strings.Trim(strings.TrimSpace(expression), "()")
+	for _, choice := range strings.Split(trimmed, " OR ") {
+		allowed := true
+		for _, term := range strings.Split(choice, " AND ") {
+			allowed = allowed && webLicenses[strings.Trim(strings.TrimSpace(term), "()")]
+		}
+		if allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckWebLicenses reads the web application's lockfile, which states a license for every package the
+// tree installs, so the rule holds for a package no build ships too, and it needs no Node.js. A package
+// with no statement fails, so that a silence is a decision and not a pass.
+func CheckWebLicenses(lockfile string) (report []string, violations []Violation, err error) {
+	raw, err := os.ReadFile(lockfile)
+	if err != nil {
+		return nil, nil, err
+	}
+	var lock struct {
+		Packages map[string]webPackage `json:"packages"`
+	}
+	if err := json.Unmarshal(raw, &lock); err != nil {
+		return nil, nil, err
+	}
+	names := make([]string, 0, len(lock.Packages))
+	for name := range lock.Packages {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		row := lock.Packages[name]
+		short := name[strings.LastIndex(name, "node_modules/")+len("node_modules/"):]
+		report = append(report, fmt.Sprintf("%s %s %s", short, row.Version, row.License))
+		if !allowedExpression(row.License) {
+			violations = append(violations, Violation{"license", short, "license " + strconv.Quote(row.License) + " is not allowed"})
+		}
+	}
+	return report, violations, nil
+}
+
+// ListModules returns every module in the build list except the main one. A
+// module whose source is not in the cache is downloaded, because the license
+// rule reads its files.
+func ListModules(root string) ([]Module, error) {
+	cmd := exec.Command("go", "list", "-m", "-json", "all")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("go list: %w", err)
+	}
+	var modules []Module
+	decoder := json.NewDecoder(bytes.NewReader(out))
+	for {
+		var entry struct {
+			Path    string
+			Version string
+			Dir     string
+			Main    bool
+			Replace *struct{ Dir string }
+		}
+		err := decoder.Decode(&entry)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if entry.Main {
+			continue
+		}
+		if entry.Replace != nil && entry.Replace.Dir != "" {
+			entry.Dir = entry.Replace.Dir
+		}
+		if entry.Dir == "" {
+			if entry.Dir, err = downloadModule(root, entry.Path, entry.Version); err != nil {
+				return nil, err
+			}
+		}
+		modules = append(modules, Module{Path: entry.Path, Version: entry.Version, Dir: entry.Dir})
+	}
+	return modules, nil
+}
+
+func downloadModule(root, path, version string) (string, error) {
+	cmd := exec.Command("go", "mod", "download", "-json", path+"@"+version)
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("download %s@%s: %w", path, version, err)
+	}
+	var result struct{ Dir string }
+	if err := json.Unmarshal(out, &result); err != nil {
+		return "", err
+	}
+	return result.Dir, nil
+}

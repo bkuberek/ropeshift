@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by ropeshift service install. Lanes start in process sessions of their own, so
+     launchd ends no lane when it stops this agent. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.ropeshift.ropeshiftd</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/ropeshift/bin/ropeshiftd</string>
+		<string>solo</string>
+		<string>--source</string>
+		<string>/home/a person/R&amp;D &lt;tools&gt;</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>LANG</key>
+		<string>en_US.UTF-8</string>
+		<key>PATH</key>
+		<string>/opt/ropeshift/bin:/usr/bin:/bin</string>
+		<key>ROPESHIFT_STATE_DIR</key>
+		<string>/home/a person/state</string>
+	</dict>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/home/a person/state/ropeshiftd.log</string>
+	<key>StandardErrorPath</key>
+	<string>/home/a person/state/ropeshiftd.log</string>
+</dict>
+</plist>

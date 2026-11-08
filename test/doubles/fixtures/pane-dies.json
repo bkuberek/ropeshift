@@ -1,0 +1,8 @@
+{
+  "source": "SIGKILL to a pane's process, and a resume in a new pane, in the shapes RS3 records",
+  "pane": {"trust": true},
+  "turns": [[{"wait_file": "never"}]],
+  "resume_turns": [[
+    {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}}
+  ]]
+}

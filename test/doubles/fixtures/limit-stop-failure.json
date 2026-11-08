@@ -1,0 +1,10 @@
+{
+  "source": "Documented only, not observed: a pane at its limit, which ends a turn on StopFailure with rate_limit",
+  "matrix": "`StopFailure` with `rate_limit`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": [[
+    {"hook": "StopFailure", "input": {"error": "rate_limit"}}
+  ]]
+}

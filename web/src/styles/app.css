@@ -1,0 +1,1072 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ground);
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+main:focus,
+.title:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 3px solid var(--marker);
+  outline-offset: 3px;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+dl,
+dd,
+ol,
+ul,
+pre,
+blockquote,
+fieldset,
+legend {
+  margin: 0;
+  padding: 0;
+}
+
+ol,
+ul {
+  list-style: none;
+}
+
+a {
+  color: var(--marker);
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.16em;
+}
+
+fieldset {
+  min-width: 0;
+  border: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: var(--gutter);
+  z-index: 10;
+  padding: 0.5rem 0.875rem;
+  background: var(--ink);
+  color: var(--ground);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
+
+.quiet {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+/* The masthead */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1.5rem;
+  padding: 0.75rem var(--gutter);
+  border-bottom: 0.3125rem solid var(--hemp);
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-size: 2rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.masthead-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem 1.25rem;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.status::before {
+  content: "";
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+}
+
+.status-live::before {
+  border-color: var(--marker);
+  background: var(--marker);
+}
+
+.link-button {
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--marker);
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  text-decoration: underline;
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.16em;
+}
+
+/*
+ * The rail of views. A phone folds it behind one button, and a wide screen keeps it beside the page,
+ * with a length of the project's strand marking where a person stands.
+ */
+
+.rail {
+  padding: 0 var(--gutter);
+}
+
+.rail-toggle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.25rem 0;
+  border: 0;
+  border-bottom: 2px solid var(--muted);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+}
+
+.rail-toggle .rail-count {
+  font-size: 1.125rem;
+}
+
+.rail-lists {
+  display: none;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem 2rem;
+  padding: 0.75rem 0 0.25rem;
+}
+
+.rail-open .rail-lists {
+  display: grid;
+}
+
+.rail-name {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.rail a {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0 0.25rem 0.75rem;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+  line-height: 1.1;
+  text-decoration: none;
+}
+
+.rail a:hover {
+  color: var(--marker);
+  text-decoration: underline;
+}
+
+.rail a[aria-current="page"] {
+  box-shadow: inset 0.3125rem 0 0 var(--hemp);
+  font-weight: 900;
+}
+
+.rail-count {
+  color: var(--marker);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+@media (min-width: 64rem) {
+  .frame {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    padding: 1.25rem 0 2rem var(--gutter);
+    overflow-y: auto;
+  }
+
+  .rail-toggle {
+    display: none;
+  }
+
+  .rail-lists {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+  }
+
+  .frame .page {
+    padding-left: 2.5rem;
+  }
+}
+
+/* The page */
+
+.page {
+  max-width: 76rem;
+  padding: 1.25rem var(--gutter) 4rem;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1.5rem;
+  margin-bottom: clamp(1.5rem, 4vw, 2.75rem);
+}
+
+.title {
+  font-family: var(--display);
+  font-size: clamp(3.25rem, 9vw, 6rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 0.95;
+  overflow-wrap: anywhere;
+}
+
+.title-long {
+  font-size: clamp(2.25rem, 5vw, 3.75rem);
+  line-height: 1.02;
+}
+
+.count {
+  font-family: var(--display);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+}
+
+.empty {
+  max-width: 38ch;
+  font-size: clamp(1.375rem, 2.2vw, 1.75rem);
+  line-height: 1.3;
+}
+
+/*
+ * The queue is the project's lane, read from the top: what has waited longest hangs first. The hemp
+ * strand is the work and the marker yarn is the person, and the two run apart until a rung joins them,
+ * which is what every item here is. The wait stands at the end of its rung in the site's signage, so a
+ * glance down the left edge answers how long a person has kept the fleet waiting.
+ */
+.queue {
+  --strand-x: 0.75rem;
+  --yarn-x: 0rem;
+  --text-x: 2.25rem;
+
+  position: relative;
+  padding-left: var(--text-x);
+}
+
+.queue::before,
+.queue::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.queue::before {
+  left: var(--strand-x);
+  width: 0.3125rem;
+  background: var(--hemp);
+}
+
+.queue::after {
+  left: var(--yarn-x);
+  width: 0.1875rem;
+  background: var(--marker);
+}
+
+/*
+ * A lane no person is wanted on: the hemp strand runs alone, with no yarn and no rung, so a rung on any
+ * page means the same thing it means in the queue.
+ */
+.queue-work {
+  --strand-x: 0rem;
+  --text-x: 1.5rem;
+}
+
+.queue-work::after,
+.need-plain::before {
+  display: none;
+}
+
+/* Parked lanes hold no process, so their strand has slack in it. */
+.queue-slack::before {
+  background: repeating-linear-gradient(to bottom, var(--hemp) 0 0.875rem, transparent 0.875rem 1.375rem);
+}
+
+.need {
+  position: relative;
+  padding-bottom: 2rem;
+}
+
+.need::before {
+  content: "";
+  position: absolute;
+  top: 1.25rem;
+  left: calc(var(--yarn-x) - var(--text-x));
+  width: calc(var(--text-x) - var(--yarn-x) - 0.5rem);
+  height: 0.1875rem;
+  background: var(--marker);
+}
+
+.need article {
+  display: grid;
+  gap: 0.25rem 2rem;
+}
+
+.wait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+}
+
+.wait-time {
+  font-family: var(--display);
+  font-size: clamp(2.25rem, 4vw, 3.25rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.wait-word {
+  font-family: var(--display);
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.wait-kind {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+@media (min-width: 52rem) {
+  .queue {
+    --text-x: 2.75rem;
+  }
+
+  .need article {
+    grid-template-columns: 10rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .wait {
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+}
+
+.card {
+  min-width: 0;
+  padding: 1rem clamp(1rem, 2vw, 1.5rem) 1.25rem;
+  background: var(--lane);
+}
+
+.card-title {
+  font-family: var(--display);
+  font-size: clamp(1.625rem, 2.6vw, 2.125rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.card-body {
+  display: grid;
+  gap: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.lead {
+  max-width: 62ch;
+}
+
+.call {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  overflow-x: auto;
+  border-left: 0.3125rem solid var(--hemp);
+  background: var(--ground);
+  font-family: var(--mono);
+  font-size: 0.9375rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 1.5rem;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.fresh {
+  margin-left: 0.5rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.fresh-old {
+  font-style: italic;
+}
+
+/* Parts of a view */
+
+.group {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+}
+
+.group-title {
+  padding-bottom: 0.25rem;
+  border-bottom: 0.1875rem solid var(--hemp);
+  font-family: var(--display);
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.group > .card .card-title {
+  margin-bottom: 0.5rem;
+  font-size: clamp(1.5rem, 2.4vw, 1.875rem);
+}
+
+.rows {
+  display: grid;
+}
+
+.row {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem 0;
+  border-bottom: 2px solid var(--lane);
+}
+
+.row-title {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.row-title.mono {
+  font-family: var(--mono);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.row-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The rope of a plan: hemp is the work, and the marker is how far it got. */
+progress {
+  width: 100%;
+  height: 0.625rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--hemp);
+  appearance: none;
+}
+
+progress::-webkit-progress-bar {
+  background: var(--hemp);
+}
+
+progress::-webkit-progress-value {
+  background: var(--marker);
+}
+
+progress::-moz-progress-bar {
+  background: var(--marker);
+}
+
+.measures,
+.criteria {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 62ch;
+}
+
+.measures li,
+.criteria li {
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--hemp);
+  overflow-wrap: anywhere;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.875rem;
+}
+
+.links-stacked {
+  display: grid;
+}
+
+.back {
+  margin-bottom: 1rem;
+}
+
+.stamp {
+  margin-top: 2.5rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.statement {
+  max-width: 68ch;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.statement-page {
+  margin-bottom: 1rem;
+  font-size: clamp(1.25rem, 2vw, 1.5rem);
+  line-height: 1.35;
+}
+
+.facts-page {
+  margin-bottom: 1rem;
+}
+
+.facts dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.version {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.version + .version {
+  padding-top: 1rem;
+  border-top: 2px solid var(--hemp);
+}
+
+.version-title {
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.older > summary {
+  min-height: 2.75rem;
+  padding: 0.5rem 0;
+  color: var(--marker);
+  cursor: pointer;
+}
+
+.older[open] > summary {
+  margin-bottom: 0.25rem;
+}
+
+.lineage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0;
+}
+
+.lineage li {
+  display: flex;
+  align-items: center;
+}
+
+.lineage li + li::before {
+  content: "";
+  width: 1.25rem;
+  height: 0.1875rem;
+  margin: 0 0.5rem;
+  background: var(--hemp);
+}
+
+.lineage [aria-current] {
+  font-weight: 700;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.filters a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.25rem 0.875rem;
+  border: 2px solid var(--muted);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.filters a:hover {
+  border-color: var(--marker);
+}
+
+.filters a[aria-current] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
+  font-weight: 600;
+}
+
+/* The floor */
+
+.card-id {
+  margin-top: 0.125rem;
+}
+
+.lane-facts {
+  display: grid;
+  gap: 0.5rem;
+}
+
+/*
+ * What a worker confirmed and what it said before going quiet must not look alike (FR-UI-5). A value
+ * that is only the last one received stands behind a broken edge, the same slack a parked lane shows,
+ * and its words lean.
+ */
+.lane-old {
+  outline: 2px dashed var(--muted);
+  outline-offset: -2px;
+}
+
+.lane-old .facts dd {
+  font-style: italic;
+}
+
+.fresh-old {
+  color: var(--ink);
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  gap: 0.875rem;
+}
+
+.lane-card {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  height: 100%;
+}
+
+.lane-card .facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lane-facts .fresh {
+  margin-left: 0;
+}
+
+.lane-id {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  align-items: start;
+  gap: 0 2.5rem;
+}
+
+.tables-note {
+  margin-top: 0.75rem;
+}
+
+.counts {
+  width: 100%;
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+  border-collapse: collapse;
+}
+
+.counts caption {
+  padding-bottom: 0.25rem;
+  border-bottom: 0.1875rem solid var(--hemp);
+  font-family: var(--display);
+  font-size: clamp(1.5rem, 2.6vw, 1.875rem);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: left;
+}
+
+.counts th,
+.counts td {
+  padding: 0.3125rem 0;
+  border-bottom: 2px solid var(--lane);
+  font-weight: 400;
+  text-align: left;
+}
+
+.counts td {
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: right;
+}
+
+.count-none th,
+.count-none td {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* A document's own text: what came from outside stands behind a strand of its own. */
+
+.outside {
+  max-width: 62ch;
+  padding: 0.5rem 0.75rem;
+  border-left: 0.3125rem solid var(--hemp);
+  background: var(--lane);
+  font-size: 1rem;
+}
+
+.prose {
+  display: grid;
+  gap: 0.875rem;
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+}
+
+.prose h2,
+.prose h3,
+.prose h4 {
+  margin-top: 0.75rem;
+  font-family: var(--display);
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.prose h2 {
+  font-size: 2rem;
+}
+
+.prose h3 {
+  font-size: 1.625rem;
+}
+
+.prose h4 {
+  font-size: 1.375rem;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5rem;
+}
+
+.prose ul {
+  list-style: disc;
+}
+
+.prose ol {
+  list-style: decimal;
+}
+
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.875em;
+}
+
+.prose pre {
+  padding: 0.625rem 0.75rem;
+  overflow-x: auto;
+  border-left: 0.3125rem solid var(--hemp);
+  background: var(--lane);
+  font-family: var(--mono);
+  font-size: 0.9375rem;
+  overflow-wrap: normal;
+}
+
+.prose blockquote {
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--muted);
+  color: var(--muted);
+}
+
+.prose hr {
+  width: 100%;
+  border: 0;
+  border-top: 2px solid var(--hemp);
+}
+
+.address {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.875em;
+}
+
+/* Questions */
+
+/* A fieldset's border breaks around its legend, so the rule between questions is on a wrapper. */
+.question-block + .question-block {
+  padding-top: 1rem;
+  border-top: 2px solid var(--hemp);
+}
+
+.question {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.question-text {
+  padding-bottom: 0.25rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.tags:empty {
+  display: none;
+}
+
+.tag-strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.75rem;
+  border: 2px solid var(--muted);
+  cursor: pointer;
+}
+
+.choice-on {
+  border-color: var(--marker);
+}
+
+.choice input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--marker);
+}
+
+.choice-text {
+  flex: 1 1 12rem;
+  overflow-wrap: anywhere;
+}
+
+.choice-note {
+  color: var(--marker);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+/* Fields and buttons */
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+input[type="text"],
+input[type="password"],
+textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.625rem;
+  border: 2px solid var(--muted);
+  border-radius: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.button {
+  min-height: 2.75rem;
+  padding: 0.25rem 1rem;
+  border: 2px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 1.375rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.button:hover:not(:disabled),
+.button-strong {
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.button-strong:hover:not(:disabled) {
+  background: var(--marker);
+  border-color: var(--marker);
+  color: var(--ground);
+}
+
+.button:disabled {
+  border-color: var(--muted);
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.refusal {
+  max-width: 62ch;
+  color: var(--refuse);
+  font-weight: 600;
+}
+
+.reason {
+  display: grid;
+  gap: 0.625rem;
+  max-width: 34rem;
+}
+
+.sign-in {
+  display: grid;
+  gap: 1rem;
+  max-width: 28rem;
+}
+
+/* Motion */
+
+@media (prefers-reduced-motion: no-preference) {
+  .need {
+    animation: tie-on 260ms ease-out both;
+  }
+
+  .button,
+  .choice {
+    transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+  }
+}
+
+@keyframes tie-on {
+  from {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

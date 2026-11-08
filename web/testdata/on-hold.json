@@ -1,0 +1,52 @@
+{
+  "as_of": 1790000780001,
+  "items": [
+    {
+      "lane": {
+        "actual_state": "parked",
+        "as_of": 1790000480001,
+        "freshness": "observed",
+        "generation": 1,
+        "generations": [
+          {
+            "end_reason": "parked",
+            "ended_at": 1790000480001,
+            "lane_id": "lane-wo-parked",
+            "number": 1,
+            "start_reason": "initial",
+            "started_at": 1790000480001
+          }
+        ],
+        "id": "lane-wo-parked",
+        "ledger_reach": "unknown",
+        "liveness": "dead",
+        "model_reach": "unknown",
+        "reported_by_epoch": 1,
+        "work_order": "wo-parked",
+        "worker_id": "worker-a"
+      },
+      "since": 1790000480001,
+      "wakes": [
+        {
+          "expression": "human_resume",
+          "id": "wake-lane-wo-parked"
+        }
+      ],
+      "work_order": {
+        "contract_id": "generated-1",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "wo-parked",
+        "kind": "change",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "rev": 2,
+        "reviewed_by": "member-1",
+        "size": "unknown",
+        "state": "parked",
+        "title": "Wait for the check"
+      }
+    }
+  ],
+  "revision": 206
+}

@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"ropeshift policy: this lane asks through the ask tool. It records the question for the workspace, and it answers at once when it can."}}

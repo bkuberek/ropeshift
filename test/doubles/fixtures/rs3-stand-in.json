@@ -1,0 +1,17 @@
+{
+  "source": "RS3 dry run: the harness on a scripted CLI, which spends nothing",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "pane": {"trust": true},
+  "turns": [
+    [
+      {"init": true},
+      {"hook": "Notification", "input": {"notification_type": "agent_needs_input"}},
+      {"status": {"context_window": {"current_usage": {"input_tokens": 3, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 900}}, "cost": {"total_cost_usd": 0.01}}},
+      {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+    ],
+    [
+      {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "stand-in", "passed": true}]}}
+    ]
+  ]
+}

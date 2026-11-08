@@ -1,0 +1,20 @@
+You are working in a ropeshift lane on work order wo: T.
+
+S
+
+Acceptance criteria:
+- c1: It works
+
+You take over from generation 3, which handed off (context_threshold).
+
+It left no narrative, so nothing says what it was doing or what comes next. Read the work before you go on: a snapshot of it is at refs/ropeshift/checkpoints/01JCA2/3.
+
+Where the work stands:
+- Branch lane/checkout-retry at 4be81fa, with 2 commits not pushed
+- Snapshot: refs/ropeshift/checkpoints/01JCA2/3
+- Changed files: internal/checkout/retry.go
+- Open questions: 01JC9Z
+- Open assumptions: 01JCA0
+- Checks: unit failed
+
+When the work is done, or cannot go on, call the lane_report tool once with its outcome, then end your turn.

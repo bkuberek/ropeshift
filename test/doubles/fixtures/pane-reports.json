@@ -1,0 +1,7 @@
+{
+  "source": "RS3 shape: a pane that holds its report until a worker can take it",
+  "pane": {"trust": true},
+  "turns": [
+    [{"wait_file": "release"}, {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["branch"], "checks": [{"name": "unit", "passed": true}]}}]
+  ]
+}

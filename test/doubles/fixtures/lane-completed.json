@@ -1,0 +1,68 @@
+{
+  "source": "RS1: lane_report through ropeshift mcp, and the driver's real flags",
+  "turns": [
+    [
+      {
+        "init": true
+      },
+      {
+        "hook": "UserPromptSubmit",
+        "input": {
+          "prompt": "the brief"
+        }
+      },
+      {
+        "emit": {
+          "type": "stream_event",
+          "parent_tool_use_id": null,
+          "event": {
+            "type": "message_start",
+            "message": {
+              "usage": {
+                "input_tokens": 3,
+                "cache_creation_input_tokens": 100,
+                "cache_read_input_tokens": 900,
+                "output_tokens": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "mcp": "lane_report",
+        "arguments": {
+          "outcome": "completed",
+          "artifacts": [
+            "branch"
+          ],
+          "checks": [
+            {
+              "name": "unit",
+              "passed": true
+            }
+          ]
+        }
+      },
+      {
+        "hook": "Stop",
+        "input": {}
+      },
+      {
+        "emit": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "terminal_reason": "completed",
+          "num_turns": 1,
+          "total_cost_usd": 0.03,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ]
+  ]
+}

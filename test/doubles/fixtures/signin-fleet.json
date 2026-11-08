@@ -1,0 +1,29 @@
+{
+  "source": "Documented only, not observed: the sign-in expires under two lanes, and the status command says when it is back",
+  "matrix": "`system/api_retry` with `retry_delay_ms`",
+  "version": "2.1.316",
+  "model": "claude-fixture-5-5",
+  "turns": [[
+    {"init": true},
+    {"hold": true}
+  ]],
+  "resume_turns": [[
+    {"init": true},
+    {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+    {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+  ]],
+  "lanes": {
+    "lane-2": {
+      "turns": [[
+        {"init": true},
+        {"emit": {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10, "retry_delay_ms": 500, "error_status": 401, "error": "authentication_failed"}},
+        {"hold": true}
+      ]],
+      "resume_turns": [[
+        {"init": true},
+        {"mcp": "lane_report", "arguments": {"outcome": "completed", "artifacts": ["none"], "checks": [{"name": "fixture", "passed": true}]}},
+        {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03, "usage": {"input_tokens": 3, "output_tokens": 5}}}
+      ]]
+    }
+  }
+}

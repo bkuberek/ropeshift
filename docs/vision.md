@@ -85,9 +85,9 @@ Human attention is the scarcest resource in the system. A question passes a ladd
 
 An agent cannot approve its own request. A decision binds to an exact artifact and is void when that artifact changes. Learning can tune settings and can never widen authority.
 
-### Free and complete when self-hosted
+### Free and complete
 
-The self-hosted product is free, complete enough to run on its own, and requires no paid service.
+The product is free, complete enough to run on its own, and requires no service you pay for.
 
 ## Non-goals
 
@@ -99,5 +99,5 @@ Ropeshift deliberately does not:
 - Replace trackers. A tracker stays the system of record for what humans plan.
 - Be a general workflow engine. Its state machines exist to run work orders.
 - Model an organization. It has no factory hierarchy, and the first release has no roles.
-- Require a paid service, a vendor account, or a specific network product.
+- Require a service you pay for, a vendor account, or a specific network product.
 - Collect prompt, response, or tool content in telemetry by default.

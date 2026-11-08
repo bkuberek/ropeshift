@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.11.2/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "component": "main",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "skip-github-release": true,
+      "versioning": "prerelease",
+      "prerelease": true,
+      "prerelease-type": "alpha.1",
+      "initial-version": "0.1.0-alpha.1",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "pull-request-title-pattern": "chore${scope}: release ${version}"
+    }
+  }
+}

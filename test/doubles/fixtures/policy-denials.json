@@ -1,0 +1,14 @@
+{
+  "source": "T1 and T5: a PreToolUse denial from a compiled policy, with no worker",
+  "turns": [
+    [
+      {"init": true},
+      {"wait_file": "release"},
+      {"tool": "Bash", "command": "git push --force origin lane/one"},
+      {"tool": "Bash", "command": "git push origin HEAD:main"},
+      {"tool": "Bash", "command": "echo x > /tmp/rs-denied-by-policy"},
+      {"tool": "Write", "file": "/tmp/rs-denied-by-policy"},
+      {"tool": "Bash", "command": "echo inside > inside.txt"}
+    ]
+  ]
+}
