@@ -1,0 +1,71 @@
+name: Set up the toolchain
+description: >-
+  Go at the version go.mod names, and on request Node.js for the web build, golangci-lint, GoReleaser,
+  and tmux. Go modules, the Go build cache, and npm downloads use the runner's cache unless cache is
+  false, as in the release workflow, which builds from a clean environment.
+
+inputs:
+  cache:
+    description: Restore and save the Go and npm caches.
+    default: "true"
+  node:
+    description: Install Node.js, which builds and tests the web UI.
+    default: "false"
+  golangci-lint:
+    description: Install golangci-lint for make lint.
+    default: "false"
+  goreleaser:
+    description: Install GoReleaser for make release-check, make snapshot, and a release.
+    default: "false"
+  tmux:
+    description: Install tmux, which the tests of interactive lanes need and skip without.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: ${{ inputs.cache }}
+        cache-dependency-path: go.sum
+
+    - if: inputs.node == 'true' && inputs.cache == 'true'
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: "24"
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+
+    - if: inputs.node == 'true' && inputs.cache != 'true'
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: "24"
+        package-manager-cache: false
+
+    - if: inputs.golangci-lint == 'true'
+      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+      with:
+        version: v2.15.0
+        install-only: true
+
+    - if: inputs.goreleaser == 'true'
+      uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+      with:
+        distribution: goreleaser
+        version: v2.20.0
+        install-only: true
+
+    - if: inputs.tmux == 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update --quiet
+        sudo apt-get install --yes --quiet --no-install-recommends tmux
+
+    - if: inputs.tmux == 'true' && runner.os == 'macOS'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        HOMEBREW_NO_ENV_HINTS: "1"
+      run: brew install tmux

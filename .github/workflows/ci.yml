@@ -1,0 +1,356 @@
+# The checks every pull request to main and every push to main runs (ADR-0017): make check on Linux
+# and macOS, and on Linux the cross builds, the crash tests, an install through every channel, the first
+# work order with no network, and the service tests under systemd. A push to main also runs the long
+# crash run and the bench. Nothing here starts an agent CLI session or holds an agent credential.
+#
+# A change to Markdown and images only runs no checks: the changes job finds it, every check is skipped,
+# and the CI result job still reports, so branch protection can require CI result alone.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      long-chaos:
+        description: Also run the long crash run, make chaos KILLS=1500
+        type: boolean
+        default: false
+      bench:
+        description: Also run the bench, whose numbers are informational
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: files
+        name: Find whether anything but Markdown and images changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request is checked out as its merge commit, whose first parent is the base. A push
+          # compares with the commit main held before it. A manual run, a new branch, and a range this
+          # cannot read all run every check.
+          base=
+          case $EVENT in
+          pull_request) base=$(git rev-parse HEAD^1) ;;
+          push) base=$BEFORE ;;
+          esac
+          code=true
+          if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            code=false
+            while IFS= read -r path; do
+              case $path in
+              *.md | *.png | *.jpg | *.jpeg | *.gif | *.svg | *.webp | *.ico) ;;
+              *) code=true ;;
+              esac
+            done < <(git diff --name-only "$base" HEAD)
+          fi
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+          echo "Checks run: $code"
+
+  check:
+    name: make check (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node: "true"
+          golangci-lint: "true"
+          goreleaser: "true"
+          tmux: "true"
+      - name: make check
+        run: make check 2>&1 | tee "$RUNNER_TEMP/check.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: check-${{ matrix.os }}-log
+          path: ${{ runner.temp }}/check.log
+          retention-days: 14
+
+  cross:
+    name: make cross
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: make cross
+        run: make cross 2>&1 | tee "$RUNNER_TEMP/cross.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cross-log
+          path: ${{ runner.temp }}/cross.log
+          retention-days: 14
+
+  chaos:
+    name: make chaos
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          tmux: "true"
+      - name: make chaos
+        run: make chaos 2>&1 | tee "$RUNNER_TEMP/chaos.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chaos-log
+          path: ${{ runner.temp }}/chaos.log
+          retention-days: 14
+
+  # The snapshot the install and exit jobs test, built once. The archive keeps the file modes that an
+  # artifact alone would drop.
+  snapshot:
+    name: make snapshot
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node: "true"
+          goreleaser: "true"
+      - name: make snapshot
+        run: make snapshot 2>&1 | tee "$RUNNER_TEMP/snapshot.log"
+      - name: Pack the snapshot
+        run: tar -czf "$RUNNER_TEMP/snapshot.tar.gz" dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshot
+          path: ${{ runner.temp }}/snapshot.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshot-log
+          path: ${{ runner.temp }}/snapshot.log
+          retention-days: 14
+
+  install-test:
+    name: make install-test
+    needs: [changes, snapshot]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The release step the install test runs in a scratch clone cuts from a branch, and a pull
+      # request is checked out as a detached merge commit.
+      - name: Put the checkout on a branch
+        run: git symbolic-ref --quiet HEAD >/dev/null || git switch --quiet --create ci-candidate
+      - uses: ./.github/actions/setup
+        with:
+          node: "true"
+          goreleaser: "true"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: snapshot
+          path: ${{ runner.temp }}
+      - name: Unpack the snapshot
+        run: tar -xzf "$RUNNER_TEMP/snapshot.tar.gz"
+      - name: make install-test
+        run: make install-test INSTALL_DIST=dist 2>&1 | tee "$RUNNER_TEMP/install-test.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-test-log
+          path: ${{ runner.temp }}/install-test.log
+          retention-days: 14
+
+  exit-container:
+    name: make exit-container
+    needs: [changes, snapshot]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: snapshot
+          path: ${{ runner.temp }}
+      - name: Unpack the snapshot
+        run: tar -xzf "$RUNNER_TEMP/snapshot.tar.gz"
+      - name: make exit-container
+        run: make exit-container EXIT_DIST=dist 2>&1 | tee "$RUNNER_TEMP/exit-container.log"
+      # These tests skip with no Docker or no snapshot, and a skip here would prove nothing.
+      - name: Require that every test ran
+        run: |
+          if grep -E -- '--- SKIP' "$RUNNER_TEMP/exit-container.log"; then
+            echo "::error::An exit test skipped, so the run proves nothing"
+            exit 1
+          fi
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exit-container-log
+          path: ${{ runner.temp }}/exit-container.log
+          retention-days: 14
+
+  service:
+    name: Service tests under systemd
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: make service-container
+        run: make service-container SERVICE_OUT="$RUNNER_TEMP/service" 2>&1 | tee "$RUNNER_TEMP/service.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: service-log
+          path: |
+            ${{ runner.temp }}/service.log
+            ${{ runner.temp }}/service/results.txt
+            ${{ runner.temp }}/service/logs
+            ${{ runner.temp }}/service/journal.txt
+          retention-days: 14
+
+  chaos-long:
+    name: make chaos KILLS=1500
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || inputs.long-chaos)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          tmux: "true"
+      - name: make chaos KILLS=1500
+        run: make chaos KILLS=1500 2>&1 | tee "$RUNNER_TEMP/chaos-long.log"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chaos-long-log
+          path: ${{ runner.temp }}/chaos-long.log
+          retention-days: 14
+
+  # Shared runners give noisy timings, so the bench never fails the run. NFR-PERF-1 and NFR-PERF-2 are
+  # proven on known machines, and these numbers are kept in the job summary.
+  bench:
+    name: make bench (informational)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || inputs.bench)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          tmux: "true"
+      - name: make bench
+        run: make bench 2>&1 | tee "$RUNNER_TEMP/bench.log"
+      - name: Keep the numbers in the job summary
+        if: always()
+        run: |
+          {
+            echo "### Bench on a shared runner"
+            echo
+            echo "Shared runners give noisy timings, so these numbers are informational."
+            echo
+            echo '```text'
+            grep -E -- '_test\.go:[0-9]+:|^ *--- |^(ok|FAIL|PASS)' "$RUNNER_TEMP/bench.log" || echo "The bench printed no results."
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-log
+          path: ${{ runner.temp }}/bench.log
+          retention-days: 14
+
+  # The one check branch protection requires. It passes when every check passed or was skipped, so a
+  # change to Markdown and images only reports a result too. The bench is informational and left out.
+  result:
+    name: CI result
+    if: always()
+    needs: [changes, check, cross, chaos, snapshot, install-test, exit-container, service, chaos-long]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require that every check passed or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            case $result in
+            success | skipped) ;;
+            *)
+              echo "::error::A check ended as $result"
+              exit 1
+              ;;
+            esac
+          done
