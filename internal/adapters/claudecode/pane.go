@@ -128,11 +128,13 @@ func writePaneState(spec ports.SessionSpec, state paneState) error {
 }
 
 // paneArgs is the interactive command, which states the same mode and files as the
-// headless one, because neither `--settings` nor `--mcp-config` survives a resume.
+// headless one, because neither `--settings` nor `--mcp-config` survives a resume. A suite's
+// guard flags are its pane flags, as the probe's pane takes them, because some headless flags
+// stop an interactive start.
 func paneArgs(spec ports.SessionSpec) []string {
 	settings, mcp := generatedPaths(spec)
 	out := []string{"--permission-mode", spec.PermissionMode, "--model", spec.Model, "--settings", settings, "--mcp-config", mcp}
-	return append(append(out, packArgs(spec)...), spec.Override.Args()...)
+	return append(append(out, packArgs(spec)...), spec.Override.PaneArgs()...)
 }
 
 // paneName is the pane's name on the terminal server. A lane ID holds no character tmux
