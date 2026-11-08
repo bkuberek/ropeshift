@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test linux-bundle release-check snapshot install-test exit-container
+.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test linux-bundle release-check snapshot install-test exit-container
 
 check: format vet lint test web-test licenses release-check canary
 
@@ -27,7 +27,7 @@ canary:
 
 vet:
 	$(GO) vet ./...
-	$(GO) vet -tags 'chaos postgres bench realsession service install container' ./...
+	$(GO) vet -tags 'chaos postgres bench sizing realsession service install container' ./...
 
 lint:
 	golangci-lint run ./...
@@ -61,6 +61,15 @@ cross:
 
 bench:
 	$(GO) test -tags bench -count=1 -v ./test/bench/...
+	@$(MAKE) --no-print-directory canary
+
+# NFR-PERF-3 for one worker: LANES lanes at once on the double, 50 by default, with the memory and
+# CPU of the run, the time a ledger write takes, and the load average, which stops the run at 30. It
+# never runs beside the bench or the chaos suite, because each would skew the other.
+LANES ?= 50
+
+sizing:
+	LANES=$(LANES) $(GO) test -tags sizing -count=1 -v -timeout 20m ./test/bench/...
 	@$(MAKE) --no-print-directory canary
 
 # The daemon under this machine's real service manager: launchd on macOS, and the user's systemd
