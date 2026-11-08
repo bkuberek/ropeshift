@@ -4,6 +4,7 @@ package real
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -273,8 +274,12 @@ func (s *suite) reportEvidence() {
 	}
 	for _, lane := range s.watched {
 		s.logf("evidence: %s:\n  %s", lane, strings.Join(s.laneEvidence(lane), "\n  "))
-		if counts := s.hookEvidence(lane); len(counts) != 0 {
+		counts, tools := s.hookEvidence(lane)
+		if len(counts) != 0 {
 			s.logf("evidence: %s hooks per generation: %v", lane, counts)
+		}
+		if len(tools) != 0 {
+			s.logf("evidence: %s tools per generation: %v", lane, tools)
 		}
 		if s.t.Failed() {
 			for _, screen := range s.keptScreens(lane) {
@@ -290,20 +295,43 @@ func (s *suite) reportEvidence() {
 	}
 }
 
-// hookEvidence reads a lane's hooks, and a read that fails leaves them out, because this runs
-// on the way to cleaning up and nothing here may stop that.
-func (s *suite) hookEvidence(lane string) []string {
+// hookEvidence reads a lane's hooks, as counts and as the tools it called, and a read that fails
+// leaves them out, because this runs on the way to cleaning up and nothing here may stop that.
+func (s *suite) hookEvidence(lane string) (counts, tools []string) {
 	s.t.Helper()
 	journal, err := sqlite.OpenJournal(filepath.Join(s.paths.StateDir, api.JournalFileName))
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer journal.Close()
 	records, err := journal.HookEvents(context.Background(), lane)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	return hookCounts(records)
+	return hookCounts(records), hookTools(records)
+}
+
+// hookTools names the tools a lane called, by generation and in the order it first called each,
+// with a repeat counted. A name is all it keeps: no argument, answer, or reply.
+func hookTools(records []lanes.HookRecord) []string {
+	calls := slices.DeleteFunc(slices.Clone(records), func(record lanes.HookRecord) bool {
+		return record.Event != "PreToolUse" || record.Tool == ""
+	})
+	slices.SortStableFunc(calls, func(a, b lanes.HookRecord) int {
+		if a.Generation != b.Generation {
+			return cmp.Compare(a.Generation, b.Generation)
+		}
+		return cmp.Compare(a.FirstMs, b.FirstMs)
+	})
+	out := make([]string, 0, len(calls))
+	for _, call := range calls {
+		name := fmt.Sprintf("g%d %s", call.Generation, call.Tool)
+		if call.Count > 1 {
+			name += fmt.Sprintf(" x%d", call.Count)
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // hookCounts sums a lane's hooks by generation and event.
@@ -403,6 +431,27 @@ func TestStopEvidenceNamesAParkingWithoutItsSteps(t *testing.T) {
 				t.Errorf("gaps %q, want %d", got, tt.gaps)
 			}
 		})
+	}
+}
+
+func TestHookToolsNameEachCallByGenerationInOrder(t *testing.T) {
+	call := func(generation int64, event, tool string, first, count int64) lanes.HookRecord {
+		return lanes.HookRecord{HookEvent: lanes.HookEvent{Generation: generation, Event: event, Tool: tool}, FirstMs: first, Count: count}
+	}
+	records := []lanes.HookRecord{
+		call(2, "PreToolUse", "mcp__ropeshift__lane_report", 30, 1),
+		call(1, "PreToolUse", "mcp__ropeshift__decision_search", 20, 2),
+		call(1, "PostToolUse", "mcp__ropeshift__decision_search", 21, 2),
+		call(1, "PreToolUse", "mcp__ropeshift__question_search", 10, 1),
+		call(1, "SessionStart", "", 5, 1),
+		call(1, "PreToolUse", "", 15, 1),
+	}
+	want := []string{"g1 mcp__ropeshift__question_search", "g1 mcp__ropeshift__decision_search x2", "g2 mcp__ropeshift__lane_report"}
+	if got := hookTools(records); !slices.Equal(got, want) {
+		t.Errorf("hookTools = %q, want %q", got, want)
+	}
+	if got := hookTools(nil); len(got) != 0 {
+		t.Errorf("no records name %q", got)
 	}
 }
 

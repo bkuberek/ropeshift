@@ -222,6 +222,18 @@ const rs15ContextSteps = `1. If you are in generation 2 or later of this lane, c
 3. If the message says your context was compacted, call the decision_search tool once with the query rs15. End your turn with the single word waiting. Do not call lane_report in this step, whatever the message says.
 4. Otherwise call the question_search tool once with the query rs15. End your turn with the single word waiting. Do not call lane_report here: a later step of this lane does that.`
 
+// rs15PaneContextSteps are E5's steps in a pane, whose worker reads a compaction's first figure from
+// the status line or at rest, never inside the call that follows it. A first generation that reported
+// in the turn after its compaction would end before the compaction could fail, so it never reports:
+// told its context was compacted, or asked for an outcome, it makes one quick call and rests, and the
+// failed compaction's handoff is what ends it. The next generation's report is the only finish.
+const rs15PaneContextSteps = `Only generation 2 or later of this lane may call lane_report, and its report is the only way this lane finishes. You are in generation 2 or later only when the latest message says "You take over from generation". A compaction does not start a new generation. In generation 1, never call lane_report, whatever a message says.
+
+1. If you are in generation 2 or later, call the lane_report tool once, with outcome completed and reason set to the word generation, one space, and your generation's number. End your turn with the single word done.
+2. If the message, or a tool's answer, tells you to hand off or to write a handoff, do what it says, and end your turn.
+3. If the message says your context was compacted, or asks you to call lane_report or to give an outcome, call the decision_search tool once with the query rs15, and end your turn with the single word waiting.
+4. Otherwise call the question_search tool once with the query rs15. End your turn with the single word waiting.`
+
 // rs15ContextProfile lowers a lane's compaction threshold under anything a call can report, so the
 // worker compacts the lane at its first rest, the next call fails that compaction, and the lane hands
 // off, as RS10's headless lane did.
@@ -979,7 +991,7 @@ func rs15PaneContext(t *testing.T) {
 	s := rs15Open(t, "rs15d", rs15PaneLane, true, rs15Charge{"e5t-first", rs15PaneCharge}, rs15Charge{"e5t-next", rs15PaneNextCharge})
 	s.rs15Repo(rs15PaneLane, map[string]string{
 		".ropeshift/profile.toml": rs15ContextProfile(lanes.ProfileRunTmux),
-		"contract.md":             rs15Contract("rs15e5t", "Hold a lane's context", "The lane reports the generation it is in", rs15ContextSteps),
+		"contract.md":             rs15Contract("rs15e5t", "Hold a lane's context", "The lane reports the generation it is in", rs15PaneContextSteps),
 	})
 	s.playStandIn(standInPaneHandoff(), nil)
 	d := s.startDaemonWith(s.rs15Override(rs15Flags(rs15ContextMaxTurns)))
