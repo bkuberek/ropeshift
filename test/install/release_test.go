@@ -31,6 +31,10 @@ func git(t *testing.T, dir string, args ...string) string {
 // tag build reads the origin's URL, so origin names a host in the reserved .invalid domain, which never
 // resolves.
 //
+// The clone takes no tags. The tests make every tag they read, so a release this repository has
+// published, or the tag on main that marks where it was cut, cannot move where a tag build's notes
+// start.
+//
 // ROPESHIFT_RELEASE_SOURCE names another repository to clone in place of this one, such as a copy
 // with a deliberate defect, to prove that a test fails.
 func scratchClone(t *testing.T) (string, string) {
@@ -40,7 +44,7 @@ func scratchClone(t *testing.T) (string, string) {
 		source = repoRoot(t)
 	}
 	dir := filepath.Join(t.TempDir(), "ropeshift")
-	git(t, "", "clone", "--quiet", "--no-hardlinks", source, dir)
+	git(t, "", "clone", "--quiet", "--no-hardlinks", "--no-tags", source, dir)
 	git(t, dir, "remote", "set-url", "origin", "https://unreachable.invalid/ropeshift/ropeshift.git")
 	for _, kv := range [][2]string{
 		{"user.name", "Release Test"}, {"user.email", "release-test@example.invalid"},
