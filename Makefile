@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test linux-bundle release-check snapshot install-test
+.PHONY: check format vet lint test web-test web-build licenses cross bench check-postgres chaos canary real qualify service-test linux-bundle release-check snapshot install-test exit-container
 
 check: format vet lint test web-test licenses release-check canary
 
@@ -27,7 +27,7 @@ canary:
 
 vet:
 	$(GO) vet ./...
-	$(GO) vet -tags 'chaos postgres bench realsession service install' ./...
+	$(GO) vet -tags 'chaos postgres bench realsession service install container' ./...
 
 lint:
 	golangci-lint run ./...
@@ -149,6 +149,18 @@ install-test:
 	@if [ -z "$(INSTALL_DIST)" ]; then $(MAKE) --no-print-directory snapshot; fi
 	ROPESHIFT_DIST="$(if $(INSTALL_DIST),$(abspath $(INSTALL_DIST)),$(CURDIR)/dist)" \
 		$(GO) test -tags install -count=1 -v -timeout 30m ./test/install/...
+
+# The exit tests that run the Linux build as a new account in a container with no network:
+# TestNoOutboundConnections on a build of this tree under strace, and TestExitE1FirstWorkOrder on the
+# snapshot's archive, installed by install.sh. They need Docker, which pulls the Debian image and its
+# packages once, and the target builds a fresh snapshot unless EXIT_DIST names one.
+EXIT_DIST ?=
+
+exit-container:
+	@if [ -z "$(EXIT_DIST)" ]; then $(MAKE) --no-print-directory snapshot; fi
+	ROPESHIFT_DIST="$(if $(EXIT_DIST),$(abspath $(EXIT_DIST)),$(CURDIR)/dist)" \
+		$(GO) test -tags container -count=1 -v -timeout 20m -run '^(TestNoOutboundConnections|TestExitE1FirstWorkOrder)$$' ./test/exit/
+	@$(MAKE) --no-print-directory canary
 
 # The release's qualification suite: the production probe on the installed CLI, which ends with that
 # version's row for the matrix the binary ships (internal/adapters/claudecode/matrix.json).

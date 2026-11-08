@@ -63,7 +63,7 @@ The tap is the repository `bkuberek/homebrew-tap`, which does not exist yet. Pub
 | Go, at the version `go.mod` names | Builds the binary |
 | Node.js and npm | Builds the web UI. Running a release needs neither |
 | GoReleaser v2, the free edition | Builds and publishes the release, for example `brew install goreleaser` |
-| Docker | Runs the Linux channels of `make install-test` |
+| Docker | Runs the Linux channels of `make install-test`, and `make exit-container` |
 | A GitHub token that can write the repository's releases | Uploads the draft release, as `GITHUB_TOKEN` |
 
 ## Make targets
@@ -73,8 +73,11 @@ The tap is the repository `bkuberek/homebrew-tap`, which does not exist yet. Pub
 | `make release-check` | Runs `goreleaser check` on `.goreleaser.yaml`, and checks the release scripts' syntax. `make check` runs it, and skips the GoReleaser part when GoReleaser is not installed |
 | `make snapshot` | Builds every artifact from the current commit into `dist/`, with no tag and no publishing, and renders `dist/homebrew/ropeshift.rb`. `FORMULA_URL` sets where that formula downloads from |
 | `make install-test` | Builds a snapshot and installs it through every channel, each in a clean environment, then asks each install for its version. `INSTALL_DIST` names a snapshot built earlier |
+| `make exit-container` | Builds a snapshot, installs its Linux archive with the install script for a new account in a container with no network, and runs a first work order there on the fake agent CLI. It also runs that work order on a build of the current tree under `strace`, and fails on any connection off loopback. `EXIT_DIST` names a snapshot built earlier |
 
 `make install-test` runs the install script on this machine and in Debian and Alpine containers, the `.deb` in Debian, the `.rpm` in Fedora, and the formula in a Homebrew container. Each container runs with no network. It also checks that the install script refuses a changed checksum, a changed archive, and an archive the checksums do not list, before it extracts anything. Then, in a scratch clone of the repository, it cuts two releases with `scripts/release.sh`, builds each from its tag with publishing skipped, reads their release notes, and runs `go install` at a tag through a module proxy made of local files.
+
+`make exit-container` follows [onboarding](onboarding.md) as a new user would, in a Debian container with git and tmux and no network: `ropeshift init` on a terminal, the sample contract committed to a repository of its own, `ropeshiftd solo` with that repository as its source, and the work order reviewed, claimed, run in a lane, and accepted. A fake `claude` stands for the agent CLI, and a canary that fails the run stands behind it. The run from the release archive shows that a new user completes a work order with no account, no Docker, and no network. The run on a build of the tree traces every process with `strace`, and every address a process connects to, binds, or sends to must be a local socket or a loopback address.
 
 ## The release commit
 
@@ -109,11 +112,12 @@ The maintainer runs every step. Nothing runs on a schedule or on a push.
    git pull --ff-only
    ```
 
-2. Run the checks and the install matrix:
+2. Run the checks, the install matrix, and the first work order with no network:
 
    ```sh
    make check
    make install-test
+   make exit-container EXIT_DIST=dist
    ```
 
 3. Cut the release commit and its tag:
