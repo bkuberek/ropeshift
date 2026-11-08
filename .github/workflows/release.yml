@@ -1,0 +1,207 @@
+# Releases (ADR-0017, docs/releasing.md). On each push to main, release-please keeps a release pull
+# request open with the next version and its changelog. It creates no tag and no release: when that pull
+# request is merged, this job cuts the release with scripts/release.sh, whose tag is a commit beside main
+# that holds the built web UI (D28), pushes the tag, publishes the release with GoReleaser, and commits
+# the Homebrew formula to the tap.
+#
+# A tag pushed with the workflow's own token starts no other workflow, so every step runs in this job.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write # the tags, the release, and release-please's branch
+      pull-requests: write # release-please's pull request, and its label after a release
+      issues: write # the labels release-please creates
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # release-please labels its pull request "autorelease: pending" and opens no other while a merged
+      # one keeps that label. A merged pull request with it is a release still to make: this push's, or
+      # one an earlier run did not finish, which this run then completes.
+      - id: pending
+        name: Find a merged release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # shellcheck disable=SC2016 # GraphQL variables, which the shell must not expand
+          query='query($owner: String!, $name: String!) {
+            repository(owner: $owner, name: $name) {
+              pullRequests(states: MERGED, baseRefName: "main", labels: ["autorelease: pending"], first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                nodes { number headRefName mergeCommit { oid } }
+              }
+            }
+          }'
+          prs=$(gh api graphql -f query="$query" -f owner="${GITHUB_REPOSITORY%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            --jq '.data.repository.pullRequests.nodes')
+          count=$(jq 'length' <<<"$prs")
+          if [ "$count" -eq 0 ]; then
+            echo "No merged release pull request is waiting for its release."
+            exit 0
+          fi
+          if [ "$count" -gt 1 ]; then
+            echo "::error::$count merged pull requests carry the label autorelease: pending; leave it on the one to release"
+            exit 1
+          fi
+          number=$(jq -r '.[0].number' <<<"$prs")
+          head=$(jq -r '.[0].headRefName' <<<"$prs")
+          merge=$(jq -r '.[0].mergeCommit.oid' <<<"$prs")
+          case $head in
+          release-please--branches--main*) ;;
+          *)
+            echo "::error::Pull request #$number carries autorelease: pending but is not release-please's ($head)"
+            exit 1
+            ;;
+          esac
+          version=$(git show "$merge:.release-please-manifest.json" | jq -r '."."')
+          echo "Pull request #$number, merged as $merge, releases $version."
+          {
+            echo "number=$number"
+            echo "merge=$merge"
+            echo "version=$version"
+          } >>"$GITHUB_OUTPUT"
+
+      - if: steps.pending.outputs.version != ''
+        uses: ./.github/actions/setup
+        with:
+          cache: "false"
+          node: "true"
+          goreleaser: "true"
+
+      # scripts/release.sh cuts from the head of a branch named main, so a local main is put at the
+      # merge commit, and the release holds exactly what the pull request's changelog lists. A tag an
+      # earlier run pushed is used as it is, after a check that it was cut from that commit.
+      - id: cut
+        if: steps.pending.outputs.version != ''
+        name: Cut the release commit and its tag
+        env:
+          VERSION: ${{ steps.pending.outputs.version }}
+          MERGE: ${{ steps.pending.outputs.merge }}
+        run: |
+          tag="v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --quiet --force-create main "$MERGE"
+          if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+            if [ "$(git rev-parse "$tag^{commit}^")" != "$MERGE" ]; then
+              echo "::error::The tag $tag exists and was not cut from $MERGE"
+              exit 1
+            fi
+            previous=$(git for-each-ref --sort=-creatordate --format='%(refname:short)' 'refs/tags/v[0-9]*' |
+              { grep -vxF "$tag" || true; } | sed -n 1p)
+            echo "The tag $tag exists, so this run completes its release."
+            {
+              echo "tag=$tag"
+              echo "commit=$(git rev-parse "$tag^{commit}")"
+              echo "previous=$previous"
+              echo "pushed=true"
+            } >>"$GITHUB_OUTPUT"
+          else
+            ROPESHIFT_RELEASE_OUTPUT="$GITHUB_OUTPUT" sh scripts/release.sh "$tag"
+            echo "pushed=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.cut.outputs.pushed == 'false'
+        name: Push the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.cut.outputs.tag }}
+        run: git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$TAG"
+
+      - if: steps.cut.outputs.tag != ''
+        name: Publish the release with GoReleaser
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.cut.outputs.tag }}
+          PREVIOUS: ${{ steps.cut.outputs.previous }}
+        run: |
+          git checkout --quiet "$TAG"
+          export GORELEASER_CURRENT_TAG="$TAG"
+          if [ -n "$PREVIOUS" ]; then
+            export GORELEASER_PREVIOUS_TAG="$PREVIOUS"
+          fi
+          goreleaser release --clean
+
+      - if: steps.cut.outputs.tag != ''
+        name: Render the Homebrew formula
+        run: sh scripts/homebrew-formula.sh dist/checksums.txt "" dist/homebrew/ropeshift.rb
+
+      # The tap is shared with other tools, so this writes Formula/ropeshift.rb and nothing else.
+      - if: steps.cut.outputs.tag != ''
+        name: Commit the formula to the tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          VERSION: ${{ steps.pending.outputs.version }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning title=Homebrew tap::HOMEBREW_TAP_GITHUB_TOKEN is not set, so the formula was not committed to bkuberek/homebrew-tap. The release is published; docs/releasing.md describes the formula by hand."
+            exit 0
+          fi
+          path=repos/bkuberek/homebrew-tap/contents/Formula/ropeshift.rb
+          content=$(base64 -w0 dist/homebrew/ropeshift.rb)
+          current=$(GH_TOKEN=$TAP_TOKEN gh api "$path" --jq '.sha + " " + (.content | gsub("\n"; ""))' 2>/dev/null || true)
+          sha=${current%% *}
+          case $sha in
+          *[!0-9a-f]* | "") sha= ;;
+          esac
+          if [ -n "$sha" ] && [ "${current#* }" = "$content" ]; then
+            echo "The tap already holds this formula."
+            exit 0
+          fi
+          args=(--method PUT "$path" -f "message=ropeshift $VERSION" -f "content=$content")
+          if [ -n "$sha" ]; then
+            args+=(-f "sha=$sha")
+          fi
+          GH_TOKEN=$TAP_TOKEN gh api "${args[@]}" --jq '"Committed " + .commit.html_url'
+
+      # release-please finds the previous release by a tag on main. The release tag is on a commit
+      # beside main, so a second tag, main-v<version>, marks the merge commit it was cut from. Then
+      # the pull request's label changes to "autorelease: tagged", which lets release-please open the
+      # next one.
+      - if: steps.cut.outputs.tag != ''
+        name: Mark the release on main for release-please
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pending.outputs.version }}
+          MERGE: ${{ steps.pending.outputs.merge }}
+          NUMBER: ${{ steps.pending.outputs.number }}
+        run: |
+          marker="main-v$VERSION"
+          if ! git rev-parse --quiet --verify "refs/tags/$marker" >/dev/null; then
+            git tag "$marker" "$MERGE"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$marker"
+          fi
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/$NUMBER/labels/autorelease:%20pending" --silent || true
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$NUMBER/labels" -f "labels[]=autorelease: tagged" --silent
+
+      - name: Update the release pull request
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: true
