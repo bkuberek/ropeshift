@@ -101,8 +101,9 @@ func TestTheShippedMatrixIsWellFormed(t *testing.T) {
 	if err := claudecode.CheckMatrix(raw); err != nil {
 		t.Fatal(err)
 	}
-	// 2.1.316 is the spikes' version, and RS14 qualified 2.1.317 through the production probe.
-	for _, version := range []string{"2.1.316", "2.1.317"} {
+	// 2.1.316 is the spikes' version, and RS14 qualified 2.1.317 and 2.1.319 through the production
+	// probe.
+	for _, version := range []string{"2.1.316", "2.1.317", "2.1.319"} {
 		if !slices.Contains(claudecode.MatrixVersions(), version) || claudecode.MatrixRow(version).Degraded {
 			t.Errorf("the matrix does not qualify %s: %v", version, claudecode.MatrixVersions())
 		}
