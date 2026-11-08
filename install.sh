@@ -7,18 +7,23 @@
 #
 # Usage: install.sh [--version vX.Y.Z] [--prefix DIR] [--from DIR] [--base-url URL]
 #
-#   --version   The release to install, such as v0.1.0 or v0.2.0-rc.1. Default: the latest release.
+#   --version   The release to install, such as v0.1.0 or v0.2.0-rc.1. Default: the newest stable
+#               release, or the newest pre-release when no release is stable yet.
 #   --prefix    Where to install: the binary goes in PREFIX/bin. Default: $HOME/.local.
 #   --from      A directory that holds the archive and checksums.txt, read in place of a download.
 #   --base-url  Where releases are downloaded from. Default: the project's GitHub releases.
 #
 # Each option can also come from the environment: ROPESHIFT_VERSION, ROPESHIFT_PREFIX,
 # ROPESHIFT_FROM, and ROPESHIFT_BASE_URL.
+#
+# With no version named and no --from, the script reads the project's list of releases from GitHub's
+# API, with no token, to choose one.
 
 set -eu
 
 base_url=${ROPESHIFT_BASE_URL:-https://github.com/bkuberek/ropeshift/releases}
-version=${ROPESHIFT_VERSION:-latest}
+releases_url=https://api.github.com/repos/bkuberek/ropeshift/releases
+version=${ROPESHIFT_VERSION:-}
 prefix=${ROPESHIFT_PREFIX:-}
 from=${ROPESHIFT_FROM:-}
 
@@ -56,7 +61,7 @@ if [ -z "$prefix" ]; then
 fi
 
 case $version in
-latest) ;;
+'' | latest) version= ;;
 v[0-9]*) ;;
 [0-9]*) version=v$version ;;
 *) fail "the version must look like v0.1.0, not $version" ;;
@@ -79,6 +84,17 @@ trap 'rm -rf "$work"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# download copies one URL to a file, over HTTPS only, and returns the download tool's status.
+download() {
+	if command -v curl >/dev/null 2>&1; then
+		curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --output "$2" "$1"
+	elif command -v wget >/dev/null 2>&1; then
+		wget --quiet --https-only --output-document="$2" "$1"
+	else
+		fail "neither curl nor wget is installed, so nothing can be downloaded; use --from with a directory that holds the release"
+	fi
+}
+
 # fetch copies one release file into the work directory, from --from or from the release page.
 fetch() {
 	if [ -n "$from" ]; then
@@ -86,20 +102,99 @@ fetch() {
 		cp "$from/$1" "$work/$1"
 		return
 	fi
-	if [ "$version" = latest ]; then
-		url=$base_url/latest/download/$1
-	else
-		url=$base_url/download/$version/$1
-	fi
-	if command -v curl >/dev/null 2>&1; then
-		curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --output "$work/$1" "$url" ||
-			fail "could not download $url"
-	elif command -v wget >/dev/null 2>&1; then
-		wget --quiet --https-only --output-document="$work/$1" "$url" || fail "could not download $url"
-	else
-		fail "neither curl nor wget is installed, so nothing can be downloaded; use --from with a directory that holds the release"
-	fi
+	url=$base_url/download/$version/$1
+	download "$url" "$work/$1" || fail "could not download $url"
 }
+
+# precedence prints a sort key for a tag the versioning policy allows, vMAJOR.MINOR.PATCH with an
+# optional -alpha.N, -beta.N, or -rc.N, and fails for any other tag. A stable version sorts after
+# every pre-release of it, and rc after beta after alpha.
+precedence() {
+	core=${1#v}
+	[ "$core" != "$1" ] || return 1
+	stage=4
+	n=0
+	case $core in
+	*-alpha.*) stage=1 n=${core#*-alpha.} ;;
+	*-beta.*) stage=2 n=${core#*-beta.} ;;
+	*-rc.*) stage=3 n=${core#*-rc.} ;;
+	*-* | *+*) return 1 ;;
+	esac
+	core=${core%%-*}
+	case $core in
+	*.*.*.*) return 1 ;;
+	*.*.*) ;;
+	*) return 1 ;;
+	esac
+	major=${core%%.*}
+	patch=${core##*.}
+	minor=${core#*.}
+	minor=${minor%.*}
+	for number in "$major" "$minor" "$patch" "$n"; do
+		case $number in
+		'' | *[!0-9]*) return 1 ;;
+		esac
+	done
+	printf '%s %s %s %s %s\n' "$major" "$minor" "$patch" "$stage" "$n"
+}
+
+# choose names the release to install when none was named: the newest stable release, or the newest
+# pre-release when no release is stable yet. It reads the first page of the list GitHub's API serves
+# to a reader with no token, which holds no drafts, and orders the versions by precedence itself, so
+# the order of the list does not matter. A tag outside the versioning policy is passed over.
+choose() {
+	download "$releases_url?per_page=100" "$work/releases.json" ||
+		fail "could not read the list of releases from $releases_url; name a release with --version"
+	: >"$work/stable"
+	: >"$work/pre-release"
+	# Each release holds the keys tag_name, draft, and prerelease once. Split at commas and braces,
+	# every key starts a line, and a quote inside a string is escaped, so no name or release note can
+	# pass for a key. read strips each line's surrounding blanks.
+	tr ',{}[]' '\n\n\n\n\n' <"$work/releases.json" >"$work/releases.lines"
+	tag=
+	draft=
+	pre=
+	while read -r line; do
+		value=${line#*:}
+		value=${value#"${value%%[! 	]*}"}
+		case $line in
+		'"tag_name"'*:*)
+			tag=${value#\"}
+			tag=${tag%\"}
+			;;
+		'"draft"'*:*) draft=$value ;;
+		'"prerelease"'*:*) pre=$value ;;
+		*) continue ;;
+		esac
+		[ -n "$tag" ] && [ -n "$draft" ] && [ -n "$pre" ] || continue
+		if [ "$draft" = false ] && key=$(precedence "$tag"); then
+			if [ "$pre" = false ]; then
+				printf '%s %s\n' "$key" "$tag" >>"$work/stable"
+			else
+				printf '%s %s\n' "$key" "$tag" >>"$work/pre-release"
+			fi
+		fi
+		tag=
+		draft=
+		pre=
+	done <"$work/releases.lines"
+	for kind in stable pre-release; do
+		[ -s "$work/$kind" ] || continue
+		newest=$(sort -n -k 1,1 -k 2,2 -k 3,3 -k 4,4 -k 5,5 "$work/$kind" | tail -n 1)
+		version=${newest##* }
+		if [ "$kind" = stable ]; then
+			say "no version named, so installing $version, the newest stable release"
+		else
+			say "no version named, so installing $version, the newest pre-release, because no release is stable yet"
+		fi
+		return
+	done
+	fail "$releases_url lists no published release to install; name a release with --version"
+}
+
+if [ -z "$version" ] && [ -z "$from" ]; then
+	choose
+fi
 
 sha256() {
 	if command -v sha256sum >/dev/null 2>&1; then
@@ -115,15 +210,15 @@ sha256() {
 
 fetch checksums.txt
 
-# The checksums file names every archive. With no version given, it is also where the latest
-# release's version is read from.
+# The checksums file names every archive. With --from and no version named, the archive it lists for
+# this machine is the one installed.
 suffix=_${os}_${arch}.tar.gz
 archive=
 expected=
 while read -r sum name; do
 	case $name in
 	*"$suffix")
-		if [ "$version" = latest ] || [ "$name" = "ropeshift_${version#v}$suffix" ]; then
+		if [ -z "$version" ] || [ "$name" = "ropeshift_${version#v}$suffix" ]; then
 			archive=$name
 			expected=$sum
 		fi
@@ -132,7 +227,7 @@ while read -r sum name; do
 done <"$work/checksums.txt"
 
 if [ -z "$archive" ]; then
-	[ "$version" != latest ] || fail "no archive for $os/$arch is listed in the release's checksums file; nothing was installed"
+	[ -n "$version" ] || fail "no archive for $os/$arch is listed in the release's checksums file; nothing was installed"
 	fail "ropeshift_${version#v}$suffix is not listed in the release's checksums file; nothing was installed"
 fi
 case $expected in
