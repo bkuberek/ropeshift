@@ -98,7 +98,8 @@ snapshot:
   version_template: "0.0.1-snapshot-{{ .ShortCommit }}"
 
 # Release notes from the Conventional Commits since the previous release. Documentation, test,
-# chore, CI, and style commits change nothing a user runs, so they are left out.
+# chore, CI, and style commits change nothing a user runs, so they are left out, and so are merge
+# commits, whose pull request's own commits are already listed.
 changelog:
   use: git
   sort: asc
@@ -106,6 +107,7 @@ changelog:
   filters:
     exclude:
       - '^(docs|test|chore|ci|style)(\([^)]*\))?!?:'
+      - '^Merge '
   groups:
     - title: Features
       regexp: '^feat(\([^)]*\))?!?:'

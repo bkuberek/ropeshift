@@ -10,7 +10,7 @@ Website: [ropeshift.com](https://ropeshift.com/)
 
 ## Status
 
-Alpha. Solo mode works: one machine, macOS or Linux, with the Claude Code CLI as the agent runtime, a local ledger, the web UI, and the `top` terminal view. Install a pre-release with `brew install bkuberek/tap/ropeshift` or the install script, then follow [docs/onboarding.md](docs/onboarding.md). Expect breaking changes before 1.0.0. The group and fleet modes described below are the design and are not built yet.
+Alpha. Solo mode works: one machine, macOS or Linux, with the Claude Code CLI as the agent runtime, a local ledger, the web UI, and the `top` terminal view. Install a pre-release with `brew install bkuberek/tap/ropeshift` or the install script, then follow [docs/onboarding.md](docs/onboarding.md). Expect breaking changes before 1.0.0. The group and cluster modes described below are the design and are not built yet.
 
 ## Install
 

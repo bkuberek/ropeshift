@@ -124,7 +124,7 @@ Both read the message of every commit the release reaches that the previous rele
 
 | Merge | What reaches the notes |
 |-------|------------------------|
-| Merge commit | Each of the pull request's commits, under its own type. The merge commit's own message is no Conventional Commit: release-please passes over it, and GoReleaser lists it under Others |
+| Merge commit | Each of the pull request's commits, under its own type. The merge commit's own message is no Conventional Commit: release-please passes over it, and GoReleaser's filter leaves out any message starting with `Merge ` |
 | Squash | One commit, whose message is the squash message, so that message must be a Conventional Commit. The pull request's own commits do not appear |
 
 Merge with a merge commit when a pull request's commits must each reach the changelog, such as a branch of many features and fixes. A squash suits a pull request that is one change. Either way, a commit whose message is not a Conventional Commit appears under Others in the GitHub release's notes and not in `CHANGELOG.md`.
