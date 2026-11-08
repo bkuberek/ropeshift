@@ -134,7 +134,7 @@ func TestTheReleaseStep(t *testing.T) {
 			{"a leading zero", "v0.01.0", branch, "vMAJOR.MINOR.PATCH", false},
 			{"a pre-release numbered from zero", "v0.1.0-rc.0", branch, "vMAJOR.MINOR.PATCH", false},
 			{"a tag that exists", "v0.0.1-beta.1", branch, "exists", false},
-			{"another branch", testRelease, "main", "main", false},
+			{"another branch", testRelease, "not-" + branch, "not-" + branch, false},
 			{"a tree with changes", testRelease, branch, "changes", true},
 		}
 		for _, tt := range tests {
