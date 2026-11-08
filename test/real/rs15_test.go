@@ -56,9 +56,11 @@ const (
 	// rs15ToolLimit ends a pane that keeps calling tools past what its charge holds.
 	rs15ToolLimit = 6
 
-	// E1's lane writes one file, so it takes up to six turns of its brief, and one nudge's.
-	rs15E1MaxTurns = "6"
-	rs15E1Charge   = 12
+	// E1's lane reads the repository to find its test command and writes one file. A first real run
+	// spent six turns reading before it reported, so each of its inputs takes up to twelve: its brief,
+	// and one nudge's.
+	rs15E1MaxTurns = "12"
+	rs15E1Charge   = 24
 	// E4's lane takes its brief and the instruction that asks for its narrative, then the resume.
 	rs15E4MaxTurns     = "3"
 	rs15E4ParkedCharge = 6
@@ -139,6 +141,16 @@ var rs15ResumableFlags = []string{
 // the lane's one file needs no person to approve it.
 const rs15E1UserProfile = `[agent]
 permission_mode = "acceptEdits"
+`
+
+// rs15E1Makefile is the test command of the new user's repository, which the sample contract asks
+// README.md to name. A repository with none gives the criterion nothing to name, and a first real run
+// spent its turns looking for one.
+const rs15E1Makefile = `.PHONY: test
+
+# Runs this repository's tests.
+test:
+	sh -c 'echo "no tests yet"'
 `
 
 // rs15E1Profile is all the repository adds to the sample contract: the model and limits every real
@@ -340,6 +352,7 @@ func rs15Open(t *testing.T, name, lane string, qualified bool, charges ...rs15Ch
 	s := start(t, name)
 	s.watched = []string{lane}
 	s.spend.sessionCeiling, s.spend.turnCeiling = rs15Sessions, rs15Turns
+	t.Cleanup(s.logInits)
 	t.Cleanup(s.killTerminal)
 	s.reapGenerations(lane)
 	if qualified {
@@ -481,6 +494,30 @@ func (s *suite) requireProbed() {
 	s.t.Helper()
 	if q := s.rs15Qualification(); q.Source != lanes.QualifiedByProbe || q.Degraded {
 		s.t.Errorf("the probe left the version %s, degraded=%v", q.Source, q.Degraded)
+	}
+}
+
+// logInits says how each session in the stream started, a stopped run's included: whether it is a
+// lane's, its version, model, sign-in source, permission mode, the vendor's tools it was offered, and
+// how many MCP tools. It runs in cleanup after the daemons stop and before the scratch path goes.
+func (s *suite) logInits() {
+	s.t.Helper()
+	raw, err := os.ReadFile(s.stream)
+	if err != nil {
+		return
+	}
+	for _, init := range everyInit(raw) {
+		var vendor []string
+		mcp := 0
+		for _, tool := range init.Tools {
+			if strings.HasPrefix(tool, "mcp__") {
+				mcp++
+			} else {
+				vendor = append(vendor, tool)
+			}
+		}
+		s.logf("rs15: init: lane=%v version=%s model=%s apiKeySource=%s permission=%s vendor_tools=%v mcp_tools=%d",
+			laneInit(init), init.Version, init.Model, init.KeySource, init.Permission, vendor, mcp)
 	}
 }
 
@@ -634,7 +671,9 @@ func rs15FirstWorkOrder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(s.paths.StateDir, profiles.UserFile), []byte(rs15E1UserProfile), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s.rs15Repo(rs15E1Lane, map[string]string{".ropeshift/profile.toml": rs15E1Profile, cli.SampleContractName: string(sample)})
+	s.rs15Repo(rs15E1Lane, map[string]string{
+		".ropeshift/profile.toml": rs15E1Profile, "Makefile": rs15E1Makefile, cli.SampleContractName: string(sample),
+	})
 	s.playStandIn([]any{standInReport()}, nil)
 
 	d := s.startDaemonWith(s.rs15Override(rs15E1Flags))
@@ -675,9 +714,6 @@ func rs15FirstWorkOrder(t *testing.T) {
 	}
 	outcome, reason := s.outcomeOf(id)
 	laneInits, others := s.laneSessionInits()
-	for _, lane := range laneInits {
-		s.logf("rs15: e1: lane init version=%s model=%s apiKeySource=%s permission=%s", lane.Version, lane.Model, lane.KeySource, lane.Permission)
-	}
 	walked := make([]string, 0, len(walk))
 	for _, state := range walk {
 		walked = append(walked, string(state))
