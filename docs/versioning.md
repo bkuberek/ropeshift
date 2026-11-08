@@ -28,6 +28,8 @@ A pre-release adds a suffix to the version it leads to, with N counting from 1:
 
 Precedence follows Semantic Versioning, so `v0.5.0-alpha.2` < `v0.5.0-beta.1` < `v0.5.0-rc.1` < `v0.5.0`. No other suffix and no build metadata is a release version, and `scripts/release.sh` refuses them.
 
+The release pull request proposes each version by these rules. It continues the pre-release series it is in, and the maintainer moves to the next stage, or to a stable release, with a `Release-As:` footer, as [Releasing](releasing.md#choosing-the-next-version) describes.
+
 ## Development builds
 
 Only a release build reports a release version. Every other build reports `dev`:

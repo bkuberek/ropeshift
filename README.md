@@ -2,6 +2,8 @@
 
 # ropeshift
 
+[![CI](https://github.com/bkuberek/ropeshift/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bkuberek/ropeshift/actions/workflows/ci.yml)
+
 Ropeshift is a free, fair-source, self-hosted software factory: project management combined with agentic workforce management and operations. It is designed to turn planned work into verified outcomes with a fleet of supervised agents, and to interrupt a person only when a person is needed. It wraps agent CLIs such as Claude Code, Codex, and opencode. It does not replace them, and it is not a model client.
 
 Website: [ropeshift.com](https://ropeshift.com/)
