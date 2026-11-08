@@ -54,7 +54,7 @@ The project owns its formula template, `packaging/homebrew/ropeshift.rb.in`, and
 
 GoReleaser has its own Homebrew support, and it is not used here. Its [`brews` section is deprecated](https://goreleaser.com/resources/deprecations/#brews), softly since v2.10 and fully since v2.16, in favor of [`homebrew_casks`](https://goreleaser.com/customization/publish/homebrew_casks/). A cask cannot do what this project needs: [a formula's `service` block](https://docs.brew.sh/Formula-Cookbook) is what `brew services` runs, while the [Cask Cookbook](https://docs.brew.sh/Cask-Cookbook) has no launchd service stanza, and its `service` artifact only moves a file into `~/Library/Services`.
 
-The tap is the repository `bkuberek/homebrew-tap`, which does not exist yet. Publishing the formula means committing the rendered file to that repository as `Formula/ropeshift.rb`.
+The tap is the repository `bkuberek/homebrew-tap`, which other tools share. Publishing the formula means committing the rendered file to that repository as `Formula/ropeshift.rb`, and adding a row for ropeshift to the tools table in its README.
 
 ## Tools a maintainer needs
 
