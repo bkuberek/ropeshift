@@ -3,6 +3,13 @@
 # ropeshift
 
 [![CI](https://github.com/bkuberek/ropeshift/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bkuberek/ropeshift/actions/workflows/ci.yml)
+[![Release workflow](https://github.com/bkuberek/ropeshift/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/bkuberek/ropeshift/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/bkuberek/ropeshift?include_prereleases&sort=semver&label=release)](https://github.com/bkuberek/ropeshift/releases)
+[![Homebrew](https://img.shields.io/badge/homebrew-bkuberek%2Ftap%2Fropeshift-orange)](https://github.com/bkuberek/homebrew-tap)
+[![Go version](https://img.shields.io/github/go-mod/go-version/bkuberek/ropeshift)](go.mod)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](docs/onboarding.md)
+[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue)](LICENSE.md)
+[![Last commit](https://img.shields.io/github/last-commit/bkuberek/ropeshift/main)](https://github.com/bkuberek/ropeshift/commits/main)
 
 Ropeshift is a free, fair-source, self-hosted software factory: project management combined with agentic workforce management and operations. It turns planned work into verified outcomes with supervised agents, and it is designed to interrupt a person only when a person is needed. It wraps agent CLIs: this release drives Claude Code, and drivers for Codex and opencode are part of the design. It does not replace them, and it is not a model client.
 
