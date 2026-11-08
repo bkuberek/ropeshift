@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test linux-bundle release-check snapshot install-test exit-container
+.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container
 
 check: format vet lint test web-test licenses release-check canary
 
@@ -80,6 +80,15 @@ service-test:
 	$(GO) test -count=1 -v -run '^TestAnOutlivingProcessLeavesTheControlGroup$$' ./test/contract/
 	@$(MAKE) --no-print-directory canary
 
+# The same Linux service and scope tests, for a machine whose own user manager they should not use,
+# such as a CI runner: the bundle linux-bundle writes runs in a container whose init is systemd, as a
+# lingering user. It needs Docker. SERVICE_OUT names a directory that must not exist yet, for the
+# bundle, the results, and each step's log, and is a new temporary directory by default.
+SERVICE_OUT ?=
+
+service-container:
+	sh scripts/service-container.sh $(if $(SERVICE_OUT),"$(SERVICE_OUT)")
+
 # The Linux check for a machine with no Go: the binaries, the doubles, and the compiled service, scope,
 # pty, shim and pane kill, and bench tests for linux/amd64, with test/bundle/run.sh, which runs them
 # from the bundle. BUNDLE names a directory that must not exist yet. The builds trim this machine's
@@ -139,7 +148,7 @@ release-check:
 	else \
 		echo "release-check: goreleaser is not installed, so the release configuration was not checked"; \
 	fi
-	@sh -n install.sh scripts/release.sh scripts/release-ui.sh scripts/homebrew-formula.sh
+	@sh -n install.sh scripts/release.sh scripts/release-ui.sh scripts/homebrew-formula.sh scripts/service-container.sh
 
 # A release as a tag would build it, from this commit with no tag and no publishing: the four
 # archives with the web UI embedded, the .deb and .rpm packages, the checksums, the release notes, and
