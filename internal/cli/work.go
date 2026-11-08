@@ -712,6 +712,9 @@ func (c *invocation) fleetCaps(args []string) int {
 
 // doctorLine states one driver the way a person reads it: usable or not, and why.
 func doctorLine(driver ledger.DriverManifest) string {
+	if v := vendorOf(driver.Driver); failedCheck(driver, v) {
+		return fmt.Sprintf("%s\tunusable\t%s. Run %s --version to see why, and repair or reinstall %s.\n", driver.Driver, driver.Detail, v.command, v.product)
+	}
 	if !driver.Present {
 		return fmt.Sprintf("%s\tabsent\t%s\n", driver.Driver, driver.Detail)
 	}

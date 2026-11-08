@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,7 +189,9 @@ func findBinary(env []string) (string, error) {
 	return "", ErrNoBinary
 }
 
-// version runs `claude --version`, which starts no session.
+// version runs `claude --version`, which starts no session. Only a version it prints counts: a CLI that
+// cannot start, does not answer, exits with a failure, ends on a signal, or prints no version has failed
+// its check, and nothing runs on it.
 func (d *Driver) version(ctx context.Context, env []string) (string, error) {
 	binary, err := findBinary(env)
 	if err != nil {
@@ -197,23 +200,51 @@ func (d *Driver) version(ctx context.Context, env []string) (string, error) {
 	var out bytes.Buffer
 	process, err := d.runner.Start(ctx, ports.ProcessSpec{Path: binary, Args: []string{"--version"}, Env: env, Stdout: &out})
 	if err != nil {
-		return "", err
+		return "", versionFailed("could not start: %v", withoutPath(err))
 	}
-	finished := make(chan error, 1)
+	type ending struct {
+		status ports.ExitStatus
+		err    error
+	}
+	finished := make(chan ending, 1)
 	go func() {
-		_, err := process.Wait()
-		finished <- err
+		status, err := process.Wait()
+		finished <- ending{status, err}
 	}()
 	select {
-	case err := <-finished:
-		if err != nil {
-			return "", err
+	case end := <-finished:
+		switch {
+		case end.err != nil:
+			return "", versionFailed("could not be read: %v", end.err)
+		case end.status.Signal != "":
+			return "", versionFailed("ended on signal %s", end.status.Signal)
+		case end.status.Code != 0:
+			return "", versionFailed("exited with status %d", end.status.Code)
 		}
 	case <-time.After(versionTimeout):
 		_ = process.Signal(ports.SignalKill)
-		return "", errors.New("claude --version did not answer")
+		return "", versionFailed("did not answer within %v", versionTimeout)
 	}
-	return parseVersion(out.String()), nil
+	version := parseVersion(out.String())
+	if version == "" {
+		return "", versionFailed("printed no version")
+	}
+	return version, nil
+}
+
+// versionFailed says how `claude --version` failed. It names the command and never the binary's path,
+// because a doctor's detail reaches the ledger.
+func versionFailed(format string, args ...any) error {
+	return fmt.Errorf(Binary+" --version "+format, args...)
+}
+
+// withoutPath is why a start failed, without the path an operating system's error names.
+func withoutPath(err error) error {
+	var path *fs.PathError
+	if errors.As(err, &path) {
+		return path.Err
+	}
+	return err
 }
 
 // Capabilities reports the design's values for the installed version. A version
@@ -261,14 +292,13 @@ var resumeCosts = lanes.ResumeCosts{
 const DriverName = "claude-code"
 
 // Doctor reports presence, version, qualification, and sign-in. It runs the vendor's status
-// command and reads no credential, and only the kind leaves this function.
+// command and reads no credential, and only the kind leaves this function. A CLI that is not on
+// PATH and one that failed its version check are both not present for any work, and the detail says
+// which, so the sign-in of a CLI that cannot run is never read.
 func (d *Driver) Doctor(ctx context.Context) (ports.DoctorReport, error) {
 	version, err := d.version(ctx, d.versionEnv())
-	if errors.Is(err, ErrNoBinary) {
-		return ports.DoctorReport{Driver: DriverName, SignInStatus: lanes.SignInUnknown, Detail: err.Error()}, nil
-	}
 	if err != nil {
-		return ports.DoctorReport{}, err
+		return ports.DoctorReport{Driver: DriverName, SignInStatus: lanes.SignInUnknown, Detail: err.Error()}, nil
 	}
 	kind, status := d.signIn(ctx)
 	return ports.DoctorReport{

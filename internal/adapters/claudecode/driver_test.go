@@ -196,6 +196,49 @@ func TestAnUnqualifiedVersionIsDegraded(t *testing.T) {
 	}
 }
 
+// TestACLIThatFailsItsVersionCheckIsNotUsable is a `claude` on PATH whose `--version` does not answer
+// with a version. The doctor reports it not usable and names the failed check, the driver offers no
+// capabilities on it, and a start fails before any session process exists.
+func TestACLIThatFailsItsVersionCheckIsNotUsable(t *testing.T) {
+	tests := []struct{ name, body, how string }{
+		{"it exits with an error", "exit 70", "exited with status 70"},
+		{"a signal ends it", "kill -KILL $$", "ended on signal SIGKILL"},
+		{"it prints nothing", "exit 0", "printed no version"},
+		{"it prints something that is not a version", "echo 'error: no configuration'", "printed no version"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := doubles.InstallBrokenClaude(t, tt.body)
+			driver := claudecode.New(osexec.Runner{}, claudecode.Options{Env: []string{"PATH=" + path}})
+			want := "claude --version " + tt.how
+			report, err := driver.Doctor(t.Context())
+			if err != nil || report.Present || report.Detail != want || report.Version != "" || report.SignInStatus != lanes.SignInUnknown {
+				t.Errorf("doctor %+v, %v, want not present with %q", report, err, want)
+			}
+			if got, err := driver.Capabilities(t.Context()); err == nil || err.Error() != want {
+				t.Errorf("capabilities %+v, %v, want %q", got, err, want)
+			}
+			spec := ports.SessionSpec{
+				Lane: "lane-1", WorkOrder: "wo", Generation: 1, Dir: t.TempDir(), Model: "opus", PermissionMode: "default",
+				Brief: "the brief", ConfigDir: filepath.Join(t.TempDir(), "generated"), Env: []string{"PATH=" + path},
+				Binary: doubles.Ropeshift(t), TempDir: apitest.ShortDir(t),
+			}
+			doubles.ReapShims(t, spec.ConfigDir)
+			if err := os.MkdirAll(spec.ConfigDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if handle, err := driver.Start(t.Context(), spec); err == nil || err.Error() != want {
+				t.Errorf("start %+v, %v, want %q", handle, err, want)
+			}
+			for _, run := range doubles.BrokenClaudeRuns(t, path) {
+				if run != "--version" {
+					t.Errorf("a CLI that failed its version check ran with %q", run)
+				}
+			}
+		})
+	}
+}
+
 func TestAQualifiedVersionGetsItsPrivateDirectory(t *testing.T) {
 	driver, path, spec := session(t, "two-turns", nil)
 	got, err := driver.Capabilities(t.Context())

@@ -30,7 +30,7 @@ A worker that runs on a subscription is bound to the one person who signed in. A
 1. With no daemon running, it runs one for the length of its own run, because a daemon's first start is what registers its worker, and it stops that daemon at its end.
 2. It asks for the first passphrase on the terminal, twice. The passphrase comes only from a terminal, never from stdin, a flag, or a variable. A passphrase already set stays as it is.
 3. It waits for the worker's registration.
-4. It runs the doctor, and says for each agent CLI what to do next: install it, sign in through its vendor's own flow, or nothing, with the level the worker starts at.
+4. It runs the doctor, and says for each agent CLI what to do next: install it, repair it, sign in through its vendor's own flow, or nothing, with the level the worker starts at.
 5. It writes a sample contract to the installation's directory, and keeps one already there.
 
 ```text
@@ -40,6 +40,8 @@ Ropeshift never reads, stores, relays, or proxies an agent CLI's credentials. Ea
 ```
 
 It exits 0 when an agent CLI is usable and 1 when none is, after every other step. The installation's directory is `~/Library/Application Support/ropeshift` on macOS, and `$XDG_STATE_HOME/ropeshift` or `~/.local/state/ropeshift` on Linux.
+
+The doctor runs `claude --version` before anything else. A CLI on `PATH` that exits with a failure, ends on a signal, or prints no version has failed that check, and it is not usable: the line names how the check failed and says to run `claude --version` to see why, the doctor does not read its sign-in, and the worker advertises it as not usable, so work that names it is not offered there. A lane started on it anyway fails at its start, and no session runs. `ropeshift worker doctor` reports the same and exits 1.
 
 ## Start the daemon and run the sample
 

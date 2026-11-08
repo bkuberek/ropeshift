@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
@@ -243,6 +244,10 @@ func (c *invocation) initDoctor(_ *api.Client, result *initResult) error {
 // status reach it, never who is signed in.
 func initDriverLine(driver ledger.DriverManifest) string {
 	v := vendorOf(driver.Driver)
+	if failedCheck(driver, v) {
+		return fmt.Sprintf("%s: installed, and its version check failed: %s. Run %s --version to see why, repair or reinstall %s, and run ropeshift init again.",
+			driver.Driver, driver.Detail, v.command, v.product)
+	}
 	if !driver.Present {
 		return fmt.Sprintf("%s: not installed. Install %s, sign in through %s's own flow, and run ropeshift init again.", driver.Driver, v.product, v.company)
 	}
@@ -266,6 +271,12 @@ func initDriverLine(driver ledger.DriverManifest) string {
 		line += " This version is not in the qualification matrix, so the worker probes it before its first lane, and a lane on it runs degraded if the probe fails."
 	}
 	return line
+}
+
+// failedCheck says a driver's CLI is on PATH and failed its version check, so nothing runs on it. The
+// doctor's detail then names the vendor's command as it ran it, and how it failed.
+func failedCheck(driver ledger.DriverManifest, v vendor) bool {
+	return !driver.Present && strings.HasPrefix(driver.Detail, v.command+" --version ")
 }
 
 // initSample writes the sample contract, and keeps one already there, which a person may have changed.

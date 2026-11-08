@@ -23,6 +23,9 @@ const (
 	qualifyNoteAfter = time.Second
 )
 
+// errNoVersion is a driver that reports no installed version.
+var errNoVersion = errors.New("the driver reports no version")
+
 // probeRun is the one probe a worker runs at a time. Every lane that reaches a version with no
 // result waits on it.
 type probeRun struct {
@@ -90,11 +93,15 @@ func (w *Worker) awaitQualified(ctx context.Context, lease ledger.DesiredLease) 
 
 // qualify returns nil when a probe's result holds for the installed version, and otherwise what
 // closes when the running probe ends, starting one when none runs. A probe of another version that
-// ends leaves its waiters to look again.
+// ends leaves its waiters to look again. No result holds for an empty version, so a driver that read
+// none is not probed: each probe would end only for the next to start.
 func (w *Worker) qualify(ctx context.Context) (<-chan struct{}, error) {
 	capabilities, err := w.config.Lanes.Driver.Capabilities(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if capabilities.Version == "" {
+		return nil, errNoVersion
 	}
 	w.qualLock.Lock()
 	defer w.qualLock.Unlock()

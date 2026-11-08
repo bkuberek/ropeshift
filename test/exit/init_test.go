@@ -1,6 +1,7 @@
 package exit
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,46 @@ const (
 	initAttended    = "signed in with a subscription. This worker starts at attended"
 	initRisk        = "ropeshift worker risk"
 	initIsolation   = "same operating system user"
+	// initFailedCheck is a CLI on PATH that cannot run, with how its version check failed in the middle.
+	initFailedCheck = "claude-code: installed, and its version check failed: claude --version %s. Run claude --version to see why, repair or reinstall Claude Code, and run ropeshift init again."
+	// doctorFailedCheck is the doctor's line for the same CLI.
+	doctorFailedCheck = "claude-code\tunusable\tclaude --version %s. Run claude --version to see why, and repair or reinstall Claude Code.\n"
 )
+
+// TestInitRefusesACLIThatFailsItsVersionCheck is a `claude` on PATH that cannot run: one that exits with
+// an error, one a signal ends, and one that prints no version. None is usable, so init names the failed
+// check and the next step and exits 1, the doctor says the same, and nothing runs the CLI past its
+// version check.
+func TestInitRefusesACLIThatFailsItsVersionCheck(t *testing.T) {
+	tests := []struct{ name, body, how string }{
+		{"it exits with an error", "exit 70", "exited with status 70"},
+		{"a signal ends it", "kill -KILL $$", "ended on signal SIGKILL"},
+		{"it prints no version", "exit 0", "printed no version"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := newInstall(t)
+			in.member = false
+			in.path = doubles.InstallBrokenClaude(t, tt.body)
+			code, stdout, stderr := in.runWith(openTerminal(t, apitest.Passphrase, apitest.Passphrase), "", nil, "init")
+			if want := fmt.Sprintf(initFailedCheck, tt.how); code != cli.ExitError || !strings.Contains(stdout, want) {
+				t.Errorf("init: exit %d, want %d and %q\nstdout %s\nstderr %s", code, cli.ExitError, want, stdout, stderr)
+			}
+			if strings.Contains(stdout, "sign-in could not be read") || strings.Contains(stdout, "not installed") {
+				t.Errorf("init reads a CLI that failed its version check as something else:\n%s", stdout)
+			}
+			code, stdout, stderr = in.run("worker", "doctor")
+			if want := fmt.Sprintf(doctorFailedCheck, tt.how); code != cli.ExitError || stdout != want {
+				t.Errorf("the doctor: exit %d, want %d and %q\nstdout %q\nstderr %s", code, cli.ExitError, want, stdout, stderr)
+			}
+			for _, run := range doubles.BrokenClaudeRuns(t, in.path) {
+				if run != "--version" {
+					t.Errorf("a CLI that failed its version check ran with %q", run)
+				}
+			}
+		})
+	}
+}
 
 // TestInitOnEmptyMachine is the first run on a home with nothing in it, as a person meets it: no agent
 // CLI at all, then one installed and signed out, then one signed in. ropeshift init sets the passphrase

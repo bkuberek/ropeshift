@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -217,8 +218,15 @@ func Judge(q lanes.Qualification, interactive bool) lanes.Qualification {
 	return judged(q, interactive)
 }
 
-// parseVersion reads the first word of `claude --version`.
+// versionWord is what the first word of `claude --version` holds: a dotted number, which a pre-release
+// or build suffix may follow.
+var versionWord = regexp.MustCompile(`^[0-9]+(\.[0-9]+)+([-+][0-9A-Za-z.-]+)?$`)
+
+// parseVersion reads the first word of `claude --version`, and is empty when that word is no version.
 func parseVersion(output string) string {
-	version, _, _ := strings.Cut(strings.TrimSpace(output), " ")
-	return version
+	words := strings.Fields(output)
+	if len(words) == 0 || !versionWord.MatchString(words[0]) {
+		return ""
+	}
+	return words[0]
 }

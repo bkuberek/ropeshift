@@ -450,6 +450,37 @@ func SeenEnv(t testing.TB, path, name string) string {
 	return ""
 }
 
+// The file where a broken `claude` records each run's arguments, one line per run.
+const brokenRuns = "ran"
+
+// InstallBrokenClaude puts a `claude` in a new directory that runs the shell commands in body on every
+// run, `--version` included, and returns a PATH that finds it first and the canary second. It stands
+// for a CLI that is installed and cannot run: body such as `exit 70` fails it, `kill -KILL $$` ends it
+// on a signal, and `exit 0` prints nothing. Each run records its arguments first.
+func InstallBrokenClaude(t testing.TB, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"${0%/*}/" + brokenRuns + "\"\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + CanaryPath(t)
+}
+
+// BrokenClaudeRuns lists the arguments of every run of the `claude` InstallBrokenClaude put first on
+// the PATH it returned, in order.
+func BrokenClaudeRuns(t testing.TB, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(BinDir(path), brokenRuns))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+}
+
 // CanaryPathWithout is a PATH with no agent CLI on it at all, not even the canary, for a
 // machine that has none.
 func CanaryPathWithout(t testing.TB) string {

@@ -201,6 +201,31 @@ func TestARestartOnTheSameVersionDoesNotProbeAgain(t *testing.T) {
 	}
 }
 
+// TestAVersionNobodyCouldReadIsNotProbed is a driver that reports no version. No probe's result holds
+// for an empty version, so a probe of one would end only for the next to start, and the lane would wait
+// on them for good. Nothing is probed, and the lane goes on to its start, where the driver reads the
+// version again.
+func TestAVersionNobodyCouldReadIsNotProbed(t *testing.T) {
+	r := laneRigWith(t, "")
+	r.driver.SetVersion("", true)
+	r.driver.HoldProbes()
+	r.driver.Play(completedLane(r))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(r.driver.Specs()) == 0 {
+		if n := len(r.driver.Probes()); n != 0 || time.Now().After(deadline) {
+			t.Fatalf("%d probes of a version nobody could read, and no session", n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	r.subject.Wait()
+	if n := len(r.driver.Probes()); n != 0 {
+		t.Errorf("%d probes of a version nobody could read", n)
+	}
+}
+
 // A probe that cannot run holds nothing forever: the version is degraded, its record says every
 // check is unobserved, and the lane starts on documented surfaces.
 func TestAProbeThatCannotRunLeavesTheVersionDegraded(t *testing.T) {
