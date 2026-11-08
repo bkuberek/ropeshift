@@ -28,6 +28,13 @@ const commandLimit = 10 * time.Second
 // pane leaves some of these empty, so the separator cannot be a space.
 const paneFormat = "#{pane_pid}|#{pane_dead}|#{pane_dead_status}|#{pane_dead_signal}"
 
+// statusWait bounds how long a read waits for tmux to learn how a dead pane's process ended, inside
+// the second a driver gives one read, and statusPoll is how often it asks again.
+const (
+	statusWait = 500 * time.Millisecond
+	statusPoll = 10 * time.Millisecond
+)
+
 // ErrNoTmux means the worker's PATH holds no tmux.
 var ErrNoTmux = errors.New("tmux is not on PATH")
 
@@ -166,30 +173,66 @@ var signalNames = map[string]ports.Signal{
 
 // Pane reads one pane. A dead pane has no process ID any more, which is no loss, because
 // nothing may be signaled through one.
+//
+// tmux marks a pane dead when its terminal closes, and learns how the process ended only when it
+// reaps the process on SIGCHLD, so a dead pane can name no code and no signal yet. A tmux built with
+// libutempter, as Debian and Ubuntu build it, ignores SIGCHLD while it records a pane's start or end,
+// and a process that ends then stays unreaped until another child of the server ends. A read that
+// finds no status starts such a child, a job that does nothing, and asks again. A status it never
+// learns is a read that did not finish, never a clean end.
 func (t *Terminal) Pane(ctx context.Context, name string) (ports.Pane, error) {
+	deadline := time.Now().Add(statusWait)
+	for {
+		pane, known, err := t.readPane(ctx, name)
+		if err != nil || known {
+			return pane, err
+		}
+		if time.Now().After(deadline) {
+			return ports.Pane{}, fmt.Errorf("tmux has not learned how the process in pane %s ended", name)
+		}
+		if _, err := t.run(ctx, "run-shell", "-b", "true"); err != nil {
+			return ports.Pane{}, err
+		}
+		select {
+		case <-ctx.Done():
+			return ports.Pane{}, ctx.Err()
+		case <-time.After(statusPoll):
+		}
+	}
+}
+
+// readPane is one read. It is not known only when the pane is dead and names no code and no signal.
+func (t *Terminal) readPane(ctx context.Context, name string) (ports.Pane, bool, error) {
 	out, err := t.run(ctx, "list-panes", "-t", target(name), "-F", paneFormat)
 	if err != nil {
-		return ports.Pane{}, err
+		return ports.Pane{}, false, err
 	}
 	fields := strings.Split(strings.TrimRight(out, "\n"), "|")
 	if len(fields) != 4 {
-		return ports.Pane{}, fmt.Errorf("tmux answered %q", out)
+		return ports.Pane{}, false, fmt.Errorf("tmux answered %q", out)
 	}
 	pane := ports.Pane{Name: name, Dead: fields[1] == "1"}
 	if !pane.Dead {
 		if pane.PID, err = strconv.Atoi(fields[0]); err != nil {
-			return ports.Pane{}, fmt.Errorf("tmux answered %q", out)
+			return ports.Pane{}, false, fmt.Errorf("tmux answered %q", out)
 		}
-		return pane, nil
+		return pane, true, nil
 	}
-	pane.Exit.Code, _ = strconv.Atoi(fields[2])
-	if fields[3] != "" && fields[3] != "0" {
-		pane.Exit = ports.ExitStatus{Signal: signalNames[fields[3]]}
+	status, signal := fields[2], fields[3]
+	switch {
+	case signal != "" && signal != "0":
+		pane.Exit.Signal = signalNames[signal]
 		if pane.Exit.Signal == "" {
-			pane.Exit.Signal = ports.Signal(fields[3])
+			pane.Exit.Signal = ports.Signal(signal)
 		}
+	case status != "":
+		if pane.Exit.Code, err = strconv.Atoi(status); err != nil {
+			return ports.Pane{}, false, fmt.Errorf("tmux answered %q", out)
+		}
+	default:
+		return ports.Pane{}, false, nil
 	}
-	return pane, nil
+	return pane, true, nil
 }
 
 // Capture returns the visible screen.
