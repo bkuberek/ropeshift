@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"ropeshift.dev/ropeshift/internal/api"
@@ -66,6 +67,8 @@ type config struct {
 	lane       string
 	workOrder  string
 	generation int64
+	// out is what the hook took and has not handed on, which its deadline settles.
+	out *outbox
 }
 
 func read(event string, getenv func(string) string) config {
@@ -77,33 +80,54 @@ func read(event string, getenv func(string) string) config {
 	}
 }
 
-// Main runs one hook. It has no failure path: whatever happens, the process exits 0.
+// Main runs one hook. It has no failure path: whatever happens, the process exits 0. The deadline
+// starts once the hook has taken its event, because a hook ended before then has nothing to spool,
+// and the agent CLI closes a hook's input as soon as it has written it.
 func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) int {
 	defer func() { _ = recover() }()
 	if len(args) == 0 {
 		return 0
 	}
 	cfg := read(args[0], getenv)
+	cfg.out = new(outbox)
+	event, input := take(cfg, stdin)
 	if cfg.event != eventPermissionRequest {
 		timer := time.AfterFunc(hardDeadline, func() { expire(cfg, stdout) })
 		defer timer.Stop()
 	}
-	run(cfg, stdin, stdout)
+	run(cfg, event, input, stdout)
 	return 0
 }
 
-// expire ends a hook that passed its deadline. A policy hook fails closed.
+// expire ends a hook that passed its deadline. A policy hook fails closed. A loaded machine can hold
+// a hook past its deadline with an event it took and has not handed on, and delivery is at least
+// once, so that event reaches the spool first. The append is local, and the agent CLI's own limit on
+// a hook bounds it.
 func expire(cfg config, stdout io.Writer) {
 	if cfg.event == eventPreToolUse && cfg.policy != "" {
 		deny(stdout, "the policy check ran out of time")
 	}
+	cfg.out.settle(cfg)
 	os.Exit(0)
 }
 
-func run(cfg config, stdin io.Reader, stdout io.Writer) {
+// take reads a hook's input into the event it reports. Only a policy hook's verdict changes the event
+// after this.
+func take(cfg config, stdin io.Reader) (lanes.HookEvent, []byte) {
 	input, _ := io.ReadAll(io.LimitReader(stdin, maxInput))
 	event := lanes.NewHookEvent(cfg.event, input)
 	event.Lane, event.Generation, event.AtMs = cfg.lane, cfg.generation, time.Now().UnixMilli()
+	switch cfg.event {
+	case eventSessionStart:
+		event.Socket = cfg.session
+	case eventPreToolUse, eventPostToolUse, eventPostToolUseFailure, eventPermissionDenied, eventPermissionRequest:
+		nameCall(&event, input)
+	}
+	return event, input
+}
+
+// run hands on the event a hook took.
+func run(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
 	switch cfg.event {
 	case eventPreToolUse:
 		verdict := decide(cfg, input, stdout)
@@ -113,19 +137,14 @@ func run(cfg config, stdin io.Reader, stdout io.Writer) {
 		if verdict == callDenied {
 			event.Detail = lanes.DetailDenied
 		}
-		nameCall(&event, input)
 	case eventSessionStart:
-		event.Socket = cfg.session
 		ack := ackDeadline
 		if lanes.Regrounds(event.Detail) {
 			ack = groundAck
 		}
 		reground(cfg, event, forwardWithin(cfg, event, ack), stdout)
 		return
-	case eventPostToolUse, eventPostToolUseFailure, eventPermissionDenied:
-		nameCall(&event, input)
 	case eventPermissionRequest:
-		nameCall(&event, input)
 		awaitDecision(cfg, event, input, stdout)
 		return
 	}
@@ -360,14 +379,54 @@ func forward(cfg config, event lanes.HookEvent) int64 {
 }
 
 func forwardWithin(cfg config, event lanes.HookEvent, ack time.Duration) int64 {
+	if cfg.out == nil {
+		cfg.out = new(outbox)
+	}
+	cfg.out.hold(&event)
 	if cfg.socket != "" {
 		request := lanes.Request{Version: lanes.SocketProtocol, Token: cfg.token, Hook: &event}
 		if reply, err := api.CallLane(cfg.socket, request, dialDeadline, ack); err == nil {
+			cfg.out.hold(nil)
 			return reply.Generation
 		}
 	}
-	spool(cfg, event)
+	cfg.out.flush(cfg)
 	return 0
+}
+
+// outbox holds the event a hook is handing on until the worker acks it or the spool has it, so the
+// deadline can tell an event still to write from one already down.
+type outbox struct {
+	mu    sync.Mutex
+	event *lanes.HookEvent
+}
+
+// hold keeps an event, and nil lets the one it kept go.
+func (o *outbox) hold(event *lanes.HookEvent) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.event = event
+}
+
+// flush spools the event the outbox holds, unless the deadline spooled it first.
+func (o *outbox) flush(cfg config) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.spoolHeld(cfg)
+}
+
+// settle is the deadline's flush. It waits out a write in progress and keeps the outbox locked, so no
+// write starts while the process exits.
+func (o *outbox) settle(cfg config) {
+	o.mu.Lock()
+	o.spoolHeld(cfg)
+}
+
+func (o *outbox) spoolHeld(cfg config) {
+	if o.event != nil {
+		spool(cfg, *o.event)
+		o.event = nil
+	}
 }
 
 // spool appends one line with one write, so parallel hooks cannot interleave. The line holds no

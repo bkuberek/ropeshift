@@ -55,7 +55,8 @@ func TestAClearedSessionHearsItsGenerationFromASlowWorker(t *testing.T) {
 		lane: "lane-1", workOrder: "wo", generation: 1,
 	}
 	var out bytes.Buffer
-	run(cfg, strings.NewReader(`{"session_id":"s2","source":"clear"}`), &out)
+	event, input := take(cfg, strings.NewReader(`{"session_id":"s2","source":"clear"}`))
+	run(cfg, event, input, &out)
 	if !strings.Contains(out.String(), "generation 2") {
 		t.Errorf("the session heard %s", out.String())
 	}

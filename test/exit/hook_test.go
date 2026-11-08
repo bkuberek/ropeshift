@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -212,6 +214,66 @@ func TestParallelHooksDoNotCorruptTheSpool(t *testing.T) {
 	group.Wait()
 	if lines := spoolLines(t, env.spool); len(lines) != writers*each {
 		t.Errorf("%d lines", len(lines))
+	}
+}
+
+// A loaded machine can hold a hook past its own deadline before its spool line is down, and the
+// deadline must not end the hook first, because delivery is at least once. A spool that is a FIFO no
+// one reads holds the write open past the deadline, the way a stall does, until this test reads it.
+func TestAHookPastItsDeadlineStillSpools(t *testing.T) {
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	env := newHookEnv(t)
+	if err := syscall.Mkfifo(env.spool, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binaries.cli, "hook", "PostToolUse")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(toolPayload)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	// Far past the hook's deadline, a hook the deadline ended has exited, and one that waits for its
+	// line is still opening the FIFO.
+	select {
+	case err := <-exited:
+		t.Fatalf("the hook ended before its spool line was down: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	opened := make(chan *os.File, 1)
+	go func() {
+		if reader, err := os.Open(env.spool); err == nil {
+			opened <- reader
+		}
+	}()
+	// An open that met no writer returns once one comes.
+	t.Cleanup(func() {
+		if writer, err := os.OpenFile(env.spool, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = writer.Close()
+		}
+	})
+	var reader *os.File
+	select {
+	case reader = <-opened:
+	case err := <-exited:
+		t.Fatalf("the hook ended before its spool line was down: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hook never opened its spool")
+	}
+	defer reader.Close()
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-exited; err != nil {
+		t.Errorf("the hook: %v", err)
+	}
+	digestOf := func(string) (string, error) { return lanes.TokenDigest(hookToken), nil }
+	if event, err := lanes.OpenHook(bytes.TrimSpace(raw), digestOf); err != nil || event.Subject != "toolu_1" {
+		t.Errorf("spooled %q: %+v, %v", raw, event, err)
 	}
 }
 

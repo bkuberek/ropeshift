@@ -51,7 +51,8 @@ func forwarded(t *testing.T, cfg config, input string) (lanes.HookEvent, string)
 	}()
 	cfg.socket, cfg.token = socket, "a-token"
 	var out bytes.Buffer
-	run(cfg, strings.NewReader(input), &out)
+	event, raw := take(cfg, strings.NewReader(input))
+	run(cfg, event, raw, &out)
 	select {
 	case request := <-received:
 		if request.Hook == nil {
