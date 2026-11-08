@@ -52,19 +52,26 @@ func scratchClone(t *testing.T) (string, string) {
 	return dir, git(t, dir, "symbolic-ref", "--short", "HEAD")
 }
 
-func releaseScript(t *testing.T, dir, branch, version string) (string, int) {
+// releaseScript runs the release step and returns its output, its exit code, and what it wrote to the
+// file ROPESHIFT_RELEASE_OUTPUT names, which is how the release workflow reads the tag it made.
+func releaseScript(t *testing.T, dir, branch, version string) (string, int, string) {
 	t.Helper()
+	output := filepath.Join(t.TempDir(), "release-output")
 	cmd := exec.Command("sh", "scripts/release.sh", version)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "ROPESHIFT_RELEASE_BRANCH="+branch)
+	cmd.Env = append(os.Environ(), "ROPESHIFT_RELEASE_BRANCH="+branch, "ROPESHIFT_RELEASE_OUTPUT="+output)
 	out, err := cmd.CombinedOutput()
+	written, readErr := os.ReadFile(output)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatal(readErr)
+	}
 	if exitErr, ok := err.(*exec.ExitError); ok {
-		return string(out), exitErr.ExitCode()
+		return string(out), exitErr.ExitCode(), string(written)
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(out), 0
+	return string(out), 0, string(written)
 }
 
 // TestTheReleaseStep proves D28 in a scratch clone: a plain checkout builds with no Node.js and
@@ -132,10 +139,13 @@ func TestTheReleaseStep(t *testing.T) {
 					appendTo(t, filepath.Join(dir, "README.md"), "\nchanged\n")
 					t.Cleanup(func() { git(t, dir, "checkout", "--", "README.md") })
 				}
-				out, code := releaseScript(t, dir, tt.branch, tt.version)
+				out, code, written := releaseScript(t, dir, tt.branch, tt.version)
 				t.Logf("exited %d: %s", code, strings.TrimSpace(out))
 				if code == 0 || !strings.Contains(out, tt.says) {
 					t.Errorf("want a refusal that says %q", tt.says)
+				}
+				if written != "" {
+					t.Errorf("a refused release wrote outputs:\n%s", written)
 				}
 				if git(t, dir, "rev-parse", "HEAD") != head || git(t, dir, "tag", "--list", testRelease) != "" {
 					t.Error("a refused release changed the repository")
@@ -160,10 +170,15 @@ func TestTheReleaseStep(t *testing.T) {
 	})
 
 	t.Run("the release commit holds the built UI on the tag only", func(t *testing.T) {
-		out, code := releaseScript(t, dir, branch, testRelease)
+		out, code, written := releaseScript(t, dir, branch, testRelease)
 		t.Logf("release.sh exited %d:\n%s", code, out)
 		if code != 0 {
 			t.FailNow()
+		}
+		// The first release has no release before it, so its notes start at the beginning.
+		want := "tag=" + testRelease + "\ncommit=" + git(t, dir, "rev-parse", testRelease+"^{commit}") + "\nprevious=\n"
+		if written != want {
+			t.Errorf("the release step wrote outputs %q, want %q", written, want)
 		}
 		if kind := git(t, dir, "cat-file", "-t", testRelease); kind != "tag" {
 			t.Errorf("the tag is a %s, want an annotated tag", kind)
@@ -246,12 +261,15 @@ BIN=/go/bin
 func tagBuild(t *testing.T, dir, branch, tag, previous string) string {
 	t.Helper()
 	if git(t, dir, "tag", "--list", tag) == "" {
-		out, code := releaseScript(t, dir, branch, tag)
+		out, code, written := releaseScript(t, dir, branch, tag)
 		if code != 0 {
 			t.Fatalf("release.sh exited %d:\n%s", code, out)
 		}
 		if previous != "" && !strings.Contains(out, "GORELEASER_PREVIOUS_TAG="+previous) {
 			t.Errorf("the release step does not name the previous release:\n%s", out)
+		}
+		if !strings.Contains(written, "\nprevious="+previous+"\n") {
+			t.Errorf("the release step's outputs do not name the previous release %q:\n%s", previous, written)
 		}
 	}
 	git(t, dir, "checkout", "--quiet", tag)

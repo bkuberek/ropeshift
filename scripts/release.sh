@@ -9,6 +9,9 @@
 # Usage: scripts/release.sh vMAJOR.MINOR.PATCH[-alpha.N|-beta.N|-rc.N]
 #
 # ROPESHIFT_RELEASE_BRANCH names the branch a release is cut from, main by default.
+# ROPESHIFT_RELEASE_OUTPUT names a file that a successful release appends three lines to, tag=,
+# commit=, and previous=, the newest release tag before this one or nothing. The release workflow
+# points it at the step's GITHUB_OUTPUT.
 
 set -eu
 
@@ -54,6 +57,10 @@ git checkout --quiet "$branch"
 trap - EXIT
 
 [ "$(git rev-parse HEAD)" = "$head" ] || fail "the branch moved during the release"
+
+if [ -n "${ROPESHIFT_RELEASE_OUTPUT:-}" ]; then
+	printf 'tag=%s\ncommit=%s\nprevious=%s\n' "$version" "$release" "$previous" >>"$ROPESHIFT_RELEASE_OUTPUT"
+fi
 
 printf 'release: tagged %s at %s, a commit on top of %s (%s) that adds the built web UI.\n' "$version" "$release" "$branch" "$head"
 printf 'release: nothing was pushed. To publish it:\n\n'
