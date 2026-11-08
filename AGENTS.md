@@ -72,7 +72,7 @@ Write the test that shows a behavior change, run it, and see it fail for the rea
 
 ## Branches and releases
 
-`main` is the one long-lived branch, and every change reaches it through a pull request. Stability comes from the version, not from a branch: while release-please's `prerelease` setting is `true`, every release from `main` is a pre-release, and a `Release-As:` footer moves to the next stage or to a stable release. Do not create release branches or push tags by hand: the release workflow cuts each release when a person merges the release pull request. Merge with a merge commit when a pull request's commits must each reach the changelog. [Releasing](docs/releasing.md#branches-and-stability) describes the whole model.
+`main` is the one long-lived branch, and every change reaches it through a pull request. Stability comes from the version, not from a branch: while release-please's `prerelease` setting is `true`, every release from `main` is a pre-release, and a `Release-As:` footer moves to the next stage or to a stable release. Do not create release branches or push tags by hand: the release workflow cuts each release when a person merges the release pull request. Every pull request merges with a merge commit, never a squash or a rebase, so every commit in a pull request must be a Conventional Commit: each one reaches the changelog. [Releasing](docs/releasing.md#branches-and-stability) describes the whole model.
 
 ## Never
 

@@ -120,14 +120,9 @@ Two sets of notes come from the [Conventional Commits](https://www.conventionalc
 
 GoReleaser writes no notes for a snapshot.
 
-Both read the message of every commit the release reaches that the previous release does not, so how a pull request merges into `main` decides what they list:
+Both read the message of every commit the release reaches that the previous release does not.
 
-| Merge | What reaches the notes |
-|-------|------------------------|
-| Merge commit | Each of the pull request's commits, under its own type. The merge commit's own message is no Conventional Commit: release-please passes over it, and GoReleaser's filter leaves out any message starting with `Merge ` |
-| Squash | One commit, whose message is the squash message, so that message must be a Conventional Commit. The pull request's own commits do not appear |
-
-Merge with a merge commit when a pull request's commits must each reach the changelog, such as a branch of many features and fixes. A squash suits a pull request that is one change. Either way, a commit whose message is not a Conventional Commit appears under Others in the GitHub release's notes and not in `CHANGELOG.md`.
+Every pull request merges into `main` with a merge commit. Squash and rebase merges are turned off in the repository settings. A merge commit keeps each of the pull request's commits, so each reaches the notes under its own type, and so every commit in a pull request must be a Conventional Commit. The merge commit's own message is not one: release-please passes over it, and GoReleaser's filter leaves out any message starting with `Merge `. A commit whose message is not a Conventional Commit appears under Others in the GitHub release's notes and not in `CHANGELOG.md`.
 
 ## Continuous integration
 
@@ -197,7 +192,7 @@ release-please is configured for the [versioning policy](versioning.md) in `rele
 - Each release pull request stays in the pre-release series it is in. In a series whose patch number is 0, it counts the suffix up whatever its commits are: `v0.1.0-alpha.1`, then `v0.1.0-alpha.2`, and so on. In a series whose patch number is not 0, such as `v0.1.1-alpha.2`, a feature or a breaking change moves to the next minor version and keeps the suffix: `v0.2.0-alpha.2`.
 - After a stable release, with `prerelease` set to `true`, the next is a pre-release of the version the policy names: a feature or a breaking change leads to `v0.2.0-alpha.1`, and fixes alone to `v0.1.1-alpha.1`. With `prerelease` set to `false`, the next is stable: `v0.2.0` or `v0.1.1`.
 
-To move to another stage, put a `Release-As:` footer in a commit message on `main`, such as the squash message of a pull request, or an empty commit:
+To move to another stage, put a `Release-As:` footer in the message of a commit that reaches `main`, such as one of a pull request's commits, or an empty commit in its own pull request:
 
 ```sh
 git commit --allow-empty -m "chore: release the first beta" -m "Release-As: 0.1.0-beta.1"
