@@ -1,4 +1,6 @@
-package exit
+// Package ptypair opens a terminal for a test that types at a prompt, as a person does: the exit tests,
+// and the first run they start inside a Linux container.
+package ptypair
 
 import (
 	"bytes"
@@ -22,9 +24,9 @@ func ioctl(fd, request, value uintptr) error {
 	return nil
 }
 
-// openPair opens a terminal: the end a person types on, and the end a process holds.
-func openPair() (*os.File, *os.File, error) {
-	typed, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
+// Open opens a terminal: the end a person types on, and the end a process holds.
+func Open() (typed, held *os.File, err error) {
+	typed, err = os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -39,7 +41,7 @@ func openPair() (*os.File, *os.File, error) {
 		return nil, nil, err
 	}
 	end := bytes.IndexByte(name[:], 0)
-	held, err := os.OpenFile(string(name[:end]), os.O_RDWR|syscall.O_NOCTTY, 0)
+	held, err = os.OpenFile(string(name[:end]), os.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
 		_ = typed.Close()
 		return nil, nil, err

@@ -18,6 +18,7 @@ import (
 	"ropeshift.dev/ropeshift/test/apitest"
 	"ropeshift.dev/ropeshift/test/contract"
 	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.dev/ropeshift/test/exit/ptypair"
 	"ropeshift.dev/ropeshift/test/gittest"
 )
 
@@ -37,7 +38,7 @@ type terminal struct {
 
 func openTerminal(t *testing.T, answers ...string) *terminal {
 	t.Helper()
-	typed, held, err := openPair()
+	typed, held, err := ptypair.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
