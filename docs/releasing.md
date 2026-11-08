@@ -134,13 +134,13 @@ The workflow `.github/workflows/release.yml` runs on every push to `main`. Mergi
 
 1. On each push to `main`, [release-please](https://github.com/googleapis/release-please) reads the Conventional Commits since the previous release and opens or updates a pull request titled `chore(main): release <version>`. It adds the version's section to `CHANGELOG.md` and the version to `.release-please-manifest.json`. It creates no tag and no release.
 2. The maintainer reads the pull request and merges it.
-3. The push of that merge runs the release job. It finds the merged pull request by its label, `autorelease: pending`, and reads the version from the manifest at its merge commit.
-4. It runs `scripts/release.sh` at that merge commit, which makes the release commit with the built UI and its annotated tag, `v<version>`. The job pushes the tag.
+3. The push of that merge runs the release workflow. Its first job finds the merged pull request by its label, `autorelease: pending`, and reads the version from the manifest at its merge commit. With one found, the release job runs.
+4. The release job runs `scripts/release.sh` at that merge commit, which makes the release commit with the built UI and its annotated tag, `v<version>`, and pushes the tag.
 5. In the same job, because a tag pushed with the workflow's own token starts no other workflow, GoReleaser builds every artifact from the tag, checks the embedded UI, and publishes the GitHub release. A version with `-alpha`, `-beta`, or `-rc` is marked as a pre-release.
-6. The job renders the formula from `checksums.txt` and commits it to the tap as `Formula/ropeshift.rb`. Without the `HOMEBREW_TAP_GITHUB_TOKEN` secret, this step warns and the release still succeeds.
-7. It tags the merge commit `main-v<version>`, and changes the pull request's label to `autorelease: tagged`. release-please then opens the next release pull request once new commits arrive.
+6. The job renders the formula from `checksums.txt` and commits it to the tap as `Formula/ropeshift.rb`. Without the `HOMEBREW_TAP_GITHUB_TOKEN` secret in the `production` environment, this step warns and the release still succeeds.
+7. It tags the merge commit `main-v<version>`, and changes the pull request's label to `autorelease: tagged`. The last job runs release-please, which opens the next release pull request once new commits arrive.
 
-Only this job has write access: to the repository's contents for the tags, the release, and release-please's branch, and to pull requests and issues for release-please's pull request and labels. Every other job reads only.
+The release job is the only job in the GitHub environment `production`, which holds the tap's token, and it runs only when a merged release pull request is waiting, so a push with nothing to release deploys nothing. It and the job that runs release-please after it are the only jobs with write access: to the repository's contents for the tags, the release, and release-please's branch, and to pull requests and issues for release-please's pull request and its labels. Every other job, in both workflows, reads only.
 
 ### Why main carries a tag for each release
 
@@ -148,7 +148,7 @@ release-please finds the previous release by its tag, and lists the commits on `
 
 ### When a release stops partway
 
-The pull request keeps the label `autorelease: pending` until the release is complete, and release-please opens no other release pull request meanwhile. Re-run the failed job, or run the release workflow by hand from `main`. It completes the same release: it uses the tag an earlier run pushed, after a check that the tag was cut from the merge commit, and GoReleaser replaces any assets the earlier run uploaded.
+The pull request keeps the label `autorelease: pending` until the release is complete, and release-please opens no other release pull request meanwhile. Re-run the failed jobs, or run the release workflow by hand from `main`, which also happens on the next push to `main`. Either completes the same release: it uses the tag an earlier run pushed, after a check that the tag was cut from the merge commit, and GoReleaser replaces any assets the earlier run uploaded.
 
 ## Choosing the next version
 
@@ -178,8 +178,9 @@ The next release pull request then names that version, and the ones after it con
 These are set once in the repository's settings on GitHub:
 
 1. Under Actions, General, Workflow permissions, allow GitHub Actions to create and approve pull requests. release-please opens its pull request with the workflow's token.
-2. Create a fine-grained personal access token whose resource owner is `bkuberek`, with access to the repository `bkuberek/homebrew-tap` only, and the repository permission Contents set to read and write. Save it as the repository secret `HOMEBREW_TAP_GITHUB_TOKEN`, for example with `gh secret set HOMEBREW_TAP_GITHUB_TOKEN --repo bkuberek/ropeshift`, and renew it before it expires.
-3. Protect `main` and require the status check CI result.
+2. Under Environments, keep an environment named `production` whose deployment branches are limited to `main`. The release job is the only job that uses it.
+3. Create a fine-grained personal access token whose resource owner is `bkuberek`, with access to the repository `bkuberek/homebrew-tap` only, and the repository permission Contents set to read and write. Save it as `HOMEBREW_TAP_GITHUB_TOKEN`, a secret of the `production` environment and not a repository secret, for example with `gh secret set HOMEBREW_TAP_GITHUB_TOKEN --env production --repo bkuberek/ropeshift`, and renew it before it expires.
+4. Protect `main` and require the status check CI result.
 
 GitHub starts no workflow for an event the workflow's token causes, so CI does not run on the release pull request by itself. To give it a CI result, run CI by hand on its branch, `release-please--branches--main--components--main`, or close and reopen the pull request.
 
