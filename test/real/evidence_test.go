@@ -266,19 +266,19 @@ func (s *suite) reportEvidence() {
 		return
 	}
 	if raw, err := os.ReadFile(s.stream); err == nil {
-		s.t.Logf("evidence: what the headless sessions did:\n  %s", strings.Join(timeline(raw), "\n  "))
+		s.logf("evidence: what the headless sessions did:\n  %s", strings.Join(timeline(raw), "\n  "))
 	}
 	if _, err := os.Stat(filepath.Join(s.paths.StateDir, api.JournalFileName)); err != nil {
 		return
 	}
 	for _, lane := range s.watched {
-		s.t.Logf("evidence: %s:\n  %s", lane, strings.Join(s.laneEvidence(lane), "\n  "))
+		s.logf("evidence: %s:\n  %s", lane, strings.Join(s.laneEvidence(lane), "\n  "))
 		if counts := s.hookEvidence(lane); len(counts) != 0 {
-			s.t.Logf("evidence: %s hooks per generation: %v", lane, counts)
+			s.logf("evidence: %s hooks per generation: %v", lane, counts)
 		}
 		if s.t.Failed() {
 			for _, screen := range s.keptScreens(lane) {
-				s.t.Logf("evidence: %s kept a screen:\n%s", lane, screen)
+				s.logf("evidence: %s kept a screen:\n%s", lane, screen)
 			}
 		}
 	}
@@ -286,7 +286,7 @@ func (s *suite) reportEvidence() {
 		return
 	}
 	for i, d := range s.daemons {
-		s.t.Logf("evidence: daemon %d reported:\n%s", i+1, scrubbed(d.reported(), s.scratch, s.home))
+		s.logf("evidence: daemon %d reported:\n%s", i+1, scrubbed(d.reported(), s.scratch, s.home))
 	}
 }
 

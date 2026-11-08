@@ -24,6 +24,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -59,6 +60,8 @@ var standInFixtures = map[string]string{
 	"rs6": "rs6-stand-in", "rs7": "rs7-stand-in", "rs8": "rs8-stand-in", "rs9": "rs9-stand-in",
 	"rs10": "rs10-stand-in", "rs11": "rs11-stand-in", "rs12": "rs12-stand-in", "rs13": "rs13-stand-in",
 	"rs14": "rs14-stand-in",
+	// RS15's parts play a qualified version, so each lane waits only on the probe of a fresh worker.
+	"rs15a": "rs10-stand-in", "rs15b": "rs10-stand-in", "rs15c": "rs10-stand-in", "rs15d": "rs10-stand-in", "rs15e": "rs10-stand-in",
 }
 
 // allowedEnvironment is everything a session or the daemon takes from this process, so
@@ -488,6 +491,55 @@ func settingsDigest(home string) ([32]byte, error) {
 		return [32]byte{}, err
 	}
 	return sha256.Sum256(raw), nil
+}
+
+// cliEntries are what the CLI itself writes in a person's home. The harness reads them by size, time,
+// and count alone, for the leftovers report, and never edits them.
+var cliEntries = []string{".claude.json", filepath.Join(".claude", "history.jsonl"), filepath.Join(".claude", "session-env")}
+
+// entryState is one entry by its metadata: no content and no name inside it.
+type entryState struct {
+	exists   bool
+	size     int64
+	modified time.Time
+	children int
+}
+
+func readEntries(home string) map[string]entryState {
+	out := map[string]entryState{}
+	for _, name := range cliEntries {
+		info, err := os.Stat(filepath.Join(home, name))
+		if err != nil {
+			out[name] = entryState{}
+			continue
+		}
+		state := entryState{exists: true, size: info.Size(), modified: info.ModTime()}
+		if info.IsDir() {
+			children, _ := os.ReadDir(filepath.Join(home, name))
+			state.children = len(children)
+		}
+		out[name] = state
+	}
+	return out
+}
+
+// entriesReport says what a run did to each entry, in the order cliEntries names them.
+func entriesReport(before, after map[string]entryState) []string {
+	out := make([]string, 0, len(cliEntries))
+	for _, name := range cliEntries {
+		was, is := before[name], after[name]
+		switch {
+		case !is.exists:
+			out = append(out, name+" absent")
+		case is.children != 0 || was.children != 0:
+			out = append(out, fmt.Sprintf("%s held %d entries and now %d", name, was.children, is.children))
+		case was.exists && was.size == is.size && was.modified.Equal(is.modified):
+			out = append(out, name+" unchanged")
+		default:
+			out = append(out, name+" changed")
+		}
+	}
+	return out
 }
 
 // processesHolding lists the live processes whose command line names a directory.

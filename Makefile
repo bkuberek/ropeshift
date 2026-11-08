@@ -123,10 +123,13 @@ chaos:
 # timeout ends a run with no cleanup, which leaves its sessions behind, so the bound sits
 # past anything a suite's own polls allow.
 SUITE ?= RS1
+# Each part of RS15 waits on a fresh worker's qualification probe before its lanes, so its bound is
+# longer. A part runs alone, as SUITE=RS15/E1, and the suite refuses a run that names none.
+REAL_TIMEOUT ?= $(if $(filter RS15%,$(SUITE)),40m,20m)
 
 real:
 	$(GO) test -tags realsession -count=1 -run '^Test(Ledger|Refused|Environment|Canary|Stop|Init|Hook|Leftover)' ./test/real/...
-	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout 20m -v -run '^Test$(SUITE)$$' ./test/real/...
+	PATH="$(REAL_PATH)" ROPESHIFT_REAL_SESSIONS=1 $(GO) test -tags realsession -count=1 -timeout $(REAL_TIMEOUT) -v -run '^Test$(SUITE)$$' ./test/real/...
 
 # The release configuration, checked by GoReleaser when it is installed. A contributor without it
 # skips the check, because only a maintainer cuts releases (docs/releasing.md).

@@ -88,6 +88,20 @@ type suite struct {
 	keep func()
 	// daemonEnv is what a suite adds to its daemons' environment beyond the allowlist.
 	daemonEnv []string
+	// logs are the lines this run has logged through logf, which a keyed run scans before it ends.
+	logs []string
+	// key is set only on the run of the API-key lane, and nothing but that lane's daemon receives it.
+	key secretKey
+	// entries are what the CLI's own files in the home directory were before the run.
+	entries map[string]entryState
+}
+
+// logf logs one line of a run's evidence and keeps it for the scan a keyed run ends with.
+func (s *suite) logf(format string, args ...any) {
+	s.t.Helper()
+	line := fmt.Sprintf(format, args...)
+	s.logs = append(s.logs, line)
+	s.t.Log(line)
 }
 
 // start refuses to run without the explicit start, and takes the settings digest before
@@ -116,7 +130,7 @@ func start(t *testing.T, name string) *suite {
 	s := &suite{
 		t: t, home: home, scratch: scratch, binDir: filepath.Join(scratch, "bin"), spend: newSpendLedger(), before: before,
 		paths:  api.Paths{StateDir: filepath.Join(scratch, "state"), RunDir: filepath.Join(scratch, "run")},
-		stream: filepath.Join(scratch, "stream.log"),
+		stream: filepath.Join(scratch, "stream.log"), entries: readEntries(home),
 	}
 	t.Cleanup(s.finish)
 	if os.Getenv(envStandIn) != "" {
@@ -141,14 +155,19 @@ func (s *suite) finish() {
 	}
 	sessions, turns := s.spend.used()
 	sessionCeiling, turnCeiling := s.spend.ceilings()
-	s.t.Logf("charged: sessions=%d turns=%d of %d and %d", sessions, turns, sessionCeiling, turnCeiling)
+	s.logf("charged: sessions=%d turns=%d of %d and %d", sessions, turns, sessionCeiling, turnCeiling)
 	left := s.processesLeft()
 	for _, process := range left {
 		s.t.Errorf("a process remains: %s", process)
 	}
 	// The CLI names a project after the git root, so a lane's worktree lands on its
-	// repository's name.
+	// repository's name. A probe's sessions are in no ledger, so the stream names them.
 	transcripts := s.ledgerSessions()
+	for _, session := range s.streamSessions() {
+		if !slices.Contains(transcripts, session) {
+			transcripts = append(transcripts, session)
+		}
+	}
 	for _, dir := range append([]string{filepath.Join(s.scratch, "probe"), s.repo, s.worktree}, s.others...) {
 		if dir == "" {
 			continue
@@ -165,10 +184,53 @@ func (s *suite) finish() {
 			s.t.Errorf("a project directory remains for a scratch path")
 		}
 	}
+	s.logf("leftovers: the CLI's own files, which the harness never edits: %s", strings.Join(entriesReport(s.entries, readEntries(s.home)), "; "))
+	s.logf("scratch path, for the leftovers report: %s", s.scratch)
+	s.scanForKey()
 	if err := os.RemoveAll(s.scratch); err != nil {
 		s.t.Error(err)
 	}
-	s.t.Logf("scratch path, for the leftovers report: %s", s.scratch)
+}
+
+// scanForKey fails a keyed run whose output holds its key anywhere: a line it logged, what a daemon
+// wrote, or a file under its scratch path. It runs last, while that path still stands, and names
+// where it found the key and never the key.
+func (s *suite) scanForKey() {
+	s.t.Helper()
+	if !s.key.set() {
+		return
+	}
+	buffers := map[string][]byte{}
+	var found []string
+	for i, d := range s.daemons {
+		name := fmt.Sprintf("daemon %d's output", i+1)
+		if !d.stopped {
+			found = append(found, name+", which was still being written")
+			continue
+		}
+		buffers[name] = []byte(d.reported())
+	}
+	found = append(found, keyFindings(s.key, s.scratch, s.logs, buffers)...)
+	for _, where := range found {
+		s.t.Errorf("STOP: the API key appears in %s", where)
+	}
+	s.t.Logf("key scan: lines=%d daemons=%d findings=%d", len(s.logs), len(buffers), len(found))
+}
+
+// streamSessions names every session the raw stream holds, a probe's included.
+func (s *suite) streamSessions() []string {
+	raw, err := os.ReadFile(s.stream)
+	if err != nil {
+		return nil
+	}
+	var sessions []string
+	for line := range bytes.SplitSeq(raw, []byte("\n")) {
+		var event timelineLine
+		if json.Unmarshal(line, &event) == nil && sessionName.MatchString(event.SessionID) && !slices.Contains(sessions, event.SessionID) {
+			sessions = append(sessions, event.SessionID)
+		}
+	}
+	return sessions
 }
 
 // processesLeft gives a pane a killed terminal server just ended time to exit: a run with a stopped
@@ -255,7 +317,7 @@ func (s *suite) build() {
 	}
 	binary := filepath.Join(s.binDir, "ropeshift")
 	build := exec.Command("go", "build", "-tags", "realsession", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	build.Env = append(withoutKeys(os.Environ()), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		s.t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -378,7 +440,7 @@ func (s *suite) probe() {
 	if err := checkInit(init, nil, nil); err != nil {
 		s.t.Fatalf("STOP: the probe's init: %v", err)
 	}
-	s.t.Logf("probe: version=%s model=%s apiKeySource=%s permission=%s", init.Version, init.Model, init.KeySource, init.Permission)
+	s.logf("probe: version=%s model=%s apiKeySource=%s permission=%s", init.Version, init.Model, init.KeySource, init.Permission)
 }
 
 // TestRS1 runs a real session through the production driver, in the walk the first
@@ -467,13 +529,26 @@ func (s *suite) startDaemon() *daemon {
 // startDaemonWith runs the daemon with one suite's override.
 func (s *suite) startDaemonWith(overrides map[string]any) *daemon {
 	s.t.Helper()
+	return s.launchDaemon(s.daemonEnvironment(overrides))
+}
+
+// daemonEnvironment is a daemon's whole environment: the allowlist, its paths, and one suite's
+// override.
+func (s *suite) daemonEnvironment(overrides map[string]any) []string {
+	s.t.Helper()
 	override, err := json.Marshal(overrides)
 	if err != nil {
 		s.t.Fatal(err)
 	}
+	return s.environment(append(append(s.daemonTags(), s.daemonEnv...), "ROPESHIFT_SESSION_OVERRIDE="+string(override), api.EnvWeb+"="+api.WebOff)...)
+}
+
+// launchDaemon runs the daemon on this suite's repository with exactly this environment.
+func (s *suite) launchDaemon(env []string) *daemon {
+	s.t.Helper()
 	cmd := exec.Command(filepath.Join(s.binDir, "ropeshiftd"), "solo",
 		"--source", s.repo, "--intake-tick", "200ms", "--heartbeat", "1s", "--lease-tick", "1s")
-	cmd.Env = s.environment(append(append(s.daemonTags(), s.daemonEnv...), "ROPESHIFT_SESSION_OVERRIDE="+string(override), api.EnvWeb+"="+api.WebOff)...)
+	cmd.Env = env
 	d := &daemon{cmd: cmd, exited: make(chan error, 1), stderr: &bytes.Buffer{}}
 	cmd.Stderr = d.stderr
 	if err := cmd.Start(); err != nil {
@@ -588,7 +663,7 @@ func (s *suite) noteLimits(stream []byte) {
 	for _, reading := range limitReadings(stream) {
 		if !slices.Contains(s.limits, reading) {
 			s.limits = append(s.limits, reading)
-			s.t.Logf("rate limit: %s", reading)
+			s.logf("rate limit: %s", reading)
 		}
 	}
 }
@@ -663,6 +738,6 @@ func (s *suite) report(id string, init initLine, raw []byte) {
 		types = append(types, strings.TrimPrefix(e.Type, "work_order."))
 	}
 	turns := bytes.Count(raw, []byte(`"type":"result"`))
-	s.t.Logf("lane: version=%s model=%s apiKeySource=%s permission=%s results=%d", init.Version, init.Model, init.KeySource, init.Permission, turns)
-	s.t.Logf("lane: outcome=%s events=%s", ended.Outcome, strings.Join(types, ","))
+	s.logf("lane: version=%s model=%s apiKeySource=%s permission=%s results=%d", init.Version, init.Model, init.KeySource, init.Permission, turns)
+	s.logf("lane: outcome=%s events=%s", ended.Outcome, strings.Join(types, ","))
 }
