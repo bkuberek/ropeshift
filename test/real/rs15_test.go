@@ -21,6 +21,7 @@ import (
 
 	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
 	"ropeshift.dev/ropeshift/internal/adapters/profiles"
+	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/api"
 	"ropeshift.dev/ropeshift/internal/cli"
 	"ropeshift.dev/ropeshift/internal/lanes"
@@ -104,6 +105,13 @@ var rs15ProbeCharges = []rs15Charge{{"probe-accept", 2}, {"probe-refuse", 1}, {"
 
 // rs15Ended are the states a lane cannot leave on its own.
 var rs15Ended = map[workorders.State]bool{workorders.Blocked: true, workorders.Failed: true, workorders.Acceptance: true, workorders.Done: true}
+
+// rs15StuckParkings are the parkings nothing in a part's run wakes: each waits on a person, or on a
+// fleet action no part takes. A blocking question is the one parking a part answers.
+var rs15StuckParkings = []lanes.ParkTrigger{lanes.ParkUnknownScreen, lanes.ParkUsageLimit, lanes.ParkSignIn, lanes.ParkPolicy, lanes.ParkFleetDrain}
+
+// rs15Stuck says a lane parked on trigger cannot leave the parking within a run.
+func rs15Stuck(trigger lanes.ParkTrigger) bool { return slices.Contains(rs15StuckParkings, trigger) }
 
 // rs15InitLines are what `ropeshift init` must print, by the name the evidence gives each.
 var rs15InitLines = map[string]string{
@@ -437,7 +445,8 @@ func (s *suite) initFailures(inits []initLine) []string {
 }
 
 // rs15Expect polls for one step of a part, and stops the run as soon as its work order settles where
-// the step cannot happen, with the lane's outcome on the record.
+// the step cannot happen, with the lane's outcome on the record, or its lane parks where nothing in
+// the run wakes it.
 func (s *suite) rs15Expect(d *daemon, id, what string, limit time.Duration, watch func(), done func() bool) {
 	s.t.Helper()
 	s.pollFor(limit, d.stop, what, func() bool {
@@ -445,12 +454,35 @@ func (s *suite) rs15Expect(d *daemon, id, what string, limit time.Duration, watc
 		if done() {
 			return true
 		}
-		if state := s.workOrder(id).State; rs15Ended[state] {
+		state := s.workOrder(id).State
+		if rs15Ended[state] {
 			outcome, reason := s.outcomeOf(id)
 			s.stopWith(d.stop, "%s did not happen: the work order settled %s, with %s %s", what, state, outcome, reason)
 		}
+		if state == workorders.Parked {
+			if trigger := s.stuckParking(); trigger != "" {
+				s.stopWith(d.stop, "%s did not happen: the lane parked on %s, which nothing in this run wakes", what, trigger)
+			}
+		}
 		return false
 	})
+}
+
+// stuckParking names the trigger a watched lane parked on when nothing in the run wakes it. A journal
+// that cannot be read names none, and leaves the step's own limit to end the wait.
+func (s *suite) stuckParking() lanes.ParkTrigger {
+	journal, err := sqlite.OpenJournal(filepath.Join(s.paths.StateDir, api.JournalFileName))
+	if err != nil {
+		return ""
+	}
+	defer journal.Close()
+	for _, lane := range s.watched {
+		record, err := journal.Lane(s.t.Context(), lane)
+		if err == nil && record.Parking != nil && rs15Stuck(record.Parking.Trigger) {
+			return record.Parking.Trigger
+		}
+	}
+	return ""
 }
 
 // rs15Worker is the one worker of a daemon, once it holds a session.
@@ -1091,5 +1123,28 @@ func TestRefusedASecondRS15PartInOneRun(t *testing.T) {
 	}
 	if err := run.claim("TestRS15/E4"); err == nil {
 		t.Error("a second part ran in one run")
+	}
+}
+
+// A lane parked where nothing in a run wakes it has settled, so a step waiting on it stops at once.
+// A blocking question is the one parking a part answers, and a parking with no trigger recorded yet
+// is not judged.
+func TestStopOnAParkingNothingInARunWakes(t *testing.T) {
+	tests := []struct {
+		trigger lanes.ParkTrigger
+		stuck   bool
+	}{
+		{lanes.ParkUnknownScreen, true},
+		{lanes.ParkUsageLimit, true},
+		{lanes.ParkSignIn, true},
+		{lanes.ParkPolicy, true},
+		{lanes.ParkFleetDrain, true},
+		{lanes.ParkBlockingQuestion, false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := rs15Stuck(tt.trigger); got != tt.stuck {
+			t.Errorf("rs15Stuck(%q) = %v", tt.trigger, got)
+		}
 	}
 }
