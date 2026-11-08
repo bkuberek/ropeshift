@@ -12,6 +12,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 |---------|------|
 | `ropeshift top [--once]` | Watches the fleet: what needs a person first, in the order the Needs you view holds, then each lane in that order with its state, reachability, and whether its value is `observed` or `last_reported`, then the workers. It follows the ledger's events and reads again at least every 5 seconds, and it changes nothing: it names the command for what the cursor stands on. Text from agents and repositories prints with control characters replaced. With no terminal, or with `--once`, it prints one frame, and `--json` prints one document |
 | `ropeshift health` | Says the control plane answered and read its ledger, and the revision it stands at. It exits 9 when nothing answers |
+| `ropeshift version [--json]` | Prints the version, the commit, the build date, the Go version, and the platform. It needs no daemon, and `ropeshiftd version` prints the same under the daemon's name. See [versioning](versioning.md#what-a-binary-reports) |
 | `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review`. With `--kind plan --repository R`, its lane writes repository files on its branch, and intake reads them at the commit a member accepts. `source list` names R, and reports a file intake could not read |
 | `ropeshift work list [--state S] [--worker W]` | Lists work orders. With `--worker`, it lists only ready work that worker's manifest can run |
 | `ropeshift work show <id>` | Shows one work order |
@@ -100,7 +101,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 
 `ropeshift mcp` lists 9 tools for a lane and 15 for an orchestrator, by the token it runs with. `lane_stop` ends a stuck session and starts the lane's next generation, because canceling work is a member's.
 
-Three commands are for ropeshift or an agent CLI to run, and a person does not need them:
+These commands are for ropeshift or an agent CLI to run, and a person does not need them:
 
 | Command | Does |
 |---------|------|
@@ -109,6 +110,32 @@ Three commands are for ropeshift or an agent CLI to run, and a person does not n
 | `ropeshift lane-shim` | Holds a headless session's pipes in a process of its own, so the session outlives its worker. It journals every line, serves that journal on a private socket, and writes each input at most once |
 | `ropeshift lane-pane <file>` | Replaces itself with an interactive session in its pane, with the exact environment a private file holds, and removes that file first |
 | `ropeshift statusline [--pass]` | Reports one status line input to the worker. It is the driver's half of an interactive lane's status line, and `--pass` prints the input for a person's own command after it in a pipe |
+
+## The daemon
+
+`ropeshiftd solo` runs the control plane and this machine's worker in one process. `ropeshift service install -- <flags>` passes the same flags to it under the service manager.
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--source <path>` | None | A repository to read work and documents from. Repeat it for each repository |
+| `--ref <ref>` | The default branch | The ref intake reads in each source |
+| `--dir <dir>` | The whole repository | The directory intake reads in each source |
+| `--web <address>` | `127.0.0.1:7317`, or `ROPESHIFT_WEB` | The loopback address of the web UI, or `off` |
+| `--telemetry <address>` | `127.0.0.1:7318`, or `ROPESHIFT_TELEMETRY` | The loopback address of the telemetry receiver, or `off`. See [telemetry](telemetry.md) |
+| `--intake-tick <duration>` | `30s` | How often sources are read |
+| `--notify-tick <duration>` | `30s` | How often members are told what waits. See [notifications](notifications.md) |
+| `--telemetry-tick <duration>` | `5s` | How often the ledger is read into spans and metrics |
+| `--lease-tick`, `--batch-tick`, `--wake-tick` | `5s`, `5s`, `1s` | How often lapsed leases end, closed question batches reach members, and due wakes fire |
+| `--lease-ttl`, `--heartbeat` | `60s`, `15s` | How long a lease lasts, and how often the worker beats |
+
+An installation keeps its ledger, journal, and telemetry store in its state directory, and its sockets in its run directory:
+
+| Directory | macOS | Linux | Moved by |
+|-----------|-------|-------|----------|
+| State | `~/Library/Application Support/ropeshift` | `$XDG_STATE_HOME/ropeshift`, or `~/.local/state/ropeshift` | `ROPESHIFT_STATE_DIR` |
+| Run | `~/.ropeshift/run` | `$XDG_RUNTIME_DIR/ropeshift`, or `~/.ropeshift/run` | `ROPESHIFT_RUN_DIR` |
+
+A second installation on one machine sets both variables and its own `--web` and `--telemetry` addresses.
 
 ## Exit codes
 

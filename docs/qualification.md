@@ -21,7 +21,9 @@ A version where any surface ropeshift relies on did not pass runs in `degraded_m
 
 ## Where results come from
 
-The release ships a matrix in the binary. It holds versions, surfaces, and results, and nothing else. `ropeshift worker doctor` reads it, so it can say whether the installed version is qualified with no daemon running.
+The release ships a matrix in the binary, built from `internal/adapters/claudecode/matrix.json`. It holds versions, surfaces, and results, and nothing else. `ropeshift worker doctor` reads it, so it can say whether the installed version is qualified with no daemon running.
+
+The matrix qualifies Claude Code 2.1.316, 2.1.317, and 2.1.319, each with every surface above passed. `make qualify` runs the production probe on the installed CLI and ends with that version's row for the matrix. It starts real sessions, so a maintainer runs it by hand and never in continuous integration.
 
 A running worker does not rely on the matrix alone, because the settings and plugins on a machine are part of what must work. When a lane is about to start a process on a version this worker has not probed, the worker runs a probe on that machine first:
 

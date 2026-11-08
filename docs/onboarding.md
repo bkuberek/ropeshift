@@ -1,19 +1,44 @@
 # Onboarding
 
-This page takes one person from an empty machine to a first lane in solo mode, and says what to know before that lane runs. Ropeshift has no release yet, so it starts from a build of this repository, and the steps describe the first run as it is designed to work.
+This page takes one person from an empty machine to a first lane in solo mode, and says what to know before that lane runs. Solo mode runs on one machine, macOS or Linux on arm64 or amd64, with the Claude Code CLI as the agent runtime.
 
-## Build the binary
+## Install ropeshift
 
-One binary serves both commands, and the name it starts under picks the command. Put both names on `PATH`.
+One binary serves both commands, and the name it starts under picks the command: every channel installs `ropeshift` with `ropeshiftd` as a link to it, both on `PATH`, and the web UI built in. Every release is a pre-release until `1.0.0`. Use one channel:
+
+| Channel | Command |
+|---------|---------|
+| Homebrew | `brew install bkuberek/tap/ropeshift` |
+| Install script | `curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh \| sh` |
+| Debian and Ubuntu | `sudo dpkg -i ropeshift_<version>_<arch>.deb`, from the [releases page](https://github.com/bkuberek/ropeshift/releases) |
+| Fedora and RHEL | `sudo rpm -i ropeshift-<version>-1.<arch>.rpm`, from the same page |
+
+Homebrew may ask you to trust the tap before it reads it. If it does, run `brew trust bkuberek/tap` once.
+
+The install script installs to `~/.local/bin`, and with no `--version` it chooses the newest stable release, or the newest pre-release while no release is stable, and says which. It verifies the archive's SHA-256 against the release's checksums file before it extracts anything. Pass options after `sh -s --`, such as `sh -s -- --version v0.1.0-alpha.1`. [Releasing](releasing.md#the-install-script) lists every option.
+
+The package names carry the version in the packaging system's form, such as `ropeshift_0.1.0~alpha.1_arm64.deb` and `ropeshift-0.1.0~alpha.1-1.aarch64.rpm`. Both packages recommend git and tmux.
+
+Check the installation:
+
+```sh
+ropeshift version
+```
+
+It prints the release, the commit it was built from, and the platform, as [Versioning](versioning.md#what-a-binary-reports) describes.
+
+Ropeshift also needs git, and tmux for lanes that run in a terminal pane.
+
+### Build from source
+
+`go install` is not available yet, because the `ropeshift.dev` module path is not served yet. To build from a checkout of this repository instead, with Go at the version `go.mod` names, put both names on `PATH`:
 
 ```sh
 go build -o ropeshift ./cmd/ropeshift
 ln -s ropeshift ropeshiftd
 ```
 
-A build from a plain checkout serves a placeholder in place of the web UI. `make web-build` writes the application that the next build embeds. Such a build reports its version as `dev`, because only a release build reports a release version ([Versioning](versioning.md)).
-
-Once a release is published, it installs through the install script, Homebrew, a `.deb` or `.rpm` package, or `go install` at its tag, each with the web UI built in and both names on `PATH`. [Releasing](releasing.md#install-channels) lists the commands.
+A build from a plain checkout serves a placeholder in place of the web UI. `make web-build`, which needs Node.js, writes the application that the next build embeds. Such a build reports its version as `dev`, because only a release build reports a release version ([Versioning](versioning.md)).
 
 ## Install and sign in to an agent CLI
 
@@ -49,7 +74,7 @@ The doctor runs `claude --version` before anything else. A CLI on `PATH` that ex
 ropeshiftd solo --source /path/to/repository
 ```
 
-The daemon reads work from the repositories it names, at the default branch, and serves the web UI at `http://127.0.0.1:7317` on loopback only. `ropeshift top` watches the same fleet from a terminal.
+The daemon reads work from the repositories it names, at the default branch, and serves the web UI at `http://127.0.0.1:7317` on loopback only. `ropeshift top` watches the same fleet from a terminal. [The command line](cli.md#the-daemon) lists the daemon's flags and where an installation keeps its files.
 
 To run the sample, copy `sample-contract.md` into the repository, change it to your own work, and commit it. Intake reads it, and its work order waits for a review: `ropeshift work list` names it, and `ropeshift work review <id>` passes the review. A member can then claim it and start its lane, or start the orchestrator and open a run window for it. [The command line](cli.md) lists every step.
 
@@ -61,13 +86,13 @@ To run the sample, copy `sample-contract.md` into the repository, change it to y
 ropeshift service install -- --source /path/to/repository
 ```
 
-The `.deb` and `.rpm` packages install no service, so this command is how a daemon runs as a service on those channels. A Homebrew install runs it through `brew services start ropeshift` instead, with no repository source. Use one or the other, because two daemons for one installation conflict.
+The install script and the `.deb` and `.rpm` packages install no service, so this command is how a daemon runs as a service on those channels. A Homebrew install can run it through `brew services start ropeshift` instead, with no repository source, and logs to `$(brew --prefix)/var/log/ropeshift.log`. Use one or the other, because two daemons for one installation conflict.
 
-On macOS, it writes a launchd agent to `~/Library/LaunchAgents` with `ProcessType` set to `Interactive`, because launchd throttles the CPU and I/O of a job with no process class, and loads it. The daemon's output goes to a log in the installation's directory. On Linux, it writes a systemd user unit to `~/.config/systemd/user`, enables it, and starts it, and the daemon's output goes to `journalctl --user`. Either manager restarts the daemon after a crash. A second install replaces the first, and `ropeshift service uninstall` stops the service and removes its definition.
+On macOS, it writes a launchd agent named `dev.ropeshift.ropeshiftd` to `~/Library/LaunchAgents` with `ProcessType` set to `Interactive`, because launchd throttles the CPU and I/O of a job with no process class, and loads it. The daemon's output goes to a log named after the agent in the installation's directory. On Linux, it writes a systemd user unit named `ropeshiftd` to `$XDG_CONFIG_HOME/systemd/user`, which is `~/.config/systemd/user` by default, enables it, and starts it, and the daemon's output goes to `journalctl --user`. `--name` chooses another name. Either manager restarts the daemon after a crash. A second install replaces the first, and `ropeshift service uninstall` stops the service and removes its definition.
 
 A stop of the service stops no lane. Each lane's session, and the worker's terminal server, runs outside the service: in a process session of its own on macOS, and in a transient systemd scope on Linux. The daemon that starts next adopts them.
 
-The service keeps this shell's `PATH`, so it finds the agent CLI, git, and tmux where this shell does. It keeps the locale and ropeshift's own location variables, and nothing else, so a variable that a profile passes to a lane by `env:` must reach the service another way, such as a systemd drop-in.
+The service keeps this shell's `PATH`, so it finds the agent CLI, git, and tmux where this shell does. It also keeps `LANG`, `LC_ALL`, `LC_CTYPE`, `TZ`, `XDG_STATE_HOME`, and ropeshift's own `ROPESHIFT_STATE_DIR`, `ROPESHIFT_RUN_DIR`, `ROPESHIFT_WEB`, and `ROPESHIFT_TELEMETRY`, and nothing else, so a variable that a profile passes to a lane by `env:` must reach the service another way, such as a systemd drop-in.
 
 On Linux, a user's systemd manager stops when that user's last session ends, and every lane under it stops too, unless lingering is on. Turn it on once, so that lanes keep running after you log out and the daemon starts at boot:
 
