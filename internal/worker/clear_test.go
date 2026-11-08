@@ -137,6 +137,97 @@ func TestAClearIsANewGenerationWithNoHandoff(t *testing.T) {
 	}
 }
 
+// heldBinding hands a worker a session's stream, but holds the session's binding until a test lets
+// it go, as a stream the worker reads behind the session's hooks does. A driver that names a
+// session reports it as the one it holds.
+type heldBinding struct {
+	ports.AgentDriver
+	names   string
+	release chan struct{}
+	once    sync.Once
+}
+
+func (d *heldBinding) Observe(ctx context.Context, h ports.SessionHandle) (ports.Observation, error) {
+	observation, err := d.AgentDriver.Observe(ctx, h)
+	if err == nil && d.names != "" {
+		observation.SessionID = d.names
+	}
+	return observation, err
+}
+
+func (d *heldBinding) Events(ctx context.Context, h ports.SessionHandle) (<-chan ports.DriverEvent, error) {
+	events, err := d.AgentDriver.Events(ctx, h)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan ports.DriverEvent)
+	go func() {
+		defer close(out)
+		for event := range events {
+			if event.Kind == ports.EventSessionBound {
+				<-d.release
+			}
+			out <- event
+		}
+	}()
+	return out, nil
+}
+
+func (d *heldBinding) letGo() { d.once.Do(func() { close(d.release) }) }
+
+// aLaneAheadOfItsBinding leaves a lane in a turn whose session's binding the worker has not read,
+// on a driver that names the session it holds when names is set.
+func aLaneAheadOfItsBinding(t *testing.T, names string) *laneRig {
+	t.Helper()
+	g := newGate()
+	r := laneRigWith(t, "")
+	r.finishLater(g)
+	held := &heldBinding{AgentDriver: r.driver, names: names, release: make(chan struct{})}
+	t.Cleanup(held.letGo)
+	r.config.Driver = held
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.start()
+	select {
+	case <-g.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the session never reached its gate")
+	}
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	return r
+}
+
+// A clear's hooks can reach the worker before it reads the session's binding from the stream. The
+// generation the clear ends still names its session, or a resume or an audit loses that session.
+func TestAClearAheadOfTheBindingKeepsTheOldSession(t *testing.T) {
+	r := aLaneAheadOfItsBinding(t, "")
+	if reply := r.cleared(t, clearedSession); !reply.OK || reply.Generation != 2 {
+		t.Fatalf("reply %+v", reply)
+	}
+	generations := r.readGenerations(t)
+	if len(generations) != 2 {
+		t.Fatalf("generations %+v", generations)
+	}
+	if first := generations[0]; first.EndReason != string(ledger.StartClear) || first.SessionID != "session-1" {
+		t.Errorf("the old generation %+v", first)
+	}
+	if second := generations[1]; second.SessionID != clearedSession {
+		t.Errorf("the new generation %+v", second)
+	}
+}
+
+// A driver can hold the session a clear began before the clear's hook arrives, and then knows
+// nothing of the one before. That session is not the old generation's, and the clear stands.
+func TestAClearAheadOfTheBindingTakesNoNewSessionForTheOld(t *testing.T) {
+	r := aLaneAheadOfItsBinding(t, clearedSession)
+	if reply := r.cleared(t, clearedSession); !reply.OK || reply.Generation != 2 {
+		t.Fatalf("reply %+v", reply)
+	}
+	generations := r.readGenerations(t)
+	if len(generations) != 2 || generations[0].SessionID == clearedSession || generations[1].SessionID != clearedSession {
+		t.Errorf("generations %+v", generations)
+	}
+}
+
 // The token a process started with goes on, and acts as the generation the lane is in now (D4).
 func TestATokenOutlivesAClearAsTheCurrentGeneration(t *testing.T) {
 	r, _ := aLaneAtWork(t)

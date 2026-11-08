@@ -46,6 +46,9 @@ func (r *laneRun) cleared(ctx context.Context, session string) {
 	if session == "" || record.SessionID == session {
 		return
 	}
+	if record.SessionID == "" {
+		r.bindEnding(ctx, session)
+	}
 	stored := r.clearedRecord(record, session)
 	start, err := json.Marshal(ledger.GenerationStart{Reason: ledger.StartClear})
 	if err != nil {
@@ -77,6 +80,23 @@ func (r *laneRun) cleared(ctx context.Context, session string) {
 	if life := r.life; life != nil {
 		r.sequence.Go(func() { r.uploadBounded(life) })
 	}
+}
+
+// bindEnding records the session of the generation a clear ends, when the worker has not read that
+// session's binding from the stream yet. A clear's hooks can arrive ahead of the stream, and a
+// binding read after the clear finds the lane on the next generation and records nothing. The
+// driver already holds the session its stream names. A driver that has moved on to the session the
+// clear began holds nothing of the one before it, so that answer binds nothing.
+func (r *laneRun) bindEnding(ctx context.Context, cleared string) {
+	handle := r.sessionHandle()
+	if handle.ID == "" {
+		return
+	}
+	observation, err := r.rt.Driver.Observe(ctx, handle)
+	if err != nil || observation.SessionID == "" || observation.SessionID == cleared {
+		return
+	}
+	r.bindSession(ctx, observation.SessionID, observation.ModelResolved)
 }
 
 // keepClear is one journal write, because a lane on a generation the ledger never hears of would
