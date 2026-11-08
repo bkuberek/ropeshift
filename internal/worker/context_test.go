@@ -30,14 +30,28 @@ handoff_tokens = 180
 
 func tokens(n int64) fake.DriverStep { return fake.DriverStep{Context: &lanes.Usage{InputTokens: n}} }
 
-// contextRig runs a lane under contextProfile, whose next generation finishes the work.
+// contextRig runs a lane under contextProfile, whose next generation finishes the work. Its session
+// can play a step before it returns, so a step that reaches the rig needs contextLane and startOn.
 func contextRig(t *testing.T, turns ...[]fake.DriverStep) *laneRig {
+	t.Helper()
+	return contextLane(t).startOn(turns...)
+}
+
+// contextLane is a lane under contextProfile with no session yet, so a step can name the rig
+// before anything plays it.
+func contextLane(t *testing.T) *laneRig {
 	t.Helper()
 	r := laneRigWith(t, contextProfile)
 	t.Cleanup(func() {
 		r.driver.StopEverySession()
 		r.subject.Wait()
 	})
+	return r
+}
+
+// startOn starts the lane on these turns, and its next generation finishes the work.
+func (r *laneRig) startOn(turns ...[]fake.DriverStep) *laneRig {
+	r.t.Helper()
 	r.driver.Play(script(turns...))
 	r.driver.PlayAfter(r.toldToGoOn())
 	r.start()
@@ -110,9 +124,8 @@ func (r *laneRig) hookAdmits(t *testing.T, text string) {
 }
 
 func TestContextUnderItsThresholdsDoesNothing(t *testing.T) {
-	var r *laneRig
-	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), tokens(140), finish, completed(0.01)})
+	r := contextLane(t)
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), tokens(140), r.reports(workorders.OutcomeCompleted), completed(0.01)})
 	r.awaitOrderState(t, workorders.Acceptance)
 	if got := r.driver.Compacts(); got != 0 {
 		t.Errorf("%d compactions under the threshold", got)
@@ -127,13 +140,13 @@ func TestContextUnderItsThresholdsDoesNothing(t *testing.T) {
 // it, and the lane hands off to a new generation.
 func TestAThresholdDuringATurnSendsTheInstruction(t *testing.T) {
 	g := newGate()
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) {
 		if reply := r.callHandoff(narrativeText); !reply.OK {
 			t.Errorf("reply %+v", reply)
 		}
 	}}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), tokens(185), g.step(), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), tokens(185), g.step(), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
 	r.reach(t, g)
 	input := r.awaitSent(t, lanes.ToolLaneHandoff)
 	if !input.MidTurn || input.Peer {
@@ -167,9 +180,9 @@ func TestAThresholdDuringATurnSendsTheInstruction(t *testing.T) {
 // A hook reports what a pane took, and a session with a stream reports it on the stream.
 func TestAnInstructionAdmittedByAHookLiftsTheHold(t *testing.T) {
 	g := newGate()
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), tokens(185), g.step(), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), tokens(185), g.step(), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
 	r.reach(t, g)
 	input := r.awaitSent(t, lanes.ToolLaneHandoff)
 	r.hookAdmits(t, input.Text)
@@ -209,9 +222,9 @@ func TestWithNoChannelTheNextToolCallIsDenied(t *testing.T) {
 // A socket that takes nothing leaves the instruction to the end of the turn, and the hold in place.
 func TestAnInstructionTheSocketRefusesWaitsForTheTurnToEnd(t *testing.T) {
 	g := newGate()
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), tokens(100), g.step(), tokens(185), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), tokens(100), g.step(), tokens(185), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
 	g.letGoOnFailure(t)
 	r.atGate(g)
 	r.driver.SetMidTurnRefused(true)
@@ -224,12 +237,11 @@ func TestAnInstructionTheSocketRefusesWaitsForTheTurnToEnd(t *testing.T) {
 }
 
 func TestAtRestAThresholdCompacts(t *testing.T) {
-	var r *laneRig
-	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
-	r = contextRig(t,
+	r := contextLane(t)
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{{Compaction: true}, completed(0.02)},
-		[]fake.DriverStep{tokens(40), finish, completed(0.03)},
+		[]fake.DriverStep{tokens(40), r.reports(workorders.OutcomeCompleted), completed(0.03)},
 	)
 	r.awaitOrderState(t, workorders.Acceptance)
 	if got := r.driver.Compacts(); got != 1 {
@@ -245,9 +257,9 @@ func TestAtRestAThresholdCompacts(t *testing.T) {
 
 // The first call after a compaction is what counts, and a compaction that left too much hands off.
 func TestACompactionThatLeftTooMuchHandsOff(t *testing.T) {
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
-	r = contextRig(t,
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{{Compaction: true}, completed(0.02)},
 		[]fake.DriverStep{tokens(155), completed(0.03)},
@@ -264,9 +276,9 @@ func TestACompactionThatLeftTooMuchHandsOff(t *testing.T) {
 
 // A compaction's own API call comes before its boundary, and it is no evidence of anything.
 func TestAUsageBeforeTheBoundaryIsNoEvidence(t *testing.T) {
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
-	r = contextRig(t,
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{tokens(10), {Compaction: true}, completed(0.02)},
 		[]fake.DriverStep{tokens(155), completed(0.03)},
@@ -277,9 +289,9 @@ func TestAUsageBeforeTheBoundaryIsNoEvidence(t *testing.T) {
 
 // A turn that ended with no boundary did not compact, whatever its figures say.
 func TestARunWithNoBoundaryDidNotCompact(t *testing.T) {
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
-	r = contextRig(t,
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{completed(0.02)},
 		[]fake.DriverStep{answer, completed(0.03)},
@@ -398,9 +410,9 @@ func (r *laneRig) takeOver(t *testing.T, plays fake.DriverScript) *fake.AgentDri
 // would read as one with no room to hand off.
 func TestARunThatTookOverGoesOnByThePolicy(t *testing.T) {
 	g := newGate()
-	var r *laneRig
+	r := contextLane(t)
 	finish := fake.DriverStep{Do: func(ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(ports.SessionSpec{Lane: "lane-1"}) }}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), g.step(), completed(0.01)})
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), g.step(), completed(0.01)})
 	r.reach(t, g)
 	r.eventually("a baseline in the journal", func(ledger.LaneView) bool {
 		record, err := r.journal.Lane(t.Context(), "lane-1")
@@ -434,9 +446,8 @@ func TestARestartKeepsWhatAGenerationBeganWith(t *testing.T) {
 
 // A lane that reported is done, whatever its last calls of a turn say.
 func TestALaneThatReportedIsNotToldToHandOff(t *testing.T) {
-	var r *laneRig
-	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), finish, tokens(185), completed(0.01)})
+	r := contextLane(t)
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), r.reports(workorders.OutcomeCompleted), tokens(185), completed(0.01)})
 	r.awaitOrderState(t, workorders.Acceptance)
 	if sent := r.driver.Sent(); len(sent) != 0 {
 		t.Errorf("sent %+v", sent)
@@ -541,13 +552,12 @@ func TestACompactionThatCannotStartHandsOff(t *testing.T) {
 // That leaves a verdict to come and not a failed compaction: the lane goes on as a lane with no
 // outcome does, and the next figure judges it.
 func TestAFigureThatFollowsTheTurnStillJudges(t *testing.T) {
-	var r *laneRig
-	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
-	r = contextRig(t,
+	r := contextLane(t)
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{{Compaction: true}, completed(0.02)},
 		[]fake.DriverStep{completed(0.03)},
-		[]fake.DriverStep{tokens(40), finish, completed(0.04)},
+		[]fake.DriverStep{tokens(40), r.reports(workorders.OutcomeCompleted), completed(0.04)},
 	)
 	r.awaitOrderState(t, workorders.Acceptance)
 	sent := r.driver.Sent()
@@ -561,10 +571,10 @@ func TestAFigureThatFollowsTheTurnStillJudges(t *testing.T) {
 
 // A session that cannot be told to go on gives no next call, so nothing will ever judge it.
 func TestACompactionThatCannotGoOnHandsOff(t *testing.T) {
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	refused := fake.DriverStep{Do: func(ports.SessionSpec) { r.driver.FailSend(errors.New("the session took nothing")) }}
-	r = contextRig(t,
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{{Compaction: true}, refused, completed(0.02)},
 		[]fake.DriverStep{answer, completed(0.03)},
@@ -577,14 +587,13 @@ func TestACompactionThatCannotGoOnHandsOff(t *testing.T) {
 
 // One compaction working does not use the next one up: context that grows back compacts again.
 func TestASecondCompactionHasItsOwnInputs(t *testing.T) {
-	var r *laneRig
-	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
-	r = contextRig(t,
+	r := contextLane(t)
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{{Compaction: true}, completed(0.02)},
 		[]fake.DriverStep{tokens(40), tokens(160), completed(0.03)},
 		[]fake.DriverStep{{Compaction: true}, completed(0.04)},
-		[]fake.DriverStep{tokens(40), finish, completed(0.05)},
+		[]fake.DriverStep{tokens(40), r.reports(workorders.OutcomeCompleted), completed(0.05)},
 	)
 	r.awaitOrderState(t, workorders.Acceptance)
 	if got := r.driver.Compacts(); got != 2 {
@@ -597,9 +606,8 @@ func TestASecondCompactionHasItsOwnInputs(t *testing.T) {
 
 // A compaction nobody here asked for is not this policy's to judge, and its next call is no verdict.
 func TestABoundaryNobodyAskedForChangesNothing(t *testing.T) {
-	var r *laneRig
-	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), {Compaction: true}, tokens(40), finish, completed(0.01)})
+	r := contextLane(t)
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), {Compaction: true}, tokens(40), r.reports(workorders.OutcomeCompleted), completed(0.01)})
 	r.awaitOrderState(t, workorders.Acceptance)
 	if got := r.driver.Compacts(); got != 0 {
 		t.Errorf("%d compactions", got)
@@ -612,9 +620,9 @@ func TestABoundaryNobodyAskedForChangesNothing(t *testing.T) {
 // Both a stream and a hook say a session took its instruction, and the first is enough.
 func TestAHoldLiftsOnce(t *testing.T) {
 	g := newGate()
-	var r *laneRig
+	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
-	r = contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), tokens(185), g.step(), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
+	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), tokens(185), g.step(), completed(0.01)}, []fake.DriverStep{answer, completed(0.02)})
 	r.reach(t, g)
 	input := r.awaitSent(t, lanes.ToolLaneHandoff)
 	r.hookAdmits(t, input.Text)

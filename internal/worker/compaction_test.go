@@ -203,12 +203,11 @@ func TestAPersonsCompactionEndsNoTurnOfTheLanes(t *testing.T) {
 // A compaction this lane asked for ends the same way in a pane, and only a request tells the two
 // apart: that one is its turn, and the session is told to go on.
 func TestACompactionItAskedForEndsItsTurn(t *testing.T) {
-	var r *laneRig
-	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
-	r = contextRig(t,
+	r := contextLane(t)
+	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		aCompactionsEnd(),
-		[]fake.DriverStep{tokens(40), finish, completed(0.03)},
+		[]fake.DriverStep{tokens(40), r.reports(workorders.OutcomeCompleted), completed(0.03)},
 	)
 	r.awaitOrderState(t, workorders.Acceptance)
 	if got := r.driver.Compacts(); got != 1 {
