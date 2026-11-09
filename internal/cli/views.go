@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/top"
 )
@@ -208,6 +210,8 @@ func (c *invocation) events(args []string) int {
 }
 
 // signOut ends the session this shell holds, so its token opens nothing even if something kept it.
+// The token alone ends it, so this never asks for a passphrase: a session that is not live has
+// nothing to end, and signing in again would only open a session to end in its place.
 func (c *invocation) signOut(args []string) int {
 	set := c.flags()
 	positional, ok := c.parse(set, args)
@@ -218,12 +222,25 @@ func (c *invocation) signOut(args []string) int {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
 	if c.session == "" {
-		return c.failure(errors.New("this shell holds no session"))
+		return c.failure(noSessionToEnd(authority.EnvMemberToken + " is not set in this shell"))
 	}
-	client := c.client()
+	client := api.NewUnixClient(c.socket)
+	client.UseSession(c.session)
 	defer client.Close()
 	err := client.SignOut(c.ctx)
+	var refused *api.Error
+	if errors.As(err, &refused) && refused.Detail.Code == api.CodeSessionRequired {
+		err = noSessionToEnd("the session in " + authority.EnvMemberToken + " expired or was already ended")
+	}
 	return c.finish(err, struct {
 		SignedOut bool `json:"signed_out"`
 	}{true}, func() string { return "signed out\n" })
+}
+
+// noSessionToEnd is a sign-out with no live session behind it. It is the refusal of a step that
+// needs a session and has none, and it names no way to sign in, because there is nothing to end.
+func noSessionToEnd(reason string) error {
+	return &api.Error{Status: http.StatusUnauthorized, Detail: api.ErrorDetail{
+		Code: api.CodeSessionRequired, Message: "there is no session to end: " + reason,
+	}}
 }
