@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0-alpha.3](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.2...v0.1.0-alpha.3) (2026-11-09)
+
+
+### Bug Fixes
+
+* end a session with its token alone on sign-out ([923bbe3](https://github.com/bkuberek/ropeshift/commit/923bbe3a37b18dea1353321ccd5992499216eaed))
+* push a lane's work only when the user's profile turns push_on_stop on ([07c1d81](https://github.com/bkuberek/ropeshift/commit/07c1d817edc7f749764b72b1ac809c41ffd9ad13))
+
 ## [0.1.0-alpha.2](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.1...v0.1.0-alpha.2) (2026-11-09)
 
 
