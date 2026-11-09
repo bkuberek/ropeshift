@@ -77,7 +77,9 @@ func (r *laneRun) runHook(ctx context.Context, target string, perform func() err
 
 // guardWork saves what a worktree holds, by the design's table (FR-LANE-14). It decides from
 // what it reads and removes nothing, so a repeat is safe and a crash at any step costs
-// nothing. A read that fails leaves the worktree under guard.
+// nothing. A read that fails leaves the worktree under guard. It sends nothing to a remote
+// unless the user chose to, and work it keeps here reads as unpushed, which holds the worktree
+// until a member forces its removal.
 func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool, ref string) lanes.GuardResult {
 	worktrees := w.config.Lanes.Provisioner.Worktrees
 	found, err := worktrees.Survey(ctx, record.Worktree)
@@ -88,7 +90,8 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 		return lanes.UnreadGuard(err)
 	}
 	crashpoint.Hit("worker.guard", "surveyed")
-	acts := lanes.GuardActs{Plan: lanes.PlanGuard(found, fenced), Fenced: fenced}
+	rules := lanes.GuardRules{Fenced: fenced, Push: w.pushesOnStop(ctx) || pushesUnasked()}
+	acts := lanes.GuardActs{Plan: lanes.PlanGuard(found, rules), Fenced: fenced}
 	failed := func(step string, err error) {
 		w.config.Report(fmt.Errorf("lane %s: %s: %w", record.ID, step, err))
 		if acts.Detail == "" {
@@ -126,6 +129,23 @@ func (w *Worker) guardWork(ctx context.Context, record lanes.Record, fenced bool
 		return result
 	}
 	return lanes.SettleGuard(after, acts)
+}
+
+// pushesOnStop reads the user's choice to send a lane's work to its remote (push_on_stop). Only
+// the user's layer sets it, so it reads with no repository and no lane's overrides, and a
+// removal long after a lane's lease went reads the same choice. A profile that cannot be read
+// sends nothing.
+func (w *Worker) pushesOnStop(ctx context.Context) bool {
+	profiles := w.config.Lanes.Provisioner.Profiles
+	if profiles == nil {
+		return false
+	}
+	profile, err := profiles.Load(ctx, "", "")
+	if err != nil {
+		w.config.Report(fmt.Errorf("reading push_on_stop: %w", err))
+		return false
+	}
+	return profile.Worktree.PushOnStop
 }
 
 // guardPass runs one pass as an effect and keeps its result. A pass that does not run is

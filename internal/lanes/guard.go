@@ -31,15 +31,27 @@ type GuardPlan struct {
 	PushSnapshot bool
 }
 
+// GuardRules is what a guard may do beside what it reads.
+type GuardRules struct {
+	// Fenced says the lane's lease went.
+	Fenced bool
+	// Push says the user chose to send a lane's work to its remote (push_on_stop).
+	Push bool
+}
+
 // PlanGuard reads the design's table. A fenced lane leaves its branch alone, because that
 // branch may no longer be its to move, and a ref holds everything it had. A detached head
-// has no branch at all, so only a ref keeps its commits reachable.
-func PlanGuard(found WorktreeFindings, fenced bool) GuardPlan {
+// has no branch at all, so only a ref keeps its commits reachable. A remote the user did not
+// choose to push to is no place to keep work, so without that choice the table reads as for no
+// remote: the branch and every ref stay on this machine.
+func PlanGuard(found WorktreeFindings, rules GuardRules) GuardPlan {
+	fenced := rules.Fenced
+	remote := found.Remote != "" && rules.Push
 	detached := found.Branch == "" && found.Ahead > 0
 	var plan GuardPlan
-	plan.Push = found.Remote != "" && found.Ahead > 0 && !fenced && !detached
+	plan.Push = remote && found.Ahead > 0 && !fenced && !detached
 	plan.Snapshot = found.Dirty || detached || (fenced && found.Ahead > 0)
-	plan.PushSnapshot = plan.Snapshot && found.Remote != ""
+	plan.PushSnapshot = plan.Snapshot && remote
 	return plan
 }
 

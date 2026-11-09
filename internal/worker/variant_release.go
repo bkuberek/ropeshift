@@ -10,6 +10,9 @@ func chargeKey(key string) string { return key }
 // skipsGuard is false: a normal build reads every worktree.
 func skipsGuard() bool { return false }
 
+// pushesUnasked is false: a normal build pushes only what the user chose to.
+func pushesUnasked() bool { return false }
+
 // keepsResources is false: a normal build gives every block back.
 func keepsResources() bool { return false }
 

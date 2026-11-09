@@ -110,6 +110,19 @@ In solo mode, lanes run as the same operating system user as you, so the operati
 
 A repository's own configuration can run code. In a headless session, [Claude Code treats the folder as trusted](https://code.claude.com/docs/en/hooks), so hooks committed to a repository run, and an interactive lane accepts the same trust at its start. Where a repository's `core.hooksPath` names a directory in the worktree, a lane that may edit that directory runs its own code at its next commit. Run lanes on work from outside your team only behind one of the boundaries above.
 
+### Work stays on this machine
+
+When a lane stops, its worker saves what the worktree holds: commits stay on the lane's branch, and uncommitted changes go to a checkpoint ref under `refs/ropeshift/`. By default nothing is pushed, so the branch and its refs exist only on this machine. A lane whose worktree holds commits or changes the remote lacks reads `unpushed_work`, `ropeshift lane archive` needs `--force` to remove its worktree, and a parked lane resumes only on this machine. A lane's branch starts from the repository's current branch, so a push of it would also send any of your commits the remote does not have yet.
+
+To have the worker push the lane's branch and its checkpoint refs to the repository's remote when the lane stops and before its worktree is removed, so the work survives the loss of this machine and a parked lane can resume on another, set this in your own profile layer, `profile.toml` in the installation's directory:
+
+```toml
+[worktree]
+push_on_stop = true
+```
+
+Only your layer sets it, because a push sends work off the machine. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot change it: a layer that sets another value is refused, and the lane does not start. A push never forces and runs no repository hook.
+
 ### Claude subscriptions and automated use
 
 Ropeshift is designed to run the unmodified `claude` binary that you installed and signed in to, as your own session. It is an independent project. It is not affiliated with or endorsed by Anthropic, and no vendor has approved this use. Nothing here is legal advice.

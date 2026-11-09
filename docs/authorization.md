@@ -48,6 +48,7 @@ A session that comes back to an approved call hears that exact call first, with 
 | A decision names the request's digest | The domain, and a database check |
 | Nothing is approved with nobody behind it | A database check |
 | A human decision needs a session | The route, which takes only a session the ledger issued |
+| Ending a session needs only its token | The sign-out route, which ends the session the call presents, and `ropeshift sign-out`, which never asks for a passphrase |
 | A lane's token cannot reach a decision | The worker socket, which takes a decision only from an orchestrator's token |
 | A lane's token reaches no orchestrator tool | `ropeshift mcp`, which does not list one, and the worker socket, which refuses one |
 | An orchestrator's token reaches no lane's tool | The worker socket, which refuses a report, a wait, an ask, and a reply from it |
@@ -61,6 +62,7 @@ A session that comes back to an approved call hears that exact call first, with 
 | That stage or commit stays in the lane's worktree | The hook, which refuses one after a `cd`, `-C`, `--git-dir`, `--work-tree`, or a `GIT_DIR` that leaves it, and one whose place it cannot read |
 | A push never shares a call with a stage or a commit | The hook, so a push reaches a person however the CLI reads a compound command |
 | A push reaches a person, and a force push or a push to a default branch reaches nobody | No allow rule covers a push, and the hook and generated deny rules refuse the rest |
+| A worker pushes a lane's work only when the user chose it | The profile, where `push_on_stop` is off by default, only the user's layer sets it, and a repository's layer or a lane's overrides that change it are refused. See [onboarding](onboarding.md#work-stays-on-this-machine) |
 
 ## The web listener
 

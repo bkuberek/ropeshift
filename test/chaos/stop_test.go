@@ -52,6 +52,7 @@ const (
 	sabotageFenced      = "a fenced lane that skips the guard"
 	sabotageKeeps       = "an ended lane that keeps its resources"
 	sabotageOwnIndex    = "a snapshot built in the lane's own index"
+	sabotagePushes      = "a stop that pushes with nobody's choice"
 )
 
 // workFiles is what a session leaves, one of each thing a stop must save.
@@ -160,6 +161,8 @@ func applyStopVariant(variant string) {
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageNoGuard)
 	case sabotageKeeps:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageKeepResources)
+	case sabotagePushes:
+		_ = os.Setenv(worker.EnvSabotage, worker.SabotagePushesUnasked)
 	case sabotageKeepsLost:
 		_ = os.Setenv(worker.EnvSabotage, worker.SabotageKeepsLostLanes)
 	}
@@ -289,7 +292,20 @@ func stopRepo(w *world, remote bool) (*gittest.Repo, string) {
 	return repo, bare
 }
 
+// pushOnStopProfile is the user's choice to send a lane's work to its remote, which only the
+// user's layer can make.
+const pushOnStopProfile = "\n[worktree]\npush_on_stop = true\n"
+
+// stopSpec is a stop whose remote, when it has one, the user chose to push to.
 func stopSpec(w *world, remote bool, script, profile string) (childSpec, error) {
+	if remote {
+		profile += pushOnStopProfile
+	}
+	return stopSpecAs(w, remote, script, profile)
+}
+
+// stopSpecAs is a stop with exactly the user's layer it names.
+func stopSpecAs(w *world, remote bool, script, profile string) (childSpec, error) {
 	w.serveOnce()
 	id, err := w.rig.Ready(w.store)
 	if err != nil {
@@ -462,6 +478,36 @@ func noRemoteCase() crashCase {
 	}
 }
 
+// keptHereCase is a remote nobody chose to push to: whatever a kill interrupts, the remote holds
+// only what it held before, the work stays in the worktree and a local ref, and the ledger says
+// it exists only here.
+func keptHereCase() crashCase {
+	return crashCase{
+		name: "stop with a remote nobody chose to push to", op: "worker.guard", steps: []string{"surveyed", "snapshotted", "saved"},
+		prepare: func(w *world) (childSpec, error) { return stopSpecAs(w, true, "", "") },
+		settled: keptHereSettled,
+	}
+}
+
+func keptHereSettled(w *world, spec childSpec) error {
+	if refs, err := gitIn(spec.Path, spec.GitEnv, "for-each-ref", "--format=%(refname)"); err != nil || refs != "refs/heads/main" {
+		return contract.Violatedf("the remote holds %q with nobody's choice: %v", refs, err)
+	}
+	here := spec
+	here.Path = ""
+	if err := workSaved(w, here); err != nil {
+		return err
+	}
+	view, err := w.laneView(spec.Lane)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(view.Conditions, "unpushed_work") {
+		return contract.Violatedf("the ledger does not show the work: %+v", view)
+	}
+	return nil
+}
+
 const noRestartsProfile = "[lifecycle]\nmax_restarts = 0\n"
 
 func (w *world) laneView(lane string) (ledger.LaneView, error) {
@@ -586,6 +632,7 @@ func stopCases() []crashCase {
 		diedCase("worktree.snapshot", "read", "added", "committed", "recorded"),
 		fencedCase("worker.guard", surveyed, pushed, snapshotted, snapshotPushed, saved),
 		noRemoteCase(),
+		keptHereCase(),
 		removalCase(),
 		archivedStepCase(),
 		hookCase(),

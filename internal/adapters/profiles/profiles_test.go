@@ -125,6 +125,64 @@ func TestLayersApplyInOrder(t *testing.T) {
 	}
 }
 
+// TestPushOnStopIsTheUsersAlone holds that work leaves the machine only when the person chose it:
+// pushing is off unless the user's layer turns it on, and no later layer changes that choice.
+func TestPushOnStopIsTheUsersAlone(t *testing.T) {
+	const (
+		on  = "[worktree]\npush_on_stop = true\n"
+		off = "[worktree]\npush_on_stop = false\n"
+	)
+	tests := []struct {
+		name, user, repository, lane string
+		refused, pushes              bool
+	}{
+		{name: "nothing is pushed by default"},
+		{name: "a user turns it on", user: on, pushes: true},
+		{name: "a repository cannot turn it on", repository: on, refused: true},
+		{name: "a lane cannot turn it on", lane: on, refused: true},
+		{name: "a repository cannot turn a user's choice off", user: on, repository: off, refused: true},
+		{name: "a lane cannot turn a user's choice off", user: on, lane: off, refused: true},
+		{name: "a repository may say what is already so", user: on, repository: on, pushes: true},
+		{name: "a repository may restate the default", repository: off},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+			if refused := errors.Is(err, lanes.ErrBadProfile); refused != tt.refused {
+				t.Fatalf("error %v, want refused=%v", err, tt.refused)
+			}
+			if err == nil && profile.Worktree.PushOnStop != tt.pushes {
+				t.Errorf("push_on_stop %v, want %v", profile.Worktree.PushOnStop, tt.pushes)
+			}
+		})
+	}
+}
+
+// TestAnEmptyRepositoryReadsTheUsersLayerAlone is how a worker reads a choice only the user's
+// layer makes. A layer where the process happens to run is no repository's.
+func TestAnEmptyRepositoryReadsTheUsersLayerAlone(t *testing.T) {
+	dir := t.TempDir()
+	user := filepath.Join(dir, UserFile)
+	if err := os.WriteFile(user, []byte("[worktree]\npush_on_stop = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	here := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(here, filepath.Dir(RepositoryFile)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(here, RepositoryFile), []byte("not a setting = \"at all\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(here)
+	profile, err := Filesystem{User: user}.Load(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !profile.Worktree.PushOnStop {
+		t.Errorf("worktree %+v", profile.Worktree)
+	}
+}
+
 func TestALaneLayerNarrowsAndCannotWiden(t *testing.T) {
 	tests := []struct {
 		name, user, repository, lane string

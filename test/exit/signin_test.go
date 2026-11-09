@@ -177,6 +177,38 @@ func TestThePassphraseComesOnlyFromTheTerminal(t *testing.T) {
 	})
 }
 
+// TestSignOutTakesOnlyTheToken is a shell after eval "$(ropeshift login)": with no terminal, the
+// token in the environment ends its session and a later command with it is refused. Signing out
+// again finds no session to end and asks for nothing, even with a terminal that would answer.
+func TestSignOutTakesOnlyTheToken(t *testing.T) {
+	in := newInstall(t)
+	d := in.start()
+	in.waitReady(d)
+	code, stdout, stderr := in.runWith(openTerminal(t, apitest.Passphrase), "", nil, "login")
+	if code != 0 || !exportLine.MatchString(stdout) {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	shell := []string{authority.EnvMemberToken + "=" + strings.TrimSpace(strings.SplitN(stdout, "=", 2)[1])}
+	if code, stdout, stderr := in.runWith(nil, "", shell, "sign-out"); code != 0 || stdout != "signed out\n" {
+		t.Fatalf("sign-out: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if code, _, stderr := in.runWith(nil, "", shell, "work", "create", "--id", "after", "--title", "T", "--criterion", "C"); code != cli.ExitForbidden {
+		t.Fatalf("the ended session: exit %d, stderr %q", code, stderr)
+	}
+	term := openTerminal(t, apitest.Passphrase)
+	code, _, stderr = in.runWith(term, "", shell, "sign-out")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, "no session to end") {
+		t.Errorf("signing out again: exit %d, stderr %q", code, stderr)
+	}
+	if shown := term.shown(); strings.Contains(shown, "Passphrase") {
+		t.Errorf("sign-out asked for a passphrase: %q", shown)
+	}
+	code, _, stderr = in.runWith(nil, "", nil, "sign-out")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, "no session to end") {
+		t.Errorf("no session: exit %d, stderr %q", code, stderr)
+	}
+}
+
 func TestTheFirstPassphraseIsSetOnTheTerminal(t *testing.T) {
 	in := newInstall(t)
 	in.member = false

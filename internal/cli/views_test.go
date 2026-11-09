@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/top"
@@ -238,5 +239,43 @@ func TestSignOutEndsTheSession(t *testing.T) {
 	s.must("sign-out")
 	if code, _, stderr := s.run("work", "create", "--title", "After the session"); code != cli.ExitForbidden {
 		t.Errorf("exit %d: %s", code, stderr)
+	}
+}
+
+// TestSignOutNeedsOnlyTheToken holds that whoever holds a session can end it: a terminal that
+// would answer is never asked, and a session that is not live is nothing to end, not a reason to
+// sign in again.
+func TestSignOutNeedsOnlyTheToken(t *testing.T) {
+	s := newSession(t)
+	token, err := s.daemon.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase, TTLMs: authority.LoginTTLMs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := &asked{passphrase: apitest.Passphrase}
+	if code, stdout, stderr := s.runAs(token.Token, terminal.read, "sign-out"); code != cli.ExitOK || stdout != "signed out\n" {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if code, _, stderr := s.runAs(token.Token, nil, "category", "add", "pricing"); code != cli.ExitForbidden {
+		t.Fatalf("the ended session: exit %d, %s", code, stderr)
+	}
+	code, _, stderr := s.runAs(token.Token, terminal.read, "sign-out")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, "no session to end") || strings.Contains(stderr, "passphrase") {
+		t.Errorf("an ended session: exit %d, %s", code, stderr)
+	}
+	stale, err := s.daemon.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase, TTLMs: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	code, _, stderr = s.runAs(stale.Token, nil, "sign-out")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, "no session to end") || strings.Contains(stderr, "passphrase") {
+		t.Errorf("an expired session: exit %d, %s", code, stderr)
+	}
+	code, _, stderr = s.runAs("", terminal.read, "sign-out")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, "no session to end") {
+		t.Errorf("no session: exit %d, %s", code, stderr)
+	}
+	if len(terminal.prompts) != 0 {
+		t.Errorf("sign-out asked %v", terminal.prompts)
 	}
 }

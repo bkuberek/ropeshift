@@ -36,6 +36,15 @@ const profileAt = `[worktree]
 root = "/lanes"
 `
 
+// pushOnStop is the user's choice to send a lane's work to its remote, which only the user's
+// layer can make.
+const pushOnStop = "[worktree]\npush_on_stop = true\n"
+
+// choosesPush stands for a user who turned pushing on.
+func (r *laneRig) choosesPush() {
+	r.config.Provisioner.Profiles.(*fake.ProfileSource).PutUser(pushOnStop)
+}
+
 func (r *laneRig) view() ledger.LaneView {
 	r.t.Helper()
 	view, err := r.plane.Lane(r.t.Context(), "lane-1")
@@ -59,26 +68,35 @@ func TestAStopGuardsTheWorktree(t *testing.T) {
 	tests := []struct {
 		name     string
 		remote   string
+		pushes   bool
 		refuse   bool
 		steps    func(*laneRig) []fake.DriverStep
 		pushed   []string
 		unpushed bool
 	}{
-		{name: "clean, everything pushed", remote: "origin", steps: func(*laneRig) []fake.DriverStep { return nil }},
+		{name: "clean, everything pushed", remote: "origin", pushes: true, steps: func(*laneRig) []fake.DriverStep { return nil }},
 		{
-			name: "commits not pushed", remote: "origin", pushed: []string{branch},
+			name: "commits not pushed", remote: "origin", pushes: true, pushed: []string{branch},
 			steps: func(r *laneRig) []fake.DriverStep { return []fake.DriverStep{r.committing(stopWorktree)} },
 		},
 		{
-			name: "uncommitted changes", remote: "origin", pushed: []string{checkpoint},
+			name: "uncommitted changes", remote: "origin", pushes: true, pushed: []string{checkpoint},
 			steps: func(r *laneRig) []fake.DriverStep { return []fake.DriverStep{r.dirtying(stopWorktree)} },
 		},
 		{
-			name: "a push that fails keeps the commits", remote: "origin", refuse: true, unpushed: true,
+			name: "a push that fails keeps the commits", remote: "origin", pushes: true, refuse: true, unpushed: true,
 			steps: func(r *laneRig) []fake.DriverStep { return []fake.DriverStep{r.committing(stopWorktree)} },
 		},
 		{
-			name: "a push that fails keeps the changes", remote: "origin", refuse: true, unpushed: true,
+			name: "a push that fails keeps the changes", remote: "origin", pushes: true, refuse: true, unpushed: true,
+			steps: func(r *laneRig) []fake.DriverStep { return []fake.DriverStep{r.dirtying(stopWorktree)} },
+		},
+		{
+			name: "a remote nobody chose to push to keeps the commits here", remote: "origin", unpushed: true,
+			steps: func(r *laneRig) []fake.DriverStep { return []fake.DriverStep{r.committing(stopWorktree)} },
+		},
+		{
+			name: "a remote nobody chose to push to keeps the changes here", remote: "origin", unpushed: true,
 			steps: func(r *laneRig) []fake.DriverStep { return []fake.DriverStep{r.dirtying(stopWorktree)} },
 		},
 		{
@@ -94,6 +112,9 @@ func TestAStopGuardsTheWorktree(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := laneRigWith(t, profileAt)
+			if tt.pushes {
+				r.choosesPush()
+			}
 			r.worktrees().UseRemote(tt.remote)
 			r.worktrees().RefusePushes(tt.refuse)
 			r.runWith(tt.steps(r)...)
@@ -122,6 +143,49 @@ func uniq(values []string) []string {
 		}
 	}
 	return out
+}
+
+// TestWorkStaysOnThisMachineUnlessTheUserChosePush is the default with a remote: no stop and no
+// removal sends anything, the work keeps its local branch and a local ref, the outcome and its
+// evidence still reach the ledger, and the ledger says the work exists only here.
+func TestWorkStaysOnThisMachineUnlessTheUserChosePush(t *testing.T) {
+	r := laneRigWith(t, profileAt)
+	r.worktrees().UseRemote("origin")
+	r.runWith(r.committing(stopWorktree), r.dirtying(stopWorktree))
+	if row := r.row(); row.State != workorders.Acceptance {
+		t.Fatalf("row %+v", row)
+	}
+	if got := r.worktrees().Pushed(); len(got) != 0 {
+		t.Errorf("pushed %v with nobody's choice", got)
+	}
+	checkpoint := lanes.CheckpointRef("lane-1", 1)
+	if refs := r.worktrees().Snapshots(); refs[checkpoint] != stopWorktree {
+		t.Errorf("snapshots %v", refs)
+	}
+	view := r.view()
+	if !slices.Contains(view.Conditions, string(lanes.UnpushedWork)) {
+		t.Errorf("conditions %v", view.Conditions)
+	}
+	var kinds []string
+	for _, artifact := range view.Artifacts {
+		kinds = append(kinds, artifact.Kind)
+	}
+	if !slices.Contains(kinds, ledger.ArtifactBranch) || !slices.Contains(kinds, ledger.ArtifactSalvage) {
+		t.Errorf("the evidence did not reach the ledger: %+v", view.Artifacts)
+	}
+	if err := r.archive(false); !errors.Is(err, workorders.ErrUnpushedWork) {
+		t.Fatalf("a plain removal: %v", err)
+	}
+	if err := r.archive(true); err != nil {
+		t.Fatal(err)
+	}
+	r.settle()
+	if _, err := r.worktrees().Inspect(t.Context(), stopWorktree); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a forced removal left the worktree: %v", err)
+	}
+	if got := r.worktrees().Pushed(); len(got) != 0 {
+		t.Errorf("a removal pushed %v", got)
+	}
 }
 
 // A session keeps working while a stop waits for it, so the last word is the reading after
@@ -300,6 +364,7 @@ func (r *laneRig) eventuallyUp() {
 
 func TestAFencedLaneStopsThroughTheGuard(t *testing.T) {
 	r := laneRigWith(t, profileAt)
+	r.choosesPush()
 	r.worktrees().UseRemote("origin")
 	wrote := make(chan struct{})
 	r.driver.Play(script([]fake.DriverStep{

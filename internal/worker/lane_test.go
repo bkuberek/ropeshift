@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -70,6 +71,19 @@ func TestPrepareLeavesNothingOnABadProfile(t *testing.T) {
 	source.Put("/work/app", "name = unquoted\n")
 	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"})
 	if !errors.Is(err, lanes.ErrBadProfile) {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := worktrees.Inspect(t.Context(), "/work/app-lanes/l1"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a worktree was left behind: %v", err)
+	}
+}
+
+// A repository is code from somewhere else, so it cannot send this machine's work to a remote.
+func TestARepositoryCannotTurnPushOn(t *testing.T) {
+	p, source, worktrees := provisioner(nil)
+	source.Put("/work/app", "[worktree]\npush_on_stop = true\n")
+	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"})
+	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "push_on_stop") {
 		t.Fatalf("got %v", err)
 	}
 	if _, err := worktrees.Inspect(t.Context(), "/work/app-lanes/l1"); !errors.Is(err, ports.ErrNotFound) {

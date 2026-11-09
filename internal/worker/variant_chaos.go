@@ -19,6 +19,8 @@ const (
 	SabotageRecharge = "recharge"
 	// SabotageNoGuard reads every worktree as clean.
 	SabotageNoGuard = "no-guard"
+	// SabotagePushesUnasked sends a lane's work to its remote whatever the user chose.
+	SabotagePushesUnasked = "pushes-unasked"
 	// SabotageKeepResources never gives a block back.
 	SabotageKeepResources = "keep-resources"
 	// SabotageBlindRemoval removes a worktree with no second reading.
@@ -74,6 +76,8 @@ const (
 func sabotaged(name string) bool { return os.Getenv(EnvSabotage) == name }
 
 func skipsGuard() bool { return sabotaged(SabotageNoGuard) }
+
+func pushesUnasked() bool { return sabotaged(SabotagePushesUnasked) }
 
 func keepsResources() bool { return sabotaged(SabotageKeepResources) }
 

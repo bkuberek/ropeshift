@@ -953,6 +953,7 @@ func allVariants() []variant {
 		{name: sabotageNoGuard, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
 		{name: sabotageFenced, check: "crash", crash: func() (crashCase, string) { return fencedCase("worker.lane", "allocated"), "allocated" }},
 		{name: sabotageKeeps, check: "crash", crash: func() (crashCase, string) { return stopCase("worker.lane", "allocated"), "allocated" }},
+		{name: sabotagePushes, check: "crash", crash: func() (crashCase, string) { return keptHereCase(), "saved" }},
 		{name: "a removal that reads nothing first", check: "removal"},
 		{name: "a guard's push that forces", check: "force", gitSabotage: gitcli.Sabotage{ForcePush: true}},
 		{name: "a reader that skips what it missed", check: "shim"},
