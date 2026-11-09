@@ -24,7 +24,7 @@ func StatusMain(args []string, stdin io.Reader, stdout io.Writer, getenv func(st
 	input, _ := io.ReadAll(io.LimitReader(stdin, maxInput))
 	cfg := read(lanes.EventStatusLine, getenv)
 	if cfg.socket != "" {
-		timer := time.AfterFunc(hardDeadline, func() { expire(cfg, stdout) })
+		timer := time.AfterFunc(hardDeadline, func() { expire(cfg) })
 		defer timer.Stop()
 		event := lanes.NewStatusEvent(input)
 		event.Lane, event.Generation, event.AtMs = cfg.lane, cfg.generation, time.Now().UnixMilli()
