@@ -12,13 +12,16 @@
 * keep a policy hook's verdict when its deadline meets the hand-off ([2cdd363](https://github.com/bkuberek/ropeshift/commit/2cdd3633f7d683d714f809b8e5ff0dcd020bbc7f))
 * keep IDs on one line and name each lane's work ([b737e3c](https://github.com/bkuberek/ropeshift/commit/b737e3c663cb42da9664c9511a370d16ae59351e))
 * let a status line held past its deadline exit 0 ([3ae5303](https://github.com/bkuberek/ropeshift/commit/3ae530338a5283b96f22c80dcc42b78e21fc4e6d))
-* list every command and answer help in both binaries ([e1551c5](https://github.com/bkuberek/ropeshift/commit/e1551c57c3044c5f957f0a15b8669da547bda727))
 * list every command and answer help in both binaries ([f2b33af](https://github.com/bkuberek/ropeshift/commit/f2b33afdb116651c2261f96307ed2d560e1fdd7a))
 * print a top frame as wide as its terminal ([ff4bc86](https://github.com/bkuberek/ropeshift/commit/ff4bc8605fa52c8e19a1c8ca7df3b96e4f33a3e5))
 * refuse arguments to ropeshift mcp ([3573c84](https://github.com/bkuberek/ropeshift/commit/3573c84fb35e814271e1bdf0644a0334340fd5cf))
 * say counts and money in the terminal as the web UI does ([8881f8a](https://github.com/bkuberek/ropeshift/commit/8881f8a879b2a8cc1fef5a284c1fe2a3f6fe078f))
 * say what a parked lane waits for in plain words ([647881b](https://github.com/bkuberek/ropeshift/commit/647881b03cec032d99ce00d0c104791c7c94e7c3))
 * show a recommendation that is no option as chosen ([c4b8142](https://github.com/bkuberek/ropeshift/commit/c4b81427b3667c36fba8c6d3094c22b72c31a034))
+
+### Notes
+
+* The hook fixes correct `v0.1.0-alpha.1` behavior on a heavily loaded machine: a tool call the policy allowed could be refused with "the policy check ran out of time", a call the policy denied could receive two answers at once, a session could start without its grounding, and an event could miss the spool. Upgrade from `v0.1.0-alpha.1`.
 
 ## 0.1.0-alpha.1 (2026-11-09)
 
