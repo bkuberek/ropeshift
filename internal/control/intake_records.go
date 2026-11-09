@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/contextpacks"
 	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -18,9 +20,10 @@ import (
 // a file that says what the ledger holds appends nothing.
 func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.RecordItem) (itemOutcome, error) {
 	var outcome itemOutcome
+	windows := i.windows
 	err := withLineage(ctx, source, func(known lineages) error {
 		return i.store.Write(ctx, scope, "intake.file", func(tx ports.WriteTx) error {
-			r := &fileRecorder{tx: tx, item: item, known: known}
+			r := &fileRecorder{tx: tx, item: item, known: known, windows: windows}
 			var err error
 			switch {
 			case item.Goal != nil:
@@ -38,9 +41,10 @@ func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, sourc
 }
 
 type fileRecorder struct {
-	tx    ports.WriteTx
-	item  ports.RecordItem
-	known lineages
+	tx      ports.WriteTx
+	item    ports.RecordItem
+	known   lineages
+	windows messages.Windows
 }
 
 // standing reads a changed record against this file: true when the change stands, and an outcome
@@ -264,7 +268,29 @@ func (r *fileRecorder) documentVersion(head planning.DocumentHead, plan string) 
 	if err := r.writer().document(record, next); err != nil {
 		return itemOutcome{}, err
 	}
+	if next.Version > 1 {
+		if err := r.tellDocument(record, next); err != nil {
+			return itemOutcome{}, err
+		}
+	}
 	return itemOutcome{records: 1}, nil
+}
+
+// tellDocument tells each lane whose pack holds the document, which the item index finds. A lane
+// stays on the version it pinned, so a new one never changes a session silently, and policy decides
+// whether the lane goes on (FR-DOC-6).
+func (r *fileRecorder) tellDocument(record planning.DocumentRecord, version planning.DocumentVersion) error {
+	touched := reach{lanes: map[string]int64{}}
+	if err := addPinnedLanes(r.tx, &touched, contextpacks.KindDocument, record.ID); err != nil {
+		return err
+	}
+	if err := addRunningLanes(r.tx, &touched); err != nil {
+		return err
+	}
+	ref := planning.ContractKey(record.ID, version.Version)
+	return tellPinned(r.tx, touched, r.windows, pinnedNotice{
+		kind: messages.KindDocumentNotice, ref: ref, body: contextpacks.DocumentNotice(record.Title, ref), reason: "document version " + ref,
+	})
 }
 
 // requirements records each requirement that changed, as a new version of that one.

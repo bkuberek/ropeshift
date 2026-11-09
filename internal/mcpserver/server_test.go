@@ -247,3 +247,26 @@ func TestDecideDeclaresWhatItBindsTo(t *testing.T) {
 	}
 	t.Fatal("the tool is not listed")
 }
+
+// A pack names the documents its contract cites as `document spec:checkout-api@3`, so context_get
+// has to offer that kind for a session to read one by the name the pack gives it.
+func TestContextGetOffersEveryKindAPackNames(t *testing.T) {
+	var kinds []any
+	for _, tool := range ask(t, &worker{}, "tools/list", map[string]any{}).Result.Tools {
+		if tool.Name != lanes.ToolContextGet {
+			continue
+		}
+		properties, _ := tool.InputSchema["properties"].(map[string]any)
+		kind, _ := properties["kind"].(map[string]any)
+		kinds, _ = kind["enum"].([]any)
+	}
+	got := make([]string, len(kinds))
+	for i, kind := range kinds {
+		got[i], _ = kind.(string)
+	}
+	for _, want := range []string{"contract", "document", "requirement", "decision", "goal", "knowledge"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("context_get offers %v, and not %q", got, want)
+		}
+	}
+}

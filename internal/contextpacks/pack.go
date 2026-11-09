@@ -41,7 +41,10 @@ type Kind string
 
 // The kinds of pack item.
 const (
-	KindContract    Kind = "contract"
+	KindContract Kind = "contract"
+	// KindDocument is a document a contract cites, at the version the contract read. Its ref is
+	// `<kind>:<id>@<version>`, as `spec:checkout-api@3`.
+	KindDocument    Kind = "document"
 	KindRequirement Kind = "requirement"
 	KindDecision    Kind = "decision"
 	KindGoal        Kind = "goal"
@@ -77,7 +80,9 @@ type Source struct {
 // Each list keeps the order its caller gave it.
 type Selection struct {
 	// Contract is the pinned contract, and nil for work with none.
-	Contract     *Source
+	Contract *Source
+	// Documents are the documents the contract cites, each at the version it pinned.
+	Documents    []Source
 	Requirements []Source
 	Decisions    []Source
 	Overlapping  []Source
@@ -92,7 +97,7 @@ func (s Selection) Ordered() []Source {
 	if s.Contract != nil {
 		out = append(out, *s.Contract)
 	}
-	for _, step := range [][]Source{s.Requirements, s.Decisions, s.Overlapping, s.Goals, s.Added} {
+	for _, step := range [][]Source{s.Documents, s.Requirements, s.Decisions, s.Overlapping, s.Goals, s.Added} {
 		for _, source := range step {
 			held := slices.ContainsFunc(out, func(other Source) bool { return other.Kind == source.Kind && other.Ref == source.Ref })
 			if !held {
@@ -341,6 +346,13 @@ type ParkWanted struct {
 // the version it pinned, so this tells it what changed around it and leaves the rest to policy.
 func ContractNotice(title, ref string) string {
 	return fmt.Sprintf("Contract %s has a new version, %s. This lane stays on the version in its context pack, and nothing about its "+
+		"work order has changed yet. Read the new version with the %s tool before you rest on anything it may have moved.", title, ref, ToolGet)
+}
+
+// DocumentNotice is what a lane reads when a document its pack holds has a new version. Like a new
+// contract version, it changes nothing the lane holds: the pack stays as it was built.
+func DocumentNotice(title, ref string) string {
+	return fmt.Sprintf("Document %s has a new version, %s. This lane stays on the version in its context pack, and nothing about its "+
 		"work order has changed yet. Read the new version with the %s tool before you rest on anything it may have moved.", title, ref, ToolGet)
 }
 

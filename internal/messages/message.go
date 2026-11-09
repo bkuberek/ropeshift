@@ -39,16 +39,19 @@ const (
 	KindAnswer         Kind = "answer"
 	KindDecisionNotice Kind = "decision_notice"
 	KindContractNotice Kind = "contract_notice"
+	KindDocumentNotice Kind = "document_notice"
 	KindInstruction    Kind = "instruction"
 	KindNotice         Kind = "notice"
 )
 
-var kinds = map[Kind]bool{KindAnswer: true, KindDecisionNotice: true, KindContractNotice: true, KindInstruction: true, KindNotice: true}
+var kinds = map[Kind]bool{
+	KindAnswer: true, KindDecisionNotice: true, KindContractNotice: true, KindDocumentNotice: true, KindInstruction: true, KindNotice: true,
+}
 
 // DecisionBearing says a message carries a fact the ledger holds, so that fact reaches the next
 // generation whatever happens to the message.
 func (k Kind) DecisionBearing() bool {
-	return k == KindAnswer || k == KindDecisionNotice || k == KindContractNotice
+	return k == KindAnswer || k == KindDecisionNotice || k == KindContractNotice || k == KindDocumentNotice
 }
 
 // SenderWorker is the kind of sender a worker is, on the one line it writes for a running turn.

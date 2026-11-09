@@ -1,4 +1,6 @@
 contract c1@4
+document spec:checkout-api@3
+document architecture:payments@1
 requirement FR-B
 requirement FR-A
 decision d9

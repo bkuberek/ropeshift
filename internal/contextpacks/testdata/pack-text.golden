@@ -6,6 +6,14 @@ This is what the workspace held for this work order when it was claimed. It stay
 
 The contract's statement.
 
+## document spec:checkout-api@3: title of spec:checkout-api@3
+
+A cited spec, at the version the contract read.
+
+## document architecture:payments@1: title of architecture:payments@1
+
+A cited architecture document.
+
 ## requirement FR-B: title of FR-B
 
 second in the contract
