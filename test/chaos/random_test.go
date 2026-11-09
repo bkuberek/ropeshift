@@ -3,6 +3,7 @@
 package chaos
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -10,12 +11,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
 	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.dev/ropeshift/internal/ports"
 	"ropeshift.dev/ropeshift/internal/workorders"
@@ -31,6 +34,8 @@ const (
 	holderRounds = 3
 	// holderLimit bounds each wait of one round.
 	holderLimit = 30 * time.Second
+	// randomDrainLimit bounds the drain, which waits for every lease a dead worker left to resolve.
+	randomDrainLimit = 20 * time.Second
 )
 
 // crashSeed fixes the kill schedule. Process timing still varies between runs, so
@@ -214,10 +219,16 @@ func (r *randomRun) execute() error {
 	if len(failures) > 0 {
 		return r.judged(fmt.Errorf("harness: %v", failures))
 	}
-	if err := r.drain(); err != nil {
+	if err := r.world.within("drain", randomDrainLimit+storeSlack, r.drain); err != nil {
 		return r.judged(err)
 	}
-	return r.world.verify()
+	return r.verify()
+}
+
+// verify checks the ledger once the workers are gone, bounded by the wait for the plane to
+// settle and the slack for the reads after it.
+func (r *randomRun) verify() error {
+	return r.world.within("verify", settleBound+storeSlack, r.world.verify)
 }
 
 // judged decides a run that stopped short, once its workers are gone. A defect can show
@@ -229,7 +240,7 @@ func (r *randomRun) judged(stopped error) error {
 	if errors.As(stopped, &violation) {
 		return stopped
 	}
-	if found := r.world.verify(); errors.As(found, &violation) {
+	if found := r.verify(); errors.As(found, &violation) {
 		return fmt.Errorf("%w, and the run stopped on: %v", found, stopped)
 	}
 	return stopped
@@ -268,8 +279,9 @@ func (r *randomRun) pauseHolder(round int) error {
 		return err
 	}
 	r.paused.Add(1)
-	if err := r.takeLease(workOrder, fence); err != nil {
-		return fmt.Errorf("round %d: %w", round, err)
+	take := func() error { return r.takeLease(workOrder, fence) }
+	if err := w.within(fmt.Sprintf("round %d: take the lease of %s", round, workOrder), holderLimit+storeSlack, take); err != nil {
+		return err
 	}
 	actor := fmt.Sprintf("worker-%d", slot)
 	_, wrote, err := r.witness(actor, fence)
@@ -358,7 +370,7 @@ func (r *randomRun) awaitRefusal(actor string, fence int64, wrote int) error {
 func (r *randomRun) drain() error {
 	w := r.world
 	ops := w.rig.NewOps(w.store)
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(randomDrainLimit)
 	for time.Now().Before(deadline) {
 		if _, err := ops.Sweep(w.rig.Ctx, w.rig.Scope, w.rig.Actor); err != nil {
 			return err
@@ -608,4 +620,62 @@ func TestAStoppedRunIsJudgedByTheLedger(t *testing.T) {
 			t.Errorf("a stop on a sound ledger ended in: %v", err)
 		}
 	})
+}
+
+// TestALongRunKeepsABudgetForItsChecks holds the parent's store work to bounds of its own. The
+// rig's context is one budget for the whole test, and the kills last as long as KILLS asks: 1500
+// kills on a four-core runner outlast it, and the drain then failed on a context the kills had
+// spent, on a sound ledger. A spent rig context stands for that long run here, and the stopped
+// holder, the drain, and the checks must still each run on their own bound.
+func TestALongRunKeepsABudgetForItsChecks(t *testing.T) {
+	w := newWorld(t, "")
+	run := newRandomRun(w, 0)
+	run.holders = 1
+	if err := run.seedWork(3); err != nil {
+		t.Fatal(err)
+	}
+	spent, cancel := context.WithDeadline(context.Background(), time.Now())
+	defer cancel()
+	w.rig.Ctx = spent
+	if err := run.execute(); err != nil {
+		t.Fatalf("a run that outlasted the rig's context: %v", err)
+	}
+}
+
+// TestAPhaseStillStopsAStoreCallThatBlocks holds the other half of a phase's bound: a store call
+// that blocks still ends at it, well before the store's own busy timeout, and the error names
+// the phase. A write transaction held open on another connection stands for the hang, and an
+// expired lease makes the drain's sweep write behind it.
+func TestAPhaseStillStopsAStoreCallThatBlocks(t *testing.T) {
+	w := newWorld(t, "")
+	run := newRandomRun(w, 0)
+	id, err := w.rig.Ready(w.store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := workorders.ClaimRequest{WorkOrder: id, ClaimID: w.rig.ID("claim"), Worker: "gone", TTLMs: 1}
+	if _, err := w.rig.NewOps(w.store).Claim(w.rig.Ctx, w.rig.Scope, request, w.rig.Actor); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	db, err := sqlite.OpenDB(w.target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	holding, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holding.Rollback() }()
+	const limit = 200 * time.Millisecond
+	began := time.Now()
+	err = w.within("drain", limit, run.drain)
+	took := time.Since(began)
+	if err == nil || !strings.Contains(err.Error(), "drain, bounded at 200ms: ") {
+		t.Fatalf("a drain behind a held lock ended in: %v", err)
+	}
+	if took > storeSlack/2 {
+		t.Fatalf("the drain ended after %s, so the store's busy timeout stopped it and not its bound", took)
+	}
 }
