@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,7 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-// recordFile keeps what a goal, plan, or requirements file says. It is one transaction, and
+// recordFile keeps what a goal, a plan, or a document says. It is one transaction, and
 // a file that says what the ledger holds appends nothing.
 func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.RecordItem) (itemOutcome, error) {
 	var outcome itemOutcome
@@ -26,8 +27,8 @@ func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, sourc
 				outcome, err = r.goal()
 			case item.Plan != nil:
 				outcome, err = r.plan()
-			case item.Requirements != nil:
-				outcome, err = r.requirements()
+			default:
+				outcome, err = r.document()
 			}
 			crashpoint.Hit("intake.file", "recorded")
 			return err
@@ -113,6 +114,27 @@ func sameGoal(a, b planning.Goal) bool {
 	return a.Title == b.Title && a.Statement == b.Statement && slices.Equal(a.SuccessMeasures, b.SuccessMeasures)
 }
 
+// planNamed resolves the plan a file names by the plan file's own ID. A file that names none belongs
+// to no plan, and a plan the ledger has not seen is reported.
+func (r *fileRecorder) planNamed(native string) (string, bool, error) {
+	if native == "" {
+		return "", true, nil
+	}
+	key := r.item.Key
+	key.NativeID = native
+	return r.recordID(planning.SubjectPlan, key)
+}
+
+// digest is the digest of the file as the source read it, or else of its content.
+func (r *fileRecorder) digest(parts ...string) string {
+	if r.item.Digest != "" {
+		return r.item.Digest
+	}
+	return planning.ContentDigest(append(parts, r.item.Statement)...)
+}
+
+// plan records a plan file. A plan changes when the digest of its file does, because what it lists
+// and drafts is part of it, and each change is a version the ledger numbers.
 func (r *fileRecorder) plan() (itemOutcome, error) {
 	file := r.item.Plan
 	next := planning.Plan{Title: file.Title, Status: planning.StatusActive, Source: r.item.Source}
@@ -128,6 +150,13 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 		}
 		next.GoalID = goal
 	}
+	fields, err := json.Marshal(file)
+	if err != nil {
+		return itemOutcome{}, err
+	}
+	version := planning.PlanVersion{
+		Version: 1, Digest: r.digest(string(fields)), Source: r.item.Source, Documents: file.Documents, Decisions: file.Decisions,
+	}
 	id, known, err := r.recordID(planning.SubjectPlan, r.item.Key)
 	if err != nil {
 		return itemOutcome{}, err
@@ -136,20 +165,106 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 		if next.ID, err = r.newRecord(planning.SubjectPlan, r.item.Key); err != nil {
 			return itemOutcome{}, err
 		}
-		return itemOutcome{records: 1}, r.writer().plan(next)
+		version.PlanID = next.ID
+		if err := r.writer().plan(next); err != nil {
+			return itemOutcome{}, err
+		}
+		return itemOutcome{records: 1}, r.writer().planVersion(version)
 	}
 	current, err := r.tx.Planning().Plan(id)
 	if err != nil {
 		return itemOutcome{}, err
 	}
-	if current.Title == next.Title && current.GoalID == next.GoalID {
+	latest, err := r.tx.Planning().LatestPlanVersion(id)
+	switch {
+	case err == nil && latest.Digest == version.Digest:
 		return itemOutcome{}, nil
+	case err == nil:
+		version.Version = latest.Version + 1
+	case !errors.Is(err, ports.ErrNotFound):
+		return itemOutcome{}, err
 	}
 	if outcome, stands, err := r.standing(planning.SubjectPlan, r.item.Key.NativeID, current.Source); err != nil || !stands {
 		return outcome, err
 	}
-	next.ID = id
-	return itemOutcome{records: 1}, r.writer().changedPlan(next)
+	next.ID, version.PlanID = id, id
+	if err := r.writer().changedPlan(next); err != nil {
+		return itemOutcome{}, err
+	}
+	return itemOutcome{records: 1}, r.writer().planVersion(version)
+}
+
+// document records a file of any document kind: the document, and a new version of it when the file
+// changed. A requirements file also records the requirements it holds.
+func (r *fileRecorder) document() (itemOutcome, error) {
+	head, ok := r.item.Head()
+	if !ok {
+		return itemOutcome{}, nil
+	}
+	plan, known, err := r.planNamed(head.Plan)
+	if err != nil {
+		return itemOutcome{}, err
+	}
+	if !known {
+		return itemOutcome{problem: fmt.Sprintf("%v: plan %s is not known", planning.ErrBadFile, head.Plan)}, nil
+	}
+	outcome, err := r.documentVersion(head, plan)
+	if err != nil || outcome.problem != "" || r.item.Requirements == nil {
+		return outcome, err
+	}
+	held, err := r.requirements()
+	if err != nil {
+		return itemOutcome{}, err
+	}
+	outcome.records += held.records
+	outcome.conflicts += held.conflicts
+	outcome.problem = strings.TrimPrefix(outcome.problem+"; "+held.problem, "; ")
+	return outcome, nil
+}
+
+// documentVersion gives a document its next version when its file changed. A document is known by its
+// reference, and a reference another source recorded is not this file's to take over.
+func (r *fileRecorder) documentVersion(head planning.DocumentHead, plan string) (itemOutcome, error) {
+	ref := head.Ref()
+	key := r.item.Key
+	key.NativeID = ref
+	next := planning.DocumentVersion{
+		DocumentID: ref, Version: 1, Title: head.Name(), Digest: r.digest(string(head.Fields)), Source: r.item.Source,
+		Body: r.item.Statement, Fields: head.Fields,
+	}
+	_, known, err := r.recordID(planning.SubjectDocument, key)
+	if err != nil {
+		return itemOutcome{}, err
+	}
+	if !known {
+		_, err := r.tx.Planning().Document(ref)
+		if err == nil {
+			return itemOutcome{problem: fmt.Sprintf("%v: document %s is already recorded from another source", planning.ErrBadFile, ref)}, nil
+		}
+		if !errors.Is(err, ports.ErrNotFound) {
+			return itemOutcome{}, err
+		}
+		if err := r.writer().link(planning.SubjectDocument, ref, key); err != nil {
+			return itemOutcome{}, err
+		}
+	} else {
+		latest, err := r.tx.Planning().LatestDocumentVersion(ref)
+		if err != nil {
+			return itemOutcome{}, err
+		}
+		if latest.Digest == next.Digest {
+			return itemOutcome{}, nil
+		}
+		if outcome, stands, err := r.standing(planning.SubjectDocument, ref, latest.Source); err != nil || !stands {
+			return outcome, err
+		}
+		next.Version = latest.Version + 1
+	}
+	record := planning.DocumentRecord{ID: ref, Kind: head.Kind, PlanID: plan, Title: head.Name()}
+	if err := r.writer().document(record, next); err != nil {
+		return itemOutcome{}, err
+	}
+	return itemOutcome{records: 1}, nil
 }
 
 // requirements records each requirement that changed, as a new version of that one.

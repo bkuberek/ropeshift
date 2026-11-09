@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	contractColumns    = `id, version, plan_id, title, digest, source, statement, criteria, requirements, decisions, status`
+	contractColumns    = `id, version, plan_id, title, digest, source, statement, criteria, requirements, decisions, status, milestone, shared, uses`
 	goalColumns        = `id, title, status, success_measures, statement, source`
 	requirementColumns = `id, version, requirement_key, text, source, digest`
 )
@@ -64,9 +64,9 @@ VALUES (:workspace_id, :id, :version, :requirement_key, :text, :source, :digest)
 
 	stmtInsertContract = define("contract.insert",
 		`INSERT INTO contracts
-  (workspace_id, id, version, plan_id, title, digest, source, statement, criteria, requirements, decisions, status)
+  (workspace_id, id, version, plan_id, title, digest, source, statement, criteria, requirements, decisions, status, milestone, shared, uses)
 VALUES
-  (:workspace_id, :id, :version, :plan_id, :title, :digest, :source, :statement, :criteria, :requirements, :decisions, :status)`)
+  (:workspace_id, :id, :version, :plan_id, :title, :digest, :source, :statement, :criteria, :requirements, :decisions, :status, :milestone, :shared, :uses)`)
 
 	stmtReadContract = define("contract.read",
 		`SELECT `+contractColumns+` FROM contracts
@@ -311,12 +311,24 @@ func (t planningTx) InsertContract(c planning.Contract) error {
 	if err != nil {
 		return err
 	}
+	uses, err := json.Marshal(nonNil(c.Uses))
+	if err != nil {
+		return err
+	}
+	shared := int64(0)
+	if c.Shared {
+		shared = 1
+	}
 	_, err = t.exec(stmtInsertContract, t.scoped(params{
 		"id": c.ID, "version": c.Version, "plan_id": c.PlanID, "title": c.Title, "digest": c.Digest,
 		"source": nullText(c.Source), "statement": c.Statement, "criteria": string(criteria),
 		"requirements": string(requirements), "decisions": string(decisions), "status": c.Status,
+		"milestone": c.Milestone, "shared": shared, "uses": string(uses),
 	}))
-	return err
+	if err != nil {
+		return err
+	}
+	return t.insertPins(c)
 }
 
 func nonNil[T any](items []T) []T {
@@ -329,17 +341,18 @@ func nonNil[T any](items []T) []T {
 func scanContract(row scanner) (planning.Contract, error) {
 	var c planning.Contract
 	var source sql.NullString
-	var criteria, requirements, decisions string
+	var criteria, requirements, decisions, uses string
+	var shared int64
 	err := row.Scan(&c.ID, &c.Version, &c.PlanID, &c.Title, &c.Digest, &source, &c.Statement,
-		&criteria, &requirements, &decisions, &c.Status)
+		&criteria, &requirements, &decisions, &c.Status, &c.Milestone, &shared, &uses)
 	if err != nil {
 		return planning.Contract{}, err
 	}
-	c.Source = source.String
+	c.Source, c.Shared = source.String, shared != 0
 	for _, field := range []struct {
 		raw  string
 		into any
-	}{{criteria, &c.Criteria}, {requirements, &c.Requirements}, {decisions, &c.Decisions}} {
+	}{{criteria, &c.Criteria}, {requirements, &c.Requirements}, {decisions, &c.Decisions}, {uses, &c.Uses}} {
 		if err := json.Unmarshal([]byte(field.raw), field.into); err != nil {
 			return planning.Contract{}, fmt.Errorf("contract %s: %w", c.ID, err)
 		}
@@ -356,6 +369,10 @@ func (t planningTx) oneContract(st *statement, p params) (planning.Contract, err
 	if errors.Is(err, sql.ErrNoRows) {
 		return planning.Contract{}, fmt.Errorf("contract %v: %w", p["id"], ports.ErrNotFound)
 	}
+	if err != nil {
+		return planning.Contract{}, err
+	}
+	c.Documents, err = t.pinsOf(c.ID, c.Version)
 	return c, err
 }
 
@@ -381,7 +398,20 @@ func (t planningTx) Contracts() ([]planning.Contract, error) {
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	pins, err := t.pinsByVersion()
+	if err != nil {
+		return nil, err
+	}
+	for i, c := range out {
+		out[i].Documents = pins[planning.ContractKey(c.ID, c.Version)]
+	}
+	return out, nil
 }
 
 func (t planningTx) InsertLink(link ledger.ExternalLink) error {

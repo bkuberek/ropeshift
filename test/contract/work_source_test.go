@@ -294,3 +294,66 @@ func TestIntakeOnARealRepository(t *testing.T) {
 		t.Errorf("work in review stayed on an old version: %+v", orders)
 	}
 }
+
+// TestDocumentsOnARealRepository follows a spec through two commits: each version names the commit
+// and the blob it was read from, and a contract pins the version at its own commit (FR-DOC-2, FR-DOC-4).
+func TestDocumentsOnARealRepository(t *testing.T) {
+	store, err := fake.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := t.Context()
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	scope := ledger.WorkspaceID("w")
+	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: scope}, ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}); err != nil {
+		t.Fatal(err)
+	}
+	repo := gittest.New(t)
+	repo.Commit("plan.md", PlanText("payments-v2", "Payments v2", ""))
+	repo.Commit("spec.md", DocumentText("spec", "checkout-api", "Checkout API", "payments-v2", "The calls."))
+	// Intake reads the commit the ref stands at, so that is the commit each version names.
+	first := repo.Commit("contract.md", citing("alpha", "payments-v2", "One.", "spec:checkout-api"))
+	source := repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()})
+	intake := control.NewIntake(store)
+	report, err := intake.Poll(ctx, scope, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Versions != 1 || len(report.Problems) != 0 {
+		t.Fatalf("report %+v", report)
+	}
+	second := repo.Commit("spec.md", DocumentText("spec", "checkout-api", "Checkout API", "payments-v2", "The calls, changed."))
+	if _, err := intake.Poll(ctx, scope, source); err != nil {
+		t.Fatal(err)
+	}
+	var versions []planning.DocumentVersion
+	var contracts []planning.Contract
+	err = store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		if versions, err = tx.Planning().DocumentVersions(); err != nil {
+			return err
+		}
+		contracts, err = tx.Planning().Contracts()
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 || !strings.HasSuffix(versions[0].Source, "@"+first) || !strings.HasSuffix(versions[1].Source, "@"+second) {
+		t.Fatalf("versions %+v", versions)
+	}
+	for _, version := range versions {
+		if !strings.HasPrefix(version.Digest, planning.DigestGitBlob) || version.Digest == "" {
+			t.Errorf("digest %q is not a blob", version.Digest)
+		}
+	}
+	if versions[0].Digest == versions[1].Digest || versions[0].Body != "The calls.\n" {
+		t.Errorf("versions %+v", versions)
+	}
+	if len(contracts) != 1 || len(contracts[0].Documents) != 1 || contracts[0].Documents[0].Version != 1 {
+		t.Errorf("contracts %+v: the pin moved with the document", contracts)
+	}
+}

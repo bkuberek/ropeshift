@@ -515,6 +515,23 @@ type PlanningReader interface {
 	Requirement(key string) (planning.Requirement, error)
 	// Requirements returns every version, by key and then by version.
 	Requirements() ([]planning.Requirement, error)
+	// Document returns one document by its reference, `<kind>:<id>`, or ErrNotFound.
+	Document(id string) (planning.DocumentRecord, error)
+	// Documents returns every document.
+	Documents() ([]planning.DocumentRecord, error)
+	// PlanDocuments returns the documents whose files name a plan.
+	PlanDocuments(plan string) ([]planning.DocumentRecord, error)
+	// DocumentVersion returns one version of a document, or ErrNotFound.
+	DocumentVersion(id string, version int64) (planning.DocumentVersion, error)
+	// LatestDocumentVersion returns a document's newest version, or ErrNotFound.
+	LatestDocumentVersion(id string) (planning.DocumentVersion, error)
+	// DocumentVersions returns every version of every document, by document and then by version.
+	DocumentVersions() ([]planning.DocumentVersion, error)
+	// LatestPlanVersion returns a plan's newest version, or ErrNotFound for a plan recorded before
+	// plans had versions.
+	LatestPlanVersion(plan string) (planning.PlanVersion, error)
+	// PlanVersions returns every version of every plan, by plan and then by version.
+	PlanVersions() ([]planning.PlanVersion, error)
 	// Link returns the record of one external key, or ErrNotFound.
 	Link(recordKind string, key ledger.ExternalKey) (ledger.ExternalLink, error)
 	// Links returns every link.
@@ -540,7 +557,13 @@ type PlanningWriter interface {
 	SaveGoal(planning.Goal) error
 	// InsertRequirement adds one requirement version.
 	InsertRequirement(planning.Requirement) error
-	// InsertContract adds one contract version.
+	// SaveDocument creates a document, or replaces the title and plan its newest version gives it.
+	SaveDocument(planning.DocumentRecord) error
+	// InsertDocumentVersion adds one document version.
+	InsertDocumentVersion(planning.DocumentVersion) error
+	// InsertPlanVersion adds one plan version.
+	InsertPlanVersion(planning.PlanVersion) error
+	// InsertContract adds one contract version, with the document versions it cites.
 	InsertContract(planning.Contract) error
 	// InsertLink adds one external key.
 	InsertLink(ledger.ExternalLink) error
