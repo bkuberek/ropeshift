@@ -19,6 +19,22 @@ describe("the decisions", () => {
     expect(within(card).getByText("member-1")).toBeTruthy();
   });
 
+  it("keeps a decision's ID and who decided it on one line, whole in their titles", async () => {
+    serveViews();
+    openPage("/decisions");
+    const card = await decision("Retry twice.");
+    const side = card.querySelector(".wait-kind") as HTMLElement;
+    const decidedBy = within(card).getByText("Decided by").closest("div") as HTMLElement;
+    for (const [scope, id] of [
+      [side, "decision-1"],
+      [decidedBy, "member-1"],
+    ] as const) {
+      const shown = within(scope).getByText(id);
+      expect(shown.classList.contains("id"), id).toBe(true);
+      expect(shown.getAttribute("title")).toBe(id);
+    }
+  });
+
   it("tells an assumption from a decision", async () => {
     serveViews();
     openPage("/decisions");

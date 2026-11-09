@@ -1,6 +1,6 @@
 import type { Question, Questions as View } from "../api/types";
 import { addressOf, Link } from "../app/route";
-import { Fact, Line, words } from "../parts/parts";
+import { Fact, Id, Line, words } from "../parts/parts";
 
 const statusWords: Record<string, string> = { needs_human: "Needs a person" };
 
@@ -46,14 +46,14 @@ function QuestionLine({ question }: { question: Question }) {
         ) : null}
         <dl className="facts">
           {question.asked_by ? (
-            <Fact name="Asked by" mono>
-              {question.asked_by}
+            <Fact name="Asked by">
+              <Id value={question.asked_by} />
             </Fact>
           ) : null}
           {question.escalation_reason ? <Fact name="Reached a person because">{words(question.escalation_reason)}</Fact> : null}
           {question.claimed_by ? (
-            <Fact name="Held by" mono>
-              {question.claimed_by}
+            <Fact name="Held by">
+              <Id value={question.claimed_by} />
             </Fact>
           ) : null}
         </dl>

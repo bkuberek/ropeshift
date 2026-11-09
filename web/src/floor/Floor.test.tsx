@@ -14,6 +14,52 @@ function serving<T>(name: string, change: (view: T) => void) {
 
 const line = (name: string) => screen.findByRole("article", { name });
 
+// An ID stays on one line and ends in an ellipsis when its column is too narrow (app.css, `.id`), so
+// the whole of it stands in its title, and in the page for a screen reader and a copy.
+function heldWhole(scope: HTMLElement, id: string) {
+  const shown = within(scope).getAllByText(id);
+  for (const element of shown) {
+    expect(element.classList.contains("id"), `${id} in <${element.tagName.toLowerCase()} class="${element.className}">`).toBe(true);
+    expect(element.getAttribute("title")).toBe(id);
+  }
+}
+
+describe("a long ID", () => {
+  it("stays whole on one line in work in progress", async () => {
+    serveViews();
+    openPage("/in-progress");
+    const card = await line("Write the docs");
+    for (const id of ["wo-running", "lane-wo-running", "worker-a"]) {
+      heldWhole(card, id);
+    }
+  });
+
+  it("stays whole on one line on the shop floor", async () => {
+    serveViews();
+    openPage("/shop-floor");
+    const workers = await screen.findByRole("region", { name: "Workers" });
+    for (const id of ["worker-a", "orchestrator-worker-a"]) {
+      heldWhole(workers, id);
+    }
+    const lanes = await screen.findByRole("region", { name: "Last reported lanes" });
+    for (const id of ["lane-wo-running", "wo-running"]) {
+      heldWhole(lanes, id);
+    }
+  });
+
+  it("stays whole on one line where work stopped", async () => {
+    serveViews();
+    openPage("/stuck");
+    heldWhole(await line("Rotate the keys"), "wo-lapsed");
+  });
+
+  it("stays whole on one line among the sources", async () => {
+    serveViews();
+    openPage("/operations");
+    heldWhole(await screen.findByRole("region", { name: "Sources" }), "repository-1");
+  });
+});
+
 describe("in progress", () => {
   it("lists running work, the longest first, with what its lane is doing", async () => {
     serveViews();
@@ -56,6 +102,18 @@ describe("in progress", () => {
     expect(within(card).getByText("No lane yet.")).toBeTruthy();
   });
 
+  it("counts running work apart from work that is only claimed", async () => {
+    serving<InProgress>("in-progress", (view) => {
+      const first = view.items[0];
+      if (first) {
+        first.work_order.state = "claimed";
+        first.lane = undefined;
+      }
+    });
+    openPage("/in-progress");
+    expect(await screen.findByText("4 running, 1 claimed")).toBeTruthy();
+  });
+
   it("says so when nothing runs", async () => {
     serving<InProgress>("in-progress", (view) => {
       view.items = [];
@@ -70,7 +128,10 @@ describe("on hold", () => {
     serveViews();
     openPage("/on-hold");
     const card = await line("Wait for the check");
-    expect(within(card).getByText("human_resume")).toBeTruthy();
+    const wakes = within(card).getByText("Wakes").closest("div");
+    expect(wakes?.textContent).toContain("When question question-1 is answered, or when a person resumes it");
+    expect(within(wakes as HTMLElement).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe("/questions?id=question-1");
+    expect(card.textContent).not.toContain("any_of");
     expect(within(card).getAllByText("Parked").length).toBeGreaterThan(0);
     expect(within(card).getByText("wo-parked")).toBeTruthy();
     expect(within(card).getByText("lane-wo-parked")).toBeTruthy();
@@ -201,6 +262,23 @@ describe("stuck", () => {
     expect(within(card).getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 
+  it("says what a lane parked too long waits for", async () => {
+    serving<Stuck>("stuck", (view) => {
+      const first = view.items[0];
+      if (first) {
+        first.reason = "long_parked";
+        first.actions = ["resume", "cancel"];
+        first.wakes = [{ id: "wake-1", expression: `{"any_of":[{"all_of":[{"question_answered":"q-signing-key"}]},{"human_resume":true}]}` }];
+      }
+    });
+    openPage("/stuck");
+    const card = await line("Rotate the keys");
+    expect(within(card).getByText(/^Its lane has stayed parked/).textContent).toBe(
+      "Its lane has stayed parked for a long time. It waits until question q-signing-key is answered, or until a person resumes it.",
+    );
+    expect(within(card).getByRole("link", { name: "q-signing-key" })).toBeTruthy();
+  });
+
   it("says so when nothing is stuck", async () => {
     serving<Stuck>("stuck", (view) => {
       view.items = [];
@@ -211,6 +289,12 @@ describe("stuck", () => {
 });
 
 describe("completed", () => {
+  it("counts each way work ended apart from work that waits for acceptance", async () => {
+    serveViews();
+    openPage("/completed");
+    expect(await screen.findByText("1 done, 1 failed, 1 canceled, 1 waiting for acceptance")).toBeTruthy();
+  });
+
   it("lists every way work ended, the newest first", async () => {
     serveViews();
     openPage("/completed");
@@ -299,6 +383,34 @@ describe("the shop floor", () => {
     expect(within(card).getByText("worker-a")).toBeTruthy();
     expect(within(card).getByText(/^Last reported/)).toBeTruthy();
     expect(within(card).getByText("Epoch").closest("div")?.textContent).toContain("1");
+  });
+
+  it("states a worker's freshness as the value it is, and not as a note beside one", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const second = view.workers[0] ? { ...view.workers[0], worker: { ...view.workers[0].worker, id: "worker-b", name: "spare" } } : undefined;
+      if (view.workers[0] && second) {
+        view.workers[0].freshness = "observed";
+        view.workers.push(second);
+      }
+    });
+    openPage("/shop-floor");
+    const workers = await screen.findByRole("region", { name: "Workers" });
+    for (const [name, said] of [
+      ["solo", "Observed"],
+      ["spare", "Last reported"],
+    ]) {
+      const seen = within(within(workers).getByRole("article", { name })).getByText("Seen").closest("div")?.querySelector("dd");
+      expect(seen?.textContent, name).toBe(said);
+      expect(seen?.querySelector(".fresh"), `${name} reads as an aside`).toBeNull();
+    }
+  });
+
+  it("names the work each lane runs", async () => {
+    serveViews();
+    openPage("/shop-floor");
+    const card = (await screen.findAllByText("lane-wo-running")).find((element) => element.closest("article"))?.closest("article");
+    expect(card?.textContent).toContain("Write the docs");
+    expect(card?.textContent).toContain("wo-running");
   });
 
   it("states a worker's orchestrator, wanted and actual", async () => {
@@ -490,9 +602,19 @@ describe("operations", () => {
     });
     openPage("/operations");
     const measures = await screen.findByRole("region", { name: "Product measures" });
-    expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toContain(
-      "4: 2 batches of questions, 1 approvals, 1 forced actions",
+    expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toBe(
+      "Interruptions2 batches of questions, 1 approval, 1 forced action",
     );
+  });
+
+  it("says one of each kind of interruption in the singular", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.interruptions = 1;
+      view.measures.interruptions_by_kind = { batch: 1 };
+    });
+    openPage("/operations");
+    const measures = await screen.findByRole("region", { name: "Product measures" });
+    expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toBe("Interruptions1 batch of questions, 0 approvals, 0 forced actions");
   });
 
   it("states cost as a lower bound when some of it went unreported", async () => {
@@ -501,7 +623,21 @@ describe("operations", () => {
     });
     openPage("/operations");
     const table = await screen.findByRole("table", { name: "Cost per outcome" });
-    expect(within(table).getByRole("row").textContent).toContain("at least $1.5000 each");
+    expect(within(table).getByRole("row").textContent).toContain("at least $1.50 each, $3.00 over 2 done");
+  });
+
+  it("states money in dollars and cents, and a cost under a cent as under a cent", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.cost_per_outcome = {
+        change: { total_usd: 2.6, done: 2, per_done_usd: 1.3, lower_bound: false },
+        plan: { total_usd: 0.004, done: 1, per_done_usd: 0.004, lower_bound: false },
+      };
+    });
+    openPage("/operations");
+    const table = await screen.findByRole("table", { name: "Cost per outcome" });
+    const [change, plan] = within(table).getAllByRole("row");
+    expect(change?.textContent).toBe("Change$1.30 each, $2.60 over 2 done");
+    expect(plan?.textContent).toBe("Planunder $0.01 each, under $0.01 over 1 done");
   });
 
   it("states park time by trigger, at the median and the 95th percentile", async () => {

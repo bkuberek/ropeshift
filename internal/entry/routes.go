@@ -66,9 +66,15 @@ func routes(command string) []routeGroup {
 				Name: "mcp", Summary: "serve a lane's tools to its agent CLI over stdio",
 				Detail: "An agent CLI starts this command, with the lane's token in its environment, and speaks MCP\n" +
 					"with it over stdin and stdout. A person does not run it by hand: from a terminal, it waits for\n" +
-					"MCP messages on stdin. It reaches only the local worker.",
+					"MCP messages on stdin. It reaches only the local worker, and it takes no arguments.",
 			},
-			run: func(_ []string, stdout, stderr io.Writer) int {
+			// An argument is a mistake, so it stops the server before it reads stdin, where it would
+			// otherwise sit waiting with the argument unread.
+			run: func(args []string, stdout, stderr io.Writer) int {
+				if len(args) != 0 {
+					fmt.Fprintf(stderr, "%s mcp: unexpected argument %q\nusage: %s mcp\n", command, args[0], command)
+					return exitUsage
+				}
 				return mcpserver.Main(os.Stdin, stdout, stderr, os.Getenv)
 			},
 		},

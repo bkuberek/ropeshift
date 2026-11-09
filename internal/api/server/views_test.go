@@ -13,6 +13,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -407,8 +408,23 @@ func TestOnHoldSaysWhatEachWaitsFor(t *testing.T) {
 		t.Fatalf("items %+v", view.Items)
 	}
 	item := view.Items[0]
-	if item.WorkOrder.ID != "wo-parked" || len(item.Wakes) != 1 || !strings.Contains(item.Wakes[0].Expression, "human_resume") || item.Since == 0 {
+	if item.WorkOrder.ID != "wo-parked" || len(item.Wakes) != 1 || item.Wakes[0].Expression != lanes.QuestionWake([]string{"question-1"}) || item.Since == 0 {
 		t.Errorf("item %+v", item)
+	}
+}
+
+// A lane parked on a question says which question in Needs you, so a person reads what would move it
+// before resuming it by hand.
+func TestAParkedLaneSaysWhatItWaitsFor(t *testing.T) {
+	d, _, _ := aWorld(t)
+	work := workNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""), api.ReasonResume)
+	if len(work.Wakes) != 1 || work.Wakes[0].Expression != lanes.QuestionWake([]string{"question-1"}) || work.Wakes[0].ID == "" {
+		t.Errorf("wakes %+v", work.Wakes)
+	}
+	for _, other := range []string{api.ReasonLapsed, api.ReasonBlocked, api.ReasonAcceptance} {
+		if wakes := workNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""), other).Wakes; len(wakes) != 0 {
+			t.Errorf("%s carries wakes %+v", other, wakes)
+		}
 	}
 }
 
@@ -443,7 +459,7 @@ func TestALongParkedLaneStandsOnceInNeedsYou(t *testing.T) {
 	if len(found) != 1 {
 		t.Fatalf("items %+v", found)
 	}
-	if work := found[0].Work; work.Reason != api.ReasonLongParked || !slices.Equal(work.Actions, []string{api.ActResume, api.ActCancel}) {
+	if work := found[0].Work; work.Reason != api.ReasonLongParked || !slices.Equal(work.Actions, []string{api.ActResume, api.ActCancel}) || len(work.Wakes) != 1 {
 		t.Errorf("work %+v", work)
 	}
 }
@@ -582,6 +598,29 @@ func TestShopFloorSeparatesObservedFromLastReported(t *testing.T) {
 	later := readView[api.ShopFloor](t, d, api.ViewShopFloor, "")
 	if got := later.Workers[0].Freshness; got != ledger.FreshnessLastReported {
 		t.Errorf("a worker silent for an hour reads %s", got)
+	}
+}
+
+// A lane's ID says nothing to a person, so the shop floor names the work each lane runs.
+func TestShopFloorNamesTheWorkOfEachLane(t *testing.T) {
+	d, _, _ := aWorld(t)
+	titles := map[string]string{}
+	var raw struct {
+		Lanes []struct {
+			ID    string `json:"id"`
+			Title string `json:"work_order_title"`
+		} `json:"lanes"`
+	}
+	if err := d.Client.ReadView(t.Context(), api.ViewShopFloor, "", &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, lane := range raw.Lanes {
+		titles[lane.ID] = lane.Title
+	}
+	for lane, want := range map[string]string{"lane-wo-running": "Write the docs", "lane-wo-parked": "Wait for the check"} {
+		if titles[lane] != want {
+			t.Errorf("%s names %q, want %q", lane, titles[lane], want)
+		}
 	}
 }
 

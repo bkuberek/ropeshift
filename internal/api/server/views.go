@@ -167,6 +167,15 @@ func waitsOnAPerson(wakes []parking.Wake) bool {
 	return slices.ContainsFunc(wakes, func(wake parking.Wake) bool { return strings.Contains(wake.Expr, string(parking.HumanResume)) })
 }
 
+// wakeViews states a lane's wakes as a read model holds them.
+func wakeViews(wakes []parking.Wake) []api.WakeView {
+	out := make([]api.WakeView, 0, len(wakes))
+	for _, wake := range wakes {
+		out = append(out, api.WakeView{ID: wake.ID, Expression: wake.Expr, NextEvalAt: wake.NextEvalAt})
+	}
+	return out
+}
+
 func (h *handler) longParked() int64 {
 	if h.LongParkedMs > 0 {
 		return h.LongParkedMs
@@ -209,6 +218,9 @@ func (h *handler) stuck(tx ports.ReadTx, f floor, wakes map[string][]parking.Wak
 				continue
 			}
 			need.Reason, need.Actions = api.ReasonLongParked, []string{api.ActCancel}
+			if need.Lane != nil {
+				need.Wakes = wakeViews(wakes[need.Lane.ID])
+			}
 			if need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) {
 				need.Actions = []string{api.ActResume, api.ActCancel}
 			}
@@ -367,7 +379,7 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		case order.State == workorders.Acceptance:
 			need.Reason, need.Actions = api.ReasonAcceptance, []string{api.ActAccept, api.ActRework}
 		case order.State == workorders.Parked && need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) && !seen[order.ID]:
-			need.Reason, need.Actions = api.ReasonResume, []string{api.ActResume}
+			need.Reason, need.Actions, need.Wakes = api.ReasonResume, []string{api.ActResume}, wakeViews(wakes[need.Lane.ID])
 		default:
 			continue
 		}
@@ -701,9 +713,7 @@ func (h *handler) readOnHold(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) 
 		}
 		item := api.HeldLane{WorkOrder: order, Lane: f.ofWork[order.ID], Since: since, Wakes: []api.WakeView{}}
 		if item.Lane != nil {
-			for _, wake := range wakes[item.Lane.ID] {
-				item.Wakes = append(item.Wakes, api.WakeView{ID: wake.ID, Expression: wake.Expr, NextEvalAt: wake.NextEvalAt})
-			}
+			item.Wakes = wakeViews(wakes[item.Lane.ID])
 		}
 		view.Items = append(view.Items, item)
 	}
@@ -775,7 +785,19 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	if err != nil {
 		return nil, err
 	}
-	return api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: lanes}, nil
+	orders, err := tx.WorkOrders().List()
+	if err != nil {
+		return nil, err
+	}
+	titles := map[string]string{}
+	for _, order := range orders {
+		titles[order.ID] = order.Title
+	}
+	view := api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: make([]api.FloorLane, 0, len(lanes))}
+	for _, lane := range lanes {
+		view.Lanes = append(view.Lanes, api.FloorLane{LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder]})
+	}
+	return view, nil
 }
 
 func (h *handler) readOperations(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {

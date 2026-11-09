@@ -18,7 +18,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 
 | Command | Does |
 |---------|------|
-| `ropeshift top [--once]` | Watches the fleet: what needs a person first, in the order the Needs you view holds, then each lane in that order with its state, reachability, and whether its value is `observed` or `last_reported`, then the workers. It follows the ledger's events and reads again at least every 5 seconds, and it changes nothing: it names the command for what the cursor stands on. Text from agents and repositories prints with control characters replaced. With no terminal, or with `--once`, it prints one frame, and `--json` prints one document |
+| `ropeshift top [--once] [--width N]` | Watches the fleet: what needs a person first, in the order the Needs you view holds, then each lane in that order with its state, reachability, and whether its value is `observed` or `last_reported`, then the workers. A parked lane says what it waits for, such as `waits for question q-1 or a person`. It follows the ledger's events and reads again at least every 5 seconds, and it changes nothing: it names the command for what the cursor stands on. Text from agents and repositories prints with control characters replaced. With no terminal, or with `--once`, it prints one frame, and `--json` prints one document. A printed frame is as wide as the terminal on stdout, and 120 columns when stdout is not a terminal, such as a pipe or a file. `--width N` sets its width in columns, and clips each line to it |
 | `ropeshift health` | Says the control plane answered and read its ledger, and the revision it stands at. It exits 9 when nothing answers |
 | `ropeshift version [--json]` | Prints the version, the commit, the build date, the Go version, and the platform. It needs no daemon, and `ropeshiftd version` prints the same under the daemon's name. `--version` is the same command. See [versioning](versioning.md#what-a-binary-reports) |
 | `ropeshift help [<command>]` | Lists every command by group, or prints one command's usage, what it does, and its flags. See [help](#help) |
@@ -115,7 +115,7 @@ These commands are for ropeshift or an agent CLI to run, and a person does not n
 | Command | Does |
 |---------|------|
 | `ropeshift hook <event>` | Reports one hook event to the worker, and spools it if the worker is down. It always exits 0 |
-| `ropeshift mcp` | Serves a lane's tools over stdio, and reaches only the local worker |
+| `ropeshift mcp` | Serves a lane's tools over stdio, and reaches only the local worker. It takes no arguments, and an argument exits 2 before it serves |
 | `ropeshift lane-shim` | Holds a headless session's pipes in a process of its own, so the session outlives its worker. It journals every line, serves that journal on a private socket, and writes each input at most once |
 | `ropeshift lane-pane <file>` | Replaces itself with an interactive session in its pane, with the exact environment a private file holds, and removes that file first |
 | `ropeshift statusline [--pass]` | Reports one status line input to the worker. It is the driver's half of an interactive lane's status line, and `--pass` prints the input for a person's own command after it in a pipe |

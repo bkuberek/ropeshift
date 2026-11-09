@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -440,13 +441,13 @@ func Populate(w *World, clock *Clock) {
 	w.Running("wo-approval", "Tag the release").Approval("approval-1", `{"command":"git tag v1"}`)
 	clock.Advance(time.Minute)
 
-	w.Escalated("Should the budget hold across restarts?", []string{questions.CategoryProduct}, true)
+	blocking := w.Escalated("Should the budget hold across restarts?", []string{questions.CategoryProduct}, true)
 	w.Escalated("May the "+WorldHostileBit+" stay?", []string{questions.CategoryProduct}, false)
 	clock.Advance(time.Minute)
 	w.Deliver()
 	clock.Advance(time.Minute)
 
-	w.Running("wo-parked", "Wait for the check").Park("human_resume")
+	w.Running("wo-parked", "Wait for the check").Park(lanes.QuestionWake([]string{blocking}))
 	clock.Advance(time.Minute)
 	w.Running("wo-tripped", "Fix the flaky test").Status(ledger.LaneStatus{
 		ActualState: "tripped", Liveness: "dead", ModelReach: "reachable", LedgerReach: "reachable",

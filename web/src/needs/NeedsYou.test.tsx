@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { goldenNeedsYou, refusal, serveApi } from "../testing";
-import type { NeedItem, NeedsYou as View } from "../api/types";
+import type { NeedItem, NeedsYou as View, QuestionItem } from "../api/types";
 import { NeedsYou } from "./NeedsYou";
 import { waitLabel, waitWords } from "./wait";
 
@@ -206,6 +206,85 @@ describe("a batch of questions", () => {
     expect(sent[0]?.path).not.toContain(first.id);
   });
 
+  // A send counts what it sends, so each question it counts must show what it will send.
+  function countedAsShown(group: HTMLElement, item: QuestionItem): boolean {
+    const chosen = within(group)
+      .queryAllByRole("radio")
+      .find((radio) => (radio as HTMLInputElement).checked);
+    const box = within(group).queryByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement | null;
+    const ownWords = chosen ? (chosen as HTMLInputElement).value === "__own_words__" : (item.options ?? []).length === 0;
+    return ownWords ? (box?.value.trim() ?? "") !== "" : chosen !== undefined;
+  }
+
+  it.each([
+    ["a recommendation that is no option", { recommendation: "Keep the budget, capped at three" }],
+    ["a recommendation with no options at all", { recommendation: "Keep the budget", options: [] }],
+    ["no recommendation", { recommendation: undefined }],
+  ])("counts only what a person sees chosen, given %s", (_name, change: Partial<QuestionItem>) => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    Object.assign(first, change);
+    show(view);
+    const counted = item.batch.items.filter((question) => countedAsShown(screen.getByRole("group", { name: question.text }), question)).length;
+    const button = screen.getByRole("button", { name: /^Send \d.* answers$/ });
+    const count = item.batch.items.length;
+    const want = counted === count ? `Send ${count} answers` : `Send ${counted} of ${count} answers`;
+    expect(button.textContent).toBe(want);
+  });
+
+  it("shows a recommendation that is no option as chosen, in the box for a person's own words", async () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.recommendation = "Keep the budget, capped at three";
+    const sent = serveApi(() => ({ status: 201 }));
+    show(view);
+    const group = screen.getByRole("group", { name: first.text });
+    const own = within(group).getByRole("radio", { name: /^Something else/ }) as HTMLInputElement;
+    expect(own.checked).toBe(true);
+    expect(own.closest("label")?.textContent).toContain("Recommended");
+    expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
+    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[0]?.body).toMatchObject({ answer: "Keep the budget, capped at three" });
+  });
+
+  it("keeps a one-way choice unchosen, with a recommendation that is no option ready in the box", async () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.escalation_reason = "one_way";
+    first.recommendation = "Keep the budget, capped at three";
+    show(view);
+    const group = screen.getByRole("group", { name: first.text });
+    for (const radio of within(group).getAllByRole("radio")) {
+      expect((radio as HTMLInputElement).checked).toBe(false);
+    }
+    expect(screen.getByRole("button", { name: "Send 1 of 2 answers" })).toBeTruthy();
+    await userEvent.click(within(group).getByRole("radio", { name: /^Something else/ }));
+    expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
+    expect(screen.getByRole("button", { name: "Send 2 answers" })).toBeTruthy();
+  });
+
+  it("says one answer in the singular", () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.escalation_reason = "one_way";
+    item.batch.items = [first];
+    show(view);
+    expect(screen.getByRole("button", { name: "Send 0 of 1 answer" })).toBeTruthy();
+  });
+
   it("marks what is recommended and what blocks work", () => {
     const { view, item } = batchView();
     show(view);
@@ -343,12 +422,59 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ method: "PUT", path: "/v1/workers/worker-a/orchestrator", body: { desired_state: "running" } });
   });
 
+  it("names the question a parked lane waits for, and keeps resume as the way past it", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show();
+    const card = cardNamed(/Wait for the check/);
+    const lead = within(card).getByText(/^Its lane is parked/);
+    expect(lead.textContent).toBe("Its lane is parked until question question-1 is answered, or until a person resumes it.");
+    expect(within(lead).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe("/questions?id=question-1");
+    expect(within(card).getByText("Resume lets it go on now, without waiting.")).toBeTruthy();
+    await userEvent.click(within(card).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-parked/lane-resume" });
+  });
+
+  it("says a lane only a person can move waits for a person", () => {
+    const view = goldenNeedsYou();
+    const parked = view.items.find((item) => item.kind === "work" && item.work.reason === "human_resume");
+    if (parked?.kind !== "work" || !parked.work.wakes?.[0]) {
+      throw new Error("no parked lane in the golden view");
+    }
+    parked.work.wakes[0].expression = `{"human_resume":true}`;
+    show(view);
+    const card = cardNamed(/Wait for the check/);
+    expect(within(card).getByText("Its lane is parked until a person says go.")).toBeTruthy();
+    expect(within(card).queryByText(/without waiting/)).toBeNull();
+  });
+
   it("offers both ways out of blocked", () => {
     show();
     const card = cardNamed(/Move the archive/);
     expect(within(card).getByRole("button", { name: "Back to ready" })).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Back to planning" })).toBeTruthy();
     expect(within(card).getByText("no_outcome")).toBeTruthy();
+  });
+
+  it("keeps each ID on one line, whole in its title", () => {
+    const view = goldenNeedsYou();
+    const { approval } = itemOf(view, "approval");
+    const { effect } = itemOf(view, "effect");
+    show(view);
+    const ids = [
+      [/Rotate the keys/, "lane-wo-lapsed"],
+      [/^Allow /, approval.lane_id],
+      [/^Allow /, approval.work_order_id],
+      [/Did it happen/, effect.key],
+      [/Did it happen/, effect.worker_id],
+    ] as const;
+    for (const [card, id] of ids) {
+      const shown = within(cardNamed(card)).getAllByText(id);
+      for (const element of shown) {
+        expect(element.classList.contains("id"), id).toBe(true);
+        expect(element.getAttribute("title")).toBe(id);
+      }
+    }
   });
 
   it("keeps a last reported value apart from an observed one", () => {

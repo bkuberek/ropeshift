@@ -1,6 +1,6 @@
 import type { Decision, Decisions as View } from "../api/types";
 import { addressOf, Link } from "../app/route";
-import { Fact, Line, words } from "../parts/parts";
+import { Fact, Id, Line, words } from "../parts/parts";
 
 const decisionAt = (id: string) => addressOf("/decisions", { id });
 
@@ -40,7 +40,7 @@ function Linked({ ids }: { ids: string[] }) {
 
 function DecisionLine({ decision }: { decision: Decision }) {
   return (
-    <Line side={<span className="wait-word">{words(decision.status)}</span>} kind={<span className="mono">{decision.id}</span>} title={decision.statement} plain>
+    <Line side={<span className="wait-word">{words(decision.status)}</span>} kind={<Id value={decision.id} />} title={decision.statement} plain>
       <div className="card-body">
         {decision.rationale ? <p className="lead">{decision.rationale}</p> : null}
         {decision.lineage.length > 1 ? <Lineage decision={decision} /> : null}
@@ -59,14 +59,14 @@ function DecisionLine({ decision }: { decision: Decision }) {
           {decision.reversibility ? <Fact name="Reversibility">{words(decision.reversibility)}</Fact> : null}
           {decision.categories?.length ? <Fact name="Categories">{decision.categories.map((name) => words(name)).join(", ")}</Fact> : null}
           {decision.decided_by ? (
-            <Fact name="Decided by" mono>
-              {decision.decided_by}
+            <Fact name="Decided by">
+              <Id value={decision.decided_by} />
             </Fact>
           ) : null}
           {decision.policy_version ? <Fact name="Policy version">{decision.policy_version}</Fact> : null}
           {decision.question_id ? (
-            <Fact name="Question" mono>
-              {decision.question_id}
+            <Fact name="Question">
+              <Id value={decision.question_id} />
             </Fact>
           ) : null}
           {decision.citations?.length ? (

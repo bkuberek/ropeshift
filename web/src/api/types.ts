@@ -107,6 +107,8 @@ export type WorkNeed = {
   work_order?: WorkOrder;
   lane?: Lane;
   orchestrator?: Orchestrator;
+  // What a parked lane waits for, as its wakes state it.
+  wakes?: Wake[];
   actions: (WorkAction | OrchestratorAction)[];
 };
 
@@ -258,7 +260,10 @@ export type Orchestrator = { id: string; worker_id: string; desired_state: strin
 
 export type WorkerLine = { worker: Worker; freshness: "observed" | "last_reported"; orchestrator?: Orchestrator };
 
-export type ShopFloor = Stamp & { workers: WorkerLine[]; lanes: Lane[] };
+// A lane on the shop floor names the work it runs, because a lane's ID says nothing to a person.
+export type FloorLane = Lane & { work_order_title?: string };
+
+export type ShopFloor = Stamp & { workers: WorkerLine[]; lanes: FloorLane[] };
 
 export type SourceBinding = {
   id: string;

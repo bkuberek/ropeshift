@@ -6,12 +6,17 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/top"
 	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/exit/ptypair"
 )
 
 // TestEveryWebRouteHasACommand is the plan's rule that the UI has no endpoint the CLI lacks. The web
@@ -35,6 +40,67 @@ func TestTopPrintsOneFrameWithNoTerminal(t *testing.T) {
 	}
 	if once := s.must("top", "--once"); !strings.Contains(once, "NEEDS YOU") {
 		t.Errorf("--once %q", once)
+	}
+}
+
+// widest is the width of a frame's widest line, and whether a line was clipped to fit.
+func widest(frame string) (width int, clipped bool) {
+	for line := range strings.Lines(frame) {
+		line = strings.TrimRight(line, "\r\n")
+		width = max(width, utf8.RuneCountInString(line))
+		clipped = clipped || strings.HasSuffix(line, "~")
+	}
+	return width, clipped
+}
+
+// --width sets how wide a printed frame is, and a width that is no width is a usage error.
+func TestTopPrintsAFrameAsWideAsAsked(t *testing.T) {
+	s := newSession(t)
+	if width, clipped := widest(s.must("top", "--once", "--width", "30")); width != 30 || !clipped {
+		t.Errorf("--width 30 printed a frame %d wide, clipped %v", width, clipped)
+	}
+	if code, _, stderr := s.run("top", "--once", "--width", "-1"); code != cli.ExitUsage || !strings.Contains(stderr, "--width") {
+		t.Errorf("--width -1: exit %d, stderr %q", code, stderr)
+	}
+}
+
+// A frame printed to a terminal is as wide as the terminal, not a fixed width.
+func TestTopFillsTheTerminalItPrintsTo(t *testing.T) {
+	s := newSession(t)
+	typed, held, err := ptypair.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer typed.Close()
+	if err := unix.IoctlSetWinsize(int(typed.Fd()), unix.TIOCSWINSZ, &unix.Winsize{Col: 40, Row: 24}); err != nil {
+		t.Fatal(err)
+	}
+	read := make(chan string, 1)
+	go func() {
+		var out strings.Builder
+		buffer := make([]byte, 4096)
+		for {
+			n, err := typed.Read(buffer)
+			out.Write(buffer[:n])
+			if err != nil || strings.Contains(out.String(), "q quit") {
+				read <- out.String()
+				return
+			}
+		}
+	}()
+	var stderr strings.Builder
+	code := cli.Run([]string{"top", "--once"}, held, &stderr, cli.Options{Socket: s.daemon.Socket, Session: s.daemon.Session})
+	_ = held.Close()
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	select {
+	case frame := <-read:
+		if width, clipped := widest(frame); width != 40 || !clipped {
+			t.Errorf("a terminal 40 columns wide got a frame %d wide, clipped %v:\n%s", width, clipped, frame)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the frame never reached the terminal")
 	}
 }
 

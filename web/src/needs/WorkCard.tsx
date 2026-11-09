@@ -4,6 +4,8 @@ import { actOnWork, startOrchestrator, workActions } from "../api/client";
 import type { OrchestratorAction, WorkAction, WorkNeed } from "../api/types";
 import { Freshness } from "../floor/LaneFacts";
 import { laneLabel } from "../floor/states";
+import { onlyAPerson, readWake, WakeWords } from "../floor/WakeWords";
+import { Id } from "../parts/parts";
 import { useAct } from "./useAct";
 
 export const workLabels: Record<string, string> = {
@@ -44,6 +46,25 @@ const actionWords: Record<WorkAction | OrchestratorAction, string> = {
   start_orchestrator: "Start it again",
 };
 
+// Lead says why work waits. A parked lane that waits on more than a person says what, such as the
+// question it asked, so a person can answer that instead of resuming it, and resume stays the way past.
+function Lead({ work }: { work: WorkNeed }) {
+  const said = (work.orchestrator ? orchestratorWords[work.reason] : reasonWords[work.reason]) ?? work.reason;
+  const wake = work.wakes?.[0];
+  const term = wake ? readWake(wake.expression) : null;
+  if (!wake || !term || onlyAPerson(term)) {
+    return <p className="lead">{said}</p>;
+  }
+  return (
+    <>
+      <p className="lead">
+        {work.reason === "human_resume" ? "Its lane is parked" : `${said} It waits`} <WakeWords expression={wake.expression} word="until" capital={false} />.
+      </p>
+      {work.actions.includes("resume") ? <p className="quiet">Resume lets it go on now, without waiting.</p> : null}
+    </>
+  );
+}
+
 // Some answers change who owns work, so they say why. Those ask only after the press, and an action
 // that needs no words goes in one press.
 export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; after: () => Promise<void> }) {
@@ -68,12 +89,14 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
   };
   return (
     <div className="card-body">
-      <p className="lead">{(work.orchestrator ? orchestratorWords[work.reason] : reasonWords[work.reason]) ?? work.reason}</p>
+      <Lead work={work} />
       {work.orchestrator ? (
         <dl className="facts">
           <div>
             <dt>Worker</dt>
-            <dd className="mono">{work.orchestrator.worker_id}</dd>
+            <dd>
+              <Id value={work.orchestrator.worker_id} />
+            </dd>
           </div>
         </dl>
       ) : null}
@@ -81,7 +104,9 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
         <dl className="facts">
           <div>
             <dt>Lane</dt>
-            <dd className="mono">{work.lane.id}</dd>
+            <dd>
+              <Id value={work.lane.id} />
+            </dd>
           </div>
           <div>
             <dt>State</dt>

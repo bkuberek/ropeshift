@@ -95,13 +95,15 @@ type EffectView struct {
 }
 
 // WorkNeed is work that waits for a person, or for no one yet and is going nowhere. An orchestrator has
-// no work order and no lane of the kind a work order runs, and a work order may have no lane.
+// no work order and no lane of the kind a work order runs, and a work order may have no lane. Wakes is
+// what a parked lane waits for, so a person reads what would move it before resuming it by hand.
 type WorkNeed struct {
 	Reason       string                `json:"reason"`
 	Detail       string                `json:"detail,omitempty"`
 	WorkOrder    *workorders.WorkOrder `json:"work_order,omitempty"`
 	Lane         *ledger.LaneView      `json:"lane,omitempty"`
 	Orchestrator *ledger.Orchestrator  `json:"orchestrator,omitempty"`
+	Wakes        []WakeView            `json:"wakes,omitempty"`
 	Actions      []string              `json:"actions"`
 }
 
@@ -270,11 +272,17 @@ type WorkerLine struct {
 	Orchestrator *ledger.Orchestrator `json:"orchestrator,omitempty"`
 }
 
+// FloorLane is a lane and the title of the work it runs, because a lane's ID says nothing to a person.
+type FloorLane struct {
+	ledger.LaneView
+	WorkOrderTitle string `json:"work_order_title,omitempty"`
+}
+
 // ShopFloor is workers, orchestrators, lanes, and their freshness.
 type ShopFloor struct {
 	Stamp
-	Workers []WorkerLine      `json:"workers"`
-	Lanes   []ledger.LaneView `json:"lanes"`
+	Workers []WorkerLine `json:"workers"`
+	Lanes   []FloorLane  `json:"lanes"`
 }
 
 // Operations is fleet health beside the product measures of the default window, which come from the

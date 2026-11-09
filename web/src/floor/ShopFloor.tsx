@@ -1,7 +1,7 @@
 import { useId } from "react";
 
-import type { Lane, Orchestrator, ShopFloor as View, WorkerLine } from "../api/types";
-import { Ago, Fact, Section, words } from "../parts/parts";
+import type { FloorLane, Orchestrator, ShopFloor as View, WorkerLine } from "../api/types";
+import { Ago, Fact, Id, Section, words } from "../parts/parts";
 import { Freshness, LaneFacts } from "./LaneFacts";
 import { laneLabel } from "./states";
 
@@ -12,8 +12,8 @@ function OrchestratorFacts({ orchestrator, freshness }: { orchestrator?: Orchest
   return (
     <div role="group" aria-label="Orchestrator">
       <dl className="facts">
-        <Fact name="Orchestrator" mono>
-          {orchestrator.id}
+        <Fact name="Orchestrator">
+          <Id value={orchestrator.id} />
         </Fact>
         <Fact name="Wanted">{words(orchestrator.desired_state)}</Fact>
         <Fact name="Actual">
@@ -45,10 +45,12 @@ function WorkerCard({ line }: { line: WorkerLine }) {
         {worker.name || worker.id}
       </h3>
       <div className="card-body">
-        <p className="mono quiet">{worker.id}</p>
+        <p className="quiet">
+          <Id value={worker.id} />
+        </p>
         <dl className="facts">
           <Fact name="Seen">
-            <Freshness freshness={line.freshness} />
+            <Freshness freshness={line.freshness} alone />
           </Fact>
           {worker.last_handshake_at ? (
             <Fact name="Last handshake">
@@ -64,23 +66,29 @@ function WorkerCard({ line }: { line: WorkerLine }) {
   );
 }
 
-function LaneCard({ lane }: { lane: Lane }) {
+// A lane card heads with its lane's ID, and names the work it runs by title and by ID.
+function LaneCard({ lane }: { lane: FloorLane }) {
   const heading = useId();
   const old = lane.freshness !== "observed";
   return (
     <li>
       <article className={old ? "card lane-card lane-old" : "card lane-card"} aria-labelledby={heading}>
-        <h3 className="lane-id mono" id={heading}>
-          {lane.id}
+        <h3 className="lane-id" id={heading}>
+          <Id value={lane.id} />
         </h3>
-        {lane.work_order ? <p className="mono quiet">{lane.work_order}</p> : null}
+        {lane.work_order_title ? <p className="lane-work">{lane.work_order_title}</p> : null}
+        {lane.work_order ? (
+          <p className="quiet">
+            <Id value={lane.work_order} />
+          </p>
+        ) : null}
         <LaneFacts lane={lane} named={false} />
       </article>
     </li>
   );
 }
 
-function Lanes({ title, note, lanes }: { title: string; note: string; lanes: Lane[] }) {
+function Lanes({ title, note, lanes }: { title: string; note: string; lanes: FloorLane[] }) {
   return (
     <Section title={title}>
       <p className="quiet">{note}</p>

@@ -42,16 +42,24 @@ func viewing(name string) func(*invocation, []string) int {
 
 // runTop is `ropeshift top`. The first read comes before the screen changes, so a daemon that is down
 // exits 9 as any other command does. With no terminal it prints one frame, because a pipe cannot hold
-// a live view.
+// a live view. A printed frame is as wide as the terminal on stdout, or the plain 120 columns when
+// stdout is no terminal, unless --width says otherwise.
 func (c *invocation) runTop(args []string) int {
 	set := c.flags()
 	once := set.Bool("once", false, "print one frame and stop")
+	width := set.Int("width", 0, "the columns of a printed frame: the terminal's by default, or 120 with no terminal")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
+	}
+	if *width < 0 {
+		return c.usageError("--width takes a number of columns, and %d is none", *width)
+	}
+	if *width == 0 {
+		*width, _ = top.Width(c.stdout)
 	}
 	client := c.client()
 	defer client.Close()
@@ -61,7 +69,7 @@ func (c *invocation) runTop(args []string) int {
 		return c.failure(err)
 	}
 	if *once || c.asJSON || c.terminal == nil {
-		return c.finish(nil, snapshot, func() string { return top.Frame(snapshot, time.Now()) })
+		return c.finish(nil, snapshot, func() string { return top.Frame(snapshot, time.Now(), *width) })
 	}
 	config := top.Config{Read: read, Follow: client.Events, Now: time.Now}
 	if err := top.Run(c.ctx, config, c.terminal, c.stdout); err != nil {

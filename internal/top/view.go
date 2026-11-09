@@ -11,6 +11,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/parking"
 )
 
 // plainWidth is the width of a frame with no terminal to measure.
@@ -113,6 +114,26 @@ func itemCommands(item api.NeedItem) []string {
 	return commands
 }
 
+// reasonWords says the reasons whose names are codes, and the rest read as they are.
+var reasonWords = map[string]string{
+	api.ReasonResume:     "parked",
+	api.ReasonLongParked: "long parked",
+}
+
+// waitsFor says what a parked lane's wakes wait for, in the short words of the web UI's.
+func waitsFor(wakes []api.WakeView) string {
+	said := make([]string, 0, len(wakes))
+	for _, wake := range wakes {
+		expr, err := parking.Parse(wake.Expression, "")
+		if err != nil {
+			said = append(said, "something this build cannot read")
+			continue
+		}
+		said = append(said, expr.ShortWords())
+	}
+	return strings.Join(said, "; ")
+}
+
 func what(item api.NeedItem) string {
 	switch {
 	case item.Batch != nil:
@@ -125,6 +146,12 @@ func what(item api.NeedItem) string {
 		return ""
 	}
 	line := clean(item.Work.Reason)
+	if said, ok := reasonWords[item.Work.Reason]; ok {
+		line = said
+	}
+	if len(item.Work.Wakes) != 0 {
+		line += ": waits for " + clean(waitsFor(item.Work.Wakes))
+	}
 	if item.Work.WorkOrder != nil && item.Work.WorkOrder.Title != "" {
 		line += "  " + clean(item.Work.WorkOrder.Title)
 	}
@@ -150,7 +177,8 @@ func (m Model) freshness(value string, at int64) string {
 }
 
 func (m Model) header() string {
-	line := fmt.Sprintf("ropeshift top   %d need you   %d lanes   %d workers", len(m.snapshot.Needs.Items), len(m.snapshot.Floor.Lanes), len(m.snapshot.Floor.Workers))
+	line := fmt.Sprintf("ropeshift top   %d need you   %s   %s", len(m.snapshot.Needs.Items),
+		api.Count(int64(len(m.snapshot.Floor.Lanes)), "lane", "lanes"), api.Count(int64(len(m.snapshot.Floor.Workers)), "worker", "workers"))
 	if !m.readAt.IsZero() {
 		line += "   read " + age(m.config.Now().Sub(m.readAt)) + " ago"
 	}
@@ -188,7 +216,7 @@ func (m Model) laneLines() []string {
 		line := fmt.Sprintf("  %s  %s  %s  liveness %s  model %s  ledger %s  %s  %s", clean(lane.ID), clean(lane.WorkOrder), clean(lane.ActualState),
 			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf))
 		if figure, ok := figures[lane.ID]; ok {
-			line += fmt.Sprintf("  context %d  tokens %d  cost $%.4f", figure.ContextTokens, laneTokens(figure), figure.CostUSD)
+			line += fmt.Sprintf("  context %d  tokens %d  cost %s", figure.ContextTokens, laneTokens(figure), api.Dollars(figure.CostUSD))
 		}
 		lines = append(lines, line)
 	}

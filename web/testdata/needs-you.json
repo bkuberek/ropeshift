@@ -297,6 +297,12 @@
           "worker_id": "worker-a"
         },
         "reason": "human_resume",
+        "wakes": [
+          {
+            "expression": "{\"any_of\":[{\"all_of\":[{\"question_answered\":\"question-1\"}]},{\"human_resume\":true}]}",
+            "id": "wake-lane-wo-parked"
+          }
+        ],
         "work_order": {
           "contract_id": "generated-7",
           "contract_version": 1,

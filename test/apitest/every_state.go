@@ -32,7 +32,7 @@ var WorkWalks = map[workorders.State]func(*World, string){
 	workorders.Ready:          func(w *World, id string) { w.Ready(id, "Ready for a worker") },
 	workorders.Claimed:        (*World).claimed,
 	workorders.Running:        func(w *World, id string) { w.Running(id, "A lane works on this") },
-	workorders.Parked:         func(w *World, id string) { w.Running(id, "Parked until a person says go").Park("human_resume") },
+	workorders.Parked:         func(w *World, id string) { w.Running(id, "Parked until a person says go").Park(lanes.HumanWake()) },
 	workorders.Lapsed:         func(w *World, id string) { w.Running(id, "Its worker went quiet") },
 	workorders.Acceptance: func(w *World, id string) {
 		w.Running(id, "Finished and waiting for a word").End(workorders.OutcomeCompleted, "")
@@ -82,7 +82,7 @@ func (w *World) laneIn(state lanes.ActualState, turn int) {
 	case lanes.Ended:
 		lane.End(workorders.OutcomeCompleted, "")
 	case lanes.Parked:
-		lane.Park("human_resume")
+		lane.Park(lanes.HumanWake())
 	default:
 		reach := string(EveryReach[turn%len(EveryReach)])
 		lane.Status(ledger.LaneStatus{

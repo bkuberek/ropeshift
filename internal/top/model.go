@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
-	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Snapshot is one read of the fleet. The two views stand at their own revisions, and a surface that
@@ -224,7 +223,7 @@ func (m Model) Revision() int64 { return m.snapshot.Revision() }
 
 // LaneOrder lists the lanes for an operator: those that need a person first, in the order the server
 // put them, and then the rest by name, so a line stays where it was while nothing changes.
-func LaneOrder(snapshot Snapshot) []ledger.LaneView {
+func LaneOrder(snapshot Snapshot) []api.FloorLane {
 	rank := map[string]int{}
 	for i, item := range snapshot.Needs.Items {
 		if item.Work == nil || item.Work.Lane == nil {
@@ -235,7 +234,7 @@ func LaneOrder(snapshot Snapshot) []ledger.LaneView {
 		}
 	}
 	lanes := slices.Clone(snapshot.Floor.Lanes)
-	slices.SortStableFunc(lanes, func(a, b ledger.LaneView) int {
+	slices.SortStableFunc(lanes, func(a, b api.FloorLane) int {
 		left, leftWaits := rank[a.ID]
 		right, rightWaits := rank[b.ID]
 		switch {
@@ -271,8 +270,10 @@ func Reader(client *api.Client) func(context.Context) (Snapshot, error) {
 	}
 }
 
-// Frame is one frame of a fleet read once, for a pipe or a script's log.
-func Frame(snapshot Snapshot, now time.Time) string {
+// Frame is one frame of a fleet read once, for a terminal, a pipe, or a script's log, clipped to a
+// width. A width of zero or less is the plain width, 120 columns.
+func Frame(snapshot Snapshot, now time.Time, width int) string {
 	m := New(Config{Now: func() time.Time { return now }}).loaded(snapshot)
+	m.width = width
 	return m.View() + "\n"
 }

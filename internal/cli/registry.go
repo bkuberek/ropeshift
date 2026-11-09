@@ -30,7 +30,7 @@ func command(name, args, summary string, run func(*invocation, []string) int) re
 func registry() []section {
 	return []section{
 		{"Watch", append([]registered{
-			command("top", "[--once]", "watch the fleet, by who needs a person", (*invocation).runTop),
+			command("top", "[--once] [--width N]", "watch the fleet, by who needs a person", (*invocation).runTop),
 			command("health", "", "say the control plane answers, and at what revision", (*invocation).health),
 			command("events", "[--after N] [--limit N]", "follow the ledger's events from a revision", (*invocation).events),
 		}, views()...)},

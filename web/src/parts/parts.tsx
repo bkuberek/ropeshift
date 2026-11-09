@@ -87,6 +87,16 @@ export function StampLine({ stamp }: { stamp: Stamp }) {
   );
 }
 
+// Id shows an identifier on one line. One too long for its column ends in an ellipsis, and the whole of
+// it stays in the page for a screen reader and a copy, and in the title a pointer brings up.
+export function Id({ value }: { value: string }) {
+  return (
+    <span className="id" title={value}>
+      {value}
+    </span>
+  );
+}
+
 export function Fact({ name, mono = false, children }: { name: string; mono?: boolean; children: ReactNode }) {
   return (
     <div>

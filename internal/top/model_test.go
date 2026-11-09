@@ -5,17 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/top"
 	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/exit/ptypair"
 )
 
 var update = flag.Bool("update", false, "write the golden frame")
@@ -86,9 +91,9 @@ func TestLanesThatNeedAPersonComeFirst(t *testing.T) {
 // A value read as last reported and shown as observed is the mistake FR-UI-5 exists to stop.
 func TestALaneStatesWhetherItsValueWasObserved(t *testing.T) {
 	snapshot := golden(t)
-	snapshot.Floor.Lanes = []ledger.LaneView{
-		{ID: "lane-seen", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessObserved, AsOf: snapshot.Needs.AsOf},
-		{ID: "lane-old", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessLastReported, AsOf: snapshot.Needs.AsOf - 5*60*1000},
+	snapshot.Floor.Lanes = []api.FloorLane{
+		{LaneView: ledger.LaneView{ID: "lane-seen", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessObserved, AsOf: snapshot.Needs.AsOf}},
+		{LaneView: ledger.LaneView{ID: "lane-old", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessLastReported, AsOf: snapshot.Needs.AsOf - 5*60*1000}},
 	}
 	frame := loaded(t, snapshot).View()
 	for _, want := range []string{"observed", "last reported 5m ago"} {
@@ -98,13 +103,28 @@ func TestALaneStatesWhetherItsValueWasObserved(t *testing.T) {
 	}
 }
 
+// A parked lane says what would move it in the words the web UI uses, and never a reason's code.
+func TestAParkedLaneSaysWhatItWaitsFor(t *testing.T) {
+	frame := loaded(t, golden(t)).View()
+	if !strings.Contains(frame, "wo-parked  parked: waits for question question-1 or a person  Wait for the check") || strings.Contains(frame, "human_resume") {
+		t.Errorf("the parked lane does not say what it waits for:\n%s", frame)
+	}
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedWork, ID: "wo-old", Work: &api.WorkNeed{
+		Reason: api.ReasonLongParked, Wakes: []api.WakeView{{ID: "wake", Expression: `{"moon_phase":"full"}`}}, Actions: []string{},
+	}}}
+	if frame := loaded(t, snapshot).View(); !strings.Contains(frame, "wo-old  long parked: waits for something this build cannot read") {
+		t.Errorf("a wake this build cannot read says nothing of itself:\n%s", frame)
+	}
+}
+
 // Titles and lane reasons come from agents and repositories, and a terminal obeys what it is sent.
 func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	hostile := "ok\x1b]52;c;c3RvbGVu\x07\x1b[2J\u009b31m\u202egone\r\nforged"
 	order := workorders.WorkOrder{ID: "wo", Title: hostile}
 	snapshot := top.Snapshot{}
 	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedWork, ID: "wo" + hostile, Work: &api.WorkNeed{Reason: api.ReasonBlocked, Detail: hostile, WorkOrder: &order, Actions: []string{}}}}
-	snapshot.Floor.Lanes = []ledger.LaneView{{ID: "lane" + hostile, WorkOrder: hostile, LaneStatus: ledger.LaneStatus{ActualState: hostile}}}
+	snapshot.Floor.Lanes = []api.FloorLane{{LaneView: ledger.LaneView{ID: "lane" + hostile, WorkOrder: hostile, LaneStatus: ledger.LaneStatus{ActualState: hostile}}, WorkOrderTitle: hostile}}
 	frame := loaded(t, snapshot).View()
 	for _, r := range frame {
 		if r == '\n' {
@@ -151,6 +171,22 @@ func TestTheCursorStaysOnSomethingThatNeedsAPerson(t *testing.T) {
 	next, _ := m.Update(top.Loaded(snapshot))
 	if got := next.Selected(); got != snapshot.Needs.Items[1].ID {
 		t.Errorf("selected %q after the list shrank", got)
+	}
+}
+
+// One worker reads as one worker, and one lane as one lane.
+func TestTheHeaderCountsInWords(t *testing.T) {
+	snapshot := golden(t)
+	snapshot.Floor.Lanes = snapshot.Floor.Lanes[:1]
+	header, _, _ := strings.Cut(loaded(t, snapshot).View(), "\n")
+	if !strings.HasPrefix(header, "ropeshift top   9 need you   1 lane   1 worker   ") {
+		t.Errorf("header %q", header)
+	}
+	snapshot.Floor.Workers = append(snapshot.Floor.Workers, snapshot.Floor.Workers[0])
+	snapshot.Floor.Lanes = nil
+	header, _, _ = strings.Cut(loaded(t, snapshot).View(), "\n")
+	if !strings.HasPrefix(header, "ropeshift top   9 need you   0 lanes   2 workers   ") {
+		t.Errorf("header %q", header)
 	}
 }
 
@@ -255,6 +291,7 @@ func TestALaneShowsItsContextTokensAndCost(t *testing.T) {
 	snapshot := golden(t)
 	snapshot.Telemetry = api.LaneTelemetryList{Available: true, Lanes: []api.LaneTelemetry{
 		{Lane: "lane-wo-accept", ContextTokens: 42000, Tokens: map[string]int64{"input": 1000, "output": 200, "cache_read": 40000}, CostUSD: 0.1234},
+		{Lane: "lane-wo-blocked", ContextTokens: 10, Tokens: map[string]int64{"input": 10}, CostUSD: 0.004},
 	}}
 	wide, _ := loaded(t, snapshot).Update(top.Resized(240, 40))
 	frame := wide.View()
@@ -264,8 +301,13 @@ func TestALaneShowsItsContextTokensAndCost(t *testing.T) {
 			line = candidate
 		}
 	}
-	if !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.Contains(line, "cost $0.1234") {
-		t.Errorf("the lane line says nothing of its telemetry: %q", line)
+	if !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.HasSuffix(strings.TrimSpace(line), "cost $0.12") {
+		t.Errorf("the lane line does not state its telemetry in dollars and cents: %q", line)
+	}
+	for candidate := range strings.Lines(frame) {
+		if strings.Contains(candidate, "lane-wo-blocked") && strings.Contains(candidate, "context") && !strings.HasSuffix(strings.TrimSpace(candidate), "cost under $0.01") {
+			t.Errorf("a cost under a cent reads as something else: %q", candidate)
+		}
 	}
 	for candidate := range strings.Lines(frame) {
 		if strings.Contains(candidate, "lane-wo-approval") && strings.Contains(candidate, "context") {
@@ -292,6 +334,59 @@ func TestTheFrameIsWhatItWas(t *testing.T) {
 	}
 	if string(want) != frame {
 		t.Errorf("the frame changed: run this test with -update, and read the diff\ngot:\n%s", frame)
+	}
+}
+
+// longest is the width of a frame's widest line.
+func longest(frame string) (width int, clipped bool) {
+	for line := range strings.Lines(frame) {
+		line = strings.TrimRight(line, "\r\n")
+		width = max(width, utf8.RuneCountInString(line))
+		clipped = clipped || strings.HasSuffix(line, "~")
+	}
+	return width, clipped
+}
+
+// A frame printed once takes the width it is given, and the plain width when it is given none.
+func TestAPrintedFrameTakesTheWidthItIsGiven(t *testing.T) {
+	snapshot := golden(t)
+	snapshot.Needs.Items[0].Work.WorkOrder.Title = strings.Repeat("A title longer than any plain frame. ", 5)
+	now := time.UnixMilli(snapshot.Needs.AsOf)
+	if width, clipped := longest(top.Frame(snapshot, now, 60)); width != 60 || !clipped {
+		t.Errorf("at 60 columns the widest line is %d, clipped %v", width, clipped)
+	}
+	if width, clipped := longest(top.Frame(snapshot, now, 0)); width != 120 || !clipped {
+		t.Errorf("with no width the widest line is %d, clipped %v, and not the plain 120", width, clipped)
+	}
+	if width, clipped := longest(top.Frame(snapshot, now, 400)); width <= 120 || clipped {
+		t.Errorf("at 400 columns the widest line is %d, clipped %v", width, clipped)
+	}
+}
+
+// A terminal says how wide it is, and a pipe or a buffer says nothing.
+func TestATerminalSaysItsWidth(t *testing.T) {
+	typed, held, err := ptypair.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer typed.Close()
+	defer held.Close()
+	if err := unix.IoctlSetWinsize(int(typed.Fd()), unix.TIOCSWINSZ, &unix.Winsize{Col: 87, Row: 24}); err != nil {
+		t.Fatal(err)
+	}
+	if width, ok := top.Width(held); !ok || width != 87 {
+		t.Errorf("a terminal 87 columns wide reads %d, %v", width, ok)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	for name, out := range map[string]io.Writer{"a pipe": writer, "a buffer": &strings.Builder{}} {
+		if width, ok := top.Width(out); ok {
+			t.Errorf("%s reads %d columns", name, width)
+		}
 	}
 }
 
