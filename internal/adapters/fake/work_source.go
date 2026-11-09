@@ -176,7 +176,7 @@ func (s *WorkSource) Poll(_ context.Context, cursor ports.Cursor) (ports.ChangeB
 			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: name, Detail: err.Error(), Source: s.source(name)})
 			continue
 		case doc.Contract == nil:
-			if record, ok := ports.RecordOf(doc, sourceAdapter, sourceInstance, name, s.source(name)); ok {
+			if record, ok := ports.RecordOf(doc, sourceAdapter, sourceInstance, name, s.source(name), fileDigest(s.files[name])); ok {
 				batch.Records = append(batch.Records, record)
 			}
 			continue

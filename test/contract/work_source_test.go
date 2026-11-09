@@ -23,10 +23,11 @@ func TestWorkSourceContract(t *testing.T) {
 			repo := gittest.New(t)
 			repo.Commit("README.txt", "seed\n")
 			return SourceRig{
-				Source: repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()}),
-				Commit: func(name, content string) { repo.Commit(name, content) },
-				Rename: repo.Rename,
-				Fork:   func() (SourceRig, func(name, content string)) { return repoFork(repo) },
+				DigestPrefix: planning.DigestGitBlob,
+				Source:       repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()}),
+				Commit:       func(name, content string) { repo.Commit(name, content) },
+				Rename:       repo.Rename,
+				Fork:         func() (SourceRig, func(name, content string)) { return repoFork(repo) },
 			}
 		})
 	})
@@ -58,9 +59,10 @@ func repoFork(repo *gittest.Repo) (SourceRig, func(name, content string)) {
 
 func fakeRig(source *fake.WorkSource) SourceRig {
 	return SourceRig{
-		Source: source,
-		Commit: func(name, content string) { source.Write(name, []byte(content)) },
-		Rename: source.Rename,
+		DigestPrefix: planning.DigestSHA256,
+		Source:       source,
+		Commit:       func(name, content string) { source.Write(name, []byte(content)) },
+		Rename:       source.Rename,
 		Fork: func() (SourceRig, func(name, content string)) {
 			branch := source.Fork()
 			return fakeRig(branch), func(name, content string) { source.Merge(branch, name, []byte(content)) }
@@ -87,6 +89,28 @@ func TestDigestIsTheGitBlobHash(t *testing.T) {
 	want := planning.DigestGitBlob + strings.TrimSpace(string(out))
 	if got := batch.Items[0].Digest; got != want {
 		t.Errorf("digest %s, want %s", got, want)
+	}
+}
+
+// TestADocumentDigestIsTheGitBlobHash holds a document to the same digest as a contract: the hash git
+// holds, of the file as written, so a version of a document names the content it was read from.
+func TestADocumentDigestIsTheGitBlobHash(t *testing.T) {
+	repo := gittest.New(t)
+	text := DocumentText("spec", "checkout-api", "Checkout API", "", "The calls.")
+	repo.Commit("spec.md", text)
+	cmd := exec.Command("git", "hash-object", "--stdin")
+	cmd.Dir, cmd.Env, cmd.Stdin = repo.Dir, repo.Env(), bytes.NewReader([]byte(text))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()}).Poll(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := planning.DigestGitBlob + strings.TrimSpace(string(out))
+	if len(batch.Records) != 1 || batch.Records[0].Digest != want {
+		t.Errorf("records %+v, want digest %s", batch.Records, want)
 	}
 }
 

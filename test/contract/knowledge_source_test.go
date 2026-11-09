@@ -75,19 +75,35 @@ func TestAFileSaysWhatItIsBeforeItsPathDoes(t *testing.T) {
 	repo := gittest.New(t)
 	repo.Commit("docs/notes.md", "+++\nkind = \"requirements\"\nid = \"reqs\"\ntitle = \"Requirements\"\n\n[[requirement]]\nid = \"R-1\"\ntext = \"One.\"\n+++\n")
 	repo.Commit("docs/design/plan.md", "+++\nkind = \"plan\"\nid = \"plan-1\"\ntitle = \"The plan\"\n+++\n")
+	repo.Commit("docs/design/a.md", DocumentText("spec", "a", "A spec filed as a design", "", "Prose."))
+	repo.Commit("docs/specs/b.md", DocumentText("architecture", "b", "An architecture filed as a spec", "", "Prose."))
+	repo.Commit("docs/c.md", DocumentText("experience-design", "c", "An experience design", "", "Prose."))
+	repo.Commit("docs/d.md", DocumentText("milestone", "d", "A milestone", "", "Prose."))
+	repo.Commit("docs/design/e.md", "# An unparsed design\n")
 	source := repodocs.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()})
 	list, err := source.List(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]planning.DocumentKind{"docs/notes.md": planning.DocumentRequirements, "docs/design/plan.md": planning.DocumentOther}
+	want := map[string]planning.DocumentKind{
+		"docs/notes.md": planning.DocumentRequirements, "docs/design/plan.md": planning.DocumentOther,
+		"docs/design/a.md": planning.DocumentSpec, "docs/specs/b.md": planning.DocumentArchitecture,
+		"docs/c.md": planning.DocumentExperienceDesign, "docs/d.md": planning.DocumentOther,
+		// A file that is not one of ours keeps the kind its path gives it.
+		"docs/design/e.md": planning.DocumentDesign,
+	}
 	if len(list) != len(want) {
 		t.Fatalf("list %+v", list)
 	}
+	titles := map[string]string{}
 	for _, document := range list {
+		titles[document.Key.NativeID] = document.Title
 		if document.Kind != want[document.Key.NativeID] {
 			t.Errorf("%s lists as %q", document.Key.NativeID, document.Kind)
 		}
+	}
+	if titles["docs/design/a.md"] != "A spec filed as a design" || titles["docs/d.md"] != "A milestone" {
+		t.Errorf("titles %v", titles)
 	}
 }
 

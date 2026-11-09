@@ -34,6 +34,14 @@ func ParseFile(raw []byte) (planning.Document, error) {
 		doc.Plan, err = decode[planning.PlanFile](header)
 	case planning.FileRequirements:
 		doc.Requirements, err = decode[planning.RequirementsFile](header)
+	case planning.FileSpec:
+		doc.Spec, err = decode[planning.SpecFile](header)
+	case planning.FileArchitecture:
+		doc.Architecture, err = decode[planning.ArchitectureFile](header)
+	case planning.FileExperienceDesign:
+		doc.Experience, err = decode[planning.ExperienceDesignFile](header)
+	case planning.FileMilestone:
+		doc.Milestone, err = decode[planning.MilestoneFile](header)
 	default:
 		doc.Contract, err = decode[planning.ContractFile](header)
 	}

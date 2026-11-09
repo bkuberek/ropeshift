@@ -26,7 +26,7 @@ func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, sourc
 				outcome, err = r.goal()
 			case item.Plan != nil:
 				outcome, err = r.plan()
-			default:
+			case item.Requirements != nil:
 				outcome, err = r.requirements()
 			}
 			crashpoint.Hit("intake.file", "recorded")

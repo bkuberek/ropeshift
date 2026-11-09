@@ -10,12 +10,16 @@ import (
 // a source that does not reads it from the document's path.
 type DocumentKind string
 
-// The kinds a person looks for, and the rest.
+// The kinds a person looks for, and the rest. A file of the repository file format says which of the
+// first four it is, and a file that is not one reads its kind from its path, where the words design
+// and architecture both mean design.
 const (
-	DocumentRequirements DocumentKind = "requirements"
-	DocumentSpec         DocumentKind = "spec"
-	DocumentDesign       DocumentKind = "design"
-	DocumentOther        DocumentKind = "other"
+	DocumentRequirements     DocumentKind = "requirements"
+	DocumentSpec             DocumentKind = "spec"
+	DocumentArchitecture     DocumentKind = "architecture"
+	DocumentExperienceDesign DocumentKind = "experience-design"
+	DocumentDesign           DocumentKind = "design"
+	DocumentOther            DocumentKind = "other"
 )
 
 // kindWords are the words in a path that name a kind.
