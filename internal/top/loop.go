@@ -121,14 +121,30 @@ func paint(out io.Writer, frame string) error {
 	return err
 }
 
-// measured says how big a terminal is. A pipe has no size, and a frame takes its plain width.
-func measured(out io.Writer) (Msg, bool) {
-	file, ok := out.(*os.File)
-	if !ok {
-		return nil, false
+// size says how big the terminal behind out is. A pipe, a file, or a buffer has no size.
+func size(out io.Writer) (width, height int, ok bool) {
+	file, isFile := out.(*os.File)
+	if !isFile {
+		return 0, 0, false
 	}
 	width, height, err := term.GetSize(int(file.Fd()))
-	if err != nil {
+	if err != nil || width <= 0 {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+// Width says how many columns the terminal behind out has. Anything else has none, and a frame
+// printed to it takes the plain width.
+func Width(out io.Writer) (int, bool) {
+	width, _, ok := size(out)
+	return width, ok
+}
+
+// measured says how big a terminal is, as a message the model takes.
+func measured(out io.Writer) (Msg, bool) {
+	width, height, ok := size(out)
+	if !ok {
 		return nil, false
 	}
 	return Resized(width, height), true

@@ -5,17 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/top"
 	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/exit/ptypair"
 )
 
 var update = flag.Bool("update", false, "write the golden frame")
@@ -323,6 +328,59 @@ func TestTheFrameIsWhatItWas(t *testing.T) {
 	}
 	if string(want) != frame {
 		t.Errorf("the frame changed: run this test with -update, and read the diff\ngot:\n%s", frame)
+	}
+}
+
+// longest is the width of a frame's widest line.
+func longest(frame string) (width int, clipped bool) {
+	for line := range strings.Lines(frame) {
+		line = strings.TrimRight(line, "\r\n")
+		width = max(width, utf8.RuneCountInString(line))
+		clipped = clipped || strings.HasSuffix(line, "~")
+	}
+	return width, clipped
+}
+
+// A frame printed once takes the width it is given, and the plain width when it is given none.
+func TestAPrintedFrameTakesTheWidthItIsGiven(t *testing.T) {
+	snapshot := golden(t)
+	snapshot.Needs.Items[0].Work.WorkOrder.Title = strings.Repeat("A title longer than any plain frame. ", 5)
+	now := time.UnixMilli(snapshot.Needs.AsOf)
+	if width, clipped := longest(top.Frame(snapshot, now, 60)); width != 60 || !clipped {
+		t.Errorf("at 60 columns the widest line is %d, clipped %v", width, clipped)
+	}
+	if width, clipped := longest(top.Frame(snapshot, now, 0)); width != 120 || !clipped {
+		t.Errorf("with no width the widest line is %d, clipped %v, and not the plain 120", width, clipped)
+	}
+	if width, clipped := longest(top.Frame(snapshot, now, 400)); width <= 120 || clipped {
+		t.Errorf("at 400 columns the widest line is %d, clipped %v", width, clipped)
+	}
+}
+
+// A terminal says how wide it is, and a pipe or a buffer says nothing.
+func TestATerminalSaysItsWidth(t *testing.T) {
+	typed, held, err := ptypair.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer typed.Close()
+	defer held.Close()
+	if err := unix.IoctlSetWinsize(int(typed.Fd()), unix.TIOCSWINSZ, &unix.Winsize{Col: 87, Row: 24}); err != nil {
+		t.Fatal(err)
+	}
+	if width, ok := top.Width(held); !ok || width != 87 {
+		t.Errorf("a terminal 87 columns wide reads %d, %v", width, ok)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	for name, out := range map[string]io.Writer{"a pipe": writer, "a buffer": &strings.Builder{}} {
+		if width, ok := top.Width(out); ok {
+			t.Errorf("%s reads %d columns", name, width)
+		}
 	}
 }
 
