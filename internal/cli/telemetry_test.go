@@ -31,7 +31,7 @@ func TestTelemetryCommandsReadTheLocalStore(t *testing.T) {
 		t.Errorf("query %q", text)
 	}
 	if text := s.must("telemetry", "lanes"); !strings.Contains(text, "context 4200") || !strings.Contains(text, "input 10, output 3") ||
-		!strings.Contains(text, "$0.2500") {
+		!strings.HasSuffix(text, "\tcost at least $0.25\n") {
 		t.Errorf("lanes %q", text)
 	}
 	if code, _, _ := s.run("telemetry", "query", "--limit", "-1"); code != cli.ExitUsage {

@@ -57,8 +57,10 @@ func measuresText(r measures.Report) string {
 	fmt.Fprintf(&b, "rework\t%s\n", rateText(r.Rework, true))
 	fmt.Fprintf(&b, "autonomous decision rate\t%s\n", rateText(r.AutonomousDecisionRate, true))
 	fmt.Fprintf(&b, "repeated-question rate\t%s\n", rateText(r.RepeatedQuestionRate, true))
-	fmt.Fprintf(&b, "interruptions\t%d: %d batches, %d approvals, %d forced\n", r.Interruptions,
-		r.InterruptionsByKind[measures.InterruptionBatch], r.InterruptionsByKind[measures.InterruptionApproval], r.InterruptionsByKind[measures.InterruptionForced])
+	fmt.Fprintf(&b, "interruptions\t%s, %s, %s\n",
+		api.Count(r.InterruptionsByKind[measures.InterruptionBatch], "batch of questions", "batches of questions"),
+		api.Count(r.InterruptionsByKind[measures.InterruptionApproval], "approval", "approvals"),
+		api.Count(r.InterruptionsByKind[measures.InterruptionForced], "forced action", "forced actions"))
 	fmt.Fprintf(&b, "repeats prevented\t%d\n", r.PreventedRepeats)
 	fmt.Fprintf(&b, "work in progress\t%d\n", r.WorkInProgress)
 	fmt.Fprintf(&b, "flow time, ready to done\t%s\n", durationsText(r.ReadyToDone))
@@ -70,12 +72,12 @@ func measuresText(r measures.Report) string {
 		cost := r.CostPerOutcome[kind]
 		each := "no data"
 		if cost.PerDone != nil {
-			each = fmt.Sprintf("$%.4f each", *cost.PerDone)
+			each = api.Dollars(*cost.PerDone) + " each"
 			if cost.LowerBound {
 				each = "at least " + each
 			}
 		}
-		fmt.Fprintf(&b, "cost per outcome, %s\t%s, $%.4f over %d done\n", kind, each, cost.TotalUSD, cost.Done)
+		fmt.Fprintf(&b, "cost per outcome, %s\t%s, %s over %d done\n", kind, each, api.Dollars(cost.TotalUSD), cost.Done)
 	}
 	return b.String()
 }

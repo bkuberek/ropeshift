@@ -291,6 +291,7 @@ func TestALaneShowsItsContextTokensAndCost(t *testing.T) {
 	snapshot := golden(t)
 	snapshot.Telemetry = api.LaneTelemetryList{Available: true, Lanes: []api.LaneTelemetry{
 		{Lane: "lane-wo-accept", ContextTokens: 42000, Tokens: map[string]int64{"input": 1000, "output": 200, "cache_read": 40000}, CostUSD: 0.1234},
+		{Lane: "lane-wo-blocked", ContextTokens: 10, Tokens: map[string]int64{"input": 10}, CostUSD: 0.004},
 	}}
 	wide, _ := loaded(t, snapshot).Update(top.Resized(240, 40))
 	frame := wide.View()
@@ -300,8 +301,13 @@ func TestALaneShowsItsContextTokensAndCost(t *testing.T) {
 			line = candidate
 		}
 	}
-	if !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.Contains(line, "cost $0.1234") {
-		t.Errorf("the lane line says nothing of its telemetry: %q", line)
+	if !strings.Contains(line, "context 42000") || !strings.Contains(line, "tokens 41200") || !strings.HasSuffix(strings.TrimSpace(line), "cost $0.12") {
+		t.Errorf("the lane line does not state its telemetry in dollars and cents: %q", line)
+	}
+	for candidate := range strings.Lines(frame) {
+		if strings.Contains(candidate, "lane-wo-blocked") && strings.Contains(candidate, "context") && !strings.HasSuffix(strings.TrimSpace(candidate), "cost under $0.01") {
+			t.Errorf("a cost under a cent reads as something else: %q", candidate)
+		}
 	}
 	for candidate := range strings.Lines(frame) {
 		if strings.Contains(candidate, "lane-wo-approval") && strings.Contains(candidate, "context") {

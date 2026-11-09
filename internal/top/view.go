@@ -176,16 +176,9 @@ func (m Model) freshness(value string, at int64) string {
 	return "last reported " + age(m.ago(at)) + " ago"
 }
 
-// count says how many of something there are, in the singular for one.
-func count(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return strconv.Itoa(n) + " " + noun + "s"
-}
-
 func (m Model) header() string {
-	line := fmt.Sprintf("ropeshift top   %d need you   %s   %s", len(m.snapshot.Needs.Items), count(len(m.snapshot.Floor.Lanes), "lane"), count(len(m.snapshot.Floor.Workers), "worker"))
+	line := fmt.Sprintf("ropeshift top   %d need you   %s   %s", len(m.snapshot.Needs.Items),
+		api.Count(int64(len(m.snapshot.Floor.Lanes)), "lane", "lanes"), api.Count(int64(len(m.snapshot.Floor.Workers)), "worker", "workers"))
 	if !m.readAt.IsZero() {
 		line += "   read " + age(m.config.Now().Sub(m.readAt)) + " ago"
 	}
@@ -223,7 +216,7 @@ func (m Model) laneLines() []string {
 		line := fmt.Sprintf("  %s  %s  %s  liveness %s  model %s  ledger %s  %s  %s", clean(lane.ID), clean(lane.WorkOrder), clean(lane.ActualState),
 			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf))
 		if figure, ok := figures[lane.ID]; ok {
-			line += fmt.Sprintf("  context %d  tokens %d  cost $%.4f", figure.ContextTokens, laneTokens(figure), figure.CostUSD)
+			line += fmt.Sprintf("  context %d  tokens %d  cost %s", figure.ContextTokens, laneTokens(figure), api.Dollars(figure.CostUSD))
 		}
 		lines = append(lines, line)
 	}

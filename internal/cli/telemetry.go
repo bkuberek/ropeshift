@@ -70,7 +70,7 @@ func (c *invocation) telemetryLanes(args []string) int {
 			for _, kind := range slices.Sorted(maps.Keys(lane.Tokens)) {
 				tokens = append(tokens, fmt.Sprintf("%s %d", kind, lane.Tokens[kind]))
 			}
-			fmt.Fprintf(&b, "%s\tcontext %d\t%s\tcost at least $%.4f\n", lane.Lane, lane.ContextTokens, strings.Join(tokens, ", "), lane.CostUSD)
+			fmt.Fprintf(&b, "%s\tcontext %d\t%s\tcost at least %s\n", lane.Lane, lane.ContextTokens, strings.Join(tokens, ", "), api.Dollars(lane.CostUSD))
 		}
 		return b.String()
 	})
