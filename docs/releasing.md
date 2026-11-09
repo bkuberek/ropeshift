@@ -168,13 +168,9 @@ Between steps 3 and 4, the release exists with no assets. The install script, wh
 
 The publish job is the only job in the GitHub environment `production`, which holds the tap's token, and it runs only when release-please created a release, so a push with nothing to release deploys nothing. It runs for the push to `main`, which the environment's rule that deployments come from `main` requires. The release-please job and the publish job are the only jobs with write access: release-please to the repository's contents for the tag, the release, and its branch, and to pull requests and issues for its pull request and its labels, and the publish job to the contents for the release's assets. Every other job, in both workflows, reads only.
 
-### The first release after v0.1.0-alpha.1
+### Releases before the one-tag process
 
-`v0.1.0-alpha.1` was released by an earlier process, which tagged a commit beside `main` instead of the merge commit. release-please lists the commits after the previous release's commit, and that tag's commit is not in `main`'s history, so on its own release-please would list the whole history in the next release.
-
-The top-level setting `last-release-sha` in `release-please-config.json` names `401887a5c5d0e3c3e777b52a212368644006b0fc`, where the release pull request for `v0.1.0-alpha.1` merged into `main`. release-please reads no commit at or before it, so the next release is `v0.1.0-alpha.2`, and its notes list only the changes merged after that commit. [release-please's manifest documentation](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md) describes the setting.
-
-Remove `last-release-sha` in the first pull request after `v0.1.0-alpha.2` is released. From then on, release-please stops at that release's tag on `main`, which it reaches first, so the setting changes nothing, and the documentation says to remove it once a good release pull request is merged. The tag `main-v0.1.0-alpha.1` on the same commit is not read by the release process.
+`v0.1.0-alpha.1` was released by an earlier process, which tagged a commit beside `main` holding the built web UI, and marked the merge commit on `main` with the tag `main-v0.1.0-alpha.1`. Neither is read by the release process now. From `v0.1.0-alpha.2` on, every release is one tag on `main`, and release-please finds the previous release at that tag.
 
 ### When a release stops partway
 
