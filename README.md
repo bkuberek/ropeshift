@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh 
 With no `--version`, the script installs the newest stable release, or the newest pre-release while no release is stable, and says which it chose. It checks the archive's SHA-256 against the release's checksums file before it extracts anything, and installs to `~/.local/bin`. Options go after `sh -s --`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh | sh -s -- --version v0.1.0-alpha.1 --prefix /usr/local
+curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh | sh -s -- --version v0.1.0-alpha.2 --prefix /usr/local
 ```
 
 On Debian, Ubuntu, Fedora, or RHEL, download the `.deb` or `.rpm` package for your architecture from the [releases page](https://github.com/bkuberek/ropeshift/releases), and install it with `sudo dpkg -i` or `sudo rpm -i`.
@@ -51,12 +51,12 @@ Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code
 
 ## Screenshots
 
-These are the web UI of `v0.1.0-alpha.1` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting.
+These are the web UI of `v0.1.0-alpha.2` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting.
 
-Needs you puts what waits for a person first, oldest first: work to accept, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
+Needs you puts what waits for a person first, oldest first: work to accept, work its lane could not finish, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
 
-![Needs you, with work to accept, a parked lane, and two questions to answer](docs/assets/screenshots/needs-you-light.png#gh-light-mode-only)
-![Needs you, with work to accept, a parked lane, and two questions to answer](docs/assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
+![Needs you, with work to accept and work its lane could not finish](docs/assets/screenshots/needs-you-light.png#gh-light-mode-only)
+![Needs you, with work to accept and work its lane could not finish](docs/assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
 
 Decisions lists what members and orchestrators decided or assumed, with the question each answers and what it cites.
 
