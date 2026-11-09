@@ -4,6 +4,7 @@ package chaos
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -54,6 +55,36 @@ func (w *world) settle() error {
 		time.Sleep(time.Millisecond)
 	}
 	return nil
+}
+
+// storeSlack is how long the store calls a phase makes near its own bound may still take. It is
+// the SQLite adapter's busy timeout, the longest a call waits on a lock before it fails by itself,
+// so a phase's context ends only on a call that blocks past anything the store allows.
+const storeSlack = 30 * time.Second
+
+// within runs one phase of the parent's store work on a context of its own, bounded by limit, and
+// names the phase in what it returns. The rig's context is one budget for the whole test, while the
+// kills before a phase last as long as KILLS asks, so a long run would spend it before the phase
+// began, and a phase would fail on its length and not on anything the ledger did. Its own bound
+// still stops a store call that blocks. The rig's helpers read its context, so the phase holds it
+// in their place and gives the old one back.
+func (w *world) within(phase string, limit time.Duration, fn func() error) error {
+	outer := w.rig.Ctx
+	ctx, cancel := context.WithTimeout(w.t.Context(), limit)
+	w.rig.Ctx = ctx
+	defer func() {
+		cancel()
+		w.rig.Ctx = outer
+	}()
+	err := fn()
+	switch {
+	case err == nil:
+		return nil
+	case ctx.Err() != nil:
+		return fmt.Errorf("%s, bounded at %s: %w", phase, limit, err)
+	default:
+		return fmt.Errorf("%s: %w", phase, err)
+	}
 }
 
 // runStats counts what the witness shows.
