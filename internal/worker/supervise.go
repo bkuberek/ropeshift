@@ -320,7 +320,7 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.generation, r.process = next, 0
 	r.handle = ports.SessionHandle{}
 	r.stopOnce = newOnce()
-	r.resolved = ""
+	r.resolved, r.fellBack = "", false
 	r.handleLock.Unlock()
 	r.flightLock.Lock()
 	r.flight, r.left = nil, nil
@@ -329,7 +329,7 @@ func (r *laneRun) enterGeneration(next int64, resume string, progress lanes.Prog
 	r.reached.Store(false)
 	r.sessionOver.Store(false)
 	r.resumeFrom = resume
-	r.bound, r.crashed, r.cursor, r.fellBack = false, false, 0, false
+	r.bound, r.crashed, r.cursor = false, false, 0
 	r.nudged.Store(false)
 	r.owesBrief.Store(false)
 	r.cost = progress.Cost

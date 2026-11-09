@@ -134,7 +134,8 @@ type laneRun struct {
 	approving atomic.Bool
 	// owesBrief says a clear left this generation's session with no idea of its work.
 	owesBrief atomic.Bool
-	// fellBack says this generation meant to resume and started from its handoff.
+	// fellBack says this generation meant to resume and started from its handoff. The handle's lock
+	// guards it, because a clear can bind a generation from a hook's goroutine.
 	fellBack bool
 	// facts are what this generation's first prompt owes, and carried names them, which is all a
 	// restarted worker keeps. The handle's lock guards both.
@@ -656,7 +657,10 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 	handle, err := r.rt.Driver.Resume(ctx, resumed, ports.ResumeRef{SessionID: r.resumeFrom, SessionTotalUSD: r.cost.SessionTotalUSD})
 	if errors.Is(err, ports.ErrResumeNotReady) {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		r.fellBack = r.woken() != nil
+		fellBack := r.woken() != nil
+		r.handleLock.Lock()
+		r.fellBack = fellBack
+		r.handleLock.Unlock()
 		r.setInstruction(spec.Brief)
 		return r.rt.Driver.Start(ctx, spec)
 	}
@@ -826,28 +830,36 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 		return
 	}
 	r.bound = true
-	r.handleLock.Lock()
-	r.resolved = event.ModelResolved
-	r.handleLock.Unlock()
-	binding := r.binding(event.SessionID, event.ModelResolved)
-	binding.FellBack = r.fellBack
-	payload, err := json.Marshal(binding)
-	if err != nil {
-		r.w.config.Report(err)
-		return
-	}
-	bound := r.w.event(ledger.UploadGenerationBound, r.record(), payload)
-	first, err := r.w.journal.BindGeneration(ctx, r.lease.Lane, event.SessionID, bound)
-	if err != nil {
-		r.w.config.Report(err)
-		return
-	}
-	if !first {
+	if !r.bindSession(ctx, event.SessionID, event.ModelResolved) {
 		return
 	}
 	if err := r.w.Upload(ctx); err != nil {
 		r.w.config.Report(err)
 	}
+}
+
+// bindSession records the session of the generation this run follows, and reports whether this
+// record was the first. The stream binds a generation, and so does a clear that arrives ahead of
+// the stream, so the journal keeps the first and the other records nothing.
+func (r *laneRun) bindSession(ctx context.Context, session, model string) bool {
+	r.handleLock.Lock()
+	r.resolved = model
+	fellBack := r.fellBack
+	r.handleLock.Unlock()
+	binding := r.binding(session, model)
+	binding.FellBack = fellBack
+	payload, err := json.Marshal(binding)
+	if err != nil {
+		r.w.config.Report(err)
+		return false
+	}
+	bound := r.w.event(ledger.UploadGenerationBound, r.record(), payload)
+	first, err := r.w.journal.BindGeneration(ctx, r.lease.Lane, session, bound)
+	if err != nil {
+		r.w.config.Report(err)
+		return false
+	}
+	return first
 }
 
 // afterTurn decides what an idle lane does: stop if it reported, and nudge it once if
