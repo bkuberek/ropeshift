@@ -8,11 +8,26 @@ const ownWords = "__own_words__";
 
 type Draft = { choice: string; words: string };
 
-// A recommendation is ready to send, so a batch that needs only agreement takes one press. A one-way
-// choice is why the question reached a person, so it starts with nothing chosen.
+// A recommendation is ready to send, so a batch that needs only agreement takes one press. One that is
+// none of the options waits in the box for a person's own words, and that choice starts chosen, so what
+// a person sees chosen is what a send counts and sends. A one-way choice is why the question reached a
+// person, so it starts with nothing chosen.
 function startingDraft(item: QuestionItem): Draft {
-  const choice = item.escalation_reason === "one_way" ? "" : (item.recommendation ?? "");
-  return { choice: choice === "" && (item.options ?? []).length === 0 ? ownWords : choice, words: "" };
+  const options = item.options ?? [];
+  const recommendation = item.recommendation ?? "";
+  const oneWay = item.escalation_reason === "one_way";
+  if (recommendation !== "" && options.includes(recommendation)) {
+    return { choice: oneWay ? "" : recommendation, words: "" };
+  }
+  if (options.length === 0) {
+    return { choice: ownWords, words: oneWay ? "" : recommendation };
+  }
+  return { choice: oneWay || recommendation === "" ? "" : ownWords, words: recommendation };
+}
+
+// apartFromOptions says a recommendation stands in the box for a person's own words.
+function apartFromOptions(item: QuestionItem): boolean {
+  return (item.recommendation ?? "") !== "" && !(item.options ?? []).includes(item.recommendation ?? "");
 }
 
 function answerOf(draft: Draft): string {
@@ -72,7 +87,7 @@ function Question({ item, draft, onChange, disabled }: {
           value={ownWords}
           label="Something else"
           checked={draft.choice === ownWords}
-          recommended={false}
+          recommended={apartFromOptions(item)}
           onPick={(choice) => onChange({ ...draft, choice })}
         />
       ) : null}

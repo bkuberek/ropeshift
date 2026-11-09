@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { goldenNeedsYou, refusal, serveApi } from "../testing";
-import type { NeedItem, NeedsYou as View } from "../api/types";
+import type { NeedItem, NeedsYou as View, QuestionItem } from "../api/types";
 import { NeedsYou } from "./NeedsYou";
 import { waitLabel, waitWords } from "./wait";
 
@@ -204,6 +204,73 @@ describe("a batch of questions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send 1 of 2 answers" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]?.path).not.toContain(first.id);
+  });
+
+  // A send counts what it sends, so each question it counts must show what it will send.
+  function countedAsShown(group: HTMLElement, item: QuestionItem): boolean {
+    const chosen = within(group)
+      .queryAllByRole("radio")
+      .find((radio) => (radio as HTMLInputElement).checked);
+    const box = within(group).queryByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement | null;
+    const ownWords = chosen ? (chosen as HTMLInputElement).value === "__own_words__" : (item.options ?? []).length === 0;
+    return ownWords ? (box?.value.trim() ?? "") !== "" : chosen !== undefined;
+  }
+
+  it.each([
+    ["a recommendation that is no option", { recommendation: "Keep the budget, capped at three" }],
+    ["a recommendation with no options at all", { recommendation: "Keep the budget", options: [] }],
+    ["no recommendation", { recommendation: undefined }],
+  ])("counts only what a person sees chosen, given %s", (_name, change: Partial<QuestionItem>) => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    Object.assign(first, change);
+    show(view);
+    const counted = item.batch.items.filter((question) => countedAsShown(screen.getByRole("group", { name: question.text }), question)).length;
+    const button = screen.getByRole("button", { name: /^Send \d.* answers$/ });
+    const count = item.batch.items.length;
+    const want = counted === count ? `Send ${count} answers` : `Send ${counted} of ${count} answers`;
+    expect(button.textContent).toBe(want);
+  });
+
+  it("shows a recommendation that is no option as chosen, in the box for a person's own words", async () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.recommendation = "Keep the budget, capped at three";
+    const sent = serveApi(() => ({ status: 201 }));
+    show(view);
+    const group = screen.getByRole("group", { name: first.text });
+    const own = within(group).getByRole("radio", { name: /^Something else/ }) as HTMLInputElement;
+    expect(own.checked).toBe(true);
+    expect(own.closest("label")?.textContent).toContain("Recommended");
+    expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
+    await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[0]?.body).toMatchObject({ answer: "Keep the budget, capped at three" });
+  });
+
+  it("keeps a one-way choice unchosen, with a recommendation that is no option ready in the box", async () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.escalation_reason = "one_way";
+    first.recommendation = "Keep the budget, capped at three";
+    show(view);
+    const group = screen.getByRole("group", { name: first.text });
+    for (const radio of within(group).getAllByRole("radio")) {
+      expect((radio as HTMLInputElement).checked).toBe(false);
+    }
+    expect(screen.getByRole("button", { name: "Send 1 of 2 answers" })).toBeTruthy();
+    await userEvent.click(within(group).getByRole("radio", { name: /^Something else/ }));
+    expect((within(group).getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Keep the budget, capped at three");
+    expect(screen.getByRole("button", { name: "Send 2 answers" })).toBeTruthy();
   });
 
   it("marks what is recommended and what blocks work", () => {
