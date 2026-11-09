@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0-alpha.3](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.2...v0.1.0-alpha.3) (2026-11-09)
+
+
+### Bug Fixes
+
+* end a session with its token alone on sign-out ([923bbe3](https://github.com/bkuberek/ropeshift/commit/923bbe3a37b18dea1353321ccd5992499216eaed))
+* push a lane's work only when the user's profile turns push_on_stop on ([07c1d81](https://github.com/bkuberek/ropeshift/commit/07c1d817edc7f749764b72b1ac809c41ffd9ad13))
+
+### Notes
+
+* A lane no longer pushes its branch or checkpoint to the remote when it stops. To keep the earlier behavior, set `push_on_stop = true` under `[worktree]` in your own `~/.ropeshift/profile.toml`; a repository cannot set it. With it off, a lane's work stays on this machine, `ropeshift lane archive` needs `--force`, and a parked lane resumes only here.
+* `ropeshift sign-out` ends a session with its token alone and never asks for a passphrase.
+
 ## [0.1.0-alpha.2](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.1...v0.1.0-alpha.2) (2026-11-09)
 
 
