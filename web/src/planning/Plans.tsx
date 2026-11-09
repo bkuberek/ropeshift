@@ -3,7 +3,7 @@ import { useId } from "react";
 import type { Contract, ContractHistory, PlanDetail, PlanReview, Plans as View, WorkOrder } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { workLabel } from "../floor/states";
-import { Fact, Section, words } from "../parts/parts";
+import { Fact, Id, Section, words } from "../parts/parts";
 import { StateCounts } from "./Roadmap";
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -16,7 +16,9 @@ function WorkRows({ orders }: { orders: WorkOrder[] }) {
           <p className="row-title">{order.title || order.id}</p>
           <ul className="tags">
             <li className="tag-strong">{workLabel(order.state)}</li>
-            <li className="mono">{order.id}</li>
+            <li>
+              <Id value={order.id} />
+            </li>
           </ul>
         </li>
       ))}

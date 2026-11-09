@@ -785,7 +785,19 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	if err != nil {
 		return nil, err
 	}
-	return api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: lanes}, nil
+	orders, err := tx.WorkOrders().List()
+	if err != nil {
+		return nil, err
+	}
+	titles := map[string]string{}
+	for _, order := range orders {
+		titles[order.ID] = order.Title
+	}
+	view := api.ShopFloor{Stamp: stamp, Workers: lines, Lanes: make([]api.FloorLane, 0, len(lanes))}
+	for _, lane := range lanes {
+		view.Lanes = append(view.Lanes, api.FloorLane{LaneView: lane, WorkOrderTitle: titles[lane.WorkOrder]})
+	}
+	return view, nil
 }
 
 func (h *handler) readOperations(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {

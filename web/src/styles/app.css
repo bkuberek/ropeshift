@@ -92,6 +92,21 @@ fieldset {
   overflow-wrap: anywhere;
 }
 
+/*
+ * An identifier stays on one line, because one broken mid-token reads as two. One too long for its
+ * column ends in an ellipsis, and its title holds the whole of it.
+ */
+.id {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 0.875em;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
 .quiet {
   color: var(--muted);
   font-size: 1rem;
@@ -410,6 +425,8 @@ fieldset {
 }
 
 .wait-kind {
+  min-width: 0;
+  max-width: 100%;
   color: var(--muted);
   font-size: 1rem;
 }
@@ -757,6 +774,11 @@ progress::-moz-progress-bar {
   font-weight: 700;
 }
 
+.lane-work {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .tables {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
@@ -924,6 +946,11 @@ progress::-moz-progress-bar {
 
 .tags:empty {
   display: none;
+}
+
+.tags > li {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tag-strong {

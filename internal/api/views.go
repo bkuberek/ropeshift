@@ -272,11 +272,17 @@ type WorkerLine struct {
 	Orchestrator *ledger.Orchestrator `json:"orchestrator,omitempty"`
 }
 
+// FloorLane is a lane and the title of the work it runs, because a lane's ID says nothing to a person.
+type FloorLane struct {
+	ledger.LaneView
+	WorkOrderTitle string `json:"work_order_title,omitempty"`
+}
+
 // ShopFloor is workers, orchestrators, lanes, and their freshness.
 type ShopFloor struct {
 	Stamp
-	Workers []WorkerLine      `json:"workers"`
-	Lanes   []ledger.LaneView `json:"lanes"`
+	Workers []WorkerLine `json:"workers"`
+	Lanes   []FloorLane  `json:"lanes"`
 }
 
 // Operations is fleet health beside the product measures of the default window, which come from the

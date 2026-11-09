@@ -1,7 +1,7 @@
 import type { Completed as CompletedView, CompletedWork, HeldLane, InProgress as InProgressView, OnHold as OnHoldView, Stuck as StuckView, WorkLine, WorkOrder } from "../api/types";
 import { Link } from "../app/route";
 import { workLabels, WorkCard } from "../needs/WorkCard";
-import { Fact, Lasted, Line, Until, words } from "../parts/parts";
+import { Fact, Id, Lasted, Line, Until, words } from "../parts/parts";
 import { LaneFacts } from "./LaneFacts";
 import { workLabel } from "./states";
 import { WakeWords } from "./WakeWords";
@@ -11,7 +11,9 @@ const titleOf = (order: WorkOrder) => order.title || order.id;
 function WorkTags({ order }: { order: WorkOrder }) {
   return (
     <ul className="tags">
-      <li className="mono">{order.id}</li>
+      <li>
+        <Id value={order.id} />
+      </li>
       {order.lease_worker ? <li>Held by {order.lease_worker}</li> : null}
       {order.max_attempts ? (
         <li>
@@ -101,7 +103,9 @@ export function Stuck({ view, after }: { view: StuckView; after: () => Promise<v
           title={item.work_order?.title || item.lane?.id || item.id}
           plain={item.actions.length === 0}
         >
-          <p className="mono quiet card-id">{item.id}</p>
+          <p className="quiet card-id">
+            <Id value={item.id} />
+          </p>
           <WorkCard id={item.id} work={item} after={after} />
         </Line>
       ))}

@@ -86,9 +86,9 @@ func TestLanesThatNeedAPersonComeFirst(t *testing.T) {
 // A value read as last reported and shown as observed is the mistake FR-UI-5 exists to stop.
 func TestALaneStatesWhetherItsValueWasObserved(t *testing.T) {
 	snapshot := golden(t)
-	snapshot.Floor.Lanes = []ledger.LaneView{
-		{ID: "lane-seen", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessObserved, AsOf: snapshot.Needs.AsOf},
-		{ID: "lane-old", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessLastReported, AsOf: snapshot.Needs.AsOf - 5*60*1000},
+	snapshot.Floor.Lanes = []api.FloorLane{
+		{LaneView: ledger.LaneView{ID: "lane-seen", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessObserved, AsOf: snapshot.Needs.AsOf}},
+		{LaneView: ledger.LaneView{ID: "lane-old", LaneStatus: ledger.LaneStatus{ActualState: "working"}, Freshness: ledger.FreshnessLastReported, AsOf: snapshot.Needs.AsOf - 5*60*1000}},
 	}
 	frame := loaded(t, snapshot).View()
 	for _, want := range []string{"observed", "last reported 5m ago"} {
@@ -119,7 +119,7 @@ func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	order := workorders.WorkOrder{ID: "wo", Title: hostile}
 	snapshot := top.Snapshot{}
 	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedWork, ID: "wo" + hostile, Work: &api.WorkNeed{Reason: api.ReasonBlocked, Detail: hostile, WorkOrder: &order, Actions: []string{}}}}
-	snapshot.Floor.Lanes = []ledger.LaneView{{ID: "lane" + hostile, WorkOrder: hostile, LaneStatus: ledger.LaneStatus{ActualState: hostile}}}
+	snapshot.Floor.Lanes = []api.FloorLane{{LaneView: ledger.LaneView{ID: "lane" + hostile, WorkOrder: hostile, LaneStatus: ledger.LaneStatus{ActualState: hostile}}, WorkOrderTitle: hostile}}
 	frame := loaded(t, snapshot).View()
 	for _, r := range frame {
 		if r == '\n' {

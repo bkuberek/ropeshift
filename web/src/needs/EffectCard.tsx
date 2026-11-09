@@ -1,5 +1,6 @@
 import { decideEffect } from "../api/client";
 import type { Effect, EffectOutcome } from "../api/types";
+import { Id } from "../parts/parts";
 import { useAct } from "./useAct";
 
 const kindWords: Record<string, string> = {
@@ -25,7 +26,9 @@ export function EffectCard({ effect, after }: { effect: Effect; after: () => Pro
       <dl className="facts">
         <div>
           <dt>Effect</dt>
-          <dd className="mono">{effect.key}</dd>
+          <dd>
+            <Id value={effect.key} />
+          </dd>
         </div>
         {effect.target ? (
           <div>
@@ -39,7 +42,9 @@ export function EffectCard({ effect, after }: { effect: Effect; after: () => Pro
         </div>
         <div>
           <dt>Worker</dt>
-          <dd className="mono">{effect.worker_id}</dd>
+          <dd>
+            <Id value={effect.worker_id} />
+          </dd>
         </div>
       </dl>
       {effect.offers.includes("retry") ? <p className="quiet">Running it again may repeat it, if it did happen.</p> : null}

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { decideApproval } from "../api/client";
 import type { Approval } from "../api/types";
+import { Id } from "../parts/parts";
 import { useAct } from "./useAct";
 
 // The digest sent is the one on this page, so a call that changed since this read is refused, and a
@@ -23,11 +24,15 @@ export function ApprovalCard({ approval, after }: { approval: Approval; after: (
         ) : null}
         <div>
           <dt>Lane</dt>
-          <dd className="mono">{approval.lane_id}</dd>
+          <dd>
+            <Id value={approval.lane_id} />
+          </dd>
         </div>
         <div>
           <dt>Work order</dt>
-          <dd className="mono">{approval.work_order_id}</dd>
+          <dd>
+            <Id value={approval.work_order_id} />
+          </dd>
         </div>
         <div>
           <dt>Digest</dt>

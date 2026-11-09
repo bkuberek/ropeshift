@@ -14,6 +14,52 @@ function serving<T>(name: string, change: (view: T) => void) {
 
 const line = (name: string) => screen.findByRole("article", { name });
 
+// An ID stays on one line and ends in an ellipsis when its column is too narrow (app.css, `.id`), so
+// the whole of it stands in its title, and in the page for a screen reader and a copy.
+function heldWhole(scope: HTMLElement, id: string) {
+  const shown = within(scope).getAllByText(id);
+  for (const element of shown) {
+    expect(element.classList.contains("id"), `${id} in <${element.tagName.toLowerCase()} class="${element.className}">`).toBe(true);
+    expect(element.getAttribute("title")).toBe(id);
+  }
+}
+
+describe("a long ID", () => {
+  it("stays whole on one line in work in progress", async () => {
+    serveViews();
+    openPage("/in-progress");
+    const card = await line("Write the docs");
+    for (const id of ["wo-running", "lane-wo-running", "worker-a"]) {
+      heldWhole(card, id);
+    }
+  });
+
+  it("stays whole on one line on the shop floor", async () => {
+    serveViews();
+    openPage("/shop-floor");
+    const workers = await screen.findByRole("region", { name: "Workers" });
+    for (const id of ["worker-a", "orchestrator-worker-a"]) {
+      heldWhole(workers, id);
+    }
+    const lanes = await screen.findByRole("region", { name: "Last reported lanes" });
+    for (const id of ["lane-wo-running", "wo-running"]) {
+      heldWhole(lanes, id);
+    }
+  });
+
+  it("stays whole on one line where work stopped", async () => {
+    serveViews();
+    openPage("/stuck");
+    heldWhole(await line("Rotate the keys"), "wo-lapsed");
+  });
+
+  it("stays whole on one line among the sources", async () => {
+    serveViews();
+    openPage("/operations");
+    heldWhole(await screen.findByRole("region", { name: "Sources" }), "repository-1");
+  });
+});
+
 describe("in progress", () => {
   it("lists running work, the longest first, with what its lane is doing", async () => {
     serveViews();
@@ -337,6 +383,34 @@ describe("the shop floor", () => {
     expect(within(card).getByText("worker-a")).toBeTruthy();
     expect(within(card).getByText(/^Last reported/)).toBeTruthy();
     expect(within(card).getByText("Epoch").closest("div")?.textContent).toContain("1");
+  });
+
+  it("states a worker's freshness as the value it is, and not as a note beside one", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      const second = view.workers[0] ? { ...view.workers[0], worker: { ...view.workers[0].worker, id: "worker-b", name: "spare" } } : undefined;
+      if (view.workers[0] && second) {
+        view.workers[0].freshness = "observed";
+        view.workers.push(second);
+      }
+    });
+    openPage("/shop-floor");
+    const workers = await screen.findByRole("region", { name: "Workers" });
+    for (const [name, said] of [
+      ["solo", "Observed"],
+      ["spare", "Last reported"],
+    ]) {
+      const seen = within(within(workers).getByRole("article", { name })).getByText("Seen").closest("div")?.querySelector("dd");
+      expect(seen?.textContent, name).toBe(said);
+      expect(seen?.querySelector(".fresh"), `${name} reads as an aside`).toBeNull();
+    }
+  });
+
+  it("names the work each lane runs", async () => {
+    serveViews();
+    openPage("/shop-floor");
+    const card = (await screen.findAllByText("lane-wo-running")).find((element) => element.closest("article"))?.closest("article");
+    expect(card?.textContent).toContain("Write the docs");
+    expect(card?.textContent).toContain("wo-running");
   });
 
   it("states a worker's orchestrator, wanted and actual", async () => {

@@ -1,13 +1,14 @@
 import type { Lane } from "../api/types";
-import { Ago, Fact, words } from "../parts/parts";
+import { Ago, Fact, Id, words } from "../parts/parts";
 import { conditionWords, laneLabel } from "./states";
 
 // Freshness says how far to believe a value (FR-UI-5). What a worker confirmed reads as observed, and
-// what it said before going quiet reads as last reported, in a shape of its own.
-export function Freshness({ freshness, at }: { freshness: string; at?: number }) {
+// what it said before going quiet reads as last reported, in a shape of its own. Beside a value it is a
+// note, and `alone` makes it the value of a fact that states nothing else.
+export function Freshness({ freshness, at, alone = false }: { freshness: string; at?: number; alone?: boolean }) {
   const observed = freshness === "observed";
   return (
-    <span className={observed ? "fresh" : "fresh fresh-old"}>
+    <span className={[alone ? "" : "fresh", observed ? "" : "fresh-old"].filter(Boolean).join(" ") || undefined}>
       {observed ? "Observed" : "Last reported"}
       {at ? (
         <>
@@ -41,8 +42,8 @@ export function LaneFacts({ lane, named = true }: { lane: Lane; named?: boolean 
     <div className="lane-facts">
       <dl className="facts">
         {named ? (
-          <Fact name="Lane" mono>
-            {lane.id}
+          <Fact name="Lane">
+            <Id value={lane.id} />
           </Fact>
         ) : null}
         <Fact name="State">{laneLabel(lane.actual_state)}</Fact>
@@ -54,8 +55,8 @@ export function LaneFacts({ lane, named = true }: { lane: Lane; named?: boolean 
         {lane.ledger_reach ? <Fact name="Ledger">{words(lane.ledger_reach)}</Fact> : null}
         <Fact name="Generation">{lane.generation}</Fact>
         {lane.worker_id ? (
-          <Fact name="Worker" mono>
-            {lane.worker_id}
+          <Fact name="Worker">
+            <Id value={lane.worker_id} />
           </Fact>
         ) : null}
       </dl>

@@ -1,6 +1,6 @@
 import type { Operations as View, SourceBinding } from "../api/types";
 import { Link } from "../app/route";
-import { Fact, Section, words } from "../parts/parts";
+import { Fact, Id, Section, words } from "../parts/parts";
 import { Measures } from "./Measures";
 import { everyCount, laneLabel, laneStates, workLabel, workStates } from "./states";
 
@@ -29,7 +29,9 @@ function Source({ source }: { source: SourceBinding }) {
       <ul className="tags">
         <li className="tag-strong">{words(source.health)}</li>
         <li>{words(source.port)}</li>
-        <li className="mono">{source.instance}</li>
+        <li>
+          <Id value={source.instance} />
+        </li>
       </ul>
       {source.detail ? <p className="mono quiet">{source.detail}</p> : null}
       {source.problems?.length ? (

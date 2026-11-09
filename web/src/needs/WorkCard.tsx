@@ -5,6 +5,7 @@ import type { OrchestratorAction, WorkAction, WorkNeed } from "../api/types";
 import { Freshness } from "../floor/LaneFacts";
 import { laneLabel } from "../floor/states";
 import { onlyAPerson, readWake, WakeWords } from "../floor/WakeWords";
+import { Id } from "../parts/parts";
 import { useAct } from "./useAct";
 
 export const workLabels: Record<string, string> = {
@@ -93,7 +94,9 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
         <dl className="facts">
           <div>
             <dt>Worker</dt>
-            <dd className="mono">{work.orchestrator.worker_id}</dd>
+            <dd>
+              <Id value={work.orchestrator.worker_id} />
+            </dd>
           </div>
         </dl>
       ) : null}
@@ -101,7 +104,9 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
         <dl className="facts">
           <div>
             <dt>Lane</dt>
-            <dd className="mono">{work.lane.id}</dd>
+            <dd>
+              <Id value={work.lane.id} />
+            </dd>
           </div>
           <div>
             <dt>State</dt>

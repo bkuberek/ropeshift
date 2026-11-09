@@ -601,6 +601,29 @@ func TestShopFloorSeparatesObservedFromLastReported(t *testing.T) {
 	}
 }
 
+// A lane's ID says nothing to a person, so the shop floor names the work each lane runs.
+func TestShopFloorNamesTheWorkOfEachLane(t *testing.T) {
+	d, _, _ := aWorld(t)
+	titles := map[string]string{}
+	var raw struct {
+		Lanes []struct {
+			ID    string `json:"id"`
+			Title string `json:"work_order_title"`
+		} `json:"lanes"`
+	}
+	if err := d.Client.ReadView(t.Context(), api.ViewShopFloor, "", &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, lane := range raw.Lanes {
+		titles[lane.ID] = lane.Title
+	}
+	for lane, want := range map[string]string{"lane-wo-running": "Write the docs", "lane-wo-parked": "Wait for the check"} {
+		if titles[lane] != want {
+			t.Errorf("%s names %q, want %q", lane, titles[lane], want)
+		}
+	}
+}
+
 func TestOperationsCountTheFleet(t *testing.T) {
 	d, _, _ := aWorld(t)
 	view := readView[api.Operations](t, d, api.ViewOperations, "")

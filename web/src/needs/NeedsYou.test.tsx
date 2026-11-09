@@ -456,6 +456,27 @@ describe("waiting work", () => {
     expect(within(card).getByText("no_outcome")).toBeTruthy();
   });
 
+  it("keeps each ID on one line, whole in its title", () => {
+    const view = goldenNeedsYou();
+    const { approval } = itemOf(view, "approval");
+    const { effect } = itemOf(view, "effect");
+    show(view);
+    const ids = [
+      [/Rotate the keys/, "lane-wo-lapsed"],
+      [/^Allow /, approval.lane_id],
+      [/^Allow /, approval.work_order_id],
+      [/Did it happen/, effect.key],
+      [/Did it happen/, effect.worker_id],
+    ] as const;
+    for (const [card, id] of ids) {
+      const shown = within(cardNamed(card)).getAllByText(id);
+      for (const element of shown) {
+        expect(element.classList.contains("id"), id).toBe(true);
+        expect(element.getAttribute("title")).toBe(id);
+      }
+    }
+  });
+
   it("keeps a last reported value apart from an observed one", () => {
     const view = goldenNeedsYou();
     show(view);
