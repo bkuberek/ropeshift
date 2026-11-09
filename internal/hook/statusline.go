@@ -18,11 +18,13 @@ const flagPass = "--pass"
 // line. It follows the hook contract, and it never spools: only the latest value means
 // anything, so a report no worker takes is not worth keeping. It reports before it passes
 // the input on, because a person's command may never read it, and a write to that closed
-// pipe would end this process first.
+// pipe would end this process first. Its deadline settles an outbox that never holds anything,
+// so a status line held past it still exits 0.
 func StatusMain(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) int {
 	defer func() { _ = recover() }()
 	input, _ := io.ReadAll(io.LimitReader(stdin, maxInput))
 	cfg := read(lanes.EventStatusLine, getenv)
+	cfg.out = new(outbox)
 	if cfg.socket != "" {
 		timer := time.AfterFunc(hardDeadline, func() { expire(cfg) })
 		defer timer.Stop()

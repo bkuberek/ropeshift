@@ -512,3 +512,54 @@ func TestAPolicyHookStillDecidingAtItsDeadlineDenies(t *testing.T) {
 		t.Errorf("a hook with no verdict at its deadline answered %q", stdout.String())
 	}
 }
+
+// A status line hook follows the hook contract, and never spools. A loaded machine can hold it past
+// its deadline while it passes its input on, and it still exits 0, spools nothing, and prints nothing
+// but its input. A pipe no one reads holds the pass-through write past the deadline, the way a stall
+// does.
+func TestAStatusLinePastItsDeadlineExitsZero(t *testing.T) {
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	env := newHookEnv(t)
+	input := `{"session_id":"s1","padding":"` + strings.Repeat("x", 1<<20) + `"}`
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	cmd := exec.Command(binaries.cli, "statusline", "--pass")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(input)
+	cmd.Stdout = writer
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the status line: %v\n%s", err, stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("the deadline never ended the status line")
+	}
+	passed, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(passed) == len(input) {
+		t.Fatal("the whole input went through, so nothing held the status line past its deadline")
+	}
+	if !strings.HasPrefix(input, string(passed)) {
+		t.Errorf("the status line printed %d bytes that are not its input", len(passed))
+	}
+	if _, err := os.Stat(env.spool); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a status line spooled: %v", err)
+	}
+}
