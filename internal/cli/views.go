@@ -19,7 +19,7 @@ func viewing(name string) func(*invocation, []string) int {
 	return func(c *invocation, args []string) int {
 		set := c.flags()
 		category := set.String("category", "", "only this category, for a view that files by one")
-		positional, ok := parse(set, args)
+		positional, ok := c.parse(set, args)
 		if !ok {
 			return ExitUsage
 		}
@@ -46,7 +46,7 @@ func viewing(name string) func(*invocation, []string) int {
 func (c *invocation) runTop(args []string) int {
 	set := c.flags()
 	once := set.Bool("once", false, "print one frame and stop")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -124,7 +124,7 @@ func (c *invocation) effectList(args []string) int {
 
 func (c *invocation) effectShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -144,7 +144,7 @@ func (c *invocation) effectDecide(args []string) int {
 	set := c.flags()
 	outcome := set.String("outcome", "", "happened, not_happened, or retry")
 	reason := set.String("reason", "", "why")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -167,7 +167,7 @@ func (c *invocation) events(args []string) int {
 	set := c.flags()
 	after := set.Int64("after", 0, "the revision to read from")
 	limit := set.Int("limit", 0, "stop after this many events")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -202,7 +202,7 @@ func (c *invocation) events(args []string) int {
 // signOut ends the session this shell holds, so its token opens nothing even if something kept it.
 func (c *invocation) signOut(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

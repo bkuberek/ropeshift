@@ -30,7 +30,7 @@ func (c *invocation) planList(args []string) int {
 
 func (c *invocation) planShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -61,7 +61,7 @@ func (c *invocation) planShow(args []string) int {
 func (c *invocation) planReview(args []string) int {
 	set := c.flags()
 	id := set.String("id", "", "the review's ID, for a retry")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -103,7 +103,7 @@ func (c *invocation) requirementList(args []string) int {
 
 func (c *invocation) requirementGet(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -130,7 +130,7 @@ func (c *invocation) unblock(args []string, move func(*api.Client, context.Conte
 	set := c.flags()
 	var request api.Unblock
 	set.StringVar(&request.Reason, "reason", "", "what changed")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -154,7 +154,7 @@ func (c *invocation) workSendBack(args []string) int {
 	set := c.flags()
 	var request api.SendBack
 	set.StringVar(&request.Reason, "reason", "", "why the contract must change")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -198,7 +198,7 @@ func (c *invocation) documentRef(args []string) (api.DocumentRef, bool) {
 	var ref api.DocumentRef
 	set.StringVar(&ref.Instance, "instance", "", "the repository that holds it, by its first commit")
 	set.StringVar(&ref.Version, "version", "", "a version from `document versions`")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ref, false
 	}

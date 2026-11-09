@@ -32,7 +32,7 @@ func (c *invocation) questionList(args []string) int {
 	set := c.flags()
 	var filter api.RecordFilter
 	filterFlags(set, &filter)
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -56,7 +56,7 @@ func (c *invocation) questionList(args []string) int {
 
 func (c *invocation) questionShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -79,7 +79,7 @@ func (c *invocation) questionRecord(args []string) int {
 	set.StringVar(&request.SubjectID, "subject", "", "the ID of what it is about")
 	set.StringVar(&request.SubjectKind, "subject-kind", "", "contract or work_order")
 	set.BoolVar(&request.Blocking, "blocking", false, "work on the subject waits for the answer")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -105,7 +105,7 @@ func (c *invocation) questionRecord(args []string) int {
 
 func (c *invocation) questionDismiss(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -128,7 +128,7 @@ func (c *invocation) questionAnswer(args []string) int {
 	set.StringVar(&request.Answer, "answer", "", "the answer")
 	set.StringVar(&request.Rationale, "rationale", "", "why")
 	set.Var(&citations, "citation", "what it rests on, repeatable")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -155,7 +155,7 @@ func (c *invocation) questionAnswer(args []string) int {
 func (c *invocation) questionBatches(args []string) int {
 	set := c.flags()
 	category := set.String("category", "", "only this category")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -199,7 +199,7 @@ func (c *invocation) decisionList(args []string) int {
 	set := c.flags()
 	var filter api.RecordFilter
 	filterFlags(set, &filter)
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -223,7 +223,7 @@ func (c *invocation) decisionList(args []string) int {
 
 func (c *invocation) decisionShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -251,7 +251,7 @@ func (c *invocation) decisionRecord(args []string) int {
 	set.Var(&noConflict, "no-conflict", "a decision it overlaps and does not conflict with, repeatable")
 	set.Var(&categories, "category", "a category, repeatable")
 	set.Var(&citations, "citation", "what it rests on, repeatable")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -287,7 +287,7 @@ func (c *invocation) decisionOverturn(args []string) int {
 	set.StringVar(&request.Statement, "statement", "", "what stands now")
 	set.StringVar(&request.Rationale, "rationale", "", "why")
 	set.Var(&citations, "citation", "what it rests on, repeatable")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -338,7 +338,7 @@ func policyKind(kind string) (authority.PolicyKind, bool) {
 func (c *invocation) policyList(args []string) int {
 	set := c.flags()
 	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, or autonomy")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -364,7 +364,7 @@ func (c *invocation) policyList(args []string) int {
 func (c *invocation) policyShow(args []string) int {
 	set := c.flags()
 	kind := set.String("kind", string(authority.PolicyDecision), "the policy: decision, lane, delegation, or autonomy")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -388,7 +388,7 @@ func (c *invocation) policyShow(args []string) int {
 func (c *invocation) policyPublish(args []string) int {
 	set := c.flags()
 	file := set.String("file", "", "the TOML table to publish")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -422,7 +422,7 @@ func (c *invocation) categoryList(args []string) int {
 
 func (c *invocation) categoryAdd(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -442,7 +442,7 @@ func (c *invocation) search(args []string) int {
 	var kinds repeated
 	set.Var(&kinds, "kind", "decision, requirement, contract, or question, repeatable")
 	limit := set.Int("limit", 0, "the most candidates to show")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

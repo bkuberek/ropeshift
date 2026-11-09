@@ -41,7 +41,7 @@ func (c *invocation) workerAutonomy(args []string) int {
 // stated risk and acknowledged it, so nobody reaches it by accident.
 func (c *invocation) workerLevel(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -71,7 +71,7 @@ func (c *invocation) workerRisk(args []string) int {
 func (c *invocation) workerAcknowledge(args []string) int {
 	set := c.flags()
 	digest := set.String("digest", "", "the digest `worker risk` printed")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -92,7 +92,7 @@ func (c *invocation) workerWindowOpen(args []string) int {
 	var length time.Duration
 	set.DurationVar(&length, "for", 0, "how long it stays open, 4h by default and 12h at most")
 	id := set.String("id", "", "the window's ID, for a retry")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

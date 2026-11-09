@@ -11,7 +11,7 @@ import (
 // the command runs, because the daemon runs somewhere else.
 func (c *invocation) backup(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

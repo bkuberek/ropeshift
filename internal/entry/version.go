@@ -16,10 +16,15 @@ type versionInfo = buildversion.Info
 // start: a release build matches no pattern to read it, and a development build compiles two small ones.
 var version = buildversion.Read(commandCLI).Version
 
-func runVersion(command string, args []string, stdout, stderr io.Writer) int {
+// versionFlags is the version command's flag set, which its help prints too.
+func versionFlags(command string) (*flag.FlagSet, *bool) {
 	flags := flag.NewFlagSet(command+" version", flag.ContinueOnError)
+	return flags, flags.Bool("json", false, "print as JSON")
+}
+
+func runVersion(command string, args []string, stdout, stderr io.Writer) int {
+	flags, asJSON := versionFlags(command)
 	flags.SetOutput(stderr)
-	asJSON := flags.Bool("json", false, "print as JSON")
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}

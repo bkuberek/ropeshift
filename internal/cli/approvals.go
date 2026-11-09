@@ -12,7 +12,7 @@ import (
 func (c *invocation) approvalList(args []string) int {
 	set := c.flags()
 	state := set.String("state", "", "only requests in this state")
-	if _, ok := parse(set, args); !ok {
+	if _, ok := c.parse(set, args); !ok {
 		return ExitUsage
 	}
 	client := c.client()
@@ -30,7 +30,7 @@ func (c *invocation) approvalList(args []string) int {
 // approvalShow prints what a member decides on, with the digest a decision names.
 func (c *invocation) approvalShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -55,7 +55,7 @@ func (c *invocation) approvalDecide(args []string, allow bool) int {
 	set := c.flags()
 	digest := set.String("digest", "", "the digest `approval show` printed")
 	reason := set.String("reason", "", "why, which a lane reads")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

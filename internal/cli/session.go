@@ -34,7 +34,7 @@ func noTerminal(cause error) error {
 // holds it, and a lane cannot inherit it (D26).
 func (c *invocation) login(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -57,7 +57,7 @@ func (c *invocation) login(args []string) int {
 // the current passphrase through the path every change takes.
 func (c *invocation) passphraseSet(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

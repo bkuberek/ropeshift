@@ -9,16 +9,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/term"
 
 	"ropeshift.dev/ropeshift/internal/adapters/localauth"
 	"ropeshift.dev/ropeshift/internal/authority"
 	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/internal/hook"
 	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/mcpserver"
-	"ropeshift.dev/ropeshift/internal/shim"
 )
 
 // Exit codes shared by every command.
@@ -42,40 +40,35 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	}
 	command := commandName(args[0])
 	rest := args[1:]
+	// A missing command is a usage error, as an unknown one is, so it exits 2 with the list on
+	// stderr. Asking for help is not an error, so help exits 0 with the list on stdout.
 	if len(rest) == 0 {
-		fmt.Fprintf(stderr, "usage: %s version [--json]\n", command)
+		cli.WriteList(stderr, command, groups(command))
 		return exitUsage
 	}
-	if rest[0] == "version" {
-		return runVersion(command, rest[1:], stdout, stderr)
+	switch {
+	case cli.AsksForHelp(rest[0]):
+		rest = append([]string{"help"}, rest[1:]...)
+	case rest[0] == "-version" || rest[0] == "--version":
+		rest = append([]string{"version"}, rest[1:]...)
 	}
-	if command == commandDaemon {
-		if rest[0] == "solo" {
-			return runSolo(rest[1:], stdout, stderr)
+	if r, ok := findRoute(command, rest[0]); ok {
+		// A route answers help before it runs, because some read stdin or act on their first argument.
+		if r.Name != "help" && asksForHelp(rest[1:]) {
+			r.writeUsage(stdout, command)
+			return exitOK
 		}
-		fmt.Fprintf(stderr, "%s: unknown command %q\n", command, rest[0])
-		return exitUsage
+		return r.run(rest[1:], stdout, stderr)
 	}
-	if rest[0] == "hook" {
-		return hook.Main(rest[1:], os.Stdin, stdout, os.Getenv)
+	if command == commandCLI && cli.IsCommand(rest[0]) {
+		return cli.Run(rest, stdout, stderr, cliOptions())
 	}
-	if rest[0] == "mcp" {
-		return mcpserver.Main(os.Stdin, stdout, stderr, os.Getenv)
+	kind := "command"
+	if strings.HasPrefix(rest[0], "-") {
+		kind = "flag"
 	}
-	if rest[0] == "statusline" {
-		return hook.StatusMain(rest[1:], os.Stdin, stdout, os.Getenv)
-	}
-	if rest[0] == "lane-pane" {
-		return shim.PaneMain(rest[1:], stderr)
-	}
-	if rest[0] == "lane-shim" {
-		return shim.Main(rest[1:], stderr)
-	}
-	if !cli.IsCommand(rest[0]) {
-		fmt.Fprintf(stderr, "%s: unknown command %q\n", command, rest[0])
-		return exitUsage
-	}
-	return cli.Run(rest, stdout, stderr, cliOptions())
+	fmt.Fprintf(stderr, "%s: unknown %s %q\nRun '%s help' for a list of commands.\n", command, kind, rest[0], command)
+	return exitUsage
 }
 
 // cliOptions finds the local control plane. A path that does not resolve leaves the

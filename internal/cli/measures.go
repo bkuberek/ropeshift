@@ -16,7 +16,7 @@ import (
 func (c *invocation) measuresCommand(args []string) int {
 	set := c.flags()
 	window := set.String("window", api.DefaultMeasureWindow, "how far back, such as 24h or 30d")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

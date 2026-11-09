@@ -220,18 +220,21 @@ func TestEveryCommandIsDocumented(t *testing.T) {
 			}
 			continue
 		}
+		if !strings.Contains(usage, "  "+command+" ") && !strings.Contains(usage, "  "+command+"\n") {
+			t.Errorf("%s is not in the usage", command)
+		}
 		if words[0] == "fleet" && slices.Contains([]string{"run", "pause", "drain"}, words[1]) {
-			if !strings.Contains(usage, "fleet run|pause|drain") {
-				t.Errorf("%s is not in the usage", command)
+			if !strings.Contains(docs, "`ropeshift fleet run`, `pause`, `drain`") {
+				t.Errorf("%s is not in docs/cli.md", command)
 			}
 			continue
 		}
 		if !strings.Contains(docs, "ropeshift "+command) {
 			t.Errorf("%s is not in docs/cli.md", command)
 		}
-		if !strings.Contains(usage, "  "+command) {
-			t.Errorf("%s is not in the usage", command)
-		}
+	}
+	if !strings.Contains(usage, "  view <name> [--category C]") {
+		t.Error("the views are not in the usage")
 	}
 	if strings.Contains(usage, "plan, or planning work") {
 		t.Error("the usage says one thing twice")

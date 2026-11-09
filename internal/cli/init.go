@@ -93,7 +93,7 @@ type initResult struct {
 // what registers the worker.
 func (c *invocation) initMachine(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

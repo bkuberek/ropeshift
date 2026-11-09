@@ -25,7 +25,7 @@ Check the installation:
 ropeshift version
 ```
 
-It prints the release, the commit it was built from, and the platform, as [Versioning](versioning.md#what-a-binary-reports) describes.
+It prints the release, the commit it was built from, and the platform, as [Versioning](versioning.md#what-a-binary-reports) describes. `ropeshift help` lists every command, and `ropeshift help <command>` prints one command's usage and flags.
 
 Ropeshift also needs git, and tmux for lanes that run in a terminal pane.
 
