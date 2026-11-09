@@ -45,7 +45,8 @@ web-test:
 	npm --prefix web test
 
 # Writes the application where the binary embeds it, so a build after this one serves it. A plain
-# checkout serves the placeholder page, and a release commit adds this output on its tag (D28).
+# checkout serves the placeholder page, and every GoReleaser build writes this output first
+# (scripts/release-ui.sh).
 web-build:
 	@test -d web/node_modules || npm --prefix web ci
 	npm --prefix web run build
@@ -161,9 +162,10 @@ snapshot:
 	sh scripts/homebrew-formula.sh dist/checksums.txt "$(FORMULA_URL)" dist/homebrew/ropeshift.rb
 
 # Installs the snapshot through every channel in a clean environment and asks each install its
-# version: the install script on this machine and in Linux containers, the .deb and .rpm packages, the
-# Homebrew formula, and go install at a release tag made in a scratch clone. It needs Docker, Node.js,
-# and GoReleaser, and builds a fresh snapshot unless INSTALL_DIST names one.
+# version: the install script on this machine and in Linux containers, the .deb and .rpm packages, and
+# the Homebrew formula. In a scratch clone, it also tags a simulated release pull request's merge commit
+# with scripts/release.sh and builds the release from that tag. It needs Docker, Node.js, and
+# GoReleaser, and builds a fresh snapshot unless INSTALL_DIST names one.
 INSTALL_DIST ?=
 
 install-test:

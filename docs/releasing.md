@@ -4,7 +4,7 @@ This page describes how a ropeshift release is built, tested, and published, and
 
 ## What a release holds
 
-A release is one binary for each platform, built from a tag by [GoReleaser](https://goreleaser.com/) with the web UI embedded. The binary is named `ropeshift`, and `ropeshiftd` is a link to it, because the name a process starts under picks the command.
+A release is one binary for each platform, built from a tag on `main` by [GoReleaser](https://goreleaser.com/) with the web UI embedded. The binary is named `ropeshift`, and `ropeshiftd` is a link to it, because the name a process starts under picks the command.
 
 | Artifact | What it is |
 |----------|------------|
@@ -12,7 +12,7 @@ A release is one binary for each platform, built from a tag by [GoReleaser](http
 | `checksums.txt` | The SHA-256 of every archive and package |
 | `.deb` and `.rpm` packages | For Linux on arm64 and amd64. They install `/usr/bin/ropeshift`, the `/usr/bin/ropeshiftd` link, and the license and readme under `/usr/share/doc/ropeshift`. They recommend git and tmux |
 | The Homebrew formula | Rendered from the checksums for the project's tap |
-| The tag itself | `go install` at the tag builds the same binary from source, with the UI, once the `ropeshift.dev` module path is served |
+| The tag | `v<version>`, on the commit where the release pull request merged into `main`. Every artifact is built from it |
 
 No package installs a service. `ropeshift service install` writes a launchd agent or a systemd user unit for the person who runs it, and on a Homebrew install `brew services` does that job instead. [Onboarding](onboarding.md#run-the-daemon-as-a-service) describes both.
 
@@ -24,11 +24,10 @@ No package installs a service. `ropeshift service install` writes a launchd agen
 | Homebrew | `brew install bkuberek/tap/ropeshift` | `brew services start ropeshift` |
 | Debian and Ubuntu | `sudo dpkg -i ropeshift_<version>_<arch>.deb` | `ropeshift service install` |
 | Fedora and RHEL | `sudo rpm -i ropeshift-<version>-1.<arch>.rpm` | `ropeshift service install` |
-| Go | Not available yet: `go install ropeshift.dev/ropeshift/cmd/...@v0.1.0` needs the `ropeshift.dev` module path to be served | `ropeshift service install` |
 
 The packages are on the release's page. Their names carry the version in the packaging system's form, such as `ropeshift_0.1.0~alpha.1_arm64.deb` and `ropeshift-0.1.0~alpha.1-1.aarch64.rpm`, where an `.rpm` names the architecture `aarch64` or `x86_64`.
 
-`go install` builds `ropeshift` and `ropeshiftd` as two copies of the same program, which behaves the same as the link. `make install-test` proves it at a tag through a module proxy made of local files.
+Every channel installs a binary that GoReleaser built, with the web UI embedded. `go install` is not an install channel for now: it builds from a tag's source, and no commit holds the built web UI, so the binary it builds serves the placeholder page. It becomes a channel when a release carries the built UI on `main`.
 
 Under `brew services`, the daemon starts with no repository source. To name sources on a Homebrew install, use `ropeshift service install -- --source /path/to/repository` instead. Use one or the other, because two daemons for one installation conflict.
 
@@ -76,8 +75,9 @@ These run the checks on a workstation, and a release by hand. Continuous integra
 | Tool | Why |
 |------|-----|
 | Go, at the version `go.mod` names | Builds the binary |
-| Node.js and npm | Builds the web UI. Running a release needs neither |
-| GoReleaser v2, the free edition | Builds and publishes the release, for example `brew install goreleaser` |
+| Node.js and npm | Builds the web UI, which every GoReleaser build does first. A released binary needs neither to run |
+| GoReleaser v2, the free edition | Builds the release and uploads its artifacts, for example `brew install goreleaser` |
+| The GitHub CLI, `gh` | Creates the release, and changes the release pull request's label, in a release by hand |
 | Docker | Runs the Linux channels of `make install-test`, `make exit-container`, and `make service-container` |
 | A GitHub token that can write the repository's releases | Publishes a release by hand, as `GITHUB_TOKEN`. The release workflow uses its own token |
 
@@ -91,38 +91,21 @@ These run the checks on a workstation, and a release by hand. Continuous integra
 | `make exit-container` | Builds a snapshot, installs its Linux archive with the install script for a new account in a container with no network, and runs a first work order there on the fake agent CLI. It also runs that work order on a build of the current tree under `strace`, and fails on any connection off loopback. `EXIT_DIST` names a snapshot built earlier |
 | `make service-container` | Writes `make linux-bundle` for the container engine's architecture, and runs its scope and service tests in a container whose init is systemd, as a user whose manager runs through lingering. It fails if a test skips. `SERVICE_OUT` names the directory for the bundle, the results, and each step's log |
 
-`make install-test` runs the install script on this machine and in Debian and Alpine containers, the `.deb` in Debian, the `.rpm` in Fedora, and the formula in a Homebrew container. Each container runs with no network. It also checks that the install script refuses a changed checksum, a changed archive, and an archive the checksums do not list, before it extracts anything. Then, in a scratch clone of the repository, it cuts two releases with `scripts/release.sh`, builds each from its tag with publishing skipped, reads their release notes, and runs `go install` at a tag through a module proxy made of local files.
+`make install-test` runs the install script on this machine and in Debian and Alpine containers, the `.deb` in Debian, the `.rpm` in Fedora, and the formula in a Homebrew container. Each container runs with no network. It also checks that the install script refuses a changed checksum, a changed archive, and an archive the checksums do not list, before it extracts anything. Then, in a scratch clone of the repository, it merges a simulated release pull request, checks what `scripts/release.sh` refuses, tags the merge commit with it, and builds the release from that tag with publishing skipped. The build must report the tag's version and the merge commit, embed the web UI in every archive, and write no release notes of its own.
 
 `make exit-container` follows [onboarding](onboarding.md) as a new user would, in a Debian container with git and tmux and no network: `ropeshift init` on a terminal, the sample contract committed to a repository of its own, `ropeshiftd solo` with that repository as its source, and the work order reviewed, claimed, run in a lane, and accepted. A fake `claude` stands for the agent CLI, and a canary that fails the run stands behind it. The run from the release archive shows that a new user completes a work order with no account, no Docker, and no network. The run on a build of the tree traces every process with `strace`, and every address a process connects to, binds, or sends to must be a local socket or a loopback address.
 
-## The release commit
+## The web UI in a release
 
-`main` never holds the web UI's build, so a plain checkout builds with no Node.js and serves a placeholder page in place of the UI. `go install` at a tag builds whatever the tag's tree holds, so a release tag must hold the build.
-
-`scripts/release.sh` solves this with a release commit:
-
-1. It refuses a version outside the [policy](versioning.md), a tag that already exists, a checkout on another branch, and a tree with uncommitted changes.
-2. It runs `npm ci` and the web build.
-3. It commits the build with `git add --force web/static` on top of the branch's head, as `chore(release): <version>`.
-4. It tags that commit with an annotated tag, and returns to the branch, which stays as it was.
-5. It pushes nothing, and prints the commands that publish the release. When `ROPESHIFT_RELEASE_OUTPUT` names a file, it also appends `tag=`, `commit=`, and `previous=` lines to it, which is how the release workflow reads them.
-
-The release commit is not on `main`. Its parent is the commit `main` pointed at when the release was cut. GoReleaser's build of a tag checks that the commit holds the built UI and nothing else under `web/static`, and refuses a tag that does not.
-
-Because each release commit sits beside `main`, git cannot find the previous release from `main`'s history. `scripts/release.sh` therefore prints `GORELEASER_PREVIOUS_TAG`, which names the newest release tag before this one, so the release notes start there.
+`main` never holds the web UI's build, so a plain checkout builds with no Node.js and serves a placeholder page in place of the UI. GoReleaser builds the UI into `web/static` before every build, with `scripts/release-ui.sh`: a snapshot with the packages already installed in `web/node_modules`, and a release with `npm ci`, which installs exactly the packages `web/package-lock.json` pins, after it clears every file git ignores under `web/static`, so no earlier build's file is embedded. Every artifact therefore embeds the UI, and a release tag is a commit on `main` that holds no build output.
 
 ## Release notes
 
-Two sets of notes come from the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) since the previous release:
+A release has one set of notes, from the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) since the previous release. release-please writes them in the release pull request, as the version's section of `CHANGELOG.md`, with its default sections: Features, Bug Fixes, Performance Improvements, and Reverts. `docs:`, `test:`, `chore:`, `ci:`, `build:`, `refactor:`, and `style:` commits are left out, because they change nothing a user runs. A breaking change keeps its type, such as `feat!:`, so it appears in its section. The pull request shows the section before the release exists.
 
-- The GitHub release's notes, which GoReleaser writes from git, grouped as Features (`feat:`), Fixes (`fix:`), and Others. `docs:`, `test:`, `chore:`, `ci:`, and `style:` commits are left out, because they change nothing a user runs. A breaking change keeps its type, such as `feat!:`, so it appears in its group.
-- `CHANGELOG.md`, which release-please writes in the release pull request, with its default sections: Features, Bug Fixes, Performance Improvements, and Reverts. The pull request shows the section before the release exists.
+When the release pull request merges, release-please creates the GitHub release with that section as its notes. GoReleaser writes no notes of its own: its changelog is disabled, and its release mode `keep-existing` keeps the notes of the release it uploads to ([GoReleaser's release settings](https://goreleaser.com/customization/publish/scm/), [its changelog settings](https://goreleaser.com/customization/publish/changelog/)).
 
-GoReleaser writes no notes for a snapshot.
-
-Both read the message of every commit the release reaches that the previous release does not.
-
-Every pull request merges into `main` with a merge commit. Squash and rebase merges are turned off in the repository settings. A merge commit keeps each of the pull request's commits, so each reaches the notes under its own type, and so every commit in a pull request must be a Conventional Commit. The merge commit's own message is not one: release-please passes over it, and GoReleaser's filter leaves out any message starting with `Merge `. A commit whose message is not a Conventional Commit appears under Others in the GitHub release's notes and not in `CHANGELOG.md`.
+Every pull request merges into `main` with a merge commit. Squash and rebase merges are turned off in the repository settings. A merge commit keeps each of the pull request's commits, so each reaches the notes under its own type, and so every commit in a pull request must be a Conventional Commit. The merge commit's own message is not one, and release-please passes over it, as it passes over any commit whose message is not a Conventional Commit.
 
 ## Continuous integration
 
@@ -155,34 +138,43 @@ Toolchain versions live in `.github/actions/setup/action.yml`. Every third-party
 
 Do not create a release branch yet. Cut one when the first stable release has people who depend on it, or the first time a released version needs a patch while `main` has moved on:
 
-1. Create a short-lived branch, such as `release/0.1`, for patches to that release only. Start it from the tag `main-v<version>`, the commit on `main` that the release was cut from. The release tag itself points at the release commit, which holds the built web UI that a branch must not hold.
-2. Before its first release, give it a release-please configuration of its own, and let the release machinery run on it: the release workflow runs only on pushes to `main`, `scripts/release.sh` cuts from `main` unless `ROPESHIFT_RELEASE_BRANCH` names another branch, the `production` environment allows deployments from `main` only, and the release step takes the newest `v` tag as the previous release, which on a patch branch is not always the one its notes should start from.
+1. Create a short-lived branch, such as `release/0.1`, for patches to that release only. Start it from the release's tag, which is on `main`.
+2. Before its first release, give it a release-please configuration of its own, and let the release machinery run on it: the release workflow runs only on pushes to `main`, `scripts/release.sh` tags on `main` unless `ROPESHIFT_RELEASE_BRANCH` names another branch, and the `production` environment allows deployments from `main` only.
 
 Until then, every release comes from `main`.
 
-The one manual step that makes a release is merging the release pull request, and the release pull request gets no CI run by itself, so start one on it by hand first. Never push a release tag by hand, except in [releasing by hand](#releasing-by-hand) when GitHub Actions is unavailable: the release workflow pushes both tags itself.
+The one manual step that makes a release is merging the release pull request, and the release pull request gets no CI run by itself, so start one on it by hand first. Never push a release tag by hand, except in [releasing by hand](#releasing-by-hand) when GitHub Actions is unavailable: release-please creates the tag itself.
 
 ## How a release happens
 
 The workflow `.github/workflows/release.yml` runs on every push to `main`. Merging the release pull request is the one manual step that makes a release:
 
-1. On each push to `main`, [release-please](https://github.com/googleapis/release-please) reads the Conventional Commits since the previous release and opens or updates a pull request titled `chore(main): release <version>`. It adds the version's section to `CHANGELOG.md` and the version to `.release-please-manifest.json`. It creates no tag and no release.
+1. On each push to `main`, [release-please](https://github.com/googleapis/release-please) reads the Conventional Commits since the previous release and opens or updates a pull request titled `chore(main): release <version>`, from the branch `release-please--branches--main`. It adds the version's section to `CHANGELOG.md` and the version to `.release-please-manifest.json`.
 2. The release pull request gets no CI run by itself, because the workflow's own token opened it. The maintainer starts CI on it by hand, as [one-time setup](#one-time-setup) describes, reads the pull request, and merges it once CI result passes.
-3. The push of that merge runs the release workflow. Its first job finds the merged pull request by its label, `autorelease: pending`, and reads the version from the manifest at its merge commit. With one found, the release job runs.
-4. The release job runs `scripts/release.sh` at that merge commit, which makes the release commit with the built UI and its annotated tag, `v<version>`, and pushes the tag.
-5. In the same job, because a tag pushed with the workflow's own token starts no other workflow, GoReleaser builds every artifact from the tag, checks the embedded UI, and publishes the GitHub release. A version with `-alpha`, `-beta`, or `-rc` is marked as a pre-release.
-6. The job renders the formula from `checksums.txt` and commits it to the tap as `Formula/ropeshift.rb`. Without the `HOMEBREW_TAP_GITHUB_TOKEN` secret in the `production` environment, this step warns and the release still succeeds.
-7. It tags the merge commit `main-v<version>`, and changes the pull request's label to `autorelease: tagged`. The last job runs release-please, which opens the next release pull request once new commits arrive.
+3. The push of that merge runs the release workflow. release-please finds the merged pull request by its label, `autorelease: pending`, tags its merge commit `v<version>`, and creates the GitHub release with the version's section of `CHANGELOG.md` as its notes. Then it changes the pull request's label to `autorelease: tagged`. The tag is the only one the release has.
+4. In the same run, because a tag created with the workflow's own token starts no other workflow, the publish job checks out the tag and checks that it is on `main`. GoReleaser builds the web UI and every artifact from the tag, and uploads the archives, packages, and checksums to the release. It keeps the release's notes, and marks a version with `-alpha`, `-beta`, or `-rc` as a pre-release and every other version as a release.
+5. The job renders the formula from `checksums.txt` and commits it to the tap as `Formula/ropeshift.rb`. Without the `HOMEBREW_TAP_GITHUB_TOKEN` secret in the `production` environment, this step warns and the release still succeeds.
+6. release-please opens the next release pull request once a commit that the notes would list reaches `main`.
 
-The release job is the only job in the GitHub environment `production`, which holds the tap's token, and it runs only when a merged release pull request is waiting, so a push with nothing to release deploys nothing. It and the job that runs release-please after it are the only jobs with write access: to the repository's contents for the tags, the release, and release-please's branch, and to pull requests and issues for release-please's pull request and its labels. Every other job, in both workflows, reads only.
+Between steps 3 and 4, the release exists with no assets. The install script, when no version is named, can choose it then, and stops before it installs anything, because the release has no checksums file yet.
 
-### Why main carries a tag for each release
+The publish job is the only job in the GitHub environment `production`, which holds the tap's token, and it runs only when release-please created a release, so a push with nothing to release deploys nothing. It runs for the push to `main`, which the environment's rule that deployments come from `main` requires. The release-please job and the publish job are the only jobs with write access: release-please to the repository's contents for the tag, the release, and its branch, and to pull requests and issues for its pull request and its labels, and the publish job to the contents for the release's assets. Every other job, in both workflows, reads only.
 
-release-please finds the previous release by its tag, and lists the commits on `main` after that tag's commit. A release tag points at the release commit beside `main`, which is never in `main`'s history, so release-please would never reach it. The `main-v<version>` tag marks the commit on `main` that the release was cut from. release-please is configured with the component `main`, so it reads those tags and passes over the release tags. They are not versions: `go install` reads only `v` tags, the release workflow names both tags to GoReleaser, and a snapshot's version reads no tag.
+### The first release after v0.1.0-alpha.1
+
+`v0.1.0-alpha.1` was released by an earlier process, which tagged a commit beside `main` instead of the merge commit. release-please lists the commits after the previous release's commit, and that tag's commit is not in `main`'s history, so on its own release-please would list the whole history in the next release.
+
+The top-level setting `last-release-sha` in `release-please-config.json` names `401887a5c5d0e3c3e777b52a212368644006b0fc`, where the release pull request for `v0.1.0-alpha.1` merged into `main`. release-please reads no commit at or before it, so the next release is `v0.1.0-alpha.2`, and its notes list only the changes merged after that commit. [release-please's manifest documentation](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md) describes the setting.
+
+Remove `last-release-sha` in the first pull request after `v0.1.0-alpha.2` is released. From then on, release-please stops at that release's tag on `main`, which it reaches first, so the setting changes nothing, and the documentation says to remove it once a good release pull request is merged. The tag `main-v0.1.0-alpha.1` on the same commit is not read by the release process.
 
 ### When a release stops partway
 
-The pull request keeps the label `autorelease: pending` until the release is complete, and release-please opens no other release pull request meanwhile. Re-run the failed jobs, or run the release workflow by hand from `main`, which also happens on the next push to `main`. Either completes the same release: it uses the tag an earlier run pushed, after a check that the tag was cut from the merge commit, and GoReleaser replaces any assets the earlier run uploaded.
+If release-please fails before it creates the release, the pull request keeps the label `autorelease: pending`, and release-please opens no other release pull request meanwhile. Re-run the failed job, or run the release workflow by hand from `main`, which also happens on the next push to `main`.
+
+If the publish job fails, re-run it from the same workflow run. A re-run keeps the outputs of the release-please job and builds from the same tag, and GoReleaser keeps the release's notes and replaces any assets the earlier run uploaded.
+
+If release-please created the release but its job failed afterwards, the publish job did not run, and release-please does not create that release again. Publish it from the tag on a workstation, with step 4 of [releasing by hand](#releasing-by-hand) but without `gh release create`, because the release exists, and then step 5.
 
 ## Choosing the next version
 
@@ -212,17 +204,17 @@ The next release pull request then names that version, and the ones after it con
 These are set once in the repository's settings on GitHub:
 
 1. Under Actions, General, Workflow permissions, allow GitHub Actions to create and approve pull requests. release-please opens its pull request with the workflow's token.
-2. Under Environments, keep an environment named `production` whose deployment branches are limited to `main`. The release job is the only job that uses it.
+2. Under Environments, keep an environment named `production` whose deployment branches are limited to `main`. The publish job is the only job that uses it.
 3. Create a fine-grained personal access token whose resource owner is `bkuberek`, with access to the repository `bkuberek/homebrew-tap` only, and the repository permission Contents set to read and write. Save it as `HOMEBREW_TAP_GITHUB_TOKEN`, a secret of the `production` environment and not a repository secret, for example with `gh secret set HOMEBREW_TAP_GITHUB_TOKEN --env production --repo bkuberek/ropeshift`, and renew it before it expires.
 4. Protect `main` and require the status check CI result.
 
-GitHub starts no workflow for an event the workflow's token causes, so CI does not run on the release pull request by itself. To give it a CI result, run CI by hand on its branch, `release-please--branches--main--components--main`, or close and reopen the pull request.
+GitHub starts no workflow for an event the workflow's token causes, so CI does not run on the release pull request by itself. To give it a CI result, run CI by hand on its branch, `release-please--branches--main`, or close and reopen the pull request.
 
 ## Releasing by hand
 
-When GitHub Actions is unavailable, a maintainer runs the same steps on a workstation, after merging the release pull request:
+When GitHub Actions is unavailable, a maintainer runs the same steps on a workstation, after merging the release pull request. `scripts/release.sh` is this fallback, and nothing else runs it:
 
-1. Bring `main` up to date, confirm that the tree is clean, and read the version release-please chose:
+1. Bring `main` up to date, confirm that the tree is clean, and read the version release-please chose. Stay on the commit where the release pull request merged, which is `main`'s head unless something merged after it; otherwise check out that commit with `git switch --detach <commit>`:
 
    ```sh
    git switch main
@@ -238,21 +230,23 @@ When GitHub Actions is unavailable, a maintainer runs the same steps on a workst
    make exit-container EXIT_DIST=dist
    ```
 
-3. Cut the release commit and its tag:
+3. Tag the merge commit:
 
    ```sh
-   scripts/release.sh v0.1.0-alpha.1
+   scripts/release.sh v0.1.0-alpha.2
    ```
 
-4. Push the tag, and publish the release from it with the commands the script printed:
+   It refuses a version outside the [policy](versioning.md), a tag that already exists, a tree with uncommitted changes, a commit that is not on `main`'s first-parent history, and every commit but the one where the release pull request for that version merged: the manifest must name the version at that commit and not at the commit before it. It tags the commit with an annotated tag, writes the version's section of `CHANGELOG.md` to a temporary file as the release notes, pushes nothing, and prints the commands for the next step.
+
+4. Push the tag, create the release with those notes, and build and upload its artifacts from the tag, with the commands the script printed:
 
    ```sh
-   git push origin v0.1.0-alpha.1
-   git checkout v0.1.0-alpha.1
-   GITHUB_TOKEN=<token> GORELEASER_PREVIOUS_TAG=<previous tag> GORELEASER_CURRENT_TAG=v0.1.0-alpha.1 goreleaser release --clean
+   git push origin v0.1.0-alpha.2
+   gh release create v0.1.0-alpha.2 --verify-tag --title v0.1.0-alpha.2 --notes-file <notes file> --prerelease
+   GITHUB_TOKEN=<token> GORELEASER_CURRENT_TAG=v0.1.0-alpha.2 goreleaser release --clean
    ```
 
-   GoReleaser builds every artifact, checks the embedded UI, and publishes the release. A version with `-alpha`, `-beta`, or `-rc` is marked as a pre-release.
+   As in the release workflow, the release exists with release-please's notes before GoReleaser runs. GoReleaser builds the web UI and every artifact, uploads them to the release, keeps its notes, and marks a version with `-alpha`, `-beta`, or `-rc` as a pre-release.
 
 5. Render the formula, and commit it to the tap as `Formula/ropeshift.rb`, with no other change there:
 
@@ -260,15 +254,11 @@ When GitHub Actions is unavailable, a maintainer runs the same steps on a workst
    sh scripts/homebrew-formula.sh dist/checksums.txt "" dist/homebrew/ropeshift.rb
    ```
 
-6. Tag the merge commit for release-please, and change the pull request's label:
+6. Change the release pull request's label, as release-please does after it creates a release, so it does not try to create this one again:
 
    ```sh
-   git tag main-v0.1.0-alpha.1 main
-   git push origin main-v0.1.0-alpha.1
    gh pr edit <number> --remove-label "autorelease: pending" --add-label "autorelease: tagged"
    ```
-
-7. Return to `main` with `git checkout main`.
 
 ## Future work
 

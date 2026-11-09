@@ -1,11 +1,12 @@
 #!/bin/sh
-# Puts the web UI where the binary embeds it, for a GoReleaser build (D28). GoReleaser runs it before
-# it builds.
+# Builds the web UI into web/static, where the binary embeds it. GoReleaser runs it before every build,
+# because a commit holds only a placeholder page there.
 #
-#   release-ui.sh build    Builds the UI into web/static, as a snapshot does.
-#   release-ui.sh verify   Requires the commit being built to hold the built UI and nothing else under
-#                          web/static, as a release does. A release tag points at the release commit
-#                          that scripts/release.sh makes.
+#   release-ui.sh build     Builds with the packages web/node_modules holds, installing them first only
+#                           when it holds none, as make web-build does. A snapshot uses it.
+#   release-ui.sh release   Clears every file git ignores under web/static, installs exactly the packages
+#                           web/package-lock.json pins, then builds, so a release built on a workstation
+#                           embeds what one built in CI does, and no file an earlier build left there.
 
 set -eu
 
@@ -20,15 +21,16 @@ case ${1:-} in
 build)
 	make --no-print-directory web-build
 	;;
-verify)
-	git ls-files --error-unmatch web/static/index.html >/dev/null 2>&1 ||
-		fail "this commit holds no built web UI, so go install at its tag would serve the placeholder; tag the commit scripts/release.sh makes"
-	# A file the commit does not hold, such as an earlier build's output, would be embedded too.
-	[ -z "$(git status --porcelain --ignored --untracked-files=all -- web/static)" ] ||
-		fail "web/static differs from the commit; build the release from a clean checkout of its tag"
+release)
+	# The binary embeds everything under web/static, and only the placeholder page there is tracked.
+	git clean -fdXq -- web/static
+	npm --prefix web ci
+	npm --prefix web run build
 	;;
 *)
-	printf 'usage: release-ui.sh build|verify\n' >&2
+	printf 'usage: release-ui.sh build|release\n' >&2
 	exit 2
 	;;
 esac
+
+[ -f web/static/index.html ] || fail "the web build wrote no web/static/index.html"

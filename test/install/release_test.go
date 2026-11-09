@@ -3,7 +3,12 @@
 package install
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +18,9 @@ import (
 
 // testRelease is the version the release step tags, in a scratch clone only.
 const testRelease = "v0.0.1-rc.1"
+
+// releaseFeature is the entry the simulated release pull request adds to CHANGELOG.md.
+const releaseFeature = "a feature the release pull request lists"
 
 // git runs git in dir and returns its trimmed output.
 func git(t *testing.T, dir string, args ...string) string {
@@ -29,15 +37,15 @@ func git(t *testing.T, dir string, args ...string) string {
 // scratchClone copies this repository's committed history into a temporary directory with no hooks
 // and no signing, so nothing the release step does there can reach this repository or any other. A
 // tag build reads the origin's URL, so origin names a host in the reserved .invalid domain, which never
-// resolves.
+// resolves. The clone's branch is main, whatever this checkout is on, because a release is tagged on
+// main and a pull request is checked out as a detached merge commit.
 //
-// The clone takes no tags. The tests make every tag they read, so a release this repository has
-// published, or the tag on main that marks where it was cut, cannot move where a tag build's notes
-// start.
+// The clone takes no tags. The tests make every tag they read, so no release this repository has
+// published can change what a test sees.
 //
 // ROPESHIFT_RELEASE_SOURCE names another repository to clone in place of this one, such as a copy
 // with a deliberate defect, to prove that a test fails.
-func scratchClone(t *testing.T) (string, string) {
+func scratchClone(t *testing.T) string {
 	t.Helper()
 	source := os.Getenv("ROPESHIFT_RELEASE_SOURCE")
 	if source == "" {
@@ -53,38 +61,92 @@ func scratchClone(t *testing.T) (string, string) {
 	} {
 		git(t, dir, "config", "--local", kv[0], kv[1])
 	}
-	return dir, git(t, dir, "symbolic-ref", "--short", "HEAD")
+	git(t, dir, "checkout", "--quiet", "-B", "main")
+	return dir
 }
 
-// releaseScript runs the release step and returns its output, its exit code, and what it wrote to the
-// file ROPESHIFT_RELEASE_OUTPUT names, which is how the release workflow reads the tag it made.
-func releaseScript(t *testing.T, dir, branch, version string) (string, int, string) {
+// mergeReleasePullRequest does in the scratch clone what merging release-please's pull request does on
+// GitHub. A commit on release-please's branch sets the manifest to version and, when section is set,
+// adds the version's section to CHANGELOG.md, and main merges that branch with a merge commit, which it
+// returns.
+func mergeReleasePullRequest(t *testing.T, dir, version string, section bool) string {
 	t.Helper()
-	output := filepath.Join(t.TempDir(), "release-output")
+	plain := strings.TrimPrefix(version, "v")
+	git(t, dir, "switch", "--quiet", "--force-create", "release-please--branches--main", "main")
+	manifest := "{\n  \".\": \"" + plain + "\"\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, ".release-please-manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if section {
+		path := filepath.Join(dir, "CHANGELOG.md")
+		changelog, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := "## [" + plain + "](https://github.com/bkuberek/ropeshift/compare/v0.0.1-rc.0...v" + plain + ") (2026-11-08)\n\n\n" +
+			"### Features\n\n* " + releaseFeature + "\n\n"
+		before, after, found := strings.Cut(string(changelog), "\n## ")
+		updated := before + "\n" + entry + "## " + after
+		if !found {
+			updated = string(changelog) + "\n" + entry
+		}
+		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "commit", "--quiet", "--all", "--message", "chore: release "+plain)
+	git(t, dir, "switch", "--quiet", "main")
+	git(t, dir, "merge", "--quiet", "--no-ff", "--message", "Merge pull request #2 from bkuberek/release-please--branches--main",
+		"release-please--branches--main")
+	return git(t, dir, "rev-parse", "HEAD")
+}
+
+// releaseScript runs the release step and returns its output, its exit code, and the files it left in
+// its temporary directory, which is where it writes the release notes. A tool's cache there is not one
+// of them.
+func releaseScript(t *testing.T, dir, version string) (string, int, []string) {
+	t.Helper()
+	tmp := t.TempDir()
 	cmd := exec.Command("sh", "scripts/release.sh", version)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "ROPESHIFT_RELEASE_BRANCH="+branch, "ROPESHIFT_RELEASE_OUTPUT="+output)
+	cmd.Env = append(os.Environ(), "TMPDIR="+tmp)
 	out, err := cmd.CombinedOutput()
-	written, readErr := os.ReadFile(output)
-	if readErr != nil && !os.IsNotExist(readErr) {
+	entries, readErr := os.ReadDir(tmp)
+	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return string(out), exitErr.ExitCode(), string(written)
+	var left []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "ropeshift-") {
+			left = append(left, filepath.Join(tmp, e.Name()))
+		}
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return string(out), exitErr.ExitCode(), left
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(out), 0, string(written)
+	return string(out), 0, left
 }
 
-// TestTheReleaseStep proves D28 in a scratch clone: a plain checkout builds with no Node.js and
-// embeds the placeholder, the release step refuses what the policy forbids, its commit adds the built
-// UI on the tag and nowhere else, and go install at that tag, through a module proxy made of files,
-// gets the real UI and reports the tag's version.
+// manifestVersion is the version .release-please-manifest.json names at rev.
+func manifestVersion(t *testing.T, dir, rev string) string {
+	t.Helper()
+	var manifest map[string]string
+	if err := json.Unmarshal([]byte(git(t, dir, "show", rev+":.release-please-manifest.json")), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	return manifest["."]
+}
+
+// TestTheReleaseStep proves the manual release in a scratch clone: a plain checkout builds with no
+// Node.js and embeds the placeholder, the release step refuses what the policy forbids and any commit
+// but the release pull request's merge commit, it tags that commit on main and adds nothing to it, and
+// GoReleaser's build from the tag embeds the web UI it builds and reports the tag's version.
 func TestTheReleaseStep(t *testing.T) {
-	dir, branch := scratchClone(t)
-	head := git(t, dir, "rev-parse", "HEAD")
+	dir := scratchClone(t)
 
 	t.Run("a plain checkout builds with no Node.js", func(t *testing.T) {
 		bin := t.TempDir()
@@ -121,194 +183,169 @@ func TestTheReleaseStep(t *testing.T) {
 		}
 	})
 
+	before := git(t, dir, "rev-parse", "main")
+	merge := mergeReleasePullRequest(t, dir, testRelease, true)
+
 	t.Run("the release step refuses", func(t *testing.T) {
-		git(t, dir, "tag", "v0.0.1-beta.1")
 		tests := []struct {
-			name, version, branch, says string
-			dirty                       bool
+			name, version, says string
+			setup               func(t *testing.T)
 		}{
-			{"a version with no v", "0.1.0", branch, "vMAJOR.MINOR.PATCH", false},
-			{"a version with two parts", "v0.1", branch, "vMAJOR.MINOR.PATCH", false},
-			{"a pre-release the policy does not name", "v0.1.0-snapshot.1", branch, "vMAJOR.MINOR.PATCH", false},
-			{"build metadata", "v0.1.0+build.1", branch, "vMAJOR.MINOR.PATCH", false},
-			{"a leading zero", "v0.01.0", branch, "vMAJOR.MINOR.PATCH", false},
-			{"a pre-release numbered from zero", "v0.1.0-rc.0", branch, "vMAJOR.MINOR.PATCH", false},
-			{"a tag that exists", "v0.0.1-beta.1", branch, "exists", false},
-			{"another branch", testRelease, "not-" + branch, "not-" + branch, false},
-			{"a tree with changes", testRelease, branch, "changes", true},
+			{"a version with no v", "0.1.0", "vMAJOR.MINOR.PATCH", nil},
+			{"a version with two parts", "v0.1", "vMAJOR.MINOR.PATCH", nil},
+			{"a pre-release the policy does not name", "v0.1.0-snapshot.1", "vMAJOR.MINOR.PATCH", nil},
+			{"build metadata", "v0.1.0+build.1", "vMAJOR.MINOR.PATCH", nil},
+			{"a leading zero", "v0.01.0", "vMAJOR.MINOR.PATCH", nil},
+			{"a pre-release numbered from zero", "v0.1.0-rc.0", "vMAJOR.MINOR.PATCH", nil},
+			{"a tag that exists", testRelease, "exists", func(t *testing.T) {
+				git(t, dir, "tag", testRelease, before)
+				t.Cleanup(func() { git(t, dir, "tag", "--delete", testRelease) })
+			}},
+			{"a tree with changes", testRelease, "changes", func(t *testing.T) {
+				appendTo(t, filepath.Join(dir, "README.md"), "\nchanged\n")
+				t.Cleanup(func() { git(t, dir, "checkout", "--", "README.md") })
+			}},
+			{"a version the manifest does not name", "v0.0.1-rc.2", "its manifest names 0.0.1-rc.1", nil},
+			{"the commit before the release pull request merged", testRelease, "its manifest names " + manifestVersion(t, dir, before), func(t *testing.T) {
+				git(t, dir, "checkout", "--quiet", "--detach", before)
+				t.Cleanup(func() { git(t, dir, "checkout", "--quiet", "main") })
+			}},
+			{"the release pull request's own commit", testRelease, "not on main's first-parent history", func(t *testing.T) {
+				git(t, dir, "checkout", "--quiet", "release-please--branches--main")
+				t.Cleanup(func() { git(t, dir, "checkout", "--quiet", "main") })
+			}},
+			{"a commit after the release pull request merged", testRelease, "the commit before it on main already names", func(t *testing.T) {
+				git(t, dir, "commit", "--quiet", "--allow-empty", "--message", "docs: a change after the release")
+				t.Cleanup(func() { git(t, dir, "reset", "--quiet", "--hard", merge) })
+			}},
+			{"a release with no section in CHANGELOG.md", "v0.0.1-rc.2", "no section for 0.0.1-rc.2", func(t *testing.T) {
+				mergeReleasePullRequest(t, dir, "v0.0.1-rc.2", false)
+				t.Cleanup(func() { git(t, dir, "reset", "--quiet", "--hard", merge) })
+			}},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				if tt.dirty {
-					appendTo(t, filepath.Join(dir, "README.md"), "\nchanged\n")
-					t.Cleanup(func() { git(t, dir, "checkout", "--", "README.md") })
+				if tt.setup != nil {
+					tt.setup(t)
 				}
-				out, code, written := releaseScript(t, dir, tt.branch, tt.version)
+				head := git(t, dir, "rev-parse", "HEAD")
+				tags := git(t, dir, "tag", "--list")
+				out, code, left := releaseScript(t, dir, tt.version)
 				t.Logf("exited %d: %s", code, strings.TrimSpace(out))
 				if code == 0 || !strings.Contains(out, tt.says) {
 					t.Errorf("want a refusal that says %q", tt.says)
 				}
-				if written != "" {
-					t.Errorf("a refused release wrote outputs:\n%s", written)
+				if len(left) != 0 {
+					t.Errorf("a refused release left files: %v", left)
 				}
-				if git(t, dir, "rev-parse", "HEAD") != head || git(t, dir, "tag", "--list", testRelease) != "" {
+				if git(t, dir, "rev-parse", "HEAD") != head || git(t, dir, "tag", "--list") != tags {
 					t.Error("a refused release changed the repository")
 				}
 			})
 		}
-		git(t, dir, "tag", "--delete", "v0.0.1-beta.1")
 	})
 
-	// A tag on a commit with no built UI would give go install the placeholder, so its build stops.
-	t.Run("a tag build refuses a commit with no built UI", func(t *testing.T) {
-		const bare = "v0.0.1-alpha.1"
-		git(t, dir, "tag", bare)
-		defer git(t, dir, "tag", "--delete", bare)
-		git(t, dir, "checkout", "--quiet", bare)
-		defer git(t, dir, "checkout", "--quiet", branch)
-		out, err := goreleaserFromTag(dir, bare, "").CombinedOutput()
-		t.Logf("goreleaser: %v\n%s", err, out)
-		if err == nil || !strings.Contains(string(out), "holds no built web UI") {
-			t.Error("a tag build of a commit with no built UI did not stop")
-		}
-	})
-
-	t.Run("the release commit holds the built UI on the tag only", func(t *testing.T) {
-		out, code, written := releaseScript(t, dir, branch, testRelease)
+	t.Run("the release step tags the release pull request's merge commit", func(t *testing.T) {
+		out, code, left := releaseScript(t, dir, testRelease)
 		t.Logf("release.sh exited %d:\n%s", code, out)
 		if code != 0 {
 			t.FailNow()
 		}
-		// The first release has no release before it, so its notes start at the beginning.
-		want := "tag=" + testRelease + "\ncommit=" + git(t, dir, "rev-parse", testRelease+"^{commit}") + "\nprevious=\n"
-		if written != want {
-			t.Errorf("the release step wrote outputs %q, want %q", written, want)
-		}
 		if kind := git(t, dir, "cat-file", "-t", testRelease); kind != "tag" {
 			t.Errorf("the tag is a %s, want an annotated tag", kind)
 		}
-		if parent := git(t, dir, "rev-parse", testRelease+"^{commit}^"); parent != head {
-			t.Errorf("the release commit's parent is %s, want the branch head %s", parent, head)
+		if tagged := git(t, dir, "rev-parse", testRelease+"^{commit}"); tagged != merge {
+			t.Errorf("the tag is on %s, want the merge commit %s", tagged, merge)
 		}
-		if subject := git(t, dir, "log", "-1", "--format=%s", testRelease+"^{commit}"); subject != "chore(release): "+testRelease {
-			t.Errorf("release commit subject %q", subject)
+		if got := git(t, dir, "symbolic-ref", "--short", "HEAD"); got != "main" || git(t, dir, "rev-parse", "HEAD") != merge {
+			t.Errorf("the release step left the clone on %s at %s, want main at the merge commit", got, git(t, dir, "rev-parse", "HEAD"))
 		}
-		tagged := git(t, dir, "ls-tree", "-r", "--name-only", testRelease, "--", "web/static")
-		if !strings.Contains(tagged, "web/static/index.html") || !strings.Contains(tagged, "web/static/assets/") {
-			t.Errorf("the tag does not hold the built UI:\n%s", tagged)
-		}
-		if got := git(t, dir, "symbolic-ref", "--short", "HEAD"); got != branch {
-			t.Errorf("the release step left the clone on %s, want %s", got, branch)
-		}
-		if git(t, dir, "rev-parse", "HEAD") != head {
-			t.Error("the release commit landed on the branch")
-		}
-		if tracked := git(t, dir, "ls-files", "web/static"); tracked != "web/static/placeholder.html" {
-			t.Errorf("the branch tracks %q under web/static", tracked)
+		if tracked := git(t, dir, "ls-tree", "-r", "--name-only", testRelease, "--", "web/static"); tracked != "web/static/placeholder.html" {
+			t.Errorf("the tag holds %q under web/static, want the placeholder alone", tracked)
 		}
 		if status := git(t, dir, "status", "--porcelain"); status != "" {
 			t.Errorf("the release step left changes:\n%s", status)
 		}
-	})
-
-	t.Run("go install at the tag gets the real UI", func(t *testing.T) {
-		proxy := moduleProxy(t, dir, testRelease)
-		c := container{
-			image:  "golang:1.27",
-			mounts: []mount{{proxy, "/proxy"}, {filepath.Join(goEnv(t, "GOMODCACHE"), "cache", "download"), "/modcache"}},
-			env:    []string{"GOPROXY=file:///proxy,file:///modcache", "GOSUMDB=off", "GOTOOLCHAIN=local", "CGO_ENABLED=0"},
-		}
-		out, _ := c.run(t, `set -e
-go install ropeshift.dev/ropeshift/cmd/...@`+testRelease+`
-BIN=/go/bin
-`+versionScript+`
-`+uiScript, false)
-		t.Logf("go install:\n%s", out)
-		assertVersions(t, out, testRelease, false)
-		assertUILine(t, out)
-	})
-
-	// GoReleaser writes no release notes for a snapshot, so the notes come from tag builds here. The
-	// first release has no earlier tag, so its notes cover the whole history.
-	t.Run("the first release's notes cover the history by type", func(t *testing.T) {
-		notes := tagBuild(t, dir, branch, testRelease, "")
-		assertSections(t, notes, map[string]string{
-			"### Features": "run the daemon as a launchd agent or a systemd user unit",
-			"### Fixes":    "keep a problem an accepted plan's commit found until a later commit fixes the file",
-			"### Others":   "add make linux-bundle, the Linux check for a machine with no Go",
-		})
-		for _, absent := range []string{"docs:", "test:", "chore(release)", "start the pty helper's program"} {
-			if strings.Contains(notes, absent) {
-				t.Errorf("the notes hold %q", absent)
+		for _, command := range []string{
+			"git push origin " + testRelease,
+			"gh release create " + testRelease + " --verify-tag",
+			"--prerelease",
+			"GORELEASER_CURRENT_TAG=" + testRelease + " goreleaser release --clean",
+			"scripts/homebrew-formula.sh dist/checksums.txt",
+		} {
+			if !strings.Contains(out, command) {
+				t.Errorf("the release step does not print %q", command)
 			}
 		}
+		if len(left) != 1 || !strings.Contains(out, "--notes-file "+left[0]) {
+			t.Fatalf("the release step left %v, want one notes file that its gh command names", left)
+		}
+		notes, err := os.ReadFile(left[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("release notes:\n%s", notes)
+		plain := strings.TrimPrefix(testRelease, "v")
+		if !strings.HasPrefix(string(notes), "## ["+plain+"](") || !strings.Contains(string(notes), "* "+releaseFeature+"\n") {
+			t.Error("the notes are not the version's section of CHANGELOG.md")
+		}
+		if strings.Count(string(notes), "\n## ") != 0 {
+			t.Error("the notes hold more than the version's section of CHANGELOG.md")
+		}
 	})
 
-	// A later release's notes hold only the user-facing commits since the release before it.
-	t.Run("a later release's notes start at the release before it", func(t *testing.T) {
-		const second = "v0.0.1-rc.2"
-		git(t, dir, "commit", "--quiet", "--allow-empty", "--message", "feat: a change after the first release")
-		git(t, dir, "commit", "--quiet", "--allow-empty", "--message", "docs: a change the notes leave out")
-		notes := tagBuild(t, dir, branch, second, testRelease)
-		assertSections(t, notes, map[string]string{"### Features": "a change after the first release"})
-		for _, absent := range []string{"a change the notes leave out", "chore(release)", "run the daemon as a launchd agent"} {
-			if strings.Contains(notes, absent) {
-				t.Errorf("the notes hold %q", absent)
+	// The tag holds no built UI, so the build embeds the UI GoReleaser builds, in every archive, and no
+	// file an earlier build left in web/static, which git ignores.
+	t.Run("GoReleaser builds the release from the tag", func(t *testing.T) {
+		const leftover = "a file an earlier build left in web/static"
+		if err := os.WriteFile(filepath.Join(dir, "web", "static", "leftover.txt"), []byte(leftover), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := goreleaserFromTag(dir, testRelease).CombinedOutput(); err != nil {
+			t.Fatalf("goreleaser release from %s: %v\n%s", testRelease, err, out)
+		}
+		goos, goarch := hostPlatform(t)
+		binaries, _ := filepath.Glob(filepath.Join(dir, "dist", "ropeshift_"+goos+"_"+goarch+"*", "ropeshift"))
+		if len(binaries) != 1 {
+			t.Fatalf("no binary for this machine in the build of %s: %v", testRelease, binaries)
+		}
+		raw, err := exec.Command(binaries[0], "version", "--json").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got versionOf
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Version != testRelease || got.Modified || got.Commit != merge || got.Date == "" {
+			t.Errorf("the build of %s reports %+v, want the clean merge commit %s", testRelease, got, merge)
+		}
+		archives, _ := filepath.Glob(filepath.Join(dir, "dist", "ropeshift_*.tar.gz"))
+		if len(archives) != 4 {
+			t.Errorf("the build of %s wrote %d archives, want 4: %v", testRelease, len(archives), archives)
+		}
+		for _, archive := range archives {
+			binary := archiveBinary(t, archive)
+			if !bytes.Contains(binary, []byte(builtUI)) {
+				t.Errorf("%s does not embed the built web UI", filepath.Base(archive))
+			}
+			if bytes.Contains(binary, []byte(leftover)) {
+				t.Errorf("%s embeds a file an earlier build left in web/static", filepath.Base(archive))
 			}
 		}
+		// The release's notes are the ones release-please wrote, so GoReleaser writes none.
+		if _, err := os.Stat(filepath.Join(dir, "dist", "CHANGELOG.md")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("GoReleaser wrote release notes of its own: %v", err)
+		}
+		if status := git(t, dir, "status", "--porcelain"); status != "" {
+			t.Errorf("the build left changes:\n%s", status)
+		}
 	})
-}
-
-// tagBuild cuts a release with the release step and builds it from its tag as a maintainer does, with
-// the command the step prints, publishing skipped, and no token in the environment. It checks the
-// build's binary for this machine and returns the release notes.
-func tagBuild(t *testing.T, dir, branch, tag, previous string) string {
-	t.Helper()
-	if git(t, dir, "tag", "--list", tag) == "" {
-		out, code, written := releaseScript(t, dir, branch, tag)
-		if code != 0 {
-			t.Fatalf("release.sh exited %d:\n%s", code, out)
-		}
-		if previous != "" && !strings.Contains(out, "GORELEASER_PREVIOUS_TAG="+previous) {
-			t.Errorf("the release step does not name the previous release:\n%s", out)
-		}
-		if !strings.Contains(written, "\nprevious="+previous+"\n") {
-			t.Errorf("the release step's outputs do not name the previous release %q:\n%s", previous, written)
-		}
-	}
-	git(t, dir, "checkout", "--quiet", tag)
-	defer git(t, dir, "checkout", "--quiet", branch)
-	if out, err := goreleaserFromTag(dir, tag, previous).CombinedOutput(); err != nil {
-		t.Fatalf("goreleaser release from %s: %v\n%s", tag, err, out)
-	}
-	goos, goarch := hostPlatform(t)
-	binaries, _ := filepath.Glob(filepath.Join(dir, "dist", "ropeshift_"+goos+"_"+goarch+"*", "ropeshift"))
-	if len(binaries) != 1 {
-		t.Fatalf("no binary for this machine in the build of %s: %v", tag, binaries)
-	}
-	raw, err := exec.Command(binaries[0], "version", "--json").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got versionOf
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Version != tag || got.Modified || got.Commit != git(t, dir, "rev-parse", tag+"^{commit}") || got.Date == "" {
-		t.Errorf("the build of %s reports %+v, want its clean release commit", tag, got)
-	}
-	assertBuiltUI(t, binaries[0])
-	notes, err := os.ReadFile(filepath.Join(dir, "dist", "CHANGELOG.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("release notes of %s:\n%s", tag, notes)
-	return string(notes)
 }
 
 // goreleaserFromTag is the release build a maintainer runs at tag, with publishing skipped and no token
 // in its environment.
-func goreleaserFromTag(dir, tag, previous string) *exec.Cmd {
+func goreleaserFromTag(dir, tag string) *exec.Cmd {
 	build := exec.Command("goreleaser", "release", "--clean", "--skip=publish,announce")
 	build.Dir = dir
 	for _, kv := range os.Environ() {
@@ -317,52 +354,38 @@ func goreleaserFromTag(dir, tag, previous string) *exec.Cmd {
 		}
 	}
 	build.Env = append(build.Env, "GORELEASER_CURRENT_TAG="+tag)
-	if previous != "" {
-		build.Env = append(build.Env, "GORELEASER_PREVIOUS_TAG="+previous)
-	}
 	return build
 }
 
-// assertSections checks that each entry is listed under its heading.
-func assertSections(t *testing.T, notes string, entries map[string]string) {
+// archiveBinary returns the ropeshift binary a release archive holds.
+func archiveBinary(t *testing.T, archive string) []byte {
 	t.Helper()
-	for heading, entry := range entries {
-		at := strings.Index(notes, heading+"\n")
-		if at < 0 {
-			t.Errorf("the notes have no %q section", heading)
-			continue
-		}
-		section := notes[at+len(heading):]
-		if next := strings.Index(section, "\n### "); next >= 0 {
-			section = section[:next]
-		}
-		if !strings.Contains(section, entry) {
-			t.Errorf("%q does not list %q", heading, entry)
-		}
-	}
-}
-
-// moduleProxy lays out a GOPROXY of files that serves the module at version, from the tag's tree.
-func moduleProxy(t *testing.T, repo, version string) string {
-	t.Helper()
-	proxy := t.TempDir()
-	at := filepath.Join(proxy, "ropeshift.dev", "ropeshift", "@v")
-	if err := os.MkdirAll(at, 0o755); err != nil {
+	f, err := os.Open(archive)
+	if err != nil {
 		t.Fatal(err)
 	}
-	git(t, repo, "archive", "--format=zip", "--prefix=ropeshift.dev/ropeshift@"+version+"/",
-		"--output="+filepath.Join(at, version+".zip"), version)
-	files := map[string]string{
-		"list":            version + "\n",
-		version + ".mod":  git(t, repo, "show", version+":go.mod") + "\n",
-		version + ".info": `{"Version":"` + version + `","Time":"` + git(t, repo, "log", "-1", "--format=%cI", version) + `"}`,
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(at, name), []byte(content), 0o644); err != nil {
+	r := tar.NewReader(gz)
+	for {
+		h, err := r.Next()
+		if errors.Is(err, io.EOF) {
+			t.Fatalf("%s holds no ropeshift binary", filepath.Base(archive))
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
+		if h.Name == "ropeshift" {
+			raw, err := io.ReadAll(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return raw
+		}
 	}
-	return proxy
 }
 
 func goEnv(t *testing.T, name string) string {

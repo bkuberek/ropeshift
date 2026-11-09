@@ -192,10 +192,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # The release step the install test runs in a scratch clone cuts from a branch, and a pull
-      # request is checked out as a detached merge commit.
-      - name: Put the checkout on a branch
-        run: git symbolic-ref --quiet HEAD >/dev/null || git switch --quiet --create ci-candidate
       - uses: ./.github/actions/setup
         with:
           node: "true"
