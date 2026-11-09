@@ -2,6 +2,7 @@ package exit
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -248,6 +249,12 @@ func TestAPlanningLaneReachesTheLedgerAtItsAcceptedCommit(t *testing.T) {
 		t.Fatalf("no branch on record: %+v", standing.Artifacts)
 	}
 	commit := standing.Artifacts[branch].Digest
+	// A lane step that never ran leaves a branch at its base, which intake reads as a plan with nothing
+	// in it, so the step is checked where it happens.
+	if files := strings.Fields(repo.Git("ls-tree", "-r", "--name-only", commit)); !slices.Contains(files, "plans/retry-budget.md") {
+		denied, _ := os.ReadFile(filepath.Join(doubles.BinDir(in.path), "denied.log"))
+		t.Fatalf("the lane's commit %s holds %v, and its denied calls are %q", commit, files, denied)
+	}
 	before := len(in.plans())
 	titles := func() []string {
 		var out []string

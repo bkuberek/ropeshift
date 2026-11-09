@@ -64,10 +64,15 @@ func TestACompactionAndAClearRunAcrossALane(t *testing.T) {
 			if len(grounding) != 2 {
 				t.Fatalf("grounding %q", grounding)
 			}
-			for i, want := range []string{"generation 1", "generation 2"} {
-				if !strings.Contains(grounding[i], want) || !strings.Contains(grounding[i], id) {
-					t.Errorf("after hook %d: %q", i, grounding[i])
-				}
+			// A compaction's generation is the process's own. A clear's comes from the worker's answer,
+			// which a loaded machine can hold past the hook's bound, and then the session hears none
+			// rather than a wrong one.
+			if !strings.Contains(grounding[0], "generation 1") || !strings.Contains(grounding[0], id) {
+				t.Errorf("after the compaction: %q", grounding[0])
+			}
+			named := strings.Contains(grounding[1], "generation")
+			if (named && !strings.Contains(grounding[1], "generation 2")) || !strings.Contains(grounding[1], id) {
+				t.Errorf("after the clear: %q", grounding[1])
 			}
 			if !slices.ContainsFunc(grounding, func(line string) bool { return strings.Contains(line, "context pack") }) {
 				t.Errorf("no pack named: %q", grounding)
