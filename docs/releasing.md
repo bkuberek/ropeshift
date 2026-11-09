@@ -105,7 +105,15 @@ A release has one set of notes, from the [Conventional Commits](https://www.conv
 
 When the release pull request merges, release-please creates the GitHub release with that section as its notes. GoReleaser writes no notes of its own: its changelog is disabled, and its release mode `keep-existing` keeps the notes of the release it uploads to ([GoReleaser's release settings](https://goreleaser.com/customization/publish/scm/), [its changelog settings](https://goreleaser.com/customization/publish/changelog/)).
 
-Every pull request merges into `main` with a merge commit. Squash and rebase merges are turned off in the repository settings. A merge commit keeps each of the pull request's commits, so each reaches the notes under its own type, and so every commit in a pull request must be a Conventional Commit. The merge commit's own message is not one, and release-please passes over it, as it passes over any commit whose message is not a Conventional Commit.
+Every pull request merges into `main` with a merge commit. Squash and rebase merges are turned off in the repository settings. A merge commit keeps each of the pull request's commits, so each reaches the notes under its own type, and so every commit in a pull request must be a Conventional Commit.
+
+A pull request's title may be a Conventional Commit too, but the merge commit's message must not hold one. GitHub's default merge commit message includes the pull request's title ([GitHub's commit merging settings](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/configuring-commit-merging-for-pull-requests)), and release-please reads a Conventional Commit message at the bottom of a commit as one more change ([release-please](https://github.com/googleapis/release-please#what-if-my-pr-contains-multiple-fixes-or-features)), so a title such as `fix: ...` in the merge commit counts its change twice in the notes. Merge with a plain description instead, which `gh pr merge` writes as the merge commit's body ([gh pr merge](https://cli.github.com/manual/gh_pr_merge)):
+
+```sh
+gh pr merge N --merge --body "Merges pull request #N."
+```
+
+On the pull request's web page, replace the merge commit's description with a plain sentence, such as `Merges pull request #N.`, before confirming the merge. A merge commit whose message holds no Conventional Commit is one release-please passes over, as it passes over any commit whose message is not a Conventional Commit.
 
 ## Continuous integration
 
