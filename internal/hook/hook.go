@@ -54,7 +54,11 @@ const (
 	eventSessionStart       = "SessionStart"
 )
 
-const unavailablePolicy = "the policy file cannot be read"
+const (
+	unavailablePolicy = "the policy file cannot be read"
+	// lateVerdict is a policy hook's answer when its deadline comes before its verdict.
+	lateVerdict = "the policy check ran out of time"
+)
 
 // config is one invocation, from its argument and its environment.
 type config struct {
@@ -82,7 +86,8 @@ func read(event string, getenv func(string) string) config {
 
 // Main runs one hook. It has no failure path: whatever happens, the process exits 0. The deadline
 // starts once the hook has taken its event, because a hook ended before then has nothing to spool,
-// and the agent CLI closes a hook's input as soon as it has written it.
+// and the agent CLI closes a hook's input as soon as it has written it. What the hook owes and holds
+// is set before the deadline can come.
 func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) int {
 	defer func() { _ = recover() }()
 	if len(args) == 0 {
@@ -92,21 +97,42 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 	cfg.out = new(outbox)
 	event, input := take(cfg, stdin)
 	if cfg.event != eventPermissionRequest {
-		timer := time.AfterFunc(hardDeadline, func() { expire(cfg, stdout) })
+		untilDecided(cfg, event, stdout)
+		timer := time.AfterFunc(hardDeadline, func() { expire(cfg) })
 		defer timer.Stop()
 	}
 	run(cfg, event, input, stdout)
 	return 0
 }
 
-// expire ends a hook that passed its deadline. A policy hook fails closed. A loaded machine can hold
-// a hook past its deadline with an event it took and has not handed on, and delivery is at least
-// once, so that event reaches the spool first. The append is local, and the agent CLI's own limit on
-// a hook bounds it.
-func expire(cfg config, stdout io.Writer) {
-	if cfg.event == eventPreToolUse && cfg.policy != "" {
-		deny(stdout, "the policy check ran out of time")
+// untilDecided sets what the deadline gives and hands on if it comes before the hook has decided. It
+// reads nothing, because nothing bounds a read before the deadline is armed. The hook holds the event
+// it took, so that event reaches the spool however early the deadline comes. A policy hook owes a
+// denial, which leaves that event as a refused call's, and a hook that re-grounds a session owes who
+// that session is from its own environment, which the policy file can only add to.
+func untilDecided(cfg config, event lanes.HookEvent, stdout io.Writer) {
+	switch cfg.event {
+	case eventPreToolUse:
+		event.Asked = nil
+		if cfg.policy != "" {
+			event.Detail = lanes.DetailDenied
+			cfg.out.owe(stdout, denial(lateVerdict))
+		}
+	case eventSessionStart:
+		if lanes.Regrounds(event.Detail) {
+			cfg.out.owe(stdout, grounding(cfg, event, lanes.Grounding{}, 0))
+		}
 	}
+	cfg.out.hold(&event)
+}
+
+// expire ends a hook that passed its deadline. It gives the answer the hook still owes, which is a
+// denial from a policy hook with no verdict yet and who a session is from one that lost its place,
+// and nothing once the hook has answered, so the agent CLI reads one answer or none. A loaded machine
+// can hold a hook past its deadline with an event it took and has not handed on, and delivery is at
+// least once, so that event reaches the spool first. The append is local, and the agent CLI's own
+// limit on a hook bounds it.
+func expire(cfg config) {
 	cfg.out.settle(cfg)
 	os.Exit(0)
 }
@@ -126,24 +152,28 @@ func take(cfg config, stdin io.Reader) (lanes.HookEvent, []byte) {
 	return event, input
 }
 
-// run hands on the event a hook took.
+// run hands on the event a hook took. A policy hook's verdict goes through the outbox with the event
+// it leaves, so the deadline gives the denial it owes only while that verdict is still to come, and
+// never hands on an event that says otherwise.
 func run(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
+	if cfg.out == nil {
+		cfg.out = new(outbox)
+	}
 	switch cfg.event {
 	case eventPreToolUse:
-		verdict := decide(cfg, input, stdout)
+		verdict, answer := decide(cfg, input)
 		if verdict != questionDeferred {
 			event.Asked = nil
 		}
 		if verdict == callDenied {
 			event.Detail = lanes.DetailDenied
 		}
+		cfg.out.answerWith(stdout, answer, event)
 	case eventSessionStart:
-		ack := ackDeadline
 		if lanes.Regrounds(event.Detail) {
-			ack = groundAck
+			reground(cfg, event, stdout)
+			return
 		}
-		reground(cfg, event, forwardWithin(cfg, event, ack), stdout)
-		return
 	case eventPermissionRequest:
 		awaitDecision(cfg, event, input, stdout)
 		return
@@ -255,10 +285,10 @@ func answerPermission(stdout io.Writer, decision, reason string) {
 // deferGated ends a turn on a call a person must approve, once a request stands for it, so a lane
 // parks with no process waiting. A worker that does not answer in time leaves the call to
 // PermissionRequest, which waits, so this can make a lane slower and never let a call through.
-func deferGated(cfg config, input []byte, stdout io.Writer) verdict {
+func deferGated(cfg config, input []byte) (verdict, []byte) {
 	var call requestedCall
 	if cfg.socket == "" || json.Unmarshal(input, &call) != nil {
-		return callPassed
+		return callPassed, nil
 	}
 	request := lanes.Request{
 		Version: lanes.SocketProtocol, Token: cfg.token,
@@ -266,33 +296,31 @@ func deferGated(cfg config, input []byte, stdout io.Writer) verdict {
 	}
 	reply, err := api.CallLane(cfg.socket, request, dialDeadline, peekDeadline)
 	if err != nil || !reply.OK || reply.Approval == nil {
-		return callPassed
+		return callPassed, nil
 	}
 	switch reply.Approval.Decision {
 	case lanes.ApprovalWaiting:
-		write(stdout, map[string]string{"hookEventName": eventPreToolUse, "permissionDecision": "defer"})
+		return callPassed, deferral()
 	case lanes.ApprovalDeny:
-		deny(stdout, reply.Approval.Reason)
-		return callDenied
+		return callDenied, denial(reply.Approval.Reason)
 	}
-	return callPassed
+	return callPassed, nil
 }
 
-// decide comes first, so a denial never depends on the worker. Only a deferred question tool forwards
-// tool input, and a denied call is one no later hook reports.
-func decide(cfg config, input []byte, stdout io.Writer) verdict {
+// decide comes first, so a denial never depends on the worker. It returns its verdict and the answer
+// that says it, which is empty for a pass. Only a deferred question tool forwards tool input, and a
+// denied call is one no later hook reports.
+func decide(cfg config, input []byte) (verdict, []byte) {
 	if cfg.policy == "" {
-		return callPassed
+		return callPassed, nil
 	}
 	raw, err := os.ReadFile(cfg.policy)
 	if err != nil {
-		deny(stdout, unavailablePolicy)
-		return callDenied
+		return callDenied, denial(unavailablePolicy)
 	}
 	var policy lanes.DenyPolicy
 	if json.Unmarshal(raw, &policy) != nil {
-		deny(stdout, unavailablePolicy)
-		return callDenied
+		return callDenied, denial(unavailablePolicy)
 	}
 	var call struct {
 		Tool  string `json:"tool_name"`
@@ -304,21 +332,17 @@ func decide(cfg config, input []byte, stdout io.Writer) verdict {
 		} `json:"tool_input"`
 	}
 	if json.Unmarshal(input, &call) != nil {
-		deny(stdout, unavailablePolicy)
-		return callDenied
+		return callDenied, denial(unavailablePolicy)
 	}
 	if reason, held := policy.HoldsTool(call.Tool); held {
-		deny(stdout, reason)
-		return callDenied
+		return callDenied, denial(reason)
 	}
 	if call.Tool == lanes.ToolQuestion {
 		switch policy.QuestionTool {
 		case lanes.QuestionToolDefer:
-			write(stdout, map[string]string{"hookEventName": eventPreToolUse, "permissionDecision": "defer"})
-			return questionDeferred
+			return questionDeferred, deferral()
 		case lanes.QuestionToolDeny:
-			deny(stdout, lanes.ReasonUseAsk)
-			return callDenied
+			return callDenied, denial(lanes.ReasonUseAsk)
 		}
 	}
 	target := call.Input.File
@@ -328,47 +352,68 @@ func decide(cfg config, input []byte, stdout io.Writer) verdict {
 	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd}
 	reason, denied := policy.Decide(tool)
 	if denied {
-		deny(stdout, reason)
-		return callDenied
+		return callDenied, denial(reason)
 	}
 	if policy.Gated(tool) {
-		return deferGated(cfg, input, stdout)
+		return deferGated(cfg, input)
 	}
-	return callPassed
+	return callPassed, nil
 }
 
-func deny(stdout io.Writer, reason string) {
-	write(stdout, map[string]string{
+// denial is a PreToolUse answer that stops a call.
+func denial(reason string) []byte {
+	return encode(map[string]string{
 		"hookEventName": eventPreToolUse, "permissionDecision": "deny", "permissionDecisionReason": reason,
 	})
 }
 
+// deferral is a PreToolUse answer that ends the turn on a call.
+func deferral() []byte {
+	return encode(map[string]string{"hookEventName": eventPreToolUse, "permissionDecision": "defer"})
+}
+
 // reground tells a session that lost its place who it is. SessionStart is the one event that can
 // add context after a compaction. Its work comes from the file a denial reads, so this needs no
-// worker. Its generation comes from the worker, because the tags of a process that was cleared are
-// out of date, and with no worker a clear names none rather than a wrong one.
-func reground(cfg config, event lanes.HookEvent, generation int64, stdout io.Writer) {
-	if !lanes.Regrounds(event.Detail) {
-		return
-	}
-	if generation == 0 && event.Detail != lanes.SourceClear {
-		generation = cfg.generation
+// worker, and the hook owes that answer before it asks the worker anything, in place of the one it
+// owed from its environment alone, so a hook that runs out of time still gives it. Its generation
+// comes from the worker, because the tags of a process that was cleared are out of date, and with
+// no worker a clear names none rather than a wrong one.
+func reground(cfg config, event lanes.HookEvent, stdout io.Writer) {
+	if cfg.out == nil {
+		cfg.out = new(outbox)
 	}
 	var policy lanes.DenyPolicy
 	if raw, err := os.ReadFile(cfg.policy); err == nil {
 		_ = json.Unmarshal(raw, &policy)
 	}
-	write(stdout, map[string]string{
+	cfg.out.owe(stdout, grounding(cfg, event, policy.Ground, 0))
+	generation := forwardWithin(cfg, event, groundAck)
+	cfg.out.answer(stdout, grounding(cfg, event, policy.Ground, generation))
+}
+
+// grounding is a re-grounding hook's answer. A generation of zero is one the worker did not give.
+func grounding(cfg config, event lanes.HookEvent, ground lanes.Grounding, generation int64) []byte {
+	if generation == 0 && event.Detail != lanes.SourceClear {
+		generation = cfg.generation
+	}
+	return encode(map[string]string{
 		"hookEventName":     eventSessionStart,
-		"additionalContext": policy.Ground.Text(cfg.lane, cfg.workOrder, generation),
+		"additionalContext": ground.Text(cfg.lane, cfg.workOrder, generation),
 	})
 }
 
 func write(stdout io.Writer, specific any) {
-	line, err := json.Marshal(map[string]any{"hookSpecificOutput": specific})
-	if err == nil {
+	if line := encode(specific); line != nil {
 		_, _ = stdout.Write(line)
 	}
+}
+
+func encode(specific any) []byte {
+	line, err := json.Marshal(map[string]any{"hookSpecificOutput": specific})
+	if err != nil {
+		return nil
+	}
+	return line
 }
 
 // forward sends one short request, and says which generation the worker has the lane in. A refusal
@@ -395,10 +440,17 @@ func forwardWithin(cfg config, event lanes.HookEvent, ack time.Duration) int64 {
 }
 
 // outbox holds the event a hook is handing on until the worker acks it or the spool has it, so the
-// deadline can tell an event still to write from one already down.
+// deadline can tell an event still to write from one already down. It holds the answer a session is
+// still owed the same way, so the deadline gives that answer if the hook has not, and gives nothing
+// once the hook has answered, which keeps the agent CLI to one answer.
 type outbox struct {
 	mu    sync.Mutex
 	event *lanes.HookEvent
+	// owed is the answer a session is still owed, and to is where it goes.
+	owed []byte
+	to   io.Writer
+	// settled says the deadline has run, and nothing is written after it.
+	settled bool
 }
 
 // hold keeps an event, and nil lets the one it kept go.
@@ -408,18 +460,63 @@ func (o *outbox) hold(event *lanes.HookEvent) {
 	o.event = event
 }
 
+// owe keeps the answer the deadline gives if the hook gives none before it.
+func (o *outbox) owe(stdout io.Writer, line []byte) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.owed, o.to = line, stdout
+}
+
+// answer gives a session its answer, unless the deadline gave one first.
+func (o *outbox) answer(stdout io.Writer, line []byte) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.give(stdout, line)
+}
+
+// answerWith gives a policy hook's verdict and holds the event that verdict leaves, together, so the
+// deadline never hands on an event that says other than the answer the session heard.
+func (o *outbox) answerWith(stdout io.Writer, line []byte, event lanes.HookEvent) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.give(stdout, line) {
+		o.event = &event
+	}
+}
+
+// give writes an answer unless the deadline gave one first, and says whether it did. An empty answer
+// is a pass, which writes nothing and owes nothing more.
+func (o *outbox) give(stdout io.Writer, line []byte) bool {
+	if o.settled {
+		return false
+	}
+	if len(line) != 0 {
+		_, _ = stdout.Write(line)
+	}
+	o.owed = nil
+	return true
+}
+
 // flush spools the event the outbox holds, unless the deadline spooled it first.
 func (o *outbox) flush(cfg config) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.spoolHeld(cfg)
+	if !o.settled {
+		o.spoolHeld(cfg)
+	}
 }
 
-// settle is the deadline's flush. It waits out a write in progress and keeps the outbox locked, so no
-// write starts while the process exits.
+// settle is the deadline's flush. It waits out a write in progress, gives the answer a session is
+// still owed, and spools what the hook holds. No write starts after it, while the process exits.
 func (o *outbox) settle(cfg config) {
 	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.owed != nil {
+		_, _ = o.to.Write(o.owed)
+		o.owed = nil
+	}
 	o.spoolHeld(cfg)
+	o.settled = true
 }
 
 func (o *outbox) spoolHeld(cfg config) {

@@ -360,3 +360,265 @@ func TestAPolicyThatCannotBeReadDenies(t *testing.T) {
 		t.Errorf("exit %d, stdout %q", run.exit, run.stdout)
 	}
 }
+
+// The calls a policy hook decides past its deadline: one it passes, one it denies, and the question
+// tool, which it defers.
+const (
+	passedCall   = `{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"git status"}}`
+	deniedCall   = `{"tool_name":"Bash","tool_use_id":"t2","tool_input":{"command":"git push --force origin main"}}`
+	deferredCall = `{"tool_name":"AskUserQuestion","tool_use_id":"t3","tool_input":{"questions":[{"question":"Which budget?","options":[{"label":"Three"},{"label":"Five"}]}]}}`
+)
+
+// heldPastTheDeadline runs one PreToolUse hook on a policy that denies a force push and defers the
+// question tool, and returns what it printed. Its spool is a FIFO no one reads, so handing on its
+// event holds it past its deadline, the way a stall on a loaded machine does, until this reads it.
+func heldPastTheDeadline(t *testing.T, input string) string {
+	t.Helper()
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	env := newHookEnv(t)
+	env.policy = filepath.Join(t.TempDir(), "policy.json")
+	rules := `{"deny":[{"tool":"Bash","command_prefix":"git push --force","reason":"a force push is denied"}],"question_tool":"defer"}`
+	if err := os.WriteFile(env.policy, []byte(rules), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(env.spool, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binaries.cli, "hook", "PreToolUse")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(input)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		t.Fatalf("the hook ended before its event was down: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	opened := make(chan *os.File, 1)
+	go func() {
+		if reader, err := os.Open(env.spool); err == nil {
+			opened <- reader
+		}
+	}()
+	t.Cleanup(func() {
+		if writer, err := os.OpenFile(env.spool, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = writer.Close()
+		}
+	})
+	select {
+	case reader := <-opened:
+		defer reader.Close()
+		if _, err := io.ReadAll(reader); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hook never opened its spool")
+	}
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the hook: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hook never exited")
+	}
+	return stdout.String()
+}
+
+// A policy hook fails closed only until it reaches its verdict. A loaded machine can hold a hook past
+// its deadline while it hands on the event of a call the policy passed, and the deadline must not turn
+// that pass into a denial.
+func TestAPassedCallStaysPassedPastTheDeadline(t *testing.T) {
+	if out := heldPastTheDeadline(t, passedCall); out != "" {
+		t.Errorf("a call the policy passed was answered %q", out)
+	}
+}
+
+// The agent CLI reads a hook's answer as one JSON object. A hook held past its deadline after it
+// answered gives that answer and no other, so what it printed is at most one object, and it is the
+// verdict the policy reached.
+func TestAHookPastItsDeadlineAnswersAtMostOnce(t *testing.T) {
+	for name, call := range map[string]struct{ input, decision, reason string }{
+		"pass":  {input: passedCall},
+		"deny":  {input: deniedCall, decision: "deny", reason: "a force push is denied"},
+		"defer": {input: deferredCall, decision: "defer"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := heldPastTheDeadline(t, call.input)
+			if out == "" {
+				if call.decision != "" {
+					t.Errorf("no answer, and the policy reached %s", call.decision)
+				}
+				return
+			}
+			var answer struct {
+				Specific struct {
+					Decision string `json:"permissionDecision"`
+					Reason   string `json:"permissionDecisionReason"`
+				} `json:"hookSpecificOutput"`
+			}
+			if err := json.Unmarshal([]byte(out), &answer); err != nil {
+				t.Fatalf("the hook printed %q, which is not one JSON object: %v", out, err)
+			}
+			if call.decision != "" && (answer.Specific.Decision != call.decision || answer.Specific.Reason != call.reason) {
+				t.Errorf("the hook answered %q, and the policy reached %s", out, call.decision)
+			}
+		})
+	}
+}
+
+// A hook still deciding at its deadline has given no verdict, so it denies the call, and the event it
+// took reaches the spool once as that of a refused call, because delivery is at least once. A policy
+// file that is a FIFO no one writes holds the hook in its decision past the deadline.
+func TestAPolicyHookStillDecidingAtItsDeadlineDenies(t *testing.T) {
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	env := newHookEnv(t)
+	env.policy = filepath.Join(t.TempDir(), "policy.json")
+	if err := syscall.Mkfifo(env.policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binaries.cli, "hook", "PreToolUse")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(passedCall)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		if writer, err := os.OpenFile(env.policy, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = writer.Close()
+		}
+	})
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the hook: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the deadline never ended the hook")
+	}
+	if reason := deniedBy(t, stdout.String()); reason != "the policy check ran out of time" {
+		t.Errorf("a hook with no verdict at its deadline answered %q", stdout.String())
+	}
+	lines := spoolLines(t, env.spool)
+	if len(lines) != 1 || lines[0].Subject != "t1" || lines[0].Detail != lanes.DetailDenied {
+		t.Errorf("the spool holds %+v", lines)
+	}
+}
+
+// A session that lost its place hears who it is however early its hook's deadline comes, even before
+// the hook has read what the policy file adds, and its event reaches the spool once. A policy file
+// that is a FIFO no one writes holds the hook in that read past the deadline.
+func TestARegroundingHookStillReadingItsPolicyAtItsDeadlineGroundsTheSession(t *testing.T) {
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	env := newHookEnv(t)
+	env.policy = filepath.Join(t.TempDir(), "policy.json")
+	if err := syscall.Mkfifo(env.policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binaries.cli, "hook", "SessionStart")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(`{"session_id":"s1","source":"compact"}`)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		if writer, err := os.OpenFile(env.policy, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = writer.Close()
+		}
+	})
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the hook: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the deadline never ended the hook")
+	}
+	var answer struct {
+		Specific struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &answer); err != nil {
+		t.Fatalf("the session heard %q: %v", stdout.String(), err)
+	}
+	for _, part := range []string{"lane-1", "wo", "generation 3"} {
+		if answer.Specific.Event != "SessionStart" || !strings.Contains(answer.Specific.Context, part) {
+			t.Errorf("the session heard %q", stdout.String())
+		}
+	}
+	if lines := spoolLines(t, env.spool); len(lines) != 1 || lines[0].Detail != "compact" {
+		t.Errorf("the spool holds %+v", lines)
+	}
+}
+
+// A status line hook follows the hook contract, and never spools. A loaded machine can hold it past
+// its deadline while it passes its input on, and it still exits 0, spools nothing, and prints nothing
+// but its input. A pipe no one reads holds the pass-through write past the deadline, the way a stall
+// does.
+func TestAStatusLinePastItsDeadlineExitsZero(t *testing.T) {
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	env := newHookEnv(t)
+	input := `{"session_id":"s1","padding":"` + strings.Repeat("x", 1<<20) + `"}`
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	cmd := exec.Command(binaries.cli, "statusline", "--pass")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(input)
+	cmd.Stdout = writer
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the status line: %v\n%s", err, stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("the deadline never ended the status line")
+	}
+	passed, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(passed) == len(input) {
+		t.Fatal("the whole input went through, so nothing held the status line past its deadline")
+	}
+	if !strings.HasPrefix(input, string(passed)) {
+		t.Errorf("the status line printed %d bytes that are not its input", len(passed))
+	}
+	if _, err := os.Stat(env.spool); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a status line spooled: %v", err)
+	}
+}
