@@ -343,6 +343,32 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ method: "PUT", path: "/v1/workers/worker-a/orchestrator", body: { desired_state: "running" } });
   });
 
+  it("names the question a parked lane waits for, and keeps resume as the way past it", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show();
+    const card = cardNamed(/Wait for the check/);
+    const lead = within(card).getByText(/^Its lane is parked/);
+    expect(lead.textContent).toBe("Its lane is parked until question question-1 is answered, or until a person resumes it.");
+    expect(within(lead).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe("/questions?id=question-1");
+    expect(within(card).getByText("Resume lets it go on now, without waiting.")).toBeTruthy();
+    await userEvent.click(within(card).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-parked/lane-resume" });
+  });
+
+  it("says a lane only a person can move waits for a person", () => {
+    const view = goldenNeedsYou();
+    const parked = view.items.find((item) => item.kind === "work" && item.work.reason === "human_resume");
+    if (parked?.kind !== "work" || !parked.work.wakes?.[0]) {
+      throw new Error("no parked lane in the golden view");
+    }
+    parked.work.wakes[0].expression = `{"human_resume":true}`;
+    show(view);
+    const card = cardNamed(/Wait for the check/);
+    expect(within(card).getByText("Its lane is parked until a person says go.")).toBeTruthy();
+    expect(within(card).queryByText(/without waiting/)).toBeNull();
+  });
+
   it("offers both ways out of blocked", () => {
     show();
     const card = cardNamed(/Move the archive/);

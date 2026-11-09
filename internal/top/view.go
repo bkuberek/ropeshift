@@ -11,6 +11,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/parking"
 )
 
 // plainWidth is the width of a frame with no terminal to measure.
@@ -113,6 +114,26 @@ func itemCommands(item api.NeedItem) []string {
 	return commands
 }
 
+// reasonWords says the reasons whose names are codes, and the rest read as they are.
+var reasonWords = map[string]string{
+	api.ReasonResume:     "parked",
+	api.ReasonLongParked: "long parked",
+}
+
+// waitsFor says what a parked lane's wakes wait for, in the short words of the web UI's.
+func waitsFor(wakes []api.WakeView) string {
+	said := make([]string, 0, len(wakes))
+	for _, wake := range wakes {
+		expr, err := parking.Parse(wake.Expression, "")
+		if err != nil {
+			said = append(said, "something this build cannot read")
+			continue
+		}
+		said = append(said, expr.ShortWords())
+	}
+	return strings.Join(said, "; ")
+}
+
 func what(item api.NeedItem) string {
 	switch {
 	case item.Batch != nil:
@@ -125,6 +146,12 @@ func what(item api.NeedItem) string {
 		return ""
 	}
 	line := clean(item.Work.Reason)
+	if said, ok := reasonWords[item.Work.Reason]; ok {
+		line = said
+	}
+	if len(item.Work.Wakes) != 0 {
+		line += ": waits for " + clean(waitsFor(item.Work.Wakes))
+	}
 	if item.Work.WorkOrder != nil && item.Work.WorkOrder.Title != "" {
 		line += "  " + clean(item.Work.WorkOrder.Title)
 	}

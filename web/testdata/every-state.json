@@ -999,6 +999,12 @@
               "worker_id": "worker-a"
             },
             "reason": "human_resume",
+            "wakes": [
+              {
+                "expression": "{\"human_resume\":true}",
+                "id": "wake-lane-wo-parked"
+              }
+            ],
             "work_order": {
               "contract_id": "generated-26",
               "contract_version": 1,
@@ -1282,6 +1288,12 @@
               "worker_id": "worker-a"
             },
             "reason": "human_resume",
+            "wakes": [
+              {
+                "expression": "{\"human_resume\":true}",
+                "id": "wake-lane-wl-parked"
+              }
+            ],
             "work_order": {
               "contract_id": "generated-29",
               "contract_version": 1,
@@ -1384,7 +1396,7 @@
           "since": 1790000066001,
           "wakes": [
             {
-              "expression": "human_resume",
+              "expression": "{\"human_resume\":true}",
               "id": "wake-lane-wo-parked"
             }
           ],
@@ -1430,7 +1442,7 @@
           "since": 1790000132001,
           "wakes": [
             {
-              "expression": "human_resume",
+              "expression": "{\"human_resume\":true}",
               "id": "wake-lane-wl-parked"
             }
           ],

@@ -70,7 +70,10 @@ describe("on hold", () => {
     serveViews();
     openPage("/on-hold");
     const card = await line("Wait for the check");
-    expect(within(card).getByText("human_resume")).toBeTruthy();
+    const wakes = within(card).getByText("Wakes").closest("div");
+    expect(wakes?.textContent).toContain("When question question-1 is answered, or when a person resumes it");
+    expect(within(wakes as HTMLElement).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe("/questions?id=question-1");
+    expect(card.textContent).not.toContain("any_of");
     expect(within(card).getAllByText("Parked").length).toBeGreaterThan(0);
     expect(within(card).getByText("wo-parked")).toBeTruthy();
     expect(within(card).getByText("lane-wo-parked")).toBeTruthy();
@@ -199,6 +202,23 @@ describe("stuck", () => {
     expect(within(card).getByText("Long parked")).toBeTruthy();
     expect(within(card).getByText("Its lane has stayed parked for a long time.")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+
+  it("says what a lane parked too long waits for", async () => {
+    serving<Stuck>("stuck", (view) => {
+      const first = view.items[0];
+      if (first) {
+        first.reason = "long_parked";
+        first.actions = ["resume", "cancel"];
+        first.wakes = [{ id: "wake-1", expression: `{"any_of":[{"all_of":[{"question_answered":"q-signing-key"}]},{"human_resume":true}]}` }];
+      }
+    });
+    openPage("/stuck");
+    const card = await line("Rotate the keys");
+    expect(within(card).getByText(/^Its lane has stayed parked/).textContent).toBe(
+      "Its lane has stayed parked for a long time. It waits until question q-signing-key is answered, or until a person resumes it.",
+    );
+    expect(within(card).getByRole("link", { name: "q-signing-key" })).toBeTruthy();
   });
 
   it("says so when nothing is stuck", async () => {

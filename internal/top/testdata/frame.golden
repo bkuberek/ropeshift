@@ -6,7 +6,7 @@ NEEDS YOU
      9m  work      wo-accept  acceptance  Trim the log
      8m  approval  approval-1  lane lane-wo-approval asks about Bash
      6m  questions generated-6  2 to answer
-     5m  work      wo-parked  human_resume  Wait for the check
+     5m  work      wo-parked  parked: waits for question question-1 or a person  Wait for the check
      4m  work      wo-stalled  stalled  Read the logs
      4m  work      wo-tripped  tripped  Fix the flaky test
     ropeshift work reassign wo-lapsed --reason R

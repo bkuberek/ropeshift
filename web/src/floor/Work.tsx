@@ -4,6 +4,7 @@ import { workLabels, WorkCard } from "../needs/WorkCard";
 import { Fact, Lasted, Line, Until, words } from "../parts/parts";
 import { LaneFacts } from "./LaneFacts";
 import { workLabel } from "./states";
+import { WakeWords } from "./WakeWords";
 
 const titleOf = (order: WorkOrder) => order.title || order.id;
 
@@ -53,8 +54,8 @@ function HeldLine({ line }: { line: HeldLane }) {
         {line.wakes.length ? (
           <dl className="facts">
             {line.wakes.map((wake) => (
-              <Fact key={wake.id} name="Waits for">
-                <span className="mono">{wake.expression}</span>
+              <Fact key={wake.id} name="Wakes">
+                <WakeWords expression={wake.expression} />
                 {wake.next_eval_at ? (
                   <span className="fresh">
                     <Until at={wake.next_eval_at} />

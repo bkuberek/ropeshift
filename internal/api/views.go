@@ -95,13 +95,15 @@ type EffectView struct {
 }
 
 // WorkNeed is work that waits for a person, or for no one yet and is going nowhere. An orchestrator has
-// no work order and no lane of the kind a work order runs, and a work order may have no lane.
+// no work order and no lane of the kind a work order runs, and a work order may have no lane. Wakes is
+// what a parked lane waits for, so a person reads what would move it before resuming it by hand.
 type WorkNeed struct {
 	Reason       string                `json:"reason"`
 	Detail       string                `json:"detail,omitempty"`
 	WorkOrder    *workorders.WorkOrder `json:"work_order,omitempty"`
 	Lane         *ledger.LaneView      `json:"lane,omitempty"`
 	Orchestrator *ledger.Orchestrator  `json:"orchestrator,omitempty"`
+	Wakes        []WakeView            `json:"wakes,omitempty"`
 	Actions      []string              `json:"actions"`
 }
 

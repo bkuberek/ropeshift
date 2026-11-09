@@ -107,6 +107,8 @@ export type WorkNeed = {
   work_order?: WorkOrder;
   lane?: Lane;
   orchestrator?: Orchestrator;
+  // What a parked lane waits for, as its wakes state it.
+  wakes?: Wake[];
   actions: (WorkAction | OrchestratorAction)[];
 };
 

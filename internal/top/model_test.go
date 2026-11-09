@@ -98,6 +98,21 @@ func TestALaneStatesWhetherItsValueWasObserved(t *testing.T) {
 	}
 }
 
+// A parked lane says what would move it in the words the web UI uses, and never a reason's code.
+func TestAParkedLaneSaysWhatItWaitsFor(t *testing.T) {
+	frame := loaded(t, golden(t)).View()
+	if !strings.Contains(frame, "wo-parked  parked: waits for question question-1 or a person  Wait for the check") || strings.Contains(frame, "human_resume") {
+		t.Errorf("the parked lane does not say what it waits for:\n%s", frame)
+	}
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{{Kind: api.NeedWork, ID: "wo-old", Work: &api.WorkNeed{
+		Reason: api.ReasonLongParked, Wakes: []api.WakeView{{ID: "wake", Expression: `{"moon_phase":"full"}`}}, Actions: []string{},
+	}}}
+	if frame := loaded(t, snapshot).View(); !strings.Contains(frame, "wo-old  long parked: waits for something this build cannot read") {
+		t.Errorf("a wake this build cannot read says nothing of itself:\n%s", frame)
+	}
+}
+
 // Titles and lane reasons come from agents and repositories, and a terminal obeys what it is sent.
 func TestNothingAReaderHoldsCanWriteToTheTerminal(t *testing.T) {
 	hostile := "ok\x1b]52;c;c3RvbGVu\x07\x1b[2J\u009b31m\u202egone\r\nforged"
