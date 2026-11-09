@@ -305,11 +305,11 @@ func (r *randomRun) takeLease(workOrder string, fence int64) error {
 	deadline := time.Now().Add(holderLimit)
 	for time.Now().Before(deadline) {
 		if _, err := ops.Sweep(w.rig.Ctx, w.rig.Scope, w.rig.Actor); err != nil {
-			return err
+			return fmt.Errorf("sweep: %w", err)
 		}
 		row, err := w.rig.WorkOrder(w.store, workOrder)
 		if err != nil {
-			return err
+			return fmt.Errorf("read: %w", err)
 		}
 		if row.Fence > fence {
 			return nil
@@ -317,7 +317,7 @@ func (r *randomRun) takeLease(workOrder string, fence int64) error {
 		if row.State == workorders.Lapsed {
 			err := ops.Reassign(w.rig.Ctx, w.rig.Scope, workOrder, "stopped holder", w.rig.Actor)
 			if err != nil && !errors.Is(err, workorders.ErrNotLapsed) {
-				return err
+				return fmt.Errorf("reassign: %w", err)
 			}
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -366,37 +366,38 @@ func (r *randomRun) awaitRefusal(actor string, fence int64, wrote int) error {
 }
 
 // drain finishes with no kills: every lease a dead worker left must expire and
-// resolve, so a stuck work order shows.
+// resolve, so a stuck work order shows, and the failure names it.
 func (r *randomRun) drain() error {
 	w := r.world
 	ops := w.rig.NewOps(w.store)
 	deadline := time.Now().Add(randomDrainLimit)
+	var unsettled []string
 	for time.Now().Before(deadline) {
 		if _, err := ops.Sweep(w.rig.Ctx, w.rig.Scope, w.rig.Actor); err != nil {
-			return err
+			return fmt.Errorf("sweep: %w", err)
 		}
 		rows, err := w.rows()
 		if err != nil {
-			return err
+			return fmt.Errorf("list the work orders: %w", err)
 		}
-		settled := true
+		unsettled = unsettled[:0]
 		for _, row := range rows {
 			if row.State == workorders.Ready {
 				continue
 			}
-			settled = false
+			unsettled = append(unsettled, fmt.Sprintf("%s %s at fence %d", row.ID, row.State, row.Fence))
 			if row.State == workorders.Lapsed {
 				if err := ops.Reassign(w.rig.Ctx, w.rig.Scope, row.ID, "drain", w.rig.Actor); err != nil {
-					return err
+					return fmt.Errorf("reassign %s: %w", row.ID, err)
 				}
 			}
 		}
-		if settled {
+		if len(unsettled) == 0 {
 			return nil
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return contract.Violatedf("work orders never settled after the workers stopped")
+	return contract.Violatedf("work orders never settled after the workers stopped: %s", strings.Join(unsettled, ", "))
 }
 
 // TestCrashLeases is the random run: SIGKILL at exact steps and at random delays,
@@ -644,8 +645,8 @@ func TestALongRunKeepsABudgetForItsChecks(t *testing.T) {
 
 // TestAPhaseStillStopsAStoreCallThatBlocks holds the other half of a phase's bound: a store call
 // that blocks still ends at it, well before the store's own busy timeout, and the error names
-// the phase. A write transaction held open on another connection stands for the hang, and an
-// expired lease makes the drain's sweep write behind it.
+// the phase and the call. A write transaction held open on another connection stands for the
+// hang, and an expired lease makes the drain's sweep write behind it.
 func TestAPhaseStillStopsAStoreCallThatBlocks(t *testing.T) {
 	w := newWorld(t, "")
 	run := newRandomRun(w, 0)
@@ -672,7 +673,7 @@ func TestAPhaseStillStopsAStoreCallThatBlocks(t *testing.T) {
 	began := time.Now()
 	err = w.within("drain", limit, run.drain)
 	took := time.Since(began)
-	if err == nil || !strings.Contains(err.Error(), "drain, bounded at 200ms: ") {
+	if err == nil || !strings.Contains(err.Error(), "drain, bounded at 200ms: sweep: ") {
 		t.Fatalf("a drain behind a held lock ended in: %v", err)
 	}
 	if took > storeSlack/2 {
