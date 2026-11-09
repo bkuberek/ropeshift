@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -138,6 +139,20 @@ func TestTheMCPServerAnswersHelp(t *testing.T) {
 	for _, says := range []string{"usage: ropeshift mcp", "stdio", "agent CLI", "by hand"} {
 		if !strings.Contains(stdout, says) {
 			t.Errorf("the help does not say %q:\n%s", says, stdout)
+		}
+	}
+}
+
+// The MCP server takes no arguments, so one it is given is a usage error, and it serves nothing.
+func TestTheMCPServerRefusesArguments(t *testing.T) {
+	isolate(t)
+	for _, args := range [][]string{{"foo"}, {"--foo"}, {"foo", "bar"}} {
+		code, stdout, stderr := runMain(append([]string{commandCLI, "mcp"}, args...)...)
+		if code != exitUsage || stdout != "" {
+			t.Errorf("mcp %v: exit %d, stdout %q", args, code, stdout)
+		}
+		if !strings.Contains(stderr, fmt.Sprintf("unexpected argument %q", args[0])) || !strings.Contains(stderr, "usage: ropeshift mcp") {
+			t.Errorf("mcp %v: stderr %q", args, stderr)
 		}
 	}
 }
