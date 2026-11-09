@@ -30,7 +30,7 @@ func (c *invocation) serviceInstall(args []string) int {
 	}
 	set := c.flags()
 	name := set.String("name", "", "the service's name, by default this platform's")
-	positional, ok := parse(set, ours)
+	positional, ok := c.parse(set, ours)
 	if !ok {
 		return ExitUsage
 	}
@@ -54,7 +54,7 @@ func (c *invocation) serviceInstall(args []string) int {
 func (c *invocation) serviceUninstall(args []string) int {
 	set := c.flags()
 	name := set.String("name", "", "the service's name, by default this platform's")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

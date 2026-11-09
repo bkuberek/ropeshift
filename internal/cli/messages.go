@@ -29,7 +29,7 @@ func (c *invocation) messageSend(args []string) int {
 	set.StringVar(&draft.Body, "body", "", "what the message says")
 	set.StringVar(&draft.ReplyTo, "reply-to", "", "what this answers")
 	set.Int64Var(&draft.To.Generation, "generation", 0, "the generation it is for, the current one when left out")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -56,7 +56,7 @@ func (c *invocation) messageSend(args []string) int {
 // messageShow says what became of a message.
 func (c *invocation) messageShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -73,7 +73,7 @@ func (c *invocation) messageShow(args []string) int {
 // messageList says what was sent to a lane.
 func (c *invocation) messageList(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

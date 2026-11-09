@@ -18,7 +18,7 @@ func orchestratorLine(row ledger.Orchestrator) string {
 // workerArgument reads a command's one worker.
 func (c *invocation) workerArgument(args []string) (string, bool) {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return "", false
 	}

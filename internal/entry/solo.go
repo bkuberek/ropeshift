@@ -92,8 +92,21 @@ func (r *repeatedFlag) Set(value string) error {
 
 func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	var opts soloOptions
-	flags := flag.NewFlagSet("ropeshiftd solo", flag.ContinueOnError)
+	flags := soloFlags(&opts)
 	flags.SetOutput(stderr)
+	if err := flags.Parse(args); err != nil {
+		return opts, false
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintf(stderr, "ropeshiftd solo: unexpected argument %q\n", flags.Arg(0))
+		return opts, false
+	}
+	return opts, true
+}
+
+// soloFlags is the daemon's flag set, which its help prints too.
+func soloFlags(opts *soloOptions) *flag.FlagSet {
+	flags := flag.NewFlagSet("ropeshiftd solo", flag.ContinueOnError)
 	flags.Var(&opts.sources, "source", "a repository to read work from, repeatable")
 	flags.StringVar(&opts.ref, "ref", "", "the ref intake reads, by default the default branch")
 	flags.StringVar(&opts.directory, "dir", "", "the directory intake reads, by default the whole repository")
@@ -107,14 +120,7 @@ func parseSolo(args []string, stderr io.Writer) (soloOptions, bool) {
 	flags.DurationVar(&opts.telemetryTick, "telemetry-tick", defaultSpansEvery, "how often the ledger is read into spans and metrics")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
-	if err := flags.Parse(args); err != nil {
-		return opts, false
-	}
-	if flags.NArg() != 0 {
-		fmt.Fprintf(stderr, "ropeshiftd solo: unexpected argument %q\n", flags.Arg(0))
-		return opts, false
-	}
-	return opts, true
+	return flags
 }
 
 // installationPaths applies D19 on this machine.

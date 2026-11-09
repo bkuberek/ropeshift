@@ -47,7 +47,7 @@ func (c *invocation) workCreate(args []string) int {
 	set.Var(&criteria, "criterion", "an acceptance criterion, repeatable")
 	set.Var(&dependsOn, "depends-on", "a work order this one needs, repeatable")
 	set.Var(&requirements, "requirement", "a requirement key, repeatable")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -85,7 +85,7 @@ func (c *invocation) workList(args []string) int {
 	set := c.flags()
 	state := set.String("state", "", "only this state")
 	worker := set.String("worker", "", "only ready work this worker can run")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -124,7 +124,7 @@ func (c *invocation) oneID(positional []string) (string, bool) {
 
 func (c *invocation) workShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -144,7 +144,7 @@ func (c *invocation) workShow(args []string) int {
 // a script must not read a recorded review as a move to `ready`.
 func (c *invocation) workReview(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -177,7 +177,7 @@ func (c *invocation) workClaim(args []string) int {
 	set.StringVar(&request.WorkerID, "worker", "", "the worker that will run this")
 	set.StringVar(&request.ClaimID, "claim-id", "", "a client-generated ID, so a retry returns the grant")
 	set.DurationVar(&ttl, "ttl", 0, "the lease, or the policy's when absent")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -210,7 +210,7 @@ func (c *invocation) workRelease(args []string) int {
 	var request api.ReleaseRequest
 	set.StringVar(&claim, "claim-id", "", "the claim to give back")
 	set.Int64Var(&request.Fence, "fence", 0, "the claim's fence")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -232,7 +232,7 @@ func (c *invocation) workRelease(args []string) int {
 // workAcceptance prints what a work order's evidence leaves to do, then what stays linked to it.
 func (c *invocation) workAcceptance(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -264,7 +264,7 @@ func (c *invocation) workAcceptance(args []string) int {
 
 func (c *invocation) workAccept(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -281,7 +281,7 @@ func (c *invocation) workAccept(args []string) int {
 func (c *invocation) workRework(args []string) int {
 	set := c.flags()
 	reason := set.String("reason", "", "why the work goes back")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -302,7 +302,7 @@ func (c *invocation) workReassign(args []string) int {
 	set := c.flags()
 	var request api.ReassignRequest
 	set.StringVar(&request.Reason, "reason", "", "why the holder's work no longer counts")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -334,7 +334,7 @@ func (c *invocation) workWrite(args []string) int {
 	set.StringVar(&request.Lane, "lane", "", "the lane writing, if one is")
 	set.Int64Var(&request.Generation, "generation", 0, "that lane's generation")
 	set.StringVar(&payload, "payload", "", "what to store")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -365,7 +365,7 @@ func (c *invocation) workCancel(args []string) int {
 	set := c.flags()
 	var request api.CancelWork
 	set.StringVar(&request.Reason, "reason", "", "why this work is over")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -389,7 +389,7 @@ func (c *invocation) laneStart(args []string) int {
 	var request api.StartLane
 	set.StringVar(&request.LaneID, "lane", "", "a client-generated ID, so a retry names the same lane")
 	layer := set.String("profile", "", "a TOML file, this lane's own profile layer")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -432,7 +432,7 @@ func laneLine(lane ledger.LaneView) string {
 
 func (c *invocation) laneList(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -456,7 +456,7 @@ func (c *invocation) laneList(args []string) int {
 
 func (c *invocation) laneShow(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -472,7 +472,7 @@ func (c *invocation) laneShow(args []string) int {
 
 func (c *invocation) sourceList(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -509,7 +509,7 @@ func problemPlace(problem planning.SourceProblem) string {
 
 func (c *invocation) workerList(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -535,7 +535,7 @@ func (c *invocation) workerList(args []string) int {
 // ledger keeps only its digest.
 func (c *invocation) workerToken(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -550,7 +550,7 @@ func (c *invocation) workerToken(args []string) int {
 
 func (c *invocation) laneReset(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -567,7 +567,7 @@ func (c *invocation) laneReset(args []string) int {
 // laneRespawn asks for a running lane's next generation.
 func (c *invocation) laneRespawn(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -584,7 +584,7 @@ func (c *invocation) laneRespawn(args []string) int {
 // laneResume gives a work order's parked lane a member's word.
 func (c *invocation) laneResume(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -608,7 +608,7 @@ func (c *invocation) laneArchive(args []string) int {
 	set := c.flags()
 	var force bool
 	set.BoolVar(&force, "force", false, "remove it even if no remote holds its work")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -645,7 +645,7 @@ func fleetLine(fleet api.Fleet) string {
 
 func (c *invocation) noArguments(args []string) (*api.Client, bool, int) {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return nil, false, ExitUsage
 	}
@@ -684,7 +684,7 @@ func (c *invocation) fleetCaps(args []string) int {
 	wip := set.Int64("wip", -1, "work in progress, 0 for no limit")
 	repository := set.Int64("per-repository", -1, "lanes per repository, 0 for no limit")
 	worker := set.Int64("per-worker", -1, "lanes per worker, 0 for no limit")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
@@ -733,7 +733,7 @@ func doctorLine(driver ledger.DriverManifest) string {
 // and a status, and never who is signed in.
 func (c *invocation) workerDoctor(args []string) int {
 	set := c.flags()
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

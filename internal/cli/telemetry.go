@@ -20,7 +20,7 @@ func (c *invocation) telemetryQuery(args []string) int {
 	set.StringVar(&query.Lane, "lane", "", "one lane")
 	set.DurationVar(&since, "since", 0, "only what was observed within this long, such as 1h")
 	set.IntVar(&query.Limit, "limit", 0, "the most records to print, 100 by default")
-	positional, ok := parse(set, args)
+	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}

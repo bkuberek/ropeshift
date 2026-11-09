@@ -6,13 +6,22 @@ A command that changes something needs a member's session, and a read on the loc
 
 Every command takes `--json`. With it, a result is one JSON document on stdout, and a failure is `{"error": {...}}` on stderr with the same exit code.
 
+## Help
+
+`ropeshift help`, `ropeshift --help`, and `ropeshift -h` list every command by group, each with one line, on stdout, and exit 0. `ropeshift help <command>` and `ropeshift <command> --help` print one command's usage, what it does, and its flags, and exit 0. A group's first word lists the commands under it, so `ropeshift help work` lists every `work` command.
+
+`ropeshift` with no command prints the same list on stderr and exits 2: a missing command is a usage error, as an unknown one is. An unknown command or flag exits 2 and names `ropeshift help`. `ropeshift --version` is `ropeshift version`, and `ropeshift --version --json` prints its JSON.
+
+`ropeshiftd` answers the same forms for its own commands: `solo`, `help`, and `version`.
+
 ## Commands
 
 | Command | Does |
 |---------|------|
 | `ropeshift top [--once]` | Watches the fleet: what needs a person first, in the order the Needs you view holds, then each lane in that order with its state, reachability, and whether its value is `observed` or `last_reported`, then the workers. It follows the ledger's events and reads again at least every 5 seconds, and it changes nothing: it names the command for what the cursor stands on. Text from agents and repositories prints with control characters replaced. With no terminal, or with `--once`, it prints one frame, and `--json` prints one document |
 | `ropeshift health` | Says the control plane answered and read its ledger, and the revision it stands at. It exits 9 when nothing answers |
-| `ropeshift version [--json]` | Prints the version, the commit, the build date, the Go version, and the platform. It needs no daemon, and `ropeshiftd version` prints the same under the daemon's name. See [versioning](versioning.md#what-a-binary-reports) |
+| `ropeshift version [--json]` | Prints the version, the commit, the build date, the Go version, and the platform. It needs no daemon, and `ropeshiftd version` prints the same under the daemon's name. `--version` is the same command. See [versioning](versioning.md#what-a-binary-reports) |
+| `ropeshift help [<command>]` | Lists every command by group, or prints one command's usage, what it does, and its flags. See [help](#help) |
 | `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review`. With `--kind plan --repository R`, its lane writes repository files on its branch, and intake reads them at the commit a member accepts. `source list` names R, and reports a file intake could not read |
 | `ropeshift work list [--state S] [--worker W]` | Lists work orders. With `--worker`, it lists only ready work that worker's manifest can run |
 | `ropeshift work show <id>` | Shows one work order |
@@ -113,7 +122,7 @@ These commands are for ropeshift or an agent CLI to run, and a person does not n
 
 ## The daemon
 
-`ropeshiftd solo` runs the control plane and this machine's worker in one process. `ropeshift service install -- <flags>` passes the same flags to it under the service manager.
+`ropeshiftd solo` runs the control plane and this machine's worker in one process. `ropeshift service install -- <flags>` passes the same flags to it under the service manager. `ropeshiftd help` lists the daemon's commands, and `ropeshiftd solo --help` prints these flags with their defaults.
 
 | Flag | Default | Meaning |
 |------|---------|---------|
