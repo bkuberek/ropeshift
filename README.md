@@ -45,9 +45,37 @@ curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh 
 
 On Debian, Ubuntu, Fedora, or RHEL, download the `.deb` or `.rpm` package for your architecture from the [releases page](https://github.com/bkuberek/ropeshift/releases), and install it with `sudo dpkg -i` or `sudo rpm -i`.
 
-`go install` is not available yet, because the `ropeshift.dev` module path is not served yet.
+`go install` is not an install channel for now: install from a release.
 
 Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code CLI installed and signed in. Then follow [Onboarding](docs/onboarding.md). [Releasing](docs/releasing.md#install-channels) lists every channel.
+
+## Screenshots
+
+These are the web UI of `v0.1.0-alpha.1` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting.
+
+Needs you puts what waits for a person first, oldest first: work to accept, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
+
+![Needs you, with work to accept, a parked lane, and two questions to answer](docs/assets/screenshots/needs-you-light.png#gh-light-mode-only)
+![Needs you, with work to accept, a parked lane, and two questions to answer](docs/assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
+
+Decisions lists what members and orchestrators decided or assumed, with the question each answers and what it cites.
+
+![Decisions, with a decision and an assumption and their scope, question, and citations](docs/assets/screenshots/decisions-light.png#gh-light-mode-only)
+![Decisions, with a decision and an assumption and their scope, question, and citations](docs/assets/screenshots/decisions-dark.png#gh-dark-mode-only)
+
+The shop floor shows each worker and each lane, with its state, liveness, and generation.
+
+![The shop floor, with one worker and four lanes](docs/assets/screenshots/shop-floor-light.png#gh-light-mode-only)
+![The shop floor, with one worker and four lanes](docs/assets/screenshots/shop-floor-dark.png#gh-dark-mode-only)
+
+Operations shows the fleet mode, its limits, and how many work orders and lanes are in each state, followed by the sources and the product measures.
+
+![Operations, with the fleet mode, limits, and counts of work orders and lanes by state](docs/assets/screenshots/operations-light.png#gh-light-mode-only)
+![Operations, with the fleet mode, limits, and counts of work orders and lanes by state](docs/assets/screenshots/operations-dark.png#gh-dark-mode-only)
+
+`ropeshift top` watches the same fleet from a terminal.
+
+![ropeshift top, listing what needs you, the lanes, and the worker](docs/assets/screenshots/top.png)
 
 ## What it is
 
