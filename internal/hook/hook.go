@@ -99,10 +99,10 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 	return 0
 }
 
-// expire ends a hook that passed its deadline. A policy hook fails closed. A loaded machine can hold
-// a hook past its deadline with an event it took and has not handed on, and delivery is at least
-// once, so that event reaches the spool first. The append is local, and the agent CLI's own limit on
-// a hook bounds it.
+// expire ends a hook that passed its deadline. A policy hook fails closed, and a session that lost
+// its place still hears who it is. A loaded machine can hold a hook past its deadline with an event
+// it took and has not handed on, and delivery is at least once, so that event reaches the spool
+// first. The append is local, and the agent CLI's own limit on a hook bounds it.
 func expire(cfg config, stdout io.Writer) {
 	if cfg.event == eventPreToolUse && cfg.policy != "" {
 		deny(stdout, "the policy check ran out of time")
@@ -138,12 +138,10 @@ func run(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
 			event.Detail = lanes.DetailDenied
 		}
 	case eventSessionStart:
-		ack := ackDeadline
 		if lanes.Regrounds(event.Detail) {
-			ack = groundAck
+			reground(cfg, event, stdout)
+			return
 		}
-		reground(cfg, event, forwardWithin(cfg, event, ack), stdout)
-		return
 	case eventPermissionRequest:
 		awaitDecision(cfg, event, input, stdout)
 		return
@@ -345,30 +343,45 @@ func deny(stdout io.Writer, reason string) {
 
 // reground tells a session that lost its place who it is. SessionStart is the one event that can
 // add context after a compaction. Its work comes from the file a denial reads, so this needs no
-// worker. Its generation comes from the worker, because the tags of a process that was cleared are
-// out of date, and with no worker a clear names none rather than a wrong one.
-func reground(cfg config, event lanes.HookEvent, generation int64, stdout io.Writer) {
-	if !lanes.Regrounds(event.Detail) {
-		return
-	}
-	if generation == 0 && event.Detail != lanes.SourceClear {
-		generation = cfg.generation
+// worker, and the hook owes that answer before it asks the worker anything, so a hook that runs out
+// of time still gives it. Its generation comes from the worker, because the tags of a process that
+// was cleared are out of date, and with no worker a clear names none rather than a wrong one.
+func reground(cfg config, event lanes.HookEvent, stdout io.Writer) {
+	if cfg.out == nil {
+		cfg.out = new(outbox)
 	}
 	var policy lanes.DenyPolicy
 	if raw, err := os.ReadFile(cfg.policy); err == nil {
 		_ = json.Unmarshal(raw, &policy)
 	}
-	write(stdout, map[string]string{
+	cfg.out.owe(stdout, grounding(cfg, event, policy.Ground, 0))
+	generation := forwardWithin(cfg, event, groundAck)
+	cfg.out.answer(stdout, grounding(cfg, event, policy.Ground, generation))
+}
+
+// grounding is a re-grounding hook's answer. A generation of zero is one the worker did not give.
+func grounding(cfg config, event lanes.HookEvent, ground lanes.Grounding, generation int64) []byte {
+	if generation == 0 && event.Detail != lanes.SourceClear {
+		generation = cfg.generation
+	}
+	return encode(map[string]string{
 		"hookEventName":     eventSessionStart,
-		"additionalContext": policy.Ground.Text(cfg.lane, cfg.workOrder, generation),
+		"additionalContext": ground.Text(cfg.lane, cfg.workOrder, generation),
 	})
 }
 
 func write(stdout io.Writer, specific any) {
-	line, err := json.Marshal(map[string]any{"hookSpecificOutput": specific})
-	if err == nil {
+	if line := encode(specific); line != nil {
 		_, _ = stdout.Write(line)
 	}
+}
+
+func encode(specific any) []byte {
+	line, err := json.Marshal(map[string]any{"hookSpecificOutput": specific})
+	if err != nil {
+		return nil
+	}
+	return line
 }
 
 // forward sends one short request, and says which generation the worker has the lane in. A refusal
@@ -395,10 +408,16 @@ func forwardWithin(cfg config, event lanes.HookEvent, ack time.Duration) int64 {
 }
 
 // outbox holds the event a hook is handing on until the worker acks it or the spool has it, so the
-// deadline can tell an event still to write from one already down.
+// deadline can tell an event still to write from one already down. It holds the answer a session is
+// still owed the same way, so the deadline gives that answer if the hook has not.
 type outbox struct {
 	mu    sync.Mutex
 	event *lanes.HookEvent
+	// owed is the answer a session is still owed, and to is where it goes.
+	owed []byte
+	to   io.Writer
+	// settled says the deadline has run, and nothing is written after it.
+	settled bool
 }
 
 // hold keeps an event, and nil lets the one it kept go.
@@ -408,18 +427,44 @@ func (o *outbox) hold(event *lanes.HookEvent) {
 	o.event = event
 }
 
+// owe keeps the answer the deadline gives if the hook gives none before it.
+func (o *outbox) owe(stdout io.Writer, line []byte) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.owed, o.to = line, stdout
+}
+
+// answer gives a session its answer, unless the deadline gave one first.
+func (o *outbox) answer(stdout io.Writer, line []byte) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.settled {
+		return
+	}
+	_, _ = stdout.Write(line)
+	o.owed = nil
+}
+
 // flush spools the event the outbox holds, unless the deadline spooled it first.
 func (o *outbox) flush(cfg config) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.spoolHeld(cfg)
+	if !o.settled {
+		o.spoolHeld(cfg)
+	}
 }
 
-// settle is the deadline's flush. It waits out a write in progress and keeps the outbox locked, so no
-// write starts while the process exits.
+// settle is the deadline's flush. It waits out a write in progress, gives the answer a session is
+// still owed, and spools what the hook holds. No write starts after it, while the process exits.
 func (o *outbox) settle(cfg config) {
 	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.owed != nil {
+		_, _ = o.to.Write(o.owed)
+		o.owed = nil
+	}
 	o.spoolHeld(cfg)
+	o.settled = true
 }
 
 func (o *outbox) spoolHeld(cfg config) {
