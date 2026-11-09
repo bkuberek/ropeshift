@@ -31,7 +31,7 @@ Ropeshift also needs git, and tmux for lanes that run in a terminal pane.
 
 ### Build from source
 
-`go install` is not available yet, because the `ropeshift.dev` module path is not served yet. To build from a checkout of this repository instead, with Go at the version `go.mod` names, put both names on `PATH`:
+`go install` is not an install channel for now, because a binary it builds embeds the placeholder page instead of the web UI ([releasing](releasing.md#install-channels)). A build from source needs no Node.js. To build from a checkout of this repository, with Go at the version `go.mod` names, put both names on `PATH`:
 
 ```sh
 go build -o ropeshift ./cmd/ropeshift

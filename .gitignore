@@ -21,7 +21,8 @@ desktop.ini
 dist/
 bin/
 
-# The web application's packages, and its build, which a release commit adds (D28).
+# The web application's packages, and its build. A release build embeds the build GoReleaser makes;
+# a plain checkout holds only the placeholder page.
 web/node_modules/
 /web/static/*
 !/web/static/placeholder.html
