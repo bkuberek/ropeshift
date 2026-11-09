@@ -151,7 +151,7 @@ export function QuestionBatch({ batch, after }: { batch: Batch; after: () => Pro
       ) : null}
       <div className="actions">
         <button className="button button-strong" type="submit" disabled={busy || ready.length === 0}>
-          {ready.length === count ? (count === 1 ? "Send this answer" : `Send ${count} answers`) : `Send ${ready.length} of ${count} answers`}
+          {ready.length === count ? (count === 1 ? "Send this answer" : `Send ${count} answers`) : `Send ${ready.length} of ${count} answer${count === 1 ? "" : "s"}`}
         </button>
       </div>
     </form>

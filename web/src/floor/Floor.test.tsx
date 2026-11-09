@@ -56,6 +56,18 @@ describe("in progress", () => {
     expect(within(card).getByText("No lane yet.")).toBeTruthy();
   });
 
+  it("counts running work apart from work that is only claimed", async () => {
+    serving<InProgress>("in-progress", (view) => {
+      const first = view.items[0];
+      if (first) {
+        first.work_order.state = "claimed";
+        first.lane = undefined;
+      }
+    });
+    openPage("/in-progress");
+    expect(await screen.findByText("4 running, 1 claimed")).toBeTruthy();
+  });
+
   it("says so when nothing runs", async () => {
     serving<InProgress>("in-progress", (view) => {
       view.items = [];
@@ -231,6 +243,12 @@ describe("stuck", () => {
 });
 
 describe("completed", () => {
+  it("counts each way work ended apart from work that waits for acceptance", async () => {
+    serveViews();
+    openPage("/completed");
+    expect(await screen.findByText("1 done, 1 failed, 1 canceled, 1 waiting for acceptance")).toBeTruthy();
+  });
+
   it("lists every way work ended, the newest first", async () => {
     serveViews();
     openPage("/completed");
@@ -510,9 +528,19 @@ describe("operations", () => {
     });
     openPage("/operations");
     const measures = await screen.findByRole("region", { name: "Product measures" });
-    expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toContain(
-      "4: 2 batches of questions, 1 approvals, 1 forced actions",
+    expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toBe(
+      "Interruptions2 batches of questions, 1 approval, 1 forced action",
     );
+  });
+
+  it("says one of each kind of interruption in the singular", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.interruptions = 1;
+      view.measures.interruptions_by_kind = { batch: 1 };
+    });
+    openPage("/operations");
+    const measures = await screen.findByRole("region", { name: "Product measures" });
+    expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toBe("Interruptions1 batch of questions, 0 approvals, 0 forced actions");
   });
 
   it("states cost as a lower bound when some of it went unreported", async () => {
@@ -521,7 +549,21 @@ describe("operations", () => {
     });
     openPage("/operations");
     const table = await screen.findByRole("table", { name: "Cost per outcome" });
-    expect(within(table).getByRole("row").textContent).toContain("at least $1.5000 each");
+    expect(within(table).getByRole("row").textContent).toContain("at least $1.50 each, $3.00 over 2 done");
+  });
+
+  it("states money in dollars and cents, and a cost under a cent as under a cent", async () => {
+    serving<Operations>("operations", (view) => {
+      view.measures.cost_per_outcome = {
+        change: { total_usd: 2.6, done: 2, per_done_usd: 1.3, lower_bound: false },
+        plan: { total_usd: 0.004, done: 1, per_done_usd: 0.004, lower_bound: false },
+      };
+    });
+    openPage("/operations");
+    const table = await screen.findByRole("table", { name: "Cost per outcome" });
+    const [change, plan] = within(table).getAllByRole("row");
+    expect(change?.textContent).toBe("Change$1.30 each, $2.60 over 2 done");
+    expect(plan?.textContent).toBe("Planunder $0.01 each, under $0.01 over 1 done");
   });
 
   it("states park time by trigger, at the median and the 95th percentile", async () => {

@@ -20,6 +20,7 @@ import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { Operations } from "../floor/Operations";
 import { ShopFloor } from "../floor/ShopFloor";
+import { workLabel } from "../floor/states";
 import { Completed, InProgress, OnHold, Stuck } from "../floor/Work";
 import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
@@ -68,6 +69,17 @@ function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, no
 }
 
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? "" : "s"}`;
+
+// tally counts a view's work orders by state, in the order given and any other state after, and leaves
+// out a state that holds none, so a count says what it counts: "1 running, 1 claimed".
+function tally(orders: { work_order: { state: string } }[], order: string[], none: string): string {
+  const counts = new Map<string, number>();
+  for (const { work_order } of orders) {
+    counts.set(work_order.state, (counts.get(work_order.state) ?? 0) + 1);
+  }
+  const states = [...order.filter((state) => counts.has(state)), ...[...counts.keys()].filter((state) => !order.includes(state))];
+  return states.length ? states.map((state) => `${counts.get(state)} ${workLabel(state).toLowerCase()}`).join(", ") : none;
+}
 
 // A page's name for the browser. It holds no record's text, so a tab title never carries an agent's words.
 const titles: Record<string, string> = {
@@ -198,13 +210,13 @@ export function PageFor({ route, live, after }: { route: Route; live: Live; afte
     case "/questions":
       return questionsPage(live, param("category"), param("id"));
     case "/in-progress":
-      return <ViewPage<InProgressView> name="in-progress" live={live} title="In progress" note={(view) => `${view.items.length} running`} body={(view) => <InProgress view={view} />} />;
+      return <ViewPage<InProgressView> name="in-progress" live={live} title="In progress" note={(view) => tally(view.items, ["running", "claimed"], "0 running")} body={(view) => <InProgress view={view} />} />;
     case "/on-hold":
       return <ViewPage<OnHoldView> name="on-hold" live={live} title="On hold" note={(view) => `${view.items.length} parked`} body={(view) => <OnHold view={view} />} />;
     case "/stuck":
       return <ViewPage<StuckView> name="stuck" live={live} title="Stuck" note={(view) => `${view.items.length} stopped`} body={(view) => <Stuck view={view} after={after} />} />;
     case "/completed":
-      return <ViewPage<CompletedView> name="completed" live={live} title="Completed" note={(view) => `${view.items.length} ended`} body={(view) => <Completed view={view} />} />;
+      return <ViewPage<CompletedView> name="completed" live={live} title="Completed" note={(view) => tally(view.items, ["done", "failed", "canceled", "acceptance"], "0 ended")} body={(view) => <Completed view={view} />} />;
     case "/shop-floor":
       return <ViewPage<ShopFloorView> name="shop-floor" live={live} title="Shop floor" note={(view) => count(view.lanes.length, "lane")} body={(view) => <ShopFloor view={view} />} />;
     case "/operations":

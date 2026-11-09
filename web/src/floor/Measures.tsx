@@ -34,9 +34,13 @@ function spread(d: Durations): string {
   return `median ${span(d.median_ms)}, 95th percentile ${span(d.p95_ms)}, of ${d.count}`;
 }
 
+// dollars says money in dollars and cents. The API keeps every digit, and a cost too small to show in
+// cents says so rather than reading as nothing.
 function dollars(value: number): string {
-  return `$${value.toFixed(4)}`;
+  return value > 0 && value < 0.005 ? "under $0.01" : `$${value.toFixed(2)}`;
 }
+
+const counted = (amount: number, one: string, many: string) => `${amount} ${amount === 1 ? one : many}`;
 
 // Measures shows the product measures the ledger alone gives. The north star stands beside the
 // overturn rate and rework, because interruptions alone reward an agent for never asking.
@@ -61,7 +65,8 @@ export function Measures({ report }: { report: MeasureReport }) {
       </p>
       <dl className="facts">
         <Fact name="Interruptions">
-          {report.interruptions}: {kinds.batch ?? 0} batches of questions, {kinds.approval ?? 0} approvals, {kinds.forced ?? 0} forced actions
+          {counted(kinds.batch ?? 0, "batch of questions", "batches of questions")}, {counted(kinds.approval ?? 0, "approval", "approvals")},{" "}
+          {counted(kinds.forced ?? 0, "forced action", "forced actions")}
         </Fact>
         <Fact name="Completed work orders">{report.completed}</Fact>
         <Fact name="Repeated-question rate">{share(report.repeated_question_rate)}</Fact>

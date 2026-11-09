@@ -176,8 +176,16 @@ func (m Model) freshness(value string, at int64) string {
 	return "last reported " + age(m.ago(at)) + " ago"
 }
 
+// count says how many of something there are, in the singular for one.
+func count(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
+}
+
 func (m Model) header() string {
-	line := fmt.Sprintf("ropeshift top   %d need you   %d lanes   %d workers", len(m.snapshot.Needs.Items), len(m.snapshot.Floor.Lanes), len(m.snapshot.Floor.Workers))
+	line := fmt.Sprintf("ropeshift top   %d need you   %s   %s", len(m.snapshot.Needs.Items), count(len(m.snapshot.Floor.Lanes), "lane"), count(len(m.snapshot.Floor.Workers), "worker"))
 	if !m.readAt.IsZero() {
 		line += "   read " + age(m.config.Now().Sub(m.readAt)) + " ago"
 	}

@@ -273,6 +273,18 @@ describe("a batch of questions", () => {
     expect(screen.getByRole("button", { name: "Send 2 answers" })).toBeTruthy();
   });
 
+  it("says one answer in the singular", () => {
+    const { view, item } = batchView();
+    const first = item.batch.items[0];
+    if (!first) {
+      throw new Error("empty batch");
+    }
+    first.escalation_reason = "one_way";
+    item.batch.items = [first];
+    show(view);
+    expect(screen.getByRole("button", { name: "Send 0 of 1 answer" })).toBeTruthy();
+  });
+
   it("marks what is recommended and what blocks work", () => {
     const { view, item } = batchView();
     show(view);
