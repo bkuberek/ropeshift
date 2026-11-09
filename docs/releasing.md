@@ -51,7 +51,7 @@ Under `brew services`, the daemon starts with no repository source. To name sour
 Options go after `sh -s --` when the script is piped:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh | sh -s -- --version v0.1.0-alpha.1
+curl -fsSL https://raw.githubusercontent.com/bkuberek/ropeshift/main/install.sh | sh -s -- --version v0.1.0-alpha.2
 ```
 
 GitHub's API serves [a limited number of requests an hour](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api) to a client with no token. When the list cannot be read, the script stops and says to name a release with `--version`, which reads no list.
