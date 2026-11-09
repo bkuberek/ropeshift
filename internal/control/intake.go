@@ -380,6 +380,9 @@ type itemRecorder struct {
 	known   lineages
 	// moved says this file's base moved, once nextVersion has read that.
 	moved bool
+	// latest is the version the ledger holds when this file says what that version does, once
+	// nextVersion has read that.
+	latest *planning.Contract
 }
 
 func (r *itemRecorder) record() (itemOutcome, error) {
@@ -391,7 +394,7 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 		return itemOutcome{conflicts: 1, problem: baseMoved("contract", r.item.Contract.ID)}, nil
 	}
 	if contract.ID == "" {
-		return itemOutcome{}, nil
+		return r.standingProblems()
 	}
 	repeated, err := r.foreignOrder(contract.ID)
 	if err != nil {
@@ -449,7 +452,8 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 		}
 	}
 	crashpoint.Hit("intake.item", "ordered")
-	return itemOutcome{versions: 1, workOrders: created}, nil
+	problem, err := r.untraced(contract)
+	return itemOutcome{versions: 1, workOrders: created, problem: problem}, err
 }
 
 // namedPlan resolves the file's `plan` key. No key is known, because such a contract gets
@@ -585,6 +589,7 @@ func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 		return planning.Contract{}, false, err
 	}
 	if latest.Digest == r.item.Digest {
+		r.latest = &latest
 		return planning.Contract{}, false, nil
 	}
 	stands, err := r.known.of(r.item.Source, latest.Source)
@@ -617,6 +622,35 @@ func (r *itemRecorder) resolveDocuments() ([]planning.DocumentPin, []string, err
 		}
 	}
 	return pins, unknown, nil
+}
+
+// standingProblems reports what still stands against a version this file did not change, because a
+// requirements document can change under a contract that did not.
+func (r *itemRecorder) standingProblems() (itemOutcome, error) {
+	if r.latest == nil {
+		return itemOutcome{}, nil
+	}
+	problem, err := r.untraced(*r.latest)
+	return itemOutcome{problem: problem}, err
+}
+
+// untraced names each criterion of a contract version that serves no requirement its plan has, when
+// the plan has a requirements document. The version is recorded either way, and the definition of
+// ready is what holds its work back (FR-DOC-5).
+func (r *itemRecorder) untraced(contract planning.Contract) (string, error) {
+	known, traced, err := planRequirements(r.tx.Planning(), contract.PlanID)
+	if err != nil || !traced {
+		return "", err
+	}
+	found := planning.Trace(contract.Criteria, known)
+	if len(found) == 0 {
+		return "", nil
+	}
+	details := make([]string, len(found))
+	for i, one := range found {
+		details[i] = one.String()
+	}
+	return fmt.Sprintf("%v: contract %s: %s", planning.ErrBadFile, r.item.Contract.ID, strings.Join(details, "; ")), nil
 }
 
 // foreignOrder finds a work order this file names that another contract owns. A

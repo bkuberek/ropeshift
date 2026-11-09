@@ -1,13 +1,18 @@
 package workorders
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ReadyCheck names one row of the definition of ready.
 type ReadyCheck string
 
-// The four checks (FR-PLAN-5).
+// The checks (FR-PLAN-5, FR-DOC-5).
 const (
-	CheckCriteria        ReadyCheck = "acceptance_criteria"
+	CheckCriteria ReadyCheck = "acceptance_criteria"
+	// CheckRequirements fails while a criterion of the pinned contract serves no requirement of its plan.
+	CheckRequirements    ReadyCheck = "requirements"
 	CheckDependencies    ReadyCheck = "dependencies"
 	CheckContractVersion ReadyCheck = "contract_version"
 	CheckQuestions       ReadyCheck = "questions"
@@ -24,7 +29,10 @@ type DependencyFact struct {
 // ReadyFacts is everything the definition of ready reads. The function holds no
 // other input, so the same ledger always gives the same answer.
 type ReadyFacts struct {
-	Criteria              int
+	Criteria int
+	// Untraced names each criterion of the pinned contract that serves no requirement its plan has,
+	// and is empty for a plan with no requirements document.
+	Untraced              []string
 	ContractVersion       int64
 	ContractDigest        string
 	Dependencies          []DependencyFact
@@ -43,6 +51,9 @@ func DefinitionOfReady(f ReadyFacts) []ReadyFailure {
 	var failed []ReadyFailure
 	if f.Criteria == 0 {
 		failed = append(failed, ReadyFailure{CheckCriteria, "the pinned contract has no acceptance criterion"})
+	}
+	if len(f.Untraced) > 0 {
+		failed = append(failed, ReadyFailure{CheckRequirements, strings.Join(f.Untraced, "; ")})
 	}
 	if detail := dependencyProblem(f.Dependencies); detail != "" {
 		failed = append(failed, ReadyFailure{CheckDependencies, detail})

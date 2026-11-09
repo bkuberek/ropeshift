@@ -180,6 +180,15 @@ func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, a
 		}
 		facts.Criteria, facts.ContractVersion, facts.ContractDigest = len(contract.Criteria), contract.Version, contract.Digest
 		plan = contract.PlanID
+		known, traced, err := planRequirements(planned, contract.PlanID)
+		if err != nil {
+			return nil, err
+		}
+		if traced {
+			for _, untraced := range planning.Trace(contract.Criteria, known) {
+				facts.Untraced = append(facts.Untraced, untraced.String())
+			}
+		}
 	}
 	open, err := asked.OpenBlocking(w.ID, w.ContractID, plan)
 	if err != nil {

@@ -67,6 +67,11 @@ func requirementsOf(id, plan string, keys ...string) string {
 
 // citing renders a contract that names a plan and cites documents.
 func citing(id, plan, statement string, documents ...string) string {
+	return citingFor(id, plan, statement, "", documents...)
+}
+
+// citingFor renders the same contract with its one criterion serving a requirement.
+func citingFor(id, plan, statement, requirement string, documents ...string) string {
 	out := "+++\nkind = \"contract\"\nid = \"" + id + "\"\ntitle = \"The contract " + id + "\"\n"
 	if plan != "" {
 		out += "plan = \"" + plan + "\"\n"
@@ -74,11 +79,15 @@ func citing(id, plan, statement string, documents ...string) string {
 	if len(documents) != 0 {
 		out += "documents = [\"" + strings.Join(documents, `", "`) + "\"]\n"
 	}
+	serving := ""
+	if requirement != "" {
+		serving = "requirements = [\"" + requirement + "\"]\n"
+	}
 	return out + `
 [[criteria]]
 id = "c1"
 text = "It works"
-
+` + serving + `
 [[work_orders]]
 id = "` + id + `-order"
 title = "The work order of ` + id + `"
@@ -597,7 +606,7 @@ func checkDocumentBatchOrder(r *Rig) error {
 	source.Write("b-spec.md", []byte(DocumentText("spec", "checkout-api", "Checkout API", documentsPlan, "The calls.")))
 	source.Write("c-plan.md", []byte(PlanText(documentsPlan, "Payments v2", "")))
 	source.Write("d-requirements.md", []byte(requirementsOf("payments", documentsPlan, "PAY-12")))
-	source.Write("e-contract.md", []byte(citing("alpha", documentsPlan, "One.", "spec:checkout-api", "milestone:m1", "requirements:payments")))
+	source.Write("e-contract.md", []byte(citingFor("alpha", documentsPlan, "One.", "PAY-12", "spec:checkout-api", "milestone:m1", "requirements:payments")))
 	report, err := r.intake(s, source)
 	if err != nil {
 		return err

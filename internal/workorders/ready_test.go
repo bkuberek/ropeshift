@@ -2,6 +2,7 @@ package workorders
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +24,11 @@ func TestDefinitionOfReady(t *testing.T) {
 		{"everything passes", func(*ReadyFacts) {}, nil},
 		{"no work order needs a dependency", func(f *ReadyFacts) { f.Dependencies = nil }, nil},
 		{"a contract with no criterion", func(f *ReadyFacts) { f.Criteria = 0 }, []ReadyCheck{CheckCriteria}},
+		{
+			"a criterion that serves no requirement of the plan",
+			func(f *ReadyFacts) { f.Untraced = []string{"criterion c1 maps to no requirement"} },
+			[]ReadyCheck{CheckRequirements},
+		},
 		{
 			"a dependency the ledger does not know",
 			func(f *ReadyFacts) { f.Dependencies = []DependencyFact{{Blocking: true}} },
@@ -49,9 +55,9 @@ func TestDefinitionOfReady(t *testing.T) {
 		{
 			"every failure is named",
 			func(f *ReadyFacts) {
-				*f = ReadyFacts{OpenBlockingQuestions: 2, Dependencies: []DependencyFact{{Blocking: true}}}
+				*f = ReadyFacts{OpenBlockingQuestions: 2, Dependencies: []DependencyFact{{Blocking: true}}, Untraced: []string{"criterion c1 maps to no requirement"}}
 			},
-			[]ReadyCheck{CheckCriteria, CheckDependencies, CheckContractVersion, CheckQuestions},
+			[]ReadyCheck{CheckCriteria, CheckRequirements, CheckDependencies, CheckContractVersion, CheckQuestions},
 		},
 	}
 	for _, tt := range tests {
@@ -69,5 +75,19 @@ func TestDefinitionOfReady(t *testing.T) {
 				t.Errorf("failed %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestTheRequirementsFailureNamesEveryCriterion(t *testing.T) {
+	facts := passing()
+	facts.Untraced = []string{"criterion c1 maps to no requirement", "criterion c2 names requirement PAY-99, which the plan does not have"}
+	failed := DefinitionOfReady(facts)
+	if len(failed) != 1 || failed[0].Check != CheckRequirements {
+		t.Fatalf("failed %+v", failed)
+	}
+	for _, name := range []string{"c1", "c2", "PAY-99"} {
+		if !strings.Contains(failed[0].Detail, name) {
+			t.Errorf("the failure %q does not name %q", failed[0].Detail, name)
+		}
 	}
 }
