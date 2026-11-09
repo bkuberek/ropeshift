@@ -13,13 +13,13 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/contract"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 // parkProfile asks a lane to wait a moment on a person, and gives it a moment to hand off.
@@ -136,7 +136,7 @@ func laterBinary(t *testing.T) string {
 		t.Fatal(err)
 	}
 	cli := filepath.Join(dir, "ropeshift")
-	build := exec.Command("go", "build", "-overlay", overlayPath, "-o", cli, "ropeshift.dev/ropeshift/cmd/ropeshift")
+	build := exec.Command("go", "build", "-overlay", overlayPath, "-o", cli, "ropeshift.com/ropeshift/cmd/ropeshift")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)

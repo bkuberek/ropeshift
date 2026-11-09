@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // A person's reset ends a crash loop, so the lane starts from its pinned brief and not from the

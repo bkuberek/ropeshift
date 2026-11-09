@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // Machine reads what this machine has free, for the caps only a worker can see.

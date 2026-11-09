@@ -16,15 +16,15 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/notify"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/api/server"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/notify"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/contract"
 )
 
 // watched is every way off this machine, with a count of each use. Nothing it hands out goes anywhere

@@ -1,6 +1,6 @@
 package authority
 
-import "ropeshift.dev/ropeshift/internal/ledger"
+import "ropeshift.com/ropeshift/internal/ledger"
 
 // Party says who an actor is for a record that keeps who acted: a person, an orchestrator, a lane, or
 // the system. It grants nothing. Allowed is the one place a permission is decided, and this sits

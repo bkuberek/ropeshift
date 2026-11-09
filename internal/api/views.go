@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"net/url"
 
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/measures"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // The read models, one for each view of the design. Every surface reads these, so no surface decides

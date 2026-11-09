@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Surface names one undocumented surface of an agent CLI. A driver uses one only on a version

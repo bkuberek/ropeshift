@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/adapters/systemd"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/systemd"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // TestAnOutlivingProcessLeavesTheControlGroup is D20 on a real user manager: a process that must

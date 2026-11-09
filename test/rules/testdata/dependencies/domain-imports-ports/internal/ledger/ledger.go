@@ -1,3 +1,3 @@
 package ledger
 
-import _ "ropeshift.dev/ropeshift/internal/ports"
+import _ "ropeshift.com/ropeshift/internal/ports"

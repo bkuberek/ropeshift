@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // knowledgeAdapter names the fake in document keys.

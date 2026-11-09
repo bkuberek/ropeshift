@@ -6,12 +6,12 @@ import (
 	"slices"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/messages"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // AnswerChecks are what an answer owes the lanes that asked (FR-QD-10). Each runs through the ledger

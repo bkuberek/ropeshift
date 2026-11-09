@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // RuntimeVariable names the user manager's runtime directory, through which systemd-run reaches it.

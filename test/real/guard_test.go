@@ -26,10 +26,10 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 const (

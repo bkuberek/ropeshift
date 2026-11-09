@@ -4,13 +4,13 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/messages"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 var answerWindow = messages.Window{StaleAfter: time.Minute, ExpireAfter: 3 * time.Minute}

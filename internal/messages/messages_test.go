@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 )
 
 // TestDeliveryTable holds every pair of states to the design's table. A signal that arrives late

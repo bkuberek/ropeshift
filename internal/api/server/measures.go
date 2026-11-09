@@ -4,10 +4,10 @@ import (
 	"cmp"
 	"net/http"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/measures"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 func (h *handler) measureRoutes(mux *http.ServeMux) {

@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 const aSubscriptionWorker = "worker-on-a-plan"

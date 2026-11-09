@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/messages"
 )
 
 // ErrBadProfile means a layer cannot become settings.

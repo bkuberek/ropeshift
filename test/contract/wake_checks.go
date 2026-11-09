@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/parking"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // WakeChecks are the invariants of the wake conditions spike, numbered as it numbers them.

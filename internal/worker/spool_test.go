@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 const otherLanesToken = "another-lanes-token"

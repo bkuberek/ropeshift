@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // initRun runs ropeshift init against a daemon that already answers, with the doctor's report given.

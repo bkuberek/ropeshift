@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/adapters/secrets"
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/internal/adapters/claudecode"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/secrets"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden flag lists")

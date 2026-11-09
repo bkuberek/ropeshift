@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // EventProjectionRebuilt records that a projection was rebuilt from the log.

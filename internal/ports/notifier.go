@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Notifier tells members something needs them, on one channel. Delivery is at least once: a crash can

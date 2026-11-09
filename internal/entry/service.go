@@ -14,13 +14,13 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/adapters/launchd"
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/adapters/systemd"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/api/server"
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/launchd"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/systemd"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // The service's name when a person names none: a launchd label on macOS, and a unit's name on Linux.

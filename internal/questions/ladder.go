@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // The rungs of the ladder.

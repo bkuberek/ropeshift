@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Signal is one of OTLP's three signals, as its URL path names it.

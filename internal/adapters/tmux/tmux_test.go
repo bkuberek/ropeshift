@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/tmux"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/tmux"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // scriptedTmux answers each `list-panes` with the next answer of its script, and with the last one

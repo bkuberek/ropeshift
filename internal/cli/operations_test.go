@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/cli"
 )
 
 // workerPlane are the routes only a worker calls, each with who proves itself there. A person has no

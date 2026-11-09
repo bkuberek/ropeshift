@@ -3,8 +3,8 @@ package ports
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 // KnowledgeDocument is one document at one version. Key's native ID is where the source

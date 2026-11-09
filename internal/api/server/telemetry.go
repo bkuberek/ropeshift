@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // maxTelemetryRecords bounds one read.

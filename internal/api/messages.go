@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/messages"
 )
 
 // MessageList is what was sent to a lane, oldest first.

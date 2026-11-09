@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/contextpacks"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/contextpacks"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // packTx is the context pack area of one transaction. No statement here has a limit, because a

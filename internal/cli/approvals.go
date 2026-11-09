@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 // approvalList lists requests, the oldest first, because the oldest has waited longest.

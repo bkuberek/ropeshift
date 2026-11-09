@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/profiles"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/internal/adapters/profiles"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 // wakesNow keeps an orchestrator's wakes from waiting on a person's scale.

@@ -8,15 +8,15 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/contract"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/adapters/claudecode"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 // qualified lists what the ledger recorded of the worker's probes, in order.

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // A daemon in a systemd unit that cannot reach a user manager says that a stop ends its lanes, and a

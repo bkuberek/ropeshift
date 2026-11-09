@@ -1,4 +1,4 @@
-module ropeshift.dev/ropeshift
+module ropeshift.com/ropeshift
 
 go 1.27.3
 

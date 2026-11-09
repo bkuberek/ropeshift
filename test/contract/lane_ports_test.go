@@ -7,15 +7,15 @@ import (
 	"syscall"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
-	"ropeshift.dev/ropeshift/internal/adapters/hookrun"
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/adapters/profiles"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/worker"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/gitcli"
+	"ropeshift.com/ropeshift/internal/adapters/hookrun"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/profiles"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 func TestProcessRunnerContract(t *testing.T) {

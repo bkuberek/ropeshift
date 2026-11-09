@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
 )
 
 const (

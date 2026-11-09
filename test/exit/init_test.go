@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 // The words a person must read on each run of ropeshift init. The vendor's own flow is the only

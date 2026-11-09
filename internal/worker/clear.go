@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/crashpoint"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // clearedInput names the one brief a cleared generation is owed.

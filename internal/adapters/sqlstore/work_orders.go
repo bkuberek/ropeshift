@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 const workOrderColumns = `id, kind, state, title, repository_id, priority, size, requirements, needs,

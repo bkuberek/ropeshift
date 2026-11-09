@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // SourceRig is one work source and the way a check changes what it holds.

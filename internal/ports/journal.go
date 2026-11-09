@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 )
 
 // JournalResult is what the journal keeps about one event the ledger rejected.

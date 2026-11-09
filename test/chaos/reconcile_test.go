@@ -11,17 +11,17 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/adapters/clock"
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/worker"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/internal/adapters/clock"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/workerlink"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/contract"
 )
 
 // retriesBlind names the variant that looks for nothing before a retry, so a spawn a

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 func policySpec(t *testing.T) ports.SessionSpec {

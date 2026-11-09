@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/questions"
 )
 
 func TestBatchPolicyFillsWhatIsNotStated(t *testing.T) {

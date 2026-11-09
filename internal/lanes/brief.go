@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/messages"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // Nudge is the one message a lane that ended a turn with no outcome receives. An idle

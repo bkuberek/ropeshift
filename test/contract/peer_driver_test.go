@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/messages"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/internal/adapters/claudecode"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 // peerRig is the real driver and the real shim, with fakeclaude behind them, and one headless

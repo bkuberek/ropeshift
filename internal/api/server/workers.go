@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/questions"
 )
 
 func (h *handler) workerRoutes(mux *http.ServeMux) {

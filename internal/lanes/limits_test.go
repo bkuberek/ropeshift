@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/parking"
 )
 
 func TestAReadingNearTheLimit(t *testing.T) {

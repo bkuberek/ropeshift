@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/test/contract"
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 // The two processes this file adds to the test binary.
@@ -200,7 +200,7 @@ var shimBinary = sync.OnceValues(func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	binary, err := doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
+	binary, err := doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.com/ropeshift/cmd/ropeshift")
 	if err != nil {
 		return "", err
 	}

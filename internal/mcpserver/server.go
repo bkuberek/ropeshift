@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/contextpacks"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/internal/version"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/contextpacks"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/version"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // protocolVersion is the MCP revision this server speaks.

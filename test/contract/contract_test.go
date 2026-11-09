@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 func TestStoreContract(t *testing.T) {

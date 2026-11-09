@@ -14,15 +14,15 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
-// The application's files. A build writes the first, and a tree that was never built serves the
-// second, which says so (D28).
+// The application's files. A web build writes the first, which a release build embeds from GoReleaser's
+// web build. A plain checkout holds only the second, which says the UI was not built.
 const (
 	indexFile       = "index.html"
 	placeholderFile = "placeholder.html"

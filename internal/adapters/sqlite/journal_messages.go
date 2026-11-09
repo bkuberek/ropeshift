@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/messages"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 const messageColumns = `id, input_id, lane, generation, from_kind, reply_to, kind, body, traceparent, age_ms, taken_ms, stale_after_ms, expire_after_ms, state`

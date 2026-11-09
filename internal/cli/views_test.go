@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/top"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/top"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // TestEveryWebRouteHasACommand is the plan's rule that the UI has no endpoint the CLI lacks. The web

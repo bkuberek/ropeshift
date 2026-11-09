@@ -3,7 +3,7 @@ package planning_test
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 func TestKindOfPath(t *testing.T) {

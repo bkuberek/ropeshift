@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 const compactedPayload = `{"session_id":"s1","hook_event_name":"PostCompact","trigger":"auto","compact_summary":"the conversation in full"}`

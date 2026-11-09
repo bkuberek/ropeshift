@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // The statuses of a plan and a contract.

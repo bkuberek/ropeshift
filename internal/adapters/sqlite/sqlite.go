@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 
 	// The driver registers itself as "sqlite".
 	_ "modernc.org/sqlite"

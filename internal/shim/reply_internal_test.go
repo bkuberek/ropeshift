@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
 )
 
 // TestARepliedCallOutlivesServing covers the order a shutdown takes: the loop answers and

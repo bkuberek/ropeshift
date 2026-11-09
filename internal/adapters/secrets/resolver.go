@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // SecretRefKeychain is the form of a reference that names an OS keychain entry.

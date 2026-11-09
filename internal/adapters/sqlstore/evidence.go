@@ -3,8 +3,8 @@ package sqlstore
 import (
 	"database/sql"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 const evidenceColumns = `id, work_order_id, lane_id, fence, artifact_id, criterion_id, name, status, source, details_uri, created_at`

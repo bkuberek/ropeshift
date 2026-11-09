@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func TestLedgerBackupContract(t *testing.T) {

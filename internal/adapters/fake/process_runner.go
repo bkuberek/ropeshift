@@ -9,8 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Program stands for one binary. It writes to stdout and returns an exit code, and

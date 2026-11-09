@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/repodocs"
-	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/repodocs"
+	"ropeshift.com/ropeshift/internal/adapters/repofiles"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 func TestKnowledgeSourceContract(t *testing.T) {

@@ -1,3 +1,3 @@
 package control
 
-import _ "ropeshift.dev/ropeshift/internal/adapters/sqlite"
+import _ "ropeshift.com/ropeshift/internal/adapters/sqlite"

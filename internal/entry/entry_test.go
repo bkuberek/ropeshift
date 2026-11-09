@@ -13,16 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/profiles"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/contextpacks"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/mcpserver"
-	"ropeshift.dev/ropeshift/internal/messages"
-	"ropeshift.dev/ropeshift/internal/questions"
-	buildversion "ropeshift.dev/ropeshift/internal/version"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/profiles"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/contextpacks"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/mcpserver"
+	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/questions"
+	buildversion "ropeshift.com/ropeshift/internal/version"
 )
 
 func TestDispatchOnStartedName(t *testing.T) {
@@ -95,7 +95,7 @@ func TestUsageErrors(t *testing.T) {
 func buildCLI(t *testing.T, dir string, ldflags string) string {
 	t.Helper()
 	binary := filepath.Join(dir, "ropeshift")
-	build := exec.Command("go", "build", "-ldflags", ldflags, "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
+	build := exec.Command("go", "build", "-ldflags", ldflags, "-o", binary, "ropeshift.com/ropeshift/cmd/ropeshift")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
@@ -124,7 +124,7 @@ func TestOneBinaryTwoNames(t *testing.T) {
 		t.Skip("builds the real binary")
 	}
 	const (
-		stamped  = "ropeshift.dev/ropeshift/internal/version"
+		stamped  = "ropeshift.com/ropeshift/internal/version"
 		release  = "v0.9.0-rc.2"
 		revision = "0123456789abcdef0123456789abcdef01234567"
 		built    = "2026-11-08T10:00:00Z"

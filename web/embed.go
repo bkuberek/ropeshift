@@ -1,6 +1,7 @@
 // Package web holds the web application as the binary serves it. Running it needs no Node.js: a build
-// writes into static, and the binary embeds whatever is there. A tree that was never built holds only
-// the placeholder page, so a plain checkout still builds (D28).
+// writes into static, and the binary embeds whatever is there. A release build embeds the application
+// GoReleaser builds there first. A plain checkout holds only the placeholder page, so it builds without
+// Node.js and the binary serves that page.
 package web
 
 import (

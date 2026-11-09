@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/cli"
 )
 
 // TestABackupOpensAsALedger is the online backup path through the binary: a running daemon copies

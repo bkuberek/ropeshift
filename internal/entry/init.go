@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api"
 )
 
 // How long ropeshift init waits for the daemon it started to answer, and then to stop.

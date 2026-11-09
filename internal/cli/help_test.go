@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/cli"
 )
 
 // alone runs one command line with no control plane to reach.

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 func experienceEvent(t *testing.T, rev int64, eventType, kind, subject string, record any) ledger.Event {

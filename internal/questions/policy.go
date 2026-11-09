@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 // ReversibleAssume lets an orchestrator record an assumption for a reversible choice. It is

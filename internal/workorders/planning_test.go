@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // changeOf is one event of a work order's history.

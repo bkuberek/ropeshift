@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/cli"
 )
 
 // isolate points the CLI at a state and run directory of the test's own, so no command a test

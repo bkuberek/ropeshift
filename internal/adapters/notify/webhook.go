@@ -14,8 +14,8 @@ import (
 	"net/http"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // The headers a delivery carries. The delivery repeats on a retry, so a receiver can drop a second

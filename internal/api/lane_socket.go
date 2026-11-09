@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // The variables of a lane's process, for the clients that read them.

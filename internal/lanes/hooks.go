@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/messages"
 )
 
 // AskedQuestion is one question an agent put to its terminal's question tool, which is the

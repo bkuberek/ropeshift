@@ -3,7 +3,7 @@ package workorders
 import (
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 // Outcome is how a lane ended (FR-LANE-2).

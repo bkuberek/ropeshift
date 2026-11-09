@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"slices"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 // Kind says what a work order produces.

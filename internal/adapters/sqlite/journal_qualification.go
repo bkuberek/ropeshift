@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Qualification reads what this worker's last probe observed, which is nothing until it first saves.

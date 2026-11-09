@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/systemd"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/systemd"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 const systemctl = "/usr/bin/systemctl"

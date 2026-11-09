@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/otel"
+	"ropeshift.com/ropeshift/internal/adapters/otel"
 )
 
 // collector is a stand-in OTLP endpoint on loopback that keeps every body it is sent.

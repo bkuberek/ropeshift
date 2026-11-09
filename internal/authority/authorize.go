@@ -1,6 +1,6 @@
 package authority
 
-import "ropeshift.dev/ropeshift/internal/ledger"
+import "ropeshift.com/ropeshift/internal/ledger"
 
 // Action is something a caller asks to do.
 type Action string

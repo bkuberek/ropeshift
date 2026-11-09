@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/contextpacks"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/contextpacks"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")

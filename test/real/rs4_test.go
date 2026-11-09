@@ -13,12 +13,12 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/profiles"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/adapters/profiles"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 const (

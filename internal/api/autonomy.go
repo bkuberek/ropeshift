@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 // SetAutonomy chooses a worker's level.

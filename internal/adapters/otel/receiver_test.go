@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/otel"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/otel"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 const token = "0123456789abcdef"

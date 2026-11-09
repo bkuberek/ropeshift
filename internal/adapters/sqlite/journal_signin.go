@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // SignIn reads what this worker knows of its sign-in, which is nothing until it first saves.

@@ -3,8 +3,8 @@ package server
 import (
 	"net/http"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func (h *handler) orchestratorRoutes(mux *http.ServeMux) {

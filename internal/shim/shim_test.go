@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
-	"ropeshift.dev/ropeshift/internal/shim"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/shim"
 )
 
 const envChild = "ROPESHIFT_SHIM_TEST_CHILD"

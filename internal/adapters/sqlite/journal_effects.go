@@ -3,8 +3,8 @@ package sqlite
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // ReportEffect keeps one attempt's report and its event together, so a crash leaves a person told or

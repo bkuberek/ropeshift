@@ -17,17 +17,17 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 const (
@@ -316,7 +316,7 @@ func (s *suite) build() {
 		s.t.Fatal(err)
 	}
 	binary := filepath.Join(s.binDir, "ropeshift")
-	build := exec.Command("go", "build", "-tags", "realsession", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshift")
+	build := exec.Command("go", "build", "-tags", "realsession", "-o", binary, "ropeshift.com/ropeshift/cmd/ropeshift")
 	build.Env = append(withoutKeys(os.Environ()), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		s.t.Fatalf("build: %v\n%s", err, out)

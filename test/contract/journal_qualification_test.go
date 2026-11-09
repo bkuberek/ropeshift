@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func TestJournalStartsWithNoQualification(t *testing.T) {

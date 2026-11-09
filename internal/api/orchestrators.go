@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // SetOrchestrator asks for a worker's orchestrator to run or stop.

@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/crashpoint"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/parking"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // signInPollBeats is how many heartbeats pass between two reads of the doctor while a sign-in is

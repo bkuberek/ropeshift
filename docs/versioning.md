@@ -38,7 +38,7 @@ Only a release build reports a release version. Every other build reports `dev`:
 - A build from a tree with uncommitted changes, which the toolchain marks `+dirty`.
 - `go install` at a commit or a branch, which also records a pseudo-version.
 
-`go install` at a release tag, such as `go install ropeshift.dev/ropeshift/cmd/...@v0.4.1`, records that exact version, and the binary reports it. It is not an install channel for now, because no commit holds the built web UI, so that binary serves the placeholder page ([releasing](releasing.md#install-channels)). Every channel installs a release build, which embeds the UI.
+`go install` at a release tag, such as `go install ropeshift.com/ropeshift/cmd/...@v0.4.1`, records that exact version, and the binary reports it. It is not an install channel for now, because no commit holds the built web UI, so that binary serves the placeholder page ([releasing](releasing.md#install-channels)). Every channel installs a release build, which embeds the UI.
 
 `make snapshot` builds every release artifact from a commit with no tag. Its version names the commit, such as `v0.0.1-snapshot-dd81c21`, so it is never mistaken for a release.
 

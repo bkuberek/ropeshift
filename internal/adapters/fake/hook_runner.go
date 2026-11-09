@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // HookRunner records the commands it gets, and runs none. Programs answer the contract's

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 )
 
 // Dialect is Postgres's side of the Store's statements. Phase 1 ships no Postgres

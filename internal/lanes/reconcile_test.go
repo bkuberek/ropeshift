@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 func running(id string) lanes.Record {

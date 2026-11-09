@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // PlanList is the answer to a list of plans.

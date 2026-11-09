@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 // The container tests run the Linux build of ropeshift in a container with no network, as a new
@@ -234,11 +234,11 @@ func firstRunBinaries(t *testing.T, arch string, withRopeshift bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	packages := map[string]string{
-		"firstrun":   "ropeshift.dev/ropeshift/test/exit/firstrun",
-		"fakeclaude": "ropeshift.dev/ropeshift/test/doubles/fakeclaude",
+		"firstrun":   "ropeshift.com/ropeshift/test/exit/firstrun",
+		"fakeclaude": "ropeshift.com/ropeshift/test/doubles/fakeclaude",
 	}
 	if withRopeshift {
-		packages["ropeshift"] = "ropeshift.dev/ropeshift/cmd/ropeshift"
+		packages["ropeshift"] = "ropeshift.com/ropeshift/cmd/ropeshift"
 	}
 	for name, pkg := range packages {
 		build := exec.Command("go", "build", "-trimpath", "-o", filepath.Join(dir, name), pkg)

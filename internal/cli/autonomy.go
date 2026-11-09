@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 func autonomyLine(view authority.AutonomyView) string {

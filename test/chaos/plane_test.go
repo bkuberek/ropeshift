@@ -17,24 +17,24 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/clock"
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
-	"ropeshift.dev/ropeshift/internal/adapters/workerlink"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/api/server"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/crashpoint"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/worker"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/contract"
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/internal/adapters/clock"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/adapters/workerlink"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 const reportedEvent = "work_order.note"
@@ -556,7 +556,7 @@ func TestSleepReturnsFromLapsed(t *testing.T) {
 // on a loaded machine can add a lapse and its return, and changes nothing else.
 func checkSoloSleep(w *world, sabotage ...string) error {
 	binary := filepath.Join(w.target.Dir, "ropeshiftd")
-	build := exec.Command("go", "build", "-tags", "chaos", "-o", binary, "ropeshift.dev/ropeshift/cmd/ropeshiftd")
+	build := exec.Command("go", "build", "-tags", "chaos", "-o", binary, "ropeshift.com/ropeshift/cmd/ropeshiftd")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		return fmt.Errorf("build: %v\n%s", err, out)

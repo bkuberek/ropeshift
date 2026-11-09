@@ -7,7 +7,7 @@ import (
 	"slices"
 	"sync"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // PaneScript is what one scripted pane shows. Screens is the current screen, and Moves

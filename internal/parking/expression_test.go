@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/parking"
 )
 
 const lane = "lane-1"

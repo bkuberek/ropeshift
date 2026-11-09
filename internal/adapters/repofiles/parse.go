@@ -7,7 +7,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 // ParseFile decodes one repository file. A file with no front matter is

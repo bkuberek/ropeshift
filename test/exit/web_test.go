@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // webURL reads the address the daemon says it serves, which a test asked it to choose.

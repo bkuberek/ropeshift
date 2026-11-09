@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/web"
+	"ropeshift.com/ropeshift/web"
 )
 
 // envBrowserCheck names a file. With it set, the test below serves a populated ledger on the web

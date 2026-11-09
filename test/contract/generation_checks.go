@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // GenerationChecks are what the ledger promises about generations and handoffs (FR-LANE-9,

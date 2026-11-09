@@ -3,8 +3,8 @@ package ports
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // ForgeCheck is one finished check a forge ran on a commit. Criterion names the contract

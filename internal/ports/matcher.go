@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Candidate is one record a question may match. An agent judges whether it does.

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"syscall"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Runner spawns real processes. It runs the binary itself, with no shell, so a

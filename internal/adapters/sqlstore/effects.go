@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 const effectColumns = `id, worker_id, effect_key, kind, lane_id, work_order_id, generation, target, attempt, raised_at,

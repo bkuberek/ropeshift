@@ -8,8 +8,8 @@ import (
 	"slices"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Snapshot is one read of the fleet. The two views stand at their own revisions, and a surface that

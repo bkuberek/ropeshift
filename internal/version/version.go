@@ -15,7 +15,7 @@ import (
 // Development is the version of every build that is not a release.
 const Development = "dev"
 
-// The release stamp. A release build sets each with -X ropeshift.dev/ropeshift/internal/version.<name>:
+// The release stamp. A release build sets each with -X ropeshift.com/ropeshift/internal/version.<name>:
 // version as vMAJOR.MINOR.PATCH with an optional pre-release, commit as the full revision, date in
 // RFC 3339, and modified as true or false.
 var (

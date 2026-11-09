@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/cli"
 )
 
 // services stands for this machine's service manager, and keeps what each command asked of it.

@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // flagPass copies the input to stdout, for the person's own status line after this one

@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 const toolPayload = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"toolu_1","tool_input":{"command":"a command the hook must not forward"},"tool_response":{"stdout":"output"}}`

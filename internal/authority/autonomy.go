@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // PolicyAutonomy governs how far a worker goes with no person present (D24).

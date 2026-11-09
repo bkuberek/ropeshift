@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // statusTimeout bounds the vendor's status command.

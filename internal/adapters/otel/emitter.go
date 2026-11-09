@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // The emitter's bounds. What waits past the cap is dropped and counted, because a stalled store must

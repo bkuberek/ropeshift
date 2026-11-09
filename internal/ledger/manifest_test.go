@@ -3,7 +3,7 @@ package ledger_test
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func TestSignInKindReadsAWorkerAsKeyedOnlyWhenAllOfItIs(t *testing.T) {

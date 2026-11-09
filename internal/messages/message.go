@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // EnvelopeVersion is the envelope this build writes (FR-MSG-1).

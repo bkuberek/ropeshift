@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 func TestPlanGuard(t *testing.T) {

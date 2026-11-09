@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // HeaderToken is the header a lane's agent sends, set through `OTEL_EXPORTER_OTLP_HEADERS`. The

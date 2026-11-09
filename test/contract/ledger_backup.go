@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // BackupRig is one backup, a way to change what it copies, and a way to read a copy back.

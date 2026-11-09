@@ -6,7 +6,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 const testID = "wo-1"

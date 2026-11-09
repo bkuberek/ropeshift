@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // The surfaces this driver uses only through a check, one for each row of the qualification

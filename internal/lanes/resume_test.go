@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // nativeFacts reach the last row: every earlier row's condition is false. Each case changes

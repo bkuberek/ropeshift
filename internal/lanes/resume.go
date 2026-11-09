@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // ResumePath says how a lane comes back.

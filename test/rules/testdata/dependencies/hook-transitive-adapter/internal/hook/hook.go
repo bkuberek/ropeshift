@@ -1,3 +1,3 @@
 package hook
 
-import _ "ropeshift.dev/ropeshift/internal/ledger"
+import _ "ropeshift.com/ropeshift/internal/ledger"

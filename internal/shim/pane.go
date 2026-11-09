@@ -8,7 +8,7 @@ import (
 	"strings"
 	"syscall"
 
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
 )
 
 const envTerm = "TERM="

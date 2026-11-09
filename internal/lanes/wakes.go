@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // The bounds a profile that names none gets. Both are proposals to tune, as the sample profile says.

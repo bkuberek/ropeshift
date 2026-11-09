@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sync"
 
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 )
 
 // Trace collects the statements a Store ran.

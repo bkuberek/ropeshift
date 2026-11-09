@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"ropeshift.dev/ropeshift/internal/adapters/profiles"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/profiles"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // ProfileSource holds repository layers in memory, and layers them with the code
