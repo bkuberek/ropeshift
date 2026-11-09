@@ -146,6 +146,41 @@ func TestFetchBringsWhatAnotherMachinePushed(t *testing.T) {
 	}
 }
 
+// TestALaneThatComesBackHereGoesOnFromItsLocalBranch is the default with a remote: nothing was
+// pushed, so a fetch finds nothing to bring, leaves the local branch and ref as they are, and a
+// new worktree goes on from the work this machine kept.
+func TestALaneThatComesBackHereGoesOnFromItsLocalBranch(t *testing.T) {
+	r := newGuardRig(t)
+	bare := r.remote()
+	r.commit("work.txt", "work\n")
+	head := r.inWorktree("rev-parse", "HEAD")
+	r.write("dirty.txt", "dirty\n")
+	const ref = "refs/ropeshift/checkpoints/one/1"
+	snapshot, err := r.worktrees.Snapshot(t.Context(), r.path, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.worktrees.Discard(t.Context(), r.repo.Dir, r.path); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.worktrees.Fetch(t.Context(), r.repo.Dir, []string{lanes.HeadsRef(r.branch), ref}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.repo.Git("rev-parse", ref); got != snapshot {
+		t.Errorf("the snapshot reads %s, want %s", got, snapshot)
+	}
+	created, err := r.worktrees.Create(t.Context(), ports.WorktreeSpec{Repository: r.repo.Dir, Path: r.path, Branch: r.branch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Head != head {
+		t.Errorf("a worktree started at %s, want the work at %s", created.Head, head)
+	}
+	if listed := r.repo.Git("-C", bare, "for-each-ref", "--format=%(refname)"); listed != "refs/heads/main" {
+		t.Errorf("the remote holds %q", listed)
+	}
+}
+
 func TestFetchWithNoRemoteIsDone(t *testing.T) {
 	r := newGuardRig(t)
 	if err := r.worktrees.Fetch(t.Context(), r.repo.Dir, []string{lanes.HeadsRef(r.branch)}); err != nil {

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/profiles"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -46,25 +47,57 @@ func (in *install) lane(id string) ledger.LaneView {
 	return view
 }
 
-// TestAStopSavesWorkToTheRemote walks the design's table on real git: what a session left
-// uncommitted reaches the remote, the worktree stays until a member removes it, and a
-// removal with nothing at risk needs no force.
-func TestAStopSavesWorkToTheRemote(t *testing.T) {
-	in := newInstall(t)
+// repoAheadOfItsRemote is a source whose base branch holds a commit its bare remote does not,
+// as a person's working branch often does. It returns the repository, the remote, and the commit
+// the remote holds.
+func repoAheadOfItsRemote(t *testing.T) (*gittest.Repo, string, string) {
+	t.Helper()
 	repo := gittest.New(t)
 	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
 	bare := filepath.Join(filepath.Dir(repo.Dir), "remote.git")
 	repo.Git("init", "--quiet", "--bare", bare)
 	repo.Git("remote", "add", "origin", bare)
 	repo.Git("push", "--quiet", "origin", "main")
+	pushed := repo.Git("rev-parse", "HEAD")
+	repo.Commit("notes.txt", "not pushed yet\n")
+	return repo, bare, pushed
+}
+
+// gitAt runs git in a directory and says whether it worked, for a wait that polls.
+func gitAt(repo *gittest.Repo, dir string, args ...string) (string, bool) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = repo.Env()
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err == nil
+}
+
+// choosePush is the user's layer turning pushing on, which nothing else can.
+func (in *install) choosePush() {
+	in.t.Helper()
+	if err := os.MkdirAll(in.paths().StateDir, 0o700); err != nil {
+		in.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(in.paths().StateDir, profiles.UserFile), []byte("[worktree]\npush_on_stop = true\n"), 0o600); err != nil {
+		in.t.Fatal(err)
+	}
+}
+
+// TestAStopSavesWorkToTheRemote walks the design's table on real git for a user who chose to
+// push: the lane's branch and what a session left uncommitted reach the remote, the worktree
+// stays until a member removes it, and a removal with nothing at risk needs no force.
+func TestAStopSavesWorkToTheRemote(t *testing.T) {
+	in := newInstall(t)
+	in.choosePush()
+	repo, bare, _ := repoAheadOfItsRemote(t)
 	worktree := runLaneThatLeavesWork(t, in, repo)
 	const ref = "refs/ropeshift/checkpoints/lane-1/1"
 	in.waitFor("the snapshot on the remote", func() bool {
-		cmd := exec.Command("git", "-C", bare, "show", ref+":untracked.txt")
-		cmd.Env = repo.Env()
-		out, err := cmd.Output()
-		return err == nil && strings.TrimSpace(string(out)) == "work"
+		out, ok := gitAt(repo, bare, "show", ref+":untracked.txt")
+		return ok && out == "work"
 	})
+	if head, ok := gitAt(repo, bare, "rev-parse", "refs/heads/lane/lane-1"); !ok || head != repo.Git("rev-parse", "refs/heads/lane/lane-1") {
+		t.Errorf("the lane's branch on the remote: %q, %v", head, ok)
+	}
 	salvage := func(view ledger.LaneView) []ledger.Artifact {
 		var out []ledger.Artifact
 		for _, artifact := range view.Artifacts {
@@ -90,6 +123,32 @@ func TestAStopSavesWorkToTheRemote(t *testing.T) {
 		_, err := os.Stat(worktree)
 		return errors.Is(err, os.ErrNotExist) && in.lane("lane-1").Archived
 	})
+}
+
+// TestAStopKeepsWorkOnThisMachineByDefault is the same lane with nobody's choice to push: the
+// remote holds what it held before, the work stays on its local branch and a local ref, the
+// outcome reaches acceptance, and the ledger says the work exists only here.
+func TestAStopKeepsWorkOnThisMachineByDefault(t *testing.T) {
+	in := newInstall(t)
+	repo, bare, pushed := repoAheadOfItsRemote(t)
+	worktree := runLaneThatLeavesWork(t, in, repo)
+	in.waitFor("the condition", func() bool { return slices.Contains(in.lane("lane-1").Conditions, "unpushed_work") })
+	if refs, _ := gitAt(repo, bare, "for-each-ref", "--format=%(refname) %(objectname)"); refs != "refs/heads/main "+pushed {
+		t.Errorf("the remote holds %q", refs)
+	}
+	if got := repo.Git("show", "refs/ropeshift/checkpoints/lane-1/1:untracked.txt"); got != "work" {
+		t.Errorf("the local ref holds %q", got)
+	}
+	if got := repo.Git("rev-parse", "refs/heads/lane/lane-1"); got != repo.Git("rev-parse", "main") {
+		t.Errorf("the lane's branch is at %s", got)
+	}
+	code, _, stderr := in.run("lane", "archive", "lane-1")
+	if code != cli.ExitConflict || !strings.Contains(stderr, "no remote") {
+		t.Errorf("a plain removal: exit %d: %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "untracked.txt")); err != nil {
+		t.Fatalf("a refused removal touched the worktree: %v", err)
+	}
 }
 
 // TestRemovingUnpushedWorkTakesAForcedCommand is the case with no remote: the work has one

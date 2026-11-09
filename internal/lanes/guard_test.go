@@ -56,7 +56,43 @@ func TestPlanGuard(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := lanes.PlanGuard(tt.found, tt.fenced); got != tt.want {
+			if got := lanes.PlanGuard(tt.found, lanes.GuardRules{Fenced: tt.fenced, Push: true}); got != tt.want {
+				t.Errorf("plan %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPlanGuardSendsNothingUnlessThePersonChose holds the default: a remote is no place to keep
+// work a person did not choose to send there, so a stop saves to local refs alone.
+func TestPlanGuardSendsNothingUnlessThePersonChose(t *testing.T) {
+	tests := []struct {
+		name   string
+		found  lanes.WorktreeFindings
+		fenced bool
+		want   lanes.GuardPlan
+	}{
+		{name: "commits no remote holds stay on their branch", found: lanes.WorktreeFindings{Remote: "origin", Branch: "lane/one", Ahead: 2}},
+		{
+			name:  "uncommitted changes go to a local ref",
+			found: lanes.WorktreeFindings{Remote: "origin", Branch: "lane/one", Dirty: true, Ahead: 1},
+			want:  lanes.GuardPlan{Snapshot: true},
+		},
+		{
+			name:  "a detached head's commits go to a local ref",
+			found: lanes.WorktreeFindings{Remote: "origin", Ahead: 1},
+			want:  lanes.GuardPlan{Snapshot: true},
+		},
+		{
+			name:   "a fenced lane's commits go to a local ref",
+			found:  lanes.WorktreeFindings{Remote: "origin", Branch: "lane/one", Ahead: 1},
+			fenced: true,
+			want:   lanes.GuardPlan{Snapshot: true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := lanes.PlanGuard(tt.found, lanes.GuardRules{Fenced: tt.fenced}); got != tt.want {
 				t.Errorf("plan %+v, want %+v", got, tt.want)
 			}
 		})

@@ -91,6 +91,7 @@ func TestAParkedLaneSavedItsWorkAndHoldsNoProcess(t *testing.T) {
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) {
 		r.worktrees().Dirty(stopWorktree)
 		r.worktrees().UseRemote("origin")
+		r.choosesPush()
 		r.callHandoff(narrativeText)
 	}}, completed(0.02))
 	r.park(t, humanPark())
@@ -134,6 +135,28 @@ func TestAParkedLaneSavedItsWorkAndHoldsNoProcess(t *testing.T) {
 	generations := r.generations(t)
 	if len(generations) != 1 || generations[0].EndReason != workorders.EndParked {
 		t.Errorf("generations %+v", generations)
+	}
+}
+
+// TestAParkedLaneNobodyChoseToPushStaysWithThisMachine is the default with a remote: the work
+// goes to a local ref, nothing is pushed, and the checkpoint says no remote holds it, which binds
+// the lane's resume to the machine that has it.
+func TestAParkedLaneNobodyChoseToPushStaysWithThisMachine(t *testing.T) {
+	var r *handoffRig
+	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) {
+		r.worktrees().Dirty(stopWorktree)
+		r.worktrees().UseRemote("origin")
+		r.callHandoff(narrativeText)
+	}}, completed(0.02))
+	r.park(t, humanPark())
+	r.awaitOrder(t, workorders.Parked)
+	r.subject.Wait()
+	checkpoint := r.checkpointOf(t, 1)
+	if checkpoint.SnapshotRef != lanes.CheckpointRef("lane-1", 1) || checkpoint.Pushed {
+		t.Errorf("checkpoint %+v", checkpoint)
+	}
+	if got := r.worktrees().Pushed(); len(got) != 0 {
+		t.Errorf("pushed %v with nobody's choice", got)
 	}
 }
 

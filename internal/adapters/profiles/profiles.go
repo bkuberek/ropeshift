@@ -62,8 +62,8 @@ func ResolveRepository(user, repository string) (lanes.Profile, error) {
 // ResolveLayers folds every layer over the built-in defaults, later over earlier. Only the
 // user's layer can widen what a lane may do. A repository is code from somewhere else, and a
 // lane's overrides can come from an orchestrator, so either can narrow it and neither can
-// raise the permission mode or change what this machine admits. Any file a repository
-// names is the user's to trust.
+// raise the permission mode, change what this machine admits, or change whether its work is
+// pushed. Any file a repository names is the user's to trust.
 func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	below, err := Resolve(user)
 	if err != nil {
@@ -87,6 +87,11 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	if profile.Telemetry.WorkerSettings() != below.Telemetry.WorkerSettings() {
 		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change the worker's telemetry store or export", lanes.ErrBadProfile)
 	}
+	// A push sends work off this machine, which is the user's choice alone. A worker reads it
+	// with no lane's layers, because a removal can come long after a lane's lease went.
+	if profile.Worktree.PushOnStop != below.Worktree.PushOnStop {
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change push_on_stop", lanes.ErrBadProfile)
+	}
 	return profile, nil
 }
 
@@ -107,18 +112,28 @@ func readLayer(path string) (string, error) {
 	return string(raw), err
 }
 
-// Load resolves one lane's profile. A repository with no layer gets the defaults, and a
+// Load resolves one lane's profile. A repository with no layer gets the defaults, an empty
+// repository names none, so a setting only the user's layer makes reads without one, and a
 // layer that cannot be read stops the lane.
 func (f Filesystem) Load(_ context.Context, repository, overrides string) (lanes.Profile, error) {
 	user, err := readLayer(f.User)
 	if err != nil {
 		return lanes.Profile{}, err
 	}
-	layer, err := readLayer(filepath.Join(repository, RepositoryFile))
+	layer, err := readLayer(repositoryLayer(repository))
 	if err != nil {
 		return lanes.Profile{}, err
 	}
 	return ResolveLayers(user, layer, overrides)
+}
+
+// repositoryLayer is where a repository keeps its layer. An empty repository is none, and not
+// the directory the process happens to run in.
+func repositoryLayer(repository string) string {
+	if repository == "" {
+		return ""
+	}
+	return filepath.Join(repository, RepositoryFile)
 }
 
 var _ ports.ProfileSource = Filesystem{}

@@ -95,10 +95,14 @@ type LifecycleSettings struct {
 	HumanBatchMaxWait    string `toml:"human_batch_max_wait" json:"human_batch_max_wait"`
 }
 
-// WorktreeSettings says where a lane's worktree goes.
+// WorktreeSettings says where a lane's worktree goes, and whether its work may leave the machine.
 type WorktreeSettings struct {
 	Root         string `toml:"root" json:"root"`
 	BranchPrefix string `toml:"branch_prefix" json:"branch_prefix"`
+	// PushOnStop sends a lane's branch and its checkpoint refs to the repository's remote when the
+	// lane stops or its worktree is removed. A push sends work off the machine, so it is off until
+	// the user's own layer turns it on, and no other layer can change it.
+	PushOnStop bool `toml:"push_on_stop" json:"push_on_stop"`
 }
 
 // ResourceSettings sizes what each lane gets.

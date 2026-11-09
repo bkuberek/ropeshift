@@ -39,9 +39,11 @@ restart_backoff = "30s"
 human_batch_window = "15m"
 human_batch_max_wait = "5m"
 
+# Nothing a lane did leaves the machine unless the user's own layer turns push_on_stop on.
 [worktree]
 root = "../{repo}-lanes"
 branch_prefix = "lane/"
+push_on_stop = false
 
 [resources]
 ports_per_lane = 10
