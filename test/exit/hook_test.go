@@ -518,6 +518,60 @@ func TestAPolicyHookStillDecidingAtItsDeadlineDenies(t *testing.T) {
 	}
 }
 
+// A session that lost its place hears who it is however early its hook's deadline comes, even before
+// the hook has read what the policy file adds, and its event reaches the spool once. A policy file
+// that is a FIFO no one writes holds the hook in that read past the deadline.
+func TestARegroundingHookStillReadingItsPolicyAtItsDeadlineGroundsTheSession(t *testing.T) {
+	if binaries.err != nil {
+		t.Fatal(binaries.err)
+	}
+	env := newHookEnv(t)
+	env.policy = filepath.Join(t.TempDir(), "policy.json")
+	if err := syscall.Mkfifo(env.policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binaries.cli, "hook", "SessionStart")
+	cmd.Env = env.list()
+	cmd.Stdin = strings.NewReader(`{"session_id":"s1","source":"compact"}`)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		if writer, err := os.OpenFile(env.policy, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = writer.Close()
+		}
+	})
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the hook: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the deadline never ended the hook")
+	}
+	var answer struct {
+		Specific struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &answer); err != nil {
+		t.Fatalf("the session heard %q: %v", stdout.String(), err)
+	}
+	for _, part := range []string{"lane-1", "wo", "generation 3"} {
+		if answer.Specific.Event != "SessionStart" || !strings.Contains(answer.Specific.Context, part) {
+			t.Errorf("the session heard %q", stdout.String())
+		}
+	}
+	if lines := spoolLines(t, env.spool); len(lines) != 1 || lines[0].Detail != "compact" {
+		t.Errorf("the spool holds %+v", lines)
+	}
+}
+
 // A status line hook follows the hook contract, and never spools. A loaded machine can hold it past
 // its deadline while it passes its input on, and it still exits 0, spools nothing, and prints nothing
 // but its input. A pipe no one reads holds the pass-through write past the deadline, the way a stall

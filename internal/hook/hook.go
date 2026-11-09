@@ -105,15 +105,22 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 	return 0
 }
 
-// untilDecided sets what the deadline gives and hands on if it comes before the hook has decided. The
-// hook holds the event it took, so that event reaches the spool however early the deadline comes, and
-// a policy hook owes a denial, which leaves that event as a refused call's.
+// untilDecided sets what the deadline gives and hands on if it comes before the hook has decided. It
+// reads nothing, because nothing bounds a read before the deadline is armed. The hook holds the event
+// it took, so that event reaches the spool however early the deadline comes. A policy hook owes a
+// denial, which leaves that event as a refused call's, and a hook that re-grounds a session owes who
+// that session is from its own environment, which the policy file can only add to.
 func untilDecided(cfg config, event lanes.HookEvent, stdout io.Writer) {
-	if cfg.event == eventPreToolUse {
+	switch cfg.event {
+	case eventPreToolUse:
 		event.Asked = nil
 		if cfg.policy != "" {
 			event.Detail = lanes.DetailDenied
 			cfg.out.owe(stdout, denial(lateVerdict))
+		}
+	case eventSessionStart:
+		if lanes.Regrounds(event.Detail) {
+			cfg.out.owe(stdout, grounding(cfg, event, lanes.Grounding{}, 0))
 		}
 	}
 	cfg.out.hold(&event)
@@ -367,9 +374,10 @@ func deferral() []byte {
 
 // reground tells a session that lost its place who it is. SessionStart is the one event that can
 // add context after a compaction. Its work comes from the file a denial reads, so this needs no
-// worker, and the hook owes that answer before it asks the worker anything, so a hook that runs out
-// of time still gives it. Its generation comes from the worker, because the tags of a process that
-// was cleared are out of date, and with no worker a clear names none rather than a wrong one.
+// worker, and the hook owes that answer before it asks the worker anything, in place of the one it
+// owed from its environment alone, so a hook that runs out of time still gives it. Its generation
+// comes from the worker, because the tags of a process that was cleared are out of date, and with
+// no worker a clear names none rather than a wrong one.
 func reground(cfg config, event lanes.HookEvent, stdout io.Writer) {
 	if cfg.out == nil {
 		cfg.out = new(outbox)
