@@ -53,10 +53,10 @@ Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code
 
 These are the web UI of `v0.1.0-alpha.2` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting.
 
-Needs you puts what waits for a person first, oldest first: work to accept, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
+Needs you puts what waits for a person first, oldest first: work to accept, work its lane could not finish, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
 
-![Needs you, with work to accept, a parked lane, and two questions to answer](docs/assets/screenshots/needs-you-light.png#gh-light-mode-only)
-![Needs you, with work to accept, a parked lane, and two questions to answer](docs/assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
+![Needs you, with work to accept and work its lane could not finish](docs/assets/screenshots/needs-you-light.png#gh-light-mode-only)
+![Needs you, with work to accept and work its lane could not finish](docs/assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
 
 Decisions lists what members and orchestrators decided or assumed, with the question each answers and what it cites.
 
