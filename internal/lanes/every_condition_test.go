@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // TestEveryConditionIsListed holds the list a page's words are tested against to what Conditions can

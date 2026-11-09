@@ -3,7 +3,7 @@ package workorders
 import (
 	"errors"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // ErrNotAcceptable means a check failed, so nothing can accept this attempt.

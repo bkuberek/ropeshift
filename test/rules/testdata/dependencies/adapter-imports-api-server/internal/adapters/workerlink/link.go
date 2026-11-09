@@ -1,3 +1,3 @@
 package workerlink
 
-import _ "ropeshift.dev/ropeshift/internal/api/server"
+import _ "ropeshift.com/ropeshift/internal/api/server"

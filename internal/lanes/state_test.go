@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // designEdges is the state diagram, row by row, written out a second time so a change to

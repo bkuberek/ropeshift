@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // desktopTimeout bounds one notice, because a desktop session that went away must not hold the tick.

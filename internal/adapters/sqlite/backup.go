@@ -11,7 +11,7 @@ import (
 
 	msqlite "modernc.org/sqlite"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // LedgerBackup copies the ledger in File through SQLite's online backup API, which reads one

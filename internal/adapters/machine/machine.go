@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Paths of what this package reads. A tool is named absolutely, so PATH chooses nothing.

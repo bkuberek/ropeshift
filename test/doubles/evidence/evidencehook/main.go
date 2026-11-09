@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/test/doubles/evidence"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/test/doubles/evidence"
 )
 
 // maxInput caps what one hook reads, as the production hook does.

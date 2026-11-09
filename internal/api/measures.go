@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 // MeasuresPath is the product measures' read.

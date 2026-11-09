@@ -1,3 +1,3 @@
 package api
 
-import _ "ropeshift.dev/ropeshift/internal/control"
+import _ "ropeshift.com/ropeshift/internal/control"

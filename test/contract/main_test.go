@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 func TestMain(m *testing.M) {

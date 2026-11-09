@@ -3,10 +3,10 @@
 package chaos
 
 import (
-	"ropeshift.dev/ropeshift/internal/adapters/sqlstore"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/test/contract"
 )
 
 // checkClaimsPinned holds every claim to a pack that exists, whichever side of a kill it stands on.

@@ -22,9 +22,9 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
-	"ropeshift.dev/ropeshift/internal/adapters/tmux"
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/tmux"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
 )
 
 //go:embed fixtures/*.json
@@ -126,7 +126,7 @@ func buildFakeClaude() (string, error) {
 		if built.err != nil {
 			return
 		}
-		built.path, built.err = Binary(built.dir, PrebuiltFakeClaude, "ropeshift.dev/ropeshift/test/doubles/fakeclaude")
+		built.path, built.err = Binary(built.dir, PrebuiltFakeClaude, "ropeshift.com/ropeshift/test/doubles/fakeclaude")
 	})
 	return built.path, built.err
 }
@@ -140,7 +140,7 @@ func Ropeshift(t testing.TB) string {
 		if builtBinary.err != nil {
 			return
 		}
-		builtBinary.path, builtBinary.err = Binary(builtBinary.dir, PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
+		builtBinary.path, builtBinary.err = Binary(builtBinary.dir, PrebuiltRopeshift, "ropeshift.com/ropeshift/cmd/ropeshift")
 	})
 	if builtBinary.err != nil {
 		t.Fatal(builtBinary.err)

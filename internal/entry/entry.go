@@ -13,10 +13,10 @@ import (
 
 	"golang.org/x/term"
 
-	"ropeshift.dev/ropeshift/internal/adapters/localauth"
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/adapters/localauth"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Exit codes shared by every command.

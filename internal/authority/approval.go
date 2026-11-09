@@ -10,7 +10,7 @@ import (
 	"path"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // SubjectApproval names an approval as the subject of an event.

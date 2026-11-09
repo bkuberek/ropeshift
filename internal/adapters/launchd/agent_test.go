@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/launchd"
+	"ropeshift.com/ropeshift/internal/adapters/launchd"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden service definitions")

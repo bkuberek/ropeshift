@@ -1,6 +1,6 @@
 package fake
 
-import "ropeshift.dev/ropeshift/internal/ports"
+import "ropeshift.com/ropeshift/internal/ports"
 
 // WorkSource is the fake.
 type WorkSource struct{}

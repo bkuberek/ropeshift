@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 func lookupIn(env map[string]string) func(string) (string, bool) {

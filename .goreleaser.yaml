@@ -28,10 +28,10 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X ropeshift.dev/ropeshift/internal/version.version=v{{ .Version }}
-      - -X ropeshift.dev/ropeshift/internal/version.commit={{ .FullCommit }}
-      - -X ropeshift.dev/ropeshift/internal/version.date={{ .Date }}
-      - -X ropeshift.dev/ropeshift/internal/version.modified={{ .IsGitDirty }}
+      - -X ropeshift.com/ropeshift/internal/version.version=v{{ .Version }}
+      - -X ropeshift.com/ropeshift/internal/version.commit={{ .FullCommit }}
+      - -X ropeshift.com/ropeshift/internal/version.date={{ .Date }}
+      - -X ropeshift.com/ropeshift/internal/version.modified={{ .IsGitDirty }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:

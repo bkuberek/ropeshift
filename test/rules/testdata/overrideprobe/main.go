@@ -5,7 +5,7 @@ package main
 import (
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 func main() {

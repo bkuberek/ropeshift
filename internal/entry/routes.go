@@ -7,10 +7,10 @@ import (
 	"os"
 	"slices"
 
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/internal/hook"
-	"ropeshift.dev/ropeshift/internal/mcpserver"
-	"ropeshift.dev/ropeshift/internal/shim"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/hook"
+	"ropeshift.com/ropeshift/internal/mcpserver"
+	"ropeshift.com/ropeshift/internal/shim"
 )
 
 // route is a first word one binary answers itself, with what help says about it. Every other first

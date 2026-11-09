@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api"
 )
 
 // privateDir and privateSocket keep a socket to its owner (NFR-SEC-2).

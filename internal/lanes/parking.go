@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/parking"
 )
 
 // ParkTrigger says why a lane parks.

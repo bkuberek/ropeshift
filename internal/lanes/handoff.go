@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // HandoffSchema names the contract a handoff follows (FR-LANE-9).

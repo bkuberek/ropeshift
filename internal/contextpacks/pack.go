@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Schema names the canonical form a digest covers.

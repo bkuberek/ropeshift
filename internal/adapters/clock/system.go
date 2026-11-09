@@ -4,7 +4,7 @@ package clock
 import (
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // System reads the host clock.

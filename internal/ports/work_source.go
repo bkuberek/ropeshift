@@ -5,8 +5,8 @@ import (
 	"errors"
 	"slices"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 // ErrUnsupported means a source has no such capability. The core tolerates a

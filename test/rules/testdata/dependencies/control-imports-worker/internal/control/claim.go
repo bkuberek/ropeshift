@@ -1,3 +1,3 @@
 package control
 
-import _ "ropeshift.dev/ropeshift/internal/worker"
+import _ "ropeshift.com/ropeshift/internal/worker"

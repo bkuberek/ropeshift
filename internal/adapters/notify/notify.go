@@ -6,8 +6,8 @@ package notify
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // The channels, as the ledger's record of a delivery names them.

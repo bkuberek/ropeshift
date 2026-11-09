@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 // TagPrefix starts every variable ropeshift sets on a lane. A lane's children

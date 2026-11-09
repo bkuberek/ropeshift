@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"ropeshift.dev/ropeshift/internal/entry"
+	"ropeshift.com/ropeshift/internal/entry"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api"
 )
 
 // backup asks the daemon for a copy of its ledger at a new file. A relative path is read from where

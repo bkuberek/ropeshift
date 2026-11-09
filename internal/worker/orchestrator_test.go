@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/control"
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/internal/worker"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/worker"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 const orchestratorProfile = "[lifecycle]\nwake_debounce = \"30s\"\nwake_min_interval = \"2m\"\nask_wait = \"5m\"\nhandoff_timeout = \"30ms\"\nmax_restarts = 2\nrestart_window = \"10m\"\nmax_generations_per_day = 8\nrestart_backoff = \"30s\"\n"

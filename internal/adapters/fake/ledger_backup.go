@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // LedgerBackup copies a list of marks, which stands for a ledger, to a file, one mark a line. It

@@ -1,8 +1,8 @@
 package fake
 
 import (
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Journal is the in-memory journal: the SQLite adapter on an in-memory database, so

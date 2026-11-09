@@ -6,7 +6,7 @@ import (
 	"os"
 	"slices"
 
-	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api"
 )
 
 // Service is a service definition on this machine: the name its manager knows it by, and its file.

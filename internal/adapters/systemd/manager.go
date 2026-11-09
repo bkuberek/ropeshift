@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Manager writes, starts, and removes user units, through systemctl.

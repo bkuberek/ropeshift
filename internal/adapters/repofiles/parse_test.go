@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 func readFixture(t *testing.T, name string) []byte {

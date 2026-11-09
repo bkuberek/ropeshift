@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // fleetMode reads the mode desired state last gave this worker, which holds through an

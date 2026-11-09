@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // registered is one command: what help says about it, and what runs it.

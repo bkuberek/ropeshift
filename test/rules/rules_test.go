@@ -11,14 +11,14 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/lanes"
 
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
-const module = "ropeshift.dev/ropeshift"
+const module = "ropeshift.com/ropeshift"
 
 // repoRoot is two levels up from this package.
 func repoRoot(t *testing.T) string {
@@ -71,7 +71,7 @@ func TestOneAuthorizationFunctionCanFail(t *testing.T) {
 	}
 	source := `package control
 
-import "ropeshift.dev/ropeshift/internal/ledger"
+import "ropeshift.com/ropeshift/internal/ledger"
 
 var member = ledger.Actor{Kind: ledger.ActorMember}
 

@@ -3,7 +3,7 @@ package contract
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 )
 
 func TestForgeContract(t *testing.T) {

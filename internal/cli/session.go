@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 // askPassphrase asks on the terminal, and only there. With no terminal, nothing can ask, so

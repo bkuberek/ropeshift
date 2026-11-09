@@ -3,7 +3,7 @@ package worker
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // Both halves of the rule guard one write: neither the state nor the flag alone lets a lane park

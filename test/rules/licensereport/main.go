@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"ropeshift.dev/ropeshift/test/rules"
+	"ropeshift.com/ropeshift/test/rules"
 )
 
 func main() {

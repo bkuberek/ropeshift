@@ -3,7 +3,7 @@ package authority
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func TestPartyOf(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/questions"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 func TestQuestionsAreRecordsMembersFind(t *testing.T) {

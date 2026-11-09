@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // slowWorker answers one line after a delay, as a worker does with commits ahead of its answer.

@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"ropeshift.dev/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/authority"
 )
 
 // The refusals of a decision.

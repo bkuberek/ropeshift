@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // Worktree refusals.

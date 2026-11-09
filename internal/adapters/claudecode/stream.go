@@ -3,8 +3,8 @@ package claudecode
 import (
 	"encoding/json"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // abortedStreaming is the terminal reason of an interrupted turn. It exits 0, so only

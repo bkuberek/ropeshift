@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"ropeshift.dev/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/api/shimlink"
 )
 
 // The shim's exit codes.

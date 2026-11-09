@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/adapters/gitcli"
-	"ropeshift.dev/ropeshift/internal/adapters/repofiles"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/adapters/gitcli"
+	"ropeshift.com/ropeshift/internal/adapters/repofiles"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Adapter is the first part of every key this source returns.

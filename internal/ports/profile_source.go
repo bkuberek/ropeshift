@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // ProfileSource loads and layers TOML profiles.

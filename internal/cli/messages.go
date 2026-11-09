@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/messages"
 )
 
 // messageLine says how far a message got, and why, which is all a sender is told.

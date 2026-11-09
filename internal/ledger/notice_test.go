@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func TestANoticeSaysOnlyWhatItsTableHolds(t *testing.T) {

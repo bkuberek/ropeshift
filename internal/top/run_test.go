@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/top"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/top"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // lockedBuffer is a terminal a test reads while a program writes it.

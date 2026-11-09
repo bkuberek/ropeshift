@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sync"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Telemetry keeps what it is given, in order, and answers queries from it.

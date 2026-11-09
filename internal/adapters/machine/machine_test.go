@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/machine"
-	"ropeshift.dev/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/machine"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
 )
 
 func TestParseMeminfo(t *testing.T) {

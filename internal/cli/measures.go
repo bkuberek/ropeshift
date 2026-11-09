@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 // measuresCommand prints the product measures of one window, the north star first and its

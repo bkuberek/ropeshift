@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/contract"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 var binaries struct {
@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "rsbin")
 	if err == nil {
 		binaries.daemon = filepath.Join(dir, "ropeshiftd")
-		binaries.cli, err = doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
+		binaries.cli, err = doubles.Binary(dir, doubles.PrebuiltRopeshift, "ropeshift.com/ropeshift/cmd/ropeshift")
 		if err == nil {
 			err = os.Symlink(binaries.cli, binaries.daemon)
 		}

@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Binary is the name the adapter looks for on PATH.

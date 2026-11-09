@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 func (c *invocation) planList(args []string) int {

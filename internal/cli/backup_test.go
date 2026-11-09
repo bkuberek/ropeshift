@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/adapters/fake"
-	"ropeshift.dev/ropeshift/internal/cli"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 // TestBackupNamesAFileFromWhereItRuns holds the path to the shell's own directory, because the daemon

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Manager loads and removes agents in one launchd domain, through launchctl.

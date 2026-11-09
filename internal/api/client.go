@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // ErrUnreachable means nothing answered, so the caller learned nothing about the

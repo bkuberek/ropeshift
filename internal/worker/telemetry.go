@@ -4,10 +4,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/measures"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // LaneTelemetry is where a lane's agent sends its telemetry: the worker's own receiver (FR-OBS-3). An

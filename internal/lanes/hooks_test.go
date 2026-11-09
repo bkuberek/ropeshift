@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // TestAHookTakesOnlyTheMessageFromAPrompt is the admission signal and the privacy rule together: a

@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/planning"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 // The sizing run is NFR-PERF-3 for one worker: 50 lanes at once on the double. It is behind its own
@@ -180,7 +180,7 @@ func newSizing(t *testing.T, lanes int) *sizing {
 	s.repo.Commit(".ropeshift/profile.toml", "[lifecycle]\nmax_restarts = 0\n")
 	s.repo.Commit("contract.md", sizingContract(lanes))
 	bin := t.TempDir()
-	binary, err := doubles.Binary(bin, doubles.PrebuiltRopeshift, "ropeshift.dev/ropeshift/cmd/ropeshift")
+	binary, err := doubles.Binary(bin, doubles.PrebuiltRopeshift, "ropeshift.com/ropeshift/cmd/ropeshift")
 	if err != nil {
 		t.Fatal(err)
 	}

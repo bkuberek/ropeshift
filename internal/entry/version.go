@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	buildversion "ropeshift.dev/ropeshift/internal/version"
+	buildversion "ropeshift.com/ropeshift/internal/version"
 )
 
 // versionInfo is what `version` prints; internal/version owns it and the release stamp.

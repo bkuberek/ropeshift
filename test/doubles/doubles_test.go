@@ -43,11 +43,11 @@ func TestAPrebuiltBundleNeedsNoGo(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	out := t.TempDir()
 
-	path, err := Binary(out, PrebuiltFakeClaude, "ropeshift.dev/ropeshift/test/doubles/fakeclaude")
+	path, err := Binary(out, PrebuiltFakeClaude, "ropeshift.com/ropeshift/test/doubles/fakeclaude")
 	if err != nil || path != filepath.Join(bundle, PrebuiltFakeClaude) {
 		t.Errorf("the double is %q: %v", path, err)
 	}
-	if path, err := Binary(out, PrebuiltChaos, "ropeshift.dev/ropeshift/cmd/ropeshift", "chaos"); err == nil {
+	if path, err := Binary(out, PrebuiltChaos, "ropeshift.com/ropeshift/cmd/ropeshift", "chaos"); err == nil {
 		t.Errorf("a binary the bundle lacks is %q", path)
 	}
 	if entries, err := os.ReadDir(out); err != nil || len(entries) != 0 {

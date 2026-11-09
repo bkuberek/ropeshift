@@ -4,8 +4,8 @@ import (
 	"context"
 	"runtime"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // BaseManifest is what a worker says of itself before it asks a driver.

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 const (

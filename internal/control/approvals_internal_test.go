@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 type lanesRequests struct {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/parking"
 )
 
 // The statuses a driver reports of a sign-in's limit, in a vendor's own words.

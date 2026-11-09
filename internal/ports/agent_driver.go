@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 // The values of a capability that has a closed list.

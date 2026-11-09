@@ -3,8 +3,8 @@ package authority_test
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/authority"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func TestAMemberMayDoEverything(t *testing.T) {

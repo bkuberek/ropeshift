@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/adapters/claudecode"
-	"ropeshift.dev/ropeshift/internal/adapters/sqlite"
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/crashpoint"
-	"ropeshift.dev/ropeshift/internal/workorders"
-	"ropeshift.dev/ropeshift/test/apitest"
-	"ropeshift.dev/ropeshift/test/contract"
-	"ropeshift.dev/ropeshift/test/doubles"
-	"ropeshift.dev/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/internal/adapters/claudecode"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/test/contract"
+	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/gittest"
 )
 
 // paneOp is the prefix of a checked start's steps.
@@ -60,7 +60,7 @@ var chaosDaemon = sync.OnceValues(func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	binary, err := doubles.Binary(dir, doubles.PrebuiltChaos, "ropeshift.dev/ropeshift/cmd/ropeshift", "chaos")
+	binary, err := doubles.Binary(dir, doubles.PrebuiltChaos, "ropeshift.com/ropeshift/cmd/ropeshift", "chaos")
 	if err != nil {
 		return "", err
 	}

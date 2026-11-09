@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Proof is what a human presents to sign in. A local provider reads a passphrase, and a

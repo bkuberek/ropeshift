@@ -3,7 +3,7 @@ package measures_test
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 const hour = int64(3600 * 1000)

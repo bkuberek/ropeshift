@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func orchestratorLine(row ledger.Orchestrator) string {

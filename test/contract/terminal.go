@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // TerminalRig is one terminal, and how a test sees what it holds. A scripted pane and a

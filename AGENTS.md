@@ -6,7 +6,7 @@ This file gives coding agents the instructions for working in this repository. I
 
 Ropeshift is a self-hosted software factory that runs supervised agent CLIs from a work ledger. It is fair source under FSL-1.1-ALv2 ([LICENSE.md](LICENSE.md)); never call it open source. The repository is public, so nothing committed may hold a local path, a private name, or a reference to private planning.
 
-It is one Go module, `ropeshift.dev/ropeshift`, that builds one binary. The binary is named `ropeshift`, and `ropeshiftd` is a link to it: the name a process starts under picks the command. The web UI is embedded in the binary.
+It is one Go module, `ropeshift.com/ropeshift`, that builds one binary. The binary is named `ropeshift`, and `ropeshiftd` is a link to it: the name a process starts under picks the command. The web UI is embedded in the binary.
 
 ## Layout
 

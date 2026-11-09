@@ -3,8 +3,8 @@ package sqlite
 import (
 	"context"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // BeginApproval keeps a lane's request and the event that carries it to the ledger, together. A call

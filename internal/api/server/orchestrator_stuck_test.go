@@ -4,9 +4,9 @@ import (
 	"slices"
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/internal/ledger"
-	"ropeshift.dev/ropeshift/test/apitest"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 func orchestratorStatus(state string, conditions ...string) ledger.LaneStatus {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"ropeshift.dev/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // The refusals of a decision on an effect.

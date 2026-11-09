@@ -3,7 +3,7 @@ package lanes_test
 import (
 	"testing"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/lanes"
 )
 
 func TestABaselineWithNoRoomIsOversized(t *testing.T) {

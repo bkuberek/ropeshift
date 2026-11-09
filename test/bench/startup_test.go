@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
-	"ropeshift.dev/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/test/doubles"
 )
 
 const (
@@ -28,7 +28,7 @@ const (
 // from cmd into dir.
 func benchBinary(t *testing.T, dir, name, cmd string) string {
 	t.Helper()
-	binary, err := doubles.Binary(dir, name, "ropeshift.dev/ropeshift/"+cmd)
+	binary, err := doubles.Binary(dir, name, "ropeshift.com/ropeshift/"+cmd)
 	if err != nil {
 		t.Fatal(err)
 	}

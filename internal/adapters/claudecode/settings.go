@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"ropeshift.dev/ropeshift/internal/lanes"
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // ServerName is the MCP server's name, which is part of every tool's name.

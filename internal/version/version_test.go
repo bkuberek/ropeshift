@@ -13,7 +13,7 @@ const revision = "dd81c214342bad4bb98b4907f65871cf6607be59"
 // built is what the toolchain records for a build of the main module at version, with the given
 // version control settings.
 func built(version string, settings ...debug.BuildSetting) *debug.BuildInfo {
-	return &debug.BuildInfo{Main: debug.Module{Path: "ropeshift.dev/ropeshift", Version: version}, Settings: settings}
+	return &debug.BuildInfo{Main: debug.Module{Path: "ropeshift.com/ropeshift", Version: version}, Settings: settings}
 }
 
 func vcs(revision, modified string) []debug.BuildSetting {

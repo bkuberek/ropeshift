@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // The fields of a receipt, as the installed build writes them. The line is undocumented, so it is

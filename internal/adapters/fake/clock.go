@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Clock is a clock that moves only when a test moves it.

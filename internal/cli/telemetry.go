@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"ropeshift.dev/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api"
 )
 
 // telemetryQuery reads the worker's local store, which an orchestrator agent can read with --json.
