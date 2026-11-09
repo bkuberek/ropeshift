@@ -86,8 +86,8 @@ func read(event string, getenv func(string) string) config {
 
 // Main runs one hook. It has no failure path: whatever happens, the process exits 0. The deadline
 // starts once the hook has taken its event, because a hook ended before then has nothing to spool,
-// and the agent CLI closes a hook's input as soon as it has written it. What the hook owes is set
-// before the deadline can come.
+// and the agent CLI closes a hook's input as soon as it has written it. What the hook owes and holds
+// is set before the deadline can come.
 func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) int {
 	defer func() { _ = recover() }()
 	if len(args) == 0 {
@@ -96,8 +96,8 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 	cfg := read(args[0], getenv)
 	cfg.out = new(outbox)
 	event, input := take(cfg, stdin)
-	failClosed(cfg, stdout)
 	if cfg.event != eventPermissionRequest {
+		untilDecided(cfg, event, stdout)
 		timer := time.AfterFunc(hardDeadline, func() { expire(cfg) })
 		defer timer.Stop()
 	}
@@ -105,12 +105,18 @@ func Main(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) 
 	return 0
 }
 
-// failClosed has a policy hook owe a denial, which its deadline gives if the hook has reached no
-// verdict by then.
-func failClosed(cfg config, stdout io.Writer) {
-	if cfg.event == eventPreToolUse && cfg.policy != "" {
-		cfg.out.owe(stdout, denial(lateVerdict))
+// untilDecided sets what the deadline gives and hands on if it comes before the hook has decided. The
+// hook holds the event it took, so that event reaches the spool however early the deadline comes, and
+// a policy hook owes a denial, which leaves that event as a refused call's.
+func untilDecided(cfg config, event lanes.HookEvent, stdout io.Writer) {
+	if cfg.event == eventPreToolUse {
+		event.Asked = nil
+		if cfg.policy != "" {
+			event.Detail = lanes.DetailDenied
+			cfg.out.owe(stdout, denial(lateVerdict))
+		}
 	}
+	cfg.out.hold(&event)
 }
 
 // expire ends a hook that passed its deadline. It gives the answer the hook still owes, which is a
@@ -139,8 +145,9 @@ func take(cfg config, stdin io.Reader) (lanes.HookEvent, []byte) {
 	return event, input
 }
 
-// run hands on the event a hook took. A policy hook's verdict goes through the outbox, so the
-// deadline gives the denial it owes only while that verdict is still to come.
+// run hands on the event a hook took. A policy hook's verdict goes through the outbox with the event
+// it leaves, so the deadline gives the denial it owes only while that verdict is still to come, and
+// never hands on an event that says otherwise.
 func run(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
 	if cfg.out == nil {
 		cfg.out = new(outbox)
@@ -148,13 +155,13 @@ func run(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
 	switch cfg.event {
 	case eventPreToolUse:
 		verdict, answer := decide(cfg, input)
-		cfg.out.answer(stdout, answer)
 		if verdict != questionDeferred {
 			event.Asked = nil
 		}
 		if verdict == callDenied {
 			event.Detail = lanes.DetailDenied
 		}
+		cfg.out.answerWith(stdout, answer, event)
 	case eventSessionStart:
 		if lanes.Regrounds(event.Detail) {
 			reground(cfg, event, stdout)
@@ -452,18 +459,34 @@ func (o *outbox) owe(stdout io.Writer, line []byte) {
 	o.owed, o.to = line, stdout
 }
 
-// answer gives a session its answer, unless the deadline gave one first. An empty answer is a pass,
-// which writes nothing and owes nothing more.
+// answer gives a session its answer, unless the deadline gave one first.
 func (o *outbox) answer(stdout io.Writer, line []byte) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	o.give(stdout, line)
+}
+
+// answerWith gives a policy hook's verdict and holds the event that verdict leaves, together, so the
+// deadline never hands on an event that says other than the answer the session heard.
+func (o *outbox) answerWith(stdout io.Writer, line []byte, event lanes.HookEvent) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.give(stdout, line) {
+		o.event = &event
+	}
+}
+
+// give writes an answer unless the deadline gave one first, and says whether it did. An empty answer
+// is a pass, which writes nothing and owes nothing more.
+func (o *outbox) give(stdout io.Writer, line []byte) bool {
 	if o.settled {
-		return
+		return false
 	}
 	if len(line) != 0 {
 		_, _ = stdout.Write(line)
 	}
 	o.owed = nil
+	return true
 }
 
 // flush spools the event the outbox holds, unless the deadline spooled it first.

@@ -474,8 +474,9 @@ func TestAHookPastItsDeadlineAnswersAtMostOnce(t *testing.T) {
 	}
 }
 
-// A hook still deciding at its deadline has given no verdict, so it denies the call. A policy file
-// that is a FIFO no one writes holds the hook in its decision past the deadline.
+// A hook still deciding at its deadline has given no verdict, so it denies the call, and the event it
+// took reaches the spool once as that of a refused call, because delivery is at least once. A policy
+// file that is a FIFO no one writes holds the hook in its decision past the deadline.
 func TestAPolicyHookStillDecidingAtItsDeadlineDenies(t *testing.T) {
 	if binaries.err != nil {
 		t.Fatal(binaries.err)
@@ -510,6 +511,10 @@ func TestAPolicyHookStillDecidingAtItsDeadlineDenies(t *testing.T) {
 	}
 	if reason := deniedBy(t, stdout.String()); reason != "the policy check ran out of time" {
 		t.Errorf("a hook with no verdict at its deadline answered %q", stdout.String())
+	}
+	lines := spoolLines(t, env.spool)
+	if len(lines) != 1 || lines[0].Subject != "t1" || lines[0].Detail != lanes.DetailDenied {
+		t.Errorf("the spool holds %+v", lines)
 	}
 }
 
