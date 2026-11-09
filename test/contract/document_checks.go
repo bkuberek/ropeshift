@@ -8,6 +8,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // DocumentChecks hold what intake keeps of the planning documents: a version for each committed change,
@@ -23,6 +24,7 @@ var DocumentChecks = []Check{
 	{"DC8", "a contract keeps its milestone, shared flag, uses, and the requirement of each criterion", checkContractPlacement},
 	{"DC9", "a requirements file is a document, and its requirements keep their own versions", checkRequirementsDocument},
 	{"DC10", "a document arrives with the plan it names whatever order the files sort in", checkDocumentBatchOrder},
+	{"DC11", "the files a planning lane is shown are a valid set: intake reads them with no problem, and their work reaches ready", checkFormatExamplesAreASet},
 }
 
 const (
@@ -659,4 +661,39 @@ func checkDocumentsReplay(planned ports.PlanningReader, book planning.Book) erro
 		}
 	}
 	return nil
+}
+
+func checkFormatExamplesAreASet(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	for _, example := range planning.FormatExamples {
+		source.Write(string(example.Kind)+".md", []byte(example.Text))
+	}
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 0 || report.Versions != 1 || report.WorkOrders != 1 || report.Conflicts != 0 {
+		return Violatedf("report %+v", report)
+	}
+	orders, err := r.readOrders(s)
+	if err != nil || len(orders) != 1 {
+		return Violatedf("work orders %+v: %v", orders, err)
+	}
+	result, err := r.NewOps(s).Pass(r.Ctx, r.Scope, orders[0].ID, r.member())
+	if err != nil {
+		return err
+	}
+	if result.State != workorders.Ready || len(result.Failures) != 0 {
+		return Violatedf("the work the examples describe did not reach ready: %+v", result)
+	}
+	contracts, err := r.readContracts(s)
+	if err != nil || len(contracts) != 1 {
+		return Violatedf("contracts %+v: %v", contracts, err)
+	}
+	// Every citation of the contract found the document it names.
+	if len(contracts[0].Documents) != 2 || contracts[0].Milestone != "m1-reliable-checkout" {
+		return Violatedf("contract %+v", contracts[0])
+	}
+	return r.CheckPlanning(s)
 }

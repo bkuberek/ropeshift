@@ -56,32 +56,6 @@ const (
 // CurrentRepository is the `repo` value that names the repository holding the file.
 const CurrentRepository = "."
 
-// FormatExample is a whole contract file, which is what a planning lane is shown. A test parses it,
-// so what an agent is told is what intake reads.
-const FormatExample = `+++
-kind = "contract"
-id = "checkout-retry"
-title = "Retry failed checkout calls"
-requirements = []
-decisions = []
-
-[[criteria]]
-id = "c1"
-text = "A failed call retries twice with the same idempotency key"
-
-[[work_orders]]
-id = "retry-budget"
-title = "Add the retry budget"
-repo = "."
-priority = 2
-size = "medium"
-depends_on = []
-needs = { driver = "claude-code" }
-+++
-
-The statement of what this work must deliver.
-`
-
 // File errors. A planning agent writes these files, so each is reported and none
 // stops intake (ADR-0013).
 var (

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,17 +20,99 @@ func readFixture(t *testing.T, name string) []byte {
 	return raw
 }
 
-// What a planning lane is shown is what intake reads, so an agent that copies it writes a file.
-func TestThePlanningExampleIsAFile(t *testing.T) {
-	doc, err := ParseFile([]byte(planning.FormatExample))
-	if err != nil {
-		t.Fatal(err)
+// What a planning lane is shown is what intake reads, so an agent that copies an example writes a
+// file of its kind.
+func TestEveryPlanningExampleIsAFile(t *testing.T) {
+	kinds := map[planning.FileKind]bool{}
+	for _, example := range planning.FormatExamples {
+		doc, err := ParseFile([]byte(example.Text))
+		if err != nil {
+			t.Fatalf("the %s example: %v", example.Kind, err)
+		}
+		if doc.Kind != example.Kind {
+			t.Errorf("the %s example reads as a %s", example.Kind, doc.Kind)
+		}
+		if strings.TrimSpace(doc.Statement) == "" {
+			t.Errorf("the %s example has no prose", example.Kind)
+		}
+		if example.Intro == "" {
+			t.Errorf("the %s example says nothing of itself", example.Kind)
+		}
+		kinds[example.Kind] = true
 	}
-	if doc.Contract == nil || doc.Contract.ID != "checkout-retry" || len(doc.Contract.Criteria) != 1 || len(doc.Contract.WorkOrders) != 1 {
-		t.Fatalf("document %+v", doc)
+	for _, kind := range []planning.FileKind{
+		planning.FileGoal, planning.FilePlan, planning.FileRequirements, planning.FileSpec, planning.FileArchitecture,
+		planning.FileExperienceDesign, planning.FileMilestone, planning.FileContract,
+	} {
+		if !kinds[kind] {
+			t.Errorf("no example shows a %s file (FR-SESSION-5)", kind)
+		}
 	}
-	if !strings.Contains(doc.Statement, "must deliver") {
-		t.Fatalf("statement %q", doc.Statement)
+}
+
+// The examples describe one project, so a planning lane that follows them writes files that name each
+// other: a plan lists the documents that name it, and a contract cites what its plan holds.
+func TestThePlanningExamplesNameEachOther(t *testing.T) {
+	docs := map[planning.FileKind]planning.Document{}
+	for _, example := range planning.FormatExamples {
+		doc, err := ParseFile([]byte(example.Text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		docs[example.Kind] = doc
+	}
+	plan := docs[planning.FilePlan].Plan
+	if plan == nil || plan.Goal != docs[planning.FileGoal].Goal.ID || len(plan.Decisions) == 0 {
+		t.Fatalf("plan %+v", plan)
+	}
+	known := map[string]bool{}
+	for _, key := range docs[planning.FileRequirements].Requirements.Requirements {
+		known[key.ID] = true
+	}
+	held := map[string]bool{}
+	for kind, doc := range docs {
+		head, ok := doc.Head()
+		if !ok {
+			continue
+		}
+		held[head.Ref()] = true
+		if head.Plan != plan.ID {
+			t.Errorf("the %s example names plan %q, not %q", kind, head.Plan, plan.ID)
+		}
+	}
+	for _, ref := range plan.Documents {
+		if !held[ref] {
+			t.Errorf("the plan lists %s, which no example shows", ref)
+		}
+	}
+	if len(plan.Documents) != len(held) {
+		t.Errorf("the plan lists %v, and the examples show %d documents", plan.Documents, len(held))
+	}
+	for _, requirements := range [][]string{docs[planning.FileSpec].Spec.Requirements, docs[planning.FileArchitecture].Architecture.Requirements, docs[planning.FileExperienceDesign].Experience.Requirements} {
+		for _, key := range requirements {
+			if !known[key] {
+				t.Errorf("a document addresses %s, which the requirements example lacks", key)
+			}
+		}
+	}
+	contract := docs[planning.FileContract].Contract
+	if contract.Plan != plan.ID || contract.Milestone != docs[planning.FileMilestone].Milestone.ID || len(contract.Uses) == 0 || len(contract.WorkOrders) == 0 {
+		t.Errorf("contract %+v", contract)
+	}
+	for _, ref := range contract.Documents {
+		if !slices.Contains(plan.Documents, ref) {
+			t.Errorf("the contract cites %s, which its plan does not list", ref)
+		}
+	}
+	for _, criterion := range contract.Criteria {
+		if len(criterion.Requirements) == 0 {
+			t.Errorf("criterion %s serves no requirement", criterion.ID)
+		}
+		for _, key := range criterion.Requirements {
+			if !known[key] {
+				t.Errorf("criterion %s serves %s, which the requirements example lacks", criterion.ID, key)
+			}
+		}
 	}
 }
 
