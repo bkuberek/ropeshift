@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.0-alpha.2](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.1...v0.1.0-alpha.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* count and format what the views state ([b550087](https://github.com/bkuberek/ropeshift/commit/b55008782807abfa6e2c2243e86b79b3872b704b))
+* give a session its grounding when the hook runs out of time ([5bfd3f3](https://github.com/bkuberek/ropeshift/commit/5bfd3f3f6ea40fc11a7d31675f91e20b27853bb4))
+* ground a session when its hook's deadline comes before the policy read ([afaf92f](https://github.com/bkuberek/ropeshift/commit/afaf92f14ca491d3bb982026cd829a5dc6e212cc))
+* hand off a hook's event when its deadline comes before its verdict ([06cfb07](https://github.com/bkuberek/ropeshift/commit/06cfb078689dcea762f1ef0b110f5ba0c8d9cdcb))
+* keep a policy hook's verdict when its deadline meets the hand-off ([2cdd363](https://github.com/bkuberek/ropeshift/commit/2cdd3633f7d683d714f809b8e5ff0dcd020bbc7f))
+* keep IDs on one line and name each lane's work ([b737e3c](https://github.com/bkuberek/ropeshift/commit/b737e3c663cb42da9664c9511a370d16ae59351e))
+* let a status line held past its deadline exit 0 ([3ae5303](https://github.com/bkuberek/ropeshift/commit/3ae530338a5283b96f22c80dcc42b78e21fc4e6d))
+* list every command and answer help in both binaries ([e1551c5](https://github.com/bkuberek/ropeshift/commit/e1551c57c3044c5f957f0a15b8669da547bda727))
+* list every command and answer help in both binaries ([f2b33af](https://github.com/bkuberek/ropeshift/commit/f2b33afdb116651c2261f96307ed2d560e1fdd7a))
+* print a top frame as wide as its terminal ([ff4bc86](https://github.com/bkuberek/ropeshift/commit/ff4bc8605fa52c8e19a1c8ca7df3b96e4f33a3e5))
+* refuse arguments to ropeshift mcp ([3573c84](https://github.com/bkuberek/ropeshift/commit/3573c84fb35e814271e1bdf0644a0334340fd5cf))
+* say counts and money in the terminal as the web UI does ([8881f8a](https://github.com/bkuberek/ropeshift/commit/8881f8a879b2a8cc1fef5a284c1fe2a3f6fe078f))
+* say what a parked lane waits for in plain words ([647881b](https://github.com/bkuberek/ropeshift/commit/647881b03cec032d99ce00d0c104791c7c94e7c3))
+* show a recommendation that is no option as chosen ([c4b8142](https://github.com/bkuberek/ropeshift/commit/c4b81427b3667c36fba8c6d3094c22b72c31a034))
+
 ## 0.1.0-alpha.1 (2026-11-09)
 
 
