@@ -510,6 +510,13 @@ func plansByTitle(tx ports.ReadTx) ([]planning.Plan, error) {
 	return plans, nil
 }
 
+// plannedOnly leaves out the reviews. A review pins the contract of the work it judges, but it is no part
+// of the plan that contract belongs to: it is not counted in a milestone, laid out in a layer, or on the
+// critical path.
+func plannedOnly(orders []workorders.WorkOrder) []workorders.WorkOrder {
+	return slices.DeleteFunc(slices.Clone(orders), func(order workorders.WorkOrder) bool { return order.Kind == workorders.KindReview })
+}
+
 func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
 	plans, err := plansByTitle(tx)
 	if err != nil {
@@ -527,6 +534,7 @@ func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp)
 	if err != nil {
 		return nil, err
 	}
+	orders = plannedOnly(orders)
 	planOf := map[string]string{}
 	for _, contract := range contracts {
 		planOf[contract.ID] = contract.PlanID
@@ -868,6 +876,9 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 					}
 				}
 				detail.Reviews = append(detail.Reviews, review)
+			case order.Kind == workorders.KindReview:
+				// It pins this plan's contract, and is held by the plan so it is not unplanned, but the
+				// plan's work is what the plan planned.
 			case ofPlan[order.ContractID]:
 				detail.WorkOrders = append(detail.WorkOrders, order)
 			}

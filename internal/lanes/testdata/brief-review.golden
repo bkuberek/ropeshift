@@ -1,0 +1,17 @@
+You are working in a ropeshift lane on work order rv-1: Review: Add the retry budget.
+
+Retry a failed charge twice.
+
+Acceptance criteria:
+- c1: A failed charge is retried twice.
+- c2: Each retry is logged.
+
+This is a review. You are judging work order wo-1, Add the retry budget, which a lane finished at commit c0ffee0000000000000000000000000000000001 on branch lane/lane-1. That lane began at commit ba5e000000000000000000000000000000000002 (origin/main). You did not write it. Your worktree is a checkout of that commit with no branch, and you may not edit a file with a tool, commit, push, or move a branch: nothing you write there reaches the work, and the worktree is discarded when you finish.
+
+What the lane changed is in .ropeshift/context/review.diff, and the files it touches are listed in .ropeshift/context/review-files.txt. Read the diff, then the code around it, and run what the repository offers to check it. Judge each acceptance criterion above against what the change does and against the requirements and documents the contract cites, which your context pack holds. The pack also holds the checks the lane reported for itself. They are information and not evidence: they are what the lane says of its own work.
+
+Report through the lane_report tool once, with one check for each criterion: name the criterion's ID in the check's criterion field, and set passed to true only when the change meets it. Say why in the reason, with the files and lines, the requirement IDs, and the documents you rest on. Report completed when you judged every criterion, whatever you found, and blocked when you cannot judge them.
+
+Your system prompt holds this lane's context pack, which is also at .ropeshift/context/pack.md. It is where you start and not a limit: the context_get, decision_search, requirement_get, and question_search tools read the rest of what this workspace holds.
+
+When the work is done, or cannot go on, call the lane_report tool once with its outcome, then end your turn.

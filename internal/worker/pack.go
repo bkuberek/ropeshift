@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -57,6 +60,47 @@ func (r *laneRun) writePack(ctx context.Context, worktree string) (string, error
 	}
 	r.setPackRead(&lanes.PackRef{ID: pack.ID, Version: pack.Version})
 	return file, nil
+}
+
+// judgeable says a review lane has what it judges: the commit under review, and a claim that named it as
+// where the lane begins. A lane that began anywhere else would read the wrong work and call it the right.
+func (r *laneRun) judgeable() error {
+	if !r.reviewing() {
+		return nil
+	}
+	attempt := r.lease.Attempt
+	if attempt == nil || attempt.Commit == "" || r.lease.BaseCommit != attempt.Commit {
+		return errors.New("a review lane needs the commit it judges, and its claim did not name it as where the lane begins")
+	}
+	return nil
+}
+
+// writeReview leaves what a review lane reads beside its pack: the change the reviewed lane made, as a
+// patch from the commit that lane began at to the commit under review, and the paths it touches. The
+// worker reads them from the repository's own history, so the reviewed lane has no hand in them. A lane
+// that recorded no base has no diff, and its brief says to read the history.
+func (r *laneRun) writeReview(ctx context.Context, repository, worktree string) error {
+	attempt := r.lease.Attempt
+	if !r.reviewing() || attempt == nil || attempt.BaseCommit == "" {
+		return nil
+	}
+	worktrees, offered := r.rt.Provisioner.Worktrees.(ports.ReviewTrees)
+	if !offered {
+		return ErrNoDetached
+	}
+	diff, err := worktrees.Diff(ctx, repository, attempt.BaseCommit, attempt.Commit)
+	if err != nil {
+		return fmt.Errorf("reading the diff to review: %w", err)
+	}
+	if _, err := worktrees.WriteContextFile(ctx, worktree, path.Base(lanes.ReviewDiffFile), diff.Patch); err != nil {
+		return err
+	}
+	files := strings.Join(diff.Files, "\n")
+	if files != "" {
+		files += "\n"
+	}
+	_, err = worktrees.WriteContextFile(ctx, worktree, path.Base(lanes.ReviewFilesFile), files)
+	return err
 }
 
 // parkOnPolicy parks each lane a policy asked to stop, for a person to look at what changed under

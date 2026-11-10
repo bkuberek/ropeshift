@@ -56,7 +56,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	}
 	return lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Writable: writable,
-		QuestionTool: questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""),
+		QuestionTool: questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec),
 	})
@@ -130,7 +130,22 @@ func denyRules(spec ports.SessionSpec) []string {
 	for _, branch := range defaultBranches(spec) {
 		rules = append(rules, "Bash(git push * "+branch+")", "Bash(git push * *:"+branch+")", "Bash(git push * +"+branch+")")
 	}
+	if spec.ReadOnly {
+		rules = append(rules, readOnlyRules()...)
+	}
 	return append(rules, editRules(spec.Dir)...)
+}
+
+// readOnlyRules deny a session that only reads every tool that edits a file and every git subcommand
+// that writes a commit or a ref. The CLI enforces them whatever the permission mode, and the hook says
+// the same from the generation's policy, so a lane with nobody to answer a prompt is denied and not left
+// waiting.
+func readOnlyRules() []string {
+	rules := lanes.ReadOnlyTools()
+	for _, subcommand := range lanes.ReadOnlyGit() {
+		rules = append(rules, "Bash(git "+subcommand+"*)")
+	}
+	return rules
 }
 
 // editRules names what lies beside the worktree at each level above it, because no rule

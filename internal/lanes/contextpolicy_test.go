@@ -105,7 +105,7 @@ func TestAPolicyReadsItsRole(t *testing.T) {
 	if got.WarnTokens != 1 || got.CompactTokens != 2 || got.HandoffTokens != 3 || got.MinHeadroom != 7 {
 		t.Errorf("policy %+v", got)
 	}
-	if none := lanes.PolicyFor(settings, "reviewer"); none.HandoffTokens != 0 || none.MinHeadroom != 7 {
+	if none := lanes.PolicyFor(settings, lanes.RoleOrchestrator); none.HandoffTokens != 0 || none.MinHeadroom != 7 {
 		t.Errorf("a role with no thresholds reads %+v", none)
 	}
 }
@@ -136,5 +136,31 @@ func TestAPlannerWithNoThresholdsOfItsOwnReadsTheWriters(t *testing.T) {
 	}
 	if got := (lanes.ContextSettings{Roles: map[string]lanes.RoleThresholds{lanes.RoleWriter: writer}}).ThresholdsFor(lanes.RoleOrchestrator); got != (lanes.RoleThresholds{}) {
 		t.Errorf("an orchestrator the profile never named reads the writer's: %+v", got)
+	}
+}
+
+// A review lane runs on the writer's thresholds until a profile gives the reviewer its own, for the
+// same reason a planner does.
+func TestAReviewerWithNoThresholdsOfItsOwnReadsTheWriters(t *testing.T) {
+	writer := lanes.RoleThresholds{WarnTokens: 1, CompactTokens: 2, HandoffTokens: 3}
+	reviewer := lanes.RoleThresholds{WarnTokens: 7, CompactTokens: 8, HandoffTokens: 9}
+	tests := []struct {
+		name  string
+		roles map[string]lanes.RoleThresholds
+		want  lanes.RoleThresholds
+	}{
+		{"the writer's when the profile names no reviewer", map[string]lanes.RoleThresholds{lanes.RoleWriter: writer}, writer},
+		{"its own when the profile names one", map[string]lanes.RoleThresholds{lanes.RoleWriter: writer, lanes.RoleReviewer: reviewer}, reviewer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := lanes.ContextSettings{Roles: tt.roles}
+			if got := settings.ThresholdsFor(lanes.RoleReviewer); got != tt.want {
+				t.Errorf("thresholds %+v, want %+v", got, tt.want)
+			}
+			if got := lanes.PolicyFor(settings, lanes.RoleReviewer); got.RoleThresholds != tt.want {
+				t.Errorf("policy %+v, want %+v", got.RoleThresholds, tt.want)
+			}
+		})
 	}
 }

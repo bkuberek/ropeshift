@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -174,7 +175,7 @@ func checkWaitTwice(t *testing.T, ctx context.Context, rig ProcessRig) {
 
 // WorktreeRig is a worktree store and one repository with a commit.
 type WorktreeRig struct {
-	Worktrees ports.Worktrees
+	Worktrees ports.ReviewTrees
 	// Bases answers what the control plane asks of the same repository.
 	Bases      ports.Bases
 	Repository string
@@ -185,6 +186,10 @@ type WorktreeRig struct {
 	// Grow adds a commit on top of a branch of the repository and returns it. A branch with no commit
 	// yet gets its first.
 	Grow func(branch string) string
+	// Touch adds a commit on top of main that writes a file, and returns it.
+	Touch func(name string) string
+	// Branches lists the repository's branches.
+	Branches func() []string
 }
 
 // RunWorktrees runs one contract on one store.
@@ -215,6 +220,15 @@ func RunWorktrees(t *testing.T, fresh func(*testing.T) WorktreeRig) {
 		{"a commit contains the commits it grew from and not the ones that grew from it", checkContainsFollowsAncestry},
 		{"a commit the repository lacks is not found", checkContainsOfNothing},
 		{"a worktree starts at the commit it is given", checkWorktreeStartsAtItsBase},
+		{"a detached worktree starts at its commit and makes no branch", checkDetachedMakesNoBranch},
+		{"a retry of a detached worktree returns the same one", checkDetachedRetry},
+		{"detached worktrees at one commit do not conflict", checkDetachedAtOneCommit},
+		{"a detached worktree and a branch's do not take each other's place", checkDetachedConflicts},
+		{"a detached worktree holds nothing a stop must save", checkDetachedHoldsNothingToSave},
+		{"a detached worktree is discarded whatever it holds, and the repository keeps its branches", checkDetachedDiscard},
+		{"a diff names the patch and the files a commit changed since its base", checkDiffNamesTheChange},
+		{"a diff of a commit the repository lacks is not found", checkDiffOfNothing},
+		{"a context file is left beside the pack and git sees none of it", checkContextFile},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -628,5 +642,172 @@ func checkWorktreeStartsAtItsBase(t *testing.T, ctx context.Context, r WorktreeR
 	}
 	if worktree.Head != first {
 		t.Errorf("head %s, want %s", worktree.Head, first)
+	}
+}
+
+func checkDetachedMakesNoBranch(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	r.Grow("main")
+	before := r.Branches()
+	worktree, err := r.Worktrees.Create(ctx, ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("review"), Base: first, Detached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worktree.Branch != "" || !worktree.Detached || worktree.Head != first || !worktree.Clean || worktree.Path != r.Path("review") {
+		t.Errorf("worktree %+v, want detached and clean at %s", worktree, first)
+	}
+	inspected, err := r.Worktrees.Inspect(ctx, worktree.Path)
+	if err != nil || inspected != worktree {
+		t.Errorf("inspected %+v: %v", inspected, err)
+	}
+	if after := r.Branches(); !slices.Equal(after, before) {
+		t.Errorf("the repository had branches %v and has %v", before, after)
+	}
+}
+
+func checkDetachedRetry(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	spec := ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("review"), Base: first, Detached: true}
+	one, err := r.Worktrees.Create(ctx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := r.Worktrees.Create(ctx, spec)
+	if err != nil || one != two {
+		t.Errorf("first %+v, retry %+v: %v", one, two, err)
+	}
+}
+
+func checkDetachedAtOneCommit(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	for _, name := range []string{"review-1", "review-2"} {
+		if _, err := r.Worktrees.Create(ctx, ports.WorktreeSpec{Repository: r.Repository, Path: r.Path(name), Base: first, Detached: true}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func checkDetachedConflicts(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	if _, err := r.Worktrees.Create(ctx, ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("review"), Base: first, Detached: true}); err != nil {
+		t.Fatal(err)
+	}
+	r.create(t, ctx, "one", "lane/one")
+	asBranch := ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("review"), Branch: "lane/two"}
+	if _, err := r.Worktrees.Create(ctx, asBranch); !errors.Is(err, ports.ErrWorktreeConflict) {
+		t.Errorf("a branch where a detached worktree stands: %v", err)
+	}
+	asDetached := ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("one"), Base: first, Detached: true}
+	if _, err := r.Worktrees.Create(ctx, asDetached); !errors.Is(err, ports.ErrWorktreeConflict) {
+		t.Errorf("a detached worktree where a branch's stands: %v", err)
+	}
+}
+
+// A review's worktree is thrown away by design, so a stop has nothing in it to save: it reads clean and
+// ahead of nothing, whatever the reviewer left in it, and the guard snapshots nothing and holds nothing.
+func checkDetachedHoldsNothingToSave(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	worktree, err := r.Worktrees.Create(ctx, ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("review"), Base: first, Detached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Dirty(worktree.Path)
+	found, err := r.Worktrees.Survey(ctx, worktree.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Dirty || len(found.DirtyPaths) != 0 || found.Ahead != 0 || found.Branch != "" || found.Remote != "" || found.Head != first {
+		t.Errorf("a survey of a detached worktree reads %+v", found)
+	}
+	if plan := lanes.PlanGuard(found, lanes.GuardRules{Push: true}); plan != (lanes.GuardPlan{}) {
+		t.Errorf("a guard would act on a detached worktree: %+v", plan)
+	}
+	inspected, err := r.Worktrees.Inspect(ctx, worktree.Path)
+	if err != nil || inspected.Clean || !inspected.Detached {
+		t.Errorf("inspect reads what is there: %+v: %v", inspected, err)
+	}
+}
+
+func checkDetachedDiscard(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	before := r.Branches()
+	worktree, err := r.Worktrees.Create(ctx, ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("review"), Base: first, Detached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Dirty(worktree.Path)
+	for range 2 {
+		if err := r.Worktrees.Discard(ctx, r.Repository, worktree.Path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.Worktrees.Inspect(ctx, worktree.Path); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("after a discard: %v", err)
+	}
+	if after := r.Branches(); !slices.Equal(after, before) {
+		t.Errorf("the repository had branches %v and has %v", before, after)
+	}
+	if _, err := r.Worktrees.Create(ctx, ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("review"), Base: first, Detached: true}); err != nil {
+		t.Errorf("the place was not free after a discard: %v", err)
+	}
+}
+
+func checkDiffNamesTheChange(t *testing.T, ctx context.Context, r WorktreeRig) {
+	base := r.Grow("main")
+	head := r.Touch("notes.txt")
+	diff, err := r.Worktrees.Diff(ctx, r.Repository, base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(diff.Files, []string{"notes.txt"}) || !strings.Contains(diff.Patch, "notes.txt") {
+		t.Errorf("a diff reads %+v", diff)
+	}
+	empty, err := r.Worktrees.Diff(ctx, r.Repository, head, head)
+	if err != nil || empty.Patch != "" || len(empty.Files) != 0 {
+		t.Errorf("a commit against itself: %+v: %v", empty, err)
+	}
+}
+
+func checkDiffOfNothing(t *testing.T, ctx context.Context, r WorktreeRig) {
+	head := r.Grow("main")
+	missing := strings.Repeat("a", 40)
+	for _, pair := range [][2]string{{missing, head}, {head, missing}} {
+		if _, err := r.Worktrees.Diff(ctx, r.Repository, pair[0], pair[1]); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("diff %v: %v", pair, err)
+		}
+	}
+	if _, err := r.Worktrees.Diff(ctx, r.Repository, "--output=x", head); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a base that reads as an option: %v", err)
+	}
+}
+
+func checkContextFile(t *testing.T, ctx context.Context, r WorktreeRig) {
+	created := r.create(t, ctx, "one", "lane/one")
+	pack, err := r.Worktrees.WriteContext(ctx, created.Path, "the pack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := r.Worktrees.WriteContextFile(ctx, created.Path, "review.diff", "the diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(path) != filepath.Dir(pack) || filepath.Base(path) != "review.diff" || !strings.HasPrefix(path, created.Path) {
+		t.Errorf("a pack at %s and a file at %s", pack, path)
+	}
+	again, err := r.Worktrees.WriteContextFile(ctx, created.Path, "review.diff", "the diff, again")
+	if err != nil || again != path {
+		t.Errorf("a repeat wrote to %s: %v", again, err)
+	}
+	for _, name := range []string{"", "../escape", "nested/file", ".", ".."} {
+		if _, err := r.Worktrees.WriteContextFile(ctx, created.Path, name, "x"); err == nil {
+			t.Errorf("a file named %q was written", name)
+		}
+	}
+	survey, err := r.Worktrees.Survey(ctx, created.Path)
+	if err != nil || survey.Dirty {
+		t.Errorf("a context file reads as a change: %+v: %v", survey, err)
+	}
+	if err := r.Worktrees.Remove(ctx, r.Repository, created.Path); err != nil {
+		t.Errorf("a context file held a worktree back: %v", err)
 	}
 }

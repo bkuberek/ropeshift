@@ -71,14 +71,15 @@ type packRecords struct {
 	planning  ports.PlanningReader
 	questions ports.QuestionReader
 	packs     ports.PackReader
+	evidence  ports.EvidenceReader
 }
 
 func writeRecords(tx ports.WriteTx) packRecords {
-	return packRecords{planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs()}
+	return packRecords{planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence()}
 }
 
 func readRecords(tx ports.ReadTx) packRecords {
-	return packRecords{planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs()}
+	return packRecords{planning: tx.Planning(), questions: tx.Questions(), packs: tx.Packs(), evidence: tx.Evidence()}
 }
 
 func contractSource(contract planning.Contract) contextpacks.Source {
@@ -272,6 +273,36 @@ func (r packRecords) inScope(order workorders.WorkOrder) ([]contextpacks.Source,
 	return out, nil
 }
 
+// reported is what the lane whose work a review judges said of it when it ended, with what a forge
+// recorded about the same commit. It is information a reviewer weighs, never evidence it rests on, and
+// it is what the lane wrote, so the pack fences it.
+func (r packRecords) reported(review workorders.WorkOrder) (contextpacks.Source, error) {
+	rows, err := r.evidence.Attempt(review.Reviews, review.ReviewsFence)
+	if err != nil {
+		return contextpacks.Source{}, err
+	}
+	var text strings.Builder
+	text.WriteString("These are the checks the lane reported when it ended its work, and what a forge recorded of the same commit. " +
+		"They are information and not evidence: they are what that lane says of its own work.\n")
+	if len(rows) == 0 {
+		text.WriteString("\nThe lane reported no checks.\n")
+	}
+	for _, row := range rows {
+		fmt.Fprintf(&text, "\n- %s: %s", row.Name, row.Status)
+		if row.Criterion != "" {
+			fmt.Fprintf(&text, " (criterion %s)", row.Criterion)
+		}
+		fmt.Fprintf(&text, ", from the %s", row.Source)
+	}
+	if len(rows) != 0 {
+		text.WriteString("\n")
+	}
+	ref := review.Reviews + "@" + strconv.FormatInt(review.ReviewsFence, 10)
+	return contextpacks.Source{
+		Kind: contextpacks.KindChecks, Ref: ref, Digest: contextpacks.TextDigest(text.String()), Trust: contextpacks.TrustLane, Text: text.String(),
+	}, nil
+}
+
 // selection reads what a work order's pack draws from, at the contract version it is pinned to.
 func (r packRecords) selection(order workorders.WorkOrder) (contextpacks.Selection, error) {
 	var selection contextpacks.Selection
@@ -304,6 +335,13 @@ func (r packRecords) selection(order workorders.WorkOrder) (contextpacks.Selecti
 			}
 			selection.Decisions = append(selection.Decisions, decision)
 		}
+	}
+	if order.Kind == workorders.KindReview {
+		reported, err := r.reported(order)
+		if err != nil {
+			return selection, err
+		}
+		selection.Reported = []contextpacks.Source{reported}
 	}
 	if selection.Overlapping, err = r.inScope(order); err != nil {
 		return selection, err

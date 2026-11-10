@@ -61,8 +61,18 @@ func LaneFinished(head string, checks ...workorders.CheckResult) workorders.Lane
 }
 
 // Awaiting returns a work order whose lane ended with result, under a contract of these
-// criteria.
+// criteria, and whose review has ended. A review that stays open holds the work in acceptance, and what
+// the acceptance checks speak of is the step after it.
 func (r *Rig) Awaiting(s ports.Store, criteria []string, result workorders.LaneResult) (string, error) {
+	id, err := r.AwaitingReview(s, criteria, result)
+	if err != nil {
+		return "", err
+	}
+	return id, r.finishReviews(s, id)
+}
+
+// AwaitingReview is Awaiting for a work order whose review the lane's end opened, and is still open.
+func (r *Rig) AwaitingReview(s ports.Store, criteria []string, result workorders.LaneResult) (string, error) {
 	ops := r.NewOps(s)
 	work := control.LedgerWork{
 		Order:     workorders.WorkOrder{ID: r.ID("wo"), Kind: workorders.KindChange, Title: "Accept it", RepositoryID: AcceptanceRepository, MaxAttempts: 1},
@@ -78,15 +88,45 @@ func (r *Rig) Awaiting(s ports.Store, criteria []string, result workorders.LaneR
 	if _, err := ops.Pass(r.Ctx, r.Scope, order.ID, r.Actor); err != nil {
 		return "", err
 	}
-	return order.ID, r.anotherAttempt(s, order.ID, result)
+	return order.ID, r.attempt(s, order.ID, result)
 }
 
-func (r *Rig) anotherAttempt(s ports.Store, id string, result workorders.LaneResult) error {
+// attempt runs a lane to its end on a work order, and leaves the review that end opened.
+func (r *Rig) attempt(s ports.Store, id string, result workorders.LaneResult) error {
 	holder, err := r.Running(s, id, "a")
 	if err != nil {
 		return err
 	}
 	return r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, result, r.worker("a"))
+}
+
+// anotherAttempt is attempt for a check that is about the step after the review.
+func (r *Rig) anotherAttempt(s ports.Store, id string, result workorders.LaneResult) error {
+	if err := r.attempt(s, id, result); err != nil {
+		return err
+	}
+	return r.finishReviews(s, id)
+}
+
+// finishReviews runs every open review of a work order to a completed end.
+func (r *Rig) finishReviews(s ports.Store, id string) error {
+	open, err := r.reviewsOf(s, id)
+	if err != nil {
+		return err
+	}
+	for _, review := range open {
+		if !review.OpenReview() {
+			continue
+		}
+		holder, err := r.Running(s, review.ID, "a")
+		if err != nil {
+			return err
+		}
+		if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Rig) forgeSays(forge *fake.Forge, head string, checks ...ports.ForgeCheck) {

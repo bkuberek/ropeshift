@@ -470,6 +470,9 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	if lease.Review, err = desiredReview(tx.Planning(), row); err != nil {
 		return lease, err
 	}
+	if lease.Attempt, err = desiredAttempt(tx, row); err != nil {
+		return lease, err
+	}
 	resets, err := tx.Lanes().Resets(claim.Lane)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return lease, err

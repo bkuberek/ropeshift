@@ -1,6 +1,7 @@
 package lanes
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -228,5 +229,146 @@ func TestPermissionRaises(t *testing.T) {
 				t.Errorf("raises %v", got)
 			}
 		})
+	}
+}
+
+func readOnlyPolicy() DenyPolicy {
+	return CompilePolicy(PolicySpec{
+		Worktree: "/work/app-lanes/review-1", Home: "/home/person", DefaultBranches: []string{"main", "master"},
+		Writable: []string{"/run/t/review-1"}, ReadOnly: true,
+	})
+}
+
+// A review lane reads and reports. The commands it may run are the ones that read, and everything that
+// writes a commit or a ref is denied however it is spelled, so a review can move no branch.
+func TestAReadOnlyPolicyDeniesWhatWritesHistoryAndRefs(t *testing.T) {
+	const cwd = "/work/app-lanes/review-1"
+	tests := []struct {
+		name    string
+		command string
+		denied  string
+	}{
+		{name: "a log", command: "git log --oneline -20"},
+		{name: "a diff", command: "git diff HEAD~1 --stat"},
+		{name: "a show", command: "git show HEAD:internal/a.go"},
+		{name: "a status", command: "git status --short"},
+		{name: "a blame", command: "git blame -L 1,20 internal/a.go"},
+		{name: "a grep", command: "git grep -n retry"},
+		{name: "a listing", command: "git ls-files | head"},
+		{name: "a rev-parse", command: "git rev-parse HEAD"},
+		{name: "a global option before a read", command: "git -c core.pager=cat -C /work/app-lanes/review-1 log"},
+		{name: "a test run", command: "go test ./..."},
+		{name: "a file written in the discarded worktree", command: "echo x > scratch.txt"},
+		{name: "a command that names a denied word", command: `echo "git commit -m x"`},
+
+		{name: "a commit", command: `git commit -m "review notes"`, denied: ReasonReadOnly},
+		{name: "a commit of everything", command: "git commit -am x", denied: ReasonReadOnly},
+		{name: "an empty commit", command: "git commit --allow-empty -m x", denied: ReasonReadOnly},
+		{name: "a push", command: "git push origin HEAD:refs/heads/review", denied: ReasonReadOnly},
+		{name: "a push of nothing named", command: "git push", denied: ReasonReadOnly},
+		{name: "a new branch", command: "git branch review-notes", denied: ReasonReadOnly},
+		{name: "a moved branch", command: "git branch -f lane/one HEAD", denied: ReasonReadOnly},
+		{name: "a checkout that makes a branch", command: "git checkout -b review-notes", denied: ReasonReadOnly},
+		{name: "a checkout of a branch", command: "git checkout lane/one", denied: ReasonReadOnly},
+		{name: "a switch", command: "git switch -c review-notes", denied: ReasonReadOnly},
+		{name: "a reset", command: "git reset --hard HEAD~1", denied: ReasonReadOnly},
+		{name: "a ref update", command: "git update-ref refs/heads/lane/one HEAD", denied: ReasonReadOnly},
+		{name: "a symbolic ref", command: "git symbolic-ref HEAD refs/heads/lane/one", denied: ReasonReadOnly},
+		{name: "a tag", command: "git tag review-1", denied: ReasonReadOnly},
+		{name: "a merge", command: "git merge lane/two", denied: ReasonReadOnly},
+		{name: "a rebase", command: "git rebase main", denied: ReasonReadOnly},
+		{name: "a cherry-pick", command: "git cherry-pick abc123", denied: ReasonReadOnly},
+		{name: "a revert", command: "git revert HEAD", denied: ReasonReadOnly},
+		{name: "an am", command: "git am < patch.mbox", denied: ReasonReadOnly},
+		{name: "a stash", command: "git stash", denied: ReasonReadOnly},
+		{name: "a fetch into a branch", command: "git fetch origin main:main", denied: ReasonReadOnly},
+		{name: "a pull", command: "git pull", denied: ReasonReadOnly},
+		{name: "a worktree for a new branch", command: "git worktree add -b review ../review-2", denied: ReasonReadOnly},
+		{name: "a commit after a global option", command: "git -C /work/app-lanes/review-1 -c a=b commit -m x", denied: ReasonReadOnly},
+		{name: "a commit after an assignment", command: "FOO=bar git commit -m x", denied: ReasonReadOnly},
+		{name: "a commit behind a wrapper", command: "env FOO=bar command git commit -m x", denied: ReasonReadOnly},
+		{name: "a commit after a conjunction", command: "go test ./... && git commit -m x", denied: ReasonReadOnly},
+		{name: "a commit in a subshell", command: "(git commit -m x)", denied: ReasonReadOnly},
+		{name: "a commit in a substitution", command: "echo $(git commit -m x)", denied: ReasonReadOnly},
+		{name: "a commit through a shell", command: `sh -c "git commit -m x"`, denied: ReasonReadOnly},
+		{name: "a commit through eval", command: `eval "git commit -m x"`, denied: ReasonReadOnly},
+		{name: "a commit in a condition", command: "if true; then git commit -m x; fi", denied: ReasonReadOnly},
+		{name: "a commit after cd", command: "cd sub && git commit -m x", denied: ReasonReadOnly},
+
+		{name: "a write outside the worktree", command: "echo x > /etc/hosts", denied: ReasonOutside},
+		{name: "a copy outside the worktree", command: "cp a /tmp/b", denied: ReasonOutside},
+	}
+	policy := readOnlyPolicy()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: tt.command, Cwd: cwd})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("%q: denied %v with %q, want %q", tt.command, denied, reason, tt.denied)
+			}
+		})
+	}
+}
+
+// The tools that edit a file are denied outright on a review lane, wherever the path points.
+func TestAReadOnlyPolicyDeniesTheEditingTools(t *testing.T) {
+	policy := readOnlyPolicy()
+	for _, tool := range []string{toolWrite, toolEdit, toolMultiEdit, toolNotebookEdit} {
+		for _, path := range []string{"/work/app-lanes/review-1/a.go", "/etc/hosts", "scratch.txt"} {
+			reason, denied := policy.Decide(ToolCall{Tool: tool, Path: path, Cwd: "/work/app-lanes/review-1"})
+			if !denied || reason != ReasonReadOnly {
+				t.Errorf("%s of %s: denied %v with %q", tool, path, denied, reason)
+			}
+		}
+	}
+	if reason, denied := policy.Decide(ToolCall{Tool: "Read", Path: "/work/app-lanes/review-1/a.go"}); denied {
+		t.Errorf("a read was denied: %s", reason)
+	}
+}
+
+// The words a reviewer reads in a denial say what to do instead.
+func TestTheReadOnlyReasonSaysWhatToDoInstead(t *testing.T) {
+	for _, want := range []string{"reads", ToolLaneReport, "commit"} {
+		if !strings.Contains(ReasonReadOnly, want) {
+			t.Errorf("the reason %q leaves out %q", ReasonReadOnly, want)
+		}
+	}
+}
+
+// Every other lane keeps writing, and its policy gains nothing: the rules a review lane adds do not
+// reach it.
+func TestAnOrdinaryPolicyIsNotReadOnly(t *testing.T) {
+	policy := testPolicy()
+	if len(policy.Deny) != 0 {
+		t.Errorf("an ordinary policy denies %+v", policy.Deny)
+	}
+	for _, call := range []ToolCall{
+		{Tool: ToolBash, Command: "git commit -m x", Cwd: "/work/app-lanes/lane-1"},
+		{Tool: ToolBash, Command: "git branch other", Cwd: "/work/app-lanes/lane-1"},
+		{Tool: ToolBash, Command: "git checkout -b other", Cwd: "/work/app-lanes/lane-1"},
+		{Tool: toolWrite, Path: "/work/app-lanes/lane-1/a.go", Cwd: "/work/app-lanes/lane-1"},
+		{Tool: toolEdit, Path: "/work/app-lanes/lane-1/a.go", Cwd: "/work/app-lanes/lane-1"},
+	} {
+		if reason, denied := policy.Decide(call); denied {
+			t.Errorf("%+v was denied: %s", call, reason)
+		}
+	}
+}
+
+// The policy file is written once and read by a hook with no worker, and a worker rewrites it to hold a
+// lane. A rewrite that read and wrote it back must keep what makes a review lane read-only.
+func TestAReadOnlyPolicySurvivesBeingWrittenAndRead(t *testing.T) {
+	raw, err := json.Marshal(readOnlyPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read DenyPolicy
+	if err := json.Unmarshal(raw, &read); err != nil {
+		t.Fatal(err)
+	}
+	if reason, denied := read.Decide(ToolCall{Tool: ToolBash, Command: "git commit -m x", Cwd: "/work/app-lanes/review-1"}); !denied || reason != ReasonReadOnly {
+		t.Errorf("after a round trip a commit was denied %v with %q", denied, reason)
+	}
+	if reason, denied := read.Decide(ToolCall{Tool: toolWrite, Path: "/work/app-lanes/review-1/a.go"}); !denied || reason != ReasonReadOnly {
+		t.Errorf("after a round trip a write was denied %v with %q", denied, reason)
 	}
 }

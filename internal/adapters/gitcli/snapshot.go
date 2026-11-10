@@ -29,7 +29,9 @@ var snapshotIdentity = []string{
 	"GIT_COMMITTER_NAME=ropeshift", "GIT_COMMITTER_EMAIL=ropeshift@localhost",
 }
 
-// Survey reads a worktree for a stop. It takes no lock a session could meet.
+// Survey reads a worktree for a stop. It takes no lock a session could meet. A worktree made detached
+// is for reading and is thrown away, so whatever a session left in it is nothing to account for, and
+// the survey says only where it stands.
 func (w Worktrees) Survey(ctx context.Context, path string) (lanes.WorktreeFindings, error) {
 	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -41,6 +43,9 @@ func (w Worktrees) Survey(ctx context.Context, path string) (lanes.WorktreeFindi
 	head, err := git.Text(ctx, "rev-parse", "HEAD")
 	if err != nil {
 		return lanes.WorktreeFindings{}, err
+	}
+	if madeDetached(ctx, git) {
+		return lanes.WorktreeFindings{Head: head}, nil
 	}
 	// A detached head has no symbolic name, which is an answer and not a failure.
 	branch, _ := git.Text(ctx, "symbolic-ref", "--quiet", "--short", "HEAD")

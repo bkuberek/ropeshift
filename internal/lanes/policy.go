@@ -21,7 +21,46 @@ const (
 	ReasonDefaultBranch = "ropeshift policy: a push to the default branch is denied on this lane. Push the lane's own branch."
 	ReasonOutside       = "ropeshift policy: a write outside this lane's worktree is denied. Write inside the worktree, with a path the policy can read."
 	ReasonPushApart     = "ropeshift policy: a push runs as a command of its own on this lane, because a commit runs with no prompt and a push does not. Commit first, then push alone."
+	// ReasonReadOnly is what a lane that only reads is told when it reaches for a write. Its worktree is
+	// thrown away when it ends, so a file it writes there reaches nothing, but a commit, a push, or a ref
+	// would reach the work it judges.
+	ReasonReadOnly = "ropeshift policy: this lane reads and does not change anything. It may not edit a file with a tool, commit, push, or " +
+		"move a branch or a tag. Read the work with git log, git diff, and git show, and say what you found through the " + ToolLaneReport + " tool."
 )
+
+// DenyToolGit, as the tool of a DenyRule, names a git subcommand and not a vendor's tool: the rule denies
+// that subcommand wherever a shell command runs it, whatever stands before it and however the command is
+// nested, which a prefix of the whole command could not.
+const DenyToolGit = "git"
+
+// readOnlyGit are the subcommands that write a commit, a branch, a tag, or any other ref, or that move
+// where HEAD stands on a branch. A lane that only reads runs none of them. The list is a guardrail and not
+// a sandbox: a worktree with no branch is what keeps a branch where it was.
+var readOnlyGit = []string{
+	"commit", "push", "merge", "rebase", "cherry-pick", "revert", "reset", "am", "update-ref", "symbolic-ref",
+	"stash", "fetch", "pull", "worktree", "switch", "checkout", "branch", "tag",
+}
+
+// ReadOnlyTools are the vendor tools that edit a file, which a lane that only reads may not call.
+func ReadOnlyTools() []string {
+	return []string{toolWrite, toolEdit, toolMultiEdit, toolNotebookEdit}
+}
+
+// ReadOnlyGit are the git subcommands a lane that only reads may not run.
+func ReadOnlyGit() []string { return slices.Clone(readOnlyGit) }
+
+// readOnlyRules are the denials of a lane that only reads: every tool that edits a file, and each
+// subcommand of readOnlyGit.
+func readOnlyRules() []DenyRule {
+	rules := make([]DenyRule, 0, 4+len(readOnlyGit))
+	for _, tool := range ReadOnlyTools() {
+		rules = append(rules, DenyRule{Tool: tool, Reason: ReasonReadOnly})
+	}
+	for _, subcommand := range readOnlyGit {
+		rules = append(rules, DenyRule{Tool: DenyToolGit, CommandPrefix: subcommand, Reason: ReasonReadOnly})
+	}
+	return rules
+}
 
 // PolicySpec is what a generation's policy compiles from.
 type PolicySpec struct {
@@ -45,6 +84,9 @@ type PolicySpec struct {
 	// ApprovalWaitMs bounds a hook that waits on a decision, and Gates are what it defers.
 	ApprovalWaitMs int64
 	Gates          []GateRule
+	// ReadOnly makes a lane that reads and reports: it edits no file with a tool, and writes no commit
+	// and no ref.
+	ReadOnly bool
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -68,8 +110,12 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 	if spec.WorktreeReal != "" && spec.WorktreeReal != spec.Worktree {
 		roots = append(roots, spec.WorktreeReal)
 	}
+	deny := []DenyRule{}
+	if spec.ReadOnly {
+		deny = readOnlyRules()
+	}
 	return DenyPolicy{
-		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
+		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates,
 	}
@@ -298,6 +344,11 @@ func (p DenyPolicy) decideGit(leaders, args []shellWord, at string, seen *gitSee
 	}
 	if len(args) == 0 {
 		return "", false
+	}
+	for _, rule := range p.Deny {
+		if rule.Tool == DenyToolGit && rule.CommandPrefix == args[0].text {
+			return rule.Reason, true
+		}
 	}
 	switch args[0].text {
 	case "push":

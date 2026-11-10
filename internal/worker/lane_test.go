@@ -118,3 +118,39 @@ func TestPrepareRefusesASessionToken(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+// A review lane's worktree is the commit under review and no branch, so the lane's name makes none and the
+// ledger's branch, which a review has none of, is not asked for.
+func TestPrepareDetachedMakesNoBranch(t *testing.T) {
+	t.Parallel()
+	p, _, worktrees := provisioner(nil)
+	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "review-1", Repository: "/work/app", Base: "c0ffee", Detached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lane.Worktree.Path != "/work/app-lanes/review-1" || lane.Worktree.Branch != "" || !lane.Worktree.Detached || lane.Worktree.Head != "c0ffee" {
+		t.Errorf("worktree %+v", lane.Worktree)
+	}
+	if created := worktrees.Created(); len(created) != 1 || !created[0].Detached || created[0].Base != "c0ffee" {
+		t.Errorf("the worker asked for %+v", created)
+	}
+}
+
+// plainWorktrees is a store that offers a lane's worktree and no more: it would give a review a branch.
+type plainWorktrees struct{ ports.Worktrees }
+
+func TestPrepareRefusesADetachedWorktreeFromAStoreThatMakesOnlyBranches(t *testing.T) {
+	t.Parallel()
+	worktrees := fake.NewWorktrees()
+	p := worker.Provisioner{Profiles: fake.NewProfileSource(), Worktrees: plainWorktrees{worktrees}, Lookup: func(string) (string, bool) { return "", false }}
+	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "review-1", Repository: "/work/app", Base: "c0ffee", Detached: true})
+	if !errors.Is(err, worker.ErrNoDetached) {
+		t.Fatalf("got %v", err)
+	}
+	if created := worktrees.Created(); len(created) != 0 {
+		t.Errorf("the worker made %+v", created)
+	}
+	if _, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"}); err != nil {
+		t.Errorf("a lane with a branch on the same store: %v", err)
+	}
+}

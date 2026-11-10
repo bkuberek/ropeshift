@@ -71,7 +71,7 @@
     },
     "work_in_progress": 6
   },
-  "revision": 313,
+  "revision": 316,
   "sources": [
     {
       "adapter": "fake",
@@ -106,7 +106,7 @@
     "intake": 1,
     "lapsed": 1,
     "parked": 1,
-    "ready": 2,
+    "ready": 5,
     "running": 5
   },
   "workers": 1,

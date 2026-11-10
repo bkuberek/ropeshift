@@ -596,6 +596,11 @@ func endCanceled(tx ports.WriteTx, worker string, e ledger.UploadEvent, stamp fu
 	if err := closeLane(tx, row, draft); err != nil {
 		return false, err
 	}
+	if order.Kind == workorders.KindReview {
+		if err := discardLane(tx, e.Lane); err != nil {
+			return false, err
+		}
+	}
 	return true, rollMessages(tx, e.Lane, e.Generation, false, draft.Actor)
 }
 
@@ -691,6 +696,9 @@ func (l *Leases) DispatchWith(ctx context.Context, scope ledger.WorkspaceID, wor
 		lease = workorders.Lease{WorkOrder: workOrder, ClaimID: current.ClaimID, Fence: current.Fence}
 		claim, err := tx.Claims().Find(current.ClaimID)
 		if err != nil {
+			return err
+		}
+		if err := refuseOwnWork(tx, current, lane); err != nil {
 			return err
 		}
 		if claim.Lane == lane {
@@ -793,8 +801,10 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 		return err
 	}
 	stamp(&event)
-	_, err = tx.Append(event)
-	return err
+	if _, err = tx.Append(event); err != nil {
+		return err
+	}
+	return afterLaneEnd(tx, current, holder, result, actor)
 }
 
 // Fenced runs a write under the holder's fence and generation. The comparison is a

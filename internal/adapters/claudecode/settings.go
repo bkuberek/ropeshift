@@ -75,13 +75,13 @@ func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 var commitRules = []string{"Bash(git add *)", "Bash(git commit *)"}
 
 // allowRules are what a session runs with no prompt: its own tools, and a stage and a commit for a
-// session that has a worktree.
+// session that has a worktree and writes in it.
 func allowRules(spec ports.SessionSpec) []string {
 	rules := make([]string, 0, len(spec.Tools)+len(commitRules))
 	for _, tool := range spec.Tools {
 		rules = append(rules, toolRule(tool))
 	}
-	if !spec.OnlyTools {
+	if !spec.OnlyTools && !spec.ReadOnly {
 		rules = append(rules, commitRules...)
 	}
 	return rules

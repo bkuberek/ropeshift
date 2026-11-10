@@ -263,19 +263,19 @@
           }
         }
       ],
-      "revision": 337
+      "revision": 340
     },
     "decisions": {
       "as_of": 1790000132001,
       "decisions": [],
-      "revision": 337
+      "revision": 340
     },
     "documents": {
       "as_of": 1790000132001,
       "documents": [],
       "plans": [],
       "requirements": [],
-      "revision": 337
+      "revision": 340
     },
     "in-progress": {
       "as_of": 1790000132001,
@@ -913,7 +913,7 @@
           }
         }
       ],
-      "revision": 337
+      "revision": 340
     },
     "needs-you": {
       "as_of": 1790000132001,
@@ -1386,7 +1386,7 @@
           }
         }
       ],
-      "revision": 337
+      "revision": 340
     },
     "on-hold": {
       "as_of": 1790000132001,
@@ -1484,7 +1484,7 @@
           }
         }
       ],
-      "revision": 337
+      "revision": 340
     },
     "operations": {
       "as_of": 1790000132001,
@@ -1567,7 +1567,7 @@
         },
         "work_in_progress": 17
       },
-      "revision": 337,
+      "revision": 340,
       "sources": [],
       "waiting_for_a_person": 9,
       "work_orders": {
@@ -1582,7 +1582,7 @@
         "lapsed": 1,
         "parked": 2,
         "planning": 1,
-        "ready": 1,
+        "ready": 4,
         "running": 14
       },
       "workers": 1,
@@ -2898,7 +2898,7 @@
           ]
         }
       ],
-      "revision": 337,
+      "revision": 340,
       "unplanned": [
         {
           "id": "wo-intake",
@@ -2923,7 +2923,7 @@
         "security"
       ],
       "questions": [],
-      "revision": 337
+      "revision": 340
     },
     "roadmap": {
       "as_of": 1790000132001,
@@ -3793,7 +3793,7 @@
           ]
         }
       ],
-      "revision": 337
+      "revision": 340
     },
     "shop-floor": {
       "as_of": 1790000132001,
@@ -4391,7 +4391,7 @@
           "worker_id": "worker-a"
         }
       ],
-      "revision": 337,
+      "revision": 340,
       "workers": [
         {
           "freshness": "observed",
@@ -4621,7 +4621,7 @@
           }
         }
       ],
-      "revision": 337
+      "revision": 340
     }
   }
 }

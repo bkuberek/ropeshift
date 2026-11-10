@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -28,6 +29,8 @@ type Worktrees struct {
 	fetched   []string
 	snapshots map[string]string
 	contexts  map[string][]string
+	files     map[string]map[string]string
+	touched   map[string][]string
 	context   error
 	// history is the commits a repository holds, each with the commits it grew from. tips maps a
 	// repository and a branch to its commit. specs lists every worktree asked for, in order.
@@ -42,7 +45,7 @@ type Worktrees struct {
 func NewWorktrees() *Worktrees {
 	return &Worktrees{
 		byPath: map[string]ports.Worktree{}, branches: map[string]string{}, ahead: map[string]int64{},
-		snapshots: map[string]string{}, contexts: map[string][]string{},
+		snapshots: map[string]string{}, contexts: map[string][]string{}, files: map[string]map[string]string{}, touched: map[string][]string{},
 		history: map[string][]string{}, tips: map[string]string{},
 	}
 }
@@ -81,6 +84,31 @@ func (w *Worktrees) WriteContext(_ context.Context, path, text string) (string, 
 	}
 	w.contexts[path] = append(w.contexts[path], text)
 	return filepath.Join(path, lanes.PackFile), nil
+}
+
+// WriteContextFile keeps the text of a named file beside the pack, as git would see none of it.
+func (w *Worktrees) WriteContextFile(_ context.Context, path, name, text string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if name == "" || name != filepath.Base(name) || strings.HasPrefix(name, ".") || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("a context file is named by a bare file name, not %q", name)
+	}
+	if w.context != nil {
+		return "", w.context
+	}
+	if w.files[path] == nil {
+		w.files[path] = map[string]string{}
+	}
+	w.files[path][name] = text
+	return filepath.Join(path, filepath.Dir(lanes.PackFile), name), nil
+}
+
+// ContextFile reads the last text left in a worktree under a name, and whether any was.
+func (w *Worktrees) ContextFile(path, name string) (string, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	text, ok := w.files[path][name]
+	return text, ok
 }
 
 // UseRemote gives every worktree a remote.
@@ -144,6 +172,15 @@ func (w *Worktrees) Snapshots() map[string]string {
 	return out
 }
 
+// MoveHead stands for a commit made in a worktree: its head is now that commit.
+func (w *Worktrees) MoveHead(path, commit string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	entry := w.byPath[path]
+	entry.Head = commit
+	w.byPath[path] = entry
+}
+
 // Dirty stands for an edit in a worktree.
 func (w *Worktrees) Dirty(path string) {
 	w.mu.Lock()
@@ -157,13 +194,16 @@ func (w *Worktrees) Dirty(path string) {
 func (w *Worktrees) Create(_ context.Context, spec ports.WorktreeSpec) (ports.Worktree, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if spec.Detached {
+		spec.Branch = ""
+	}
 	if existing, ok := w.byPath[spec.Path]; ok {
-		if existing.Branch == spec.Branch {
+		if existing.Branch == spec.Branch && existing.Detached == spec.Detached {
 			return existing, nil
 		}
 		return ports.Worktree{}, fmt.Errorf("%w: %s holds %s", ports.ErrWorktreeConflict, spec.Path, existing.Branch)
 	}
-	if holder, taken := w.branches[spec.Branch]; taken {
+	if holder, taken := w.branches[spec.Branch]; taken && !spec.Detached {
 		return ports.Worktree{}, fmt.Errorf("%w: %s is checked out at %s", ports.ErrWorktreeConflict, spec.Branch, holder)
 	}
 	w.specs = append(w.specs, spec)
@@ -171,9 +211,11 @@ func (w *Worktrees) Create(_ context.Context, spec ports.WorktreeSpec) (ports.Wo
 	if spec.Base != "" {
 		head = spec.Base
 	}
-	created := ports.Worktree{Path: spec.Path, Branch: spec.Branch, Head: head, Clean: true}
+	created := ports.Worktree{Path: spec.Path, Branch: spec.Branch, Head: head, Clean: true, Detached: spec.Detached}
 	w.byPath[spec.Path] = created
-	w.branches[spec.Branch] = spec.Path
+	if !spec.Detached {
+		w.branches[spec.Branch] = spec.Path
+	}
 	return created, nil
 }
 
@@ -200,8 +242,15 @@ func (w *Worktrees) Remove(_ context.Context, _, path string) error {
 		return fmt.Errorf("%w: %s", ports.ErrWorktreeDirty, path)
 	}
 	delete(w.byPath, path)
-	delete(w.branches, entry.Branch)
+	releaseBranch(w.branches, entry)
 	return nil
+}
+
+// releaseBranch frees the branch a worktree held, and a detached one held none.
+func releaseBranch(branches map[string]string, entry ports.Worktree) {
+	if !entry.Detached {
+		delete(branches, entry.Branch)
+	}
 }
 
 // Discard deletes a worktree whatever it holds.
@@ -210,7 +259,7 @@ func (w *Worktrees) Discard(_ context.Context, _, path string) error {
 	defer w.mu.Unlock()
 	if entry, ok := w.byPath[path]; ok {
 		delete(w.byPath, path)
-		delete(w.branches, entry.Branch)
+		releaseBranch(w.branches, entry)
 	}
 	return nil
 }
@@ -228,6 +277,9 @@ func (w *Worktrees) Survey(_ context.Context, path string) (lanes.WorktreeFindin
 	entry, ok := w.byPath[path]
 	if !ok {
 		return lanes.WorktreeFindings{}, fmt.Errorf("worktree %s: %w", path, ports.ErrNotFound)
+	}
+	if entry.Detached {
+		return lanes.WorktreeFindings{Head: entry.Head}, nil
 	}
 	found := lanes.WorktreeFindings{
 		Branch: entry.Branch, Head: entry.Head, Dirty: !entry.Clean, Remote: w.remote, Ahead: w.ahead[path],
@@ -266,4 +318,7 @@ func (w *Worktrees) Push(_ context.Context, path, remote, ref string) error {
 // DefaultBranch names the branch every fake repository lands on.
 func (w *Worktrees) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
 
-var _ ports.Worktrees = (*Worktrees)(nil)
+var (
+	_ ports.Worktrees   = (*Worktrees)(nil)
+	_ ports.ReviewTrees = (*Worktrees)(nil)
+)
