@@ -10,6 +10,7 @@ import (
 )
 
 func TestMatcherContract(t *testing.T) {
+	t.Parallel()
 	t.Run("lexical", func(t *testing.T) {
 		RunMatcher(t, func(t *testing.T) MatcherRig {
 			rig := NewRig(t, SQLiteFile)

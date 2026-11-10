@@ -22,6 +22,7 @@ import (
 )
 
 func TestFakeNotifierContract(t *testing.T) {
+	t.Parallel()
 	NotifierContract(t, func(*testing.T) NotifierRig {
 		channel := fake.NewNotifier("fake")
 		return NotifierRig{Notifier: channel, Heard: channel.Notices, Refuse: func() { channel.Fail(errors.New("no")) }}
@@ -29,6 +30,7 @@ func TestFakeNotifierContract(t *testing.T) {
 }
 
 func TestWebNotifierContract(t *testing.T) {
+	t.Parallel()
 	NotifierContract(t, func(*testing.T) NotifierRig {
 		channel := notify.Web{}
 		var heard []ledger.Notice
@@ -95,6 +97,7 @@ func hookRig(t *testing.T) (*hookServer, *notify.Webhook, string) {
 }
 
 func TestWebhookNotifierContract(t *testing.T) {
+	t.Parallel()
 	NotifierContract(t, func(t *testing.T) NotifierRig {
 		far, channel, url := hookRig(t)
 		return NotifierRig{
@@ -110,6 +113,7 @@ func TestWebhookNotifierContract(t *testing.T) {
 
 // The key proves a delivery and never crosses the wire, so a log on either end holds nothing to steal.
 func TestAWebhookSignsAndCarriesNoSecret(t *testing.T) {
+	t.Parallel()
 	far, channel, _ := hookRig(t)
 	notice := NotifierNotice()
 	notice.Attempt = 2
@@ -131,6 +135,7 @@ func TestAWebhookSignsAndCarriesNoSecret(t *testing.T) {
 }
 
 func TestAWebhookFollowsNoRedirect(t *testing.T) {
+	t.Parallel()
 	landed := false
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { landed = true }))
 	defer elsewhere.Close()
@@ -164,6 +169,7 @@ func TestAWebhookThatCannotBeReachedKeepsItsAddress(t *testing.T) {
 }
 
 func TestDesktopNotifierContract(t *testing.T) {
+	t.Parallel()
 	for _, goos := range []string{"darwin", "linux"} {
 		t.Run(goos, func(t *testing.T) {
 			NotifierContract(t, func(*testing.T) NotifierRig {
@@ -203,6 +209,7 @@ func desktopRunner() (*fake.ProcessRunner, func() []ledger.Notice, func()) {
 }
 
 func TestADesktopWithNoProgramSaysSo(t *testing.T) {
+	t.Parallel()
 	channel := notify.NewDesktop(notify.DesktopConfig{GOOS: "linux", Processes: fake.NewProcessRunner(), LookPath: func(string) (string, error) { return "", errors.New("not found") }})
 	if err := channel.Notify(t.Context(), NotifierNotice()); err == nil {
 		t.Error("a machine with no program read as told")

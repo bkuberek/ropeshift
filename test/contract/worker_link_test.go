@@ -100,6 +100,8 @@ func httpLink(t *testing.T, protocol int) *LinkRig {
 	}
 }
 
+// TestWorkerLinkContract runs with no other test, and its backends one after the other, so
+// the check that reads a window of real time runs alone.
 func TestWorkerLinkContract(t *testing.T) {
 	t.Run("in-memory", func(t *testing.T) {
 		RunWorkerLink(t, LinkBackend{Name: "in-memory", Fresh: memoryLink})
@@ -112,6 +114,7 @@ func TestWorkerLinkContract(t *testing.T) {
 // TestCredentialStaysOutOfTheLedger holds NFR-SEC-4: the event log and the worker
 // table keep no credential or join token.
 func TestCredentialStaysOutOfTheLedger(t *testing.T) {
+	t.Parallel()
 	r := memoryLink(t, 0)
 	ctx := t.Context()
 	auth := r.register(t, ctx, "a")

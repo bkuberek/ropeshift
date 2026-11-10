@@ -9,6 +9,7 @@ import (
 )
 
 func TestJournalStartsWithNoQualification(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	got, err := j.Qualification(t.Context())
 	if err != nil {
@@ -23,6 +24,7 @@ func TestJournalStartsWithNoQualification(t *testing.T) {
 // to one write, so a worker never runs on a result the ledger will not hear of, and a later probe
 // replaces it.
 func TestJournalKeepsAQualificationWithItsEvent(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	ctx := t.Context()
 	want := lanes.Qualification{

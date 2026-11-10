@@ -21,6 +21,7 @@ func readMigration(t *testing.T, name string) string {
 // The approvals table is made again so that a plan approval can have no lane. The requests a ledger
 // holds stay as they were, every other kind still needs a lane, and only a member decides a plan.
 func TestPlanApprovalsMigrationKeepsRequestsAndLoosensTheLaneForPlansOnly(t *testing.T) {
+	t.Parallel()
 	db, err := sqlite.OpenDB(filepath.Join(t.TempDir(), "ledger.db"))
 	if err != nil {
 		t.Fatal(err)

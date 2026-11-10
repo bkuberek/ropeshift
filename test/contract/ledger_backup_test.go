@@ -14,6 +14,7 @@ import (
 )
 
 func TestLedgerBackupContract(t *testing.T) {
+	t.Parallel()
 	t.Run("sqlite online backup", func(t *testing.T) {
 		RunLedgerBackup(t, func(t *testing.T) BackupRig {
 			file := filepath.Join(t.TempDir(), "ledger.db")
