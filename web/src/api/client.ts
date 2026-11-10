@@ -126,6 +126,15 @@ export function decideEffect(id: string, outcome: EffectOutcome, reason: string)
   return call("POST", paths.decideEffect(id), { outcome, reason });
 }
 
+// A member passes a contract review no plan approval covers, which records them as its reviewer.
+export function passReview(id: string): Promise<unknown> {
+  return call("POST", paths.work(id, "review"), {});
+}
+
+export function sendBack(id: string, reason: string): Promise<unknown> {
+  return call("POST", paths.work(id, "send-back"), { reason });
+}
+
 export function actOnWork(id: string, action: WorkAction, reason: string): Promise<unknown> {
   const { verb, needsReason } = workActions[action];
   return call("POST", paths.work(id, verb), needsReason ? { reason } : {});

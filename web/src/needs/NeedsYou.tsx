@@ -4,7 +4,9 @@ import type { NeedItem, NeedsYou as View } from "../api/types";
 import { useArrivalFocus } from "../app/route";
 import { Line, useClock, ViewTime } from "../parts/parts";
 import { ApprovalCard } from "./ApprovalCard";
+import { ContractReviewCard } from "./ContractReviewCard";
 import { EffectCard } from "./EffectCard";
+import { PlanApprovalCard } from "./PlanApprovalCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { waitLabel, waitWords } from "./wait";
 import { WorkCard, workLabels } from "./WorkCard";
@@ -21,6 +23,10 @@ function headingOf(item: NeedItem): string {
       return "Did it happen?";
     case "work":
       return item.work.work_order?.title || item.work.lane?.id || item.id;
+    case "plan_approval":
+      return `Approve ${item.plan_approval.title}, version ${item.plan_approval.version}?`;
+    case "contract_review":
+      return item.contract_review.work_order.title || item.id;
   }
 }
 
@@ -34,6 +40,10 @@ function kindOf(item: NeedItem): string {
       return "Unknown effect";
     case "work":
       return workLabels[item.work.reason] ?? item.work.reason;
+    case "plan_approval":
+      return "Plan approval";
+    case "contract_review":
+      return "Contract review";
   }
 }
 
@@ -47,6 +57,10 @@ function Card({ item, after }: { item: NeedItem; after: () => Promise<void> }) {
       return <EffectCard effect={item.effect} after={after} />;
     case "work":
       return <WorkCard id={item.id} work={item.work} after={after} />;
+    case "plan_approval":
+      return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} />;
+    case "contract_review":
+      return <ContractReviewCard review={item.contract_review} after={after} />;
   }
 }
 

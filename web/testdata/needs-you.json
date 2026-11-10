@@ -485,6 +485,19 @@
             }
           ]
         },
+        "drafts": [
+          {
+            "answer": "The one already installed on the machine.",
+            "id": "d1",
+            "question": "Which agent CLI runs the first lanes?",
+            "rationale": "It needs no new sign-in."
+          },
+          {
+            "answer": "Once, and then it asks <img src=x onerror=alert(1)><script>alert(2)</script>.",
+            "id": "d2",
+            "question": "Does a lane retry a failed check?"
+          }
+        ],
         "requested_by": "system:intake",
         "summary": "1 added, 4 changed, 0 removed since version 5",
         "title": "The factory floor",
@@ -495,9 +508,10 @@
     {
       "contract_review": {
         "contract": "Document the retry budget",
+        "plan": "generated-12",
         "version": 1,
         "work_order": {
-          "contract_id": "generated-12",
+          "contract_id": "generated-13",
           "contract_version": 1,
           "id": "wo-review",
           "kind": "change",

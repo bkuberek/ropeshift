@@ -113,25 +113,27 @@ type WorkNeed struct {
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
-// and how it differs from the last version a member approved. A new version that changes nothing
-// approved and adds no work shows an empty difference.
+// how it differs from the last version a member approved, and the answers it drafts, which approval
+// decides. A new version that changes nothing approved and adds no work shows an empty difference.
 type PlanApprovalNeed struct {
-	Approval    authority.Approval  `json:"approval"`
-	Title       string              `json:"title"`
-	Version     int64               `json:"version"`
-	RequestedBy string              `json:"requested_by"`
-	Counts      map[string]int      `json:"counts"`
-	Decisions   int                 `json:"decisions"`
-	Difference  planning.Difference `json:"difference"`
-	Summary     string              `json:"summary"`
+	Approval    authority.Approval       `json:"approval"`
+	Title       string                   `json:"title"`
+	Version     int64                    `json:"version"`
+	RequestedBy string                   `json:"requested_by"`
+	Counts      map[string]int           `json:"counts"`
+	Decisions   int                      `json:"decisions"`
+	Drafts      []planning.DraftDecision `json:"drafts"`
+	Difference  planning.Difference      `json:"difference"`
+	Summary     string                   `json:"summary"`
 }
 
 // ContractReviewNeed is work in `contract_review` that no plan approval covers, so a member passes its
-// review by hand.
+// review by hand. Plan is the plan its contract belongs to, where a person reads the contract.
 type ContractReviewNeed struct {
 	WorkOrder workorders.WorkOrder `json:"work_order"`
 	Contract  string               `json:"contract"`
 	Version   int64                `json:"version"`
+	Plan      string               `json:"plan"`
 }
 
 // NeedItem is one thing that waits for a person. Since is database time, and Kind says which field

@@ -42,6 +42,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/questions/{id}/answer", "question answer"},
 		{http.MethodPost, "/v1/approvals/{id}/decide", "approval approve"},
 		{http.MethodPost, "/v1/effects/{id}/decide", "effect decide"},
+		{http.MethodPost, "/v1/work-orders/{id}/review", "work review"},
+		{http.MethodPost, "/v1/work-orders/{id}/send-back", "work send-back"},
 		{http.MethodPost, "/v1/work-orders/{id}/accept", "work accept"},
 		{http.MethodPost, "/v1/work-orders/{id}/rework", "work rework"},
 		{http.MethodPost, "/v1/work-orders/{id}/reassign", "work reassign"},

@@ -9,11 +9,13 @@ import {
   decideApproval,
   decideEffect,
   followEvents,
+  passReview,
   paths,
   readDocument,
   readDocumentVersions,
   readNeedsYou,
   readView,
+  sendBack,
   signIn,
   signOut,
   startOrchestrator,
@@ -43,6 +45,8 @@ describe("the client", () => {
       await actOnWork("wo", action, "because");
     }
     await startOrchestrator("worker-a");
+    await passReview("wo");
+    await sendBack("wo", "because");
     for (const route of routes as Route[]) {
       const view = /^\/v1\/views\/(.+)$/.exec(route.pattern)?.[1];
       if (view) {

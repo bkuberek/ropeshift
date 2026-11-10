@@ -41,6 +41,16 @@
   },
   {
     "method": "POST",
+    "pattern": "/v1/work-orders/{id}/review",
+    "command": "work review"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/send-back",
+    "command": "work send-back"
+  },
+  {
+    "method": "POST",
     "pattern": "/v1/work-orders/{id}/accept",
     "command": "work accept"
   },

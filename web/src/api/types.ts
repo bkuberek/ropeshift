@@ -34,6 +34,9 @@ export type Approval = {
   state: string;
   raised_at?: number;
   expires_at?: number;
+  // A plan approval names the plan and the version it is bound to.
+  plan_id?: string;
+  plan_version?: number;
 };
 
 export type EffectOutcome = "happened" | "not_happened" | "retry";
@@ -112,6 +115,29 @@ export type WorkNeed = {
   actions: (WorkAction | OrchestratorAction)[];
 };
 
+export type DraftDecision = { id: string; question: string; answer: string; rationale?: string; blocking?: boolean };
+
+export type PartDifference = { added?: string[]; changed?: string[]; removed?: string[] };
+
+export type ContractDifference = { ref: string; criteria: PartDifference; work_orders: PartDifference };
+
+// How a plan version differs from the last one a member approved. Base is zero when none was approved.
+export type Difference = { base?: number; added?: string[]; changed?: string[]; removed?: string[]; contracts?: ContractDifference[] };
+
+export type PlanApprovalNeed = {
+  approval: Approval;
+  title: string;
+  version: number;
+  requested_by: string;
+  counts: Record<string, number>;
+  decisions: number;
+  drafts: DraftDecision[];
+  difference: Difference;
+  summary: string;
+};
+
+export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
+
 export type NeedItem = {
   id: string;
   since: number;
@@ -120,6 +146,8 @@ export type NeedItem = {
   | { kind: "approval"; approval: Approval }
   | { kind: "effect"; effect: Effect }
   | { kind: "work"; work: WorkNeed }
+  | { kind: "plan_approval"; plan_approval: PlanApprovalNeed }
+  | { kind: "contract_review"; contract_review: ContractReviewNeed }
 );
 
 export type NeedsYou = Stamp & { items: NeedItem[] };

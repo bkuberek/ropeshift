@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -356,7 +357,11 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		switch {
 		case !approvals[i].Open():
 		case approvals[i].Kind == authority.KindPlan:
-			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: planApprovalNeed(approvals[i])})
+			need, err := planApprovalNeed(tx.Planning(), approvals[i])
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: need})
 		default:
 			items = append(items, api.NeedItem{Kind: api.NeedApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, Approval: &approvals[i]})
 		}
@@ -403,17 +408,26 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	return items, nil
 }
 
-// planApprovalNeed is what a member reads of a plan version they are asked to approve.
-func planApprovalNeed(a authority.Approval) *api.PlanApprovalNeed {
+// planApprovalNeed is what a member reads of a plan version they are asked to approve, with the answers
+// the version drafts. A version the ledger no longer holds drafts nothing a member could read.
+func planApprovalNeed(planned ports.PlanningReader, a authority.Approval) (*api.PlanApprovalNeed, error) {
 	detail := api.PlanDetailOf(a)
 	counts := detail.Counts
 	if counts == nil {
 		counts = map[string]int{}
 	}
+	drafts := []planning.DraftDecision{}
+	version, err := planned.PlanVersion(a.Plan, a.PlanVersion)
+	switch {
+	case err == nil:
+		drafts = nonNil(version.Decisions)
+	case !errors.Is(err, ports.ErrNotFound):
+		return nil, err
+	}
 	return &api.PlanApprovalNeed{
 		Approval: a, Title: detail.Title, Version: a.PlanVersion, RequestedBy: a.RequestedBy, Counts: counts, Decisions: detail.Decisions,
-		Difference: detail.Difference, Summary: detail.Difference.Summary(),
-	}
+		Drafts: drafts, Difference: detail.Difference, Summary: detail.Difference.Summary(),
+	}, nil
 }
 
 // contractReviewNeeds lists the work whose contract waits for a member's review and that no plan
@@ -443,7 +457,7 @@ func contractReviewNeeds(tx ports.ReadTx, orders []workorders.WorkOrder) ([]api.
 		}
 		items = append(items, api.NeedItem{
 			Kind: api.NeedContractReview, ID: orders[i].ID, Since: since,
-			ContractReview: &api.ContractReviewNeed{WorkOrder: orders[i], Contract: contract.Title, Version: contract.Version},
+			ContractReview: &api.ContractReviewNeed{WorkOrder: orders[i], Contract: contract.Title, Version: contract.Version, Plan: contract.PlanID},
 		})
 	}
 	return items, nil
