@@ -105,7 +105,7 @@ func TestAPlanningLaneWithNoPaneDoesNotStart(t *testing.T) {
 		t.Fatalf("a session started: %+v", specs)
 	}
 	change := r.outcome()
-	if change.Outcome != workorders.OutcomeBlocked || change.Reason != lanes.ReasonNoInteractiveMode {
+	if change.Outcome != workorders.OutcomeBlocked || change.Reason != workorders.ReasonNoInteractiveMode {
 		t.Errorf("outcome %+v", change)
 	}
 	if row := r.row(); row.State != workorders.Blocked {

@@ -587,7 +587,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if errors.Is(err, errNoInteractive) {
 		// Another attempt finds the same machine, so the work waits for a person to fix it.
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		return workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: lanes.ReasonNoInteractiveMode}
+		return workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoInteractiveMode}
 	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
