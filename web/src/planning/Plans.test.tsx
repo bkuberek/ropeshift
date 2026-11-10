@@ -212,7 +212,7 @@ describe("a plan with milestones", () => {
     const work = screen.getByRole("region", { name: "Work" });
     const row = within(work).getByText("Build the planning core").closest(".row");
     expect(row?.textContent).toContain("Size medium");
-    expect(row?.textContent).toContain("Build the core");
+    expect(row?.textContent).toContain("In milestone Build the core");
   });
 
   it("says which version waits for approval, and leads to Needs you", async () => {

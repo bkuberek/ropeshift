@@ -38,7 +38,7 @@ function WorkRows({ orders, names }: { orders: WorkOrder[]; names?: Names }) {
             <ul className="tags">
               <li className="tag-strong">{workLabel(order.state)}</li>
               {order.size !== undefined ? <li>{sizeWords(order.size)}</li> : null}
-              {milestone ? <li>{milestone}</li> : null}
+              {milestone ? <li>In milestone {milestone}</li> : null}
               <li>
                 <Id value={order.id} />
               </li>
