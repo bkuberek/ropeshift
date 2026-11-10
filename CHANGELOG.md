@@ -25,6 +25,14 @@
 
 * **worker:** snapshot held lanes before reading lane records ([d3a680d](https://github.com/bkuberek/ropeshift/commit/d3a680d92a57dcd4f3d83683f0fa2723bba7b538))
 
+### Notes
+
+* Start a planning session with `ropeshift plan start --goal "..."`. It creates a `plan` work order, passes its review as you, claims it on your worker, starts the planning agent in a terminal pane, and attaches your terminal. Detach with `C-b d`; the session keeps running, and `ropeshift lane attach <lane>` rejoins it, following it across a park or a restart.
+* A planning lane always runs in a pane. On a machine without tmux, its work order is blocked with reason `no_interactive_mode` instead of running headless.
+* A planning agent's questions are yours. While you are attached, it asks in the conversation. While you are not, its questions go straight to Needs you, and no orchestrator decides or assumes an answer for them.
+* Repository files gain the `spec`, `architecture`, `experience-design`, and `milestone` kinds, versioned by their committed content. A contract can cite documents, and each criterion can list the requirement IDs it serves. When a plan has a requirements document, a criterion with no mapping, or with an unknown ID, keeps that contract's work from starting. Files written for earlier releases stay valid.
+* This release adds a database migration (`0032`). It runs on the first start.
+
 ## [0.1.0-alpha.3](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.2...v0.1.0-alpha.3) (2026-11-09)
 
 
