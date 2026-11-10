@@ -64,12 +64,38 @@
     },
     {
       "actual_state": "ended",
+      "as_of": 1790000844001,
+      "base_commit": "abc123",
+      "base_ref": "lane/lane-wo-done",
+      "freshness": "observed",
+      "generation": 1,
+      "generations": [
+        {
+          "end_reason": "completed",
+          "ended_at": 1790000844001,
+          "lane_id": "lane-generated-4",
+          "number": 1,
+          "start_reason": "initial",
+          "started_at": 1790000844001
+        }
+      ],
+      "id": "lane-generated-4",
+      "ledger_reach": "unknown",
+      "liveness": "dead",
+      "model_reach": "unknown",
+      "reported_by_epoch": 1,
+      "work_order": "generated-4",
+      "work_order_title": "Review: Ship the first cut",
+      "worker_id": "worker-a"
+    },
+    {
+      "actual_state": "ended",
       "artifacts": [
         {
           "created_at": 1790000424001,
           "digest": "abc123",
           "fence": 2,
-          "id": "generated-4",
+          "id": "generated-5",
           "kind": "branch",
           "lane_id": "lane-wo-accept",
           "uri": "lane/lane-wo-accept"
@@ -126,7 +152,7 @@
           "created_at": 1790000304001,
           "digest": "abc123",
           "fence": 2,
-          "id": "generated-5",
+          "id": "generated-6",
           "kind": "branch",
           "lane_id": "lane-wo-blocked",
           "uri": "lane/lane-wo-blocked"
@@ -161,7 +187,7 @@
           "created_at": 1790000844001,
           "digest": "abc123",
           "fence": 2,
-          "id": "generated-6",
+          "id": "generated-7",
           "kind": "branch",
           "lane_id": "lane-wo-done",
           "uri": "lane/lane-wo-done"
@@ -169,7 +195,7 @@
         {
           "created_at": 1790000844001,
           "fence": 2,
-          "id": "generated-7",
+          "id": "generated-8",
           "kind": "report",
           "lane_id": "lane-wo-done",
           "uri": "javascript:alert(3)"
@@ -226,7 +252,7 @@
           "created_at": 1790000904001,
           "digest": "def456",
           "fence": 2,
-          "id": "generated-8",
+          "id": "generated-9",
           "kind": "branch",
           "lane_id": "lane-wo-failed",
           "uri": "lane/lane-wo-failed"
@@ -370,7 +396,7 @@
       "worker_id": "worker-a"
     }
   ],
-  "revision": 328,
+  "revision": 339,
   "workers": [
     {
       "freshness": "last_reported",

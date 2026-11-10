@@ -22,9 +22,14 @@ func (h *handler) listRepositories(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	agreement, err := h.repositories.ReviewAgreement(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
 	list := api.RepositoryList{Repositories: make([]api.RepositoryView, 0, len(records))}
 	for _, record := range records {
-		list.Repositories = append(list.Repositories, api.ViewOf(record))
+		list.Repositories = append(list.Repositories, api.ViewOf(record, agreement))
 	}
 	reply(w, http.StatusOK, list)
 }
@@ -35,7 +40,12 @@ func (h *handler) showRepository(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.ViewOf(record))
+	agreement, err := h.repositories.ReviewAgreement(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.ViewOf(record, agreement))
 }
 
 func (h *handler) changeRepository(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
@@ -55,5 +65,10 @@ func (h *handler) changeRepository(w http.ResponseWriter, r *http.Request, actor
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.ViewOf(changed))
+	agreement, err := h.repositories.ReviewAgreement(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.ViewOf(changed, agreement))
 }

@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -124,5 +126,94 @@ func TestOnlyAMemberChangesARepository(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// calibrated leaves the records of a member's decisions after a review: two the member agreed with, and one
+// approval the member sent back.
+func calibrated(t *testing.T, d *apitest.Daemon, repository string) {
+	t.Helper()
+	records := []workorders.Calibration{
+		{Outcome: workorders.ReviewPass, Decision: workorders.DecisionAccept, Agreement: workorders.AgreementAgree},
+		{Outcome: workorders.ReviewFail, Decision: workorders.DecisionRework, Agreement: workorders.AgreementAgree},
+		{Outcome: workorders.ReviewPass, Decision: workorders.DecisionRework, Agreement: workorders.AgreementDisagree},
+	}
+	err := d.Store.Write(t.Context(), apitest.Scope, "calibration.test", func(tx ports.WriteTx) error {
+		for i, c := range records {
+			c.ID, c.WorkOrder, c.Review, c.Commit = fmt.Sprintf("cal-%d", i), fmt.Sprintf("wo-%d", i), fmt.Sprintf("review-%d", i), "abc123"
+			c.Repository, c.Authority, c.Source, c.Member = repository, ledger.PersonMerges, workorders.SourceDecision, "member-1"
+			c.Verdicts = []workorders.SeenVerdict{{Criterion: "c1", Verdict: workorders.VerdictKind(c.Outcome)}}
+			if _, err := tx.Evidence().RecordCalibration(c); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: workorders.EventEvidenceRecorded, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}, Subject: ledger.Subject{Kind: workorders.SubjectKind, ID: "wo-0"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARepositoryReadsItsReviewAgreementBesideItsLevel(t *testing.T) {
+	d := apitest.Start(t)
+	detected(t, d, aRepository, "main")
+	detected(t, d, "9e8d7c6b5a49382716059483726150493827160a", "main")
+	calibrated(t, d, aRepository)
+
+	shown, err := d.Client.Repository(t.Context(), aRepository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := shown.ReviewAgreement.AllTime
+	if all.Decisions != 3 || all.Agreed != 2 || all.Disagreed != 1 || all.ApprovalsOverturned != 1 || all.FailuresOverridden != 0 || shown.ReviewAgreement.Last30Days.Decisions != 3 {
+		t.Errorf("show reads %+v", shown.ReviewAgreement)
+	}
+	if shown.Level() != ledger.PersonMerges {
+		t.Errorf("show reads level %s", shown.Level())
+	}
+	list, err := d.Client.Repositories(t.Context())
+	if err != nil || len(list.Repositories) != 2 {
+		t.Fatalf("list %+v: %v", list, err)
+	}
+	for _, view := range list.Repositories {
+		want := int64(0)
+		if view.ID == aRepository {
+			want = 3
+		}
+		if view.ReviewAgreement.AllTime.Decisions != want {
+			t.Errorf("list reads %d decisions for %s, want %d", view.ReviewAgreement.AllTime.Decisions, view.ID, want)
+		}
+	}
+	level := ledger.PersonApproves
+	changed, err := d.Client.SetRepository(t.Context(), aRepository, api.RepositoryChange{MergeAuthority: &level})
+	if err != nil || changed.ReviewAgreement.AllTime.Decisions != 3 {
+		t.Errorf("a change reads %+v: %v", changed.ReviewAgreement, err)
+	}
+
+	report, err := d.Client.Measures(t.Context(), "7d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := report.ReviewAgreement.Workspace.AllTime; got.Decisions != 3 || got.Agreed != 2 {
+		t.Errorf("the measures read %+v", got)
+	}
+	var seen int
+	for _, repo := range report.ReviewAgreement.Repositories {
+		if repo.Repository == aRepository {
+			seen++
+			if repo.MergeAuthority != string(ledger.PersonApproves) || repo.AllTime.Decisions != 3 {
+				t.Errorf("the measures read %+v beside the level in force", repo)
+			}
+		}
+	}
+	if seen != 1 || len(report.ReviewAgreement.Repositories) != 2 {
+		t.Errorf("the measures list %+v", report.ReviewAgreement.Repositories)
+	}
+	// Reading agreement is not a decision about the level: the member's change stays the only one.
+	if got, err := d.Client.Repository(t.Context(), aRepository); err != nil || got.Level() != ledger.PersonApproves {
+		t.Errorf("the level reads %v: %v", got.Level(), err)
 	}
 }

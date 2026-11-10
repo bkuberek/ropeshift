@@ -108,14 +108,15 @@ func periods(facts []CalibrationFacts, now int64) AgreementPeriods {
 	return AgreementPeriods{Last30Days: agreement(facts, now-thirtyDays, now), AllTime: agreement(facts, 0, now)}
 }
 
-// reviewAgreement reads every period of agreement as of the end of a window.
-func reviewAgreement(h History, now int64) ReviewAgreement {
-	out := ReviewAgreement{Workspace: periods(h.Calibrations, now), Repositories: []RepositoryAgreement{}}
+// ReviewAgreementAt reads every period of agreement as of now, for the workspace and for each repository
+// that has a record.
+func ReviewAgreementAt(repositories []RepositoryFacts, calibrations []CalibrationFacts, now int64) ReviewAgreement {
+	out := ReviewAgreement{Workspace: periods(calibrations, now), Repositories: []RepositoryAgreement{}}
 	byRepository := map[string][]CalibrationFacts{}
-	for _, f := range h.Calibrations {
+	for _, f := range calibrations {
 		byRepository[f.Repository] = append(byRepository[f.Repository], f)
 	}
-	for _, repo := range h.Repositories {
+	for _, repo := range repositories {
 		out.Repositories = append(out.Repositories, RepositoryAgreement{
 			Repository: repo.ID, MergeAuthority: repo.MergeAuthority, AgreementPeriods: periods(byRepository[repo.ID], now),
 		})

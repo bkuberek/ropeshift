@@ -348,7 +348,9 @@ describe("completed", () => {
     expect(within(review).getByText("Cannot judge")).toBeTruthy();
     expect(within(review).getByText("trim.go:30")).toBeTruthy();
     // Work no review judged has nothing to show of one.
-    expect(within(await line("Ship the first cut")).queryByRole("region", { name: "What the review found" })).toBeNull();
+    expect(within(await line("Try the impossible")).queryByRole("region", { name: "What the review found" })).toBeNull();
+    // Work a review passed shows it, beside the lane's own checks.
+    expect(within(await line("Ship the first cut")).getByRole("region", { name: "What the review found" }).textContent).toContain("Pass");
   });
 
   it("counts the attempt that ended it, and never past the limit", async () => {

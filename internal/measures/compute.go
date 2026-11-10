@@ -278,7 +278,7 @@ func Compute(h History, w Window) Report {
 		cost.Done = n
 		r.CostPerOutcome[kind] = cost
 	}
-	r.ReviewAgreement = reviewAgreement(h, w.To)
+	r.ReviewAgreement = ReviewAgreementAt(h.Repositories, h.Calibrations, w.To)
 	for kind, cost := range r.CostPerOutcome {
 		if cost.Done > 0 {
 			v := cost.TotalUSD / float64(cost.Done)
