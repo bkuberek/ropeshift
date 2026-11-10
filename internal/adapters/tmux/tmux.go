@@ -241,6 +241,12 @@ func (t *Terminal) Capture(ctx context.Context, name string) (string, error) {
 	return t.run(ctx, "capture-pane", "-p", "-t", target(name))
 }
 
+// Screen returns the visible screen with its colour and emphasis, for the web pane (ADR-0018). `-e`
+// keeps the escape sequences that set them and nothing else.
+func (t *Terminal) Screen(ctx context.Context, name string) (string, error) {
+	return t.run(ctx, "capture-pane", "-p", "-e", "-t", target(name))
+}
+
 // Keys sends named keys.
 func (t *Terminal) Keys(ctx context.Context, name string, keys ...string) error {
 	_, err := t.run(ctx, append([]string{"send-keys", "-t", target(name)}, keys...)...)

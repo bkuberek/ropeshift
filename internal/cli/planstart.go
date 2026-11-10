@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -33,6 +34,9 @@ type planStarted struct {
 	Repository string `json:"repository"`
 	// Attach is the command that joins the session.
 	Attach string `json:"attach"`
+	// Web is the session's page in the web UI, which shows the same pane. It is empty when the web UI
+	// is off.
+	Web string `json:"web,omitempty"`
 }
 
 // planStart opens a planning session: it chains the calls a member makes by hand, so each step is an
@@ -74,7 +78,11 @@ func (c *invocation) planStart(args []string) int {
 	attach := !*noAttach && !c.asJSON && c.terminal != nil && c.panes != nil
 	if !attach {
 		return c.finish(nil, started, func() string {
-			return fmt.Sprintf("Join the session with: %s\n", started.Attach)
+			text := fmt.Sprintf("Join the session with: %s\n", started.Attach)
+			if started.Web != "" {
+				text += fmt.Sprintf("Or open it in the web UI: %s\n", started.Web)
+			}
+			return text
 		})
 	}
 	if code := c.awaitPane(client, started); code != ExitOK {
@@ -227,7 +235,17 @@ func (c *invocation) openSession(client *api.Client, goal, repository, worker st
 		return left(c.failure(err))
 	}
 	c.say("Lane %s started.\n", lane)
-	return planStarted{WorkOrder: id, Lane: lane, Worker: worker, Repository: repository, Attach: program + " lane attach " + lane}, ExitOK
+	return planStarted{
+		WorkOrder: id, Lane: lane, Worker: worker, Repository: repository, Attach: program + " lane attach " + lane, Web: c.lanePage(lane),
+	}, ExitOK
+}
+
+// lanePage is a lane's page in the web UI, where its pane shows, or nothing when the web UI is off.
+func (c *invocation) lanePage(lane string) string {
+	if c.webAddress == "" {
+		return ""
+	}
+	return (&url.URL{Scheme: "http", Host: c.webAddress, Path: "/lane", RawQuery: url.Values{"id": {lane}}.Encode()}).String()
 }
 
 // awaitPane waits until the new lane has a pane on this machine. The worker takes the lane, makes its

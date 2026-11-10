@@ -55,6 +55,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/work-orders/{id}/lane-respawn", "lane respawn"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-resume", "lane resume"},
 		{http.MethodPut, "/v1/workers/{id}/orchestrator", "orchestrator start"},
+		{http.MethodGet, PanePath, "lane attach"},
+		{http.MethodPost, PaneInputPath, "lane attach"},
 	}
 	for _, name := range Views {
 		routes = append(routes, WebRoute{http.MethodGet, ViewPath(name), "view " + name})

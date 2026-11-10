@@ -1,5 +1,5 @@
 import type { Completed as CompletedView, CompletedWork, HeldLane, InProgress as InProgressView, OnHold as OnHoldView, Stuck as StuckView, WorkLine, WorkOrder } from "../api/types";
-import { Link } from "../app/route";
+import { addressOf, Link } from "../app/route";
 import { workLabels, WorkCard } from "../needs/WorkCard";
 import { Fact, Id, Lasted, Line, Until, words } from "../parts/parts";
 import { LaneFacts } from "./LaneFacts";
@@ -24,11 +24,25 @@ function WorkTags({ order }: { order: WorkOrder }) {
   );
 }
 
+// SessionLink leads from a planning work order to its lane's pane, where the person talks to the
+// planning agent. A planning lane always runs in a pane.
+function SessionLink({ order, lane }: { order: WorkOrder; lane?: { id: string } }) {
+  if (order.kind !== "plan" || !lane) {
+    return null;
+  }
+  return (
+    <p>
+      <Link to={addressOf("/lane", { id: lane.id })}>Open the planning session</Link>
+    </p>
+  );
+}
+
 function RunningLine({ line }: { line: WorkLine }) {
   return (
     <Line side={<Lasted at={line.since} />} kind={workLabel(line.work_order.state)} title={titleOf(line.work_order)} plain>
       <div className="card-body">
         <WorkTags order={line.work_order} />
+        <SessionLink order={line.work_order} lane={line.lane} />
         {line.lane ? <LaneFacts lane={line.lane} /> : <p className="quiet">No lane yet.</p>}
       </div>
     </Line>
@@ -69,6 +83,7 @@ function HeldLine({ line }: { line: HeldLane }) {
         ) : (
           <p className="quiet">No wake is recorded.</p>
         )}
+        <SessionLink order={line.work_order} lane={line.lane} />
         {line.lane ? <LaneFacts lane={line.lane} /> : null}
       </div>
     </Line>

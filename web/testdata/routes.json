@@ -106,6 +106,16 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/panes/{id}",
+    "command": "lane attach"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/panes/{id}/input",
+    "command": "lane attach"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/views/needs-you",
     "command": "view needs-you"
   },

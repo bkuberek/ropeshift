@@ -89,7 +89,7 @@ func NewWeb(config Config, options WebOptions) http.Handler {
 			site.routes.HandleFunc(pattern, site.openSession)
 		case api.SignOutPath:
 			site.routes.HandleFunc(pattern, site.member(site.closeSession))
-		case api.EventsPath:
+		case api.EventsPath, api.PanePath:
 			site.routes.HandleFunc(pattern, site.member(site.stream))
 		default:
 			site.routes.HandleFunc(pattern, site.member(site.forward))

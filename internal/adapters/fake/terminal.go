@@ -26,6 +26,7 @@ type Terminal struct {
 	next     PaneScript
 	panes    map[string]*fakePane
 	captures int
+	screens  int
 	failRead error
 	// attached lists every pane a client attached to, in the order they attached.
 	attached []string
@@ -187,6 +188,29 @@ func (t *Terminal) Captures() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.captures
+}
+
+// Screen returns the current screen as a person sees it. It is not a capture, because nothing decides
+// on it.
+func (t *Terminal) Screen(_ context.Context, name string) (string, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.failRead != nil {
+		return "", t.failRead
+	}
+	pane, ok := t.panes[name]
+	if !ok {
+		return "", fmt.Errorf("%s: %w", name, ports.ErrNotFound)
+	}
+	t.screens++
+	return pane.script.Screen, nil
+}
+
+// Screens counts every read of a screen for a person, on any pane.
+func (t *Terminal) Screens() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.screens
 }
 
 // Keys presses named keys.

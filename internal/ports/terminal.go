@@ -36,8 +36,9 @@ type Console struct {
 }
 
 // Terminal holds panes on a private server that outlives the worker. The screen is read
-// only by the interactive start check, and everything after it goes through hooks and
-// the messaging socket.
+// for state only by the interactive start check, and everything after it goes through
+// hooks and the messaging socket. The web pane reads it too, to show a person what a
+// terminal attached to the pane would show, and never to decide anything.
 type Terminal interface {
 	// Open starts a pane. A name already held is an error, so a retry cannot start a
 	// second session.
@@ -47,6 +48,9 @@ type Terminal interface {
 	Pane(ctx context.Context, name string) (Pane, error)
 	// Capture returns the visible screen as text.
 	Capture(ctx context.Context, name string) (string, error)
+	// Screen returns the visible screen for a person to look at, with the escape sequences
+	// that set its colours and emphasis. ErrNotFound means the server holds no such pane.
+	Screen(ctx context.Context, name string) (string, error)
 	// Keys sends named keys, such as Down or Enter.
 	Keys(ctx context.Context, name string, keys ...string) error
 	// Type sends literal text, with no key to submit it.

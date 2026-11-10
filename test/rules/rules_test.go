@@ -389,12 +389,18 @@ func TestAgentsListingRuleCanFail(t *testing.T) {
 	}
 }
 
-// screenRead finds a read of a pane's screen.
-var screenRead = []string{".Capture(", "capture-pane"}
+// screenRead finds a read of a pane's screen: the start check's capture, and the web pane's
+// screen with its colours.
+var screenRead = []string{".Capture(", ".Screen(", "capture-pane"}
 
-// The two files that may read a screen: the start check, which is the one use on a
-// qualified version, and the adapter, which is how it reads.
-var screenFiles = []string{"internal/adapters/claudecode/startcheck.go", "internal/adapters/tmux/tmux.go"}
+// The files that may read a screen: the start check, which is the one use on a qualified
+// version that decides anything; the adapter, which is how it reads; and the web pane's
+// server file, which shows a member the screen a terminal attached to the lane's pane would
+// show and decides nothing on it (ADR-0018, the web pane).
+var screenFiles = []string{
+	"internal/adapters/claudecode/startcheck.go", "internal/adapters/tmux/tmux.go",
+	"internal/api/server/pane.go",
+}
 
 // TestScreenReadsOnlyInStartCheck finds no read of a screen outside the start check. From
 // `briefing` onward state and input go through hooks and the messaging socket.
@@ -459,7 +465,7 @@ func TestNoFieldMarksALane(t *testing.T) {
 	requests := []reflect.Type{
 		reflect.TypeFor[api.CreateWorkOrder](), reflect.TypeFor[api.ClaimRequest](), reflect.TypeFor[api.StartLane](),
 		reflect.TypeFor[api.ReleaseRequest](), reflect.TypeFor[api.ReassignRequest](), reflect.TypeFor[api.WriteRequest](),
-		reflect.TypeFor[lanes.Request](),
+		reflect.TypeFor[lanes.Request](), reflect.TypeFor[api.PaneInput](),
 	}
 	for _, request := range requests {
 		if found, ok := markingField(request, map[reflect.Type]bool{}); ok {

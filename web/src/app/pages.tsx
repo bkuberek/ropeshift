@@ -22,6 +22,7 @@ import { Operations } from "../floor/Operations";
 import { ShopFloor } from "../floor/ShopFloor";
 import { workLabel } from "../floor/states";
 import { Completed, InProgress, OnHold, Stuck } from "../floor/Work";
+import { LanePage } from "../lanes/LanePane";
 import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentList, DocumentPage, OneRequirement, Requirements } from "../planning/Documents";
@@ -100,6 +101,7 @@ const titles: Record<string, string> = {
   "/completed": "Completed",
   "/shop-floor": "Shop floor",
   "/operations": "Operations",
+  "/lane": "Lane",
 };
 
 export function useDocumentTitle(path: string): void {
@@ -227,6 +229,8 @@ export function PageFor({ route, live, after }: { route: Route; live: Live; afte
       return <ViewPage<ShopFloorView> name="shop-floor" live={live} title="Shop floor" note={(view) => count(view.lanes.length, "lane")} body={(view) => <ShopFloor view={view} />} />;
     case "/operations":
       return <ViewPage<OperationsView> name="operations" live={live} title="Operations" body={(view) => <Operations view={view} />} />;
+    case "/lane":
+      return <LanePage key={param("id")} id={param("id")} live={live} />;
     default:
       return (
         <Page title="No such view">

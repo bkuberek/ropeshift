@@ -46,6 +46,9 @@ type Options struct {
 	// Panes is this machine's terminal server, for a command that puts the person's terminal on a
 	// lane's pane. Nil means this machine has no tmux.
 	Panes Panes
+	// WebAddress is where this machine's web UI answers, for a command that names a page of it.
+	// Empty means the web UI is off.
+	WebAddress string
 	// StateDir is the installation's own directory, where a first run writes its sample contract.
 	StateDir string
 	// InstallService writes the daemon's service definition under a name, with the daemon's own
@@ -61,6 +64,7 @@ type invocation struct {
 	readPassphrase func(prompt string) (string, error)
 	terminal       io.Reader
 	panes          Panes
+	webAddress     string
 	startDaemon    func(context.Context) (func() error, error)
 	stateDir       string
 	install        func(context.Context, string, []string) (Service, error)
@@ -84,7 +88,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
 		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
-		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
+		panes: opts.Panes, webAddress: opts.WebAddress, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 	}
 	found, rest, ok := find(args)
 	if !ok {

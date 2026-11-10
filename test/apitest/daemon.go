@@ -152,6 +152,8 @@ type Options struct {
 	Telemetry ports.TelemetryReader
 	// Backup copies the ledger. Nil has none.
 	Backup ports.LedgerBackup
+	// Panes is the worker's terminal as the web pane reaches it. Nil reaches none.
+	Panes server.Panes
 }
 
 // Start serves the API until the test ends.
@@ -190,7 +192,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	config := server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
-		Telemetry: options.Telemetry, Backup: options.Backup,
+		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes,
 	}
 	handler := server.New(config)
 	if options.Wrap != nil {

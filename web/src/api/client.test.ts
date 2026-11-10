@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import keys from "../../testdata/pane-keys.json";
 import routes from "../../testdata/routes.json";
 import { goldenNeedsYou, refusal, serveApi } from "../testing";
 import {
@@ -10,7 +11,9 @@ import {
   decideEffect,
   followEvents,
   passReview,
+  paneKeys,
   paths,
+  pressPaneKey,
   readDocument,
   readDocumentVersions,
   readNeedsYou,
@@ -20,6 +23,7 @@ import {
   signIn,
   signOut,
   startOrchestrator,
+  typeIntoPane,
   workActions,
 } from "./client";
 import type { Route, WorkAction } from "./types";
@@ -58,11 +62,18 @@ describe("the client", () => {
     await readDocument({ path: "docs/a b.md", instance: "repository", version: "1" });
     await readDocumentVersions({ path: "docs/a b.md" });
     await readRecorded("spec:a b", "2");
+    await typeIntoPane("lane:a b", "A planning tool", true);
+    await pressPaneKey("lane:a b", "Ctrl-C");
     expect(sent.length).toBeGreaterThan(20);
     for (const call of sent) {
       expect(reachable(call.method, call.path), `${call.method} ${call.path}`).toBe(true);
     }
     expect(reachable("GET", paths.events)).toBe(true);
+    expect(reachable("GET", paths.pane("lane:a b"))).toBe(true);
+  });
+
+  it("offers the keys the server takes in a pane, and no other", () => {
+    expect([...paneKeys]).toEqual(keys);
   });
 
   it("escapes an ID into its path", async () => {

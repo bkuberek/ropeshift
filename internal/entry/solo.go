@@ -226,12 +226,19 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	defer telemetry.close()
+	// The worker's lanes and the web pane share one terminal server, so a member's browser reaches the
+	// same pane a terminal attaches to.
+	laneRuntime, terminal, err := soloLanes(paths, opts, stderr)
+	if err != nil {
+		return err
+	}
 	batches, windows := soloBatches(paths), soloWindows(paths)
 	config := server.Config{
 		Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store, Backup: sqlite.LedgerBackup{File: filepath.Join(paths.StateDir, api.LedgerFileName)},
+		Panes: soloPanes(terminal),
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
@@ -257,7 +264,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 			fmt.Fprintf(stderr, "ropeshiftd: %s tick: %v\n", name, err)
 		})
 	}()
-	workerDone, err := startSoloWorker(ctx, paths, store, opts, telemetry, stderr)
+	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, stderr)
 	if err != nil {
 		return err
 	}
@@ -317,7 +324,9 @@ func startWeb(config server.Config, address string, stdout, stderr io.Writer) (*
 // private socket, so solo mode exercises the path a group's worker takes. A first
 // start makes its own join token, because the person who started the daemon owns
 // the control plane.
-func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, telemetry *soloTelemetry, stderr io.Writer) (<-chan struct{}, error) {
+func startSoloWorker(
+	ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, stderr io.Writer,
+) (<-chan struct{}, error) {
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
 		return nil, err
 	}
@@ -326,11 +335,6 @@ func startSoloWorker(ctx context.Context, paths api.Paths, store ports.Store, op
 		return nil, err
 	}
 	if err := journal.Migrate(ctx); err != nil {
-		_ = journal.Close()
-		return nil, err
-	}
-	runtime, err := soloLanes(paths, opts, stderr)
-	if err != nil {
 		_ = journal.Close()
 		return nil, err
 	}
@@ -422,20 +426,21 @@ func runDoctor(ctx context.Context, paths api.Paths) (ledger.Manifest, error) {
 }
 
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this
-// daemon reads work from, and the worker's own paths.
-func soloLanes(paths api.Paths, opts soloOptions, stderr io.Writer) (*worker.LaneRuntime, error) {
+// daemon reads work from, and the worker's own paths. It returns the worker's terminal server
+// too, which is nil on a machine with no tmux.
+func soloLanes(paths api.Paths, opts soloOptions, stderr io.Writer) (*worker.LaneRuntime, ports.Terminal, error) {
 	override, err := lanes.ParseOverride(os.Getenv(envSessionOverride))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	env, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: os.LookupEnv})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	runner := laneRunner(runtime.GOOS, os.Getenv, stderr)
 	terminal, err := soloTerminal(runner, paths, env)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return &worker.LaneRuntime{
 		Driver: soloDriver(runner, terminal, env),
@@ -453,7 +458,16 @@ func soloLanes(paths api.Paths, opts soloOptions, stderr io.Writer) (*worker.Lan
 		StateDir:   paths.StateDir,
 		RunDir:     paths.RunDir,
 		Override:   override,
-	}, nil
+	}, terminal, nil
+}
+
+// soloPanes is the worker's terminal server as the web pane reaches it, by the name the driver gives
+// each generation's pane (ADR-0018). A machine with no tmux holds no pane, and the web pane says so.
+func soloPanes(terminal ports.Terminal) server.Panes {
+	if terminal == nil {
+		return nil
+	}
+	return server.TerminalPanes{Terminal: terminal, Name: claudecode.PaneName}
 }
 
 // soloTerminal is the worker's private server. A machine with no tmux runs headless lanes

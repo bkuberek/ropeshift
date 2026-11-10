@@ -113,6 +113,19 @@ type Lane struct {
 	w     *World
 	ID    string
 	Grant workorders.Grant
+	// next counts the generations after the first that this lane started.
+	next int64
+}
+
+// Generation is the generation this lane runs now.
+func (l *Lane) Generation() int64 { return 1 + l.next }
+
+// NextGeneration starts this lane's next generation, as a restart does, and its events from then on
+// come from that generation.
+func (l *Lane) NextGeneration() {
+	l.w.t.Helper()
+	l.next++
+	l.Upload(ledger.UploadGenerationStarted, nil)
 }
 
 // Created records a work order that stays in `intake`, with no plan and no contract.
@@ -243,7 +256,7 @@ func (l *Lane) Refused(eventType string, payload []byte) []ledger.UploadResult {
 	l.w.seq++
 	reply, err := l.w.plane.Upload(l.w.ctx, ledger.UploadBatch{Auth: l.w.auth, Epoch: l.w.epoch, Events: []ledger.UploadEvent{{
 		Epoch: l.w.epoch, Seq: l.w.seq, Type: eventType, WorkOrder: l.Grant.WorkOrder, ClaimID: l.Grant.ClaimID,
-		Fence: l.Grant.Fence, Lane: l.ID, Generation: 1, Payload: payload, OccurredAt: 1,
+		Fence: l.Grant.Fence, Lane: l.ID, Generation: l.Generation(), Payload: payload, OccurredAt: 1,
 	}}})
 	if err != nil {
 		l.w.t.Fatal(err)
@@ -270,7 +283,7 @@ func (l *Lane) Park(expr string) {
 	wake := "wake-" + l.ID
 	l.Upload(ledger.UploadLaneParking, ledger.ParkingStart{Wake: wake, Expr: expr})
 	l.Upload(ledger.UploadLaneParked, ledger.ParkedCommit{Wake: wake, Checkpoint: ledger.Checkpoint{
-		Lane: l.ID, Generation: 1, Branch: "lane/" + l.ID, Head: "abc123", Pushed: true, PendingInstruction: "Finish the retry",
+		Lane: l.ID, Generation: l.Generation(), Branch: "lane/" + l.ID, Head: "abc123", Pushed: true, PendingInstruction: "Finish the retry",
 	}})
 }
 

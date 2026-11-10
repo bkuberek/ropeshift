@@ -408,3 +408,10 @@ export type MeasureReport = {
 };
 
 export type Route = { method: string; pattern: string; command: string };
+
+// PaneScreen is one snapshot of a lane's pane: its visible screen, with the escape sequences that set its
+// colours and emphasis, from the pane of the generation it names.
+export type PaneScreen = { lane_id: string; generation: number; screen: string };
+
+// PaneLane says a lane has no screen to show now, and the state that says why.
+export type PaneLane = { lane_id: string; generation: number; state: string };
