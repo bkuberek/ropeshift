@@ -19,6 +19,7 @@
     "lane-6": {
       "turns": [[
         {"init": true},
+        {"wait_file": "limit-reached"},
         {"emit": {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": "$resets_at", "rateLimitType": "seven_day"}}, "resets_in_s": 6},
         {"hold": true}
       ]],

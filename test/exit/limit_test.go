@@ -119,15 +119,30 @@ func spans(t *testing.T, dir string) (count, most int) {
 
 // TestUsageLimitParksAndResumes is the usage half of E4 on the real binary, driver, and shim. One
 // lane reads a limit that names its reset, all six park with no process, and the reset wakes them,
-// no more than a sign-in's cap at a time.
+// no more than a sign-in's cap at a time. The cap is in place before the limit, and what parked is
+// read afterwards, so no step of the test races the reset.
 func TestUsageLimitParksAndResumes(t *testing.T) {
 	in := newInstall(t)
 	running, ids := in.fleet(t, "limit-fleet", 6)
-	in.waitFor("every lane to park", in.allRead(ids, workorders.Parked))
-	in.noneRunning(t, 6)
+	in.waitFor("lane lane-6 at work", in.laneReads("lane-6", "working"))
 	in.setUserProfile(t, "[admission]\nmax_lanes = 0\nmax_lanes_per_sign_in = 2\n")
+	if err := os.WriteFile(filepath.Join(doubles.BinDir(in.path), "limit-reached"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	in.waitFor("every lane's outcome", in.allRead(ids, workorders.Acceptance))
+	in.noneRunning(t, 6)
+	for i := 1; i <= 6; i++ {
+		view, ok := in.laneView(fmt.Sprintf("lane-%d", i))
+		if !ok || len(view.Generations) != 2 || view.Generations[0].EndedAt == 0 || view.Generations[0].EndedAt > view.Generations[1].StartedAt {
+			t.Errorf("lane-%d ran its sessions %+v", i, view.Generations)
+		}
+	}
 	running.kill()
+	for _, order := range ids {
+		if parked := in.parkings(t, order); parked != 1 {
+			t.Errorf("work order %s parked %d times", order, parked)
+		}
+	}
 	count, most := spans(t, doubles.BinDir(in.path))
 	if count != 6 {
 		t.Errorf("%d lanes came back", count)
