@@ -83,25 +83,42 @@ export class FakeEvents {
   readyState = 1;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  private heard: (() => void)[] = [];
+  private heard: { type: string; listener: (event?: { data: string }) => void }[] = [];
 
   constructor(url: string) {
     this.url = url;
     FakeEvents.opened.push(this);
   }
 
-  addEventListener(_type: string, listener: () => void) {
-    this.heard.push(listener);
+  addEventListener(type: string, listener: (event?: { data: string }) => void) {
+    this.heard.push({ type, listener });
   }
 
   close() {
     this.closed = true;
+    this.readyState = FakeEvents.CLOSED;
   }
 
+  // emit tells every listener that something happened, with nothing more.
   emit() {
-    for (const listener of this.heard) {
+    for (const { listener } of this.heard) {
       listener();
     }
+  }
+
+  // send delivers one named event with a JSON body, as a server's stream does.
+  send(type: string, body: unknown) {
+    for (const heard of this.heard) {
+      if (heard.type === type) {
+        heard.listener({ data: JSON.stringify(body) });
+      }
+    }
+  }
+
+  // drop fails the stream for good, as a browser does when the server refuses it.
+  drop() {
+    this.readyState = FakeEvents.CLOSED;
+    this.onerror?.();
   }
 }
 

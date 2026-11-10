@@ -218,3 +218,9 @@ func TestFixtureCoversEveryState(t *testing.T) {
 func TestGoldenWebRoutes(t *testing.T) {
 	holdsGolden(t, "routes", pretty(t, api.WebRoutes()))
 }
+
+// TestGoldenPaneKeys writes the closed list of keys a member may press in a lane's pane, so a web test
+// can hold the page's buttons to it.
+func TestGoldenPaneKeys(t *testing.T) {
+	holdsGolden(t, "pane-keys", pretty(t, api.PaneKeys))
+}

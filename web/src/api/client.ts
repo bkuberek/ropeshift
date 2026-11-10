@@ -27,7 +27,14 @@ export const paths = {
   decideEffect: (id: string) => `/v1/effects/${encodeURIComponent(id)}/decide`,
   work: (id: string, verb: string) => `/v1/work-orders/${encodeURIComponent(id)}/${verb}`,
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
+  pane: (lane: string) => `/v1/panes/${encodeURIComponent(lane)}`,
+  paneInput: (lane: string) => `/v1/panes/${encodeURIComponent(lane)}/input`,
 };
+
+// The keys a member may press in a lane's pane. The list is closed, and the server holds the same one.
+export const paneKeys = ["Enter", "Escape", "Tab", "Backspace", "Up", "Down", "Left", "Right", "Ctrl-C", "Ctrl-D"] as const;
+
+export type PaneKey = (typeof paneKeys)[number];
 
 // What each action of a work item calls, and whether it asks a person why.
 export const workActions: Record<WorkAction, { verb: string; needsReason: boolean }> = {
@@ -154,4 +161,37 @@ export function startOrchestrator(worker: string): Promise<unknown> {
 // The stream every open page follows. A browser's own reconnect names the last revision it saw.
 export function followEvents(after: number): EventSource {
   return new EventSource(`${paths.events}?after=${after}`);
+}
+
+// followPane streams a lane's pane: a snapshot of its screen each time it changes, and the lane's state
+// while it has no screen to show.
+export function followPane(lane: string): EventSource {
+  return new EventSource(paths.pane(lane));
+}
+
+// paneRefusal asks why a pane's stream closed, because a browser's stream reads no refusal. A stream that
+// would open again answers nothing, and the read stops at its first byte.
+export async function paneRefusal(lane: string): Promise<ApiError | null> {
+  const reading = new AbortController();
+  try {
+    const response = await fetch(paths.pane(lane), { signal: reading.signal });
+    if (response.ok) {
+      return null;
+    }
+    const refused = (await response.json().catch(() => null)) as { error?: { code: string; message: string } } | null;
+    return new ApiError(response.status, refused?.error?.code ?? "unavailable", refused?.error?.message ?? response.statusText);
+  } catch {
+    return new ApiError(0, "unreachable", "The daemon did not answer.");
+  } finally {
+    reading.abort();
+  }
+}
+
+// typeIntoPane types text into a lane's pane, and presses Enter after it when asked.
+export function typeIntoPane(lane: string, text: string, enter: boolean): Promise<void> {
+  return call("POST", paths.paneInput(lane), { text, enter });
+}
+
+export function pressPaneKey(lane: string, key: PaneKey): Promise<void> {
+  return call("POST", paths.paneInput(lane), { key });
 }

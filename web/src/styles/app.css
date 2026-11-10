@@ -1284,6 +1284,90 @@ textarea {
   max-width: 28rem;
 }
 
+/* A lane's pane */
+
+.pane {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.pane > * {
+  min-width: 0;
+}
+
+.pane-status {
+  color: var(--muted);
+}
+
+/* The screen keeps its columns, so a narrow window scrolls the screen and not the page. */
+.pane-screen {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  border-left: 0.1875rem solid var(--hemp);
+  background: var(--lane);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+.sgr-bold {
+  font-weight: 700;
+}
+
+.sgr-italic {
+  font-style: italic;
+}
+
+.sgr-underline {
+  text-decoration: underline;
+}
+
+.sgr-muted {
+  color: var(--muted);
+}
+
+.sgr-marker {
+  color: var(--marker);
+}
+
+.sgr-refuse {
+  color: var(--refuse);
+}
+
+.sgr-inverse {
+  background: var(--ink);
+  color: var(--lane);
+}
+
+.pane-input {
+  display: grid;
+  gap: 0.625rem;
+  max-width: 48rem;
+}
+
+.pane-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.pane-check input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--marker);
+}
+
+.pane-keys .button {
+  font-size: 1.125rem;
+}
+
 /* Motion */
 
 @media (prefers-reduced-motion: no-preference) {
