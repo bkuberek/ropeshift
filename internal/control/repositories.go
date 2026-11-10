@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/authority"
-	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -86,7 +85,6 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 				return err
 			}
 		}
-		crashpoint.Hit("repository.detect", "recorded")
 		event, err := repositoryEvent(ledger.EventRepositoryDetected, found.ID, detectedEvent{Remote: found.Remote, DefaultBranch: found.DefaultBranch}, actor)
 		if err != nil {
 			return err
@@ -122,7 +120,6 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 		if err := tx.Repositories().Settings(after); err != nil {
 			return err
 		}
-		crashpoint.Hit("repository.change", "recorded")
 		event, err := repositoryEvent(ledger.EventRepositoryChanged, id, changedEvent{Before: before, After: after}, actor)
 		if err != nil {
 			return err

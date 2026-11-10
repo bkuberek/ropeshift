@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -249,7 +248,6 @@ func (l *Leases) startOf(ctx context.Context, scope ledger.WorkspaceID, request 
 		return workorders.Start{}, err
 	}
 	start, hold := l.starts.decide(ctx, in, newPass())
-	crashpoint.Hit("claim", "resolved")
 	if hold != nil {
 		if _, err := l.setHold(ctx, scope, in.order.ID, hold, actor); err != nil {
 			return workorders.Start{}, err
