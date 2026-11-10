@@ -31,10 +31,12 @@ const (
 	maxLinks = 64
 )
 
-// What a closed request says of how a person answered at a terminal.
+// What a closed request says of how a person answered at a terminal, and of why ropeshift closed one
+// itself.
 const (
-	noteToolRan = "the tool ran with no decision on record"
-	noteNoTool  = "the turn ended with no tool run"
+	noteToolRan   = "the tool ran with no decision on record"
+	noteNoTool    = "the turn ended with no tool run"
+	noteCallMoved = "the call this request covered lands somewhere else now"
 )
 
 func answer(decision, reason, id string) lanes.Reply {
@@ -176,6 +178,9 @@ func (r *laneRun) principal(lane lanes.Record) ledger.Actor {
 // lookAt reads where a call stands. The ledger comes first, because a decision can reach a call that
 // no request on this machine stands for: a lane that resumed elsewhere, or a retry after a denial.
 func (r *laneRun) lookAt(ctx context.Context, lane lanes.Record, call authority.ToolCall, request lanes.ApprovalRequest) lanes.Reply {
+	if reply, moved := r.movedCall(ctx, lane, call, request); moved {
+		return reply
+	}
 	found, err := r.askLedger(ctx, lane, call, request)
 	var fenced *workorders.FencedError
 	if errors.As(err, &fenced) {
@@ -200,6 +205,37 @@ func (r *laneRun) lookAt(ctx context.Context, lane lanes.Record, call authority.
 		}
 	}
 	return r.keepWaiting(ctx, lane, call, request.Raised)
+}
+
+// movedCall reads a look of a hook that holds a request, at a call that lands somewhere else than that
+// request says. The hook is told the request closed, and the request closes for good: it is void in the
+// journal and in the ledger, which hears of it in the write that closes it. Left open, a request
+// nobody waits on could still be approved, and the end of the turn would record a person's answer at a
+// terminal that ropeshift's own hook never asked for. This comes before the ledger is read, because
+// what the ledger holds for the call as it lands now says nothing of the call this hook held.
+func (r *laneRun) movedCall(ctx context.Context, lane lanes.Record, call authority.ToolCall, request lanes.ApprovalRequest) (lanes.Reply, bool) {
+	if request.Held == "" {
+		return lanes.Reply{}, false
+	}
+	rows, err := r.w.journal.OpenApprovals(ctx, lane.ID)
+	if err != nil {
+		return refused(lanes.CodeUnavailable, err.Error()), true
+	}
+	for _, row := range rows {
+		if row.ID != request.Held || row.Digest == call.Digest {
+			continue
+		}
+		payload, err := json.Marshal(authority.MovedCall{Digest: row.Digest, Note: noteCallMoved})
+		if err != nil {
+			return refused(lanes.CodeUnavailable, err.Error()), true
+		}
+		if err := r.w.journal.CloseApproval(ctx, row.ID, r.w.event(ledger.UploadApprovalVoid, lane, payload)); err != nil {
+			return refused(lanes.CodeUnavailable, err.Error()), true
+		}
+		r.decisionsLeft(ctx, len(rows)-1)
+		return answer(lanes.ApprovalDeny, lanes.ReasonRequestClosed, row.ID), true
+	}
+	return lanes.Reply{}, false
 }
 
 // sendRequests hands the ledger a request it has not heard of, on a goroutine of its own, because a

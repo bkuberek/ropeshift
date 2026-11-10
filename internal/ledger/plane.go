@@ -360,10 +360,12 @@ const (
 	UploadMessage = "message_report"
 	// UploadWakeSignal is a worker's word that its own sign-in is back, which belongs to no lane.
 	UploadWakeSignal = "wake_signal"
-	// UploadApprovalRaised carries a request a lane raised, and UploadApprovalAnswered what a
-	// tool's end showed of one.
+	// UploadApprovalRaised carries a request a lane raised, UploadApprovalAnswered what a tool's end
+	// showed of one, and UploadApprovalVoid that the call a hook holds lands somewhere else than the
+	// request says.
 	UploadApprovalRaised   = "approval_raised"
 	UploadApprovalAnswered = "approval_answered"
+	UploadApprovalVoid     = "approval_void"
 	// UploadDriverQualified carries what a worker's probe observed of a CLI version, which belongs
 	// to the worker and no lane.
 	UploadDriverQualified = "driver_qualified"

@@ -57,9 +57,16 @@ func (r *laneRig) look(t *testing.T, input, call string, raised bool) lanes.Repl
 
 func (r *laneRig) lookAtTool(t *testing.T, tool, input, call string, raised bool) lanes.Reply {
 	t.Helper()
+	return r.lookHolding(t, tool, input, call, raised, "")
+}
+
+// lookHolding is a later look of a hook that kept the ID of the request an earlier answer gave it,
+// as a hook does.
+func (r *laneRig) lookHolding(t *testing.T, tool, input, call string, raised bool, held string) lanes.Reply {
+	t.Helper()
 	request := lanes.Request{
 		Version: lanes.SocketProtocol, Token: r.token(t),
-		Approval: &lanes.ApprovalRequest{Tool: tool, Input: json.RawMessage(input), Call: call, Raised: raised},
+		Approval: &lanes.ApprovalRequest{Tool: tool, Input: json.RawMessage(input), Call: call, Raised: raised, Held: held},
 	}
 	if !raised {
 		read, err := authority.ReadToolCall(tool, []byte(input))

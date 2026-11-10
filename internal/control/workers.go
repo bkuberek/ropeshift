@@ -648,6 +648,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return approvalUpload(tx, worker, id, e, stamp)
 	case ledger.UploadApprovalAnswered:
 		return answeredUpload(tx, worker, e)
+	case ledger.UploadApprovalVoid:
+		return movedUpload(tx, worker, e)
 	case ledger.UploadWakeSignal:
 		return signalUpload(tx, worker, e, stamp)
 	case ledger.UploadDriverQualified:

@@ -609,3 +609,64 @@ func TestANewerVersionSupersedesAnOpenPlanApprovalAndNoOther(t *testing.T) {
 		t.Fatalf("an approved version was replaced: %v", err)
 	}
 }
+
+// A call that moved ends the request that stood for it, if the request could still lead to a tool
+// running. Every other state is an end already reached, and a record of how a request ended does not
+// change under a later word about a call.
+func TestACallThatMovedEndsOnlyARequestThatCouldStillRun(t *testing.T) {
+	const why = "the call moved"
+	pending := request(t, theLane)
+	granted := approved(t)
+	denied, err := pending.Decide(decision(pending, false), aMember, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used, err := granted.Use(granted.SubjectDigest, "call-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasoned := granted
+	reasoned.Reason = "looks fine"
+	other := call(t, "Bash", `{"command":"git tag v2"}`).Digest
+	tests := []struct {
+		name   string
+		row    authority.Approval
+		digest string
+		voids  bool
+	}{
+		{name: "a request nobody decided", row: pending, digest: pending.SubjectDigest, voids: true},
+		{name: "an approval nobody spent", row: granted, digest: granted.SubjectDigest, voids: true},
+		{name: "an approval with a reason its decider gave", row: reasoned, digest: reasoned.SubjectDigest, voids: true},
+		{name: "a request for another call", row: pending, digest: other},
+		{name: "a denial", row: denied, digest: denied.SubjectDigest},
+		{name: "an approval that ran", row: used, digest: used.SubjectDigest},
+		{name: "an answer at a terminal", row: withState(pending, authority.ApprovalAnswered), digest: pending.SubjectDigest},
+		{name: "a request that expired", row: withState(pending, authority.ApprovalExpired), digest: pending.SubjectDigest},
+		{name: "a request already void", row: withState(pending, authority.ApprovalVoid), digest: pending.SubjectDigest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			next, voided := tt.row.Moved(tt.digest, why)
+			if voided != tt.voids {
+				t.Fatalf("voided %v, want %v", voided, tt.voids)
+			}
+			if !tt.voids {
+				if next.State != tt.row.State || next.Reason != tt.row.Reason {
+					t.Errorf("a request that ended changed: %+v", next)
+				}
+				return
+			}
+			if next.State != authority.ApprovalVoid || next.Channel == authority.ChannelTerminal {
+				t.Errorf("request %+v", next)
+			}
+			if next.Reason != why {
+				t.Errorf("reason %q, want %q", next.Reason, why)
+			}
+		})
+	}
+}
+
+func withState(a authority.Approval, state authority.ApprovalState) authority.Approval {
+	a.State = state
+	return a
+}

@@ -274,6 +274,26 @@ func answeredAtTerminal(tx ports.WriteTx, lane string, answer authority.Terminal
 	return nil
 }
 
+// callMoved closes the request of a call a worker's hook found landing somewhere else. It voids what
+// can still lead to a tool running and touches nothing that already ended, so a replay changes
+// nothing, and an answer that came first stands.
+func callMoved(tx ports.WriteTx, lane string, moved authority.MovedCall, actor ledger.Actor) error {
+	rows, err := tx.Approvals().OfLane(lane)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		next, voided := row.Moved(moved.Digest, moved.Note)
+		if !voided {
+			continue
+		}
+		if err := noteApproval(tx, next, row.State, actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // expireApprovals closes what a work order's lanes left live, in the transaction that ends them,
 // because nothing can return to a session that will not run (FR-AUTH-7).
 func expireApprovals(tx ports.WriteTx, workOrder string) error {
@@ -446,6 +466,20 @@ func answeredUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent) error
 		return err
 	}
 	return answeredAtTerminal(tx, e.Lane, answered, ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
+}
+
+// movedUpload stores what a hook showed of a call that lands somewhere else than its request says. It
+// is not fenced, as an answer at a terminal is not: a request is only ended here, so a worker that
+// lost its lease can end one and cannot allow anything.
+func movedUpload(tx ports.WriteTx, worker string, e ledger.UploadEvent) error {
+	var moved authority.MovedCall
+	if err := json.Unmarshal(e.Payload, &moved); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	if err := ranLane(tx, worker, e); err != nil {
+		return err
+	}
+	return callMoved(tx, e.Lane, moved, ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
 }
 
 // UseApproval reads where a call of a lane this worker holds stands, and spends a decision on it. A
