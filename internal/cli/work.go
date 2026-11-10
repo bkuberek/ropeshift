@@ -135,9 +135,22 @@ func (c *invocation) workShow(args []string) int {
 	client := c.client()
 	defer client.Close()
 	row, err := client.WorkOrder(c.ctx, id)
-	return c.finish(err, row, func() string {
-		return orderLine(row) + fmt.Sprintf("fence\t%d\nworker\t%s\ncontract\t%s@%d\n", row.Fence, row.LeaseWorker, row.ContractID, row.ContractVersion)
-	})
+	return c.finish(err, row, func() string { return workOrderText(row) })
+}
+
+// workOrderText prints a work order, and says what its start waits for when something other than a
+// lack of ready work holds it.
+func workOrderText(row workorders.WorkOrder) string {
+	var out strings.Builder
+	out.WriteString(orderLine(row))
+	fmt.Fprintf(&out, "fence\t%d\nworker\t%s\ncontract\t%s@%d\n", row.Fence, row.LeaseWorker, row.ContractID, row.ContractVersion)
+	if row.Base != "" {
+		fmt.Fprintf(&out, "base\t%s\n", row.Base)
+	}
+	if hold := row.StartHeld; hold != nil {
+		fmt.Fprintf(&out, "waiting\t%s\t%s\t%s\n", hold.Reason, dashIfEmpty(hold.Dependency), dashIfEmpty(hold.Detail))
+	}
+	return out.String()
 }
 
 // workReview exits with its own code when the definition of ready refuses, because
@@ -467,7 +480,17 @@ func (c *invocation) laneShow(args []string) int {
 	client := c.client()
 	defer client.Close()
 	lane, err := client.Lane(c.ctx, id)
-	return c.finish(err, lane, func() string { return laneLine(lane) })
+	return c.finish(err, lane, func() string { return laneDetail(lane) })
+}
+
+// laneDetail is a lane's line, and where its branch began: the ref and the commit the claim named, which
+// review diffs against and integration targets. A lane that began where its checkout was names none.
+func laneDetail(lane ledger.LaneView) string {
+	text := laneLine(lane)
+	if lane.BaseCommit != "" {
+		text += fmt.Sprintf("base\t%s\t%s\n", dashIfEmpty(lane.BaseRef), lane.BaseCommit)
+	}
+	return text
 }
 
 func (c *invocation) sourceList(args []string) int {

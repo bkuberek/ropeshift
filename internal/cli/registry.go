@@ -100,6 +100,11 @@ func registry() []section {
 			command("message show", "<id>", "say what became of a message", (*invocation).messageShow),
 			command("message list", "<lane>", "list what was sent to a lane", (*invocation).messageList),
 		}},
+		{"Repositories", []registered{
+			command("repository list", "", "list each repository, the branch its lanes start from, and how it merges", (*invocation).repositoryList),
+			command("repository show", "<id>", "show a repository's record: remote, default branch, base, merge method, and start", (*invocation).repositoryShow),
+			command("repository set", "<id> [--base B] [--merge-method M] [--start-from S] [--integration on|off]", "change a repository's settings, which only a member can do", (*invocation).repositorySet),
+		}},
 		{"Approvals, effects, and notices", []registered{
 			command("approval list", "[--state S]", "list what lanes have asked to do", (*invocation).approvalList),
 			command("approval show", "<id>", "print a request and the digest it binds to", (*invocation).approvalShow),
