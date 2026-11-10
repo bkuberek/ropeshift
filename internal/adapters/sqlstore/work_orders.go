@@ -14,7 +14,7 @@ import (
 const workOrderColumns = `id, kind, state, title, repository_id, priority, size, requirements, needs,
        contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
        takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts,
-       deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base`
+       deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held`
 
 var (
 	stmtReadWorkOrder = define("work_order.read",
@@ -55,11 +55,11 @@ var (
 		`INSERT INTO work_orders
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
    contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
-   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base)
+   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held)
 VALUES
   (:workspace_id, :id, :kind, :state, :title, :repository_id, :priority, :size, :requirements, :needs,
    :contract_id, :contract_version, :fence, :claim_id, :lease_worker, :lease_until,
-   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base)`)
+   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base, :start_held)`)
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
@@ -81,6 +81,10 @@ VALUES
 
 	stmtTakenInWorkOrder = define("work_order.taken_in",
 		`UPDATE work_orders SET plan_commit = :commit
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtHoldWorkOrder = define("work_order.hold",
+		`UPDATE work_orders SET start_held = :hold
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtPinWorkOrder = define("work_order.pin",
@@ -176,6 +180,15 @@ func (t workOrderTx) TakenIn(id, commit string) error {
 	return err
 }
 
+func (t workOrderTx) Hold(id string, hold *workorders.StartHold) error {
+	raw, err := encodeJSON(hold != nil, hold)
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtHoldWorkOrder, params{"workspace_id": string(t.scope), "id": id, "hold": raw})
+	return err
+}
+
 func (t workOrderTx) Pin(id string, version int64) error {
 	_, err := t.exec(stmtPinWorkOrder, params{
 		"workspace_id": string(t.scope), "id": id, "version": version,
@@ -217,7 +230,12 @@ func workOrderParams(scope ledger.WorkspaceID, w workorders.WorkOrder) (params, 
 	if err != nil {
 		return nil, err
 	}
+	hold, err := encodeJSON(w.StartHeld != nil, w.StartHeld)
+	if err != nil {
+		return nil, err
+	}
 	return params{
+		"start_held":       hold,
 		"reviews_plan":     nullText(w.ReviewsPlan),
 		"review_pins":      pins,
 		"plan_commit":      nullText(w.PlanCommit),
@@ -269,16 +287,22 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	var w workorders.WorkOrder
 	var kind, state string
 	var title, repository, size, requirements, needs, contractID, claimID, leaseWorker sql.NullString
-	var branch, resumeLane, reworkOf, reviewedBy, reviewsPlan, reviewPins, planCommit, base sql.NullString
+	var branch, resumeLane, reworkOf, reviewedBy, reviewsPlan, reviewPins, planCommit, base, startHeld sql.NullString
 	var contractVersion, leaseUntil, takeoverAfter, deadline sql.NullInt64
 	err := row.Scan(&w.ID, &kind, &state, &title, &repository, &w.Priority, &size, &requirements, &needs,
 		&contractID, &contractVersion, &w.Fence, &claimID, &leaseWorker, &leaseUntil,
 		&takeoverAfter, &branch, &resumeLane, &reworkOf, &w.Attempts, &w.MaxAttempts,
-		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base)
+		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base, &startHeld)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
 	w.ReviewsPlan, w.PlanCommit, w.Base = reviewsPlan.String, planCommit.String, base.String
+	if startHeld.Valid {
+		w.StartHeld = new(workorders.StartHold)
+		if err := json.Unmarshal([]byte(startHeld.String), w.StartHeld); err != nil {
+			return workorders.WorkOrder{}, fmt.Errorf("start hold: %w", err)
+		}
+	}
 	if reviewPins.Valid {
 		if err := json.Unmarshal([]byte(reviewPins.String), &w.ReviewPins); err != nil {
 			return workorders.WorkOrder{}, fmt.Errorf("review pins: %w", err)

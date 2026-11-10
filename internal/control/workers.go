@@ -71,6 +71,8 @@ type WorkerOptions struct {
 	PackTokens int64
 	// Matcher finds what could answer a question. Nil leaves an orchestrator to search for itself.
 	Matcher ports.Matcher
+	// Starts places the lane of every claim. Nil places none.
+	Starts *Starts
 }
 
 // Workers is the control plane's side of the plane protocol. It has the shape of
@@ -99,7 +101,7 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 		options.LeaseTTLMs = defaultLeaseTTLMs
 	}
 	return &Workers{
-		store: store, scope: scope, options: options, leases: NewLeases(store).Budgeted(options.PackTokens),
+		store: store, scope: scope, options: options, leases: NewLeases(store).Budgeted(options.PackTokens).Starting(options.Starts),
 		questions: NewQuestions(store, options.Batches).Telling(options.Windows).Budgeted(options.PackTokens),
 		accepting: NewAcceptances(store),
 	}
@@ -461,6 +463,7 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, nil
 	}
 	lease.Lane, lease.Repository, lease.Branch, lease.Title = claim.Lane, row.RepositoryID, row.Branch, row.Title
+	lease.BaseRef, lease.BaseCommit = claim.BaseRef, claim.BaseCommit
 	lease.Deadline, lease.Overrides = row.Deadline, claim.Overrides
 	lease.Contract, lease.ContractVersion = row.ContractID, row.ContractVersion
 	lease.Kind = string(row.Kind)
@@ -879,6 +882,12 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 		return view, err
 	}
 	if view.Generations, err = tx.Lanes().Generations(row.ID); err != nil {
+		return view, err
+	}
+	switch claim, err := tx.Claims().OfLane(row.ID); {
+	case err == nil:
+		view.BaseRef, view.BaseCommit = claim.BaseRef, claim.BaseCommit
+	case !errors.Is(err, ports.ErrNotFound):
 		return view, err
 	}
 	if row.Status.ActualState == ledger.StateEnded || row.Status.ActualState == ledger.StateParked {

@@ -191,6 +191,8 @@ type WorkOrderWriter interface {
 	TakenIn(id, commit string) error
 	// Pin moves unstarted work to a contract version, and voids its review.
 	Pin(id string, version int64) error
+	// Hold records why ready work is not claimed, and nil takes the reason back.
+	Hold(id string, hold *workorders.StartHold) error
 }
 
 // LeaseWriter runs the statements that decide who holds a work order. Each is one

@@ -151,8 +151,12 @@ type LaneView struct {
 	Freshness       string `json:"freshness"`
 	ReportedByEpoch int64  `json:"reported_by_epoch"`
 	// Archived says its worktree went.
-	Archived  bool       `json:"archived,omitempty"`
-	Artifacts []Artifact `json:"artifacts,omitempty"`
+	Archived bool `json:"archived,omitempty"`
+	// BaseRef and BaseCommit are where the lane's branch began, which review diffs against and
+	// integration targets (FR-BASE-4).
+	BaseRef    string     `json:"base_ref,omitempty"`
+	BaseCommit string     `json:"base_commit,omitempty"`
+	Artifacts  []Artifact `json:"artifacts,omitempty"`
 	// Generations lists each run of an agent in this lane, oldest first.
 	Generations []Generation `json:"generations,omitempty"`
 }

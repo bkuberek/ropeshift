@@ -82,6 +82,9 @@ type WorkOrder struct {
 	ReviewPins  []string `json:"review_pins,omitempty"`
 	// PlanCommit is the commit intake read for an accepted `plan` work order (D17).
 	PlanCommit string `json:"plan_commit,omitempty"`
+	// StartHeld is the reason this ready work is not claimed, when something other than a lack of
+	// ready work keeps it from starting.
+	StartHeld *StartHold `json:"start_held,omitempty"`
 }
 
 // Completed reports a state past its lane's work: the work is waiting for acceptance or was
@@ -149,6 +152,8 @@ type Change struct {
 	ContractVersion int64 `json:"contract_version,omitempty"`
 	// PlanCommit is the commit intake read for an accepted plan.
 	PlanCommit string `json:"plan_commit,omitempty"`
+	// Hold is the reason a start is held, on EventStartHeld.
+	Hold *StartHold `json:"hold,omitempty"`
 }
 
 // EventType names the event of a transition.
@@ -293,6 +298,14 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 		current.PlanCommit = change.PlanCommit
 		return current, nil
 	}
+	if e.Type == EventStartHeld {
+		current.StartHeld = change.Hold
+		return current, nil
+	}
+	if e.Type == EventStartResolved {
+		current.StartHeld = nil
+		return current, nil
+	}
 	if change.Guarded {
 		if change.Fence != current.Fence {
 			return current, fmt.Errorf("%w: a write with fence %d under fence %d", ErrInvalid, change.Fence, current.Fence)
@@ -319,7 +332,7 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 			return w, fmt.Errorf("%w: grant at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
 		}
 		w.Fence, w.ClaimID, w.LeaseWorker = change.Fence, change.ClaimID, change.Worker
-		w.LeaseUntil = change.LeaseUntil
+		w.LeaseUntil, w.StartHeld = change.LeaseUntil, nil
 	case TriggerLaneStarted:
 		if change.Fence != w.Fence {
 			return w, fmt.Errorf("%w: lane started at fence %d under fence %d", ErrInvalid, change.Fence, w.Fence)
@@ -409,6 +422,7 @@ func Diff(a, b WorkOrder) []string {
 	note("reviews_plan", a.ReviewsPlan == b.ReviewsPlan)
 	note("review_pins", slices.Equal(a.ReviewPins, b.ReviewPins))
 	note("plan_commit", a.PlanCommit == b.PlanCommit)
+	note("start_held", sameHold(a.StartHeld, b.StartHeld))
 	return fields
 }
 
@@ -422,4 +436,11 @@ func sameNeeds(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func sameHold(a, b *StartHold) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

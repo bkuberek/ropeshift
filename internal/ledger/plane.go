@@ -161,6 +161,12 @@ type DesiredLease struct {
 	// generations whatever a later version of the contract says.
 	Contract        string `json:"contract,omitempty"`
 	ContractVersion int64  `json:"contract_version,omitempty"`
+	// BaseRef and BaseCommit are where this lane's branch begins, resolved when the claim was made. A
+	// worktree starts at the commit, so the branch under a lane never moves with the base (FR-BASE-1).
+	// Empty on a claim made before the control plane resolved starts, and then the worker begins the
+	// branch where its checkout is.
+	BaseRef    string `json:"base_ref,omitempty"`
+	BaseCommit string `json:"base_commit,omitempty"`
 	// Deadline is the work order's, in database time. Zero means it has none.
 	Deadline int64 `json:"deadline,omitempty"`
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with

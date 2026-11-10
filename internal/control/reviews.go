@@ -213,26 +213,33 @@ func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, a
 // unknown dependency, which is an answer and not an error.
 func dependencyFact(planned ports.PlanningReader, orders ports.WorkOrderReader, d planning.Dependency) (workorders.DependencyFact, error) {
 	fact := workorders.DependencyFact{Name: d.DependsOn, Blocking: d.Kind.Blocks()}
+	order, found, err := dependencyOrder(planned, orders, d)
+	if err != nil || !found {
+		return fact, err
+	}
+	fact.Known, fact.State = true, order.State
+	return fact, nil
+}
+
+// dependencyOrder finds the work order a dependency names. A name nothing holds yet is not found, which
+// is an answer and not an error.
+func dependencyOrder(planned ports.PlanningReader, orders ports.WorkOrderReader, d planning.Dependency) (workorders.WorkOrder, bool, error) {
 	id := d.DependsOn
 	if key, external := d.Key(); external {
 		link, err := planned.Link(workorders.SubjectKind, key)
 		if errors.Is(err, ports.ErrNotFound) {
-			return fact, nil
+			return workorders.WorkOrder{}, false, nil
 		}
 		if err != nil {
-			return fact, err
+			return workorders.WorkOrder{}, false, err
 		}
 		id = link.RecordID
 	}
 	order, err := orders.Get(id)
 	if errors.Is(err, ports.ErrNotFound) {
-		return fact, nil
+		return workorders.WorkOrder{}, false, nil
 	}
-	if err != nil {
-		return fact, err
-	}
-	fact.Known, fact.State = true, order.State
-	return fact, nil
+	return order, err == nil, err
 }
 
 // Promote moves every reviewed work order whose definition of ready now passes, after it passes the

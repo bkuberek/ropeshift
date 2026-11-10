@@ -22,3 +22,12 @@ CREATE TABLE repositories (
 
 -- The branch a work order names to start from, which overrides its repository's base branch.
 ALTER TABLE work_orders ADD COLUMN base TEXT;
+
+-- Why ready work is not claimed, as JSON: a dependency's work that is not merged yet, dependencies whose
+-- work diverged, or a base branch that could not be read. A granted claim clears it.
+ALTER TABLE work_orders ADD COLUMN start_held TEXT;
+
+-- Where a claim's lane began its branch: the ref a person reads it by, and the commit it named when the
+-- claim was made. Empty on a claim made before the base was resolved.
+ALTER TABLE claims ADD COLUMN base_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE claims ADD COLUMN base_commit TEXT NOT NULL DEFAULT '';

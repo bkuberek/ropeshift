@@ -53,6 +53,9 @@ type Config struct {
 	// Backup copies the ledger while it runs. Nil has none, as on Postgres, which a team backs up
 	// with its own tooling.
 	Backup ports.LedgerBackup
+	// Starts places the lane of every claim: the base it begins from, fetched, and the wait for the merge
+	// of the work it depends on. Nil places none, and a worker begins a branch where its checkout is.
+	Starts *control.Starts
 	// Panes is the worker's terminal as the web pane reaches it. Nil reaches none, as on a control
 	// plane whose worker has no tmux, and the pane's routes refuse.
 	Panes Panes
@@ -118,7 +121,7 @@ func newHandler(config Config) *handler {
 	return &handler{
 		Config:     config,
 		workOrders: control.NewWorkOrders(config.Store),
-		leases:     control.NewLeases(config.Store).Budgeted(config.PackTokens),
+		leases:     control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
 		reviews:    control.NewReviews(config.Store),
 		accepting:  control.NewAcceptances(config.Store),
 		questions:  control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
@@ -131,7 +134,7 @@ func newHandler(config Config) *handler {
 		effects:    control.NewEffects(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
-			PackTokens: config.PackTokens, Matcher: config.Matcher,
+			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts,
 		}),
 		notices: control.NewNotices(config.Store, func(authority.NotifyPolicy) []ports.Notifier { return nil }),
 	}
