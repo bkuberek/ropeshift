@@ -4,7 +4,6 @@
 package entry
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -80,7 +79,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 // cliOptions finds the local control plane. A path that does not resolve leaves the
 // socket empty, and the command reports it cannot reach anything.
 func cliOptions() cli.Options {
-	opts := cli.Options{Session: os.Getenv(authority.EnvMemberToken), ReadPassphrase: localauth.ReadPassphrase, WebAddress: webAddress(os.Getenv)}
+	opts := cli.Options{Session: os.Getenv(authority.EnvMemberToken), ReadPassphrase: localauth.ReadPassphrase}
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
 		opts.Terminal = os.Stdin
 	}
@@ -99,17 +98,6 @@ func cliOptions() cli.Options {
 	opts.StartDaemon = startDaemonForInit(paths)
 	opts.StateDir = paths.StateDir
 	return opts
-}
-
-// webAddress is where this machine's web UI answers, as the daemon reads its default: from the same
-// variable, which a service the daemon installed carries too. A daemon started with --web elsewhere is
-// not known here. A web UI that is off has no address.
-func webAddress(getenv func(string) string) string {
-	address := cmp.Or(getenv(api.EnvWeb), api.DefaultWebAddress)
-	if address == api.WebOff {
-		return ""
-	}
-	return address
 }
 
 // terminalPanes reaches the worker's private tmux server with the person's own terminal and

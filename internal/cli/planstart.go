@@ -35,7 +35,7 @@ type planStarted struct {
 	// Attach is the command that joins the session.
 	Attach string `json:"attach"`
 	// Web is the session's page in the web UI, which shows the same pane. It is empty when the web UI
-	// is off.
+	// is off, or when the daemon cannot say where it listens.
 	Web string `json:"web,omitempty"`
 }
 
@@ -236,16 +236,19 @@ func (c *invocation) openSession(client *api.Client, goal, repository, worker st
 	}
 	c.say("Lane %s started.\n", lane)
 	return planStarted{
-		WorkOrder: id, Lane: lane, Worker: worker, Repository: repository, Attach: program + " lane attach " + lane, Web: c.lanePage(lane),
+		WorkOrder: id, Lane: lane, Worker: worker, Repository: repository, Attach: program + " lane attach " + lane, Web: c.lanePage(client, lane),
 	}, ExitOK
 }
 
-// lanePage is a lane's page in the web UI, where its pane shows, or nothing when the web UI is off.
-func (c *invocation) lanePage(lane string) string {
-	if c.webAddress == "" {
+// lanePage is a lane's page in the web UI, where its pane shows, at the address the daemon says its web
+// UI bound. Only the daemon knows a port the kernel picked, so a daemon whose web UI is off, or that
+// cannot say, has no page named, rather than one at an address that may be wrong.
+func (c *invocation) lanePage(client *api.Client, lane string) string {
+	health, err := client.Health(c.ctx)
+	if err != nil || health.Web == "" {
 		return ""
 	}
-	return (&url.URL{Scheme: "http", Host: c.webAddress, Path: "/lane", RawQuery: url.Values{"id": {lane}}.Encode()}).String()
+	return (&url.URL{Scheme: "http", Host: health.Web, Path: "/lane", RawQuery: url.Values{"id": {lane}}.Encode()}).String()
 }
 
 // awaitPane waits until the new lane has a pane on this machine. The worker takes the lane, makes its

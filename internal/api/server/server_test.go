@@ -76,6 +76,20 @@ func TestHealthReadsTheStore(t *testing.T) {
 	wantRefused(t, err, http.StatusServiceUnavailable, api.CodeUnavailable)
 }
 
+// Health says where the web UI listens, so a command names a page at the address the daemon bound, and a
+// daemon with no web UI says none.
+func TestHealthSaysWhereTheWebUIListens(t *testing.T) {
+	d := apitest.StartWith(t, apitest.Options{WebAddress: "127.0.0.1:49152"})
+	health, err := d.Client.Health(t.Context())
+	if err != nil || health.Web != "127.0.0.1:49152" {
+		t.Errorf("health %+v: %v", health, err)
+	}
+	off, err := apitest.Start(t).Client.Health(t.Context())
+	if err != nil || off.Web != "" {
+		t.Errorf("a daemon with no web UI says %+v: %v", off, err)
+	}
+}
+
 func TestCreateListShow(t *testing.T) {
 	d := apitest.Start(t)
 	ctx := t.Context()
