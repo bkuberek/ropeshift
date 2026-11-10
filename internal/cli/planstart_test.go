@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,6 +37,8 @@ type installation struct {
 	laneReads   int
 	// opens is whether the worker opens the lane's pane once it reports.
 	opens bool
+	// web is the web UI's address, as this machine names it.
+	web string
 }
 
 func newInstallation(t *testing.T) *installation {
@@ -118,7 +121,7 @@ func (i *installation) start(t *testing.T, terminal bool, args ...string) (int, 
 	t.Cleanup(cli.PaneTiming(2*time.Millisecond, 400*time.Millisecond))
 	t.Cleanup(cli.FollowTiming(2*time.Millisecond, 100*time.Millisecond))
 	var stdout, stderr bytes.Buffer
-	opts := cli.Options{Socket: i.Socket, Panes: i.held}
+	opts := cli.Options{Socket: i.Socket, Panes: i.held, WebAddress: i.web}
 	if terminal {
 		opts.Terminal = strings.NewReader("")
 	}
@@ -236,6 +239,48 @@ func TestPlanStartWithNothingToAttachNamesTheCommand(t *testing.T) {
 				t.Errorf("waited for a pane nobody will attach to")
 			}
 		})
+	}
+}
+
+// The web UI shows the same pane, so a session nobody attached to names its page there too, and a
+// machine whose web UI is off names none.
+func TestPlanStartNamesTheSessionsPageInTheWebUI(t *testing.T) {
+	i := newInstallation(t)
+	i.web = "127.0.0.1:7317"
+	code, stdout, stderr := i.start(t, false, "--goal", "Build a billing portal")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	var lane api.StartLane
+	order := i.created(t)
+	if err := json.Unmarshal([]byte(i.bodies("POST", "/v1/work-orders/"+order.ID+"/lanes")[0]), &lane); err != nil {
+		t.Fatal(err)
+	}
+	if want := "http://127.0.0.1:7317/lane?id=" + url.QueryEscape(lane.LaneID); !strings.Contains(stdout, want) {
+		t.Errorf("no %s in:\n%s", want, stdout)
+	}
+	code, stdout, stderr = i.start(t, false, "--goal", "Build a billing portal", "--json")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	var out struct {
+		Lane string `json:"lane"`
+		Web  string `json:"web"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("%v: %q", err, stdout)
+	}
+	if out.Web != "http://127.0.0.1:7317/lane?id="+url.QueryEscape(out.Lane) {
+		t.Errorf("document %+v", out)
+	}
+
+	off := newInstallation(t)
+	code, stdout, stderr = off.start(t, false, "--goal", "Build a billing portal")
+	if code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if strings.Contains(stdout, "http://") {
+		t.Errorf("a machine with no web UI named a page:\n%s", stdout)
 	}
 }
 
