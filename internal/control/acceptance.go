@@ -255,8 +255,16 @@ func (a *Acceptances) waiting(ctx context.Context, scope ledger.WorkspaceID) ([]
 		if err != nil {
 			return err
 		}
+		reviewed := map[string]bool{}
 		for _, row := range rows {
-			if row.State != workorders.Acceptance {
+			if row.OpenReview() {
+				reviewed[row.Reviews] = true
+			}
+		}
+		for _, row := range rows {
+			// Work waits for its review. A member can still accept it or send it back, and a tick does
+			// neither until the review ends.
+			if row.State != workorders.Acceptance || reviewed[row.ID] {
 				continue
 			}
 			artifacts, err := tx.Evidence().Artifacts(row.ID)
@@ -400,4 +408,142 @@ func recordEvidence(tx ports.WriteTx, holder workorders.Holder, fence int64, res
 		}
 	}
 	return nil
+}
+
+// reviewActor is the control plane closing a review by rule: no lane and no worker accepts a thing.
+var reviewActor = ledger.Actor{Kind: ledger.ActorSystem, ID: "review"}
+
+// afterLaneEnd does what the end of a lane owes beyond moving its own work order, in the transaction that
+// moves it. A change or a rework that completed leaves a review of its commit. A review's lane leaves its
+// worktree to be taken away, whichever way it ended, and a review that completed is done: what it judged
+// is the reviewed work's to decide, and a review is not reviewed.
+func afterLaneEnd(tx ports.WriteTx, ended workorders.WorkOrder, holder workorders.Holder, result workorders.LaneResult, actor ledger.Actor) error {
+	if ended.Kind == workorders.KindReview {
+		if err := discardLane(tx, holder.Lane); err != nil {
+			return err
+		}
+		if result.Outcome != workorders.OutcomeCompleted {
+			return nil
+		}
+		return closeReview(tx, ended.ID)
+	}
+	if result.Outcome != workorders.OutcomeCompleted {
+		return nil
+	}
+	return openReview(tx, ended, ended.Fence+1, actor)
+}
+
+// openReview makes the review of an attempt that completed at fence, and says nothing when the attempt
+// left no commit: there is nothing for a review to read.
+func openReview(tx ports.WriteTx, reviewed workorders.WorkOrder, fence int64, actor ledger.Actor) error {
+	if reviewed.Kind != workorders.KindChange && reviewed.Kind != workorders.KindRework {
+		return nil
+	}
+	artifacts, err := tx.Evidence().Artifacts(reviewed.ID)
+	if err != nil {
+		return err
+	}
+	if attemptBranch(artifacts, fence).Digest == "" {
+		return nil
+	}
+	id, err := newID(tx.Now())
+	if err != nil {
+		return err
+	}
+	review, err := workorders.NewReview(id, reviewed, fence)
+	if err != nil {
+		return err
+	}
+	if err := tx.WorkOrders().Insert(review); err != nil {
+		return err
+	}
+	event, err := workorders.CreatedEvent(review, actor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(event)
+	return err
+}
+
+// closeReview moves a review whose lane completed to `done`, by the edge every accepted work order takes.
+func closeReview(tx ports.WriteTx, id string) error {
+	current, err := tx.WorkOrders().Get(id)
+	if err != nil {
+		return err
+	}
+	assessment, err := assessAttempt(tx.Planning(), tx.Evidence(), current)
+	if err != nil {
+		return err
+	}
+	return accept(tx, id, assessment, reviewActor, func() {})
+}
+
+// discardLane asks the worker that ran a lane to take its worktree away, whatever it holds. A review
+// lane's worktree is a checkout with no branch, so there is nothing in it to save.
+func discardLane(tx ports.WriteTx, lane string) error {
+	if err := tx.Lanes().RequestArchive(lane, true); err != nil {
+		return err
+	}
+	_, err := tx.Append(ledger.EventDraft{
+		Type: ledger.EventLaneArchiveRequested, Actor: reviewActor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: lane},
+	})
+	return err
+}
+
+// refuseOwnWork keeps a review from a lane of the work it judges: an agent does not review what it wrote
+// (FR-REVIEW-5). A lane that does not exist yet is nobody's.
+func refuseOwnWork(tx ports.WriteTx, order workorders.WorkOrder, lane string) error {
+	if order.Kind != workorders.KindReview {
+		return nil
+	}
+	row, err := tx.Lanes().Row(lane)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return nil
+	case err != nil:
+		return err
+	case row.WorkOrder == order.Reviews:
+		return fmt.Errorf("%w: lane %s ran %s, the work this review judges", workorders.ErrForbidden, lane, order.Reviews)
+	}
+	return nil
+}
+
+// reviewStart is where a review's lane begins: the commit the reviewed attempt ended at, on the branch it
+// left. Nothing of it comes from git, so it cannot move with a base branch.
+func reviewStart(tx ports.ReadTx, review workorders.WorkOrder) (workorders.Start, *workorders.StartHold, error) {
+	artifacts, err := tx.Evidence().Artifacts(review.Reviews)
+	if err != nil {
+		return workorders.Start{}, nil, err
+	}
+	branch := attemptBranch(artifacts, review.ReviewsFence)
+	if branch.Digest == "" {
+		return workorders.Start{}, unavailable("the commit under review is not on record: %s left no branch at attempt %d", review.Reviews, review.ReviewsFence), nil
+	}
+	return workorders.Start{Ref: branch.URI, Commit: branch.Digest}, nil, nil
+}
+
+// desiredAttempt tells a review lane's worker what it judges: the attempt, its commit, and where the
+// lane that made it began, which the diff reads from.
+func desiredAttempt(tx ports.ReadTx, review workorders.WorkOrder) (*ledger.DesiredAttempt, error) {
+	if review.Kind != workorders.KindReview {
+		return nil, nil
+	}
+	reviewed, err := tx.WorkOrders().Get(review.Reviews)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, err := tx.Evidence().Artifacts(review.Reviews)
+	if err != nil {
+		return nil, err
+	}
+	branch := attemptBranch(artifacts, review.ReviewsFence)
+	attempt := &ledger.DesiredAttempt{WorkOrder: reviewed.ID, Title: reviewed.Title, Branch: branch.URI, Commit: branch.Digest}
+	claim, err := tx.Claims().OfLane(branch.Lane)
+	switch {
+	case err == nil:
+		attempt.BaseRef, attempt.BaseCommit = claim.BaseRef, claim.BaseCommit
+	case !errors.Is(err, ports.ErrNotFound):
+		return nil, err
+	}
+	return attempt, nil
 }

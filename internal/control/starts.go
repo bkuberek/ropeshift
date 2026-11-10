@@ -219,13 +219,13 @@ func (l *Leases) Starting(starts *Starts) *Leases {
 // startOf resolves the start of a claim before the claim's transaction, because git can take as long as
 // a network does and a transaction holds the workspace. Work that is not ready, has no repository, or
 // brings a parked lane back resolves nothing here: the claim itself refuses the first, and the others
-// have no new branch to place. A start that must wait is recorded and refused.
+// have no new branch to place. A start that must wait is recorded and refused. A review starts at the
+// commit it judges, which the ledger holds, so it needs no git and no Starts.
 func (l *Leases) startOf(ctx context.Context, scope ledger.WorkspaceID, request workorders.ClaimRequest, actor ledger.Actor) (workorders.Start, error) {
-	if l.starts == nil {
-		return workorders.Start{}, nil
-	}
 	var in startInput
-	var needed bool
+	var needed, fromLedger bool
+	var start workorders.Start
+	var hold *workorders.StartHold
 	err := l.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		if _, err := tx.Claims().Find(request.ClaimID); err == nil || !errors.Is(err, ports.ErrNotFound) {
 			return err
@@ -240,14 +240,27 @@ func (l *Leases) startOf(ctx context.Context, scope ledger.WorkspaceID, request 
 		if order.State != workorders.Ready || order.RepositoryID == "" || order.ResumeLaneID != "" {
 			return nil
 		}
+		in.order = order
+		if order.Kind == workorders.KindReview {
+			fromLedger = true
+			start, hold, err = reviewStart(tx, order)
+			return err
+		}
+		if l.starts == nil {
+			return nil
+		}
 		needed = true
 		in, err = startFacts(tx, order)
 		return err
 	})
-	if err != nil || !needed {
+	if err != nil {
 		return workorders.Start{}, err
 	}
-	start, hold := l.starts.decide(ctx, in, newPass())
+	if needed {
+		start, hold = l.starts.decide(ctx, in, newPass())
+	} else if !fromLedger {
+		return workorders.Start{}, nil
+	}
 	if hold != nil {
 		if _, err := l.setHold(ctx, scope, in.order.ID, hold, actor); err != nil {
 			return workorders.Start{}, err

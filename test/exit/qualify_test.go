@@ -106,12 +106,8 @@ func TestAnUpgradeIsProbedBeforeWorkRuns(t *testing.T) {
 
 	doubles.SetFakeClaudeVersion(t, in.path, "2.1.400")
 	repo.Commit("beta.md", contract.ContractText("beta", "Beta", "Add the second budget."))
-	var second string
-	for _, other := range in.workOrders(2) {
-		if other != id {
-			second = other
-		}
-	}
+	// The first lane's end left a review beside its work, so the ledger holds three.
+	second := in.workOrders(3)["The work order of beta"]
 	in.must("work", "review", second)
 	in.must("work", "claim", second, "--worker", in.workers()[0].ID, "--claim-id", "c2")
 	in.must("lane", "start", second, "--lane", "lane-2")

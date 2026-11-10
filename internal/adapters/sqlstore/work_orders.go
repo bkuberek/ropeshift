@@ -44,11 +44,15 @@ var (
    AND lease_worker = :worker
  ORDER BY id`)
 
+	// stmtWorkOrdersByContract reads the work a contract planned. A review pins the contract of the work it
+	// judges, and is no part of that plan: it must not be re-pinned to a new version, counted in a
+	// milestone, or held by a question about the contract.
 	stmtWorkOrdersByContract = define("work_order.by_contract",
 		`SELECT `+workOrderColumns+`
   FROM work_orders
  WHERE workspace_id = :workspace_id
    AND contract_id = :contract_id
+   AND kind <> 'review'
  ORDER BY id`)
 
 	stmtInsertWorkOrder = define("work_order.insert",

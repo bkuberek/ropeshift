@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -223,4 +224,59 @@ func TestGoldenWebRoutes(t *testing.T) {
 // can hold the page's buttons to it.
 func TestGoldenPaneKeys(t *testing.T) {
 	holdsGolden(t, "pane-keys", pretty(t, api.PaneKeys))
+}
+
+// A review pins the contract of the work it judges, which puts it under the plan that contract belongs
+// to. It is no part of that plan: it counts in no milestone, lies in no layer, is on no critical path,
+// and is not planned work in a plan's list, and the plan holds it so it is not listed as unplanned.
+func TestAReviewIsNoPartOfThePlanItsContractBelongsTo(t *testing.T) {
+	d := aDetailedWorld(t)
+	ready, err := d.Client.WorkOrders(t.Context(), workorders.Ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews := 0
+	for _, order := range ready {
+		if order.Kind == workorders.KindReview {
+			reviews++
+		}
+	}
+	if reviews == 0 {
+		t.Fatal("the world holds no review, so this proves nothing")
+	}
+
+	plans := readView[api.Plans](t, d, api.ViewPlans, "")
+	planned := 0
+	for _, plan := range plans.Plans {
+		for _, order := range plan.WorkOrders {
+			planned++
+			if order.Kind == workorders.KindReview {
+				t.Errorf("plan %s lists the review %s as its work", plan.Plan.Title, order.ID)
+			}
+		}
+	}
+	for _, order := range plans.Unplanned {
+		if order.Kind == workorders.KindReview {
+			t.Errorf("the review %s is listed as unplanned", order.ID)
+		}
+	}
+
+	roadmap := readView[api.Roadmap](t, d, api.ViewRoadmap, "")
+	counted := 0
+	for _, goal := range roadmap.Goals {
+		for _, plan := range goal.Plans {
+			counted += len(plan.Work)
+			if int(plan.Total) != len(plan.Work) {
+				t.Errorf("plan %s counts %d work orders and lists %d", plan.Plan.Title, plan.Total, len(plan.Work))
+			}
+			for _, work := range plan.Work {
+				if strings.HasPrefix(work.Title, "Review: ") {
+					t.Errorf("plan %s lists %q as work", plan.Plan.Title, work.Title)
+				}
+			}
+		}
+	}
+	if counted != planned {
+		t.Errorf("the roadmap lists %d work orders of plans and the plans view %d", counted, planned)
+	}
 }

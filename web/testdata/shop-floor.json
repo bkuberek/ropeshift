@@ -344,7 +344,7 @@
       "worker_id": "worker-a"
     }
   ],
-  "revision": 313,
+  "revision": 316,
   "workers": [
     {
       "freshness": "last_reported",
