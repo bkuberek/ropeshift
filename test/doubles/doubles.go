@@ -105,6 +105,7 @@ func Binary(dir, name, pkg string, tags ...string) (string, error) {
 		if _, err := os.Stat(path); err != nil {
 			return "", fmt.Errorf("the prebuilt %s: %w", name, err)
 		}
+		warm(path)
 		return path, nil
 	}
 	path := filepath.Join(dir, name)
@@ -117,7 +118,22 @@ func Binary(dir, name, pkg string, tags ...string) (string, error) {
 	if out, err := build.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build %s: %v\n%s", pkg, err, out)
 	}
+	warm(path)
 	return path, nil
+}
+
+// warmLimit bounds the one run that warm makes of a binary.
+const warmLimit = 2 * time.Minute
+
+// warm runs a binary once and ignores how it ends. On macOS the first run of a new
+// binary waits while the system checks the file, and those checks run one at a time
+// across the machine, so under a full parallel test run the wait can outlast a product
+// deadline such as the shim's start limit. Paying it here, before any deadline starts,
+// keeps that cost out of the tests.
+func warm(path string) {
+	ctx, cancel := context.WithTimeout(context.Background(), warmLimit)
+	defer cancel()
+	_ = exec.CommandContext(ctx, path, "--version").Run()
 }
 
 func buildFakeClaude() (string, error) {
