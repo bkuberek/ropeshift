@@ -49,6 +49,13 @@ type rig struct {
 	offset *atomic.Int64
 	// kind is the next work order's, and a change when it is empty.
 	kind workorders.Kind
+	// repository is the next work order's, and none when it is empty.
+	repository string
+	// starts places the lane of the next claim. Nil places none.
+	starts *control.Starts
+	// worktrees is the one a lane rig gives its worker, so a test that builds history in it reads what
+	// the worker made from it. Nil gives the worker a worktrees store of its own.
+	worktrees *fake.Worktrees
 }
 
 func newRig(t *testing.T) *rig {
@@ -178,7 +185,7 @@ func (r *rig) claimFor(id, worker string) workorders.Grant {
 		kind = workorders.KindChange
 	}
 	_, err := control.NewWorkOrders(r.store).Record(ctx, scope, control.LedgerWork{
-		Order:    workorders.WorkOrder{ID: id, Kind: kind, Title: "T", Deadline: r.deadline},
+		Order:    workorders.WorkOrder{ID: id, Kind: kind, Title: "T", Deadline: r.deadline, RepositoryID: r.repository},
 		Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
 	}, member)
 	if err != nil {
@@ -187,7 +194,7 @@ func (r *rig) claimFor(id, worker string) workorders.Grant {
 	if _, err := control.NewReviews(r.store).Pass(ctx, scope, id, member); err != nil {
 		r.t.Fatal(err)
 	}
-	grant, err := control.NewLeases(r.store).Claim(ctx, scope, workorders.ClaimRequest{
+	grant, err := control.NewLeases(r.store).Starting(r.starts).Claim(ctx, scope, workorders.ClaimRequest{
 		WorkOrder: id, ClaimID: "claim-" + id, Worker: worker, TTLMs: 60_000,
 	}, member)
 	if err != nil {
