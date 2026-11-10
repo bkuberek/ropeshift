@@ -1,30 +1,65 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "lanes": [
     {
       "actual_state": "ended",
       "artifacts": [
         {
-          "created_at": 1790000240001,
+          "created_at": 1790000184000,
           "digest": "abc123",
           "fence": 2,
           "id": "generated-1",
           "kind": "branch",
-          "lane_id": "lane-wo-accept",
-          "uri": "lane/lane-wo-accept"
+          "lane_id": "lane-generated-2",
+          "uri": "lane/lane-generated-2"
         }
       ],
-      "as_of": 1790000240001,
+      "as_of": 1790000184000,
       "freshness": "observed",
       "generation": 1,
       "generations": [
         {
           "end_reason": "completed",
-          "ended_at": 1790000240001,
+          "ended_at": 1790000184000,
+          "lane_id": "lane-generated-2",
+          "number": 1,
+          "start_reason": "initial",
+          "started_at": 1790000184000
+        }
+      ],
+      "id": "lane-generated-2",
+      "ledger_reach": "unknown",
+      "liveness": "dead",
+      "model_reach": "unknown",
+      "reported_by_epoch": 1,
+      "work_order": "generated-2",
+      "work_order_title": "Write the API client",
+      "worker_id": "worker-a"
+    },
+    {
+      "actual_state": "ended",
+      "artifacts": [
+        {
+          "created_at": 1790000424001,
+          "digest": "abc123",
+          "fence": 2,
+          "id": "generated-3",
+          "kind": "branch",
+          "lane_id": "lane-wo-accept",
+          "uri": "lane/lane-wo-accept"
+        }
+      ],
+      "as_of": 1790000424001,
+      "freshness": "observed",
+      "generation": 1,
+      "generations": [
+        {
+          "end_reason": "completed",
+          "ended_at": 1790000424001,
           "lane_id": "lane-wo-accept",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000240001
+          "started_at": 1790000424001
         }
       ],
       "id": "lane-wo-accept",
@@ -38,7 +73,7 @@
     },
     {
       "actual_state": "working",
-      "as_of": 1790000300001,
+      "as_of": 1790000484001,
       "freshness": "last_reported",
       "generation": 1,
       "generations": [
@@ -46,7 +81,7 @@
           "lane_id": "lane-wo-approval",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000300001
+          "started_at": 1790000484001
         }
       ],
       "id": "lane-wo-approval",
@@ -62,26 +97,26 @@
       "actual_state": "ended",
       "artifacts": [
         {
-          "created_at": 1790000120001,
+          "created_at": 1790000304001,
           "digest": "abc123",
           "fence": 2,
-          "id": "generated-2",
+          "id": "generated-4",
           "kind": "branch",
           "lane_id": "lane-wo-blocked",
           "uri": "lane/lane-wo-blocked"
         }
       ],
-      "as_of": 1790000120001,
+      "as_of": 1790000304001,
       "freshness": "observed",
       "generation": 1,
       "generations": [
         {
           "end_reason": "blocked",
-          "ended_at": 1790000120001,
+          "ended_at": 1790000304001,
           "lane_id": "lane-wo-blocked",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000120001
+          "started_at": 1790000304001
         }
       ],
       "id": "lane-wo-blocked",
@@ -97,34 +132,34 @@
       "actual_state": "ended",
       "artifacts": [
         {
-          "created_at": 1790000660001,
+          "created_at": 1790000844001,
           "digest": "abc123",
           "fence": 2,
-          "id": "generated-3",
+          "id": "generated-5",
           "kind": "branch",
           "lane_id": "lane-wo-done",
           "uri": "lane/lane-wo-done"
         },
         {
-          "created_at": 1790000660001,
+          "created_at": 1790000844001,
           "fence": 2,
-          "id": "generated-4",
+          "id": "generated-6",
           "kind": "report",
           "lane_id": "lane-wo-done",
           "uri": "javascript:alert(3)"
         }
       ],
-      "as_of": 1790000660001,
+      "as_of": 1790000844001,
       "freshness": "observed",
       "generation": 1,
       "generations": [
         {
           "end_reason": "completed",
-          "ended_at": 1790000660001,
+          "ended_at": 1790000844001,
           "lane_id": "lane-wo-done",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000660001
+          "started_at": 1790000844001
         }
       ],
       "id": "lane-wo-done",
@@ -138,7 +173,7 @@
     },
     {
       "actual_state": "working",
-      "as_of": 1790000180001,
+      "as_of": 1790000364001,
       "freshness": "last_reported",
       "generation": 1,
       "generations": [
@@ -146,7 +181,7 @@
           "lane_id": "lane-wo-effect",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000180001
+          "started_at": 1790000364001
         }
       ],
       "id": "lane-wo-effect",
@@ -162,26 +197,26 @@
       "actual_state": "ended",
       "artifacts": [
         {
-          "created_at": 1790000720001,
+          "created_at": 1790000904001,
           "digest": "def456",
           "fence": 2,
-          "id": "generated-5",
+          "id": "generated-7",
           "kind": "branch",
           "lane_id": "lane-wo-failed",
           "uri": "lane/lane-wo-failed"
         }
       ],
-      "as_of": 1790000720001,
+      "as_of": 1790000904001,
       "freshness": "observed",
       "generation": 1,
       "generations": [
         {
           "end_reason": "failed",
-          "ended_at": 1790000720001,
+          "ended_at": 1790000904001,
           "lane_id": "lane-wo-failed",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000720001
+          "started_at": 1790000904001
         }
       ],
       "id": "lane-wo-failed",
@@ -195,7 +230,7 @@
     },
     {
       "actual_state": "working",
-      "as_of": 1790000000000,
+      "as_of": 1790000184000,
       "freshness": "last_reported",
       "generation": 1,
       "generations": [
@@ -203,7 +238,7 @@
           "lane_id": "lane-wo-lapsed",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000000000
+          "started_at": 1790000184000
         }
       ],
       "id": "lane-wo-lapsed",
@@ -217,17 +252,17 @@
     },
     {
       "actual_state": "parked",
-      "as_of": 1790000480001,
+      "as_of": 1790000664001,
       "freshness": "observed",
       "generation": 1,
       "generations": [
         {
           "end_reason": "parked",
-          "ended_at": 1790000480001,
+          "ended_at": 1790000664001,
           "lane_id": "lane-wo-parked",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000480001
+          "started_at": 1790000664001
         }
       ],
       "id": "lane-wo-parked",
@@ -241,7 +276,7 @@
     },
     {
       "actual_state": "working",
-      "as_of": 1790000540001,
+      "as_of": 1790000724001,
       "freshness": "last_reported",
       "generation": 1,
       "generations": [
@@ -249,7 +284,7 @@
           "lane_id": "lane-wo-running",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000540001
+          "started_at": 1790000724001
         }
       ],
       "id": "lane-wo-running",
@@ -263,7 +298,7 @@
     },
     {
       "actual_state": "working",
-      "as_of": 1790000540001,
+      "as_of": 1790000724001,
       "conditions": [
         "stalled"
       ],
@@ -274,7 +309,7 @@
           "lane_id": "lane-wo-stalled",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000540001
+          "started_at": 1790000724001
         }
       ],
       "id": "lane-wo-stalled",
@@ -288,7 +323,7 @@
     },
     {
       "actual_state": "tripped",
-      "as_of": 1790000540001,
+      "as_of": 1790000724001,
       "freshness": "last_reported",
       "generation": 1,
       "generations": [
@@ -296,7 +331,7 @@
           "lane_id": "lane-wo-tripped",
           "number": 1,
           "start_reason": "initial",
-          "started_at": 1790000540001
+          "started_at": 1790000724001
         }
       ],
       "id": "lane-wo-tripped",
@@ -309,7 +344,7 @@
       "worker_id": "worker-a"
     }
   ],
-  "revision": 206,
+  "revision": 313,
   "workers": [
     {
       "freshness": "last_reported",

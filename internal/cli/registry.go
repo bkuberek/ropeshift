@@ -84,6 +84,7 @@ func registry() []section {
 			command("document list", "", "list documents, each with its digest", (*invocation).documentList),
 			command("document show", "<path> [--version V] [--instance I]", "show one document", (*invocation).documentShow),
 			command("document versions", "<path> [--instance I]", "list one document's versions", (*invocation).documentVersions),
+			command("document recorded", "<kind>:<id> [--version N]", "show a planning document's version as the ledger stored it", (*invocation).documentRecorded),
 			command("source list", "", "list sources and their health", (*invocation).sourceList),
 		}},
 		{"Lanes and messages", []registered{

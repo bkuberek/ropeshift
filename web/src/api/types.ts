@@ -34,6 +34,9 @@ export type Approval = {
   state: string;
   raised_at?: number;
   expires_at?: number;
+  // A plan approval names the plan and the version it is bound to.
+  plan_id?: string;
+  plan_version?: number;
 };
 
 export type EffectOutcome = "happened" | "not_happened" | "retry";
@@ -112,6 +115,29 @@ export type WorkNeed = {
   actions: (WorkAction | OrchestratorAction)[];
 };
 
+export type DraftDecision = { id: string; question: string; answer: string; rationale?: string; blocking?: boolean };
+
+export type PartDifference = { added?: string[]; changed?: string[]; removed?: string[] };
+
+export type ContractDifference = { ref: string; criteria: PartDifference; work_orders: PartDifference };
+
+// How a plan version differs from the last one a member approved. Base is zero when none was approved.
+export type Difference = { base?: number; added?: string[]; changed?: string[]; removed?: string[]; contracts?: ContractDifference[] };
+
+export type PlanApprovalNeed = {
+  approval: Approval;
+  title: string;
+  version: number;
+  requested_by: string;
+  counts: Record<string, number>;
+  decisions: number;
+  drafts: DraftDecision[];
+  difference: Difference;
+  summary: string;
+};
+
+export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
+
 export type NeedItem = {
   id: string;
   since: number;
@@ -120,6 +146,8 @@ export type NeedItem = {
   | { kind: "approval"; approval: Approval }
   | { kind: "effect"; effect: Effect }
   | { kind: "work"; work: WorkNeed }
+  | { kind: "plan_approval"; plan_approval: PlanApprovalNeed }
+  | { kind: "contract_review"; contract_review: ContractReviewNeed }
 );
 
 export type NeedsYou = Stamp & { items: NeedItem[] };
@@ -128,7 +156,37 @@ export type Goal = { id: string; title: string; status: string; statement?: stri
 
 export type Plan = { id: string; goal_id?: string; title: string; status: string; source?: string };
 
-export type PlanProgress = { plan: Plan; total: number; done: number; states: Record<string, number> };
+export type ExitCriterion = { id: string; text: string };
+
+// A milestone's state comes from its work and the milestones it depends on.
+export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done";
+
+export type MilestoneProgress = {
+  id: string;
+  title: string;
+  priority: number;
+  depends_on: string[];
+  exit_criteria: ExitCriterion[];
+  total: number;
+  done: number;
+  state: MilestoneState;
+};
+
+export type CriticalPath = { work_orders: string[]; weight: number };
+
+export type PlannedWork = { id: string; title: string; state: string; size?: string; milestone?: string };
+
+// Layers group a plan's work orders by how much must come before each, so one layer's work can run at once.
+export type PlanProgress = {
+  plan: Plan;
+  total: number;
+  done: number;
+  states: Record<string, number>;
+  milestones: MilestoneProgress[];
+  layers: string[][];
+  critical_path: CriticalPath;
+  work: PlannedWork[];
+};
 
 export type GoalProgress = { goal?: Goal; plans: PlanProgress[] };
 
@@ -195,11 +253,47 @@ export type DocumentRow = {
   digest: string;
   source: string;
   body?: string;
+  // The planning document the ledger recorded from this file, when a plan holds it.
+  record?: string;
 };
 
 export type Requirement = { id: string; version: number; key: string; text: string; source?: string; digest: string };
 
-export type Documents = Stamp & { documents: DocumentRow[]; requirements: Requirement[] };
+// Where a version of a planning document stands in review: covered by a plan version a member approved,
+// listed by one whose approval waits, or neither.
+export type ReviewState = "approved" | "pending" | "none";
+
+export type RecordedVersion = {
+  version: number;
+  digest: string;
+  source?: string;
+  recorded_at: number;
+  review: ReviewState;
+  plan_version?: number;
+};
+
+// A planning document intake recorded from a plan's files, with every version, newest first.
+export type RecordedDocument = { id: string; kind: string; title: string; path?: string; versions: RecordedVersion[] };
+
+export type TracedWork = { id: string; title: string; state: string };
+
+export type TracedCriterion = {
+  contract: string;
+  contract_title: string;
+  contract_version: number;
+  criterion: string;
+  text: string;
+  work_orders: TracedWork[];
+};
+
+export type RequirementTrace = { key: string; text: string; document: string; criteria: TracedCriterion[] };
+
+export type PlanDocuments = { plan: Plan; documents: RecordedDocument[]; requirements: RequirementTrace[] };
+
+export type Documents = Stamp & { documents: DocumentRow[]; requirements: Requirement[]; plans: PlanDocuments[] };
+
+// One version of a planning document with the body the ledger stored.
+export type RecordedRead = { as_of: number; document: RecordedDocument; plan?: Plan; version: RecordedVersion; body: string };
 
 export type DocumentRef = { path: string; instance?: string; version?: string };
 

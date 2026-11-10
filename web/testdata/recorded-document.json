@@ -1,0 +1,43 @@
+{
+  "as_of": 1790000964001,
+  "document": {
+    "id": "spec:factory-api",
+    "kind": "spec",
+    "title": "The factory API",
+    "path": "plans/factory/spec-api.md",
+    "versions": [
+      {
+        "version": 2,
+        "digest": "sha256:5fdda22e9e2807cbae132b1a8d4c6a5ecc59eb622f53da16476172202a02b77e",
+        "source": "plans/factory/spec-api.md@16",
+        "recorded_at": 1790000964001,
+        "review": "pending",
+        "plan_version": 6
+      },
+      {
+        "version": 1,
+        "digest": "sha256:cd2ff1c8dfea4c91782f67156f10c6f5a6c5fb2a0cf12033394b9704788520c7",
+        "source": "plans/factory/spec-api.md@7",
+        "recorded_at": 1790000060000,
+        "review": "approved",
+        "plan_version": 5
+      }
+    ]
+  },
+  "plan": {
+    "id": "generated-1",
+    "goal_id": "generated-2",
+    "title": "The factory floor",
+    "status": "active",
+    "source": "plans/factory/plan.md@16"
+  },
+  "version": {
+    "version": 2,
+    "digest": "sha256:5fdda22e9e2807cbae132b1a8d4c6a5ecc59eb622f53da16476172202a02b77e",
+    "source": "plans/factory/spec-api.md@16",
+    "recorded_at": 1790000964001,
+    "review": "pending",
+    "plan_version": 6
+  },
+  "body": "# The factory API\n\nA client reads the roadmap and approves a plan.\n\n## Approvals\n\nAn approval binds to the plan's digest.\n"
+}

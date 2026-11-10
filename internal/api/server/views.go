@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -356,7 +357,11 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		switch {
 		case !approvals[i].Open():
 		case approvals[i].Kind == authority.KindPlan:
-			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: planApprovalNeed(approvals[i])})
+			need, err := planApprovalNeed(tx.Planning(), approvals[i])
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: need})
 		default:
 			items = append(items, api.NeedItem{Kind: api.NeedApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, Approval: &approvals[i]})
 		}
@@ -403,17 +408,26 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 	return items, nil
 }
 
-// planApprovalNeed is what a member reads of a plan version they are asked to approve.
-func planApprovalNeed(a authority.Approval) *api.PlanApprovalNeed {
+// planApprovalNeed is what a member reads of a plan version they are asked to approve, with the answers
+// the version drafts. A version the ledger no longer holds drafts nothing a member could read.
+func planApprovalNeed(planned ports.PlanningReader, a authority.Approval) (*api.PlanApprovalNeed, error) {
 	detail := api.PlanDetailOf(a)
 	counts := detail.Counts
 	if counts == nil {
 		counts = map[string]int{}
 	}
+	drafts := []planning.DraftDecision{}
+	version, err := planned.PlanVersion(a.Plan, a.PlanVersion)
+	switch {
+	case err == nil:
+		drafts = nonNil(version.Decisions)
+	case !errors.Is(err, ports.ErrNotFound):
+		return nil, err
+	}
 	return &api.PlanApprovalNeed{
 		Approval: a, Title: detail.Title, Version: a.PlanVersion, RequestedBy: a.RequestedBy, Counts: counts, Decisions: detail.Decisions,
-		Difference: detail.Difference, Summary: detail.Difference.Summary(),
-	}
+		Drafts: drafts, Difference: detail.Difference, Summary: detail.Difference.Summary(),
+	}, nil
 }
 
 // contractReviewNeeds lists the work whose contract waits for a member's review and that no plan
@@ -443,7 +457,7 @@ func contractReviewNeeds(tx ports.ReadTx, orders []workorders.WorkOrder) ([]api.
 		}
 		items = append(items, api.NeedItem{
 			Kind: api.NeedContractReview, ID: orders[i].ID, Since: since,
-			ContractReview: &api.ContractReviewNeed{WorkOrder: orders[i], Contract: contract.Title, Version: contract.Version},
+			ContractReview: &api.ContractReviewNeed{WorkOrder: orders[i], Contract: contract.Title, Version: contract.Version, Plan: contract.PlanID},
 		})
 	}
 	return items, nil
@@ -521,7 +535,7 @@ func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp)
 	for _, plan := range plans {
 		progress[plan.ID] = &api.PlanProgress{
 			Plan: plan, States: map[workorders.State]int64{}, Milestones: []api.MilestoneProgress{}, Layers: [][]string{},
-			CriticalPath: api.CriticalPath{WorkOrders: []string{}},
+			CriticalPath: api.CriticalPath{WorkOrders: []string{}}, Work: []api.PlannedWork{},
 		}
 	}
 	if err := layOutPlans(tx.Planning(), progress, contracts, orders); err != nil {
@@ -584,6 +598,11 @@ func layOutPlans(planned ports.PlanningReader, progress map[string]*api.PlanProg
 			return err
 		}
 		row.Layers, row.CriticalPath = layersOf(held, waits)
+		for _, order := range held {
+			row.Work = append(row.Work, api.PlannedWork{
+				ID: order.ID, Title: order.Title, State: order.State, Size: order.Size, Milestone: placed[order.ContractID].milestone,
+			})
+		}
 	}
 	return nil
 }
@@ -827,7 +846,8 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 }
 
 // serveDocuments lists the sources before it opens a read, because a source runs a subprocess for each
-// file, and nothing that slow belongs inside a read of the ledger.
+// file, and nothing that slow belongs inside a read of the ledger. A file a plan recorded names its
+// record, which the view lists with every version beside how the plan's requirements trace to work.
 func (h *handler) serveDocuments(w http.ResponseWriter, r *http.Request) {
 	listed := []api.Document{}
 	for _, source := range h.Knowledge {
@@ -841,7 +861,11 @@ func (h *handler) serveDocuments(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.serveView(w, r, func(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
-		view := api.Documents{Stamp: stamp, Documents: listed, Requirements: []planning.Requirement{}}
+		plans, err := recordedPlans(tx)
+		if err != nil {
+			return nil, err
+		}
+		view := api.Documents{Stamp: stamp, Documents: markRecorded(listed, plans), Requirements: []planning.Requirement{}, Plans: plans}
 		versions, err := tx.Planning().Requirements()
 		if err != nil {
 			return nil, err

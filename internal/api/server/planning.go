@@ -28,6 +28,7 @@ func (h *handler) planningRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/documents", h.listDocuments)
 	mux.HandleFunc("GET /v1/documents/read", h.readDocument)
 	mux.HandleFunc("GET /v1/documents/versions", h.documentVersions)
+	mux.HandleFunc("GET /v1/documents/recorded", h.readRecorded)
 }
 
 func (h *handler) listPlans(w http.ResponseWriter, r *http.Request) {

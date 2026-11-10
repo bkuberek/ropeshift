@@ -24,6 +24,9 @@ function itemOf<K extends NeedItem["kind"]>(view: View, kind: K): Extract<NeedIt
   return found as Extract<NeedItem, { kind: K }>;
 }
 
+// item matches the label that leads a line of a difference, such as "Added".
+const item = (label: string) => (_: string, element: Element | null) => element?.tagName === "LI" && (element.firstChild?.textContent ?? "") === label;
+
 function cardNamed(name: RegExp) {
   return screen.getByRole("article", { name });
 }
@@ -484,6 +487,154 @@ describe("waiting work", () => {
   });
 });
 
+describe("a plan approval", () => {
+  const planView = () => {
+    const view = goldenNeedsYou();
+    return { view, item: itemOf(view, "plan_approval") };
+  };
+  const card = () => cardNamed(/^Approve The factory floor/);
+
+  it("names the plan, its version, who asked, and what it holds", () => {
+    const { view, item } = planView();
+    show(view);
+    const shown = card();
+    expect(within(shown).getByRole("heading", { level: 2 }).textContent).toBe("Approve The factory floor, version 6?");
+    expect(within(shown).getByText("system:intake")).toBeTruthy();
+    const holds = within(shown).getByRole("list", { name: "What it holds" });
+    expect(holds.textContent).toContain("4 contracts");
+    expect(holds.textContent).toContain("3 milestones");
+    expect(holds.textContent).toContain("1 spec");
+    expect(holds.textContent).toContain("1 requirements document");
+    expect(holds.textContent).toContain("1 architecture document");
+    expect(within(shown).getByRole("link", { name: "Read the plan" }).getAttribute("href")).toBe(
+      `/plans?plan=${encodeURIComponent(item.plan_approval.approval.plan_id ?? "")}`,
+    );
+  });
+
+  it("shows how it differs from the version a member approved", () => {
+    show();
+    const difference = within(card()).getByRole("region", { name: "Since version 5" });
+    expect(within(difference).getByText(item("Added")).textContent).toContain("architecture:factory");
+    const changed = within(difference).getByText(item("Changed")).textContent;
+    for (const ref of ["contract:core", "contract:ui", "plan:factory", "spec:factory-api"]) {
+      expect(changed).toContain(ref);
+    }
+    expect(within(difference).queryByText(item("Removed"))).toBeNull();
+    const core = within(difference).getByRole("listitem", { name: "contract:core" });
+    expect(core.textContent).toContain("Criteria added: c2");
+    expect(core.textContent).toContain("Criteria changed: c1");
+    expect(within(difference).getByRole("listitem", { name: "contract:ui" }).textContent).toContain("Work orders added: ui-2");
+  });
+
+  it("says a first version has nothing to differ from", () => {
+    const { view, item: need } = planView();
+    need.plan_approval.difference = { base: 0, added: ["plan:factory", "spec:factory-api"] };
+    show(view);
+    const difference = within(card()).getByRole("region", { name: "A first version" });
+    expect(difference.textContent).toContain("Nothing was approved before");
+    expect(within(difference).getByText(item("Added")).textContent).toContain("spec:factory-api");
+  });
+
+  it("says when a version changes nothing a member approved", () => {
+    const { view, item: need } = planView();
+    need.plan_approval.difference = { base: 5 };
+    show(view);
+    expect(within(card()).getByText("No record differs from version 5.")).toBeTruthy();
+  });
+
+  it("lists each answer it drafts, which approving it decides", () => {
+    show();
+    const drafts = within(card()).getByRole("list", { name: "Draft decisions" });
+    const rows = within(drafts).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("Which agent CLI runs the first lanes?");
+    expect(rows[0]?.textContent).toContain("The one already installed on the machine.");
+    expect(rows[0]?.textContent).toContain("It needs no new sign-in.");
+    expect(within(card()).getByText(/decides each draft decision as yours/)).toBeTruthy();
+  });
+
+  it("approves with the digest this page read", async () => {
+    const { view, item: need } = planView();
+    const sent = serveApi(() => ({ status: 200 }));
+    const after = vi.fn(async () => {});
+    show(view, after);
+    await userEvent.click(within(card()).getByRole("button", { name: "Approve this plan" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({
+      method: "POST",
+      path: `/v1/approvals/${need.id}/decide`,
+      body: { digest: need.plan_approval.approval.subject_digest, allow: true },
+    });
+    await waitFor(() => expect(after).toHaveBeenCalledOnce());
+  });
+
+  it("denies with a reason", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show();
+    await userEvent.type(within(card()).getByRole("textbox", { name: /Reason/ }), "Split the core first.");
+    await userEvent.click(within(card()).getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.body).toMatchObject({ allow: false, reason: "Split the core first." });
+  });
+
+  it("says so when the plan changed since this read", async () => {
+    serveApi(() => refusal(409, "stale_digest", "This request no longer matches what you read."));
+    show();
+    await userEvent.click(within(card()).getByRole("button", { name: "Approve this plan" }));
+    expect((await within(card()).findByRole("alert")).textContent).toContain("no longer matches");
+  });
+});
+
+describe("a contract review", () => {
+  const card = () => cardNamed(/^Document the retry budget/);
+
+  it("names the work and its contract, and leads to the contract", () => {
+    const view = goldenNeedsYou();
+    const { contract_review: review } = itemOf(view, "contract_review");
+    show(view);
+    const shown = card();
+    expect(within(shown).getByText(/no plan approval covers it/)).toBeTruthy();
+    expect(within(shown).getByText("Document the retry budget, version 1")).toBeTruthy();
+    expect(within(shown).getAllByText("wo-review")[0]?.classList.contains("id")).toBe(true);
+    expect(within(shown).getByRole("link", { name: "Read the contract" }).getAttribute("href")).toBe(`/plans?plan=${encodeURIComponent(review.plan)}`);
+  });
+
+  it("passes the review in one press", async () => {
+    const sent = serveApi(() => ({ status: 200, body: { state: "ready" } }));
+    show();
+    await userEvent.click(within(card()).getByRole("button", { name: "Pass the review" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-review/review" });
+  });
+
+  it("sends work back to planning only once a person says why", async () => {
+    const sent = serveApi(() => ({ status: 204 }));
+    show();
+    await userEvent.click(within(card()).getByRole("button", { name: "Send back to planning" }));
+    expect(sent).toHaveLength(0);
+    const confirm = within(card()).getByRole("button", { name: "Send back to planning" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(within(card()).getByRole("textbox", { name: "Why" }), "The criteria are vague.");
+    await userEvent.click(confirm);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-review/send-back", body: { reason: "The criteria are vague." } });
+  });
+
+  it("says what the server refused", async () => {
+    serveApi(() => refusal(409, "conflict", "The work order moved on."));
+    show();
+    await userEvent.click(within(card()).getByRole("button", { name: "Pass the review" }));
+    expect((await within(card()).findByRole("alert")).textContent).toContain("moved on");
+  });
+
+  it("names no contract a plan does not hold", () => {
+    const view = goldenNeedsYou();
+    itemOf(view, "contract_review").contract_review.plan = "";
+    show(view);
+    expect(within(card()).queryByRole("link", { name: "Read the contract" })).toBeNull();
+  });
+});
+
 describe("text from outside", () => {
   it("stays text, whatever it says", () => {
     const view = goldenNeedsYou();
@@ -503,6 +654,16 @@ describe("text from outside", () => {
     const { container } = show(view);
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain(hostile);
+  });
+
+  it("stays text in a plan's draft decisions", () => {
+    const view = goldenNeedsYou();
+    const drafts = itemOf(view, "plan_approval").plan_approval.drafts;
+    expect(drafts.some((draft) => draft.answer.includes(hostile))).toBe(true);
+    const { container } = show(view);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    expect(cardNamed(/^Approve The factory floor/).textContent).toContain(hostile);
   });
 
   it.each(["key", "target", "lane_id", "worker_id"] as const)("stays text in an effect's %s", (field) => {

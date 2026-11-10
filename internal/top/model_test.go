@@ -214,13 +214,13 @@ func TestTheHeaderCountsInWords(t *testing.T) {
 	snapshot := golden(t)
 	snapshot.Floor.Lanes = snapshot.Floor.Lanes[:1]
 	header, _, _ := strings.Cut(loaded(t, snapshot).View(), "\n")
-	if !strings.HasPrefix(header, "ropeshift top   9 need you   1 lane   1 worker   ") {
+	if !strings.HasPrefix(header, "ropeshift top   11 need you   1 lane   1 worker   ") {
 		t.Errorf("header %q", header)
 	}
 	snapshot.Floor.Workers = append(snapshot.Floor.Workers, snapshot.Floor.Workers[0])
 	snapshot.Floor.Lanes = nil
 	header, _, _ = strings.Cut(loaded(t, snapshot).View(), "\n")
-	if !strings.HasPrefix(header, "ropeshift top   9 need you   0 lanes   2 workers   ") {
+	if !strings.HasPrefix(header, "ropeshift top   11 need you   0 lanes   2 workers   ") {
 		t.Errorf("header %q", header)
 	}
 }

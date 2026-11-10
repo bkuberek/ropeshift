@@ -1,6 +1,143 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "goals": [
+    {
+      "goal": {
+        "id": "generated-1",
+        "source": "plans/factory/goal.md@7",
+        "statement": "One person plans, and the factory builds.\n",
+        "status": "active",
+        "success_measures": [
+          "A plan is approved in one step",
+          "Shared work is built first"
+        ],
+        "title": "Run the factory"
+      },
+      "plans": [
+        {
+          "critical_path": {
+            "weight": 3,
+            "work_orders": [
+              "generated-2",
+              "generated-3"
+            ]
+          },
+          "done": 1,
+          "layers": [
+            [
+              "generated-4",
+              "generated-5"
+            ],
+            [
+              "generated-2"
+            ],
+            [
+              "generated-3",
+              "generated-6"
+            ]
+          ],
+          "milestones": [
+            {
+              "depends_on": [],
+              "done": 1,
+              "exit_criteria": [
+                {
+                  "id": "e1",
+                  "text": "The client and the core run"
+                }
+              ],
+              "id": "build",
+              "priority": 1,
+              "state": "in_progress",
+              "title": "Build the core",
+              "total": 2
+            },
+            {
+              "depends_on": [
+                "build"
+              ],
+              "done": 0,
+              "exit_criteria": [
+                {
+                  "id": "e1",
+                  "text": "A member approves a plan from a browser"
+                }
+              ],
+              "id": "ship",
+              "priority": 2,
+              "state": "waiting",
+              "title": "Ship the approval page",
+              "total": 2
+            },
+            {
+              "depends_on": [],
+              "done": 0,
+              "exit_criteria": [
+                {
+                  "id": "e1",
+                  "text": "A newcomer follows the guide"
+                }
+              ],
+              "id": "guide",
+              "priority": 3,
+              "state": "not_started",
+              "title": "Guide a newcomer",
+              "total": 1
+            }
+          ],
+          "plan": {
+            "goal_id": "generated-1",
+            "id": "generated-7",
+            "source": "plans/factory/plan.md@16",
+            "status": "active",
+            "title": "The factory floor"
+          },
+          "states": {
+            "contract_review": 3,
+            "done": 1,
+            "ready": 1
+          },
+          "total": 5,
+          "work": [
+            {
+              "id": "generated-4",
+              "milestone": "build",
+              "size": "large",
+              "state": "done",
+              "title": "Write the API client"
+            },
+            {
+              "id": "generated-2",
+              "milestone": "build",
+              "size": "medium",
+              "state": "contract_review",
+              "title": "Build the planning core"
+            },
+            {
+              "id": "generated-3",
+              "milestone": "ship",
+              "size": "small",
+              "state": "contract_review",
+              "title": "Build the approval page"
+            },
+            {
+              "id": "generated-5",
+              "milestone": "guide",
+              "size": "small",
+              "state": "ready",
+              "title": "Write the guide"
+            },
+            {
+              "id": "generated-6",
+              "milestone": "ship",
+              "size": "small",
+              "state": "contract_review",
+              "title": "Show the critical path"
+            }
+          ]
+        }
+      ]
+    },
     {
       "goal": {
         "id": "goal-1",
@@ -29,14 +166,22 @@
           "milestones": [],
           "plan": {
             "goal_id": "goal-1",
-            "id": "generated-1",
+            "id": "generated-8",
             "status": "active",
             "title": "Write the docs"
           },
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-running",
+              "size": "unknown",
+              "state": "running",
+              "title": "Write the docs"
+            }
+          ]
         }
       ]
     },
@@ -57,14 +202,54 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-2",
+            "id": "generated-9",
             "status": "active",
             "title": "Add the retry budget"
           },
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-effect",
+              "size": "unknown",
+              "state": "running",
+              "title": "Add the retry budget"
+            }
+          ]
+        },
+        {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-review"
+            ]
+          },
+          "done": 0,
+          "layers": [
+            [
+              "wo-review"
+            ]
+          ],
+          "milestones": [],
+          "plan": {
+            "id": "generated-10",
+            "status": "active",
+            "title": "Document the retry budget"
+          },
+          "states": {
+            "contract_review": 1
+          },
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-review",
+              "size": "unknown",
+              "state": "contract_review",
+              "title": "Document the retry budget"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -79,14 +264,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-3",
+            "id": "generated-11",
             "status": "active",
             "title": "Drop the old plan"
           },
           "states": {
             "canceled": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-canceled",
+              "size": "unknown",
+              "state": "canceled",
+              "title": "Drop the old plan"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -103,14 +296,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-4",
+            "id": "generated-12",
             "status": "active",
             "title": "Fix the flaky test"
           },
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-tripped",
+              "size": "unknown",
+              "state": "running",
+              "title": "Fix the flaky test"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -127,14 +328,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-5",
+            "id": "generated-13",
             "status": "active",
             "title": "Move the archive"
           },
           "states": {
             "blocked": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-blocked",
+              "size": "unknown",
+              "state": "blocked",
+              "title": "Move the archive"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -151,14 +360,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-6",
+            "id": "generated-14",
             "status": "active",
             "title": "Read the logs"
           },
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-stalled",
+              "size": "unknown",
+              "state": "running",
+              "title": "Read the logs"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -175,14 +392,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-7",
+            "id": "generated-15",
             "status": "active",
             "title": "Rotate the keys"
           },
           "states": {
             "lapsed": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-lapsed",
+              "size": "unknown",
+              "state": "lapsed",
+              "title": "Rotate the keys"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -197,14 +422,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-8",
+            "id": "generated-16",
             "status": "active",
             "title": "Ship the first cut"
           },
           "states": {
             "done": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-done",
+              "size": "unknown",
+              "state": "done",
+              "title": "Ship the first cut"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -221,14 +454,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-9",
+            "id": "generated-17",
             "status": "active",
             "title": "Tag the release"
           },
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-approval",
+              "size": "unknown",
+              "state": "running",
+              "title": "Tag the release"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -245,14 +486,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-10",
+            "id": "generated-18",
             "status": "active",
             "title": "Trim the log"
           },
           "states": {
             "acceptance": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-accept",
+              "size": "unknown",
+              "state": "acceptance",
+              "title": "Trim the log"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -269,14 +518,22 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-11",
+            "id": "generated-19",
             "status": "active",
             "title": "Try the impossible"
           },
           "states": {
             "failed": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-failed",
+              "size": "unknown",
+              "state": "failed",
+              "title": "Try the impossible"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -293,17 +550,25 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-12",
+            "id": "generated-20",
             "status": "active",
             "title": "Wait for the check"
           },
           "states": {
             "parked": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-parked",
+              "size": "unknown",
+              "state": "parked",
+              "title": "Wait for the check"
+            }
+          ]
         }
       ]
     }
   ],
-  "revision": 206
+  "revision": 313
 }

@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "plans": [
     {
       "contracts": [
@@ -38,7 +38,7 @@
           "fence": 1,
           "id": "wo-effect",
           "kind": "change",
-          "lease_until": 1790000240001,
+          "lease_until": 1790000424001,
           "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
@@ -62,12 +62,12 @@
                   "text": "It works"
                 }
               ],
-              "digest": "sha256:ae771409ab5bb7d8209ffea04fcbc7a7000461127cd85886a7dc66f063c3978b",
+              "digest": "sha256:7d58937202c7f278e628f60817c338fe992675d3db32b2896518770d113b88e1",
               "id": "generated-3",
               "plan_id": "generated-4",
-              "statement": "Drop the old plan.",
+              "statement": "Document the retry budget.",
               "status": "active",
-              "title": "Drop the old plan",
+              "title": "Document the retry budget",
               "version": 1
             }
           ]
@@ -76,20 +76,20 @@
       "plan": {
         "id": "generated-4",
         "status": "active",
-        "title": "Drop the old plan"
+        "title": "Document the retry budget"
       },
       "reviews": [],
       "work_orders": [
         {
           "contract_id": "generated-3",
           "contract_version": 1,
-          "id": "wo-canceled",
+          "id": "wo-review",
           "kind": "change",
           "max_attempts": 1,
           "repository_id": "repository-1",
           "size": "unknown",
-          "state": "canceled",
-          "title": "Drop the old plan"
+          "state": "contract_review",
+          "title": "Document the retry budget"
         }
       ]
     },
@@ -105,12 +105,12 @@
                   "text": "It works"
                 }
               ],
-              "digest": "sha256:6cd4a517c4bc20ddfe2abb6b6c6bbb7f4fd275655267deada5466a8cbc9be2c9",
+              "digest": "sha256:ae771409ab5bb7d8209ffea04fcbc7a7000461127cd85886a7dc66f063c3978b",
               "id": "generated-5",
               "plan_id": "generated-6",
-              "statement": "Fix the flaky test.",
+              "statement": "Drop the old plan.",
               "status": "active",
-              "title": "Fix the flaky test",
+              "title": "Drop the old plan",
               "version": 1
             }
           ]
@@ -119,26 +119,20 @@
       "plan": {
         "id": "generated-6",
         "status": "active",
-        "title": "Fix the flaky test"
+        "title": "Drop the old plan"
       },
       "reviews": [],
       "work_orders": [
         {
-          "claim_id": "claim-wo-tripped",
           "contract_id": "generated-5",
           "contract_version": 1,
-          "fence": 1,
-          "id": "wo-tripped",
+          "id": "wo-canceled",
           "kind": "change",
-          "lease_until": 1790000600001,
-          "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
-          "rev": 1,
-          "reviewed_by": "member-1",
           "size": "unknown",
-          "state": "running",
-          "title": "Fix the flaky test"
+          "state": "canceled",
+          "title": "Drop the old plan"
         }
       ]
     },
@@ -154,9 +148,58 @@
                   "text": "It works"
                 }
               ],
-              "digest": "sha256:919896588eb162fe17645a1b6b41eae2f9549dfee13f257e71ddaefce3cba1e7",
+              "digest": "sha256:6cd4a517c4bc20ddfe2abb6b6c6bbb7f4fd275655267deada5466a8cbc9be2c9",
               "id": "generated-7",
               "plan_id": "generated-8",
+              "statement": "Fix the flaky test.",
+              "status": "active",
+              "title": "Fix the flaky test",
+              "version": 1
+            }
+          ]
+        }
+      ],
+      "plan": {
+        "id": "generated-8",
+        "status": "active",
+        "title": "Fix the flaky test"
+      },
+      "reviews": [],
+      "work_orders": [
+        {
+          "claim_id": "claim-wo-tripped",
+          "contract_id": "generated-7",
+          "contract_version": 1,
+          "fence": 1,
+          "id": "wo-tripped",
+          "kind": "change",
+          "lease_until": 1790000784001,
+          "lease_worker": "worker-a",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "running",
+          "title": "Fix the flaky test"
+        }
+      ]
+    },
+    {
+      "contracts": [
+        {
+          "id": "generated-9",
+          "versions": [
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "text": "It works"
+                }
+              ],
+              "digest": "sha256:919896588eb162fe17645a1b6b41eae2f9549dfee13f257e71ddaefce3cba1e7",
+              "id": "generated-9",
+              "plan_id": "generated-10",
               "statement": "Move the archive.",
               "status": "active",
               "title": "Move the archive",
@@ -166,14 +209,14 @@
         }
       ],
       "plan": {
-        "id": "generated-8",
+        "id": "generated-10",
         "status": "active",
         "title": "Move the archive"
       },
       "reviews": [],
       "work_orders": [
         {
-          "contract_id": "generated-7",
+          "contract_id": "generated-9",
           "contract_version": 1,
           "fence": 2,
           "id": "wo-blocked",
@@ -191,55 +234,6 @@
     {
       "contracts": [
         {
-          "id": "generated-9",
-          "versions": [
-            {
-              "criteria": [
-                {
-                  "id": "c1",
-                  "text": "It works"
-                }
-              ],
-              "digest": "sha256:46c202844462e1b7713f894a75bdeec7315a83c12f5fd4702d5d1c61aa6118f6",
-              "id": "generated-9",
-              "plan_id": "generated-10",
-              "statement": "Read the logs.",
-              "status": "active",
-              "title": "Read the logs",
-              "version": 1
-            }
-          ]
-        }
-      ],
-      "plan": {
-        "id": "generated-10",
-        "status": "active",
-        "title": "Read the logs"
-      },
-      "reviews": [],
-      "work_orders": [
-        {
-          "claim_id": "claim-wo-stalled",
-          "contract_id": "generated-9",
-          "contract_version": 1,
-          "fence": 1,
-          "id": "wo-stalled",
-          "kind": "change",
-          "lease_until": 1790000600001,
-          "lease_worker": "worker-a",
-          "max_attempts": 1,
-          "repository_id": "repository-1",
-          "rev": 1,
-          "reviewed_by": "member-1",
-          "size": "unknown",
-          "state": "running",
-          "title": "Read the logs"
-        }
-      ]
-    },
-    {
-      "contracts": [
-        {
           "id": "generated-11",
           "versions": [
             {
@@ -249,12 +243,12 @@
                   "text": "It works"
                 }
               ],
-              "digest": "sha256:9f8d0da1e2b8c2dfc3b4bd0fb8d76143b34eb42ef1c1be97935e32a3fe1d8ada",
+              "digest": "sha256:46c202844462e1b7713f894a75bdeec7315a83c12f5fd4702d5d1c61aa6118f6",
               "id": "generated-11",
               "plan_id": "generated-12",
-              "statement": "Rotate the keys.",
+              "statement": "Read the logs.",
               "status": "active",
-              "title": "Rotate the keys",
+              "title": "Read the logs",
               "version": 1
             }
           ]
@@ -263,26 +257,26 @@
       "plan": {
         "id": "generated-12",
         "status": "active",
-        "title": "Rotate the keys"
+        "title": "Read the logs"
       },
       "reviews": [],
       "work_orders": [
         {
-          "claim_id": "claim-wo-lapsed",
+          "claim_id": "claim-wo-stalled",
           "contract_id": "generated-11",
           "contract_version": 1,
           "fence": 1,
-          "id": "wo-lapsed",
+          "id": "wo-stalled",
           "kind": "change",
-          "lease_until": 1790000060000,
+          "lease_until": 1790000784001,
           "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
           "rev": 1,
           "reviewed_by": "member-1",
           "size": "unknown",
-          "state": "lapsed",
-          "title": "Rotate the keys"
+          "state": "running",
+          "title": "Read the logs"
         }
       ]
     },
@@ -298,9 +292,58 @@
                   "text": "It works"
                 }
               ],
-              "digest": "sha256:70be0543d6976201b2cea527608f199fdac680a44ac36216caa11ce58efd27e1",
+              "digest": "sha256:9f8d0da1e2b8c2dfc3b4bd0fb8d76143b34eb42ef1c1be97935e32a3fe1d8ada",
               "id": "generated-13",
               "plan_id": "generated-14",
+              "statement": "Rotate the keys.",
+              "status": "active",
+              "title": "Rotate the keys",
+              "version": 1
+            }
+          ]
+        }
+      ],
+      "plan": {
+        "id": "generated-14",
+        "status": "active",
+        "title": "Rotate the keys"
+      },
+      "reviews": [],
+      "work_orders": [
+        {
+          "claim_id": "claim-wo-lapsed",
+          "contract_id": "generated-13",
+          "contract_version": 1,
+          "fence": 1,
+          "id": "wo-lapsed",
+          "kind": "change",
+          "lease_until": 1790000244000,
+          "lease_worker": "worker-a",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "unknown",
+          "state": "lapsed",
+          "title": "Rotate the keys"
+        }
+      ]
+    },
+    {
+      "contracts": [
+        {
+          "id": "generated-15",
+          "versions": [
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "text": "It works"
+                }
+              ],
+              "digest": "sha256:70be0543d6976201b2cea527608f199fdac680a44ac36216caa11ce58efd27e1",
+              "id": "generated-15",
+              "plan_id": "generated-16",
               "statement": "Ship the first cut.",
               "status": "active",
               "title": "Ship the first cut",
@@ -310,14 +353,14 @@
         }
       ],
       "plan": {
-        "id": "generated-14",
+        "id": "generated-16",
         "status": "active",
         "title": "Ship the first cut"
       },
       "reviews": [],
       "work_orders": [
         {
-          "contract_id": "generated-13",
+          "contract_id": "generated-15",
           "contract_version": 1,
           "fence": 2,
           "id": "wo-done",
@@ -335,7 +378,7 @@
     {
       "contracts": [
         {
-          "id": "generated-15",
+          "id": "generated-17",
           "versions": [
             {
               "criteria": [
@@ -345,8 +388,8 @@
                 }
               ],
               "digest": "sha256:5879df29e061cf0d3567f83bee05910f586e4155e59aafbb63d2a7cad329d31d",
-              "id": "generated-15",
-              "plan_id": "generated-16",
+              "id": "generated-17",
+              "plan_id": "generated-18",
               "statement": "Tag the release.",
               "status": "active",
               "title": "Tag the release",
@@ -356,7 +399,7 @@
         }
       ],
       "plan": {
-        "id": "generated-16",
+        "id": "generated-18",
         "status": "active",
         "title": "Tag the release"
       },
@@ -364,12 +407,12 @@
       "work_orders": [
         {
           "claim_id": "claim-wo-approval",
-          "contract_id": "generated-15",
+          "contract_id": "generated-17",
           "contract_version": 1,
           "fence": 1,
           "id": "wo-approval",
           "kind": "change",
-          "lease_until": 1790000360001,
+          "lease_until": 1790000544001,
           "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
@@ -384,7 +427,294 @@
     {
       "contracts": [
         {
-          "id": "generated-17",
+          "id": "generated-19",
+          "versions": [
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "requirements": [
+                    "FAC-2"
+                  ],
+                  "text": "Every call retries once"
+                }
+              ],
+              "digest": "sha256:964587ca63ba06d5454a7510067214fb54c4a043fb2b1bdffdd2a131c82342bc",
+              "id": "generated-19",
+              "milestone": "build",
+              "plan_id": "generated-20",
+              "shared": true,
+              "source": "plans/factory/client.md@8",
+              "statement": "What The API client is for.\n",
+              "status": "active",
+              "title": "The API client",
+              "version": 1,
+              "work_orders": [
+                {
+                  "digest": "sha256:2c1761e16218a799b909777ae21cbeeec22ca1e869f282446e8b8d91e472ce6c",
+                  "ref": "work_order:client-1"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "generated-21",
+          "versions": [
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "requirements": [
+                    "FAC-1"
+                  ],
+                  "text": "A plan version has one digest"
+                }
+              ],
+              "digest": "sha256:94b92bbe5eea5220126039a9be1fb11ccfea6cab5851c5f36bf32eeacc0a038b",
+              "id": "generated-21",
+              "milestone": "build",
+              "plan_id": "generated-20",
+              "source": "plans/factory/core.md@9",
+              "statement": "What The planning core is for.\n",
+              "status": "active",
+              "title": "The planning core",
+              "uses": [
+                "client"
+              ],
+              "version": 1,
+              "work_orders": [
+                {
+                  "digest": "sha256:f80304cc0d00851b8c62bc40ec5cb51700cb9911b18b3b0ce6105de426364116",
+                  "ref": "work_order:core-1"
+                }
+              ]
+            },
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "requirements": [
+                    "FAC-1"
+                  ],
+                  "text": "A plan version has one digest, over every record"
+                },
+                {
+                  "id": "c2",
+                  "requirements": [
+                    "FAC-1"
+                  ],
+                  "text": "A changed criterion asks again"
+                }
+              ],
+              "digest": "sha256:40eec804f2316be29e61dbebe45f3d1c36defc4a140f2f3fee5977670d20b8e6",
+              "id": "generated-21",
+              "milestone": "build",
+              "plan_id": "generated-20",
+              "source": "plans/factory/core.md@16",
+              "statement": "What The planning core is for.\n",
+              "status": "active",
+              "title": "The planning core",
+              "uses": [
+                "client"
+              ],
+              "version": 2,
+              "work_orders": [
+                {
+                  "digest": "sha256:f80304cc0d00851b8c62bc40ec5cb51700cb9911b18b3b0ce6105de426364116",
+                  "ref": "work_order:core-1"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "generated-22",
+          "versions": [
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "requirements": [
+                    "FAC-1"
+                  ],
+                  "text": "A member approves a plan in one press"
+                },
+                {
+                  "id": "c2",
+                  "requirements": [
+                    "FAC-3"
+                  ],
+                  "text": "The roadmap shows parallel work"
+                }
+              ],
+              "digest": "sha256:60976679df571d15765d2f69ec9f9ba9d1d1d7257da6f6f7a701a77702084dfe",
+              "id": "generated-22",
+              "milestone": "ship",
+              "plan_id": "generated-20",
+              "source": "plans/factory/ui.md@10",
+              "statement": "What The approval page is for.\n",
+              "status": "active",
+              "title": "The approval page",
+              "version": 1,
+              "work_orders": [
+                {
+                  "digest": "sha256:96270ea48e348a72042413ffe7839941c101c93c6eee453a7f9320d0f55df598",
+                  "ref": "work_order:ui-1"
+                }
+              ]
+            },
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "requirements": [
+                    "FAC-1"
+                  ],
+                  "text": "A member approves a plan in one press"
+                },
+                {
+                  "id": "c2",
+                  "requirements": [
+                    "FAC-3"
+                  ],
+                  "text": "The roadmap shows parallel work"
+                }
+              ],
+              "digest": "sha256:615d875c9711c97b1c14d358549ee4b248d1b98f696d5f371c88fac0b10f489b",
+              "id": "generated-22",
+              "milestone": "ship",
+              "plan_id": "generated-20",
+              "source": "plans/factory/ui.md@16",
+              "statement": "What The approval page is for.\n",
+              "status": "active",
+              "title": "The approval page",
+              "version": 2,
+              "work_orders": [
+                {
+                  "digest": "sha256:96270ea48e348a72042413ffe7839941c101c93c6eee453a7f9320d0f55df598",
+                  "ref": "work_order:ui-1"
+                },
+                {
+                  "digest": "sha256:4c610486718bfa9e2720632e76137f561e27553f0127fed395538548e9f2be66",
+                  "ref": "work_order:ui-2"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "generated-23",
+          "versions": [
+            {
+              "criteria": [
+                {
+                  "id": "c1",
+                  "requirements": [
+                    "FAC-3"
+                  ],
+                  "text": "The guide shows which work runs at once"
+                }
+              ],
+              "digest": "sha256:b61f13d5f15ab7f8d305adbc3738a4572be88abcf792d89f0c0933e268b93106",
+              "id": "generated-23",
+              "milestone": "guide",
+              "plan_id": "generated-20",
+              "source": "plans/factory/guide.md@11",
+              "statement": "What The newcomer guide is for.\n",
+              "status": "active",
+              "title": "The newcomer guide",
+              "version": 1,
+              "work_orders": [
+                {
+                  "digest": "sha256:5caac72c1a0be9c5420b137523e6ae8369a27869f2a16302c29b1f6729eba42f",
+                  "ref": "work_order:guide-1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "goal": {
+        "id": "generated-24",
+        "source": "plans/factory/goal.md@7",
+        "statement": "One person plans, and the factory builds.\n",
+        "status": "active",
+        "success_measures": [
+          "A plan is approved in one step",
+          "Shared work is built first"
+        ],
+        "title": "Run the factory"
+      },
+      "plan": {
+        "goal_id": "generated-24",
+        "id": "generated-20",
+        "source": "plans/factory/plan.md@16",
+        "status": "active",
+        "title": "The factory floor"
+      },
+      "reviews": [],
+      "work_orders": [
+        {
+          "contract_id": "generated-19",
+          "contract_version": 1,
+          "fence": 2,
+          "id": "generated-25",
+          "kind": "change",
+          "repository_id": "memory",
+          "rev": 1,
+          "reviewed_by": "member-1",
+          "size": "large",
+          "state": "done",
+          "title": "Write the API client"
+        },
+        {
+          "contract_id": "generated-21",
+          "contract_version": 2,
+          "id": "generated-26",
+          "kind": "change",
+          "repository_id": "memory",
+          "size": "medium",
+          "state": "contract_review",
+          "title": "Build the planning core"
+        },
+        {
+          "contract_id": "generated-22",
+          "contract_version": 2,
+          "id": "generated-27",
+          "kind": "change",
+          "repository_id": "memory",
+          "size": "small",
+          "state": "contract_review",
+          "title": "Build the approval page"
+        },
+        {
+          "contract_id": "generated-23",
+          "contract_version": 1,
+          "id": "generated-28",
+          "kind": "change",
+          "repository_id": "memory",
+          "reviewed_by": "member-1",
+          "size": "small",
+          "state": "ready",
+          "title": "Write the guide"
+        },
+        {
+          "contract_id": "generated-22",
+          "contract_version": 2,
+          "id": "generated-29",
+          "kind": "change",
+          "repository_id": "memory",
+          "size": "small",
+          "state": "contract_review",
+          "title": "Show the critical path"
+        }
+      ]
+    },
+    {
+      "contracts": [
+        {
+          "id": "generated-30",
           "versions": [
             {
               "criteria": [
@@ -394,8 +724,8 @@
                 }
               ],
               "digest": "sha256:fbbfeb931530b0477cf40df664aefbefc37bb65ed1a029ebdbce735ffec2083e",
-              "id": "generated-17",
-              "plan_id": "generated-18",
+              "id": "generated-30",
+              "plan_id": "generated-31",
               "statement": "Trim the log.",
               "status": "active",
               "title": "Trim the log",
@@ -405,14 +735,14 @@
         }
       ],
       "plan": {
-        "id": "generated-18",
+        "id": "generated-31",
         "status": "active",
         "title": "Trim the log"
       },
       "reviews": [],
       "work_orders": [
         {
-          "contract_id": "generated-17",
+          "contract_id": "generated-30",
           "contract_version": 1,
           "fence": 2,
           "id": "wo-accept",
@@ -430,7 +760,7 @@
     {
       "contracts": [
         {
-          "id": "generated-19",
+          "id": "generated-32",
           "versions": [
             {
               "criteria": [
@@ -440,8 +770,8 @@
                 }
               ],
               "digest": "sha256:5587b6d55d13a86d29649fb33ec269fb371986194dfdee2d452db2ece0083adc",
-              "id": "generated-19",
-              "plan_id": "generated-20",
+              "id": "generated-32",
+              "plan_id": "generated-33",
               "statement": "Try the impossible.",
               "status": "active",
               "title": "Try the impossible",
@@ -451,7 +781,7 @@
         }
       ],
       "plan": {
-        "id": "generated-20",
+        "id": "generated-33",
         "status": "active",
         "title": "Try the impossible"
       },
@@ -459,7 +789,7 @@
       "work_orders": [
         {
           "attempts": 1,
-          "contract_id": "generated-19",
+          "contract_id": "generated-32",
           "contract_version": 1,
           "fence": 2,
           "id": "wo-failed",
@@ -477,7 +807,7 @@
     {
       "contracts": [
         {
-          "id": "generated-21",
+          "id": "generated-34",
           "versions": [
             {
               "criteria": [
@@ -487,8 +817,8 @@
                 }
               ],
               "digest": "sha256:b1de037ae72e56dc0de07b52a2701dcb1e9b04d624639e1c4d2ff0d2f8b6b601",
-              "id": "generated-21",
-              "plan_id": "generated-22",
+              "id": "generated-34",
+              "plan_id": "generated-35",
               "statement": "Wait for the check.",
               "status": "active",
               "title": "Wait for the check",
@@ -498,14 +828,14 @@
         }
       ],
       "plan": {
-        "id": "generated-22",
+        "id": "generated-35",
         "status": "active",
         "title": "Wait for the check"
       },
       "reviews": [],
       "work_orders": [
         {
-          "contract_id": "generated-21",
+          "contract_id": "generated-34",
           "contract_version": 1,
           "fence": 2,
           "id": "wo-parked",
@@ -523,7 +853,7 @@
     {
       "contracts": [
         {
-          "id": "generated-23",
+          "id": "generated-36",
           "versions": [
             {
               "criteria": [
@@ -533,8 +863,8 @@
                 }
               ],
               "digest": "sha256:e73919a19a61eb89850913d022a51e4f405d56b62518e9fe4ef49e286375a7b8",
-              "id": "generated-23",
-              "plan_id": "generated-24",
+              "id": "generated-36",
+              "plan_id": "generated-37",
               "statement": "Write the docs.",
               "status": "active",
               "title": "Write the docs",
@@ -548,8 +878,8 @@
                 }
               ],
               "digest": "sha256:99ee7f77c9b3669e2f5507c05dcc417be77a11a0e3282b37ebd29f7a2eddad43",
-              "id": "generated-23",
-              "plan_id": "generated-24",
+              "id": "generated-36",
+              "plan_id": "generated-37",
               "statement": "Write the docs. Now with a budget.",
               "status": "active",
               "title": "Write the docs",
@@ -566,8 +896,8 @@
                 "decision-2"
               ],
               "digest": "sha256:2816160e965bf56ea14c1d85611b6e7b2f58a681fdf2271532b69c3a35516770",
-              "id": "generated-23",
-              "plan_id": "generated-24",
+              "id": "generated-36",
+              "plan_id": "generated-37",
               "requirements": [
                 "FR-RETRY-1",
                 "FR-MISSING-9"
@@ -593,7 +923,7 @@
       },
       "plan": {
         "goal_id": "goal-1",
-        "id": "generated-24",
+        "id": "generated-37",
         "status": "active",
         "title": "Write the docs"
       },
@@ -609,22 +939,22 @@
               "normalized_hash": "sha256:9fb7f63c4e67e74a3e575ee434beec99577e65a4175964afefcddfd4940f4643",
               "rung": 1,
               "status": "open",
-              "subject_id": "generated-24",
+              "subject_id": "generated-37",
               "subject_kind": "plan",
               "text": "Does the plan cover a restart?"
             }
           ],
           "work_order": {
-            "contract_id": "generated-25",
+            "contract_id": "generated-38",
             "contract_version": 1,
             "id": "review-1",
             "kind": "contract_review",
             "repository_id": "repository-1",
             "review_pins": [
-              "generated-23@3"
+              "generated-36@3"
             ],
             "reviewed_by": "member-1",
-            "reviews_plan": "generated-24",
+            "reviews_plan": "generated-37",
             "state": "ready",
             "title": "Review Write the docs"
           }
@@ -633,12 +963,12 @@
       "work_orders": [
         {
           "claim_id": "claim-wo-running",
-          "contract_id": "generated-23",
+          "contract_id": "generated-36",
           "contract_version": 1,
           "fence": 1,
           "id": "wo-running",
           "kind": "change",
-          "lease_until": 1790000600001,
+          "lease_until": 1790000784001,
           "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
@@ -651,7 +981,7 @@
       ]
     }
   ],
-  "revision": 206,
+  "revision": 313,
   "unplanned": [
     {
       "id": "wo-loose",

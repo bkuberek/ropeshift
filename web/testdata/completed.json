@@ -1,9 +1,9 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "items": [
     {
       "reason": "The plan changed",
-      "since": 1790000780001,
+      "since": 1790000964001,
       "standing": {
         "artifacts": [],
         "assessment": {
@@ -33,11 +33,11 @@
     },
     {
       "reason": "It gave up on <img src=x onerror=alert(1)><script>alert(2)</script>",
-      "since": 1790000720001,
+      "since": 1790000904001,
       "standing": {
         "artifacts": [
           {
-            "created_at": 1790000720001,
+            "created_at": 1790000904001,
             "digest": "def456",
             "fence": 2,
             "id": "generated-2",
@@ -61,7 +61,7 @@
         "checks": [
           {
             "artifact_id": "generated-2",
-            "created_at": 1790000720001,
+            "created_at": 1790000904001,
             "criterion_id": "c1",
             "fence": 2,
             "id": "generated-3",
@@ -92,11 +92,11 @@
       }
     },
     {
-      "since": 1790000660001,
+      "since": 1790000844001,
       "standing": {
         "artifacts": [
           {
-            "created_at": 1790000660001,
+            "created_at": 1790000844001,
             "digest": "abc123",
             "fence": 2,
             "id": "generated-5",
@@ -105,7 +105,7 @@
             "uri": "lane/lane-wo-done"
           },
           {
-            "created_at": 1790000660001,
+            "created_at": 1790000844001,
             "fence": 2,
             "id": "generated-6",
             "kind": "report",
@@ -125,7 +125,7 @@
         "checks": [
           {
             "artifact_id": "generated-5",
-            "created_at": 1790000660001,
+            "created_at": 1790000844001,
             "criterion_id": "c1",
             "fence": 2,
             "id": "generated-7",
@@ -155,11 +155,11 @@
       }
     },
     {
-      "since": 1790000240001,
+      "since": 1790000424001,
       "standing": {
         "artifacts": [
           {
-            "created_at": 1790000240001,
+            "created_at": 1790000424001,
             "digest": "abc123",
             "fence": 2,
             "id": "generated-9",
@@ -195,7 +195,48 @@
         "state": "acceptance",
         "title": "Trim the log"
       }
+    },
+    {
+      "since": 1790000184000,
+      "standing": {
+        "artifacts": [
+          {
+            "created_at": 1790000184000,
+            "digest": "abc123",
+            "fence": 2,
+            "id": "generated-11",
+            "kind": "branch",
+            "lane_id": "lane-generated-12",
+            "uri": "lane/lane-generated-12"
+          }
+        ],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "checks": [],
+        "state": "done",
+        "work_order_id": "generated-12"
+      },
+      "work_order": {
+        "contract_id": "generated-13",
+        "contract_version": 1,
+        "fence": 2,
+        "id": "generated-12",
+        "kind": "change",
+        "repository_id": "memory",
+        "rev": 1,
+        "reviewed_by": "member-1",
+        "size": "large",
+        "state": "done",
+        "title": "Write the API client"
+      }
     }
   ],
-  "revision": 206
+  "revision": 313
 }

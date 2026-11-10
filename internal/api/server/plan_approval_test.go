@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
 )
 
 const retryPlan = `+++
@@ -180,5 +182,60 @@ func TestShowingAPlanCarriesItsApprovalAndTheDifference(t *testing.T) {
 	if view.Approval == nil || view.Approval.Approval.ID != need.Approval.ID || view.Approval.Detail.Title != "Retry budget" ||
 		len(view.Approval.Drafts) != 1 || view.Approval.Drafts[0].Answer != "Stripe" || len(view.Approval.Records) != 3 {
 		t.Fatalf("approval %+v", view.Approval)
+	}
+}
+
+// A member decides the drafts with the plan, so Needs you shows each one's question and answer.
+func TestAPlanApprovalNeedCarriesItsDraftDecisions(t *testing.T) {
+	d, w, _ := aWorld(t)
+	w.Planned(retrySource("The first draft."))
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if len(need.Drafts) != 1 || need.Drafts[0].ID != "d1" || need.Drafts[0].Question != "Which provider first?" ||
+		need.Drafts[0].Answer != "Stripe" || need.Drafts[0].Rationale == "" {
+		t.Errorf("drafts %+v", need.Drafts)
+	}
+}
+
+// A contract review names the plan its contract belongs to, so a person can read the contract first.
+func TestAContractReviewNeedNamesItsPlan(t *testing.T) {
+	d, w, _ := aWorld(t)
+	w.Recorded("wo-alone", "Document the budget")
+	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
+		if item.Kind == api.NeedContractReview && item.ContractReview.WorkOrder.ID == "wo-alone" {
+			if item.ContractReview.Plan == "" || item.ContractReview.Plan != w.PlanOf("wo-alone") {
+				t.Errorf("the review names plan %q, want %q", item.ContractReview.Plan, w.PlanOf("wo-alone"))
+			}
+			return
+		}
+	}
+	t.Fatal("no contract review for wo-alone")
+}
+
+// A member passes a contract review, or sends the work back, from the browser as from the CLI
+// (FR-UI-6).
+func TestAWebPagePassesOrSendsBackAContractReview(t *testing.T) {
+	d := apitest.Start(t)
+	w := apitest.NewWorld(t, d)
+	w.Recorded("wo-pass", "Pass this one")
+	w.Recorded("wo-back", "Send this one back")
+	r := webOn(t, d)
+	cookies, token := r.signedIn(t)
+	headers := map[string]string{api.HeaderCSRF: token, "Origin": "http://" + r.web.Host}
+	response, raw := r.send(t, call{method: http.MethodPost, path: "/v1/work-orders/wo-pass/review", body: struct{}{}, cookies: cookies, headers: headers})
+	wantStatus(t, response, raw, http.StatusOK, "")
+	response, raw = r.send(t, call{
+		method: http.MethodPost, path: "/v1/work-orders/wo-back/send-back", body: api.SendBack{Reason: "The criteria are vague."}, cookies: cookies, headers: headers,
+	})
+	wantStatus(t, response, raw, http.StatusNoContent, "")
+	states := map[string]workorders.State{}
+	orders, err := d.Client.WorkOrders(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, order := range orders {
+		states[order.ID] = order.State
+	}
+	if states["wo-pass"] != workorders.Ready || states["wo-back"] != workorders.Planning {
+		t.Errorf("states %v", states)
 	}
 }

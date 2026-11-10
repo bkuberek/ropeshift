@@ -292,7 +292,7 @@ describe("completed", () => {
   it("counts each way work ended apart from work that waits for acceptance", async () => {
     serveViews();
     openPage("/completed");
-    expect(await screen.findByText("1 done, 1 failed, 1 canceled, 1 waiting for acceptance")).toBeTruthy();
+    expect(await screen.findByText("2 done, 1 failed, 1 canceled, 1 waiting for acceptance")).toBeTruthy();
   });
 
   it("lists every way work ended, the newest first", async () => {
@@ -300,7 +300,7 @@ describe("completed", () => {
     openPage("/completed");
     const rows = await screen.findAllByRole("article");
     expect(rows.map((row) => within(row).getByRole("heading", { level: 2 }).textContent)).toEqual([
-      "Drop the old plan", "Try the impossible", "Ship the first cut", "Trim the log",
+      "Drop the old plan", "Try the impossible", "Ship the first cut", "Trim the log", "Write the API client",
     ]);
     expect(within(await line("Drop the old plan")).getByText("Canceled")).toBeTruthy();
     expect(within(await line("Try the impossible")).getAllByText("Failed").length).toBeGreaterThan(0);
@@ -526,7 +526,7 @@ describe("operations", () => {
     openPage("/operations");
     const fleet = await screen.findByRole("region", { name: "Fleet" });
     const waiting = within(fleet).getByText("Waiting for a person").closest("div");
-    expect(waiting?.textContent).toContain("9");
+    expect(waiting?.textContent).toContain("11");
     expect(within(waiting as HTMLElement).getByRole("link").getAttribute("href")).toBe("/");
   });
 
@@ -580,7 +580,7 @@ describe("operations", () => {
       .getAllByRole("term")
       .map((term) => term.textContent);
     expect(names).toEqual(["Interruptions per completed work order", "Overturn rate", "Rework", "Autonomous decision rate"]);
-    expect(within(star).getByText("Interruptions per completed work order").closest("div")?.textContent).toContain("1 (1 over 1)");
+    expect(within(star).getByText("Interruptions per completed work order").closest("div")?.textContent).toContain("1 (2 over 2)");
     expect(within(star).getByText("Overturn rate").closest("div")?.textContent).toContain("0% (0 of 1)");
     expect(measures.textContent).toContain("over the last 7d");
   });

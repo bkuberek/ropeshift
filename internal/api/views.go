@@ -113,25 +113,27 @@ type WorkNeed struct {
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
-// and how it differs from the last version a member approved. A new version that changes nothing
-// approved and adds no work shows an empty difference.
+// how it differs from the last version a member approved, and the answers it drafts, which approval
+// decides. A new version that changes nothing approved and adds no work shows an empty difference.
 type PlanApprovalNeed struct {
-	Approval    authority.Approval  `json:"approval"`
-	Title       string              `json:"title"`
-	Version     int64               `json:"version"`
-	RequestedBy string              `json:"requested_by"`
-	Counts      map[string]int      `json:"counts"`
-	Decisions   int                 `json:"decisions"`
-	Difference  planning.Difference `json:"difference"`
-	Summary     string              `json:"summary"`
+	Approval    authority.Approval       `json:"approval"`
+	Title       string                   `json:"title"`
+	Version     int64                    `json:"version"`
+	RequestedBy string                   `json:"requested_by"`
+	Counts      map[string]int           `json:"counts"`
+	Decisions   int                      `json:"decisions"`
+	Drafts      []planning.DraftDecision `json:"drafts"`
+	Difference  planning.Difference      `json:"difference"`
+	Summary     string                   `json:"summary"`
 }
 
 // ContractReviewNeed is work in `contract_review` that no plan approval covers, so a member passes its
-// review by hand.
+// review by hand. Plan is the plan its contract belongs to, where a person reads the contract.
 type ContractReviewNeed struct {
 	WorkOrder workorders.WorkOrder `json:"work_order"`
 	Contract  string               `json:"contract"`
 	Version   int64                `json:"version"`
+	Plan      string               `json:"plan"`
 }
 
 // NeedItem is one thing that waits for a person. Since is database time, and Kind says which field
@@ -186,9 +188,19 @@ type CriticalPath struct {
 	Weight     int      `json:"weight"`
 }
 
+// PlannedWork is one work order of a plan as the roadmap places it: what it is called, where it stands,
+// how large it is, and the milestone its contract belongs to.
+type PlannedWork struct {
+	ID        string           `json:"id"`
+	Title     string           `json:"title"`
+	State     workorders.State `json:"state"`
+	Size      string           `json:"size,omitempty"`
+	Milestone string           `json:"milestone,omitempty"`
+}
+
 // PlanProgress is a plan and how far its work got. Milestones come in priority order. Layers group every
 // work order of the plan by how much must come before it, so the work of one layer can run at the same
-// time.
+// time. Work names each work order the layers and the critical path hold.
 type PlanProgress struct {
 	Plan         planning.Plan              `json:"plan"`
 	Total        int                        `json:"total"`
@@ -197,6 +209,7 @@ type PlanProgress struct {
 	Milestones   []MilestoneProgress        `json:"milestones"`
 	Layers       [][]string                 `json:"layers"`
 	CriticalPath CriticalPath               `json:"critical_path"`
+	Work         []PlannedWork              `json:"work"`
 }
 
 // GoalProgress is a goal and its plans. A plan under no goal stands in a group with a nil Goal.
@@ -240,11 +253,14 @@ type Plans struct {
 	Unplanned []workorders.WorkOrder `json:"unplanned"`
 }
 
-// Documents is requirements, specs, and designs. Bodies stay out, and a reader asks for one at a time.
+// Documents is requirements, specs, and designs: the files of every source as they stand, each
+// requirement's newest version, and for each plan the documents its files recorded with every version
+// and how its requirements trace to work. Bodies stay out, and a reader asks for one at a time.
 type Documents struct {
 	Stamp
 	Documents    []Document             `json:"documents"`
 	Requirements []planning.Requirement `json:"requirements"`
+	Plans        []PlanDocuments        `json:"plans"`
 }
 
 // DecisionLine is a decision and its lineage: the chain it belongs to, oldest first, and what took its

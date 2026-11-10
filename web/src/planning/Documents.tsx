@@ -7,6 +7,7 @@ import type { Live } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { Fact, Page, Section, words } from "../parts/parts";
 import { DocumentText } from "./DocumentText";
+import { PlanSections, recordedOf, RecordedRows, Traces } from "./Recorded";
 
 const kindWords: Record<DocumentKind, string> = { requirements: "Requirements", spec: "Spec", design: "Design", other: "Document" };
 
@@ -25,11 +26,26 @@ function DocumentRows({ documents }: { documents: DocumentRow[] }) {
   );
 }
 
-// A kind this build has no page for lists with the rest, so no document falls out of every list.
+// A kind this build has no page for lists with the rest, so no document falls out of every list. A file a
+// plan recorded lists once, under its plan, with its version and where it stands in review, and every
+// other file of the repository lists as it stands.
 export function DocumentList({ view, kind, empty }: { view: View; kind: DocumentKind; empty: string }) {
   const homeOf = (document: DocumentRow) => (document.kind in kindWords ? document.kind : "other");
-  const documents = view.documents.filter((document) => homeOf(document) === kind);
-  return documents.length ? <DocumentRows documents={documents} /> : <p className="empty">{empty}</p>;
+  const documents = view.documents.filter((document) => homeOf(document) === kind && !document.record);
+  const recorded = recordedOf(view.plans, kind);
+  if (recorded.length === 0) {
+    return documents.length ? <DocumentRows documents={documents} /> : <p className="empty">{empty}</p>;
+  }
+  return (
+    <>
+      <PlanSections plans={view.plans} home={kind} />
+      {documents.length ? (
+        <Section title="Files no plan records">
+          <DocumentRows documents={documents} />
+        </Section>
+      ) : null}
+    </>
+  );
 }
 
 function RequirementRow({ requirement }: { requirement: Requirement }) {
@@ -47,9 +63,13 @@ function RequirementRow({ requirement }: { requirement: Requirement }) {
   );
 }
 
+// Requirements lists every requirement, then follows each plan's requirements to the criteria and work
+// that serve them, then names the documents that hold them: those a plan recorded, and the other files.
 export function Requirements({ view }: { view: View }) {
-  const documents = view.documents.filter((document) => document.kind === "requirements");
-  if (view.requirements.length === 0 && documents.length === 0) {
+  const documents = view.documents.filter((document) => document.kind === "requirements" && !document.record);
+  const recorded = recordedOf(view.plans, "requirements").flatMap((row) => row.documents);
+  const traced = view.plans.filter((plan) => plan.requirements.length > 0);
+  if (view.requirements.length === 0 && documents.length === 0 && recorded.length === 0) {
     return <p className="empty">No requirements yet.</p>;
   }
   return (
@@ -61,9 +81,13 @@ export function Requirements({ view }: { view: View }) {
           ))}
         </ol>
       ) : null}
-      {documents.length ? (
+      {traced.map((plan) => (
+        <Traces key={plan.plan.id} plan={plan} />
+      ))}
+      {documents.length || recorded.length ? (
         <Section title="Documents that hold them">
-          <DocumentRows documents={documents} />
+          {recorded.length ? <RecordedRows documents={recorded} /> : null}
+          {documents.length ? <DocumentRows documents={documents} /> : null}
         </Section>
       ) : null}
     </>

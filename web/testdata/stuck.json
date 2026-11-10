@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "items": [
     {
       "actions": [
@@ -9,7 +9,7 @@
       "id": "wo-lapsed",
       "lane": {
         "actual_state": "working",
-        "as_of": 1790000000000,
+        "as_of": 1790000184000,
         "freshness": "last_reported",
         "generation": 1,
         "generations": [
@@ -17,7 +17,7 @@
             "lane_id": "lane-wo-lapsed",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000000000
+            "started_at": 1790000184000
           }
         ],
         "id": "lane-wo-lapsed",
@@ -29,7 +29,7 @@
         "worker_id": "worker-a"
       },
       "reason": "lapsed",
-      "since": 1790000060001,
+      "since": 1790000244001,
       "work_order": {
         "claim_id": "claim-wo-lapsed",
         "contract_id": "generated-1",
@@ -37,7 +37,7 @@
         "fence": 1,
         "id": "wo-lapsed",
         "kind": "change",
-        "lease_until": 1790000060000,
+        "lease_until": 1790000244000,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -60,7 +60,7 @@
         "actual_state": "ended",
         "artifacts": [
           {
-            "created_at": 1790000120001,
+            "created_at": 1790000304001,
             "digest": "abc123",
             "fence": 2,
             "id": "generated-2",
@@ -69,17 +69,17 @@
             "uri": "lane/lane-wo-blocked"
           }
         ],
-        "as_of": 1790000120001,
+        "as_of": 1790000304001,
         "freshness": "observed",
         "generation": 1,
         "generations": [
           {
             "end_reason": "blocked",
-            "ended_at": 1790000120001,
+            "ended_at": 1790000304001,
             "lane_id": "lane-wo-blocked",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000120001
+            "started_at": 1790000304001
           }
         ],
         "id": "lane-wo-blocked",
@@ -91,7 +91,7 @@
         "worker_id": "worker-a"
       },
       "reason": "blocked",
-      "since": 1790000120001,
+      "since": 1790000304001,
       "work_order": {
         "contract_id": "generated-3",
         "contract_version": 1,
@@ -115,7 +115,7 @@
       "id": "wo-stalled",
       "lane": {
         "actual_state": "working",
-        "as_of": 1790000540001,
+        "as_of": 1790000724001,
         "conditions": [
           "stalled"
         ],
@@ -126,7 +126,7 @@
             "lane_id": "lane-wo-stalled",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000540001
+            "started_at": 1790000724001
           }
         ],
         "id": "lane-wo-stalled",
@@ -138,7 +138,7 @@
         "worker_id": "worker-a"
       },
       "reason": "stalled",
-      "since": 1790000540001,
+      "since": 1790000724001,
       "work_order": {
         "claim_id": "claim-wo-stalled",
         "contract_id": "generated-4",
@@ -146,7 +146,7 @@
         "fence": 1,
         "id": "wo-stalled",
         "kind": "change",
-        "lease_until": 1790000600001,
+        "lease_until": 1790000784001,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -165,7 +165,7 @@
       "id": "wo-tripped",
       "lane": {
         "actual_state": "tripped",
-        "as_of": 1790000540001,
+        "as_of": 1790000724001,
         "freshness": "last_reported",
         "generation": 1,
         "generations": [
@@ -173,7 +173,7 @@
             "lane_id": "lane-wo-tripped",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000540001
+            "started_at": 1790000724001
           }
         ],
         "id": "lane-wo-tripped",
@@ -185,7 +185,7 @@
         "worker_id": "worker-a"
       },
       "reason": "tripped",
-      "since": 1790000540001,
+      "since": 1790000724001,
       "work_order": {
         "claim_id": "claim-wo-tripped",
         "contract_id": "generated-5",
@@ -193,7 +193,7 @@
         "fence": 1,
         "id": "wo-tripped",
         "kind": "change",
-        "lease_until": 1790000600001,
+        "lease_until": 1790000784001,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -205,5 +205,5 @@
       }
     }
   ],
-  "revision": 206
+  "revision": 313
 }

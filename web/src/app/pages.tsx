@@ -25,6 +25,7 @@ import { Completed, InProgress, OnHold, Stuck } from "../floor/Work";
 import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentList, DocumentPage, OneRequirement, Requirements } from "../planning/Documents";
+import { RecordedPage } from "../planning/Recorded";
 import { OpenQuestions } from "../planning/OpenQuestions";
 import { PlanList, PlanPage } from "../planning/Plans";
 import { Roadmap } from "../planning/Roadmap";
@@ -204,7 +205,12 @@ export function PageFor({ route, live, after }: { route: Route; live: Live; afte
     case "/documents":
       return documentPage(live, "Other documents", "other", "No other documents yet.");
     case "/document":
-      return <DocumentPage reference={{ path: param("path"), instance: param("instance"), version: param("version") }} live={live} />;
+      // A planning document the ledger recorded is named by its reference, and a file by its path.
+      return param("id") ? (
+        <RecordedPage id={param("id")} version={param("version")} live={live} />
+      ) : (
+        <DocumentPage reference={{ path: param("path"), instance: param("instance"), version: param("version") }} live={live} />
+      );
     case "/decisions":
       return decisionsPage(live, param("id"));
     case "/questions":

@@ -25,6 +25,11 @@
     "command": "document versions"
   },
   {
+    "method": "GET",
+    "pattern": "/v1/documents/recorded",
+    "command": "document recorded"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/questions/{id}/answer",
     "command": "question answer"
@@ -38,6 +43,16 @@
     "method": "POST",
     "pattern": "/v1/effects/{id}/decide",
     "command": "effect decide"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/review",
+    "command": "work review"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/work-orders/{id}/send-back",
+    "command": "work send-back"
   },
   {
     "method": "POST",
