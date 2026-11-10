@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/planning"
 )
 
@@ -52,8 +53,97 @@ func (c *invocation) planShow(args []string) int {
 		for _, order := range view.WorkOrders {
 			out.WriteString("work\t" + orderLine(order))
 		}
+		if view.Approval != nil {
+			writePlanApproval(&out, *view.Approval)
+		}
 		return out.String()
 	})
+}
+
+// writePlanApproval prints what a member reads before approving a plan version: who asked, how it
+// differs from the last approved version, and every draft decision it would decide.
+func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
+	approval := view.Approval
+	fmt.Fprintf(out, "approval\t%s\t%s\tversion %d\trequested by %s\n", approval.ID, approval.State, approval.PlanVersion, approval.RequestedBy)
+	fmt.Fprintf(out, "  %s\n", view.Detail.Difference.Summary())
+	for _, line := range []struct {
+		label string
+		refs  []string
+	}{{"added", view.Detail.Difference.Added}, {"changed", view.Detail.Difference.Changed}, {"removed", view.Detail.Difference.Removed}} {
+		if len(line.refs) != 0 {
+			fmt.Fprintf(out, "  %s: %s\n", line.label, strings.Join(line.refs, ", "))
+		}
+	}
+	for _, contract := range view.Detail.Difference.Contracts {
+		fmt.Fprintf(out, "  %s: criteria %s; work orders %s\n", contract.Ref, partsWords(contract.Criteria), partsWords(contract.WorkOrders))
+	}
+	for _, draft := range view.Drafts {
+		fmt.Fprintf(out, "  draft decision %s: %s -> %s\n", draft.ID, draft.Question, draft.Answer)
+	}
+	fmt.Fprintf(out, "  digest %s\n", approval.SubjectDigest)
+}
+
+func partsWords(d planning.PartDifference) string {
+	var said []string
+	for _, part := range []struct {
+		mark string
+		ids  []string
+	}{{"+", d.Added}, {"~", d.Changed}, {"-", d.Removed}} {
+		for _, id := range part.ids {
+			said = append(said, part.mark+id)
+		}
+	}
+	if len(said) == 0 {
+		return "unchanged"
+	}
+	return strings.Join(said, " ")
+}
+
+// planApprove approves the version of a plan that waits, as a member who read what it holds. It names
+// the digest of the version it showed, so a version that changed since is refused and not approved.
+func (c *invocation) planApprove(args []string) int {
+	set := c.flags()
+	version := set.Int64("version", 0, "the plan version to approve, which must be the one that waits")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("takes one plan ID")
+	}
+	client := c.client()
+	defer client.Close()
+	view, err := client.Plan(c.ctx, positional[0])
+	if err != nil {
+		return c.failure(err)
+	}
+	waiting := view.Approval
+	if waiting == nil {
+		return c.refusal(api.CodeNotFound, "plan %s has no version to approve", positional[0])
+	}
+	asked := waiting.Approval
+	switch {
+	case *version != 0 && *version != asked.PlanVersion:
+		return c.refusal(api.CodeIllegalMove, "plan %s waits on version %d, and not on version %d", positional[0], asked.PlanVersion, *version)
+	case asked.State == authority.ApprovalApproved:
+		return c.finish(nil, asked, func() string {
+			return fmt.Sprintf("%s version %d is already approved\n", waiting.Detail.Title, asked.PlanVersion)
+		})
+	case !asked.Open():
+		return c.refusal(api.CodeIllegalMove, "the request for version %d of plan %s is %s", asked.PlanVersion, positional[0], asked.State)
+	}
+	decided, err := client.DecideApproval(c.ctx, asked.ID, api.DecideApproval{Digest: asked.SubjectDigest, Allow: true})
+	return c.finish(err, decided, func() string {
+		var out strings.Builder
+		fmt.Fprintf(&out, "approved %s version %d\n", waiting.Detail.Title, asked.PlanVersion)
+		fmt.Fprintf(&out, "  %s\n", waiting.Detail.Difference.Summary())
+		return out.String()
+	})
+}
+
+// refusal prints a refusal the CLI found before it called anything, in the shape the API's own take.
+func (c *invocation) refusal(code, format string, args ...any) int {
+	return c.failure(&api.Error{Detail: api.ErrorDetail{Code: code, Message: fmt.Sprintf(format, args...)}})
 }
 
 // planReview starts a contract review as a lane, which is ready for a member to claim. Work orders

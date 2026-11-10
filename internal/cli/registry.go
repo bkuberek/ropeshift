@@ -54,7 +54,8 @@ func registry() []section {
 		{"Plans and requirements", []registered{
 			command("plan start", "[--goal TEXT | --goal-file PATH] [--worker ID] [--repository R] [--no-attach]", "open a planning session and attach your terminal to it", (*invocation).planStart),
 			command("plan list", "", "list plans", (*invocation).planList),
-			command("plan show", "<id>", "show a plan, its goal, contracts, and work", (*invocation).planShow),
+			command("plan show", "<id>", "show a plan, its goal, contracts, and work, and the approval that waits with what it changes", (*invocation).planShow),
+			command("plan approve", "<id> [--version N]", "approve the plan version that waits, which decides its draft decisions and passes the review of its work", (*invocation).planApprove),
 			command("plan review", "<id> [--id I]", "start a contract review a lane can run", (*invocation).planReview),
 			command("requirement list", "", "list requirements", (*invocation).requirementList),
 			command("requirement get", "<key>", "show one requirement's newest version", (*invocation).requirementGet),

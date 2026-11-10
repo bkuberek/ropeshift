@@ -921,3 +921,95 @@ func TestQuestionAnswer(t *testing.T) {
 		t.Fatalf("no session: exit %d", code)
 	}
 }
+
+// plannedWithADraft holds a plan that drafts one answer, a spec, and a contract, so a plan version has
+// something to approve.
+func (s *session) plannedWithADraft() (plan string, source *fake.WorkSource) {
+	s.t.Helper()
+	source = fake.NewWorkSource()
+	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"a-plan\"\ntitle = \"The plan\"\n\n[[decision]]\nid = \"d1\"\nquestion = \"Which provider?\"\nanswer = \"Stripe\"\nrationale = \"It has an account.\"\n+++\n\nHow.\n"))
+	source.Write("spec.md", []byte(contract.DocumentText("spec", "api", "The API", "a-plan", "The first draft.")))
+	source.Write("contract.md", []byte(strings.Replace(contract.ContractText("budget", "The budget", "The budget."), `title = "The budget"`, "title = \"The budget\"\nplan = \"a-plan\"", 1)))
+	s.poll(source)
+	plans, err := s.daemon.Client.Plans(s.t.Context())
+	if err != nil || len(plans) != 1 {
+		s.t.Fatalf("plans %+v: %v", plans, err)
+	}
+	return plans[0].ID, source
+}
+
+func (s *session) poll(source *fake.WorkSource) {
+	s.t.Helper()
+	report, err := control.NewIntake(s.daemon.Store).Poll(s.t.Context(), apitest.Scope, source)
+	if err != nil || len(report.Problems) != 0 {
+		s.t.Fatalf("report %+v: %v", report, err)
+	}
+}
+
+func TestPlanShowSaysWhatAWaitingApprovalHoldsAndHowItDiffers(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	text := s.must("plan", "show", plan)
+	for _, want := range []string{"approval", "pending", "version 1", "a first version with 3 records", "contract:budget", "spec:api", "Which provider?", "Stripe"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("no %q in:\n%s", want, text)
+		}
+	}
+}
+
+func TestPlanApproveApprovesTheVersionItShowsAndDecidesItsDrafts(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	text := s.must("plan", "approve", plan)
+	if !strings.Contains(text, "approved") || !strings.Contains(text, "version 1") {
+		t.Errorf("approve printed %q", text)
+	}
+	view, err := s.daemon.Client.Plan(t.Context(), plan)
+	if err != nil || view.Approval == nil || view.Approval.Approval.State != authority.ApprovalApproved || view.Approval.Approval.DecidedBy != "member:member-1" {
+		t.Fatalf("approval %+v: %v", view.Approval, err)
+	}
+	decisions, err := s.daemon.Client.Decisions(t.Context(), api.RecordFilter{Scope: "plan:" + plan})
+	if err != nil || len(decisions) != 1 || decisions[0].DecidedBy != "member-1" {
+		t.Fatalf("decisions %+v: %v", decisions, err)
+	}
+	// A retry after a lost answer is the same answer.
+	if again := s.must("plan", "approve", plan, "--version", "1"); !strings.Contains(again, "already approved") {
+		t.Errorf("a retry printed %q", again)
+	}
+}
+
+func TestPlanApproveRefusesAVersionThatIsNotTheOneWaiting(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	code, _, stderr := s.run("plan", "approve", plan, "--version", "9")
+	if code != cli.ExitConflict || !strings.Contains(stderr, "version 1") {
+		t.Errorf("exit %d: %s", code, stderr)
+	}
+	view, err := s.daemon.Client.Plan(t.Context(), plan)
+	if err != nil || view.Approval == nil || view.Approval.Approval.State != authority.ApprovalPending {
+		t.Fatalf("a refused approval changed %+v: %v", view.Approval, err)
+	}
+	if code, _, _ := s.run("plan", "approve"); code != cli.ExitUsage {
+		t.Errorf("exit %d with no plan", code)
+	}
+	if code, _, _ := s.run("plan", "approve", "absent"); code != cli.ExitNotFound {
+		t.Errorf("exit %d for a plan nobody has", code)
+	}
+}
+
+func TestPlanApproveNamesTheDifferenceOfANewVersion(t *testing.T) {
+	s := newSession(t)
+	plan, source := s.plannedWithADraft()
+	s.must("plan", "approve", plan)
+	source.Write("spec.md", []byte(contract.DocumentText("spec", "api", "The API", "a-plan", "The second draft.")))
+	s.poll(source)
+	shown := s.must("plan", "show", plan)
+	for _, want := range []string{"version 2", "0 added, 1 changed, 0 removed since version 1", "changed: spec:api"} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("no %q in:\n%s", want, shown)
+		}
+	}
+	if approved := s.must("plan", "approve", plan, "--version", "2"); !strings.Contains(approved, "version 2") {
+		t.Errorf("approve printed %q", approved)
+	}
+}
