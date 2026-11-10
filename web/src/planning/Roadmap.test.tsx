@@ -5,6 +5,11 @@ import type { Roadmap } from "../api/types";
 import { openPage } from "../opening";
 import { golden, serveViews } from "../testing";
 
+// The plan Detail lays out under its goal, which a test changes.
+function docsPlan(view: Roadmap) {
+  return view.goals.find((group) => group.goal?.title === "Ship solo mode")?.plans[0];
+}
+
 function serve(change: (view: Roadmap) => void) {
   const view = golden<Roadmap>("roadmap");
   change(view);
@@ -42,7 +47,7 @@ describe("the roadmap", () => {
 
   it("counts done work against all of it", async () => {
     serve((view) => {
-      const plan = view.goals[0]?.plans[0];
+      const plan = docsPlan(view);
       if (plan) {
         plan.total = 4;
         plan.done = 3;
@@ -59,7 +64,7 @@ describe("the roadmap", () => {
 
   it("says a plan has no work, and draws no bar for it", async () => {
     serve((view) => {
-      const plan = view.goals[0]?.plans[0];
+      const plan = docsPlan(view);
       if (plan) {
         plan.total = 0;
         plan.states = {};

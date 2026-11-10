@@ -6,9 +6,9 @@ import { openPage } from "../opening";
 import { golden, serveViews } from "../testing";
 
 function planned(): PlanDetail {
-  const plan = golden<Plans>("plans").plans.find((row) => row.goal);
+  const plan = golden<Plans>("plans").plans.find((row) => row.goal?.title === "Ship solo mode");
   if (!plan) {
-    throw new Error("no plan names a goal");
+    throw new Error("no plan stands under Ship solo mode");
   }
   return plan;
 }

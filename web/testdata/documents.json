@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "documents": [
     {
       "adapter": "fake-knowledge",
@@ -44,6 +44,38 @@
   ],
   "requirements": [
     {
+      "digest": "sha256:6784c99aff4eb589733b96d4e041b89cc0e023f69d4561a48ee3f973e4d93e11",
+      "id": "generated-1",
+      "key": "FAC-1",
+      "source": "plans/factory/requirements.md@7",
+      "text": "A person approves a whole plan in one step.",
+      "version": 1
+    },
+    {
+      "digest": "sha256:e8dcdd6fcc11ef66629d863f46c857855a9a1751ac69cb93ca45e027d57a2dc4",
+      "id": "generated-2",
+      "key": "FAC-2",
+      "source": "plans/factory/requirements.md@7",
+      "text": "Shared work is built before the work that uses it.",
+      "version": 1
+    },
+    {
+      "digest": "sha256:e454d6c9d0ee77eef0499f55d760bbe51f33d7d959b1761d412be7035172f20f",
+      "id": "generated-3",
+      "key": "FAC-3",
+      "source": "plans/factory/requirements.md@7",
+      "text": "A person sees which work can run at the same time.",
+      "version": 1
+    },
+    {
+      "digest": "sha256:63b1a3d5a748e723564c648583b067639d276f6b77832a02d90e2e1b32037bc4",
+      "id": "generated-4",
+      "key": "FAC-4",
+      "source": "plans/factory/requirements.md@7",
+      "text": "A reviewer's verdict names each criterion.",
+      "version": 1
+    },
+    {
       "digest": "sha256:97f96007241d734b4f47ff5cd4b616b5646ef5a7609db9b5ef3b1ff5d0784b63",
       "id": "requirement-FR-RETRY-1",
       "key": "FR-RETRY-1",
@@ -60,5 +92,5 @@
       "version": 1
     }
   ],
-  "revision": 206
+  "revision": 313
 }

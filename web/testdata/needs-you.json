@@ -1,10 +1,10 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "items": [
     {
       "id": "wo-lapsed",
       "kind": "work",
-      "since": 1790000060001,
+      "since": 1790000244001,
       "work": {
         "actions": [
           "reassign",
@@ -12,7 +12,7 @@
         ],
         "lane": {
           "actual_state": "working",
-          "as_of": 1790000000000,
+          "as_of": 1790000184000,
           "freshness": "last_reported",
           "generation": 1,
           "generations": [
@@ -20,7 +20,7 @@
               "lane_id": "lane-wo-lapsed",
               "number": 1,
               "start_reason": "initial",
-              "started_at": 1790000000000
+              "started_at": 1790000184000
             }
           ],
           "id": "lane-wo-lapsed",
@@ -39,7 +39,7 @@
           "fence": 1,
           "id": "wo-lapsed",
           "kind": "change",
-          "lease_until": 1790000060000,
+          "lease_until": 1790000244000,
           "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
@@ -54,7 +54,7 @@
     {
       "id": "wo-blocked",
       "kind": "work",
-      "since": 1790000120001,
+      "since": 1790000304001,
       "work": {
         "actions": [
           "resolve",
@@ -66,7 +66,7 @@
           "actual_state": "ended",
           "artifacts": [
             {
-              "created_at": 1790000120001,
+              "created_at": 1790000304001,
               "digest": "abc123",
               "fence": 2,
               "id": "generated-2",
@@ -75,17 +75,17 @@
               "uri": "lane/lane-wo-blocked"
             }
           ],
-          "as_of": 1790000120001,
+          "as_of": 1790000304001,
           "freshness": "observed",
           "generation": 1,
           "generations": [
             {
               "end_reason": "blocked",
-              "ended_at": 1790000120001,
+              "ended_at": 1790000304001,
               "lane_id": "lane-wo-blocked",
               "number": 1,
               "start_reason": "initial",
-              "started_at": 1790000120001
+              "started_at": 1790000304001
             }
           ],
           "id": "lane-wo-blocked",
@@ -117,7 +117,7 @@
       "effect": {
         "attempt": 1,
         "generation": 1,
-        "id": "worker-a:1:8",
+        "id": "worker-a:1:11",
         "key": "lane-wo-effect/1/input/nudge",
         "kind": "input",
         "lane_id": "lane-wo-effect",
@@ -126,19 +126,19 @@
           "not_happened",
           "retry"
         ],
-        "raised_at": 1790000180001,
+        "raised_at": 1790000364001,
         "target": "the session",
         "work_order_id": "wo-effect",
         "worker_id": "worker-a"
       },
-      "id": "worker-a:1:8",
+      "id": "worker-a:1:11",
       "kind": "effect",
-      "since": 1790000180001
+      "since": 1790000364001
     },
     {
       "id": "wo-accept",
       "kind": "work",
-      "since": 1790000240001,
+      "since": 1790000424001,
       "work": {
         "actions": [
           "accept",
@@ -148,7 +148,7 @@
           "actual_state": "ended",
           "artifacts": [
             {
-              "created_at": 1790000240001,
+              "created_at": 1790000424001,
               "digest": "abc123",
               "fence": 2,
               "id": "generated-4",
@@ -157,17 +157,17 @@
               "uri": "lane/lane-wo-accept"
             }
           ],
-          "as_of": 1790000240001,
+          "as_of": 1790000424001,
           "freshness": "observed",
           "generation": 1,
           "generations": [
             {
               "end_reason": "completed",
-              "ended_at": 1790000240001,
+              "ended_at": 1790000424001,
               "lane_id": "lane-wo-accept",
               "number": 1,
               "start_reason": "initial",
-              "started_at": 1790000240001
+              "started_at": 1790000424001
             }
           ],
           "id": "lane-wo-accept",
@@ -198,13 +198,13 @@
     {
       "approval": {
         "command": "git tag v1",
-        "expires_at": 1790605100001,
+        "expires_at": 1790605284001,
         "generation": 1,
         "id": "approval-1",
         "input": "{\"command\":\"git tag v1\"}",
         "kind": "tool_call",
         "lane_id": "lane-wo-approval",
-        "raised_at": 1790000300001,
+        "raised_at": 1790000484001,
         "requested_by": "lane:lane-wo-approval",
         "state": "pending",
         "subject": "Bash",
@@ -214,15 +214,15 @@
       },
       "id": "approval-1",
       "kind": "approval",
-      "since": 1790000300001
+      "since": 1790000484001
     },
     {
       "batch": {
         "batch": {
-          "closes_at": 1790000360002,
-          "delivered_at": 1790000420001,
+          "closes_at": 1790000544002,
+          "delivered_at": 1790000604001,
           "id": "generated-6",
-          "opened_at": 1790000360001,
+          "opened_at": 1790000544001,
           "status": "delivered"
         },
         "items": [
@@ -263,29 +263,29 @@
       },
       "id": "generated-6",
       "kind": "questions",
-      "since": 1790000420001
+      "since": 1790000604001
     },
     {
       "id": "wo-parked",
       "kind": "work",
-      "since": 1790000480001,
+      "since": 1790000664001,
       "work": {
         "actions": [
           "resume"
         ],
         "lane": {
           "actual_state": "parked",
-          "as_of": 1790000480001,
+          "as_of": 1790000664001,
           "freshness": "observed",
           "generation": 1,
           "generations": [
             {
               "end_reason": "parked",
-              "ended_at": 1790000480001,
+              "ended_at": 1790000664001,
               "lane_id": "lane-wo-parked",
               "number": 1,
               "start_reason": "initial",
-              "started_at": 1790000480001
+              "started_at": 1790000664001
             }
           ],
           "id": "lane-wo-parked",
@@ -322,7 +322,7 @@
     {
       "id": "wo-stalled",
       "kind": "work",
-      "since": 1790000540001,
+      "since": 1790000724001,
       "work": {
         "actions": [
           "respawn",
@@ -330,7 +330,7 @@
         ],
         "lane": {
           "actual_state": "working",
-          "as_of": 1790000540001,
+          "as_of": 1790000724001,
           "conditions": [
             "stalled"
           ],
@@ -341,7 +341,7 @@
               "lane_id": "lane-wo-stalled",
               "number": 1,
               "start_reason": "initial",
-              "started_at": 1790000540001
+              "started_at": 1790000724001
             }
           ],
           "id": "lane-wo-stalled",
@@ -360,7 +360,7 @@
           "fence": 1,
           "id": "wo-stalled",
           "kind": "change",
-          "lease_until": 1790000600001,
+          "lease_until": 1790000784001,
           "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
@@ -375,7 +375,7 @@
     {
       "id": "wo-tripped",
       "kind": "work",
-      "since": 1790000540001,
+      "since": 1790000724001,
       "work": {
         "actions": [
           "reset",
@@ -383,7 +383,7 @@
         ],
         "lane": {
           "actual_state": "tripped",
-          "as_of": 1790000540001,
+          "as_of": 1790000724001,
           "freshness": "last_reported",
           "generation": 1,
           "generations": [
@@ -391,7 +391,7 @@
               "lane_id": "lane-wo-tripped",
               "number": 1,
               "start_reason": "initial",
-              "started_at": 1790000540001
+              "started_at": 1790000724001
             }
           ],
           "id": "lane-wo-tripped",
@@ -410,7 +410,7 @@
           "fence": 1,
           "id": "wo-tripped",
           "kind": "change",
-          "lease_until": 1790000600001,
+          "lease_until": 1790000784001,
           "lease_worker": "worker-a",
           "max_attempts": 1,
           "repository_id": "repository-1",
@@ -421,7 +421,97 @@
           "title": "Fix the flaky test"
         }
       }
+    },
+    {
+      "id": "generated-10",
+      "kind": "plan_approval",
+      "plan_approval": {
+        "approval": {
+          "detail": "{\"title\":\"The factory floor\",\"ref\":\"factory\",\"counts\":{\"architecture\":1,\"contract\":4,\"milestone\":3,\"requirements\":1,\"spec\":1},\"decisions\":2,\"difference\":{\"base\":5,\"added\":[\"architecture:factory\"],\"changed\":[\"contract:core\",\"contract:ui\",\"plan:factory\",\"spec:factory-api\"],\"contracts\":[{\"ref\":\"contract:core\",\"criteria\":{\"added\":[\"c2\"],\"changed\":[\"c1\"]},\"work_orders\":{}},{\"ref\":\"contract:ui\",\"criteria\":{},\"work_orders\":{\"added\":[\"ui-2\"]}}]},\"source\":\"plans/factory/plan.md@16\"}",
+          "generation": 0,
+          "id": "generated-10",
+          "kind": "plan",
+          "lane_id": "",
+          "plan_id": "generated-11",
+          "plan_version": 6,
+          "raised_at": 1790000964001,
+          "requested_by": "system:intake",
+          "state": "pending",
+          "subject": "generated-11@6",
+          "subject_digest": "sha256:e86a2a838f6bb9b66bb8817e866d11764a989566982a6cb03a69f0cce3d156a3",
+          "summary": "Plan The factory floor, version 6: 1 architecture, 4 contract, 3 milestone, 1 requirements, 1 spec, 2 draft decisions",
+          "work_order_id": ""
+        },
+        "counts": {
+          "architecture": 1,
+          "contract": 4,
+          "milestone": 3,
+          "requirements": 1,
+          "spec": 1
+        },
+        "decisions": 2,
+        "difference": {
+          "added": [
+            "architecture:factory"
+          ],
+          "base": 5,
+          "changed": [
+            "contract:core",
+            "contract:ui",
+            "plan:factory",
+            "spec:factory-api"
+          ],
+          "contracts": [
+            {
+              "criteria": {
+                "added": [
+                  "c2"
+                ],
+                "changed": [
+                  "c1"
+                ]
+              },
+              "ref": "contract:core",
+              "work_orders": {}
+            },
+            {
+              "criteria": {},
+              "ref": "contract:ui",
+              "work_orders": {
+                "added": [
+                  "ui-2"
+                ]
+              }
+            }
+          ]
+        },
+        "requested_by": "system:intake",
+        "summary": "1 added, 4 changed, 0 removed since version 5",
+        "title": "The factory floor",
+        "version": 6
+      },
+      "since": 1790000964001
+    },
+    {
+      "contract_review": {
+        "contract": "Document the retry budget",
+        "version": 1,
+        "work_order": {
+          "contract_id": "generated-12",
+          "contract_version": 1,
+          "id": "wo-review",
+          "kind": "change",
+          "max_attempts": 1,
+          "repository_id": "repository-1",
+          "size": "unknown",
+          "state": "contract_review",
+          "title": "Document the retry budget"
+        }
+      },
+      "id": "wo-review",
+      "kind": "contract_review",
+      "since": 1790000964001
     }
   ],
-  "revision": 206
+  "revision": 313
 }

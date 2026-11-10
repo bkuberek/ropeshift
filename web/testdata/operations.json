@@ -1,5 +1,5 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "fleet": {
     "fleet_mode": "run",
     "lanes_per_repository": 0,
@@ -7,7 +7,7 @@
     "wip_limit": 0
   },
   "lanes": {
-    "ended": 4,
+    "ended": 5,
     "parked": 1,
     "tripped": 1,
     "working": 5
@@ -18,27 +18,28 @@
       "numerator": 0,
       "value": null
     },
-    "completed": 1,
+    "completed": 2,
     "cost_per_outcome": {
       "change": {
-        "done": 1,
+        "done": 2,
         "lower_bound": false,
         "per_done_usd": 0,
         "total_usd": 0
       }
     },
     "intake_to_done": {
-      "count": 1,
+      "count": 2,
       "median_ms": 0,
-      "p95_ms": 0
+      "p95_ms": 123000
     },
-    "interruptions": 1,
+    "interruptions": 2,
     "interruptions_by_kind": {
+      "approval": 1,
       "batch": 1
     },
     "interruptions_per_completed": {
-      "denominator": 1,
-      "numerator": 1,
+      "denominator": 2,
+      "numerator": 2,
       "value": 1
     },
     "overturn_rate": {
@@ -49,9 +50,9 @@
     "park_time": {},
     "prevented_repeats": 0,
     "ready_to_done": {
-      "count": 1,
+      "count": 2,
       "median_ms": 0,
-      "p95_ms": 0
+      "p95_ms": 60000
     },
     "repeated_question_rate": {
       "denominator": 2,
@@ -59,19 +60,27 @@
       "value": 0
     },
     "rework": {
-      "denominator": 1,
+      "denominator": 2,
       "numerator": 0,
       "value": 0
     },
     "window": {
-      "from": 1789395980001,
+      "from": 1789396164001,
       "name": "7d",
-      "to": 1790000780002
+      "to": 1790000964002
     },
     "work_in_progress": 6
   },
-  "revision": 206,
+  "revision": 313,
   "sources": [
+    {
+      "adapter": "fake",
+      "cursor": "16",
+      "health": "ok",
+      "id": "fake:memory",
+      "instance": "memory",
+      "port": "work"
+    },
     {
       "adapter": "repofiles",
       "health": "ok",
@@ -86,17 +95,18 @@
       ]
     }
   ],
-  "waiting_for_a_person": 9,
+  "waiting_for_a_person": 11,
   "work_orders": {
     "acceptance": 1,
     "blocked": 1,
     "canceled": 1,
-    "done": 1,
+    "contract_review": 4,
+    "done": 2,
     "failed": 1,
     "intake": 1,
     "lapsed": 1,
     "parked": 1,
-    "ready": 1,
+    "ready": 2,
     "running": 5
   },
   "workers": 1,

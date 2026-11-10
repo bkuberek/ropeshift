@@ -167,6 +167,12 @@ func (w *World) Cancel(id string) {
 func (w *World) Running(id, title string) *Lane {
 	w.t.Helper()
 	w.Ready(id, title)
+	return w.Run(id)
+}
+
+// Run takes a work order that is `ready` to `running` with a lane reporting that it works.
+func (w *World) Run(id string) *Lane {
+	w.t.Helper()
 	lane := "lane-" + id
 	leases := control.NewLeases(w.Daemon.Store)
 	grant, err := leases.Claim(w.ctx, Scope, workorders.ClaimRequest{WorkOrder: id, ClaimID: "claim-" + id, Worker: WorldWorker, TTLMs: LeaseTTL}, worldMember)

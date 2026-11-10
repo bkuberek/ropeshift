@@ -1,10 +1,10 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "items": [
     {
       "lane": {
         "actual_state": "working",
-        "as_of": 1790000180001,
+        "as_of": 1790000364001,
         "freshness": "last_reported",
         "generation": 1,
         "generations": [
@@ -12,7 +12,7 @@
             "lane_id": "lane-wo-effect",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000180001
+            "started_at": 1790000364001
           }
         ],
         "id": "lane-wo-effect",
@@ -23,7 +23,7 @@
         "work_order": "wo-effect",
         "worker_id": "worker-a"
       },
-      "since": 1790000180001,
+      "since": 1790000364001,
       "work_order": {
         "claim_id": "claim-wo-effect",
         "contract_id": "generated-1",
@@ -31,7 +31,7 @@
         "fence": 1,
         "id": "wo-effect",
         "kind": "change",
-        "lease_until": 1790000240001,
+        "lease_until": 1790000424001,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -45,7 +45,7 @@
     {
       "lane": {
         "actual_state": "working",
-        "as_of": 1790000300001,
+        "as_of": 1790000484001,
         "freshness": "last_reported",
         "generation": 1,
         "generations": [
@@ -53,7 +53,7 @@
             "lane_id": "lane-wo-approval",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000300001
+            "started_at": 1790000484001
           }
         ],
         "id": "lane-wo-approval",
@@ -64,7 +64,7 @@
         "work_order": "wo-approval",
         "worker_id": "worker-a"
       },
-      "since": 1790000300001,
+      "since": 1790000484001,
       "work_order": {
         "claim_id": "claim-wo-approval",
         "contract_id": "generated-2",
@@ -72,7 +72,7 @@
         "fence": 1,
         "id": "wo-approval",
         "kind": "change",
-        "lease_until": 1790000360001,
+        "lease_until": 1790000544001,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -86,7 +86,7 @@
     {
       "lane": {
         "actual_state": "working",
-        "as_of": 1790000540001,
+        "as_of": 1790000724001,
         "freshness": "last_reported",
         "generation": 1,
         "generations": [
@@ -94,7 +94,7 @@
             "lane_id": "lane-wo-running",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000540001
+            "started_at": 1790000724001
           }
         ],
         "id": "lane-wo-running",
@@ -105,7 +105,7 @@
         "work_order": "wo-running",
         "worker_id": "worker-a"
       },
-      "since": 1790000540001,
+      "since": 1790000724001,
       "work_order": {
         "claim_id": "claim-wo-running",
         "contract_id": "generated-3",
@@ -113,7 +113,7 @@
         "fence": 1,
         "id": "wo-running",
         "kind": "change",
-        "lease_until": 1790000600001,
+        "lease_until": 1790000784001,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -127,7 +127,7 @@
     {
       "lane": {
         "actual_state": "working",
-        "as_of": 1790000540001,
+        "as_of": 1790000724001,
         "conditions": [
           "stalled"
         ],
@@ -138,7 +138,7 @@
             "lane_id": "lane-wo-stalled",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000540001
+            "started_at": 1790000724001
           }
         ],
         "id": "lane-wo-stalled",
@@ -149,7 +149,7 @@
         "work_order": "wo-stalled",
         "worker_id": "worker-a"
       },
-      "since": 1790000540001,
+      "since": 1790000724001,
       "work_order": {
         "claim_id": "claim-wo-stalled",
         "contract_id": "generated-4",
@@ -157,7 +157,7 @@
         "fence": 1,
         "id": "wo-stalled",
         "kind": "change",
-        "lease_until": 1790000600001,
+        "lease_until": 1790000784001,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -171,7 +171,7 @@
     {
       "lane": {
         "actual_state": "tripped",
-        "as_of": 1790000540001,
+        "as_of": 1790000724001,
         "freshness": "last_reported",
         "generation": 1,
         "generations": [
@@ -179,7 +179,7 @@
             "lane_id": "lane-wo-tripped",
             "number": 1,
             "start_reason": "initial",
-            "started_at": 1790000540001
+            "started_at": 1790000724001
           }
         ],
         "id": "lane-wo-tripped",
@@ -190,7 +190,7 @@
         "work_order": "wo-tripped",
         "worker_id": "worker-a"
       },
-      "since": 1790000540001,
+      "since": 1790000724001,
       "work_order": {
         "claim_id": "claim-wo-tripped",
         "contract_id": "generated-5",
@@ -198,7 +198,7 @@
         "fence": 1,
         "id": "wo-tripped",
         "kind": "change",
-        "lease_until": 1790000600001,
+        "lease_until": 1790000784001,
         "lease_worker": "worker-a",
         "max_attempts": 1,
         "repository_id": "repository-1",
@@ -210,5 +210,5 @@
       }
     }
   ],
-  "revision": 206
+  "revision": 313
 }

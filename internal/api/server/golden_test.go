@@ -73,7 +73,8 @@ func holdsGolden(t *testing.T, name string, got []byte) {
 	}
 }
 
-// aDetailedWorld is one of everything a view reads.
+// aDetailedWorld is one of everything a view reads, with a planned project whose second version waits
+// for approval.
 func aDetailedWorld(t *testing.T) *apitest.Daemon {
 	t.Helper()
 	clock := apitest.NewClock()
@@ -81,8 +82,10 @@ func aDetailedWorld(t *testing.T) *apitest.Daemon {
 	apitest.Documents(knowledge)
 	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect, Knowledge: []ports.KnowledgeSource{knowledge}})
 	w := apitest.NewWorld(t, d)
+	project := apitest.Factory(w, clock)
 	apitest.Populate(w, clock)
 	apitest.Detail(w, clock)
+	project.Change()
 	return d
 }
 

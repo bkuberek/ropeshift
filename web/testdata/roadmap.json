@@ -1,6 +1,106 @@
 {
-  "as_of": 1790000780001,
+  "as_of": 1790000964001,
   "goals": [
+    {
+      "goal": {
+        "id": "generated-1",
+        "source": "plans/factory/goal.md@7",
+        "statement": "One person plans, and the factory builds.\n",
+        "status": "active",
+        "success_measures": [
+          "A plan is approved in one step",
+          "Shared work is built first"
+        ],
+        "title": "Run the factory"
+      },
+      "plans": [
+        {
+          "critical_path": {
+            "weight": 3,
+            "work_orders": [
+              "generated-2",
+              "generated-3"
+            ]
+          },
+          "done": 1,
+          "layers": [
+            [
+              "generated-4",
+              "generated-5"
+            ],
+            [
+              "generated-2"
+            ],
+            [
+              "generated-3",
+              "generated-6"
+            ]
+          ],
+          "milestones": [
+            {
+              "depends_on": [],
+              "done": 1,
+              "exit_criteria": [
+                {
+                  "id": "e1",
+                  "text": "The client and the core run"
+                }
+              ],
+              "id": "build",
+              "priority": 1,
+              "state": "in_progress",
+              "title": "Build the core",
+              "total": 2
+            },
+            {
+              "depends_on": [
+                "build"
+              ],
+              "done": 0,
+              "exit_criteria": [
+                {
+                  "id": "e1",
+                  "text": "A member approves a plan from a browser"
+                }
+              ],
+              "id": "ship",
+              "priority": 2,
+              "state": "waiting",
+              "title": "Ship the approval page",
+              "total": 2
+            },
+            {
+              "depends_on": [],
+              "done": 0,
+              "exit_criteria": [
+                {
+                  "id": "e1",
+                  "text": "A newcomer follows the guide"
+                }
+              ],
+              "id": "guide",
+              "priority": 3,
+              "state": "not_started",
+              "title": "Guide a newcomer",
+              "total": 1
+            }
+          ],
+          "plan": {
+            "goal_id": "generated-1",
+            "id": "generated-7",
+            "source": "plans/factory/plan.md@16",
+            "status": "active",
+            "title": "The factory floor"
+          },
+          "states": {
+            "contract_review": 3,
+            "done": 1,
+            "ready": 1
+          },
+          "total": 5
+        }
+      ]
+    },
     {
       "goal": {
         "id": "goal-1",
@@ -29,7 +129,7 @@
           "milestones": [],
           "plan": {
             "goal_id": "goal-1",
-            "id": "generated-1",
+            "id": "generated-8",
             "status": "active",
             "title": "Write the docs"
           },
@@ -57,12 +157,36 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-2",
+            "id": "generated-9",
             "status": "active",
             "title": "Add the retry budget"
           },
           "states": {
             "running": 1
+          },
+          "total": 1
+        },
+        {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-review"
+            ]
+          },
+          "done": 0,
+          "layers": [
+            [
+              "wo-review"
+            ]
+          ],
+          "milestones": [],
+          "plan": {
+            "id": "generated-10",
+            "status": "active",
+            "title": "Document the retry budget"
+          },
+          "states": {
+            "contract_review": 1
           },
           "total": 1
         },
@@ -79,7 +203,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-3",
+            "id": "generated-11",
             "status": "active",
             "title": "Drop the old plan"
           },
@@ -103,7 +227,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-4",
+            "id": "generated-12",
             "status": "active",
             "title": "Fix the flaky test"
           },
@@ -127,7 +251,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-5",
+            "id": "generated-13",
             "status": "active",
             "title": "Move the archive"
           },
@@ -151,7 +275,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-6",
+            "id": "generated-14",
             "status": "active",
             "title": "Read the logs"
           },
@@ -175,7 +299,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-7",
+            "id": "generated-15",
             "status": "active",
             "title": "Rotate the keys"
           },
@@ -197,7 +321,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-8",
+            "id": "generated-16",
             "status": "active",
             "title": "Ship the first cut"
           },
@@ -221,7 +345,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-9",
+            "id": "generated-17",
             "status": "active",
             "title": "Tag the release"
           },
@@ -245,7 +369,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-10",
+            "id": "generated-18",
             "status": "active",
             "title": "Trim the log"
           },
@@ -269,7 +393,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-11",
+            "id": "generated-19",
             "status": "active",
             "title": "Try the impossible"
           },
@@ -293,7 +417,7 @@
           ],
           "milestones": [],
           "plan": {
-            "id": "generated-12",
+            "id": "generated-20",
             "status": "active",
             "title": "Wait for the check"
           },
@@ -305,5 +429,5 @@
       ]
     }
   ],
-  "revision": 206
+  "revision": 313
 }
