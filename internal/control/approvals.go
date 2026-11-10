@@ -135,6 +135,11 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if err != nil {
 			return err
 		}
+		// A plan sets scope, so only a member decides one: an orchestrator reaches a request through the
+		// delegation policy, and no policy reaches this.
+		if row.Kind == authority.KindPlan && !authority.Allowed(actor, authority.ActionApprovePlan) {
+			return workorders.ErrForbidden
+		}
 		if row.Repeats(decision, actor) {
 			record = row
 			return nil
@@ -149,7 +154,13 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if record, err = row.Decide(decision, actor, version.Version, tx.Now()); err != nil {
 			return err
 		}
-		return noteApproval(tx, record, row.State, actor)
+		if err := noteApproval(tx, record, row.State, actor); err != nil {
+			return err
+		}
+		if record.Kind == authority.KindPlan && record.State == authority.ApprovalApproved {
+			return approvePlan(tx, record, actor)
+		}
+		return nil
 	})
 	if err != nil {
 		return authority.Approval{}, err

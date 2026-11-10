@@ -235,10 +235,14 @@ func dependencyFact(planned ports.PlanningReader, orders ports.WorkOrderReader, 
 	return fact, nil
 }
 
-// Promote moves every reviewed work order whose definition of ready now passes. It
-// is a tick: the list is read with no lock, and each item is one transaction that
-// reads again.
+// Promote moves every reviewed work order whose definition of ready now passes, after it passes the
+// review of work an approved plan covers. It is a tick: the list is read with no lock, and each item
+// is one transaction that reads again.
 func (r *Reviews) Promote(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error) {
+	// Work an approved plan covers is reviewed first, so the pass below moves it in the same tick.
+	if _, err := r.PassCovered(ctx, scope, actor); err != nil {
+		return nil, err
+	}
 	var waiting []string
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		rows, err := tx.WorkOrders().List()

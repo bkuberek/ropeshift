@@ -1,7 +1,10 @@
 package contract
 
 import (
+	"encoding/json"
+	"errors"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -9,6 +12,8 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // PlanApprovalChecks hold what the ledger promises about approving a plan in one step: a version covers
@@ -18,6 +23,14 @@ var PlanApprovalChecks = []Check{
 	{"PA1", "a plan version covers every record that names the plan, and a new one is made when any of them changes", checkPlanVersionCoversItsRecords},
 	{"PA2", "each plan version raises one approval bound to its digest, and a newer version supersedes an open one", checkEachVersionRaisesAnApproval},
 	{"PA3", "the store holds a plan approval with no lane, and no other kind", checkStoreHoldsPlanApprovalsOnly},
+	{"PA4", "approving a plan version decides each draft decision as the member's, once", checkApprovalDecidesTheDrafts},
+	{"PA5", "only a member approves a plan, and nothing a refused caller tried changed", checkOnlyAMemberApprovesAPlan},
+	{"PA6", "an approval names the digest the member saw, and a version a newer one replaced cannot be approved", checkApprovalHoldsTheDigest},
+	{"PA7", "a newer version decides the drafts it changed, replacing the earlier answer, and leaves the others", checkLaterVersionReplacesAnswers},
+	{"PA8", "denying a plan decides nothing and passes no review", checkDenyingAPlan},
+	{"PA9", "approving a plan passes the review of the work its contracts cover, and the definition of ready still applies", checkApprovalPassesCoveredReviews},
+	{"PA10", "a contract the approved version does not cover stays in review until its version is approved", checkUncoveredContractStaysInReview},
+	{"PA11", "a contract whose content an approved version covers is passed by the tick", checkTickPassesCoveredContracts},
 }
 
 const approvalPlan = "retry"
@@ -257,6 +270,446 @@ func checkStoreHoldsPlanApprovalsOnly(r *Rig) error {
 	})
 	if err == nil {
 		return Violatedf("the store let an orchestrator approve a plan")
+	}
+	return nil
+}
+
+func (r *Rig) approve(s ports.Store, a authority.Approval, allow bool, actor ledger.Actor) (authority.Approval, error) {
+	return control.NewApprovals(s).Decide(r.Ctx, r.Scope, authority.Decision{ID: a.ID, Digest: a.SubjectDigest, Allow: allow}, actor)
+}
+
+// theOpenPlanApproval reads the one request waiting, and theOpenPlanApprovalFor the one of a plan.
+func (r *Rig) theOpenPlanApproval(s ports.Store) (authority.Approval, error) {
+	return r.theOpenPlanApprovalFor(s, "")
+}
+
+func (r *Rig) theOpenPlanApprovalFor(s ports.Store, title string) (authority.Approval, error) {
+	all, err := r.planApprovals(s)
+	if err != nil {
+		return authority.Approval{}, err
+	}
+	var open []authority.Approval
+	for _, a := range all {
+		var detail planning.PlanDetail
+		if err := json.Unmarshal([]byte(a.Detail), &detail); err != nil {
+			return authority.Approval{}, Violatedf("the detail of %s is %q: %v", a.ID, a.Detail, err)
+		}
+		if a.Open() && (title == "" || detail.Title == title) {
+			open = append(open, a)
+		}
+	}
+	if len(open) != 1 {
+		return authority.Approval{}, Violatedf("%d plan approvals wait: %+v", len(open), all)
+	}
+	return open[0], nil
+}
+
+// planDecisions reads the decisions the plan approvals made, newest last.
+func (r *Rig) planDecisions(s ports.Store, plan string) ([]questions.Decision, error) {
+	var out []questions.Decision
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = tx.Questions().Decisions(ports.RecordFilter{Scope: "plan:" + plan})
+		return err
+	})
+	return out, err
+}
+
+func (r *Rig) orderOfContract(s ports.Store, contract string) (workorders.WorkOrder, error) {
+	return r.orderByTitle(s, "The work order "+contract+"-order")
+}
+
+func checkApprovalDecidesTheDrafts(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if decisions, err := r.planDecisions(s, plan); err != nil || len(decisions) != 0 {
+		return Violatedf("a draft decided before anyone approved the plan: %+v: %v", decisions, err)
+	}
+	approved, err := r.approve(s, pending, true, theMember)
+	if err != nil {
+		return err
+	}
+	if approved.State != authority.ApprovalApproved || approved.DecidedBy != authority.Principal(theMember) || approved.DecidedDigest != pending.SubjectDigest {
+		return Violatedf("the approval is %+v", approved)
+	}
+	decisions, err := r.planDecisions(s, plan)
+	if err != nil || len(decisions) != 1 {
+		return Violatedf("approval decided %+v: %v", decisions, err)
+	}
+	d := decisions[0]
+	if d.Status != questions.DecisionDecided || d.DecidedBy != theMember.ID || d.QuestionID != "" || d.Scope != "plan:"+plan ||
+		d.Reversibility != questions.Reversible || !slices.Equal(d.Categories, []string{questions.CategoryProduct}) ||
+		!slices.Contains(d.Citations, "plan_version:"+planning.ContractKey(plan, 1)) || d.Rationale == "" {
+		return Violatedf("the decision is %+v", d)
+	}
+	for _, want := range []string{"Which provider first?", "Stripe"} {
+		if !strings.Contains(d.Statement, want) {
+			return Violatedf("the decision states %q, and not %q", d.Statement, want)
+		}
+	}
+	// A retry decides nothing twice.
+	again, err := r.approve(s, pending, true, theMember)
+	if err != nil || again.State != authority.ApprovalApproved {
+		return Violatedf("the retry: %+v: %v", again, err)
+	}
+	if decisions, err = r.planDecisions(s, plan); err != nil || len(decisions) != 1 {
+		return Violatedf("a retry decided again: %+v: %v", decisions, err)
+	}
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if book, err := questions.Replay(events); err != nil || len(book.Decisions) != 1 {
+		return Violatedf("the log replays to %+v: %v", book.Decisions, err)
+	}
+	return nil
+}
+
+func checkOnlyAMemberApprovesAPlan(r *Rig) error {
+	s := r.Store()
+	if _, err := r.intake(s, newApprovalSource().source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	for _, actor := range []ledger.Actor{
+		{Kind: ledger.ActorOrchestrator, ID: "worker-1"}, {Kind: ledger.ActorLane, ID: "lane-1"},
+		{Kind: ledger.ActorWorker, ID: "worker-1"}, {Kind: ledger.ActorSystem, ID: "intake"},
+	} {
+		if _, err := r.approve(s, pending, true, actor); !errors.Is(err, workorders.ErrForbidden) {
+			return Violatedf("%s approving a plan: %v", actor.Kind, err)
+		}
+	}
+	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
+		return Violatedf("a refused caller moved the ledger from %d to %d: %v", before, after, err)
+	}
+	if decisions, err := r.planDecisions(s, plan); err != nil || len(decisions) != 0 {
+		return Violatedf("a refused caller decided %+v: %v", decisions, err)
+	}
+	order, err := r.orderOfContract(s, "budget")
+	if err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		return Violatedf("a refused caller moved the work order %+v: %v", order, err)
+	}
+	return nil
+}
+
+func checkApprovalHoldsTheDigest(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	first, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	stale := authority.Decision{ID: first.ID, Digest: "sha256:an-older-plan", Allow: true}
+	if _, err := control.NewApprovals(s).Decide(r.Ctx, r.Scope, stale, theMember); !errors.Is(err, authority.ErrStaleDigest) {
+		return Violatedf("a digest the member never saw: %v", err)
+	}
+	files.source.Write("spec.md", []byte(DocumentText("spec", "api", "The API", approvalPlan, "The second draft.")))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	if _, err := r.approve(s, first, true, theMember); !errors.Is(err, authority.ErrApprovalClosed) {
+		return Violatedf("a member approved a version a newer one replaced: %v", err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	if decisions, err := r.planDecisions(s, plan); err != nil || len(decisions) != 0 {
+		return Violatedf("a refused approval decided %+v: %v", decisions, err)
+	}
+	current, err := r.theOpenPlanApproval(s)
+	if err != nil || current.PlanVersion != 2 {
+		return Violatedf("the open request is %+v: %v", current, err)
+	}
+	return nil
+}
+
+func checkLaterVersionReplacesAnswers(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	two := `+++
+kind = "plan"
+id = "` + approvalPlan + `"
+title = "Retry budget"
+
+[[decision]]
+id = "d1"
+question = "Which provider first?"
+answer = "Stripe"
+rationale = "It is the one with an account."
+blocking = true
+
+[[decision]]
+id = "d2"
+question = "How many retries?"
+answer = "Three"
+rationale = "It is what the spec says."
++++
+
+How.
+`
+	files.source.Write("plan.md", []byte(two))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	first, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, first, true, theMember); err != nil {
+		return err
+	}
+	if decisions, err := r.planDecisions(s, plan); err != nil || len(decisions) != 2 {
+		return Violatedf("version 1 decided %+v: %v", decisions, err)
+	}
+	// Version 2 changes one answer. The other draft is the same, so it is not decided again.
+	files.source.Write("plan.md", []byte(strings.Replace(two, `answer = "Stripe"`, `answer = "Adyen"`, 1)))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	second, err := r.theOpenPlanApproval(s)
+	if err != nil || second.PlanVersion != 2 {
+		return Violatedf("the open request is %+v: %v", second, err)
+	}
+	if _, err := r.approve(s, second, true, theMember); err != nil {
+		return err
+	}
+	var inForce []questions.Decision
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		all, err := tx.Questions().Decisions(ports.RecordFilter{Scope: "plan:" + plan})
+		for _, d := range all {
+			if d.Status.InForce() {
+				inForce = append(inForce, d)
+			}
+		}
+		return err
+	})
+	if err != nil || len(inForce) != 2 {
+		return Violatedf("in force after version 2: %+v: %v", inForce, err)
+	}
+	stated := ""
+	for _, d := range inForce {
+		stated += d.Statement + "|"
+	}
+	if !strings.Contains(stated, "Adyen") || strings.Contains(stated, "Stripe") || !strings.Contains(stated, "Three") {
+		return Violatedf("the answers in force are %q", stated)
+	}
+	for _, d := range inForce {
+		if strings.Contains(d.Statement, "Adyen") && d.Supersedes == "" {
+			return Violatedf("the new answer replaced nothing: %+v", d)
+		}
+	}
+	return nil
+}
+
+func checkDenyingAPlan(r *Rig) error {
+	s := r.Store()
+	if _, err := r.intake(s, newApprovalSource().source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	denied, err := r.approve(s, pending, false, theMember)
+	if err != nil || denied.State != authority.ApprovalDenied {
+		return Violatedf("denied: %+v: %v", denied, err)
+	}
+	if decisions, err := r.planDecisions(s, plan); err != nil || len(decisions) != 0 {
+		return Violatedf("a denied plan decided %+v: %v", decisions, err)
+	}
+	if _, err := control.NewReviews(s).Promote(r.Ctx, r.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); err != nil {
+		return err
+	}
+	order, err := r.orderOfContract(s, "budget")
+	if err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		return Violatedf("a denied plan let the work order through: %+v: %v", order, err)
+	}
+	return nil
+}
+
+func checkApprovalPassesCoveredReviews(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	order, err := r.orderOfContract(s, "budget")
+	if err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		return Violatedf("before approval %+v: %v", order, err)
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	if order, err = r.orderOfContract(s, "budget"); err != nil {
+		return err
+	}
+	if order.State != workorders.Ready || order.ReviewedBy != theMember.ID {
+		return Violatedf("after approval the work order is %s, reviewed by %q", order.State, order.ReviewedBy)
+	}
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	cited := false
+	for _, e := range events {
+		if e.Type == workorders.EventReviewPassed && e.Subject.ID == order.ID && strings.Contains(string(e.Data), pending.ID) {
+			cited = true
+		}
+	}
+	if !cited {
+		return Violatedf("no review event cites the approval %s", pending.ID)
+	}
+	if book, err := workorders.Replay(events); err != nil || book[order.ID].ReviewedBy != theMember.ID {
+		return Violatedf("the log replays the review to %+v: %v", book[order.ID], err)
+	}
+
+	// A question the review collected still holds the work back, with the review kept.
+	files.source.Write("held-plan.md", []byte(planWith("held", "Held plan", nil, "Stripe")))
+	files.source.Write("held.md", []byte(placedContract{ID: "held", Plan: "held"}.text()))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	held, err := r.orderOfContract(s, "held")
+	if err != nil {
+		return err
+	}
+	if _, err := r.ask(s, "Is this the right budget?", "lane-a", func(a *questions.Ask) {
+		a.Blocking, a.SubjectKind, a.SubjectID = true, workorders.SubjectKind, held.ID
+	}); err != nil {
+		return err
+	}
+	pending, err = r.theOpenPlanApprovalFor(s, "Held plan")
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	if held, err = r.orderOfContract(s, "held"); err != nil {
+		return err
+	}
+	if held.State != workorders.ContractReview || held.ReviewedBy != theMember.ID {
+		return Violatedf("a work order with an open blocking question is %s, reviewed by %q", held.State, held.ReviewedBy)
+	}
+	return nil
+}
+
+func checkUncoveredContractStaysInReview(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	files.source.Write("alone.md", []byte(placedContract{ID: "alone"}.text()))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApprovalFor(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	if alone, err := r.orderOfContract(s, "alone"); err != nil || alone.State != workorders.ContractReview || alone.ReviewedBy != "" {
+		return Violatedf("a contract with no plan was passed by another plan's approval: %+v: %v", alone, err)
+	}
+	// A change to the contract is a version the approval did not cover.
+	files.source.Write("budget.md", []byte(placedContract{ID: "budget", Plan: approvalPlan, Orders: []orderIn{{ID: "budget-order"}, {ID: "budget-more"}}}.text()))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	changed, err := r.orderOfContract(s, "budget")
+	if err != nil || changed.State != workorders.ContractReview || changed.ReviewedBy != "" {
+		return Violatedf("a changed contract is %+v: %v", changed, err)
+	}
+	if _, err := control.NewReviews(s).Promote(r.Ctx, r.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); err != nil {
+		return err
+	}
+	if changed, err = r.orderOfContract(s, "budget"); err != nil || changed.State != workorders.ContractReview || changed.ReviewedBy != "" {
+		return Violatedf("the tick passed a version no approval covers: %+v: %v", changed, err)
+	}
+	second, err := r.theOpenPlanApproval(s)
+	if err != nil || second.PlanVersion != 2 {
+		return Violatedf("the open request is %+v: %v", second, err)
+	}
+	if _, err := r.approve(s, second, true, theMember); err != nil {
+		return err
+	}
+	if changed, err = r.orderOfContract(s, "budget"); err != nil || changed.State != workorders.Ready || changed.ReviewedBy != theMember.ID {
+		return Violatedf("after version 2 is approved: %+v: %v", changed, err)
+	}
+	return nil
+}
+
+func checkTickPassesCoveredContracts(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	first, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, first, true, theMember); err != nil {
+		return err
+	}
+	// The contract changes and then returns to what the member approved, so its digest is one an approved
+	// version covers, and the work goes back through review without anyone looking at it again.
+	original := placedContract{ID: "budget", Plan: approvalPlan}.text()
+	files.source.Write("budget.md", []byte(placedContract{ID: "budget", Plan: approvalPlan, Orders: []orderIn{{ID: "budget-order"}, {ID: "budget-more"}}}.text()))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	if order, err := r.orderOfContract(s, "budget"); err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		return Violatedf("after the change %+v: %v", order, err)
+	}
+	files.source.Write("budget.md", []byte(original))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Promote(r.Ctx, r.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); err != nil {
+		return err
+	}
+	order, err := r.orderOfContract(s, "budget")
+	if err != nil || order.State != workorders.Ready || order.ReviewedBy != theMember.ID {
+		return Violatedf("after the contract returned to what was approved: %+v: %v", order, err)
 	}
 	return nil
 }
