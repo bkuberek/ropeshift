@@ -552,8 +552,12 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
+	if err := r.judgeable(); err != nil {
+		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
 		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.lease.BaseCommit, Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
+		Detached: r.reviewing(),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
 		Tags: map[string]string{
@@ -581,6 +585,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	r.readFacts(ctx)
 	packFile, err := r.writePrompt(ctx, prepared.Worktree.Path)
 	if err != nil {
+		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
+	if err := r.writeReview(ctx, repository, prepared.Worktree.Path); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	spec, err := r.spec(ctx, prepared, repository, packFile)
@@ -717,7 +724,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		Brief: r.briefText(), SystemPromptFile: packFile,
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
-		RunMode: mode, Planning: r.planning(), ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
+		RunMode: mode, Planning: r.planning(), ReadOnly: r.reviewing(), ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
 		Telemetry: r.sessionTelemetry(prepared, repository),
 	}

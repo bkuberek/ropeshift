@@ -38,6 +38,9 @@ type LaneRequest struct {
 	// Fetch names what a remote holds and this machine must bring before a worktree exists,
 	// for a lane another machine ran.
 	Fetch []string
+	// Detached makes the worktree a checkout of Base with no branch, for a lane that reads and leaves
+	// nothing behind. Base is then the commit to read.
+	Detached bool
 	// Private says this session has no work: Repository is a directory of its own, with no
 	// worktree in it, no ports, and no hook of a repository's to run.
 	Private bool
@@ -65,9 +68,16 @@ type Provisioner struct {
 	Lookup func(string) (string, bool)
 }
 
+// ErrNoDetached means a lane asked for a worktree with no branch, and this worker's store makes only
+// branches. A review would leave a branch behind.
+var ErrNoDetached = errors.New("this worker's worktrees cannot check a commit out with no branch")
+
 // Prepare resolves the profile first, because a bad profile should stop a lane
 // before it leaves anything on disk, and a retry converges on the same worktree.
 func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (PreparedLane, error) {
+	if _, offered := p.Worktrees.(ports.ReviewTrees); request.Detached && !offered {
+		return PreparedLane{}, ErrNoDetached
+	}
 	profile, err := p.Profiles.Load(ctx, request.Repository, request.Overrides)
 	if err != nil {
 		return PreparedLane{}, err
@@ -168,7 +178,7 @@ func (p Provisioner) worktree(ctx context.Context, request LaneRequest, place la
 			}
 		}
 		return p.Worktrees.Create(ctx, ports.WorktreeSpec{
-			Repository: request.Repository, Path: place.Path, Branch: place.Branch, Base: request.Base,
+			Repository: request.Repository, Path: place.Path, Branch: place.Branch, Base: request.Base, Detached: request.Detached,
 		})
 	}
 	if request.Bracket == nil {
