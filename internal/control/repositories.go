@@ -101,7 +101,7 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 // Change applies a member's settings to a repository. The record that results must hold together, and a
 // change that changes nothing appends nothing.
 func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id string, change RepositoryChange, actor ledger.Actor) (ledger.Repository, error) {
-	if !authority.Allowed(actor, authority.ActionPublishPolicy) {
+	if !authority.Allowed(actor, authority.ActionSetRepository) {
 		return ledger.Repository{}, workorders.ErrForbidden
 	}
 	var after ledger.Repository
