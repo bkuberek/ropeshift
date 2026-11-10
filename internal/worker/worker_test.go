@@ -2,9 +2,12 @@ package worker_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,12 +50,20 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	ctx := t.Context()
 	offset := &atomic.Int64{}
+	image, err := migratedStore()
+	if err != nil {
+		t.Fatal(err)
+	}
 	db, err := sqlite.OpenMemoryDB()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := onConnection(ctx, db, func(c imageConn) error { return c.Deserialize(image) }); err != nil {
+		t.Fatal(err)
+	}
 	store := &fake.Store{Store: sqlstore.New(db, shiftedDialect{Dialect: sqlite.Dialect{}, offset: offset}, sqlstore.Options{})}
 	t.Cleanup(func() { _ = store.Close() })
+	// Every migration finds itself applied, which is the path a restarted store takes.
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +83,51 @@ func newRig(t *testing.T) *rig {
 		t: t, store: store, plane: plane, link: &fake.WorkerLink{Plane: plane},
 		journal: journal, clock: fake.NewClock(time.UnixMilli(1_000_000)), offset: offset,
 	}
+}
+
+// migratedStore is the image of a store every migration has run on, made once per test
+// binary. Each rig starts from a copy of it: under -race the migrations cost far more than
+// most tests, and every rig ran them again.
+var migratedStore = sync.OnceValues(func() ([]byte, error) {
+	ctx := context.Background()
+	db, err := sqlite.OpenMemoryDB()
+	if err != nil {
+		return nil, err
+	}
+	store := sqlstore.New(db, shiftedDialect{Dialect: sqlite.Dialect{}, offset: &atomic.Int64{}}, sqlstore.Options{})
+	defer func() { _ = store.Close() }()
+	if err := store.Migrate(ctx); err != nil {
+		return nil, err
+	}
+	var image []byte
+	err = onConnection(ctx, db, func(c imageConn) error {
+		var err error
+		image, err = c.Serialize()
+		return err
+	})
+	return image, err
+})
+
+// imageConn is the SQLite driver's connection, which reads and writes a whole database image.
+type imageConn interface {
+	Serialize() ([]byte, error)
+	Deserialize([]byte) error
+}
+
+// onConnection runs a function on the one connection a memory database lives on.
+func onConnection(ctx context.Context, db *sql.DB, f func(imageConn) error) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	return conn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(imageConn)
+		if !ok {
+			return fmt.Errorf("the driver connection %T cannot copy a database image", driverConn)
+		}
+		return f(c)
+	})
 }
 
 // shiftedDialect adds an offset to database time, which is how a test moves that clock.
