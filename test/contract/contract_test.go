@@ -14,6 +14,7 @@ import (
 )
 
 func TestStoreContract(t *testing.T) {
+	t.Parallel()
 	for _, backend := range []Backend{SQLiteFile, SQLiteMemory} {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
@@ -25,6 +26,7 @@ func TestStoreContract(t *testing.T) {
 // TestFakeStoreIsTheAdapter runs a small path through the exported fake, which
 // is what every core test will hold.
 func TestFakeStoreIsTheAdapter(t *testing.T) {
+	t.Parallel()
 	store, err := fake.NewStore()
 	if err != nil {
 		t.Fatal(err)
@@ -45,6 +47,7 @@ func TestFakeStoreIsTheAdapter(t *testing.T) {
 // TestSchemaShape reads the migrated schema: every record table is scoped to a
 // workspace (FR-LEDGER-2), and no column can hold a secret value (NFR-SEC-4).
 func TestSchemaShape(t *testing.T) {
+	t.Parallel()
 	file := t.TempDir() + "/ledger.db"
 	store, err := sqlite.Open(file, sqlstore.Options{})
 	if err != nil {

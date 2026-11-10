@@ -11,6 +11,7 @@ import (
 // The dependencies table is made again with the kind in its key. The rows a ledger holds stay as they
 // were, and two dependencies of different kinds can then name the same target.
 func TestDependencyKindsMigrationKeepsRowsAndWidensTheKey(t *testing.T) {
+	t.Parallel()
 	db, err := sqlite.OpenDB(filepath.Join(t.TempDir(), "ledger.db"))
 	if err != nil {
 		t.Fatal(err)

@@ -34,6 +34,7 @@ func pendingCount(t *testing.T, j ports.Journal) int {
 // TestJournalTakesAMessageOnce is worker deduplication by ID: a message offered again changes
 // nothing and stores no second word to the ledger.
 func TestJournalTakesAMessageOnce(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	ctx := t.Context()
 	message := heldMessage("m-1")
@@ -71,6 +72,7 @@ func TestJournalTakesAMessageOnce(t *testing.T) {
 
 // TestJournalListsWhatWaits leaves out what was written or closed, and keeps arrival order.
 func TestJournalListsWhatWaits(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	ctx := t.Context()
 	for _, id := range []string{"z-first", "a-second", "m-third", "b-fourth"} {
@@ -99,6 +101,7 @@ func TestJournalListsWhatWaits(t *testing.T) {
 
 // TestJournalHandsAMessageInOneWrite keeps what a crash must not separate.
 func TestJournalHandsAMessageInOneWrite(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	ctx := t.Context()
 	message := heldMessage("m-1")
@@ -133,6 +136,7 @@ func TestJournalHandsAMessageInOneWrite(t *testing.T) {
 
 // TestJournalMovesAMessageFromWhatItRead is the compare-and-set: a move that lost stores no event.
 func TestJournalMovesAMessageFromWhatItRead(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	ctx := t.Context()
 	message := heldMessage("m-1")
@@ -163,6 +167,7 @@ func TestJournalMovesAMessageFromWhatItRead(t *testing.T) {
 // TestJournalClosesOnlyWhatWaits leaves a message that was written as it stands, because a late
 // admission must still find it.
 func TestJournalClosesOnlyWhatWaits(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	ctx := t.Context()
 	message := heldMessage("m-1")

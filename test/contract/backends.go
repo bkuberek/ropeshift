@@ -25,9 +25,13 @@ func (d ShiftedDialect) ClockSQL() string {
 	return "SELECT (" + inner + ") + " + strconv.FormatInt(d.Offset.Load(), 10)
 }
 
-// SQLiteFile is the solo-mode backend: a file in a temporary directory.
+// SQLiteFile is the solo-mode backend: a file in a temporary directory, which starts as a
+// copy of a migrated ledger.
 var SQLiteFile = Backend{Name: "sqlite", Fresh: func(t testing.TB) Database {
 	file := filepath.Join(t.TempDir(), "ledger.db")
+	if err := writeMigrated(file); err != nil {
+		t.Fatal(err)
+	}
 	offset := &atomic.Int64{}
 	return Database{
 		Restartable: true,
@@ -53,7 +57,8 @@ var SQLiteFile = Backend{Name: "sqlite", Fresh: func(t testing.TB) Database {
 	}
 }}
 
-// SQLiteMemory is the in-memory backend every fake Store uses (D6).
+// SQLiteMemory is the in-memory backend every fake Store uses (D6). Its database starts
+// as the image of a migrated one.
 var SQLiteMemory = Backend{Name: "memory", Fresh: func(t testing.TB) Database {
 	offset := &atomic.Int64{}
 	db, err := sqlite.OpenMemoryDB()
@@ -61,6 +66,9 @@ var SQLiteMemory = Backend{Name: "memory", Fresh: func(t testing.TB) Database {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	if err := restoreMigrated(db); err != nil {
+		t.Fatal(err)
+	}
 	var store *sqlstore.Store
 	return Database{
 		ShiftClock: func(delta int64) { offset.Add(delta) },

@@ -15,6 +15,7 @@ import (
 )
 
 func TestKnowledgeSourceContract(t *testing.T) {
+	t.Parallel()
 	t.Run("repository documents", func(t *testing.T) {
 		RunKnowledgeSource(t, func(t *testing.T) KnowledgeRig {
 			repo := gittest.New(t)
@@ -36,6 +37,7 @@ func TestKnowledgeSourceContract(t *testing.T) {
 // TestAnUncommittedEditIsNotKnowledge holds the rule of ADR-0013 for documents: what a lane
 // reads must name a commit.
 func TestAnUncommittedEditIsNotKnowledge(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("design.md", "# Committed\n")
 	if err := os.WriteFile(filepath.Join(repo.Dir, "design.md"), []byte("# Not committed\n"), 0o600); err != nil {
@@ -57,6 +59,7 @@ func TestAnUncommittedEditIsNotKnowledge(t *testing.T) {
 
 // TestADirectoryLimitsWhatIsRead holds a source to the directory it was given.
 func TestADirectoryLimitsWhatIsRead(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("docs/design.md", "# In\n")
 	repo.Commit("other/notes.md", "# Out\n")
@@ -72,6 +75,7 @@ func TestADirectoryLimitsWhatIsRead(t *testing.T) {
 
 // TestAFileSaysWhatItIsBeforeItsPathDoes holds a repository file's own word over where it sits.
 func TestAFileSaysWhatItIsBeforeItsPathDoes(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("docs/notes.md", "+++\nkind = \"requirements\"\nid = \"reqs\"\ntitle = \"Requirements\"\n\n[[requirement]]\nid = \"R-1\"\ntext = \"One.\"\n+++\n")
 	repo.Commit("docs/design/plan.md", "+++\nkind = \"plan\"\nid = \"plan-1\"\ntitle = \"The plan\"\n+++\n")

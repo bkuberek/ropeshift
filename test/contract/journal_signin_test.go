@@ -9,6 +9,7 @@ import (
 )
 
 func TestJournalStartsWithNothingOfASignIn(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	got, err := j.SignIn(t.Context())
 	if err != nil {
@@ -22,6 +23,7 @@ func TestJournalStartsWithNothingOfASignIn(t *testing.T) {
 // TestJournalKeepsASignInWithWhatFollows holds a state and the word of it to one write, which is
 // the crash window a separate append would leave.
 func TestJournalKeepsASignInWithWhatFollows(t *testing.T) {
+	t.Parallel()
 	j := openTestJournal(t)
 	ctx := t.Context()
 	want := lanes.SignInState{

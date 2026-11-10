@@ -20,6 +20,7 @@ var (
 var cheapHash = localauth.Params{Time: 1, MemoryKiB: 8, Threads: 1}
 
 func TestIdentityProviderContract(t *testing.T) {
+	t.Parallel()
 	t.Run("local passphrase", func(t *testing.T) {
 		RunIdentityProvider(t, func(t *testing.T) IdentityRig {
 			rig := NewRig(t, SQLiteFile)
@@ -36,6 +37,7 @@ func TestIdentityProviderContract(t *testing.T) {
 // TestTheLedgerHoldsOnlyAHash reads what a local passphrase leaves behind: its hash, with
 // no trace of the passphrase in the record or the events.
 func TestTheLedgerHoldsOnlyAHash(t *testing.T) {
+	t.Parallel()
 	rig := NewRig(t, SQLiteFile)
 	provider := localauth.New(rig.Store(), cheapHash)
 	if err := provider.Enroll(rig.Ctx, rig.Scope, ports.Proof{Passphrase: goodPassphrase}, anyCaller); err != nil {

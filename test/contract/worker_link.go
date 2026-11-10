@@ -74,7 +74,6 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"a lost lease comes back as fenced", checkFencedLease},
 		{"desired state names this worker's leases", checkDesired},
 		{"a hint follows a revision", checkHint},
-		{"a lost hint costs latency and nothing else", checkLostHint},
 		{"one triple stores one event", checkUploadOnce},
 		{"a fenced event gets its own result", checkFencedEvent},
 		{"an event keeps when it happened", checkOccurredAt},
@@ -82,8 +81,15 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"one version behind is accepted and older is refused", checkProtocol},
 		{"a worker claims through the link", checkWorkerClaim},
 	}
+	// A lost hint shows as no hint over a window of real time, which the load of the other
+	// checks would shorten, so that check runs first and alone. Every other check has a
+	// control plane of its own, and they run in parallel once it ends.
+	t.Run("a lost hint costs latency and nothing else", func(t *testing.T) {
+		checkLostHint(t, t.Context(), backend)
+	})
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
+			t.Parallel()
 			check.run(t, t.Context(), backend)
 		})
 	}

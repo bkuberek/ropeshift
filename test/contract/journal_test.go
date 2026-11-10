@@ -20,6 +20,7 @@ import (
 // TestJournalContract runs one suite on the file and on the fake, which is the same
 // adapter on an in-memory database (D6).
 func TestJournalContract(t *testing.T) {
+	t.Parallel()
 	backends := []struct {
 		name string
 		open func(*testing.T) ports.Journal
@@ -496,6 +497,7 @@ func checkJournalMigrate(t *testing.T, ctx context.Context, j ports.Journal) {
 }
 
 func TestJournalChargesARestartOnce(t *testing.T) {
+	t.Parallel()
 	journal := openTestJournal(t)
 	ctx := t.Context()
 	charge := lanes.Restart{Key: "g2", AtMs: 1, NotBeforeMs: 31}
@@ -517,6 +519,7 @@ func TestJournalChargesARestartOnce(t *testing.T) {
 }
 
 func TestJournalClearsChargesAndCountsTheReset(t *testing.T) {
+	t.Parallel()
 	journal := openTestJournal(t)
 	ctx := t.Context()
 	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning}
@@ -540,6 +543,7 @@ func TestJournalClearsChargesAndCountsTheReset(t *testing.T) {
 }
 
 func TestJournalBeginsAGenerationWithItsEvent(t *testing.T) {
+	t.Parallel()
 	journal := openTestJournal(t)
 	ctx := t.Context()
 	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning, TokenDigest: "d"}
@@ -565,6 +569,7 @@ func TestJournalBeginsAGenerationWithItsEvent(t *testing.T) {
 }
 
 func TestJournalKeepsParkingThroughItsSteps(t *testing.T) {
+	t.Parallel()
 	journal := openTestJournal(t)
 	ctx := t.Context()
 	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning, TokenDigest: "d"}
@@ -612,6 +617,7 @@ func TestJournalKeepsParkingThroughItsSteps(t *testing.T) {
 }
 
 func TestJournalKeepsAHandoffThroughItsSteps(t *testing.T) {
+	t.Parallel()
 	journal := openTestJournal(t)
 	ctx := t.Context()
 	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning, TokenDigest: "d"}
@@ -665,6 +671,7 @@ func TestJournalKeepsAHandoffThroughItsSteps(t *testing.T) {
 }
 
 func TestJournalKeepsWhichChargesWerePlanned(t *testing.T) {
+	t.Parallel()
 	journal := openTestJournal(t)
 	ctx := t.Context()
 	record := lanes.Record{ID: "lane-1", WorkOrder: "wo", ClaimID: "c", Fence: 1, Generation: 1, State: lanes.StateRunning}
@@ -710,6 +717,7 @@ func openJournal(t *testing.T) ports.Journal {
 }
 
 func TestJournalAllocations(t *testing.T) {
+	t.Parallel()
 	journal := openJournal(t)
 	ctx := t.Context()
 	pool := lanes.PortPool{Base: 20000, Size: 20}
@@ -745,6 +753,7 @@ func TestJournalAllocations(t *testing.T) {
 }
 
 func TestJournalAllocationsRaceForOneBlock(t *testing.T) {
+	t.Parallel()
 	journal := openJournal(t)
 	ctx := t.Context()
 	pool := lanes.PortPool{Base: 20000, Size: 1000}
@@ -772,6 +781,7 @@ func TestJournalAllocationsRaceForOneBlock(t *testing.T) {
 }
 
 func TestJournalKeepsAGuard(t *testing.T) {
+	t.Parallel()
 	journal := openJournal(t)
 	ctx := t.Context()
 	if err := journal.SaveLane(ctx, lanes.Record{ID: "lane", WorkOrder: "w", ClaimID: "c", State: lanes.StateRunning}); err != nil {

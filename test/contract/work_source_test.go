@@ -18,6 +18,7 @@ import (
 )
 
 func TestWorkSourceContract(t *testing.T) {
+	t.Parallel()
 	t.Run("repository files", func(t *testing.T) {
 		RunWorkSource(t, func(t *testing.T) SourceRig {
 			repo := gittest.New(t)
@@ -73,6 +74,7 @@ func fakeRig(source *fake.WorkSource) SourceRig {
 // TestDigestIsTheGitBlobHash is D1's digest: the hash git holds, of the file as
 // written.
 func TestDigestIsTheGitBlobHash(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	text := ContractText("alpha", "Alpha", "One.")
 	repo.Commit("contract.md", text)
@@ -95,6 +97,7 @@ func TestDigestIsTheGitBlobHash(t *testing.T) {
 // TestADocumentDigestIsTheGitBlobHash holds a document to the same digest as a contract: the hash git
 // holds, of the file as written, so a version of a document names the content it was read from.
 func TestADocumentDigestIsTheGitBlobHash(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	text := DocumentText("spec", "checkout-api", "Checkout API", "", "The calls.")
 	repo.Commit("spec.md", text)
@@ -116,6 +119,7 @@ func TestADocumentDigestIsTheGitBlobHash(t *testing.T) {
 
 // TestIntakeReadsCommittedContentOnly proves an uncommitted edit is not intake.
 func TestIntakeReadsCommittedContentOnly(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("contract.md", ContractText("alpha", "Alpha", "Committed."))
 	if err := writeFile(repo.Dir+"/contract.md", ContractText("alpha", "Alpha", "Not committed.")); err != nil {
@@ -132,6 +136,7 @@ func TestIntakeReadsCommittedContentOnly(t *testing.T) {
 }
 
 func TestConfiguredRefAndDirectory(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("elsewhere/other.md", ContractText("other", "Other", "One."))
 	repo.Commit("plans/contract.md", ContractText("alpha", "Alpha", "On main."))
@@ -149,6 +154,7 @@ func TestConfiguredRefAndDirectory(t *testing.T) {
 }
 
 func TestRemoteAndFetch(t *testing.T) {
+	t.Parallel()
 	origin := gittest.New(t)
 	origin.Commit("contract.md", ContractText("alpha", "Alpha", "One."))
 	clone := gittest.New(t)
@@ -176,6 +182,7 @@ func TestRemoteAndFetch(t *testing.T) {
 // TestFailedFetchIsAHealthState holds FR-DEP-1: with no network, intake still reads
 // what the machine has.
 func TestFailedFetchIsAHealthState(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("contract.md", ContractText("alpha", "Alpha", "One."))
 	repo.Git("remote", "add", "origin", repo.Dir+"/does-not-exist")
@@ -196,6 +203,7 @@ func TestFailedFetchIsAHealthState(t *testing.T) {
 }
 
 func TestRepositoryWithNoRemote(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("contract.md", ContractText("alpha", "Alpha", "One."))
 	source := repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()})
@@ -210,6 +218,7 @@ func TestRepositoryWithNoRemote(t *testing.T) {
 
 // TestIntakeOnARealRepository walks the unit's intake path on real git.
 func TestIntakeOnARealRepository(t *testing.T) {
+	t.Parallel()
 	store, err := fake.NewStore()
 	if err != nil {
 		t.Fatal(err)
@@ -298,6 +307,7 @@ func TestIntakeOnARealRepository(t *testing.T) {
 // TestDocumentsOnARealRepository follows a spec through two commits: each version names the commit
 // and the blob it was read from, and a contract pins the version at its own commit (FR-DOC-2, FR-DOC-4).
 func TestDocumentsOnARealRepository(t *testing.T) {
+	t.Parallel()
 	store, err := fake.NewStore()
 	if err != nil {
 		t.Fatal(err)

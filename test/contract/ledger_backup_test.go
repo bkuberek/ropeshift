@@ -14,14 +14,19 @@ import (
 )
 
 func TestLedgerBackupContract(t *testing.T) {
+	t.Parallel()
 	t.Run("sqlite online backup", func(t *testing.T) {
 		RunLedgerBackup(t, func(t *testing.T) BackupRig {
 			file := filepath.Join(t.TempDir(), "ledger.db")
+			if err := writeMigrated(file); err != nil {
+				t.Fatal(err)
+			}
 			store, err := sqlite.Open(file, sqlstore.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = store.Close() })
+			// Every migration finds itself applied, which is the path a restarted ledger takes.
 			if err := store.Migrate(t.Context()); err != nil {
 				t.Fatal(err)
 			}

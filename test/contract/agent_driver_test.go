@@ -61,6 +61,7 @@ var fakeScenarios = map[string][][]fake.DriverStep{
 }
 
 func TestFakeDriverContract(t *testing.T) {
+	t.Parallel()
 	RunAgentDriver(t, func(t *testing.T) DriverRig {
 		driver := fake.NewAgentDriver()
 		return DriverRig{Driver: driver, Arrange: func(scenario string) ports.SessionSpec {

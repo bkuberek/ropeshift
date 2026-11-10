@@ -48,6 +48,7 @@ func TestProcessRunnerContract(t *testing.T) {
 }
 
 func TestWorktreesContract(t *testing.T) {
+	t.Parallel()
 	t.Run("git", func(t *testing.T) {
 		RunWorktrees(t, func(t *testing.T) WorktreeRig {
 			repo := gittest.New(t)
@@ -77,6 +78,7 @@ func TestWorktreesContract(t *testing.T) {
 }
 
 func TestHookRunnerContract(t *testing.T) {
+	t.Parallel()
 	t.Run("os/exec", func(t *testing.T) {
 		RunHookRunner(t, func(t *testing.T) HookRig {
 			return HookRig{
@@ -100,6 +102,7 @@ func TestHookRunnerContract(t *testing.T) {
 }
 
 func TestProfileSourceContract(t *testing.T) {
+	t.Parallel()
 	t.Run("filesystem", func(t *testing.T) {
 		RunProfileSource(t, func(t *testing.T) ProfileRig {
 			repository := t.TempDir()
@@ -131,6 +134,7 @@ func TestProfileSourceContract(t *testing.T) {
 // TestSpawnReadsNoLoginFiles gives a child a home whose login files would write a
 // marker. A direct spawn reads none of them.
 func TestSpawnReadsNoLoginFiles(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	marker := filepath.Join(home, "login-file-ran")
 	for _, name := range []string{".profile", ".bash_profile", ".bashrc", ".zshenv", ".zprofile", ".zshrc"} {
@@ -153,6 +157,7 @@ func TestSpawnReadsNoLoginFiles(t *testing.T) {
 // TestWorktreeRetryAfterACrash holds what `git worktree add` can leave behind when
 // a process dies around it.
 func TestWorktreeRetryAfterACrash(t *testing.T) {
+	t.Parallel()
 	spec := func(repo *gittest.Repo) ports.WorktreeSpec {
 		return ports.WorktreeSpec{
 			Repository: repo.Dir, Path: filepath.Join(filepath.Dir(repo.Dir), "lanes", "one"), Branch: "lane/one",
@@ -207,6 +212,7 @@ func TestWorktreeRetryAfterACrash(t *testing.T) {
 }
 
 func TestWorktreeLeavesAnOccupiedPathAlone(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit("README.txt", "seed\n")
 	s := ports.WorktreeSpec{Repository: repo.Dir, Path: filepath.Join(filepath.Dir(repo.Dir), "occupied"), Branch: "lane/one"}
@@ -223,6 +229,7 @@ func TestWorktreeLeavesAnOccupiedPathAlone(t *testing.T) {
 }
 
 func TestWorktreeStartsAtTheBase(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	first := repo.Commit("README.txt", "one\n")
 	repo.Commit("README.txt", "two\n")
@@ -240,6 +247,7 @@ func TestWorktreeStartsAtTheBase(t *testing.T) {
 // TestALaneGetsItsPlace composes the three ports on real git, a real profile file,
 // and the allowlist.
 func TestALaneGetsItsPlace(t *testing.T) {
+	t.Parallel()
 	repo := gittest.New(t)
 	repo.Commit(profiles.RepositoryFile, "[agent]\nmodel = \"haiku\"\n\n[worktree]\nbranch_prefix = \"work/\"\n")
 	parent := map[string]string{"HOME": "/home/someone", "PATH": "/usr/bin", "CLAUDECODE": "1", "ANTHROPIC_API_KEY": "k"}
@@ -276,6 +284,7 @@ func TestALaneGetsItsPlace(t *testing.T) {
 // TestDetachedProcessLeavesTheGroup holds what a shim depends on: a signal to the group
 // of whatever started it does not reach it.
 func TestDetachedProcessLeavesTheGroup(t *testing.T) {
+	t.Parallel()
 	process, err := osexec.Runner{}.Start(t.Context(), ports.ProcessSpec{Path: "/bin/sleep", Args: []string{"30"}, Detached: true})
 	if err != nil {
 		t.Fatal(err)
@@ -296,6 +305,7 @@ func TestDetachedProcessLeavesTheGroup(t *testing.T) {
 // TestOutlivingProcessLeavesTheGroup holds the least a process that must outlive the worker's
 // service gets from any runner: the group a service manager signals does not hold it (D20).
 func TestOutlivingProcessLeavesTheGroup(t *testing.T) {
+	t.Parallel()
 	process, err := osexec.Runner{}.Start(t.Context(), ports.ProcessSpec{Path: "/bin/sleep", Args: []string{"30"}, Outlive: true})
 	if err != nil {
 		t.Fatal(err)
