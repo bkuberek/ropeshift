@@ -24,6 +24,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-2",
         "status": "active",
@@ -73,6 +74,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-4",
         "status": "active",
@@ -116,6 +118,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-6",
         "status": "active",
@@ -159,6 +162,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-8",
         "status": "active",
@@ -208,6 +212,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-10",
         "status": "active",
@@ -254,6 +259,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-12",
         "status": "active",
@@ -303,6 +309,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-14",
         "status": "active",
@@ -352,6 +359,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-16",
         "status": "active",
@@ -398,6 +406,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-18",
         "status": "active",
@@ -428,6 +437,7 @@
       "contracts": [
         {
           "id": "generated-19",
+          "key": "client",
           "versions": [
             {
               "criteria": [
@@ -460,6 +470,7 @@
         },
         {
           "id": "generated-21",
+          "key": "core",
           "versions": [
             {
               "criteria": [
@@ -530,6 +541,7 @@
         },
         {
           "id": "generated-22",
+          "key": "ui",
           "versions": [
             {
               "criteria": [
@@ -605,6 +617,7 @@
         },
         {
           "id": "generated-23",
+          "key": "guide",
           "versions": [
             {
               "criteria": [
@@ -646,6 +659,56 @@
         ],
         "title": "Run the factory"
       },
+      "milestones": [
+        {
+          "depends_on": [],
+          "done": 1,
+          "exit_criteria": [
+            {
+              "id": "e1",
+              "text": "The client and the core run"
+            }
+          ],
+          "id": "build",
+          "priority": 1,
+          "state": "in_progress",
+          "title": "Build the core",
+          "total": 2
+        },
+        {
+          "depends_on": [
+            "build"
+          ],
+          "done": 0,
+          "exit_criteria": [
+            {
+              "id": "e1",
+              "text": "A member approves a plan from a browser"
+            }
+          ],
+          "id": "ship",
+          "priority": 2,
+          "state": "waiting",
+          "title": "Ship the approval page",
+          "total": 2
+        },
+        {
+          "depends_on": [],
+          "done": 0,
+          "exit_criteria": [
+            {
+              "id": "e1",
+              "text": "A newcomer follows the guide"
+            }
+          ],
+          "id": "guide",
+          "priority": 3,
+          "state": "not_started",
+          "title": "Guide a newcomer",
+          "total": 1
+        }
+      ],
+      "pending_version": 6,
       "plan": {
         "goal_id": "generated-24",
         "id": "generated-20",
@@ -734,6 +797,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-31",
         "status": "active",
@@ -780,6 +844,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-33",
         "status": "active",
@@ -827,6 +892,7 @@
           ]
         }
       ],
+      "milestones": [],
       "plan": {
         "id": "generated-35",
         "status": "active",
@@ -921,6 +987,7 @@
         ],
         "title": "Ship solo mode"
       },
+      "milestones": [],
       "plan": {
         "goal_id": "goal-1",
         "id": "generated-37",

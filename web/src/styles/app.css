@@ -909,6 +909,33 @@ fieldset {
   border-top: 2px solid var(--hemp);
 }
 
+/* A plan version that waits for approval says so in words, and leads to where a member gives it. */
+.plan-waiting {
+  margin-bottom: 1rem;
+  color: var(--marker);
+  font-weight: 700;
+}
+
+/* A contract's work orders, each with its size. */
+.contract-work {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.contract-work > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+  min-width: 0;
+}
+
+.contract-work-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .version-title {
   color: var(--muted);
   font-size: 1rem;
