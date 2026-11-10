@@ -343,6 +343,11 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 			return questionDeferred, deferral()
 		case lanes.QuestionToolDeny:
 			return callDenied, denial(lanes.ReasonUseAsk)
+		case lanes.QuestionToolTerminalIfAttached:
+			if attached(policy.AttachedMarker) {
+				return callPassed, nil
+			}
+			return callDenied, denial(lanes.ReasonUseAsk)
 		}
 	}
 	target := call.Input.File
@@ -358,6 +363,17 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 		return deferGated(cfg, input)
 	}
 	return callPassed, nil
+}
+
+// attached reads the marker the worker touches while a person is attached to the lane's pane. It is
+// one stat of a file in the lane's own directory, so it asks neither the worker nor tmux, and a marker
+// that is missing, unreadable, or old reads as nobody attached.
+func attached(marker string) bool {
+	if marker == "" {
+		return false
+	}
+	info, err := os.Stat(marker)
+	return err == nil && lanes.Attached(info.ModTime(), time.Now())
 }
 
 // denial is a PreToolUse answer that stops a call.

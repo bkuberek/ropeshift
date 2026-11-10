@@ -36,6 +36,8 @@ type PolicySpec struct {
 	Writable []string
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string
+	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane.
+	AttachedMarker string
 	// OwnTools is the prefix of the lane's own tools.
 	OwnTools string
 	// Ground is what a session that lost its place is told of its work.
@@ -68,6 +70,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 	}
 	return DenyPolicy{
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: []DenyRule{}, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
+		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates,
 	}
 }

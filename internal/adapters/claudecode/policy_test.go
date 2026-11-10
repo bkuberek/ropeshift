@@ -47,6 +47,22 @@ func TestTheQuestionToolFollowsTheRunMode(t *testing.T) {
 	}
 }
 
+// A pane's hook reads the marker the worker touches while a person is attached, and a headless session has
+// no pane for anyone to attach to.
+func TestAPanesPolicyNamesItsAttachedMarker(t *testing.T) {
+	spec := policySpec(t)
+	spec.RunMode = ports.RunModeInteractive
+	spec.Generation = 3
+	want := filepath.Join(spec.ConfigDir, "attached-3")
+	if got := compilePolicy(spec).AttachedMarker; got != want {
+		t.Errorf("marker %q, want %q", got, want)
+	}
+	spec.RunMode = ports.RunModeHeadless
+	if got := compilePolicy(spec).AttachedMarker; got != "" {
+		t.Errorf("a headless session names marker %q", got)
+	}
+}
+
 func TestEveryDenialIsADenyRuleToo(t *testing.T) {
 	rules := generateSettings(policySpec(t)).Permissions.Deny
 	for _, rule := range []string{
