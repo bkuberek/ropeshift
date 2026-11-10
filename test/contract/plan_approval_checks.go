@@ -3,6 +3,7 @@ package contract
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -217,7 +218,7 @@ func checkEachVersionRaisesAnApproval(r *Rig) error {
 	if err != nil || len(replayed) != 2 || replayed[all[0].ID].State != authority.ApprovalSuperseded || replayed[all[1].ID].PlanVersion != 2 {
 		return Violatedf("the log replays to %+v: %v", replayed, err)
 	}
-	return nil
+	return r.planApprovalsReplay(s)
 }
 
 // checkStoreHoldsPlanApprovalsOnly writes past every use case: the table holds no lane for a plan and
@@ -274,6 +275,29 @@ func checkStoreHoldsPlanApprovalsOnly(r *Rig) error {
 	})
 	if err == nil {
 		return Violatedf("the store let an orchestrator approve a plan")
+	}
+	return nil
+}
+
+// planApprovalsReplay holds every plan approval to the log: replaying the events of the requests gives
+// the rows the store holds, whatever happened to them.
+func (r *Rig) planApprovalsReplay(s ports.Store) error {
+	rows, err := r.planApprovals(s)
+	if err != nil {
+		return err
+	}
+	events, err := r.Events(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	replayed, err := authority.ReplayApprovals(events)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if !reflect.DeepEqual(replayed[row.ID], row) {
+			return Violatedf("request %s is %+v in the store, and the log replays it to %+v", row.ID, row, replayed[row.ID])
+		}
 	}
 	return nil
 }
@@ -829,6 +853,9 @@ func checkApprovalAcceptsTheLanesPlan(r *Rig) error {
 	if err != nil || order.State != workorders.Ready || order.ReviewedBy != theMember.ID {
 		return Violatedf("the work of the contract is %+v: %v", order, err)
 	}
+	if err := r.planApprovalsReplay(s); err != nil {
+		return err
+	}
 	return r.CheckProjection(s)
 }
 
@@ -896,5 +923,5 @@ func checkChangedBranchVoidsTheApproval(r *Rig) error {
 	if order, err := r.orderOfContract(s, "budget"); err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
 		return Violatedf("the work of the contract is %+v: %v", order, err)
 	}
-	return nil
+	return r.planApprovalsReplay(s)
 }
