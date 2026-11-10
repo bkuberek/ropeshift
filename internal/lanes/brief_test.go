@@ -20,6 +20,20 @@ func TestAPlanningBriefCarriesTheFormat(t *testing.T) {
 	}
 }
 
+// The person approves a plan in one step, and the lane that wrote it cannot (FR-PLAN-12). It is told what
+// that step does, so it does not wait for a review per work order, and that a change after it is a new
+// version.
+func TestAPlanningBriefSaysHowThePlanIsApproved(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Plan it", Kind: workorders.KindPlan})
+	for _, want := range []string{
+		"approves the plan in one step", "as their decisions", "contract review", "cannot approve the plan yourself", "new version of the plan",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief leaves out %q", want)
+		}
+	}
+}
+
 // A planning lane writes every format it is shown, so it is shown all of them: each document kind,
 // milestones, contracts with their work orders, and the draft decisions of a plan (FR-SESSION-5).
 func TestAPlanningBriefShowsEveryFormat(t *testing.T) {
