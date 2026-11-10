@@ -179,16 +179,21 @@ func refuseCycles(batch ports.ChangeBatch) (ports.ChangeBatch, []refusal) {
 	}
 	for _, item := range batch.Records {
 		if milestone := item.File.Milestone; milestone != nil {
-			plan := of(planKey(milestone.Plan), planNamed(milestone.Plan))
+			what := "plan " + milestone.Plan
+			if milestone.Plan == "" {
+				what = "the milestones that name no plan"
+			}
+			plan := of(planKey(milestone.Plan), what)
 			plan.shape.Milestones = append(plan.shape.Milestones, planning.ShapeMilestone{ID: milestone.ID, DependsOn: milestone.DependsOn})
 		}
 	}
 	for _, item := range batch.Items {
 		file := item.Contract
-		plan := of(itemPlanKey(item), planNamed(file.Plan))
+		what := "plan " + file.Plan
 		if file.Plan == "" {
-			plan.what = "contract " + file.ID
+			what = "contract " + file.ID
 		}
+		plan := of(itemPlanKey(item), what)
 		contract := planning.ShapeContract{ID: file.ID, Milestone: file.Milestone, Uses: file.Uses}
 		for _, order := range file.WorkOrders {
 			contract.Orders = append(contract.Orders, planning.ShapeOrder{ID: order.ID, DependsOn: order.DependsOn})
