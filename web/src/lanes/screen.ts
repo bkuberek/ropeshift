@@ -149,6 +149,17 @@ function classOf(style: Style): string {
   return names.join(" ");
 }
 
+// trimScreen drops the blank rows a terminal keeps below its last line for what comes next, so a pane is
+// as tall as what it shows. A row of nothing but spaces and escapes is blank.
+export function trimScreen(screen: string): string {
+  const rows = screen.split("\n");
+  const blank = (row: string) => row.replace(escapes, "").replace(controls, "").trim() === "";
+  while (rows.length > 0 && blank(rows[rows.length - 1] ?? "")) {
+    rows.pop();
+  }
+  return rows.join("\n");
+}
+
 // parseScreen splits a screen into runs of text that share one style.
 export function parseScreen(screen: string): Run[] {
   const runs: Run[] = [];

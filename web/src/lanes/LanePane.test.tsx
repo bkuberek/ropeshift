@@ -53,6 +53,14 @@ function show(stream: FakeEvents, text: string, generation = 1) {
 }
 
 describe("a lane's pane", () => {
+  it("is as tall as the screen's lines, without the blank rows a terminal keeps below them", async () => {
+    serve();
+    openPage(page);
+    const stream = await opened();
+    show(stream, "● Read(goal.md)\n  └ Read 9 lines\n\n❯ \n" + "\n".repeat(40) + "    \n\x1b[0m\n");
+    expect(screen.getByRole("log", { name: `Screen of lane ${lane}` }).textContent).toBe("● Read(goal.md)\n  └ Read 9 lines\n\n❯ ");
+  });
+
   it("shows the lane's screen with its colours, in a region a screen reader can find", async () => {
     serve();
     openPage(page);

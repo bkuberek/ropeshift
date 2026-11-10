@@ -1403,6 +1403,7 @@ textarea {
 
 .pane {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   margin-top: 1.5rem;
 }
@@ -1415,13 +1416,28 @@ textarea {
   color: var(--muted);
 }
 
-/* The screen keeps its columns, so a narrow window scrolls the screen and not the page. */
+/*
+ * The screen keeps its columns, so a narrow window scrolls the screen and not the page: its width never
+ * reaches the page's layout. It is as tall as its lines, up to most of a window, and scrolls past that.
+ */
 .pane-screen {
   max-width: 100%;
-  overflow-x: auto;
+  max-height: min(40rem, 70vh);
+  overflow: auto;
+  contain: inline-size;
+  overscroll-behavior-x: contain;
   padding: 0.75rem 1rem;
   border-left: 0.1875rem solid var(--hemp);
-  background: var(--lane);
+  /*
+   * A shade stands at an edge the screen runs past, and a cover that scrolls with the text hides it once
+   * the text reaches that edge, so a line cut off at the side reads as one that goes on.
+   */
+  background:
+    linear-gradient(to right, var(--lane) 40%, transparent) left / 2rem 100% no-repeat local,
+    linear-gradient(to left, var(--lane) 40%, transparent) right / 2rem 100% no-repeat local,
+    linear-gradient(to right, color-mix(in srgb, var(--ink) 22%, transparent), transparent) left / 0.875rem 100% no-repeat scroll,
+    linear-gradient(to left, color-mix(in srgb, var(--ink) 22%, transparent), transparent) right / 0.875rem 100% no-repeat scroll,
+    var(--lane);
   color: var(--ink);
   font-family: var(--mono);
   font-size: 0.8125rem;

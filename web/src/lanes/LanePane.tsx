@@ -8,7 +8,7 @@ import type { Live } from "../api/useView";
 import { Link } from "../app/route";
 import { laneLabel } from "../floor/states";
 import { Page } from "../parts/parts";
-import { parseScreen } from "./screen";
+import { parseScreen, trimScreen } from "./screen";
 
 // retryMs is how long the page waits before it opens a pane's stream again: after the stream closed
 // with nothing to say, or on a lane whose pane has not opened yet.
@@ -112,7 +112,7 @@ function Screen({ lane, text }: { lane: string; text: string }) {
     // The whole screen changes at once, so a screen reader reads it when asked and the status line says
     // what changed.
     <pre className="pane-screen" role="log" aria-label={`Screen of lane ${lane}`} aria-live="off" tabIndex={0}>
-      {parseScreen(text).map((run, at) => (
+      {parseScreen(trimScreen(text)).map((run, at) => (
         <span key={at} className={run.className || undefined}>
           {run.text}
         </span>
