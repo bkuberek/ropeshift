@@ -88,7 +88,7 @@ func TestAFileSaysWhatItIsBeforeItsPathDoes(t *testing.T) {
 	want := map[string]planning.DocumentKind{
 		"docs/notes.md": planning.DocumentRequirements, "docs/design/plan.md": planning.DocumentOther,
 		"docs/design/a.md": planning.DocumentSpec, "docs/specs/b.md": planning.DocumentArchitecture,
-		"docs/c.md": planning.DocumentExperienceDesign, "docs/d.md": planning.DocumentOther,
+		"docs/c.md": planning.DocumentExperienceDesign, "docs/d.md": planning.DocumentMilestone,
 		// A file that is not one of ours keeps the kind its path gives it.
 		"docs/design/e.md": planning.DocumentDesign,
 	}

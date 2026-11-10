@@ -68,8 +68,7 @@ func (s *Source) document(ctx context.Context, key ledger.ExternalKey, blob repo
 }
 
 // kindOf takes a repository file's own word for what it is, and reads any other document's kind from
-// its path. A plan, a milestone, or a contract is a record first, so it is no document a person looks
-// for by kind.
+// its path. A plan or a contract is a record first, so it is no document a person looks for by kind.
 func kindOf(path string, raw []byte) planning.DocumentKind {
 	doc, err := repofiles.ParseFile(raw)
 	switch {
@@ -83,6 +82,8 @@ func kindOf(path string, raw []byte) planning.DocumentKind {
 		return planning.DocumentArchitecture
 	case doc.Experience != nil:
 		return planning.DocumentExperienceDesign
+	case doc.Milestone != nil:
+		return planning.DocumentMilestone
 	}
 	return planning.DocumentOther
 }
