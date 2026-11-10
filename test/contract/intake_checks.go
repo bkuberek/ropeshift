@@ -422,7 +422,8 @@ plan = "checkout-plan"`, 1)))
 	if err != nil {
 		return err
 	}
-	if report.Records != 3 || len(report.Problems) != 0 {
+	// The goal, the plan, the requirements document, and the requirement it holds.
+	if report.Records != 4 || len(report.Problems) != 0 {
 		return Violatedf("report %+v", report)
 	}
 	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
@@ -832,6 +833,9 @@ func (r *Rig) CheckPlanning(s ports.Store) error {
 			if !ok || want.Digest != c.Digest || want.Source != c.Source || want.Statement != c.Statement {
 				return Violatedf("contract %s version %d disagrees with its log", c.ID, c.Version)
 			}
+			if want.Milestone != c.Milestone || want.Shared != c.Shared || !slices.Equal(want.Uses, c.Uses) || !slices.Equal(want.Documents, c.Documents) {
+				return Violatedf("contract %s version %d disagrees with its log on where it sits and what it cites", c.ID, c.Version)
+			}
 		}
 		plans, err := tx.Planning().Plans()
 		if err != nil {
@@ -868,6 +872,9 @@ func (r *Rig) CheckPlanning(s ports.Store) error {
 			if want, ok := book.Requirements[planning.ContractKey(requirement.ID, requirement.Version)]; !ok || want != requirement {
 				return Violatedf("requirement %s version %d disagrees with its log", requirement.Key, requirement.Version)
 			}
+		}
+		if err := checkDocumentsReplay(tx.Planning(), book); err != nil {
+			return err
 		}
 		links, err := tx.Planning().Links()
 		if err != nil {

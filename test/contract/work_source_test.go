@@ -23,10 +23,11 @@ func TestWorkSourceContract(t *testing.T) {
 			repo := gittest.New(t)
 			repo.Commit("README.txt", "seed\n")
 			return SourceRig{
-				Source: repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()}),
-				Commit: func(name, content string) { repo.Commit(name, content) },
-				Rename: repo.Rename,
-				Fork:   func() (SourceRig, func(name, content string)) { return repoFork(repo) },
+				DigestPrefix: planning.DigestGitBlob,
+				Source:       repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()}),
+				Commit:       func(name, content string) { repo.Commit(name, content) },
+				Rename:       repo.Rename,
+				Fork:         func() (SourceRig, func(name, content string)) { return repoFork(repo) },
 			}
 		})
 	})
@@ -58,9 +59,10 @@ func repoFork(repo *gittest.Repo) (SourceRig, func(name, content string)) {
 
 func fakeRig(source *fake.WorkSource) SourceRig {
 	return SourceRig{
-		Source: source,
-		Commit: func(name, content string) { source.Write(name, []byte(content)) },
-		Rename: source.Rename,
+		DigestPrefix: planning.DigestSHA256,
+		Source:       source,
+		Commit:       func(name, content string) { source.Write(name, []byte(content)) },
+		Rename:       source.Rename,
 		Fork: func() (SourceRig, func(name, content string)) {
 			branch := source.Fork()
 			return fakeRig(branch), func(name, content string) { source.Merge(branch, name, []byte(content)) }
@@ -87,6 +89,28 @@ func TestDigestIsTheGitBlobHash(t *testing.T) {
 	want := planning.DigestGitBlob + strings.TrimSpace(string(out))
 	if got := batch.Items[0].Digest; got != want {
 		t.Errorf("digest %s, want %s", got, want)
+	}
+}
+
+// TestADocumentDigestIsTheGitBlobHash holds a document to the same digest as a contract: the hash git
+// holds, of the file as written, so a version of a document names the content it was read from.
+func TestADocumentDigestIsTheGitBlobHash(t *testing.T) {
+	repo := gittest.New(t)
+	text := DocumentText("spec", "checkout-api", "Checkout API", "", "The calls.")
+	repo.Commit("spec.md", text)
+	cmd := exec.Command("git", "hash-object", "--stdin")
+	cmd.Dir, cmd.Env, cmd.Stdin = repo.Dir, repo.Env(), bytes.NewReader([]byte(text))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()}).Poll(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := planning.DigestGitBlob + strings.TrimSpace(string(out))
+	if len(batch.Records) != 1 || batch.Records[0].Digest != want {
+		t.Errorf("records %+v, want digest %s", batch.Records, want)
 	}
 }
 
@@ -268,5 +292,68 @@ func TestIntakeOnARealRepository(t *testing.T) {
 	}
 	if len(orders) != 1 || orders[0].ContractVersion != 2 {
 		t.Errorf("work in review stayed on an old version: %+v", orders)
+	}
+}
+
+// TestDocumentsOnARealRepository follows a spec through two commits: each version names the commit
+// and the blob it was read from, and a contract pins the version at its own commit (FR-DOC-2, FR-DOC-4).
+func TestDocumentsOnARealRepository(t *testing.T) {
+	store, err := fake.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := t.Context()
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	scope := ledger.WorkspaceID("w")
+	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: scope}, ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}); err != nil {
+		t.Fatal(err)
+	}
+	repo := gittest.New(t)
+	repo.Commit("plan.md", PlanText("payments-v2", "Payments v2", ""))
+	repo.Commit("spec.md", DocumentText("spec", "checkout-api", "Checkout API", "payments-v2", "The calls."))
+	// Intake reads the commit the ref stands at, so that is the commit each version names.
+	first := repo.Commit("contract.md", citing("alpha", "payments-v2", "One.", "spec:checkout-api"))
+	source := repofiles.New(repofiles.Config{Repository: repo.Dir, Env: repo.Env()})
+	intake := control.NewIntake(store)
+	report, err := intake.Poll(ctx, scope, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Versions != 1 || len(report.Problems) != 0 {
+		t.Fatalf("report %+v", report)
+	}
+	second := repo.Commit("spec.md", DocumentText("spec", "checkout-api", "Checkout API", "payments-v2", "The calls, changed."))
+	if _, err := intake.Poll(ctx, scope, source); err != nil {
+		t.Fatal(err)
+	}
+	var versions []planning.DocumentVersion
+	var contracts []planning.Contract
+	err = store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		if versions, err = tx.Planning().DocumentVersions(); err != nil {
+			return err
+		}
+		contracts, err = tx.Planning().Contracts()
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 || !strings.HasSuffix(versions[0].Source, "@"+first) || !strings.HasSuffix(versions[1].Source, "@"+second) {
+		t.Fatalf("versions %+v", versions)
+	}
+	for _, version := range versions {
+		if !strings.HasPrefix(version.Digest, planning.DigestGitBlob) || version.Digest == "" {
+			t.Errorf("digest %q is not a blob", version.Digest)
+		}
+	}
+	if versions[0].Digest == versions[1].Digest || versions[0].Body != "The calls.\n" {
+		t.Errorf("versions %+v", versions)
+	}
+	if len(contracts) != 1 || len(contracts[0].Documents) != 1 || contracts[0].Documents[0].Version != 1 {
+		t.Errorf("contracts %+v: the pin moved with the document", contracts)
 	}
 }

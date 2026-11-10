@@ -13,9 +13,34 @@ import (
 // what the ledger takes from it.
 func TestAPlanningBriefCarriesTheFormat(t *testing.T) {
 	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Plan it", Kind: workorders.KindPlan})
-	for _, want := range []string{planning.FormatExample, "Commit the files on this branch", "accepts your work", ToolLaneReport} {
+	for _, want := range []string{"Commit the files on this branch", "accepts your work", ToolLaneReport} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("the brief leaves out %q", want)
+		}
+	}
+}
+
+// A planning lane writes every format it is shown, so it is shown all of them: each document kind,
+// milestones, contracts with their work orders, and the draft decisions of a plan (FR-SESSION-5).
+func TestAPlanningBriefShowsEveryFormat(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Plan it", Kind: workorders.KindPlan})
+	if len(planning.FormatExamples) < 8 {
+		t.Fatalf("%d examples", len(planning.FormatExamples))
+	}
+	for _, example := range planning.FormatExamples {
+		if !strings.Contains(brief, example.Text) {
+			t.Errorf("the brief leaves out the %s example", example.Kind)
+		}
+		if !strings.Contains(brief, example.Intro) {
+			t.Errorf("the brief leaves out what the %s example is for", example.Kind)
+		}
+	}
+	for _, want := range []string{
+		"[[decision]]", "[[exit_criteria]]", "[[work_orders]]", "[[requirement]]", "assets", "depends_on", "shared", "uses", "documents",
+		"kind:id", "binds nothing until", "no requirement", "version",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief says nothing of %q", want)
 		}
 	}
 }

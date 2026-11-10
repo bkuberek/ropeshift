@@ -56,21 +56,30 @@ type WorkItem struct {
 	Statement string
 }
 
-// RecordItem is one goal, plan, or requirements file at one version. The field of its
-// kind is set, and Key's native ID is the file's own `id`.
+// RecordItem is one file that is not a contract, at one version: a goal, a plan, or a document of
+// any kind. Digest identifies the content of the file as written. The field of its kind is set, and
+// Key's native ID is the file's own `id`. A document of a kind that holds nothing the ledger reads
+// as a table, such as a spec or a milestone, sets none of them, and Head says what it is.
 type RecordItem struct {
 	Key          ledger.ExternalKey
 	Source       string
 	Path         string
+	Digest       string
 	Goal         *planning.GoalFile
 	Plan         *planning.PlanFile
 	Requirements *planning.RequirementsFile
-	Statement    string
+	// File is the decoded file, which is where the other document kinds are.
+	File      planning.Document
+	Statement string
 }
 
-// ChangeBatch is what a poll found. Items are contracts, and Records are everything else,
-// goals before the plans that name them. Cursor equals the cursor passed in when nothing
-// moved. A file a source cannot read is a problem in the batch and fails no other file.
+// Head reads what the ledger keeps of this file when it is a document, whatever its kind.
+func (r RecordItem) Head() (planning.DocumentHead, bool) { return r.File.Head() }
+
+// ChangeBatch is what a poll found. Items are contracts, and Records are everything else, in the
+// order intake needs: goals, plans, requirements, the other documents, then milestones, so that each
+// finds what it names. Cursor equals the cursor passed in when nothing moved. A file a source cannot
+// read is a problem in the batch and fails no other file.
 type ChangeBatch struct {
 	Items    []WorkItem
 	Records  []RecordItem
@@ -78,18 +87,20 @@ type ChangeBatch struct {
 	Cursor   Cursor
 }
 
-// RecordOf builds the record item of a file that is not a contract, or reports false.
-func RecordOf(doc planning.Document, adapter, instance, path, source string) (RecordItem, bool) {
+// RecordOf builds the record item of a file that is not a contract, or reports false. Digest is the
+// source's name for the content of the file as written.
+func RecordOf(doc planning.Document, adapter, instance, path, source, digest string) (RecordItem, bool) {
 	item := RecordItem{
-		Source: source, Path: path, Goal: doc.Goal, Plan: doc.Plan, Requirements: doc.Requirements, Statement: doc.Statement,
+		Source: source, Path: path, Digest: digest, Goal: doc.Goal, Plan: doc.Plan, Requirements: doc.Requirements,
+		File: doc, Statement: doc.Statement,
 	}
-	switch {
+	switch head, document := doc.Head(); {
 	case doc.Goal != nil:
 		item.Key.NativeID = doc.Goal.ID
 	case doc.Plan != nil:
 		item.Key.NativeID = doc.Plan.ID
-	case doc.Requirements != nil:
-		item.Key.NativeID = doc.Requirements.ID
+	case document:
+		item.Key.NativeID = head.ID
 	default:
 		return RecordItem{}, false
 	}
@@ -97,8 +108,9 @@ func RecordOf(doc planning.Document, adapter, instance, path, source string) (Re
 	return item, true
 }
 
-// OrderRecords puts goals first and requirements last, so a plan finds its goal in one
-// batch. Within a kind, the source's own order stays.
+// OrderRecords puts goals first, then plans, requirements, the other documents, and milestones last,
+// so that a plan finds its goal and a document its plan in one batch. Within a rank, the source's
+// own order stays.
 func OrderRecords(items []RecordItem) {
 	slices.SortStableFunc(items, func(a, b RecordItem) int { return recordRank(a) - recordRank(b) })
 }
@@ -109,8 +121,12 @@ func recordRank(item RecordItem) int {
 		return 0
 	case item.Plan != nil:
 		return 1
+	case item.Requirements != nil:
+		return 2
+	case item.File.Milestone != nil:
+		return 4
 	}
-	return 2
+	return 3
 }
 
 // InboundDelivery is one webhook delivery.

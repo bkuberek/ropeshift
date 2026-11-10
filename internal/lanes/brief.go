@@ -39,15 +39,35 @@ type BriefSpec struct {
 }
 
 // planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
-// once a person accepts it. It carries the format whole, because a session holds no document of it.
-const planningNotice = "This is planning work. Its output is repository files, and nothing else you do reaches the ledger. " +
-	"Write each contract as a Markdown file with TOML front matter between +++ lines, in this format:\n\n" +
-	planning.FormatExample + "\n" +
-	"A contract's id is stable, so keep it when you change a file. It needs at least one criterion and at least one work order, and each " +
-	"work order's id is unique. Use repo = \".\" for this repository, and size small, medium, or large. A TOML string needs its quotes, and " +
-	"a file that does not parse reaches nobody.\n\n" +
-	"Commit the files on this branch, because intake reads a commit and never your working tree. Report the outcome after the commit. " +
-	"When a member accepts your work, intake reads that commit.\n"
+// once a person accepts it. It shows every format the lane writes, because a session holds no document
+// of them (FR-SESSION-5).
+func planningNotice() string {
+	var out strings.Builder
+	out.WriteString("This is planning work. Its output is repository files, and nothing else you do reaches the ledger. " +
+		"Each file is Markdown with TOML front matter between +++ lines, and its kind says what it is. A file's id is stable, " +
+		"so keep it when you change the file. Never write a version number: the ledger numbers each committed change to a " +
+		"document itself. A document is cited as kind:id, as in spec:checkout-api.\n\n" +
+		"These are the formats, one example of each. They describe one project, so the files in them name each other as yours must.\n")
+	for _, example := range planning.FormatExamples {
+		out.WriteString("\n" + example.Intro + "\n\n```markdown\n" + example.Text + "```\n")
+	}
+	out.WriteString("\n" +
+		"- Every document, milestone, and contract names its plan with plan, and the plan lists every document it holds in " +
+		"documents. Write the plan file too: a file that names a plan nobody wrote is a problem, and intake records nothing from it. " +
+		"A contract with no plan gets a plan of its own.\n" +
+		"- A contract's documents cite documents you commit with it. Intake pins each citation to the version in your commit, " +
+		"and a citation of a document nobody wrote records nothing.\n" +
+		"- When the plan has a requirements file, each criterion lists at least one requirement id from it. A criterion with no " +
+		"requirement, or one the plan does not have, is a problem, and the contract's work stays out of ready until a new version fixes it.\n" +
+		"- A contract needs at least one criterion and at least one work order, and each work order's id is unique. Use repo = \".\" " +
+		"for this repository, and size small, medium, or large.\n" +
+		"- Write a draft decision only for an answer the person gave you in conversation. For anything they have not answered, ask " +
+		"with the " + ToolAsk + " tool.\n" +
+		"- A TOML string needs its quotes, and a file that does not parse reaches nobody.\n\n" +
+		"Commit the files on this branch, because intake reads a commit and never your working tree. Report the outcome after the commit. " +
+		"When a member accepts your work, intake reads that commit.\n")
+	return out.String()
+}
 
 // reviewNotice tells a review lane what a review is for. It finds, and it decides nothing.
 const reviewNotice = "This is a contract review. Read the plan and each contract below as the lane that will do the work would, and " +
@@ -82,7 +102,7 @@ func Brief(spec BriefSpec) string {
 		}
 	}
 	if spec.Kind == workorders.KindPlan {
-		out.WriteString("\n" + planningNotice)
+		out.WriteString("\n" + planningNotice())
 	}
 	if spec.Review != nil {
 		writeReview(&out, *spec.Review)

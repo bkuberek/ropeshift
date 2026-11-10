@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -26,6 +27,7 @@ const (
 	SubjectLink        = "external_link"
 	SubjectDependency  = "dependency"
 	SubjectBinding     = "source_binding"
+	SubjectDocument    = "document"
 )
 
 // The events that record planning data. Each holds the whole record, so a replay
@@ -35,6 +37,8 @@ const (
 	EventPlanRecorded       = "plan.recorded"
 	EventContractVersion    = "contract.version_recorded"
 	EventRequirementVersion = "requirement.version_recorded"
+	EventDocumentVersion    = "document.version_recorded"
+	EventPlanVersion        = "plan.version_recorded"
 	EventLinkRecorded       = "external_link.recorded"
 	EventDependencyRecorded = "dependency.recorded"
 	EventBindingChanged     = "source_binding.changed"
@@ -75,6 +79,12 @@ func RequirementDigest(key, text string) string {
 	return DigestSHA256 + hex.EncodeToString(sum[:])
 }
 
+// ContentDigest names content a source gave no digest for, from the parts that make it up.
+func ContentDigest(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return DigestSHA256 + hex.EncodeToString(sum[:])
+}
+
 // Plan is what one or more contracts belong to.
 type Plan struct {
 	ID     string `json:"id"`
@@ -84,20 +94,92 @@ type Plan struct {
 	Source string `json:"source,omitempty"`
 }
 
+// PlanVersion is one version of a plan's file: what the plan listed and drafted at one digest. The
+// ledger numbers it, and a plan has a new one for each committed change to the file.
+type PlanVersion struct {
+	PlanID  string `json:"plan_id"`
+	Version int64  `json:"version"`
+	Digest  string `json:"digest"`
+	Source  string `json:"source,omitempty"`
+	// Documents are the citations the plan lists, and Decisions the answers it drafts. Drafts bind
+	// nothing until a member approves the plan.
+	Documents []string        `json:"documents,omitempty"`
+	Decisions []DraftDecision `json:"decisions,omitempty"`
+}
+
+// DocumentRecord is a document, which stays the same across its versions. Its ID is its reference,
+// `<kind>:<id>`, and PlanID is the plan its file names, if any.
+type DocumentRecord struct {
+	ID     string   `json:"id"`
+	Kind   FileKind `json:"kind"`
+	PlanID string   `json:"plan_id,omitempty"`
+	Title  string   `json:"title"`
+}
+
+// DocumentVersion is one version of a document. Body is the Markdown after the front matter, kept so
+// that a pack holds what a contract cited after the file has moved on. Fields is the front matter as
+// JSON, which holds what the kind says beyond a title and a plan.
+type DocumentVersion struct {
+	DocumentID string          `json:"document_id"`
+	Version    int64           `json:"version"`
+	Title      string          `json:"title"`
+	Digest     string          `json:"digest"`
+	Source     string          `json:"source,omitempty"`
+	Body       string          `json:"body,omitempty"`
+	Fields     json.RawMessage `json:"fields"`
+}
+
+// Decode reads the front matter into the file struct of the document's kind.
+func (v DocumentVersion) Decode(into any) error { return json.Unmarshal(v.Fields, into) }
+
+// DocumentRecorded is the event of a new document version. It holds the document as the version
+// left it, so a replay needs nothing else.
+type DocumentRecorded struct {
+	Document DocumentRecord  `json:"document"`
+	Version  DocumentVersion `json:"version"`
+}
+
+// DocumentPin is the version of a document that a contract version cites, which stays what that
+// contract version read after the document moves on.
+type DocumentPin struct {
+	Document string `json:"document"`
+	Version  int64  `json:"version"`
+}
+
 // Contract is one version of a contract. Source names where this version came
-// from, so a version read from a repository names its commit.
+// from, so a version read from a repository names its commit. Milestone, Shared, and Uses are what the
+// file says, kept as written, and Documents pins each citation to the version it read.
 type Contract struct {
-	ID           string      `json:"id"`
-	Version      int64       `json:"version"`
-	PlanID       string      `json:"plan_id"`
-	Title        string      `json:"title"`
-	Digest       string      `json:"digest"`
-	Source       string      `json:"source,omitempty"`
-	Statement    string      `json:"statement,omitempty"`
-	Criteria     []Criterion `json:"criteria,omitempty"`
-	Requirements []string    `json:"requirements,omitempty"`
-	Decisions    []string    `json:"decisions,omitempty"`
-	Status       string      `json:"status"`
+	ID           string        `json:"id"`
+	Version      int64         `json:"version"`
+	PlanID       string        `json:"plan_id"`
+	Title        string        `json:"title"`
+	Digest       string        `json:"digest"`
+	Source       string        `json:"source,omitempty"`
+	Statement    string        `json:"statement,omitempty"`
+	Criteria     []Criterion   `json:"criteria,omitempty"`
+	Requirements []string      `json:"requirements,omitempty"`
+	Decisions    []string      `json:"decisions,omitempty"`
+	Milestone    string        `json:"milestone,omitempty"`
+	Shared       bool          `json:"shared,omitempty"`
+	Uses         []string      `json:"uses,omitempty"`
+	Documents    []DocumentPin `json:"documents,omitempty"`
+	Status       string        `json:"status"`
+}
+
+// RequirementKeys are the requirement keys a contract version names: those at its own level, which the
+// files written before a criterion could name its own use, then those of its criteria. A key appears
+// once.
+func (c Contract) RequirementKeys() []string {
+	keys := slices.Clone(c.Requirements)
+	for _, criterion := range c.Criteria {
+		for _, key := range criterion.Requirements {
+			if !slices.Contains(keys, key) {
+				keys = append(keys, key)
+			}
+		}
+	}
+	return keys
 }
 
 // DependencyKind says what a dependency does to the definition of ready.
@@ -199,6 +281,10 @@ type Book struct {
 	Requirements map[string]Requirement
 	Links        map[string]ledger.ExternalLink
 	Dependencies map[string]Dependency
+	// Documents are keyed by reference, and the versions of a document and of a plan by ContractKey.
+	Documents        map[string]DocumentRecord
+	DocumentVersions map[string]DocumentVersion
+	PlanVersions     map[string]PlanVersion
 }
 
 // ContractKey identifies a contract or requirement version in a Book.
@@ -238,12 +324,15 @@ var ErrReplay = errors.New("planning replay")
 // one contract must count up from 1, because a gap means a version was lost.
 func Replay(events []ledger.Event) (Book, error) {
 	book := Book{
-		Goals:        map[string]Goal{},
-		Plans:        map[string]Plan{},
-		Contracts:    map[string]Contract{},
-		Requirements: map[string]Requirement{},
-		Links:        map[string]ledger.ExternalLink{},
-		Dependencies: map[string]Dependency{},
+		Goals:            map[string]Goal{},
+		Plans:            map[string]Plan{},
+		Contracts:        map[string]Contract{},
+		Requirements:     map[string]Requirement{},
+		Links:            map[string]ledger.ExternalLink{},
+		Dependencies:     map[string]Dependency{},
+		Documents:        map[string]DocumentRecord{},
+		DocumentVersions: map[string]DocumentVersion{},
+		PlanVersions:     map[string]PlanVersion{},
 	}
 	for _, e := range events {
 		if err := book.apply(e); err != nil {
@@ -278,6 +367,30 @@ func (b Book) apply(e ledger.Event) error {
 			return err
 		}
 		b.Plans[plan.ID] = plan
+	case EventPlanVersion:
+		var version PlanVersion
+		if err := json.Unmarshal(e.Data, &version); err != nil {
+			return err
+		}
+		if version.Version > 1 {
+			if _, ok := b.PlanVersions[ContractKey(version.PlanID, version.Version-1)]; !ok {
+				return fmt.Errorf("plan %s version %d follows no version", version.PlanID, version.Version)
+			}
+		}
+		b.PlanVersions[ContractKey(version.PlanID, version.Version)] = version
+	case EventDocumentVersion:
+		var recorded DocumentRecorded
+		if err := json.Unmarshal(e.Data, &recorded); err != nil {
+			return err
+		}
+		version := recorded.Version
+		if version.Version > 1 {
+			if _, ok := b.DocumentVersions[ContractKey(version.DocumentID, version.Version-1)]; !ok {
+				return fmt.Errorf("document %s version %d follows no version", version.DocumentID, version.Version)
+			}
+		}
+		b.Documents[recorded.Document.ID] = recorded.Document
+		b.DocumentVersions[ContractKey(version.DocumentID, version.Version)] = version
 	case EventContractVersion:
 		var contract Contract
 		if err := json.Unmarshal(e.Data, &contract); err != nil {

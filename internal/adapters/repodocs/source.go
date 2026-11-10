@@ -76,6 +76,14 @@ func kindOf(path string, raw []byte) planning.DocumentKind {
 		return planning.KindOfPath(path)
 	case doc.Requirements != nil:
 		return planning.DocumentRequirements
+	case doc.Spec != nil:
+		return planning.DocumentSpec
+	case doc.Architecture != nil:
+		return planning.DocumentArchitecture
+	case doc.Experience != nil:
+		return planning.DocumentExperienceDesign
+	case doc.Milestone != nil:
+		return planning.DocumentMilestone
 	}
 	return planning.DocumentOther
 }
@@ -92,8 +100,9 @@ func title(path string, raw []byte) string {
 			return doc.Goal.Title
 		case doc.Plan != nil:
 			return doc.Plan.Title
-		case doc.Requirements != nil && doc.Requirements.Title != "":
-			return doc.Requirements.Title
+		}
+		if head, ok := doc.Head(); ok && head.Title != "" {
+			return head.Title
 		}
 		body = []byte(doc.Statement)
 	}

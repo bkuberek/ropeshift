@@ -96,6 +96,68 @@ func contractSource(contract planning.Contract) contextpacks.Source {
 	}
 }
 
+// documentSource is a document at one version: its Markdown, and what its kind says beyond that, so
+// that a pack holds the version a contract read after the file has moved on.
+func documentSource(version planning.DocumentVersion) contextpacks.Source {
+	return contextpacks.Source{
+		Kind: contextpacks.KindDocument, Ref: planning.ContractKey(version.DocumentID, version.Version), Digest: version.Digest,
+		Trust: contextpacks.TrustWorkspace, Title: version.Title, Text: documentText(version),
+	}
+}
+
+// documentText reads the body of a document version, then the part of its front matter a reader of the
+// pack needs: the requirements it addresses, the requirements it holds, the assets it shows, or what
+// a milestone depends on and exits on.
+func documentText(version planning.DocumentVersion) string {
+	text := strings.TrimSpace(version.Body)
+	kind, _, _ := planning.ParseDocumentRef(version.DocumentID)
+	for _, list := range documentLists(kind, version) {
+		if len(list.items) != 0 {
+			text += "\n\n" + list.title + ":\n- " + strings.Join(list.items, "\n- ") + "\n"
+		}
+	}
+	return text
+}
+
+// textList is a titled list in the text of a document.
+type textList struct {
+	title string
+	items []string
+}
+
+func documentLists(kind planning.FileKind, version planning.DocumentVersion) []textList {
+	switch kind {
+	case planning.FileRequirements:
+		var file planning.RequirementsFile
+		if version.Decode(&file) != nil {
+			return nil
+		}
+		held := make([]string, len(file.Requirements))
+		for i, spec := range file.Requirements {
+			held[i] = spec.ID + ": " + spec.Text
+		}
+		return []textList{{"Requirements", held}}
+	case planning.FileSpec, planning.FileArchitecture, planning.FileExperienceDesign:
+		// An experience design is the others with assets, so one struct reads all three.
+		var file planning.ExperienceDesignFile
+		if version.Decode(&file) != nil {
+			return nil
+		}
+		return []textList{{"Addresses requirements", file.Requirements}, {"Assets", file.Assets}}
+	case planning.FileMilestone:
+		var file planning.MilestoneFile
+		if version.Decode(&file) != nil {
+			return nil
+		}
+		exits := make([]string, len(file.ExitCriteria))
+		for i, criterion := range file.ExitCriteria {
+			exits[i] = criterion.ID + ": " + criterion.Text
+		}
+		return []textList{{"Depends on milestones", file.DependsOn}, {"Exit criteria", exits}}
+	}
+	return nil
+}
+
 func requirementSource(requirement planning.Requirement) contextpacks.Source {
 	return contextpacks.Source{
 		Kind: contextpacks.KindRequirement, Ref: requirement.Key, Digest: requirement.Digest, Trust: contextpacks.TrustWorkspace, Text: requirement.Text,
@@ -158,6 +220,18 @@ func (r packRecords) goal(id string) (contextpacks.Source, error) {
 	return goalSource(found), nil
 }
 
+// document reads one version of a document, or says the pack's citation leads nowhere.
+func (r packRecords) document(id string, version int64) (contextpacks.Source, error) {
+	found, err := r.planning.DocumentVersion(id, version)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return missing(contextpacks.KindDocument, planning.ContractKey(id, version)), nil
+	case err != nil:
+		return contextpacks.Source{}, err
+	}
+	return documentSource(found), nil
+}
+
 // added reads one addition. A workspace record is read as it stands now, and knowledge as it
 // came, under a label that says so.
 func (r packRecords) added(addition contextpacks.Addition) (contextpacks.Source, error) {
@@ -209,7 +283,14 @@ func (r packRecords) selection(order workorders.WorkOrder) (contextpacks.Selecti
 		}
 		source := contractSource(contract)
 		selection.Contract = &source
-		for _, key := range contract.Requirements {
+		for _, pin := range contract.Documents {
+			document, err := r.document(pin.Document, pin.Version)
+			if err != nil {
+				return selection, err
+			}
+			selection.Documents = append(selection.Documents, document)
+		}
+		for _, key := range contract.RequirementKeys() {
 			requirement, err := r.requirement(key)
 			if err != nil {
 				return selection, err
@@ -537,6 +618,8 @@ func (r packRecords) lookup(kind contextpacks.Kind, ref, workOrder string) ([]co
 	switch kind {
 	case contextpacks.KindContract:
 		return r.contract(ref)
+	case contextpacks.KindDocument:
+		return r.documentNamed(ref)
 	case contextpacks.KindRequirement:
 		source, err = r.requirement(ref)
 	case contextpacks.KindDecision:
@@ -571,6 +654,24 @@ func (r packRecords) contract(ref string) ([]contextpacks.Source, error) {
 		return nil, err
 	}
 	return []contextpacks.Source{contractSource(found)}, nil
+}
+
+// documentNamed reads a version a pack named, or the newest version of a bare reference.
+func (r packRecords) documentNamed(ref string) ([]contextpacks.Source, error) {
+	var found planning.DocumentVersion
+	var err error
+	if id, version, versioned := planning.ParseContractKey(ref); versioned {
+		found, err = r.planning.DocumentVersion(id, version)
+	} else {
+		found, err = r.planning.LatestDocumentVersion(ref)
+	}
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return []contextpacks.Source{documentSource(found)}, nil
 }
 
 func (r packRecords) knowledge(ref, workOrder string) ([]contextpacks.Source, error) {

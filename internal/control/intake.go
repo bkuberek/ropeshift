@@ -28,7 +28,7 @@ var intakeActor = ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
 type IntakeReport struct {
 	Versions   int
 	WorkOrders int
-	// Records counts the goals, plans, and requirements a poll changed.
+	// Records counts the goals, plans, documents, and requirements a poll changed.
 	Records int
 	// Conflicts counts the files a poll left out because the base under them moved.
 	Conflicts int
@@ -108,8 +108,7 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 	held := map[string]string{}
 	for _, item := range batch.Records {
 		report.saw(item.Path, item.Source)
-		if key, first := repeatedRequirement(item, held); key != "" {
-			detail := fmt.Sprintf("%v: requirement %s is already in %s", planning.ErrBadFile, key, first)
+		if detail := repeatedKey(item, held); detail != "" {
 			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: detail, Source: item.Source})
 			continue
 		}
@@ -203,21 +202,27 @@ func baseMoved(kind, id string) string {
 		planning.ErrBaseMoved, kind, id)
 }
 
-// repeatedRequirement finds a key an earlier file in this batch holds, and otherwise marks
-// this file's keys as held. A key is one requirement, so two files cannot both define it.
-func repeatedRequirement(item ports.RecordItem, held map[string]string) (string, string) {
-	if item.Requirements == nil {
-		return "", ""
+// repeatedKey finds a key an earlier file in this batch holds, and otherwise marks this file's keys as
+// held. A requirement is one record, and so is a document, so two files cannot both define either.
+func repeatedKey(item ports.RecordItem, held map[string]string) string {
+	var names []string
+	if head, ok := item.Head(); ok {
+		names = append(names, "document "+head.Ref())
 	}
-	for _, spec := range item.Requirements.Requirements {
-		if first, repeated := held[spec.ID]; repeated {
-			return spec.ID, first
+	if item.Requirements != nil {
+		for _, spec := range item.Requirements.Requirements {
+			names = append(names, "requirement "+spec.ID)
 		}
 	}
-	for _, spec := range item.Requirements.Requirements {
-		held[spec.ID] = item.Path
+	for _, name := range names {
+		if first, repeated := held[name]; repeated {
+			return fmt.Sprintf("%v: %s is already in %s", planning.ErrBadFile, name, first)
+		}
 	}
-	return "", ""
+	for _, name := range names {
+		held[name] = item.Path
+	}
+	return ""
 }
 
 func (i *Intake) cursor(ctx context.Context, scope ledger.WorkspaceID, id string) (ports.Cursor, error) {
@@ -375,6 +380,9 @@ type itemRecorder struct {
 	known   lineages
 	// moved says this file's base moved, once nextVersion has read that.
 	moved bool
+	// latest is the version the ledger holds when this file says what that version does, once
+	// nextVersion has read that.
+	latest *planning.Contract
 }
 
 func (r *itemRecorder) record() (itemOutcome, error) {
@@ -386,7 +394,7 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 		return itemOutcome{conflicts: 1, problem: baseMoved("contract", r.item.Contract.ID)}, nil
 	}
 	if contract.ID == "" {
-		return itemOutcome{}, nil
+		return r.standingProblems()
 	}
 	repeated, err := r.foreignOrder(contract.ID)
 	if err != nil {
@@ -405,6 +413,15 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 	if named != "" {
 		contract.PlanID = named
 	}
+	pins, unknown, err := r.resolveDocuments()
+	if err != nil {
+		return itemOutcome{}, err
+	}
+	if len(unknown) != 0 {
+		return itemOutcome{problem: fmt.Sprintf("%v: contract %s cites %s, which the ledger does not hold",
+			planning.ErrBadFile, r.item.Contract.ID, strings.Join(unknown, ", "))}, nil
+	}
+	contract.Documents = pins
 	if isNew {
 		if err := r.recordNewContract(contract, named != ""); err != nil {
 			return itemOutcome{}, err
@@ -435,7 +452,8 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 		}
 	}
 	crashpoint.Hit("intake.item", "ordered")
-	return itemOutcome{versions: 1, workOrders: created}, nil
+	problem, err := r.untraced(contract)
+	return itemOutcome{versions: 1, workOrders: created, problem: problem}, err
 }
 
 // namedPlan resolves the file's `plan` key. No key is known, because such a contract gets
@@ -501,26 +519,42 @@ func (r *itemRecorder) tellLanes(contract planning.Contract) error {
 	if err := addRunningLanes(r.tx, &touched); err != nil {
 		return err
 	}
+	ref := planning.ContractKey(contract.ID, contract.Version)
+	return tellPinned(r.tx, touched, r.windows, pinnedNotice{
+		kind: messages.KindContractNotice, ref: ref, body: contextpacks.ContractNotice(contract.Title, ref), reason: "contract version " + ref,
+	})
+}
+
+// pinnedNotice is what a lane hears when a record its pack holds has a new version.
+type pinnedNotice struct {
+	kind messages.Kind
+	// ref names the new version, and keeps a repeated pass from telling a lane twice.
+	ref    string
+	body   string
+	reason string
+}
+
+// tellPinned leaves one notice for each lane, and asks the ones a policy says to park.
+func tellPinned(tx ports.WriteTx, touched reach, windows messages.Windows, notice pinnedNotice) error {
 	if len(touched.lanes) == 0 {
 		return nil
 	}
-	policy, err := lanePolicyInForce(r.tx)
+	policy, err := lanePolicyInForce(tx)
 	if err != nil {
 		return err
 	}
-	ref := planning.ContractKey(contract.ID, contract.Version)
 	for _, lane := range slices.Sorted(maps.Keys(touched.lanes)) {
 		draft := messages.Draft{
-			ID: messages.DerivedID(string(messages.KindContractNotice), ref, lane), To: messages.Target{Lane: lane},
-			Kind: messages.KindContractNotice, Body: messages.Clip(contextpacks.ContractNotice(contract.Title, ref)),
+			ID: messages.DerivedID(string(notice.kind), notice.ref, lane), To: messages.Target{Lane: lane},
+			Kind: notice.kind, Body: messages.Clip(notice.body),
 		}
-		if _, err := sendIn(r.tx, draft, r.windows, intakeActor); err != nil {
+		if _, err := sendIn(tx, draft, windows, intakeActor); err != nil {
 			return err
 		}
 		if policy.OnContractVersion != authority.LanePark {
 			continue
 		}
-		if err := askToPark(r.tx, lane, touched.lanes[lane], "contract version "+ref, intakeActor); err != nil {
+		if err := askToPark(tx, lane, touched.lanes[lane], notice.reason, intakeActor); err != nil {
 			return err
 		}
 	}
@@ -535,6 +569,7 @@ func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 	contract := planning.Contract{
 		Version: 1, Title: file.Title, Digest: r.item.Digest, Source: r.item.Source, Statement: r.item.Statement,
 		Criteria: file.Criteria, Requirements: file.Requirements, Decisions: file.Decisions, Status: planning.StatusActive,
+		Milestone: file.Milestone, Shared: file.Shared, Uses: file.Uses,
 	}
 	link, err := r.tx.Planning().Link(planning.SubjectContract, r.item.Key)
 	if errors.Is(err, ports.ErrNotFound) {
@@ -554,6 +589,7 @@ func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 		return planning.Contract{}, false, err
 	}
 	if latest.Digest == r.item.Digest {
+		r.latest = &latest
 		return planning.Contract{}, false, nil
 	}
 	stands, err := r.known.of(r.item.Source, latest.Source)
@@ -566,6 +602,55 @@ func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 	}
 	contract.ID, contract.Version, contract.PlanID = latest.ID, latest.Version+1, latest.PlanID
 	return contract, false, nil
+}
+
+// resolveDocuments pins each document this file cites to the version the ledger holds, which is the
+// one at the commit that was read: documents come before contracts in a batch. It names each citation
+// the ledger holds no document for.
+func (r *itemRecorder) resolveDocuments() ([]planning.DocumentPin, []string, error) {
+	var pins []planning.DocumentPin
+	var unknown []string
+	for _, ref := range r.item.Contract.Documents {
+		latest, err := r.tx.Planning().LatestDocumentVersion(ref)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+			unknown = append(unknown, ref)
+		case err != nil:
+			return nil, nil, err
+		default:
+			pins = append(pins, planning.DocumentPin{Document: ref, Version: latest.Version})
+		}
+	}
+	return pins, unknown, nil
+}
+
+// standingProblems reports what still stands against a version this file did not change, because a
+// requirements document can change under a contract that did not.
+func (r *itemRecorder) standingProblems() (itemOutcome, error) {
+	if r.latest == nil {
+		return itemOutcome{}, nil
+	}
+	problem, err := r.untraced(*r.latest)
+	return itemOutcome{problem: problem}, err
+}
+
+// untraced names each criterion of a contract version that serves no requirement its plan has, when
+// the plan has a requirements document. The version is recorded either way, and the definition of
+// ready is what holds its work back (FR-DOC-5).
+func (r *itemRecorder) untraced(contract planning.Contract) (string, error) {
+	known, traced, err := planRequirements(r.tx.Planning(), contract.PlanID)
+	if err != nil || !traced {
+		return "", err
+	}
+	found := planning.Trace(contract.Criteria, known)
+	if len(found) == 0 {
+		return "", nil
+	}
+	details := make([]string, len(found))
+	for i, one := range found {
+		details[i] = one.String()
+	}
+	return fmt.Sprintf("%v: contract %s: %s", planning.ErrBadFile, r.item.Contract.ID, strings.Join(details, "; ")), nil
 }
 
 // foreignOrder finds a work order this file names that another contract owns. A
@@ -637,6 +722,25 @@ func (w planningWriter) changedPlan(plan planning.Plan) error {
 		return err
 	}
 	return w.append(planning.EventPlanRecorded, planning.SubjectPlan, plan.ID, plan)
+}
+
+// planVersion keeps one version of a plan's file.
+func (w planningWriter) planVersion(version planning.PlanVersion) error {
+	if err := w.tx.Planning().InsertPlanVersion(version); err != nil {
+		return err
+	}
+	return w.append(planning.EventPlanVersion, planning.SubjectPlan, version.PlanID, version)
+}
+
+// document keeps a document with one new version of it.
+func (w planningWriter) document(record planning.DocumentRecord, version planning.DocumentVersion) error {
+	if err := w.tx.Planning().SaveDocument(record); err != nil {
+		return err
+	}
+	if err := w.tx.Planning().InsertDocumentVersion(version); err != nil {
+		return err
+	}
+	return w.append(planning.EventDocumentVersion, planning.SubjectDocument, record.ID, planning.DocumentRecorded{Document: record, Version: version})
 }
 
 func (w planningWriter) goal(goal planning.Goal) error {

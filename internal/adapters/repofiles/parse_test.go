@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,17 +20,99 @@ func readFixture(t *testing.T, name string) []byte {
 	return raw
 }
 
-// What a planning lane is shown is what intake reads, so an agent that copies it writes a file.
-func TestThePlanningExampleIsAFile(t *testing.T) {
-	doc, err := ParseFile([]byte(planning.FormatExample))
-	if err != nil {
-		t.Fatal(err)
+// What a planning lane is shown is what intake reads, so an agent that copies an example writes a
+// file of its kind.
+func TestEveryPlanningExampleIsAFile(t *testing.T) {
+	kinds := map[planning.FileKind]bool{}
+	for _, example := range planning.FormatExamples {
+		doc, err := ParseFile([]byte(example.Text))
+		if err != nil {
+			t.Fatalf("the %s example: %v", example.Kind, err)
+		}
+		if doc.Kind != example.Kind {
+			t.Errorf("the %s example reads as a %s", example.Kind, doc.Kind)
+		}
+		if strings.TrimSpace(doc.Statement) == "" {
+			t.Errorf("the %s example has no prose", example.Kind)
+		}
+		if example.Intro == "" {
+			t.Errorf("the %s example says nothing of itself", example.Kind)
+		}
+		kinds[example.Kind] = true
 	}
-	if doc.Contract == nil || doc.Contract.ID != "checkout-retry" || len(doc.Contract.Criteria) != 1 || len(doc.Contract.WorkOrders) != 1 {
-		t.Fatalf("document %+v", doc)
+	for _, kind := range []planning.FileKind{
+		planning.FileGoal, planning.FilePlan, planning.FileRequirements, planning.FileSpec, planning.FileArchitecture,
+		planning.FileExperienceDesign, planning.FileMilestone, planning.FileContract,
+	} {
+		if !kinds[kind] {
+			t.Errorf("no example shows a %s file (FR-SESSION-5)", kind)
+		}
 	}
-	if !strings.Contains(doc.Statement, "must deliver") {
-		t.Fatalf("statement %q", doc.Statement)
+}
+
+// The examples describe one project, so a planning lane that follows them writes files that name each
+// other: a plan lists the documents that name it, and a contract cites what its plan holds.
+func TestThePlanningExamplesNameEachOther(t *testing.T) {
+	docs := map[planning.FileKind]planning.Document{}
+	for _, example := range planning.FormatExamples {
+		doc, err := ParseFile([]byte(example.Text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		docs[example.Kind] = doc
+	}
+	plan := docs[planning.FilePlan].Plan
+	if plan == nil || plan.Goal != docs[planning.FileGoal].Goal.ID || len(plan.Decisions) == 0 {
+		t.Fatalf("plan %+v", plan)
+	}
+	known := map[string]bool{}
+	for _, key := range docs[planning.FileRequirements].Requirements.Requirements {
+		known[key.ID] = true
+	}
+	held := map[string]bool{}
+	for kind, doc := range docs {
+		head, ok := doc.Head()
+		if !ok {
+			continue
+		}
+		held[head.Ref()] = true
+		if head.Plan != plan.ID {
+			t.Errorf("the %s example names plan %q, not %q", kind, head.Plan, plan.ID)
+		}
+	}
+	for _, ref := range plan.Documents {
+		if !held[ref] {
+			t.Errorf("the plan lists %s, which no example shows", ref)
+		}
+	}
+	if len(plan.Documents) != len(held) {
+		t.Errorf("the plan lists %v, and the examples show %d documents", plan.Documents, len(held))
+	}
+	for _, requirements := range [][]string{docs[planning.FileSpec].Spec.Requirements, docs[planning.FileArchitecture].Architecture.Requirements, docs[planning.FileExperienceDesign].Experience.Requirements} {
+		for _, key := range requirements {
+			if !known[key] {
+				t.Errorf("a document addresses %s, which the requirements example lacks", key)
+			}
+		}
+	}
+	contract := docs[planning.FileContract].Contract
+	if contract.Plan != plan.ID || contract.Milestone != docs[planning.FileMilestone].Milestone.ID || len(contract.Uses) == 0 || len(contract.WorkOrders) == 0 {
+		t.Errorf("contract %+v", contract)
+	}
+	for _, ref := range contract.Documents {
+		if !slices.Contains(plan.Documents, ref) {
+			t.Errorf("the contract cites %s, which its plan does not list", ref)
+		}
+	}
+	for _, criterion := range contract.Criteria {
+		if len(criterion.Requirements) == 0 {
+			t.Errorf("criterion %s serves no requirement", criterion.ID)
+		}
+		for _, key := range criterion.Requirements {
+			if !known[key] {
+				t.Errorf("criterion %s serves %s, which the requirements example lacks", criterion.ID, key)
+			}
+		}
 	}
 }
 
@@ -127,7 +210,123 @@ func TestParseFile(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "a requirements file names its plan",
+			fixture: "requirements-planned.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if doc.Requirements == nil || doc.Requirements.Plan != "payments-v2" {
+					t.Fatalf("got %+v", doc.Requirements)
+				}
+			},
+		},
+		{
+			name:    "a plan lists its documents and holds its draft decisions",
+			fixture: "plan-full.md",
+			check: func(t *testing.T, doc planning.Document) {
+				plan := doc.Plan
+				if plan == nil || plan.Goal != "reliable-checkout" || len(plan.Documents) != 5 || plan.Documents[1] != "spec:checkout-api" {
+					t.Fatalf("plan %+v", plan)
+				}
+				if len(plan.Decisions) != 2 {
+					t.Fatalf("decisions %+v", plan.Decisions)
+				}
+				first := plan.Decisions[0]
+				if first.ID != "d1" || !first.Blocking || first.Rationale == "" || first.Answer == "" || first.Question == "" {
+					t.Errorf("first decision %+v", first)
+				}
+				if plan.Decisions[1].Blocking || plan.Decisions[1].Rationale != "" {
+					t.Errorf("second decision %+v", plan.Decisions[1])
+				}
+			},
+		},
+		{
+			name:    "a spec addresses requirements",
+			fixture: "spec.md",
+			check: func(t *testing.T, doc planning.Document) {
+				spec := doc.Spec
+				if doc.Kind != planning.FileSpec || spec == nil || spec.ID != "checkout-api" || spec.Plan != "payments-v2" {
+					t.Fatalf("got %+v", doc)
+				}
+				if len(spec.Requirements) != 2 || spec.Requirements[1] != "PAY-13" {
+					t.Errorf("requirements %v", spec.Requirements)
+				}
+				if !strings.Contains(doc.Statement, "checkout service") {
+					t.Errorf("statement %q", doc.Statement)
+				}
+			},
+		},
+		{
+			name:    "an architecture document addresses requirements",
+			fixture: "architecture.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if doc.Kind != planning.FileArchitecture || doc.Architecture == nil || doc.Architecture.ID != "payments" || len(doc.Architecture.Requirements) != 1 {
+					t.Fatalf("got %+v", doc)
+				}
+			},
+		},
+		{
+			name:    "an experience design also lists its assets",
+			fixture: "experience-design.md",
+			check: func(t *testing.T, doc planning.Document) {
+				design := doc.Experience
+				if doc.Kind != planning.FileExperienceDesign || design == nil || design.ID != "checkout-flow" {
+					t.Fatalf("got %+v", doc)
+				}
+				if len(design.Assets) != 2 || design.Assets[0] != "docs/design/checkout-flow.png" || len(design.Requirements) != 1 {
+					t.Errorf("design %+v", design)
+				}
+			},
+		},
+		{
+			name:    "a milestone holds a priority, dependencies, and exit criteria",
+			fixture: "milestone.md",
+			check: func(t *testing.T, doc planning.Document) {
+				m := doc.Milestone
+				if doc.Kind != planning.FileMilestone || m == nil || m.ID != "m1-reliable-checkout" || m.Priority != 1 || m.Plan != "payments-v2" {
+					t.Fatalf("got %+v", doc)
+				}
+				if len(m.DependsOn) != 1 || m.DependsOn[0] != "m0-payments-client" {
+					t.Errorf("depends_on %v", m.DependsOn)
+				}
+				if len(m.ExitCriteria) != 1 || m.ExitCriteria[0].ID != "e1" {
+					t.Errorf("exit criteria %+v", m.ExitCriteria)
+				}
+			},
+		},
+		{
+			name:    "a contract names its milestone, shared contracts, documents, and the requirement each criterion serves",
+			fixture: "contract-full.md",
+			check: func(t *testing.T, doc planning.Document) {
+				c := doc.Contract
+				if c == nil || c.Plan != "payments-v2" || c.Milestone != "m1-reliable-checkout" || !c.Shared {
+					t.Fatalf("contract %+v", c)
+				}
+				if len(c.Uses) != 1 || c.Uses[0] != "payments-client" || len(c.Documents) != 2 || c.Documents[1] != "architecture:payments" {
+					t.Errorf("uses %v, documents %v", c.Uses, c.Documents)
+				}
+				if len(c.Criteria) != 2 || len(c.Criteria[0].Requirements) != 1 || c.Criteria[1].Requirements[0] != "PAY-13" {
+					t.Errorf("criteria %+v", c.Criteria)
+				}
+			},
+		},
+		{
+			name:    "a contract written for phase 1 keeps its contract-level requirements",
+			fixture: "valid.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if c := doc.Contract; c.Milestone != "" || c.Shared || len(c.Documents) != 0 || len(c.Criteria[0].Requirements) != 0 {
+					t.Errorf("contract %+v", c)
+				}
+			},
+		},
 		{name: "one requirement twice", fixture: "repeated-requirement.md", wantErr: planning.ErrBadFile},
+		{name: "a citation with no kind", fixture: "bad-document-ref.md", wantErr: planning.ErrBadFile},
+		{name: "a citation of a kind that is no document", fixture: "unknown-document-kind.md", wantErr: planning.ErrBadFile},
+		{name: "a milestone that depends on itself", fixture: "milestone-self-dependency.md", wantErr: planning.ErrBadFile},
+		{name: "a milestone with one exit criterion twice", fixture: "repeated-exit-criterion.md", wantErr: planning.ErrBadFile},
+		{name: "a spec with no title", fixture: "spec-untitled.md", wantErr: planning.ErrBadFile},
+		{name: "an asset outside the repository", fixture: "bad-asset.md", wantErr: planning.ErrBadFile},
+		{name: "a draft decision with no answer", fixture: "draft-decision-no-answer.md", wantErr: planning.ErrBadFile},
+		{name: "a criterion mapped to an empty requirement", fixture: "empty-criterion-mapping.md", wantErr: planning.ErrBadFile},
 		{name: "a goal with no title", fixture: "untitled-goal.md", wantErr: planning.ErrBadFile},
 		{name: "an unknown kind", fixture: "unknown-kind.md", wantErr: planning.ErrUnknownKind},
 		{name: "bad TOML", fixture: "bad-toml.md", wantErr: planning.ErrBadFile},

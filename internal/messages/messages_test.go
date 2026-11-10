@@ -87,11 +87,27 @@ func TestRolloverTable(t *testing.T) {
 
 func TestDecisionBearingKinds(t *testing.T) {
 	for kind, want := range map[messages.Kind]bool{
-		messages.KindAnswer: true, messages.KindDecisionNotice: true, messages.KindInstruction: false, messages.KindNotice: false,
+		messages.KindAnswer: true, messages.KindDecisionNotice: true, messages.KindContractNotice: true, messages.KindDocumentNotice: true,
+		messages.KindInstruction: false, messages.KindNotice: false,
 	} {
 		if got := kind.DecisionBearing(); got != want {
 			t.Errorf("%s: %v", kind, got)
 		}
+	}
+}
+
+// A document notice is a message like a contract notice: a draft of it is accepted, and its fact reaches
+// the next generation when no session heard it.
+func TestADocumentNoticeIsAMessage(t *testing.T) {
+	draft := messages.Draft{
+		ID: messages.DerivedID(string(messages.KindDocumentNotice), "spec:checkout-api@2", "lane-1"), To: messages.Target{Lane: "lane-1"},
+		Kind: messages.KindDocumentNotice, Body: "Document Checkout API has a new version.",
+	}
+	if _, err := messages.New(draft, messages.Sender{Kind: "system", ID: "intake"}, 1, messages.DefaultWindow); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(messages.KindDocumentNotice); got != "document_notice" {
+		t.Errorf("kind %q", got)
 	}
 }
 

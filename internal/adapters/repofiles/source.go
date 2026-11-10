@@ -73,7 +73,7 @@ func (s *Source) Describe(ctx context.Context) (ports.SourceDescription, error) 
 	}, nil
 }
 
-// Fields returns the keys of a contract file.
+// Fields returns the keys of the files of the format.
 func (s *Source) Fields(context.Context, ports.ScopeRef) ([]ports.FieldSchema, error) {
 	return []ports.FieldSchema{
 		{Name: "kind", Type: "string", Required: true},
@@ -87,6 +87,15 @@ func (s *Source) Fields(context.Context, ports.ScopeRef) ([]ports.FieldSchema, e
 		{Name: "goal", Type: "string"},
 		{Name: "success_measures", Type: "array"},
 		{Name: "requirement", Type: "array"},
+		{Name: "documents", Type: "array"},
+		{Name: "decision", Type: "array"},
+		{Name: "assets", Type: "array"},
+		{Name: "milestone", Type: "string"},
+		{Name: "shared", Type: "boolean"},
+		{Name: "uses", Type: "array"},
+		{Name: "priority", Type: "integer"},
+		{Name: "depends_on", Type: "array"},
+		{Name: "exit_criteria", Type: "array"},
 	}, nil
 }
 
@@ -130,7 +139,7 @@ func (s *Source) Poll(ctx context.Context, cursor ports.Cursor) (ports.ChangeBat
 			batch.Problems = append(batch.Problems, planning.SourceProblem{Path: blob.Path, Detail: err.Error(), Source: source})
 			continue
 		case doc.Contract == nil:
-			if record, ok := ports.RecordOf(doc, description.Adapter, description.Instance, blob.Path, source); ok {
+			if record, ok := ports.RecordOf(doc, description.Adapter, description.Instance, blob.Path, source, planning.DigestGitBlob+blob.Hash); ok {
 				batch.Records = append(batch.Records, record)
 			}
 			continue

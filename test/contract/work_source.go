@@ -3,6 +3,8 @@ package contract
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/planning"
@@ -12,6 +14,8 @@ import (
 // SourceRig is one work source and the way a check changes what it holds.
 type SourceRig struct {
 	Source ports.WorkSource
+	// DigestPrefix is how the source names the kind of digest it gives a file.
+	DigestPrefix string
 	// Commit stands for a person committing one file.
 	Commit func(name, content string)
 	// Rename stands for a person moving one file.
@@ -96,6 +100,7 @@ func RunWorkSource(t *testing.T, fresh func(*testing.T) SourceRig) {
 		{"a moved file keeps its key", checkPollRenamed},
 		{"a bad file is a problem and stops no other file", checkPollBadFile},
 		{"every file kind is read, with goals first", checkPollKinds},
+		{"documents and milestones are read after the requirements, each with its digest", checkPollDocuments},
 		{"read returns one item by key", checkRead},
 		{"apply reports unsupported", checkApply},
 		{"no webhooks and no write capability", checkCapabilities},
@@ -328,6 +333,60 @@ func checkPollKinds(t *testing.T, ctx context.Context, rig SourceRig) {
 	}
 	if goal.Key.Adapter != description.Adapter || goal.Key.Instance != description.Instance {
 		t.Errorf("key %+v under %+v", goal.Key, description)
+	}
+}
+
+// DocumentText renders a small file of a document kind: a spec, an architecture document, an
+// experience design, or a milestone.
+func DocumentText(kind, id, title, plan, body string) string {
+	planKey := ""
+	if plan != "" {
+		planKey = "plan = \"" + plan + "\"\n"
+	}
+	return `+++
+kind = "` + kind + `"
+id = "` + id + `"
+title = "` + title + `"
+` + planKey + `+++
+
+` + body + "\n"
+}
+
+func checkPollDocuments(t *testing.T, ctx context.Context, rig SourceRig) {
+	rig.Commit("a-milestone.md", DocumentText("milestone", "m1", "First", "payments-v2", "Why first."))
+	rig.Commit("b-spec.md", DocumentText("spec", "checkout-api", "Checkout API", "payments-v2", "The calls."))
+	rig.Commit("c-plan.md", PlanText("payments-v2", "The plan", ""))
+	rig.Commit("d-requirements.md", RequirementsText("payments", "PAY-12", "It retries"))
+	rig.Commit("e-architecture.md", DocumentText("architecture", "payments", "Payments", "payments-v2", "The services."))
+	rig.Commit("f-design.md", DocumentText("experience-design", "checkout-flow", "Checkout flow", "payments-v2", "The screens."))
+	batch, err := rig.Source.Poll(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, record := range batch.Records {
+		if record.Digest == "" {
+			t.Errorf("%s has no digest", record.Path)
+		}
+		if !strings.HasPrefix(record.Digest, rig.DigestPrefix) {
+			t.Errorf("%s has digest %q, want the prefix %q", record.Path, record.Digest, rig.DigestPrefix)
+		}
+		order = append(order, record.Path)
+	}
+	want := []string{"c-plan.md", "d-requirements.md", "b-spec.md", "e-architecture.md", "f-design.md", "a-milestone.md"}
+	if !slices.Equal(order, want) {
+		t.Fatalf("records come in order %v, want %v", order, want)
+	}
+	spec := batch.Records[2]
+	head, ok := spec.Head()
+	if !ok || head.Ref() != "spec:checkout-api" || head.Name() != "Checkout API" || head.Plan != "payments-v2" || spec.Statement != "The calls.\n" {
+		t.Errorf("spec %+v reads as %+v", spec, head)
+	}
+	if head.Fields == nil || !strings.Contains(string(head.Fields), "checkout-api") {
+		t.Errorf("spec fields %s", head.Fields)
+	}
+	if _, ok := batch.Records[0].Head(); ok {
+		t.Errorf("a plan reads as a document: %+v", batch.Records[0])
 	}
 }
 

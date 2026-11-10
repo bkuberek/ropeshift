@@ -67,7 +67,7 @@ type Document struct {
 	Instance string `json:"instance"`
 	Path     string `json:"path"`
 	Title    string `json:"title"`
-	// Kind says which of requirements, specs, and designs this is, or none of them.
+	// Kind says which of requirements, specs, architecture documents, experience designs, milestones, and designs this is, or none of them.
 	Kind    planning.DocumentKind `json:"kind"`
 	Version string                `json:"version"`
 	Digest  string                `json:"digest"`

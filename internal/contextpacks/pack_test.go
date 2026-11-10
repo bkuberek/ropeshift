@@ -44,7 +44,11 @@ func source(kind contextpacks.Kind, ref, text string) contextpacks.Source {
 func fullSelection() contextpacks.Selection {
 	contract := source(contextpacks.KindContract, "c1@4", "The contract's statement.")
 	return contextpacks.Selection{
-		Contract:     &contract,
+		Contract: &contract,
+		Documents: []contextpacks.Source{
+			source(contextpacks.KindDocument, "spec:checkout-api@3", "A cited spec, at the version the contract read."),
+			source(contextpacks.KindDocument, "architecture:payments@1", "A cited architecture document."),
+		},
 		Requirements: []contextpacks.Source{source(contextpacks.KindRequirement, "FR-B", "second in the contract"), source(contextpacks.KindRequirement, "FR-A", "third in the contract")},
 		Decisions:    []contextpacks.Source{source(contextpacks.KindDecision, "d9", "a cited decision")},
 		Overlapping:  []contextpacks.Source{source(contextpacks.KindDecision, "d1", "a decision in scope"), source(contextpacks.KindDecision, "d9", "a cited decision")},
@@ -262,7 +266,7 @@ func TestARatioFollowsMeasuredBaselines(t *testing.T) {
 }
 
 func TestAnItemNamesItsRecord(t *testing.T) {
-	for ref, want := range map[string]string{"c1@4": "c1", "FR-A": "FR-A", "wiki:12@7": "wiki:12"} {
+	for ref, want := range map[string]string{"c1@4": "c1", "FR-A": "FR-A", "wiki:12@7": "wiki:12", "spec:checkout-api@3": "spec:checkout-api"} {
 		if got := (contextpacks.Item{Ref: ref}).Record(); got != want {
 			t.Errorf("%s reads %s", ref, got)
 		}
@@ -282,6 +286,7 @@ func TestAdditions(t *testing.T) {
 		"no work order":       {Kind: contextpacks.KindGoal, Ref: "g"},
 		"no record":           {WorkOrder: "wo", Kind: contextpacks.KindGoal},
 		"a contract":          {WorkOrder: "wo", Kind: contextpacks.KindContract, Ref: "c@1"},
+		"a document":          {WorkOrder: "wo", Kind: contextpacks.KindDocument, Ref: "spec:checkout-api@1"},
 		"a kind nobody knows": {WorkOrder: "wo", Kind: "note", Ref: "n"},
 		"knowledge, no text":  {WorkOrder: "wo", Kind: contextpacks.KindKnowledge, Ref: "wiki:1"},
 		"a goal with text":    {WorkOrder: "wo", Kind: contextpacks.KindGoal, Ref: "g", Text: "not its own"},
@@ -332,5 +337,14 @@ func TestReplay(t *testing.T) {
 	}
 	if _, err := contextpacks.Replay([]ledger.Event{{Type: contextpacks.EventBuilt, Data: []byte("{")}}); err == nil {
 		t.Error("a replay passed a line that does not parse")
+	}
+}
+
+func TestADocumentNoticeNamesTheVersionAndTheTool(t *testing.T) {
+	notice := contextpacks.DocumentNotice("Checkout API", "spec:checkout-api@4")
+	for _, want := range []string{"Checkout API", "spec:checkout-api@4", contextpacks.ToolGet, "stays on the version"} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("the notice leaves out %q: %s", want, notice)
+		}
 	}
 }
