@@ -52,6 +52,7 @@ func registry() []section {
 			command("work replan", "<id> --reason R", "return blocked work to planning", (*invocation).workReplan),
 		}},
 		{"Plans and requirements", []registered{
+			command("plan start", "[--goal TEXT | --goal-file PATH] [--worker ID] [--repository R] [--no-attach]", "open a planning session and attach your terminal to it", (*invocation).planStart),
 			command("plan list", "", "list plans", (*invocation).planList),
 			command("plan show", "<id>", "show a plan, its goal, contracts, and work", (*invocation).planShow),
 			command("plan review", "<id> [--id I]", "start a contract review a lane can run", (*invocation).planReview),
@@ -86,6 +87,7 @@ func registry() []section {
 		}},
 		{"Lanes and messages", []registered{
 			command("lane start", "<work-order> [--lane L] [--profile F]", "run a lane on a claimed work order", (*invocation).laneStart),
+			command("lane attach", "<lane>", "put your terminal on an interactive lane's pane, which detaching leaves running", (*invocation).laneAttach),
 			command("lane list", "", "list lanes, each with its freshness", (*invocation).laneList),
 			command("lane show", "<lane>", "show one lane, with its freshness", (*invocation).laneShow),
 			command("lane reset", "<work-order>", "let a lane its breaker stopped start again", (*invocation).laneReset),

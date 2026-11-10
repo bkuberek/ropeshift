@@ -43,6 +43,9 @@ type Options struct {
 	// StartDaemon runs the daemon for the length of one command, and returns how to stop it. A first
 	// run needs one, because a daemon's first start registers its worker.
 	StartDaemon func(context.Context) (func() error, error)
+	// Panes is this machine's terminal server, for a command that puts the person's terminal on a
+	// lane's pane. Nil means this machine has no tmux.
+	Panes Panes
 	// StateDir is the installation's own directory, where a first run writes its sample contract.
 	StateDir string
 	// InstallService writes the daemon's service definition under a name, with the daemon's own
@@ -57,6 +60,7 @@ type invocation struct {
 	doctor         func(context.Context) (ledger.Manifest, error)
 	readPassphrase func(prompt string) (string, error)
 	terminal       io.Reader
+	panes          Panes
 	startDaemon    func(context.Context) (func() error, error)
 	stateDir       string
 	install        func(context.Context, string, []string) (Service, error)
@@ -80,7 +84,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
 		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
-		startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
+		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 	}
 	found, rest, ok := find(args)
 	if !ok {

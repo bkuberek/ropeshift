@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,7 +36,7 @@ func TestTmuxTerminalContract(t *testing.T) {
 			}
 		}
 		return TerminalRig{
-			Terminal: terminal, Spec: spec(terminalPath), Exits: spec(exitPath),
+			Terminal: terminal, Spec: spec(terminalPath), Exits: spec(exitPath), Attaches: attachesOnATerminal(terminal),
 			Waits: func(t *testing.T, name, text string) {
 				t.Helper()
 				deadline := time.Now().Add(20 * time.Second)
@@ -52,6 +53,62 @@ func TestTmuxTerminalContract(t *testing.T) {
 			},
 		}
 	})
+}
+
+// attachesOnATerminal attaches a real tmux client on a pseudo-terminal, as a person's shell would, and
+// detaches it with tmux's own binding.
+func attachesOnATerminal(terminal *tmux.Terminal) func(*testing.T, string) func() {
+	return func(t *testing.T, name string) func() {
+		t.Helper()
+		person := doubles.NewPTY(t)
+		done := make(chan error, 1)
+		go func() {
+			done <- terminal.Attach(context.Background(), name, ports.Console{Stdin: person.Terminal, Stdout: person.Terminal, Stderr: person.Terminal})
+		}()
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if count, err := terminal.Clients(context.Background(), name); err == nil && count == 1 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return func() {
+			t.Helper()
+			select {
+			case err := <-done:
+				// The pane's end took the client with it, which is how it ended.
+				_ = err
+				return
+			default:
+			}
+			person.Type(t, "\x02d")
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Errorf("the client ended badly after the detach keys: %v", err)
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("the client did not end after the detach keys: %q", person.Drawn())
+			}
+		}
+	}
+}
+
+// A person who attaches to a pane the server does not hold, such as one a park just closed, learns
+// that and not a failure of their terminal.
+func TestTmuxAttachToAMissingPaneIsNotFound(t *testing.T) {
+	doubles.RequireTmux(t)
+	terminal := doubles.PrivateTmux(t)
+	path := doubles.InstallFakeClaude(t, "pane-terminal")
+	spec := ports.PaneSpec{Name: "here-g1", Dir: t.TempDir(), Width: 130, Height: 45, Command: []string{filepath.Join(doubles.BinDir(path), "claude"), "--tui"}}
+	if _, err := terminal.Open(t.Context(), spec); err != nil {
+		t.Fatal(err)
+	}
+	person := doubles.NewPTY(t)
+	console := ports.Console{Stdin: person.Terminal, Stdout: person.Terminal, Stderr: person.Terminal}
+	if err := terminal.Attach(t.Context(), "here-g0", console); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("attach to a pane of an older generation: %v, want not found", err)
+	}
 }
 
 // A worker's server must not read a person's configuration or leave their server alone
@@ -157,6 +214,21 @@ func TestFakeTerminalContract(t *testing.T) {
 		terminal.Play(fake.PaneScript{Screen: cancel, Moves: map[string]map[string]string{cancel: {"Down": accept}}})
 		return TerminalRig{
 			Terminal: terminal,
+			Attaches: func(t *testing.T, name string) func() {
+				t.Helper()
+				done := make(chan error, 1)
+				go func() { done <- terminal.Attach(context.Background(), name, ports.Console{}) }()
+				for count := 0; count != 1; {
+					count, _ = terminal.Clients(context.Background(), name)
+					time.Sleep(time.Millisecond)
+				}
+				return func() {
+					terminal.Detach(name)
+					if err := <-done; err != nil {
+						t.Errorf("the attach ended with %v", err)
+					}
+				}
+			},
 			Spec: func(name string) ports.PaneSpec {
 				opened.Add(1)
 				return ports.PaneSpec{Name: name, Command: []string{"claude", strconv.FormatInt(opened.Load(), 10)}}

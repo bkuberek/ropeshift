@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/messages"
 )
@@ -257,6 +258,9 @@ type DenyPolicy struct {
 	DefaultBranches []string `json:"default_branches,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
+	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A
+	// hook reads its modification time and nothing else, so it needs neither the worker nor tmux.
+	AttachedMarker string `json:"attached_marker,omitempty"`
 	// Hold denies every tool but OwnTools with this reason, for a lane that must stop and hand off.
 	// A worker writes it, and the hook reads it with no worker.
 	Hold string `json:"hold,omitempty"`
@@ -276,11 +280,30 @@ type DenyPolicy struct {
 const ToolQuestion = "AskUserQuestion"
 
 // What a question tool call becomes: a headless lane defers it and ends its turn, and an
-// interactive lane is denied and told to use `ask`.
+// interactive lane is denied and told to use `ask`. A planning lane leaves the tool to the terminal
+// while a person is attached to its pane, because the person is the one who answers, and is denied
+// as an interactive lane is when nobody is.
 const (
-	QuestionToolDefer = "defer"
-	QuestionToolDeny  = "deny"
+	QuestionToolDefer              = "defer"
+	QuestionToolDeny               = "deny"
+	QuestionToolTerminalIfAttached = "terminal_if_attached"
 )
+
+// AttachedStale is how old a lane's attached marker may be and still say a person is attached. The
+// worker touches the marker about once a second while a client is attached to the lane's pane, so a
+// marker older than this means the worker stopped, could not tell, or saw nobody.
+const AttachedStale = 3 * time.Second
+
+// Attached reads a marker's modification time against the hook's clock. A marker a little ahead is
+// a clock a little off, and one far ahead is a clock that jumped, which says nothing. A marker that
+// is missing or unreadable has no modification time, which reads as nobody attached.
+func Attached(modified, now time.Time) bool {
+	if modified.IsZero() {
+		return false
+	}
+	age := now.Sub(modified)
+	return age >= -AttachedStale && age <= AttachedStale
+}
 
 // ReasonUseAsk reaches the model, so it names the tool to use.
 const ReasonUseAsk = "ropeshift policy: this lane asks through the ask tool. It records the question for the workspace, and it answers at once when it can."

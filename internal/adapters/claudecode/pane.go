@@ -41,6 +41,9 @@ const (
 	socketDeadline = 2 * time.Second
 	// stopDeadline bounds what cleaning up a failed start may take.
 	stopDeadline = 5 * time.Second
+	// attachedEvery is how often the attached marker is refreshed. It sits well inside the time a
+	// hook trusts a marker, so one slow read does not tell the hook that nobody is attached.
+	attachedEvery = time.Second
 )
 
 // The hooks a pane's state derives from.
@@ -137,11 +140,42 @@ func paneArgs(spec ports.SessionSpec) []string {
 	return append(append(out, packArgs(spec)...), spec.Override.PaneArgs()...)
 }
 
-// paneName is the pane's name on the terminal server. A lane ID holds no character tmux
-// treats as a separator, because it names a directory, and this keeps it that way.
-func paneName(spec ports.SessionSpec) string {
-	lane := strings.NewReplacer(".", "_", ":", "_").Replace(spec.Lane)
-	return fmt.Sprintf("%s-g%d", lane, spec.Generation)
+// PaneName is the pane's name on the terminal server, which is how a person's client finds the pane
+// of a lane's generation. A lane ID holds no character tmux treats as a separator, because it names a
+// directory, and this keeps it that way.
+func PaneName(lane string, generation int64) string {
+	lane = strings.NewReplacer(".", "_", ":", "_").Replace(lane)
+	return fmt.Sprintf("%s-g%d", lane, generation)
+}
+
+func paneName(spec ports.SessionSpec) string { return PaneName(spec.Lane, spec.Generation) }
+
+// Panes is a terminal server's panes as a person's command reaches them, by the lane and the
+// generation that own a pane. It holds no state, so it needs no start and survives any restart.
+type Panes struct {
+	Terminal ports.Terminal
+	// Console is the person's terminal, which an attach hands to the client.
+	Console ports.Console
+}
+
+// Has says a generation has a pane a person can use. A pane whose process ended is not one, because
+// it shows nothing but its end until the worker removes it. A read that did not finish is an error and
+// not an absence.
+func (p Panes) Has(ctx context.Context, lane string, generation int64) (bool, error) {
+	pane, err := p.Terminal.Pane(ctx, PaneName(lane, generation))
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return !pane.Dead, nil
+}
+
+// Attach puts the person's terminal on a generation's pane and returns when they detach or the pane
+// goes. It leaves the lane running either way.
+func (p Panes) Attach(ctx context.Context, lane string, generation int64) error {
+	return p.Terminal.Attach(ctx, PaneName(lane, generation), p.Console)
 }
 
 // paneEnv is the session's environment, which the launcher sets exactly.
@@ -372,9 +406,11 @@ type paneSession struct {
 	handle   ports.SessionHandle
 	terminal ports.Terminal
 	name     string
-	events   chan ports.DriverEvent
-	done     chan struct{}
-	gone     chan struct{}
+	// marker is the file a hook reads to learn that a person is attached to the pane.
+	marker string
+	events chan ports.DriverEvent
+	done   chan struct{}
+	gone   chan struct{}
 	// socketKnown closes when a hook names the session's socket.
 	socketKnown chan struct{}
 	follows     sync.Once
@@ -407,7 +443,7 @@ type paneSession struct {
 
 func (d *Driver) newPaneSession(spec ports.SessionSpec, name string, handle ports.SessionHandle, meter lanes.CostMeter) *paneSession {
 	s := &paneSession{
-		handle: handle, terminal: d.terminal, name: name, events: make(chan ports.DriverEvent, eventBuffer),
+		handle: handle, terminal: d.terminal, name: name, marker: markerPath(spec), events: make(chan ports.DriverEvent, eventBuffer),
 		done: make(chan struct{}), gone: make(chan struct{}), socketKnown: make(chan struct{}), meter: meter, approvals: map[string]bool{},
 	}
 	s.totalUSD = meter.SessionTotalUSD
@@ -428,12 +464,60 @@ func (s *paneSession) setPID(pid int) {
 	s.handle.PID = pid
 }
 
-// follow starts the two goroutines of a session once.
+// follow starts the goroutines of a session once.
 func (s *paneSession) follow() {
 	s.follows.Do(func() {
 		go s.pump()
 		go s.watch()
+		go s.markAttached(attachedEvery)
 	})
+}
+
+// markAttached tells the session's hook, through a file, whether a person is attached to the pane,
+// because a hook has milliseconds and no business with tmux. The marker is touched every beat while a
+// client is attached and removed when none is, and a beat that could not read the clients leaves it
+// alone, so it goes stale and the hook reads nobody. It ends with the session or the pane and takes
+// the marker with it.
+func (s *paneSession) markAttached(every time.Duration) {
+	if s.marker == "" {
+		return
+	}
+	defer func() { _ = os.Remove(s.marker) }()
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		if paneGone := s.refreshMarker(); paneGone {
+			return
+		}
+		select {
+		case <-s.gone:
+			return
+		case <-s.done:
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// refreshMarker is one beat. It reports a pane the server no longer holds.
+func (s *paneSession) refreshMarker() (paneGone bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), shimDialDeadline)
+	defer cancel()
+	clients, err := s.terminal.Clients(ctx, s.name)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return true
+	case err != nil:
+		return false
+	case clients > 0:
+		now := time.Now()
+		if os.WriteFile(s.marker, nil, 0o600) == nil {
+			_ = os.Chtimes(s.marker, now, now)
+		}
+	default:
+		_ = os.Remove(s.marker)
+	}
+	return false
 }
 
 // abandon ends a session that failed its start, with a signal, and takes its pane away. A

@@ -292,6 +292,10 @@ func PrivateTmux(t testing.TB) *tmux.Terminal {
 	return terminal
 }
 
+// tmuxTerm is the terminal type a test's tmux client runs with, because a client that attaches needs
+// one to draw on. A worker's own calls attach to nothing and need none.
+const tmuxTerm = "TERM=xterm-256color"
+
 // maxShortTemp keeps a socket under the 104-byte limit with a directory, a run directory, and a
 // socket name below it.
 const maxShortTemp = 20
@@ -313,7 +317,7 @@ func NewTmux(t testing.TB) (*tmux.Terminal, func()) {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(dir, "s")
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, tmuxTerm}
 	terminal, err := tmux.New(osexec.Runner{}, tmux.Options{Socket: socket, Env: env})
 	if err != nil {
 		t.Fatal(err)
@@ -333,7 +337,7 @@ func NewTmux(t testing.TB) (*tmux.Terminal, func()) {
 // the test ends, because a daemon's server outlives the daemon by design.
 func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
 	t.Helper()
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket)}
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket), tmuxTerm}
 	terminal, err := tmux.New(osexec.Runner{}, tmux.Options{Socket: socket, Env: env})
 	if err != nil {
 		t.Fatal(err)

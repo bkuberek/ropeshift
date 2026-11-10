@@ -717,7 +717,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		Brief: r.briefText(), SystemPromptFile: packFile,
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
-		RunMode: mode, ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
+		RunMode: mode, Planning: r.planning(), ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
 		Telemetry: r.sessionTelemetry(prepared, repository),
 	}

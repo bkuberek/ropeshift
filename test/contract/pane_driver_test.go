@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -524,5 +525,84 @@ func TestADriverWithATerminalDeclaresBothRunModes(t *testing.T) {
 	}
 	if !slices.Contains(report.Problems, "no terminal for an interactive session") {
 		t.Errorf("problems %v", report.Problems)
+	}
+}
+
+// hookAnswer runs the real hook binary as the agent CLI would, on a policy file, with the worker down, and
+// returns what it printed for a call of the question tool.
+func (r *paneRig) hookAnswer(policy string) string {
+	r.t.Helper()
+	const ask = `{"session_id":"s1","tool_name":"AskUserQuestion","tool_use_id":"toolu_1","tool_input":{"questions":[{"question":"Which retry budget?","options":[{"label":"Three"},{"label":"Five"}]}]}}`
+	cmd := exec.Command(doubles.Ropeshift(r.t), "hook", "PreToolUse")
+	cmd.Stdin = strings.NewReader(ask)
+	cmd.Env = []string{
+		"HOME=" + r.t.TempDir(), lanes.EnvPolicy + "=" + policy, lanes.EnvSpool + "=" + filepath.Join(r.t.TempDir(), "spool"),
+		lanes.EnvLaneToken + "=" + paneTestToken, lanes.EnvLaneID + "=" + r.spec.Lane,
+		lanes.EnvGeneration + "=" + strconv.FormatInt(r.spec.Generation, 10),
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		r.t.Fatalf("the hook: %v", err)
+	}
+	return string(out)
+}
+
+// The question tool belongs to a planning lane's terminal while a person is attached to its pane, and
+// the hook learns that from the driver's marker alone. A real client on a real pane makes the marker,
+// a detach takes it away, and the pane and its session go on.
+func TestAPlanningLanesHookSeesAPersonAttachToItsPane(t *testing.T) {
+	r := newPaneRig(t, "pane-two-turns")
+	r.spec.Planning = true
+	s := r.start()
+	s.until(ports.EventTurnEnded)
+	policy := filepath.Join(r.spec.ConfigDir, "policy-1.json")
+	raw, err := os.ReadFile(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compiled lanes.DenyPolicy
+	if err := json.Unmarshal(raw, &compiled); err != nil {
+		t.Fatal(err)
+	}
+	if compiled.QuestionTool != lanes.QuestionToolTerminalIfAttached || compiled.AttachedMarker != filepath.Join(r.spec.ConfigDir, "attached-1") {
+		t.Fatalf("the compiled policy of a planning lane reads %q and marker %q", compiled.QuestionTool, compiled.AttachedMarker)
+	}
+	denied := func() bool { return strings.Contains(r.hookAnswer(policy), `"permissionDecision":"deny"`) }
+	eventually := func(what string, ok func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if ok() {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatalf("never saw %s", what)
+	}
+
+	if !denied() {
+		t.Fatal("the hook let the question tool through with nobody attached")
+	}
+	person := doubles.NewPTY(t)
+	attached := make(chan error, 1)
+	go func() {
+		attached <- claudecode.Panes{Terminal: r.terminal, Console: ports.Console{Stdin: person.Terminal, Stdout: person.Terminal, Stderr: person.Terminal}}.
+			Attach(context.Background(), r.spec.Lane, r.spec.Generation)
+	}()
+	person.WaitFor(t, "fakeclaude")
+	eventually("the question tool left to the terminal", func() bool { return !denied() })
+
+	person.Type(t, "\x02d")
+	if err := <-attached; err != nil {
+		t.Fatalf("the attach ended with %v", err)
+	}
+	eventually("the question tool denied again after the detach", denied)
+
+	panes := claudecode.Panes{Terminal: r.terminal}
+	if live, err := panes.Has(t.Context(), r.spec.Lane, r.spec.Generation); err != nil || !live {
+		t.Errorf("the pane after the detach: %v, %v", live, err)
+	}
+	if _, err := r.driver.Send(t.Context(), s.handle, ports.Input{Text: "after the detach"}); err != nil {
+		t.Errorf("the session after the detach: %v", err)
 	}
 }

@@ -47,6 +47,52 @@ func TestTheQuestionToolFollowsTheRunMode(t *testing.T) {
 	}
 }
 
+// A planning lane's person is the one who answers, so while they are attached the question tool is left to
+// the terminal. Only a planning lane gets that: any other pane, and a planning spec that somehow runs
+// headless, keep what the run mode gives them.
+func TestAPlanningPanesQuestionToolIsLeftToAnAttachedTerminal(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     string
+		planning bool
+		want     string
+	}{
+		{"a planning lane in a pane", ports.RunModeInteractive, true, lanes.QuestionToolTerminalIfAttached},
+		{"another lane in a pane", ports.RunModeInteractive, false, lanes.QuestionToolDeny},
+		{"a planning spec run headless, which only `-p` can defer", ports.RunModeHeadless, true, lanes.QuestionToolDefer},
+		{"another lane headless", ports.RunModeHeadless, false, lanes.QuestionToolDefer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := policySpec(t)
+			spec.RunMode, spec.Planning = tt.mode, tt.planning
+			policy := compilePolicy(spec)
+			if policy.QuestionTool != tt.want {
+				t.Errorf("question tool %q, want %q", policy.QuestionTool, tt.want)
+			}
+			if tt.want == lanes.QuestionToolTerminalIfAttached && policy.AttachedMarker == "" {
+				t.Error("a policy that leaves the tool to an attached terminal names no marker to read")
+			}
+		})
+	}
+}
+
+// A pane's hook reads the marker the worker touches while a person is attached, and a headless session has
+// no pane for anyone to attach to.
+func TestAPanesPolicyNamesItsAttachedMarker(t *testing.T) {
+	spec := policySpec(t)
+	spec.RunMode = ports.RunModeInteractive
+	spec.Generation = 3
+	want := filepath.Join(spec.ConfigDir, "attached-3")
+	if got := compilePolicy(spec).AttachedMarker; got != want {
+		t.Errorf("marker %q, want %q", got, want)
+	}
+	spec.RunMode = ports.RunModeHeadless
+	if got := compilePolicy(spec).AttachedMarker; got != "" {
+		t.Errorf("a headless session names marker %q", got)
+	}
+}
+
 func TestEveryDenialIsADenyRuleToo(t *testing.T) {
 	rules := generateSettings(policySpec(t)).Permissions.Deny
 	for _, rule := range []string{

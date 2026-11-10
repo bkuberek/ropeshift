@@ -78,6 +78,22 @@ The daemon reads work from the repositories it names, at the default branch, and
 
 To run the sample, copy `sample-contract.md` into the repository, change it to your own work, and commit it. Intake reads it, and its work order waits for a review: `ropeshift work list` names it, and `ropeshift work review <id>` passes the review. A member can then claim it and start its lane, or start the orchestrator and open a run window for it. [The command line](cli.md) lists every step.
 
+## Start a planning session
+
+With the daemon running, one command opens a planning session and puts your terminal in it:
+
+```sh
+ropeshift plan start --goal "Replace the checkout page"
+```
+
+It makes the calls a member makes by hand, and the ledger records each as yours. It creates a planning work order whose statement is the goal, passes the work order's contract review, claims it on the worker, starts a planning lane, and attaches your terminal to the lane's pane. A shell without a session asks for the passphrase first. `--goal-file` reads the goal from a file, and a session with no goal starts with the planning agent asking what the plan is for. The command plans in the one repository the daemon reads, or the one `--repository` names, and runs on the one worker registered, or the one `--worker` names.
+
+A planning lane runs in a tmux pane, because you are present by construction. Without tmux on the machine, the work order stops in `blocked` with the reason `no_interactive_mode` and no session runs.
+
+What you type goes to the agent. Detach with `C-b d`, or `C-b C-b d` inside tmux, because the status line is off. Detaching leaves the lane running. To rejoin it, run `ropeshift lane attach <lane>`; `ropeshift lane list` names the lane. The session also goes on through a park and through a restart of the daemon, which adopts the pane again, and `lane attach` follows the lane to the pane of its next generation. With no terminal, `--no-attach` or `--json`, `plan start` starts the session and prints the command that joins it.
+
+A planning lane's questions are yours. While you are attached, the agent asks in the conversation: its question tool shows in your terminal, and you answer there. With nobody attached, or when the worker cannot tell, the question tool is refused and the agent asks through `ask`, which puts the question in Needs you as a product question, with no orchestrator to decide it or assume an answer for it. The worker tells the lane's hook who is attached about once a second, so a question asked in the moment after you attach or detach can go either way.
+
 ## Run the daemon as a service
 
 `ropeshift service install` runs the daemon under this machine's service manager from now on, with the flags that follow `--`. It runs the `ropeshiftd` beside the `ropeshift` that installs it, and a source needs its absolute path.

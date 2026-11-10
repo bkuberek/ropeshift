@@ -13,10 +13,15 @@ import (
 
 	"golang.org/x/term"
 
+	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/adapters/localauth"
+	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/tmux"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // Exit codes shared by every command.
@@ -86,10 +91,25 @@ func cliOptions() cli.Options {
 		return opts
 	}
 	opts.Socket = paths.ControlSocket()
+	if opts.Terminal != nil {
+		opts.Panes = terminalPanes(paths)
+	}
 	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx, paths) }
 	opts.StartDaemon = startDaemonForInit(paths)
 	opts.StateDir = paths.StateDir
 	return opts
+}
+
+// terminalPanes reaches the worker's private tmux server with the person's own terminal and
+// environment, because an attached client reads their keyboard and draws on their screen and needs
+// their terminal type. It is nil on a machine with no tmux. The server is the worker's, and the
+// socket is the only thing the two share.
+func terminalPanes(paths api.Paths) cli.Panes {
+	terminal, err := tmux.New(osexec.Runner{}, tmux.Options{Socket: paths.TerminalSocket(), Env: os.Environ()})
+	if err != nil {
+		return nil
+	}
+	return claudecode.Panes{Terminal: terminal, Console: ports.Console{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}}
 }
 
 // commandName maps the started name to a command. A renamed binary acts as the

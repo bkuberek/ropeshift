@@ -3,6 +3,7 @@ package claudecode
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,7 +56,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	}
 	return lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Writable: writable,
-		QuestionTool: questionTool(spec), OwnTools: toolRule(""),
+		QuestionTool: questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""),
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec),
 	})
@@ -90,12 +91,36 @@ func holdPolicy(path, reason string) error {
 }
 
 // questionTool is what the agent's own question tool becomes. Only `-p` honors `defer`, so an
-// interactive session is denied and told to use `ask`.
+// interactive session is denied and told to use `ask`. A planning lane's person answers in the
+// conversation, so while one is attached the tool is left to the terminal, and the denial stands for
+// the rest of the time.
 func questionTool(spec ports.SessionSpec) string {
-	if spec.RunMode == ports.RunModeInteractive {
-		return lanes.QuestionToolDeny
+	switch {
+	case spec.RunMode != ports.RunModeInteractive:
+		return lanes.QuestionToolDefer
+	case spec.Planning:
+		return lanes.QuestionToolTerminalIfAttached
 	}
-	return lanes.QuestionToolDefer
+	return lanes.QuestionToolDeny
+}
+
+// markerPath is the file a worker touches while a person is attached to a generation's pane. It sits
+// beside the policy that names it, outside every directory a lane may write. A session with no
+// directory of its own, as a probe's has none, gets no marker, because a relative path would land
+// wherever the worker stands.
+func markerPath(spec ports.SessionSpec) string {
+	if spec.ConfigDir == "" {
+		return ""
+	}
+	return filepath.Join(spec.ConfigDir, fmt.Sprintf("attached-%d", spec.Generation))
+}
+
+// attachedMarker is what a policy names for a hook to read. Only a pane has anyone to attach.
+func attachedMarker(spec ports.SessionSpec) string {
+	if spec.RunMode != ports.RunModeInteractive {
+		return ""
+	}
+	return markerPath(spec)
 }
 
 // denyRules writes each denial as a deny rule too: a `Bash` rule for a command, and an
