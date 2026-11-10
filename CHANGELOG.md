@@ -28,6 +28,17 @@
 * **worker:** leave a review's report to the control plane when it sent no criterion IDs ([f0b6d29](https://github.com/bkuberek/ropeshift/commit/f0b6d294396b0253edd5483105827c3e6539765b))
 * **worker:** park a headless lane at once when its gated call's peek was missed ([3b3ac2c](https://github.com/bkuberek/ropeshift/commit/3b3ac2cb95ae034d7978ea2cf6d4787201d941da))
 
+### Notes
+
+* Every finished change is reviewed. When a `change` or `rework` lane completes with a commit, ropeshift creates a `review` work order. Its lane runs read-only in a detached worktree at the reviewed commit, with the diff, the contract, its requirements, and the documents it cites, and it can never be a lane of the work it reviews. It cannot edit, commit, push, or create branches, and its worktree is discarded when it ends.
+* The review gives each criterion a verdict, `pass`, `fail`, or `cannot_judge`, with reasons and citations, bound to the reviewed commit. A fail sends the work back on its own, with the failed criteria and their reasons at the top of the next attempt's brief, for up to `max_review_rounds` (profile `[review]`, default 3) reviews; then the work waits for you.
+* Acceptance follows the repository's merge authority, set with `ropeshift repository set <id> --merge-authority person_merges|person_approves|review_approves` (default `person_merges`). Only at `review_approves` does an all-pass review accept the work by itself; otherwise the work waits in Needs you with each criterion's verdict. A decision you make while a review is open cancels it.
+* Your decisions after a review become a trust measure. Each accept or rework after verdicts records whether you agreed with the review, and the Operations page and `ropeshift repository show` show the agreement per repository beside its merge authority. The measure never changes the merge authority; only you do.
+* The orchestrator's `acceptance_record` tool is removed; orchestrators no longer accept or rework work.
+* A lane whose session was cleared is briefed only after ropeshift adopts its new session, and the brief stays owed until it lands, so a restart no longer sends the brief to a session that is not listening yet.
+* A headless lane whose gated call slips past the worker's first check now parks for your decision at once, instead of after its wait runs out.
+* This release adds database migrations `0036`, `0037`, and `0038`. They run on the first start.
+
 ## [0.1.0-alpha.7](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.6...v0.1.0-alpha.7) (2026-11-10)
 
 
