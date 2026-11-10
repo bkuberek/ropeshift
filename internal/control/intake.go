@@ -33,8 +33,10 @@ type IntakeReport struct {
 	// Conflicts counts the files a poll left out because the base under them moved.
 	Conflicts int
 	// Edges counts the derived dependencies a poll added or removed, from milestones and shared contracts.
-	Edges    int
-	Problems []planning.SourceProblem
+	Edges int
+	// PlanVersions counts the plan versions a poll made, each with a request for a member to approve it.
+	PlanVersions int
+	Problems     []planning.SourceProblem
 
 	// read names the version a poll found of each file it named, and changed the files whose version
 	// or record it wrote. They are what settles a problem an accepted commit found.
@@ -84,7 +86,7 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 		return IntakeReport{}, err
 	}
 	crashpoint.Hit("intake", "polled")
-	report, err := i.record(ctx, scope, source, batch)
+	report, err := i.record(ctx, scope, source, batch, planOrigin{})
 	if err != nil {
 		return report, err
 	}
@@ -96,12 +98,12 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 		ID: id, Port: planning.PortWork, Adapter: description.Adapter, Instance: description.Instance,
 		Cursor: string(batch.Cursor), Health: health.State, Detail: health.Detail,
 	}
-	read := settling{binding: binding, report: report, unmoved: batch.Cursor == cursor, recorded: report.Versions+report.Records+report.Edges > 0}
+	read := settling{binding: binding, report: report, unmoved: batch.Cursor == cursor, recorded: report.Versions+report.Records+report.Edges+report.PlanVersions > 0}
 	return report, i.settle(ctx, scope, source, read)
 }
 
 // record stores what one read of a source found, item by item.
-func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, batch ports.ChangeBatch) (IntakeReport, error) {
+func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, batch ports.ChangeBatch, origin planOrigin) (IntakeReport, error) {
 	report := IntakeReport{read: map[string]string{}, changed: map[string]bool{}}
 	report.Problems = slices.Clone(batch.Problems)
 	for _, problem := range batch.Problems {
@@ -142,6 +144,10 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 	}
 	edges, err := i.reconcileEdges(ctx, scope)
 	report.Edges = edges
+	if err != nil {
+		return report, err
+	}
+	report.PlanVersions, err = i.reconcilePlanVersions(ctx, scope, refs.plans, origin)
 	return report, err
 }
 
@@ -588,7 +594,7 @@ func (r *itemRecorder) nextVersion() (planning.Contract, bool, error) {
 	contract := planning.Contract{
 		Version: 1, Title: file.Title, Digest: r.item.Digest, Source: r.item.Source, Statement: r.item.Statement,
 		Criteria: file.Criteria, Requirements: file.Requirements, Decisions: file.Decisions, Status: planning.StatusActive,
-		Milestone: file.Milestone, Shared: file.Shared, Uses: file.Uses,
+		Milestone: file.Milestone, Shared: file.Shared, Uses: file.Uses, Orders: orderParts(file),
 	}
 	link, err := r.tx.Planning().Link(planning.SubjectContract, r.item.Key)
 	if errors.Is(err, ports.ErrNotFound) {

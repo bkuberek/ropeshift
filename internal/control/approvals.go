@@ -135,6 +135,11 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if err != nil {
 			return err
 		}
+		// A plan sets scope, so only a member decides one: an orchestrator reaches a request through the
+		// delegation policy, and no policy reaches this.
+		if row.Kind == authority.KindPlan && !authority.Allowed(actor, authority.ActionApprovePlan) {
+			return workorders.ErrForbidden
+		}
 		if row.Repeats(decision, actor) {
 			record = row
 			return nil
@@ -149,7 +154,13 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if record, err = row.Decide(decision, actor, version.Version, tx.Now()); err != nil {
 			return err
 		}
-		return noteApproval(tx, record, row.State, actor)
+		if err := noteApproval(tx, record, row.State, actor); err != nil {
+			return err
+		}
+		if record.Kind == authority.KindPlan && record.State == authority.ApprovalApproved {
+			return approvePlan(tx, record, actor)
+		}
+		return nil
 	})
 	if err != nil {
 		return authority.Approval{}, err
@@ -279,7 +290,9 @@ func expireApprovals(tx ports.WriteTx, workOrder string) error {
 }
 
 func expireApproval(tx ports.WriteTx, row authority.Approval) error {
-	if !row.Live() {
+	// A plan approval waits for a member and not for a session, so nothing returns to a lane when its
+	// work order ends, and no time runs out on it.
+	if !row.Live() || row.Kind == authority.KindPlan {
 		return nil
 	}
 	next := row

@@ -138,30 +138,38 @@ func (q *Questions) RecordDecision(ctx context.Context, scope ledger.WorkspaceID
 	}
 	record.DecidedBy = actor.ID
 	err = q.store.Write(ctx, scope, "decision.record", func(tx ports.WriteTx) error {
-		existing, err := tx.Questions().Decision(record.ID)
-		if err == nil {
-			record = existing
-			return nil
-		}
-		if !errors.Is(err, ports.ErrNotFound) {
-			return err
-		}
-		policy, err := policyInForce(tx)
-		if err != nil {
-			return err
-		}
-		if err := checkCategories(tx.Questions(), record.Categories); err != nil {
-			return err
-		}
-		if err := admit(tx, &record, policy, actor); err != nil {
-			return err
-		}
-		return q.recordAdmitted(tx, record, actor)
+		var err error
+		record, err = q.decideInTx(tx, record, actor)
+		return err
 	})
 	if err != nil {
 		return questions.Decision{}, err
 	}
 	return record, nil
+}
+
+// decideInTx keeps a decision inside a transaction that is already open, under the policy in force.
+// A decision with this ID is the one the first attempt wrote, and comes back unchanged. RecordDecision
+// is this in a transaction of its own, and a plan approval is this in the one that approves the plan.
+func (q *Questions) decideInTx(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) (questions.Decision, error) {
+	existing, err := tx.Questions().Decision(record.ID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, ports.ErrNotFound) {
+		return questions.Decision{}, err
+	}
+	policy, err := policyInForce(tx)
+	if err != nil {
+		return questions.Decision{}, err
+	}
+	if err := checkCategories(tx.Questions(), record.Categories); err != nil {
+		return questions.Decision{}, err
+	}
+	if err := admit(tx, &record, policy, actor); err != nil {
+		return questions.Decision{}, err
+	}
+	return record, q.recordAdmitted(tx, record, actor)
 }
 
 func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {

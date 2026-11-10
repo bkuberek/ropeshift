@@ -96,17 +96,26 @@ type Plan struct {
 	Source string `json:"source,omitempty"`
 }
 
-// PlanVersion is one version of a plan's file: what the plan listed and drafted at one digest. The
-// ledger numbers it, and a plan has a new one for each committed change to the file.
+// PlanVersion is one version of a plan: what the plan's file listed and drafted, and every record
+// that named the plan, at one digest. The ledger numbers it, and a plan has a new one each time that
+// digest changes: for a committed change to its file, and for one to any document or contract that
+// names it.
 type PlanVersion struct {
 	PlanID  string `json:"plan_id"`
 	Version int64  `json:"version"`
-	Digest  string `json:"digest"`
-	Source  string `json:"source,omitempty"`
+	// Digest covers the file and every record that names the plan (see PlanDigest), and FileDigest the
+	// plan's own file alone. A person approves a version by its Digest.
+	Digest     string `json:"digest"`
+	FileDigest string `json:"file_digest,omitempty"`
+	Source     string `json:"source,omitempty"`
 	// Documents are the citations the plan lists, and Decisions the answers it drafts. Drafts bind
 	// nothing until a member approves the plan.
 	Documents []string        `json:"documents,omitempty"`
 	Decisions []DraftDecision `json:"decisions,omitempty"`
+	// Records are the records the digest covers, and WorkOrder is the `plan` work order whose accepted
+	// branch held the plan file, when the version came from a planning lane.
+	Records   []Entry `json:"records,omitempty"`
+	WorkOrder string  `json:"work_order,omitempty"`
 }
 
 // DocumentRecord is a document, which stays the same across its versions. Its ID is its reference,
@@ -166,7 +175,10 @@ type Contract struct {
 	Shared       bool          `json:"shared,omitempty"`
 	Uses         []string      `json:"uses,omitempty"`
 	Documents    []DocumentPin `json:"documents,omitempty"`
-	Status       string        `json:"status"`
+	// Orders are the work orders the file lists, each with a digest of what it says. The ledger makes
+	// a work order once, so these keep what the version asked for, which a plan's difference reads.
+	Orders []Part `json:"work_orders,omitempty"`
+	Status string `json:"status"`
 }
 
 // RequirementKeys are the requirement keys a contract version names: those at its own level, which the

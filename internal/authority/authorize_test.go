@@ -66,3 +66,15 @@ func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 		})
 	}
 }
+
+// A plan sets scope, and scope stays with a person (FR-PLAN-12). No agent and no tick approves one.
+func TestOnlyAMemberApprovesAPlan(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionApprovePlan) {
+		t.Error("a member may not approve a plan")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionApprovePlan) {
+			t.Errorf("%s may approve a plan", kind)
+		}
+	}
+}

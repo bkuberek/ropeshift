@@ -452,6 +452,9 @@ type ApprovalWriter interface {
 	// Save is the compare-and-set of a request's state: it replaces what can change on one that still
 	// stands in the state its caller read, and reports whether it did.
 	Save(approval authority.Approval, from authority.ApprovalState) (bool, error)
+	// LinkPlan names the plan version a plan approval is about once the ledger holds it, for a request
+	// that was raised for a branch nothing had read yet. It reports whether the request had none.
+	LinkPlan(id, plan string, version int64) (bool, error)
 }
 
 // EffectReader reads what a person can decide of an effect a crash left unknown. No read here stops
@@ -530,6 +533,8 @@ type PlanningReader interface {
 	// LatestPlanVersion returns a plan's newest version, or ErrNotFound for a plan recorded before
 	// plans had versions.
 	LatestPlanVersion(plan string) (planning.PlanVersion, error)
+	// PlanVersion returns one version of a plan, or ErrNotFound.
+	PlanVersion(plan string, version int64) (planning.PlanVersion, error)
 	// PlanVersions returns every version of every plan, by plan and then by version.
 	PlanVersions() ([]planning.PlanVersion, error)
 	// Link returns the record of one external key, or ErrNotFound.

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
@@ -352,10 +353,19 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		return nil, err
 	}
 	for i := range approvals {
-		if approvals[i].Open() {
+		switch {
+		case !approvals[i].Open():
+		case approvals[i].Kind == authority.KindPlan:
+			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: planApprovalNeed(approvals[i])})
+		default:
 			items = append(items, api.NeedItem{Kind: api.NeedApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, Approval: &approvals[i]})
 		}
 	}
+	reviews, err := contractReviewNeeds(tx, f.orders)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, reviews...)
 	effects, err := waitingEffects(tx)
 	if err != nil {
 		return nil, err
@@ -390,6 +400,52 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		items = append(items, api.NeedItem{Kind: api.NeedWork, ID: order.ID, Since: since, Work: &need})
 	}
 	slices.SortStableFunc(items, func(a, b api.NeedItem) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.ID, b.ID)) })
+	return items, nil
+}
+
+// planApprovalNeed is what a member reads of a plan version they are asked to approve.
+func planApprovalNeed(a authority.Approval) *api.PlanApprovalNeed {
+	detail := api.PlanDetailOf(a)
+	counts := detail.Counts
+	if counts == nil {
+		counts = map[string]int{}
+	}
+	return &api.PlanApprovalNeed{
+		Approval: a, Title: detail.Title, Version: a.PlanVersion, RequestedBy: a.RequestedBy, Counts: counts, Decisions: detail.Decisions,
+		Difference: detail.Difference, Summary: detail.Difference.Summary(),
+	}
+}
+
+// contractReviewNeeds lists the work whose contract waits for a member's review and that no plan
+// approval stands behind. Work a pending approval covers waits for that approval, which is the one thing
+// a member is asked for, and work an approved one covers is passed.
+func contractReviewNeeds(tx ports.ReadTx, orders []workorders.WorkOrder) ([]api.NeedItem, error) {
+	covered, err := control.ReadCoverage(tx.Approvals(), tx.Planning(), authority.ApprovalApproved, authority.ApprovalPending)
+	if err != nil {
+		return nil, err
+	}
+	var items []api.NeedItem
+	for i := range orders {
+		waits, err := control.WaitsOnAMember(tx.Planning(), orders[i], covered)
+		if err != nil || !waits {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		contract, err := tx.Planning().Contract(orders[i].ContractID, orders[i].ContractVersion)
+		if err != nil {
+			return nil, err
+		}
+		since, err := enteredAt(tx, orders[i])
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, api.NeedItem{
+			Kind: api.NeedContractReview, ID: orders[i].ID, Since: since,
+			ContractReview: &api.ContractReviewNeed{WorkOrder: orders[i], Contract: contract.Title, Version: contract.Version},
+		})
+	}
 	return items, nil
 }
 

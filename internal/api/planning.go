@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -21,6 +23,26 @@ type PlanView struct {
 	Goal       *planning.Goal         `json:"goal,omitempty"`
 	Contracts  []planning.Contract    `json:"contracts"`
 	WorkOrders []workorders.WorkOrder `json:"work_orders"`
+	// Approval is the request to approve the plan: the open one, or else the newest.
+	Approval *PlanApprovalView `json:"approval,omitempty"`
+}
+
+// PlanApprovalView is a request to approve a plan version with everything a member reads before
+// deciding: what the version holds, what it drafts, and how it differs from the last approved one.
+type PlanApprovalView struct {
+	Approval authority.Approval       `json:"approval"`
+	Detail   planning.PlanDetail      `json:"detail"`
+	Records  []planning.Entry         `json:"records,omitempty"`
+	Drafts   []planning.DraftDecision `json:"drafts,omitempty"`
+}
+
+// PlanDetailOf reads what a plan approval says of its version. A request of another kind says nothing.
+func PlanDetailOf(a authority.Approval) planning.PlanDetail {
+	var detail planning.PlanDetail
+	if a.Kind == authority.KindPlan && a.Detail != "" {
+		_ = json.Unmarshal([]byte(a.Detail), &detail)
+	}
+	return detail
 }
 
 // ReviewPlan starts a contract review of a plan. The client generates ID, so a retry returns the

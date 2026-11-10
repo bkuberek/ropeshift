@@ -76,7 +76,10 @@ func planningNotice() string {
 		"with the " + ToolAsk + " tool.\n" +
 		"- A TOML string needs its quotes, and a file that does not parse reaches nobody.\n\n" +
 		"Commit the files on this branch, because intake reads a commit and never your working tree. Report the outcome after the commit. " +
-		"When a member accepts your work, intake reads that commit.\n")
+		"The person then approves the plan in one step: approving it records your draft decisions as their decisions, passes the " +
+		"contract review of the work your contracts cover, and accepts your work, and intake then reads that commit. You cannot approve " +
+		"the plan yourself. A change you make after that is a new version of the plan, which the person approves too, so finish the " +
+		"plan before you report.\n")
 	return out.String()
 }
 

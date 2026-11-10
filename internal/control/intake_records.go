@@ -140,8 +140,9 @@ func (r *fileRecorder) digest(parts ...string) string {
 	return planning.ContentDigest(append(parts, r.item.Statement)...)
 }
 
-// plan records a plan file. A plan changes when the digest of its file does, because what it lists
-// and drafts is part of it, and each change is a version the ledger numbers.
+// plan records a plan file. A plan's file changes when its digest does, because what it lists and
+// drafts is part of it. It is not a version of the plan yet: a plan version covers every record that
+// names the plan, so the end of the batch makes it, once the batch's documents and contracts are in.
 func (r *fileRecorder) plan() (itemOutcome, error) {
 	file := r.item.Plan
 	next := planning.Plan{Title: file.Title, Status: planning.StatusActive, Source: r.item.Source}
@@ -161,9 +162,7 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 	if err != nil {
 		return itemOutcome{}, err
 	}
-	version := planning.PlanVersion{
-		Version: 1, Digest: r.digest(string(fields)), Source: r.item.Source, Documents: file.Documents, Decisions: file.Decisions,
-	}
+	read := planFileRead{digest: r.digest(string(fields)), source: r.item.Source, documents: file.Documents, decisions: file.Decisions}
 	id, known, err := r.recordID(planning.SubjectPlan, r.item.Key)
 	if err != nil {
 		return itemOutcome{}, err
@@ -172,11 +171,8 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 		if next.ID, err = r.newRecord(planning.SubjectPlan, r.item.Key); err != nil {
 			return itemOutcome{}, err
 		}
-		version.PlanID = next.ID
-		if err := r.writer().plan(next); err != nil {
-			return itemOutcome{}, err
-		}
-		return itemOutcome{records: 1}, r.writer().planVersion(version)
+		r.refs.plans[next.ID] = read
+		return itemOutcome{records: 1}, r.writer().plan(next)
 	}
 	current, err := r.tx.Planning().Plan(id)
 	if err != nil {
@@ -184,21 +180,17 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 	}
 	latest, err := r.tx.Planning().LatestPlanVersion(id)
 	switch {
-	case err == nil && latest.Digest == version.Digest:
+	case err == nil && latest.FileDigest == read.digest:
 		return itemOutcome{}, nil
-	case err == nil:
-		version.Version = latest.Version + 1
-	case !errors.Is(err, ports.ErrNotFound):
+	case err != nil && !errors.Is(err, ports.ErrNotFound):
 		return itemOutcome{}, err
 	}
 	if outcome, stands, err := r.standing(planning.SubjectPlan, r.item.Key.NativeID, current.Source); err != nil || !stands {
 		return outcome, err
 	}
-	next.ID, version.PlanID = id, id
-	if err := r.writer().changedPlan(next); err != nil {
-		return itemOutcome{}, err
-	}
-	return itemOutcome{records: 1}, r.writer().planVersion(version)
+	next.ID = id
+	r.refs.plans[id] = read
+	return itemOutcome{records: 1}, r.writer().changedPlan(next)
 }
 
 // document records a file of any document kind: the document, and a new version of it when the file

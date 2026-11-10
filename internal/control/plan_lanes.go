@@ -240,12 +240,18 @@ func (i *Intake) acceptedPlans(ctx context.Context, scope ledger.WorkspaceID) ([
 // then. It is a tick: a poll that stops part way reads the same commit again, and a digest the ledger
 // holds appends nothing. It moves no cursor, because this commit is not where the source stands.
 func (i *Intake) TakeInPlans(ctx context.Context, scope ledger.WorkspaceID, open PlanSource) ([]string, error) {
+	// A branch nobody has accepted is read for one thing: to ask a member to approve it. Approving it
+	// accepts the work order, and the loop below takes the commit in.
+	_, proposeErr := i.ProposePlans(ctx, scope, open)
 	plans, err := i.acceptedPlans(ctx, scope)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(proposeErr, err)
 	}
 	var taken []string
 	var failed []error
+	if proposeErr != nil {
+		failed = append(failed, proposeErr)
+	}
 	for _, plan := range plans {
 		source, err := open(ctx, plan.order.RepositoryID, plan.commit)
 		if err != nil {
@@ -271,7 +277,7 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 		return err
 	}
 	crashpoint.Hit("intake.plan", "polled")
-	report, err := i.record(ctx, scope, source, batch)
+	report, err := i.record(ctx, scope, source, batch, planOrigin{workOrder: plan.order.ID})
 	if err != nil {
 		return err
 	}
@@ -302,7 +308,10 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 		if err != nil {
 			return err
 		}
-		_, err = tx.Append(event)
-		return err
+		if _, err := tx.Append(event); err != nil {
+			return err
+		}
+		// An approval of this branch that no version claimed was bound to files intake did not read.
+		return voidUnclaimed(tx, plan.order.ID)
 	})
 }
