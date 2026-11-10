@@ -1,6 +1,8 @@
 package control
 
 import (
+	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -10,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // batchRefs is what one batch says of itself: which plan each milestone file names, and which plan
@@ -243,4 +246,210 @@ func itemPlanKey(item ports.WorkItem) string {
 		return "contract " + item.Contract.ID
 	}
 	return planKey(item.Contract.Plan)
+}
+
+// reconcileEdges brings the derived dependencies of every plan in line with the plan as the ledger holds
+// it, and returns how many it added or removed. It runs after a batch is recorded, and it is
+// idempotent: a plan whose derived dependencies already match is only read, so a poll that changes
+// nothing appends nothing. A poll that stops before it runs leaves the cursor where it was, and the
+// next poll runs it (FR-MILE-2, FR-MILE-3).
+func (i *Intake) reconcileEdges(ctx context.Context, scope ledger.WorkspaceID) (int, error) {
+	var drifted []string
+	err := i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		plans, err := tx.Planning().Plans()
+		if err != nil {
+			return err
+		}
+		view, err := loadView(tx.Planning())
+		if err != nil {
+			return err
+		}
+		for _, plan := range plans {
+			add, remove, err := derivedDifference(view, tx.Planning(), tx.WorkOrders(), plan.ID)
+			if err != nil {
+				return err
+			}
+			if len(add)+len(remove) > 0 {
+				drifted = append(drifted, plan.ID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	changed := 0
+	for _, plan := range drifted {
+		err := i.store.Write(ctx, scope, "intake.edges", func(tx ports.WriteTx) error {
+			// The plan is read again under the revision, because another writer may have moved it since.
+			view, err := loadView(tx.Planning())
+			if err != nil {
+				return err
+			}
+			add, remove, err := derivedDifference(view, tx.Planning(), tx.WorkOrders(), plan)
+			if err != nil {
+				return err
+			}
+			w := planningWriter{tx: tx, actor: intakeActor}
+			for _, edge := range remove {
+				if err := w.removedDependency(edge); err != nil {
+					return err
+				}
+			}
+			for _, edge := range add {
+				if err := w.dependency(edge); err != nil {
+					return err
+				}
+			}
+			changed += len(add) + len(remove)
+			return nil
+		})
+		if err != nil {
+			return changed, err
+		}
+	}
+	return changed, nil
+}
+
+// removedDependency takes away a derived dependency the plan no longer implies.
+func (w planningWriter) removedDependency(edge planning.Dependency) error {
+	if err := w.tx.Planning().DeleteDependency(edge); err != nil {
+		return err
+	}
+	return w.append(planning.EventDependencyRemoved, planning.SubjectDependency, edge.WorkOrder, edge)
+}
+
+// derivedDifference reads a plan from the ledger and compares the dependencies its structure implies
+// with the derived ones the ledger holds. A dependency a file wrote is never in either list.
+func derivedDifference(view workspaceView, planned ports.PlanningReader, orders ports.WorkOrderReader, plan string) (add, remove []planning.Dependency, err error) {
+	shape, targets, err := view.planShape(planned, orders, plan)
+	if err != nil {
+		return nil, nil, err
+	}
+	wanted := map[planning.Dependency]bool{}
+	for _, edge := range shape.Expand() {
+		wanted[targets.dependency(edge)] = true
+	}
+	held := map[planning.Dependency]bool{}
+	for _, contract := range shape.Contracts {
+		for _, order := range contract.Orders {
+			stored, err := planned.Dependencies(order.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, edge := range stored {
+				if edge.Kind.Derived() {
+					held[edge] = true
+				}
+			}
+		}
+	}
+	for edge := range wanted {
+		if !held[edge] {
+			add = append(add, edge)
+		}
+	}
+	for edge := range held {
+		if !wanted[edge] {
+			remove = append(remove, edge)
+		}
+	}
+	order := func(a, b planning.Dependency) int {
+		return cmp.Or(cmp.Compare(a.WorkOrder, b.WorkOrder), cmp.Compare(a.DependsOn, b.DependsOn), cmp.Compare(a.Kind, b.Kind))
+	}
+	slices.SortFunc(add, order)
+	slices.SortFunc(remove, order)
+	return add, remove, nil
+}
+
+// orderNames says how a dependency names a work order: by the ID its file gave it and the source the
+// file came from, as an explicit dependency does, and by its ledger ID when it has no file.
+type orderNames map[string]ledger.ExternalKey
+
+func (n orderNames) dependency(edge planning.ShapeEdge) planning.Dependency {
+	dependency := planning.Dependency{WorkOrder: edge.Order, DependsOn: edge.DependsOn, Kind: edge.Kind}
+	if key, named := n[edge.DependsOn]; named {
+		dependency.DependsOn, dependency.Adapter, dependency.Instance = key.NativeID, key.Adapter, key.Instance
+	}
+	return dependency
+}
+
+// workspaceView is what every plan's structure is read against, which a pass reads once: the
+// external links, which say how a contract and a work order are named in their files, and every
+// contract version.
+type workspaceView struct {
+	links     []ledger.ExternalLink
+	contracts []planning.Contract
+}
+
+func loadView(planned ports.PlanningReader) (workspaceView, error) {
+	links, err := planned.Links()
+	if err != nil {
+		return workspaceView{}, err
+	}
+	contracts, err := planned.Contracts()
+	return workspaceView{links: links, contracts: contracts}, err
+}
+
+// planShape reads one plan's structure from the ledger: its milestones at their newest version, and its
+// contracts at theirs, with the work orders each holds. Contracts and work orders are named by ledger
+// ID, so the edges Expand finds are between work orders the ledger holds.
+func (v workspaceView) planShape(planned ports.PlanningReader, orders ports.WorkOrderReader, plan string) (planning.Shape, orderNames, error) {
+	var shape planning.Shape
+	documents, err := planned.PlanDocuments(plan)
+	if err != nil {
+		return shape, nil, err
+	}
+	for _, document := range documents {
+		if document.Kind != planning.FileMilestone {
+			continue
+		}
+		latest, err := planned.LatestDocumentVersion(document.ID)
+		if err != nil {
+			return shape, nil, err
+		}
+		var file planning.MilestoneFile
+		if err := latest.Decode(&file); err != nil {
+			return shape, nil, fmt.Errorf("milestone %s: %w", document.ID, err)
+		}
+		shape.Milestones = append(shape.Milestones, planning.ShapeMilestone{ID: file.ID, DependsOn: file.DependsOn})
+	}
+	contractKeys := map[string]ledger.ExternalKey{}
+	contractIDs := map[ledger.ExternalKey]string{}
+	names := orderNames{}
+	for _, link := range v.links {
+		switch link.RecordKind {
+		case planning.SubjectContract:
+			contractKeys[link.RecordID] = link.Key
+			contractIDs[link.Key] = link.RecordID
+		case workorders.SubjectKind:
+			names[link.RecordID] = link.Key
+		}
+	}
+	newest := map[string]planning.Contract{}
+	for _, contract := range v.contracts {
+		if contract.PlanID == plan && contract.Version >= newest[contract.ID].Version {
+			newest[contract.ID] = contract
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(newest)) {
+		contract := newest[id]
+		held := planning.ShapeContract{ID: id, Milestone: contract.Milestone}
+		for _, use := range contract.Uses {
+			key := contractKeys[id]
+			key.NativeID = use
+			if shared, resolved := contractIDs[key]; resolved {
+				held.Uses = append(held.Uses, shared)
+			}
+		}
+		rows, err := orders.ByContract(id)
+		if err != nil {
+			return shape, nil, err
+		}
+		for _, row := range rows {
+			held.Orders = append(held.Orders, planning.ShapeOrder{ID: row.ID})
+		}
+		shape.Contracts = append(shape.Contracts, held)
+	}
+	return shape, names, nil
 }

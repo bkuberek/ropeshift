@@ -41,7 +41,9 @@ const (
 	EventPlanVersion        = "plan.version_recorded"
 	EventLinkRecorded       = "external_link.recorded"
 	EventDependencyRecorded = "dependency.recorded"
-	EventBindingChanged     = "source_binding.changed"
+	// EventDependencyRemoved holds the dependency that intake took away, because the plan no longer implies it.
+	EventDependencyRemoved = "dependency.removed"
+	EventBindingChanged    = "source_binding.changed"
 )
 
 // DigestGitBlob and DigestSHA256 prefix a digest with its kind, so a comparison
@@ -334,9 +336,10 @@ func LinkKey(link ledger.ExternalLink) string {
 	return link.RecordKind + ":" + link.Key.String()
 }
 
-// DependencyKey identifies a dependency in a Book.
+// DependencyKey identifies a dependency in a Book. The kind is part of it, because a derived dependency
+// and one a file writes can name the same target.
 func DependencyKey(d Dependency) string {
-	return d.WorkOrder + "->" + d.DependsOn
+	return d.WorkOrder + "->" + d.DependsOn + "#" + string(d.Kind)
 }
 
 // ErrReplay means the log holds a planning event that cannot be read or that
@@ -437,6 +440,15 @@ func (b Book) apply(e ledger.Event) error {
 			return err
 		}
 		b.Dependencies[DependencyKey(dependency)] = dependency
+	case EventDependencyRemoved:
+		var dependency Dependency
+		if err := json.Unmarshal(e.Data, &dependency); err != nil {
+			return err
+		}
+		if _, held := b.Dependencies[DependencyKey(dependency)]; !held {
+			return fmt.Errorf("dependency %s removed before it was recorded", DependencyKey(dependency))
+		}
+		delete(b.Dependencies, DependencyKey(dependency))
 	}
 	return nil
 }

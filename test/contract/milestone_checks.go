@@ -9,6 +9,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // MilestoneChecks hold how intake places a contract among the others of its plan: the milestone it
@@ -24,6 +25,12 @@ var MilestoneChecks = []Check{
 	{"ML7", "a cycle through uses, work orders, or both kinds of dependency refuses its plan", checkOtherCycles},
 	{"ML8", "a plan version with a cycle changes nothing the ledger holds, and the plan returns when the cycle is gone", checkCycleLeavesTheLedgerAlone},
 	{"ML9", "a contract that names no plan is refused for a cycle among its own work orders", checkContractCycleWithoutAPlan},
+	{"ML10", "a milestone dependency becomes a dependency from every work order of the milestone to every work order of the one it waits for", checkMilestoneEdges},
+	{"ML11", "a contract that uses a shared contract waits for every work order of it", checkSharedContractEdges},
+	{"ML12", "a derived dependency and one a file writes can name the same work order", checkDerivedAndWrittenEdgesCoexist},
+	{"ML13", "a work order waits for the work its milestone and its shared contracts depend on", checkReadyWaitsForDerivedEdges},
+	{"ML14", "a changed plan removes the derived dependencies it no longer implies and keeps the written ones", checkEdgesFollowThePlan},
+	{"ML15", "a poll that changes nothing writes nothing, even when the source moved", checkEdgesAreQuiet},
 }
 
 const milestonePlan = "launch"
@@ -468,4 +475,279 @@ func checkContractCycleWithoutAPlan(r *Rig) error {
 		return err
 	}
 	return r.CheckPlanning(s)
+}
+
+// edgeStrings lists every dependency as `<order> -> <target> [<kind>]`, naming work orders by the ID
+// their file gave them, and sorted.
+func (r *Rig) edgeStrings(s ports.Store) ([]string, error) {
+	orders, err := r.readOrders(s)
+	if err != nil {
+		return nil, err
+	}
+	native := map[string]string{}
+	for _, order := range orders {
+		native[order.ID] = strings.TrimPrefix(order.Title, "The work order ")
+	}
+	var out []string
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		all, err := tx.Planning().AllDependencies()
+		for _, d := range all {
+			if d.Adapter == "" || d.Instance == "" {
+				return Violatedf("dependency %+v names no source", d)
+			}
+			out = append(out, native[d.WorkOrder]+" -> "+d.DependsOn+" ["+string(d.Kind)+"]")
+		}
+		return err
+	})
+	slices.Sort(out)
+	return out, err
+}
+
+func wantEdges(r *Rig, s ports.Store, want ...string) error {
+	got, err := r.edgeStrings(s)
+	if err != nil {
+		return err
+	}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		return Violatedf("dependencies\n%v\nwant\n%v", got, want)
+	}
+	return nil
+}
+
+func checkMilestoneEdges(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	source.Write("a.md", []byte(placedContract{ID: "a", Plan: milestonePlan, Milestone: "m1", Orders: []orderIn{{ID: "a1"}, {ID: "a2"}}}.text()))
+	source.Write("b.md", []byte(placedContract{ID: "b", Plan: milestonePlan, Milestone: "m1", Orders: []orderIn{{ID: "b1"}}}.text()))
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Orders: []orderIn{{ID: "c1"}, {ID: "c2"}}}.text()))
+	source.Write("d.md", []byte(placedContract{ID: "d", Plan: milestonePlan, Orders: []orderIn{{ID: "d1"}}}.text()))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 0 || report.WorkOrders != 6 {
+		return Violatedf("report %+v", report)
+	}
+	if err := wantEdges(r, s,
+		"c1 -> a1 [milestone]", "c1 -> a2 [milestone]", "c1 -> b1 [milestone]",
+		"c2 -> a1 [milestone]", "c2 -> a2 [milestone]", "c2 -> b1 [milestone]",
+	); err != nil {
+		return err
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkSharedContractEdges(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("shared.md", []byte(placedContract{ID: "shared", Plan: milestonePlan, Shared: true, Orders: []orderIn{{ID: "s1"}, {ID: "s2"}}}.text()))
+	source.Write("other.md", []byte(placedContract{ID: "other", Plan: milestonePlan, Shared: true, Orders: []orderIn{{ID: "o1"}}}.text()))
+	source.Write("u.md", []byte(placedContract{ID: "u", Plan: milestonePlan, Uses: []string{"shared"}, Orders: []orderIn{{ID: "u1"}}}.text()))
+	source.Write("v.md", []byte(placedContract{ID: "v", Plan: milestonePlan, Uses: []string{"shared", "other"}, Orders: []orderIn{{ID: "v1"}}}.text()))
+	if report, err := r.intake(s, source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("report %+v: %v", report, err)
+	}
+	if err := wantEdges(r, s,
+		"u1 -> s1 [shared_contract]", "u1 -> s2 [shared_contract]",
+		"v1 -> s1 [shared_contract]", "v1 -> s2 [shared_contract]", "v1 -> o1 [shared_contract]",
+	); err != nil {
+		return err
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkDerivedAndWrittenEdgesCoexist(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	source.Write("a.md", []byte(placedContract{ID: "a", Plan: milestonePlan, Milestone: "m1", Shared: true, Orders: []orderIn{{ID: "a1"}}}.text()))
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Uses: []string{"a"}, Orders: []orderIn{{ID: "c1", DependsOn: []string{"a1"}}}}.text()))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 0 || report.WorkOrders != 2 {
+		return Violatedf("report %+v", report)
+	}
+	if err := wantEdges(r, s, "c1 -> a1 [blocking]", "c1 -> a1 [milestone]", "c1 -> a1 [shared_contract]"); err != nil {
+		return err
+	}
+	return r.CheckPlanning(s)
+}
+
+// forceDone puts a work order in `done` the way a finished one would stand, with an event for the move.
+func (r *Rig) forceDone(s ports.Store, id string) error {
+	return s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		moved, err := tx.WorkOrders().Move(id, current.State, workorders.Done)
+		if err != nil || !moved {
+			return Violatedf("%s did not move to done (%v)", id, err)
+		}
+		_, err = tx.Append(r.noteDraft(r.ID("done")))
+		return err
+	})
+}
+
+func (r *Rig) reviewTitled(s ports.Store, title string) (control.ReviewResult, error) {
+	order, err := r.orderByTitle(s, title)
+	if err != nil {
+		return control.ReviewResult{}, err
+	}
+	return r.NewOps(s).Pass(r.Ctx, r.Scope, order.ID, r.member())
+}
+
+func checkReadyWaitsForDerivedEdges(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	source.Write("a.md", []byte(placedContract{ID: "a", Plan: milestonePlan, Milestone: "m1", Shared: true, Orders: []orderIn{{ID: "a1"}}}.text()))
+	source.Write("b.md", []byte(placedContract{ID: "b", Plan: milestonePlan, Milestone: "m1", Orders: []orderIn{{ID: "b1"}}}.text()))
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Orders: []orderIn{{ID: "c1"}}}.text()))
+	source.Write("u.md", []byte(placedContract{ID: "u", Plan: milestonePlan, Milestone: "m1", Uses: []string{"a"}, Orders: []orderIn{{ID: "u1"}}}.text()))
+	if report, err := r.intake(s, source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("report %+v: %v", report, err)
+	}
+	// The work of a shared contract is built first, and the work of a milestone waits for its dependency.
+	for _, title := range []string{"The work order u1", "The work order c1"} {
+		result, err := r.reviewTitled(s, title)
+		if err != nil {
+			return err
+		}
+		if result.State != workorders.ContractReview || len(result.Failures) != 1 || result.Failures[0].Check != workorders.CheckDependencies {
+			return Violatedf("%s: %+v", title, result)
+		}
+	}
+	a1, err := r.orderByTitle(s, "The work order a1")
+	if err != nil {
+		return err
+	}
+	if err := r.forceDone(s, a1.ID); err != nil {
+		return err
+	}
+	result, err := r.reviewTitled(s, "The work order u1")
+	if err != nil {
+		return err
+	}
+	if result.State != workorders.Ready || len(result.Failures) != 0 {
+		return Violatedf("u1 after its shared contract is done: %+v", result)
+	}
+	// A milestone waits for all of the one before it: b1 is not done yet.
+	if result, err = r.reviewTitled(s, "The work order c1"); err != nil || result.State != workorders.ContractReview || len(result.Failures) != 1 {
+		return Violatedf("c1 while b1 is not done: %+v: %v", result, err)
+	}
+	b1, err := r.orderByTitle(s, "The work order b1")
+	if err != nil {
+		return err
+	}
+	if err := r.forceDone(s, b1.ID); err != nil {
+		return err
+	}
+	// The milestone's work is all done when u1 is too.
+	u1, err := r.orderByTitle(s, "The work order u1")
+	if err != nil {
+		return err
+	}
+	if err := r.forceDone(s, u1.ID); err != nil {
+		return err
+	}
+	if result, err = r.reviewTitled(s, "The work order c1"); err != nil || result.State != workorders.Ready {
+		return Violatedf("c1 after its milestone is done: %+v: %v", result, err)
+	}
+	return nil
+}
+
+func checkEdgesFollowThePlan(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	source.Write("a.md", []byte(placedContract{ID: "a", Plan: milestonePlan, Milestone: "m1", Shared: true, Orders: []orderIn{{ID: "a1"}}}.text()))
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Orders: []orderIn{{ID: "c1", DependsOn: []string{"a1"}}}}.text()))
+	if report, err := r.intake(s, source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("report %+v: %v", report, err)
+	}
+	if err := wantEdges(r, s, "c1 -> a1 [blocking]", "c1 -> a1 [milestone]"); err != nil {
+		return err
+	}
+	// The milestone stops waiting, and only the edge a file wrote is left.
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2)))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Edges != 1 {
+		return Violatedf("report %+v", report)
+	}
+	if err := wantEdges(r, s, "c1 -> a1 [blocking]"); err != nil {
+		return err
+	}
+	if err := r.CheckPlanning(s); err != nil {
+		return err
+	}
+	// The contract now uses the shared one, and the milestone waits again: both derived edges stand.
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Uses: []string{"a"}, Orders: []orderIn{{ID: "c1", DependsOn: []string{"a1"}}}}.text()))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	if err := wantEdges(r, s, "c1 -> a1 [blocking]", "c1 -> a1 [milestone]", "c1 -> a1 [shared_contract]"); err != nil {
+		return err
+	}
+	// The contract leaves its milestone, and its edge to the milestone goes with it.
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Uses: []string{"a"}, Orders: []orderIn{{ID: "c1", DependsOn: []string{"a1"}}}}.text()))
+	if _, err := r.intake(s, source); err != nil {
+		return err
+	}
+	if err := wantEdges(r, s, "c1 -> a1 [blocking]", "c1 -> a1 [shared_contract]"); err != nil {
+		return err
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkEdgesAreQuiet(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	source.Write("a.md", []byte(placedContract{ID: "a", Plan: milestonePlan, Milestone: "m1", Shared: true}.text()))
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Uses: []string{"a"}}.text()))
+	first, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if first.Edges != 2 {
+		return Violatedf("first report %+v", first)
+	}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	// The source moves with a file that is not ours, so the whole tree is read again.
+	source.Write("notes.md", []byte("# Prose\n"))
+	second, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	after, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if after != before || second.Edges != 0 || second.Versions != 0 {
+		return Violatedf("a poll that found nothing new moved the revision from %d to %d: %+v", before, after, second)
+	}
+	return r.CheckRevisions(s, r.Scope)
 }

@@ -32,7 +32,9 @@ type IntakeReport struct {
 	Records int
 	// Conflicts counts the files a poll left out because the base under them moved.
 	Conflicts int
-	Problems  []planning.SourceProblem
+	// Edges counts the derived dependencies a poll added or removed, from milestones and shared contracts.
+	Edges    int
+	Problems []planning.SourceProblem
 
 	// read names the version a poll found of each file it named, and changed the files whose version
 	// or record it wrote. They are what settles a problem an accepted commit found.
@@ -94,7 +96,7 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 		ID: id, Port: planning.PortWork, Adapter: description.Adapter, Instance: description.Instance,
 		Cursor: string(batch.Cursor), Health: health.State, Detail: health.Detail,
 	}
-	read := settling{binding: binding, report: report, unmoved: batch.Cursor == cursor, recorded: report.Versions+report.Records > 0}
+	read := settling{binding: binding, report: report, unmoved: batch.Cursor == cursor, recorded: report.Versions+report.Records+report.Edges > 0}
 	return report, i.settle(ctx, scope, source, read)
 }
 
@@ -135,7 +137,12 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 		report.WorkOrders += outcome.workOrders
 		report.note(item.Path, item.Source, outcome)
 	}
-	return report, nil
+	if len(batch.Records)+len(batch.Items) == 0 {
+		return report, nil
+	}
+	edges, err := i.reconcileEdges(ctx, scope)
+	report.Edges = edges
+	return report, err
 }
 
 func (r *IntakeReport) saw(path, source string) {

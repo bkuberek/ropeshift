@@ -682,18 +682,34 @@ func checkFormatExamplesAreASet(r *Rig) error {
 	if len(report.Problems) != 0 || report.Versions != 2 || report.WorkOrders != 2 || report.Conflicts != 0 {
 		return Violatedf("report %+v", report)
 	}
-	for _, title := range []string{"Build the payments client", "Add the retry budget"} {
-		order, err := r.orderByTitle(s, title)
-		if err != nil {
-			return err
-		}
-		result, err := r.NewOps(s).Pass(r.Ctx, r.Scope, order.ID, r.member())
-		if err != nil {
-			return err
-		}
-		if result.State != workorders.Ready || len(result.Failures) != 0 {
-			return Violatedf("the work the examples describe did not reach ready: %+v", result)
-		}
+	// The shared contract is built first: the work that uses it waits until its work is done.
+	client, err := r.reviewTitled(s, "Build the payments client")
+	if err != nil {
+		return err
+	}
+	if client.State != workorders.Ready || len(client.Failures) != 0 {
+		return Violatedf("the shared work did not reach ready: %+v", client)
+	}
+	waiting, err := r.reviewTitled(s, "Add the retry budget")
+	if err != nil {
+		return err
+	}
+	if waiting.State != workorders.ContractReview || len(waiting.Failures) != 1 || waiting.Failures[0].Check != workorders.CheckDependencies {
+		return Violatedf("the work that uses it did not wait: %+v", waiting)
+	}
+	base, err := r.orderByTitle(s, "Build the payments client")
+	if err != nil {
+		return err
+	}
+	if err := r.forceDone(s, base.ID); err != nil {
+		return err
+	}
+	ready, err := r.reviewTitled(s, "Add the retry budget")
+	if err != nil {
+		return err
+	}
+	if ready.State != workorders.Ready || len(ready.Failures) != 0 {
+		return Violatedf("the work the examples describe did not reach ready: %+v", ready)
 	}
 	contracts, err := r.readContracts(s)
 	if err != nil || len(contracts) != 2 {

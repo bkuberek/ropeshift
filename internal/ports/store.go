@@ -569,6 +569,8 @@ type PlanningWriter interface {
 	InsertLink(ledger.ExternalLink) error
 	// InsertDependency adds one edge.
 	InsertDependency(planning.Dependency) error
+	// DeleteDependency removes one edge, found by its work order, target, and kind.
+	DeleteDependency(planning.Dependency) error
 	// SaveBinding creates or replaces a binding.
 	SaveBinding(planning.SourceBinding) error
 }
