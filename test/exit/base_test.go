@@ -52,11 +52,6 @@ func (in *install) startLane(id, claim, lane string) {
 	in.must("lane", "start", id, "--lane", lane)
 }
 
-func (in *install) workOrder(id string) workorders.WorkOrder {
-	in.t.Helper()
-	return in.show(id)
-}
-
 // dependentContract is a contract whose one work order waits for another's.
 func dependentContract(id, title, dependsOn string) string {
 	text := contract.ContractText(id, title, "Build on the first.")
