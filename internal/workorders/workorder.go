@@ -19,6 +19,9 @@ const (
 	KindContractReview Kind = "contract_review"
 	KindChange         Kind = "change"
 	KindRework         Kind = "rework"
+	// KindReview judges the work another work order's lane completed. Only the control plane makes
+	// one, when that lane ends.
+	KindReview Kind = "review"
 )
 
 // State is a state of the work order state machine.
@@ -82,6 +85,10 @@ type WorkOrder struct {
 	ReviewPins  []string `json:"review_pins,omitempty"`
 	// PlanCommit is the commit intake read for an accepted `plan` work order (D17).
 	PlanCommit string `json:"plan_commit,omitempty"`
+	// Reviews is the work order a `review` judges, and ReviewsFence the attempt of it: the fence its lane
+	// ended at, whose branch artifact holds the commit under review.
+	Reviews      string `json:"reviews,omitempty"`
+	ReviewsFence int64  `json:"reviews_fence,omitempty"`
 	// StartHeld is the reason this ready work is not claimed, when something other than a lack of
 	// ready work keeps it from starting.
 	StartHeld *StartHold `json:"start_held,omitempty"`
@@ -90,6 +97,9 @@ type WorkOrder struct {
 // Completed reports a state past its lane's work: the work is waiting for acceptance or was
 // accepted.
 func (s State) Completed() bool { return s == Acceptance || s == Done }
+
+// OpenReview reports a review that has not ended. The work it judges waits for it.
+func (w WorkOrder) OpenReview() bool { return w.Kind == KindReview && !Terminal(w.State) }
 
 // ErrInvalid marks a work order the ledger must not accept.
 var ErrInvalid = errors.New("invalid work order")
@@ -102,6 +112,8 @@ func New(draft WorkOrder) (WorkOrder, error) {
 	}
 	switch draft.Kind {
 	case KindPlan, KindContractReview, KindChange, KindRework:
+	case KindReview:
+		return WorkOrder{}, fmt.Errorf("%w: a review is made by the control plane when a lane completes", ErrInvalid)
 	default:
 		return WorkOrder{}, fmt.Errorf("%w: kind %q", ErrInvalid, draft.Kind)
 	}
@@ -117,6 +129,24 @@ func NewRework(id string, of WorkOrder, title string, contractVersion int64) (Wo
 		Requirements: of.Requirements, Needs: of.Needs, ContractID: of.ContractID, ContractVersion: contractVersion,
 		ReworkOf: of.ID, MaxAttempts: of.MaxAttempts,
 	})
+}
+
+// NewReview is the review of a change or a rework whose lane completed at fence. It judges that attempt
+// against the contract version the work ran on, so it pins the same one, and it starts `ready`: it has no
+// contract of its own to review. It keeps what the work needed to run, so the same machines and the same
+// repository take it.
+func NewReview(id string, of WorkOrder, fence int64) (WorkOrder, error) {
+	if id == "" {
+		return WorkOrder{}, fmt.Errorf("%w: no id", ErrInvalid)
+	}
+	if of.Kind != KindChange && of.Kind != KindRework {
+		return WorkOrder{}, fmt.Errorf("%w: a %s is not reviewed", ErrInvalid, of.Kind)
+	}
+	return WorkOrder{
+		ID: id, Kind: KindReview, State: Ready, Title: "Review: " + of.Title, RepositoryID: of.RepositoryID, Priority: of.Priority,
+		Size: of.Size, Requirements: of.Requirements, Needs: of.Needs, ContractID: of.ContractID, ContractVersion: of.ContractVersion,
+		Reviews: of.ID, ReviewsFence: fence, MaxAttempts: of.MaxAttempts,
+	}, nil
 }
 
 // CreatedEvent is the event that records a new work order.
@@ -422,6 +452,8 @@ func Diff(a, b WorkOrder) []string {
 	note("reviews_plan", a.ReviewsPlan == b.ReviewsPlan)
 	note("review_pins", slices.Equal(a.ReviewPins, b.ReviewPins))
 	note("plan_commit", a.PlanCommit == b.PlanCommit)
+	note("reviews", a.Reviews == b.Reviews)
+	note("reviews_fence", a.ReviewsFence == b.ReviewsFence)
 	note("start_held", sameHold(a.StartHeld, b.StartHeld))
 	return fields
 }
