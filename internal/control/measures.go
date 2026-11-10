@@ -93,7 +93,33 @@ func HistoryIn(tx ports.ReadTx) (measures.History, error) {
 	for _, e := range events {
 		h.read(e)
 	}
+	if err := h.reviewAgreement(); err != nil {
+		return measures.History{}, err
+	}
 	return h.history, nil
+}
+
+// reviewAgreement reads what review agreement needs from the records themselves: each calibration a
+// member's decision left, and the merge authority each repository holds now.
+func (h *historian) reviewAgreement() error {
+	calibrations, err := h.tx.Evidence().Calibrations()
+	if err != nil {
+		return err
+	}
+	for _, c := range calibrations {
+		h.history.Calibrations = append(h.history.Calibrations, measures.CalibrationFacts{
+			At: c.CreatedAt, Repository: c.Repository, Outcome: string(c.Outcome), Decision: string(c.Decision),
+			Agreement: string(c.Agreement), Source: string(c.Source),
+		})
+	}
+	repositories, err := h.tx.Repositories().Repositories()
+	if err != nil {
+		return err
+	}
+	for _, repo := range repositories {
+		h.history.Repositories = append(h.history.Repositories, measures.RepositoryFacts{ID: repo.ID, MergeAuthority: string(repo.Level())})
+	}
+	return nil
 }
 
 func (h *historian) interrupted(e ledger.Event, kind, subject string) {

@@ -1,6 +1,6 @@
 # Product measures
 
-Ropeshift computes its product measures from the ledger and nothing else, so they work with no telemetry pipeline, on one machine, with nothing configured. `ropeshift measures` prints them, the web UI's operations view shows the last 7 days, and the daemon copies them out as `ropeshift.measure.*` metrics every 5 minutes, to the local telemetry store and to an exporter when one is configured. Each read covers every page of the event log.
+Ropeshift computes its product measures from the ledger and nothing else, so they work with no telemetry pipeline, on one machine, with nothing configured. `ropeshift measures` prints them, the web UI's operations view shows the last 7 days, and the daemon copies them out as `ropeshift.measure.*` metrics every 5 minutes, to the local telemetry store and to an exporter when one is configured. Each read covers every page of the event log and the records of review calibration.
 
 ## The north star and its counterweights
 
@@ -33,6 +33,34 @@ A window runs back from now, `7d` by default. Work in progress is a count of now
 | Flow time | From the first time a work order was `ready`, and from its creation, to `done`, at the median and the 95th percentile |
 | Work in progress | Work orders in `claimed`, `running`, or `parked` |
 | Cost per outcome | What lanes' agents reported, over work orders of that kind that reached `done`. A lane's cost is the difference between the session's running totals, summed over its generations, because a total accumulates across resumes. A turn a kill stopped reports nothing, so a total is a lower bound, and a surface says so when some lane reported a turn with no cost or lost its holder before it reported |
+
+## Review agreement
+
+Whenever a member accepts or sends back work whose current attempt has verdicts from a review, ropeshift keeps a calibration record in the same transaction. The record names the work order, the review, and the commit digest the review read, and it holds the outcome and the verdict on each criterion the member saw, the member's decision, whether the member agreed, the member's reason when one was given, the repository, and the merge authority level in force. It is evidence and nothing else: no calibration, and no rate computed from it, ever changes a repository's merge authority. Only a member raises or lowers the level.
+
+A review's outcome reads from its verdicts: `pass` when every criterion passed, `fail` when any failed, and `cannot_judge` otherwise.
+
+| Member's decision | After `pass` | After `fail` | After `cannot_judge` |
+|-------------------|--------------|--------------|----------------------|
+| Accept | Agreement | Disagreement | Unknown |
+| Send back | Disagreement | Agreement | Unknown |
+
+Three things write no record: a decision of the control plane itself, such as accepting reviewed work at `review_approves` or sending a failed review back by rule; work no review judged; and a member deciding while the review is still open. A defect found later in work accepted after a `pass`, recorded as the rework of a `done` work order, writes a disagreement against that earlier verdict, bound to the same commit digest.
+
+Review agreement is read for the workspace and for each repository, over the last 30 days and over all time, ending at the report's window. It does not follow the report's own span, because a week of agreement says little. Each repository is listed with the merge authority level in force now, so the record reads beside the level it is evidence for.
+
+| Measure | How the ledger gives it |
+|---------|-------------------------|
+| Decisions after verdicts | Calibration records made in the period, including a defect found later in approved work |
+| Agreed, disagreed, unknown | Records by agreement. A decision after a review that could not judge is unknown, and agrees with nothing |
+| Agreement rate | Agreed over agreed plus disagreed. Unknown decisions are in neither |
+| Approvals overturned | Work the review passed that the person sent back, or later found a defect in |
+| Later defects | The approvals overturned by a defect found after the work was accepted |
+| Failures overridden | Work the review failed that the person accepted |
+
+A review fails work back to a lane by rule until its rounds are used up, so a person meets a failed verdict only at the bound on review rounds. Failures overridden therefore count accepts at that bound.
+
+`ropeshift repository show` prints the same figures for one repository, and the web UI's operations view shows them in its measures section.
 
 ## Experience records
 

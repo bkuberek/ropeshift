@@ -3,9 +3,12 @@ package contract
 import (
 	"errors"
 	"slices"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -19,6 +22,7 @@ var CalibrationChecks = []Check{
 	{"CAL3", "agreement follows the verdict: accepting after a pass or sending back after a fail agrees, the opposite disagrees, and a criterion nobody could judge is unknown", checkAgreementFollowsTheVerdict},
 	{"CAL4", "a decision of the control plane, and a decision on work no review judged, leaves no calibration", checkOnlyMembersAfterVerdictsAreCalibrated},
 	{"CAL5", "a defect found later in work accepted after a pass is a disagreement with that verdict, bound to its commit digest", checkLaterDefectIsCalibrated},
+	{"CAL7", "the measures read agreement per repository, beside the level in force, from the calibrations alone", checkMeasuresReadAgreement},
 	{"CAL6", "any number of agreements leaves the merge authority level where a member put it", checkCalibrationNeverChangesTheLevel},
 }
 
@@ -413,6 +417,69 @@ func checkCalibrationNeverChangesTheLevel(r *Rig) error {
 		if len(events) != len(before) {
 			return Violatedf("twelve agreements added %d events to the repository's record, and none of them is a decision of the ledger's", len(events)-len(before))
 		}
+	}
+	return nil
+}
+
+func checkMeasuresReadAgreement(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	if err := r.atLevel(s, ledger.PersonApproves); err != nil {
+		return err
+	}
+	// Two approvals the person agreed with, and one the person sent back.
+	for range 2 {
+		id, _, err := r.judged(s, criterionOne)
+		if err != nil {
+			return err
+		}
+		if err := r.reviewSays(s, id, say(criterionOne, workorders.VerdictPass)); err != nil {
+			return err
+		}
+		if _, err := ops.Accept(r.Ctx, r.Scope, id, r.Actor); err != nil {
+			return err
+		}
+	}
+	sent, _, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, sent, say(criterionOne, workorders.VerdictPass)); err != nil {
+		return err
+	}
+	if _, err := ops.Rework(r.Ctx, r.Scope, sent, reworkReason, r.Actor); err != nil {
+		return err
+	}
+	if _, err := r.detect(s, "repo-quiet", "", "main"); err != nil {
+		return err
+	}
+	var report measures.Report
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		report, err = control.ReportIn(tx, "7d", 7*24*time.Hour)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	workspace := report.ReviewAgreement.Workspace.AllTime
+	if workspace.Decisions != 3 || workspace.Agreed != 2 || workspace.Disagreed != 1 || workspace.ApprovalsOverturned != 1 || workspace.FailuresOverridden != 0 {
+		return Violatedf("the workspace reads %+v", workspace)
+	}
+	if recent := report.ReviewAgreement.Workspace.Last30Days; recent.Decisions != 3 {
+		return Violatedf("the last 30 days read %+v", recent)
+	}
+	var found, quiet bool
+	for _, repo := range report.ReviewAgreement.Repositories {
+		switch repo.Repository {
+		case AcceptanceRepository:
+			found = repo.MergeAuthority == string(ledger.PersonApproves) && repo.AllTime.Decisions == 3 && repo.AllTime.Agreed == 2
+		case "repo-quiet":
+			quiet = repo.MergeAuthority == string(ledger.PersonMerges) && repo.AllTime.Decisions == 0 && repo.AllTime.AgreementRate.Value == nil
+		}
+	}
+	if !found || !quiet {
+		return Violatedf("the repositories read %+v", report.ReviewAgreement.Repositories)
 	}
 	return nil
 }
