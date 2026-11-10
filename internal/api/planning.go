@@ -96,8 +96,9 @@ type Document struct {
 	Digest  string                `json:"digest"`
 	Source  string                `json:"source"`
 	Body    string                `json:"body,omitempty"`
-	// Record is the planning document the ledger recorded from this file, `<kind>:<id>`, when a plan
-	// holds it. The documents view names it, so a page lists the file once, with its versions.
+	// Record is the record the ledger keeps of this file, `<kind>:<id>`: a planning document a plan
+	// recorded, or a goal, a plan, or a contract. The documents view names it, so a page lists the file
+	// once, where that record shows, and not among the repository's other files.
 	Record string `json:"record,omitempty"`
 }
 

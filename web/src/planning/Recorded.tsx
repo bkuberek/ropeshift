@@ -26,15 +26,18 @@ export function homeOfKind(kind: string): DocumentHome {
   }
 }
 
-const recordedKindWords: Record<string, string> = {
+const kindWords: Record<string, string> = {
   requirements: "Requirements",
   spec: "Spec",
+  design: "Design",
   architecture: "Architecture",
   "experience-design": "Experience design",
   milestone: "Milestone",
+  other: "Document",
 };
 
-const kindWord = (kind: string) => recordedKindWords[kind] ?? words(kind);
+// kindWord names a document's kind, of a file or of a record, the way a person says it.
+export const kindWord = (kind: string) => kindWords[kind] ?? words(kind);
 
 // reviewWords says where a version stands: under a plan version a member approved, waiting in one whose
 // approval is open, or in neither.

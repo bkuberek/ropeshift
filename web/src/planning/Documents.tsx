@@ -5,11 +5,12 @@ import type { DocumentKind, DocumentRef, DocumentRow, Documents as View, Require
 import { useView } from "../api/useView";
 import type { Live } from "../api/useView";
 import { addressOf, Link } from "../app/route";
-import { Fact, Page, Section, words } from "../parts/parts";
+import { Fact, Page, Section } from "../parts/parts";
 import { DocumentText } from "./DocumentText";
-import { PlanSections, recordedOf, RecordedRows, Traces } from "./Recorded";
+import { kindWord, PlanSections, recordedOf, RecordedRows, Traces } from "./Recorded";
 
-const kindWords: Record<DocumentKind, string> = { requirements: "Requirements", spec: "Spec", design: "Design", other: "Document" };
+// The kinds of file that have a page of their own.
+const homes: DocumentKind[] = ["requirements", "spec", "design", "other"];
 
 function DocumentRows({ documents }: { documents: DocumentRow[] }) {
   return (
@@ -20,6 +21,9 @@ function DocumentRows({ documents }: { documents: DocumentRow[] }) {
             {document.title}
           </Link>
           <p className="mono quiet">{document.path}</p>
+          <ul className="tags" aria-label="Kind">
+            <li>{kindWord(document.kind)}</li>
+          </ul>
         </li>
       ))}
     </ol>
@@ -27,10 +31,10 @@ function DocumentRows({ documents }: { documents: DocumentRow[] }) {
 }
 
 // A kind this build has no page for lists with the rest, so no document falls out of every list. A file a
-// plan recorded lists once, under its plan, with its version and where it stands in review, and every
-// other file of the repository lists as it stands.
+// plan recorded lists once, under its plan, with its version and where it stands in review. A goal, a
+// plan, or a contract shows on its own page, and every other file of the repository lists as it stands.
 export function DocumentList({ view, kind, empty }: { view: View; kind: DocumentKind; empty: string }) {
-  const homeOf = (document: DocumentRow) => (document.kind in kindWords ? document.kind : "other");
+  const homeOf = (document: DocumentRow) => (homes.includes(document.kind) ? document.kind : "other");
   const documents = view.documents.filter((document) => homeOf(document) === kind && !document.record);
   const recorded = recordedOf(view.plans, kind);
   if (recorded.length === 0) {
@@ -40,7 +44,7 @@ export function DocumentList({ view, kind, empty }: { view: View; kind: Document
     <>
       <PlanSections plans={view.plans} home={kind} />
       {documents.length ? (
-        <Section title="Files no plan records">
+        <Section title="Other repository files">
           <DocumentRows documents={documents} />
         </Section>
       ) : null}
@@ -174,7 +178,7 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
       {document ? (
         <>
           <dl className="facts facts-page">
-            <Fact name="Kind">{kindWords[document.kind] ?? words(document.kind)}</Fact>
+            <Fact name="Kind">{kindWord(document.kind)}</Fact>
             <Fact name="Path" mono>
               {document.path}
             </Fact>

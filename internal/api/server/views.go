@@ -865,7 +865,11 @@ func (h *handler) serveDocuments(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		view := api.Documents{Stamp: stamp, Documents: markRecorded(listed, plans), Requirements: []planning.Requirement{}, Plans: plans}
+		marked, err := markRecorded(tx, listed, plans)
+		if err != nil {
+			return nil, err
+		}
+		view := api.Documents{Stamp: stamp, Documents: marked, Requirements: []planning.Requirement{}, Plans: plans}
 		versions, err := tx.Planning().Requirements()
 		if err != nil {
 			return nil, err

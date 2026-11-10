@@ -3,6 +3,7 @@ package server_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -204,6 +205,32 @@ func TestTheDocumentsViewMarksALiveFileAPlanRecorded(t *testing.T) {
 	}
 	if marks["spec.md"] != "spec:api" || marks["design.md"] != "" {
 		t.Errorf("marks %v", marks)
+	}
+}
+
+// A live file the ledger holds as a goal, a plan, or a contract has a page of its own, so it names that
+// record too, and a page lists it there and not among the repository's other files.
+func TestTheDocumentsViewMarksALiveFileTheLedgerHoldsAsAGoalPlanOrContract(t *testing.T) {
+	d, w, knowledge := documentsWorld(t)
+	goal := "+++\nkind = \"goal\"\nid = \"reliable\"\ntitle = \"A reliable API\"\n+++\n\nWhy.\n"
+	source := retrySource("The first draft.")
+	source.Write("goal.md", []byte(goal))
+	knowledge.Write("goal.md", goal)
+	knowledge.Write("plan.md", retryPlan)
+	knowledge.Write("budget.md", "+++\nkind = \"contract\"\n+++\n")
+	knowledge.Write("README.md", "# The service\n")
+	w.Planned(source)
+	marks := map[string]string{}
+	for _, document := range readView[api.Documents](t, d, api.ViewDocuments, "").Documents {
+		marks[document.Path] = document.Record
+	}
+	for path, kind := range map[string]string{"goal.md": "goal:", "plan.md": "plan:", "budget.md": "contract:"} {
+		if !strings.HasPrefix(marks[path], kind) {
+			t.Errorf("%s is marked %q, not as a %s record", path, marks[path], kind)
+		}
+	}
+	if marks["README.md"] != "" || marks["design.md"] != "" {
+		t.Errorf("a file the ledger does not hold is marked: %v", marks)
 	}
 }
 

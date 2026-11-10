@@ -177,8 +177,36 @@ describe("the documents a plan recorded", () => {
     openPage("/specs");
     await screen.findByRole("region", { name: "The factory floor" });
     expect(screen.getAllByRole("link", { name: "The factory API" })).toHaveLength(1);
-    const files = screen.getByRole("region", { name: "Files no plan records" });
+    const files = screen.getByRole("region", { name: "Other repository files" });
     expect(within(files).getByRole("link", { name: "The retry spec" }).getAttribute("href")).toBe(specLink);
+  });
+
+  it("says the kind of each of the repository's other files", async () => {
+    serveViews();
+    openPage("/documents");
+    const files = await screen.findByRole("region", { name: "Other repository files" });
+    const row = within(files).getByRole("link", { name: "Notes from the first run" }).closest("li");
+    expect(within(row as HTMLElement).getByRole("list", { name: "Kind" }).textContent).toBe("Document");
+  });
+
+  it("leaves out a file the ledger holds as a goal, a plan, or a contract, which shows on its own page", async () => {
+    serve((view) => {
+      const notes = view.documents.find((document) => document.path === "notes.md");
+      for (const [path, record] of [
+        ["goals/reliable.md", "goal:g1"],
+        ["plans/factory.md", "plan:p1"],
+        ["contracts/client.md", "contract:c1"],
+      ] as const) {
+        if (notes) {
+          view.documents.push({ ...notes, path, title: path, record });
+        }
+      }
+    });
+    openPage("/documents");
+    await screen.findByRole("region", { name: "Other repository files" });
+    for (const path of ["goals/reliable.md", "plans/factory.md", "contracts/client.md"]) {
+      expect(screen.queryByRole("link", { name: path })).toBeNull();
+    }
   });
 
   it("keeps the plain list when no plan recorded anything", async () => {
@@ -190,7 +218,7 @@ describe("the documents a plan recorded", () => {
     });
     openPage("/specs");
     expect(await screen.findByRole("link", { name: "The retry spec" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Files no plan records" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Other repository files" })).toBeNull();
   });
 
   it("puts architecture documents and experience designs with the designs", async () => {
