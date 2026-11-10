@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.1.0-alpha.7](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.6...v0.1.0-alpha.7) (2026-11-10)
+
+
+### Features
+
+* **authority:** give repository record changes their own action ([3a84fa7](https://github.com/bkuberek/ropeshift/commit/3a84fa773bebc948105427413f4e578ee50ac020))
+* **cli:** show and set a repository's record ([f9f04bc](https://github.com/bkuberek/ropeshift/commit/f9f04bc4c21b8f99c16560e3e41c5f00b275d1d2))
+* **control:** start a lane from its base or its dependency's work ([5aa1484](https://github.com/bkuberek/ropeshift/commit/5aa14844cb7b0c23309895bb0fe6fdba325ab1a2))
+* **entry:** place the daemon's lanes from its checkouts ([e5f080d](https://github.com/bkuberek/ropeshift/commit/e5f080de3307b2c80ba030635265eac497325ea7))
+* **gitcli:** read a base branch's tip and test commit ancestry ([b2531fa](https://github.com/bkuberek/ropeshift/commit/b2531fa0f8941f8b4f6ea757a4c665ee74a9b9a1))
+* **intake:** detect a repository's remote and default branch when a source is read ([d2a5a7b](https://github.com/bkuberek/ropeshift/commit/d2a5a7bb215e189ede855ccb7531e0f9ca694c97))
+* **planning:** read a work order's base ([110d3c6](https://github.com/bkuberek/ropeshift/commit/110d3c609d1061a1d328e4450971f21955edcc74))
+* **worker:** start a lane's worktree at the base its claim names ([12fe4e9](https://github.com/bkuberek/ropeshift/commit/12fe4e9a552639e3e0f1499d18a2a1bc7623845e))
+
+
+### Bug Fixes
+
+* **approvals:** void a request when the call it holds moves ([df47db3](https://github.com/bkuberek/ropeshift/commit/df47db3c14a361dcb4bd95c3aa7e3756b8ac17d8))
+* **cli:** name the plan and version a plan approval covers in approval show ([52cfd31](https://github.com/bkuberek/ropeshift/commit/52cfd31ae95e3758bbe095bc545d25d16899efce))
+* **cli:** print the web address the daemon bound in plan start ([3210524](https://github.com/bkuberek/ropeshift/commit/32105241fd2deb72c6e72c1120788388ff5c270b))
+* **control:** drop crash points the crash matrix has no row for ([8204ca0](https://github.com/bkuberek/ropeshift/commit/8204ca0130fe9b1e998063e119f54201d499588c))
+* **top:** size the needs' kind column to the widest kind listed ([64e3dcb](https://github.com/bkuberek/ropeshift/commit/64e3dcb075765117f7816553c88d31ea2c2969d3))
+* **web:** list the repository's other files by kind, without the ledger's records ([f085b06](https://github.com/bkuberek/ropeshift/commit/f085b06a9845a4aab6cef465fc0299af2f2549dc))
+* **web:** name the milestone of a plan's work in words ([172e86d](https://github.com/bkuberek/ropeshift/commit/172e86d0076d1dce4d96fb3176bec52bcc4d2fb2))
+* **web:** render Markdown tables and fenced blocks on a document page ([944fb2b](https://github.com/bkuberek/ropeshift/commit/944fb2bbe51a75eb7c0fd0abecda37ace8930ee2))
+* **web:** shade the edge a document's code block runs past ([2c7de0e](https://github.com/bkuberek/ropeshift/commit/2c7de0e54bb1d1f8ddb70da7dacdec72aeac5c40))
+* **web:** show a contract's milestone, shared use, sizes, and served requirements on its plan ([f6e1452](https://github.com/bkuberek/ropeshift/commit/f6e1452a07ce5f273d377e2d5be9c307f8df7c23))
+* **web:** show the critical path's work orders and size points, and draw a bar's done share ([3d33527](https://github.com/bkuberek/ropeshift/commit/3d33527e1a7cb23d5365ea56f30c35ced8f153cf))
+* **web:** size a lane's pane to its screen and scroll it inside itself ([2b3bf3c](https://github.com/bkuberek/ropeshift/commit/2b3bf3c1edabc9172441774b746361761a739f6a))
+* **web:** trace each requirement through its contracts once ([e732970](https://github.com/bkuberek/ropeshift/commit/e732970769fc946d5139ff333b4641b264d37069))
+* **worker:** wake no orchestrator while its brief's turn is still settling ([e2c8fa3](https://github.com/bkuberek/ropeshift/commit/e2c8fa3eecf630a86350e4eab55de09f425f78fa))
+
 ## [0.1.0-alpha.6](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.5...v0.1.0-alpha.6) (2026-11-10)
 
 
