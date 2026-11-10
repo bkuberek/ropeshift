@@ -79,6 +79,8 @@ func TestAReportIsHeldToTheKindOfWorkItEnds(t *testing.T) {
 		{"a change that reports a verdict", ledger.DesiredLease{WorkOrder: "wo", Kind: "change"}, judged("c1"), "only a review"},
 		{"a change that reports none", ledger.DesiredLease{WorkOrder: "wo", Kind: "change"}, judged(), ""},
 		{"a review of a contract with no criteria", ledger.DesiredLease{WorkOrder: "rv", Kind: "review"}, judged(), ""},
+		// A control plane that sends criteria with no IDs is an older one, which still refuses what is not whole.
+		{"a review told its criteria without their IDs", ledger.DesiredLease{WorkOrder: "rv", Kind: "review", Criteria: []string{"c1: It works."}}, judged("c1"), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

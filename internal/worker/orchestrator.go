@@ -112,6 +112,9 @@ func (r *laneRun) holdsToItsWork(report workorders.Report) error {
 	if report.Outcome != workorders.OutcomeCompleted {
 		return nil
 	}
+	if len(r.lease.CriterionIDs) == 0 && len(r.lease.Criteria) != 0 {
+		return nil
+	}
 	return report.CheckVerdicts(r.lease.CriterionIDs)
 }
 
