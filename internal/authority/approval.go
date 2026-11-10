@@ -27,6 +27,9 @@ const (
 	KindArtifact = "artifact"
 	// KindContract covers a contract's digest.
 	KindContract = "contract"
+	// KindPlan covers one plan version's digest, which covers every record that names the plan. It
+	// belongs to a plan and not to a lane, and only a member decides it (FR-PLAN-9, FR-PLAN-12).
+	KindPlan = "plan"
 )
 
 // How an approval's outcome reached its session.
@@ -54,6 +57,9 @@ const (
 	// ApprovalAnswered is one a person answered at a terminal, which no session authenticated, so
 	// it records what happened and grants nothing.
 	ApprovalAnswered ApprovalState = "answered"
+	// ApprovalSuperseded is a plan approval that a newer version of the plan replaced before anyone
+	// decided it. The newer version has its own request.
+	ApprovalSuperseded ApprovalState = "superseded"
 )
 
 // The ways a decision is refused.
@@ -111,6 +117,11 @@ type Approval struct {
 	// UsedBy names the one call that ran on this approval, so a call whose answer was lost hears
 	// the same answer, and no other call does.
 	UsedBy string `json:"used_by,omitempty"`
+	// Plan and PlanVersion name the plan version a plan approval is about, once the ledger holds it.
+	// Detail is what a member reads of that version beyond its summary, as JSON.
+	Plan        string `json:"plan_id,omitempty"`
+	PlanVersion int64  `json:"plan_version,omitempty"`
+	Detail      string `json:"detail,omitempty"`
 }
 
 // Decision is what a principal says of a request. Digest is what it saw.
@@ -133,16 +144,18 @@ func (a Approval) Decided() bool { return a.State != ApprovalPending }
 // Validate refuses a request that binds to nothing.
 func (a Approval) Validate() error {
 	switch {
-	case a.ID == "" || a.Lane == "" || a.Subject == "":
+	case a.ID == "" || a.Subject == "" || (a.Lane == "" && a.Kind != KindPlan):
 		return fmt.Errorf("%w: it names no lane or subject", ErrBadApproval)
 	case a.SubjectDigest == "":
 		return fmt.Errorf("%w: it binds to no digest", ErrBadApproval)
 	case a.RequestedBy == "":
 		return fmt.Errorf("%w: it names no requester", ErrBadApproval)
-	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract:
+	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract && a.Kind != KindPlan:
 		return fmt.Errorf("%w: kind %q", ErrBadApproval, a.Kind)
 	case a.Kind == KindToolCall && a.SubjectDigest != LandingDigest(a.Subject, a.Input, a.Path):
 		return fmt.Errorf("%w: its digest does not cover its tool call", ErrBadApproval)
+	case a.Kind == KindPlan && (a.Lane != "" || a.Generation != 0 || a.Input != "" || a.Command != "" || a.Path != ""):
+		return fmt.Errorf("%w: a plan belongs to no lane and covers no tool call", ErrBadApproval)
 	}
 	return nil
 }
@@ -150,7 +163,7 @@ func (a Approval) Validate() error {
 // Decide applies a decision. Each check repeats in the store where it can, and none reads anything
 // a lane wrote: the digest is the one a decider saw, and the principal is the one a session proved.
 func (a Approval) Decide(decision Decision, actor ledger.Actor, policy, at int64) (Approval, error) {
-	if actor.Kind != ledger.ActorMember && actor.Kind != ledger.ActorOrchestrator {
+	if actor.Kind != ledger.ActorMember && (actor.Kind != ledger.ActorOrchestrator || a.Kind == KindPlan) {
 		return a, fmt.Errorf("%w: %s", ErrDeciderKind, actor.Kind)
 	}
 	principal := Principal(actor)
@@ -169,6 +182,16 @@ func (a Approval) Decide(decision Decision, actor ledger.Actor, policy, at int64
 	}
 	a.DecidedBy, a.DecidedKind, a.DecidedDigest = principal, string(actor.Kind), decision.Digest
 	a.DecidedAt, a.Reason, a.PolicyVersion, a.Channel = at, decision.Reason, policy, ChannelHook
+	return a, nil
+}
+
+// Supersede closes a plan approval that is still open because a newer version of the plan replaced
+// it. One a member already approved stays approved, because that version was approved.
+func (a Approval) Supersede() (Approval, error) {
+	if !a.Open() {
+		return a, fmt.Errorf("%w: it is %s", ErrApprovalClosed, a.State)
+	}
+	a.State = ApprovalSuperseded
 	return a, nil
 }
 

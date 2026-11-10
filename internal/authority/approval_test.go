@@ -512,3 +512,100 @@ func TestABodyThatChangedAfterReviewDecidesNothing(t *testing.T) {
 		t.Errorf("err %v", err)
 	}
 }
+
+func planApproval(requester ledger.Actor) authority.Approval {
+	return authority.Approval{
+		ID: "pa1", Kind: authority.KindPlan, Subject: "plan-1@2", SubjectDigest: "sha256:plan", Plan: "plan-1", PlanVersion: 2,
+		Summary: "Plan the retry budget, version 2", RequestedBy: authority.Principal(requester), State: authority.ApprovalPending,
+	}
+}
+
+// A plan belongs to no lane, so a request of that kind binds to a plan version and not to a lane.
+func TestAPlanApprovalNamesAPlanAndNoLane(t *testing.T) {
+	system := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	if err := planApproval(system).Validate(); err != nil {
+		t.Fatalf("a request for a plan version: %v", err)
+	}
+	if err := planApproval(theLane).Validate(); err != nil {
+		t.Fatalf("a request the planning lane made: %v", err)
+	}
+	for name, mutate := range map[string]func(*authority.Approval){
+		"no digest":       func(a *authority.Approval) { a.SubjectDigest = "" },
+		"no requester":    func(a *authority.Approval) { a.RequestedBy = "" },
+		"no subject":      func(a *authority.Approval) { a.Subject = "" },
+		"a lane":          func(a *authority.Approval) { a.Lane = "lane-1" },
+		"a generation":    func(a *authority.Approval) { a.Generation = 1 },
+		"a tool's detail": func(a *authority.Approval) { a.Input = `{"command":"ls"}` },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := planApproval(system)
+			mutate(&bad)
+			if err := bad.Validate(); !errors.Is(err, authority.ErrBadApproval) {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+	other := request(t, system)
+	other.Lane = ""
+	if err := other.Validate(); !errors.Is(err, authority.ErrBadApproval) {
+		t.Fatalf("a tool call that names no lane: %v", err)
+	}
+}
+
+func TestOnlyAMemberDecidesAPlanApproval(t *testing.T) {
+	system := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	pending := planApproval(system)
+	decided, err := pending.Decide(decision(pending, true), aMember, 1, 100)
+	if err != nil {
+		t.Fatalf("a member: %v", err)
+	}
+	if decided.State != authority.ApprovalApproved || decided.DecidedBy != "member:m1" || decided.DecidedDigest != pending.SubjectDigest {
+		t.Fatalf("decision %+v", decided)
+	}
+	for _, actor := range []ledger.Actor{anOrchestrator, theLane, {Kind: ledger.ActorWorker, ID: "w"}, system} {
+		if _, err := pending.Decide(decision(pending, true), actor, 1, 100); !errors.Is(err, authority.ErrDeciderKind) {
+			t.Errorf("%s decided a plan: %v", actor.Kind, err)
+		}
+	}
+}
+
+// The planning lane wrote the plan and requested its approval, and nothing it does can approve it.
+func TestThePlanningLaneCannotApproveThePlanItWrote(t *testing.T) {
+	pending := planApproval(theLane)
+	_, err := pending.Decide(decision(pending, true), theLane, 1, 100)
+	if !errors.Is(err, authority.ErrSelfApproval) && !errors.Is(err, authority.ErrDeciderKind) {
+		t.Fatalf("the lane approved its own plan: %v", err)
+	}
+	if _, err := pending.Decide(decision(pending, true), ledger.Actor{Kind: ledger.ActorLane, ID: "another-lane"}, 1, 100); err == nil {
+		t.Fatal("another lane approved the plan")
+	}
+}
+
+func TestAPlanApprovalBoundToAnotherDigestIsNotDecided(t *testing.T) {
+	pending := planApproval(ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+	stale := authority.Decision{ID: pending.ID, Digest: "sha256:an-older-plan", Allow: true}
+	if _, err := pending.Decide(stale, aMember, 1, 100); !errors.Is(err, authority.ErrStaleDigest) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestANewerVersionSupersedesAnOpenPlanApprovalAndNoOther(t *testing.T) {
+	pending := planApproval(ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+	superseded, err := pending.Supersede()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if superseded.State != authority.ApprovalSuperseded || superseded.Open() || superseded.Live() || !superseded.Decided() {
+		t.Fatalf("a superseded request is %+v", superseded)
+	}
+	if _, err := superseded.Decide(decision(pending, true), aMember, 1, 100); !errors.Is(err, authority.ErrApprovalClosed) {
+		t.Fatalf("a member approved a version a newer one replaced: %v", err)
+	}
+	approved, err := pending.Decide(decision(pending, true), aMember, 1, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := approved.Supersede(); !errors.Is(err, authority.ErrApprovalClosed) {
+		t.Fatalf("an approved version was replaced: %v", err)
+	}
+}

@@ -51,6 +51,9 @@ const (
 	ActionUnblock Action = "work_order.unblock"
 	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
 	ActionDecideApproval Action = "approval.decide"
+	// ActionApprovePlan approves a plan version. A plan sets scope, and scope stays with a person, so
+	// no row below may ever grant it: not an orchestrator, not the planning lane, and not a tick.
+	ActionApprovePlan Action = "plan.approve"
 	// ActionDecideEffect says what became of an effect nothing can observe. Only a person can know, so
 	// no row below may ever grant it.
 	ActionDecideEffect Action = "effect.decide"
@@ -76,7 +79,7 @@ func Actions() []Action {
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
-		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect,
+		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 	}
 }
 
