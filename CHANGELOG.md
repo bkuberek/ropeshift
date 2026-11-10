@@ -32,6 +32,15 @@
 * **web:** trace each requirement through its contracts once ([e732970](https://github.com/bkuberek/ropeshift/commit/e732970769fc946d5139ff333b4641b264d37069))
 * **worker:** wake no orchestrator while its brief's turn is still settling ([e2c8fa3](https://github.com/bkuberek/ropeshift/commit/e2c8fa3eecf630a86350e4eab55de09f425f78fa))
 
+### Notes
+
+* Lanes no longer start from your checkout's `HEAD`. Each repository has a record (`ropeshift repository list|show|set`) with its remote, default branch, base branch, merge method, and `start_from`. A lane starts from its work order's `base`, else the repository's base branch, fetched from the remote when there is one; uncommitted or unpushed work in your checkout no longer reaches a lane. A lane records the base ref and commit it started from, shown in `lane show`.
+* Dependent work starts from its dependency's work. By default it waits until the dependency's accepted commit is merged into the base, shown as `waiting_for_merge` in `work show`; with `ropeshift repository set <id> --start-from accepted` it starts from the accepted commit instead, which the record refuses for the `squash` and `rebase` merge methods. A failed fetch or a missing base branch holds the work as `base_unavailable` and never falls back to `HEAD`.
+* An approval request whose call changes before anyone decides it, such as a file swapped for a link, is now voided with the reason, cannot be approved afterwards, and is no longer recorded as answered at the terminal.
+* An orchestrator is no longer woken twice with the same question while its first turn is settling.
+* The web pages from the previous release are polished: the roadmap's critical path counts work orders and size points, progress bars show the done share, requirement tracing lists each contract once, document pages render tables and code blocks, plan detail shows milestones, sizes, and served requirements, and the lane pane fits a phone screen. `plan start` prints the web address the daemon actually bound, and `top` aligns its columns.
+* This release adds database migration `0035`. It runs on the first start.
+
 ## [0.1.0-alpha.6](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.5...v0.1.0-alpha.6) (2026-11-10)
 
 
