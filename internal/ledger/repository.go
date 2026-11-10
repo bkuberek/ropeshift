@@ -43,6 +43,24 @@ const (
 	StartFromAccepted StartFrom = "accepted"
 )
 
+// MergeAuthority is how much of the loop stays with the person: who accepts finished work, and later who
+// merges it. Only a member chooses it, and nothing learned widens it.
+type MergeAuthority string
+
+// The merge authority levels, from the most the person keeps to the least.
+const (
+	// PersonMerges leaves every change to the person: the review agent judges it first, the person sees
+	// each verdict, and the person decides.
+	PersonMerges MergeAuthority = "person_merges"
+	// PersonApproves has the person approve each change, and ropeshift lands it.
+	PersonApproves MergeAuthority = "person_approves"
+	// ReviewApproves lets the review agent's approval stand for the person's, once every criterion passed.
+	ReviewApproves MergeAuthority = "review_approves"
+)
+
+// PersonDecides reports a level at which a member answers for each change after the review.
+func (a MergeAuthority) PersonDecides() bool { return a != ReviewApproves }
+
 // ErrInvalidRepository marks a record, or a change to one, that the ledger must not accept.
 var ErrInvalidRepository = errors.New("invalid repository")
 
@@ -63,6 +81,9 @@ type Repository struct {
 	// ForgeBinding names the forge account and repository pull requests open against. Empty is none yet.
 	ForgeBinding string      `json:"forge_binding,omitempty"`
 	MergeMethod  MergeMethod `json:"merge_method"`
+	// MergeAuthority is how much of each change the person decides after the review (FR-MERGE-3). Empty
+	// reads as PersonMerges, which a record made before the level existed holds.
+	MergeAuthority MergeAuthority `json:"merge_authority,omitempty"`
 	// Integration says whether ropeshift pushes accepted work and opens its pull request.
 	Integration bool      `json:"integration"`
 	StartFrom   StartFrom `json:"start_from"`
@@ -70,7 +91,15 @@ type Repository struct {
 
 // NewRepository returns a record with the settings a person who chose nothing gets.
 func NewRepository(id string) Repository {
-	return Repository{ID: id, MergeMethod: MergeCommit, StartFrom: StartFromMerged}
+	return Repository{ID: id, MergeMethod: MergeCommit, StartFrom: StartFromMerged, MergeAuthority: PersonMerges}
+}
+
+// Level is the merge authority in force: the one a member chose, or else the default.
+func (r Repository) Level() MergeAuthority {
+	if r.MergeAuthority == "" {
+		return PersonMerges
+	}
+	return r.MergeAuthority
 }
 
 // Base is the branch lanes start from: the one a member named, or else the default branch.
@@ -92,6 +121,11 @@ func (r Repository) Validate() error {
 	case StartFromMerged, StartFromAccepted:
 	default:
 		return fmt.Errorf("%w: start from %q", ErrInvalidRepository, r.StartFrom)
+	}
+	switch r.Level() {
+	case PersonMerges, PersonApproves, ReviewApproves:
+	default:
+		return fmt.Errorf("%w: merge authority %q", ErrInvalidRepository, r.MergeAuthority)
 	}
 	if r.BaseBranch != "" {
 		if err := CheckBranch(r.BaseBranch); err != nil {

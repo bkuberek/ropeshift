@@ -33,8 +33,8 @@ func onOff(on bool) string {
 }
 
 func repositoryLine(view api.RepositoryView) string {
-	return fmt.Sprintf("%s\tbase %s\tmerge %s\tstart %s\tintegration %s\t%s\n",
-		shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, onOff(view.Integration), dashIfEmpty(view.Remote))
+	return fmt.Sprintf("%s\tbase %s\tmerge %s\tstart %s\tintegration %s\tauthority %s\t%s\n",
+		shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, onOff(view.Integration), view.Level(), dashIfEmpty(view.Remote))
 }
 
 func repositoryText(view api.RepositoryView) string {
@@ -51,6 +51,7 @@ func repositoryText(view api.RepositoryView) string {
 	fmt.Fprintf(&out, "merge method\t%s\n", view.MergeMethod)
 	fmt.Fprintf(&out, "integration\t%s\n", onOff(view.Integration))
 	fmt.Fprintf(&out, "start from\t%s\n", view.StartFrom)
+	fmt.Fprintf(&out, "merge authority\t%s\n", view.Level())
 	return out.String()
 }
 
@@ -96,6 +97,7 @@ func (c *invocation) repositorySet(args []string) int {
 	method := set.String("merge-method", "", "how a pull request lands: merge, squash, or rebase")
 	start := set.String("start-from", "", "what dependent work starts from: merged or accepted")
 	integration := set.String("integration", "", "on or off: whether ropeshift pushes accepted work and opens its pull request")
+	authority := set.String("merge-authority", "", "how much of each change you decide after the review: person_merges, person_approves, or review_approves")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -126,8 +128,12 @@ func (c *invocation) repositorySet(args []string) int {
 			return c.usageError("--integration takes on or off, not %q", *integration)
 		}
 	}
+	if given["merge-authority"] {
+		value := ledger.MergeAuthority(*authority)
+		change.MergeAuthority = &value
+	}
 	if len(given) == 0 {
-		return c.usageError("name a setting to change: --base, --merge-method, --start-from, or --integration")
+		return c.usageError("name a setting to change: --base, --merge-method, --start-from, --integration, or --merge-authority")
 	}
 	client := c.client()
 	defer client.Close()

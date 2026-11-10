@@ -52,6 +52,25 @@ func TestAMemberReadsAndChangesARepository(t *testing.T) {
 	}
 }
 
+func TestAMemberChangesTheMergeAuthority(t *testing.T) {
+	d := apitest.Start(t)
+	detected(t, d, aRepository, "main")
+	if record, err := d.Client.Repository(t.Context(), aRepository); err != nil || record.Level() != ledger.PersonMerges {
+		t.Fatalf("a new record reads %+v: %v", record, err)
+	}
+	level := ledger.ReviewApproves
+	changed, err := d.Client.SetRepository(t.Context(), aRepository, api.RepositoryChange{MergeAuthority: &level})
+	if err != nil || changed.MergeAuthority != ledger.ReviewApproves {
+		t.Fatalf("the change left %+v: %v", changed, err)
+	}
+	bad := ledger.MergeAuthority("whenever")
+	_, err = d.Client.SetRepository(t.Context(), aRepository, api.RepositoryChange{MergeAuthority: &bad})
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	if record, err := d.Client.Repository(t.Context(), aRepository); err != nil || record.MergeAuthority != ledger.ReviewApproves {
+		t.Errorf("a refused level changed the record: %+v: %v", record, err)
+	}
+}
+
 func TestARepositoryRefusesWhatCannotHold(t *testing.T) {
 	d := apitest.Start(t)
 	detected(t, d, aRepository, "main")

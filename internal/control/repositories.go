@@ -36,6 +36,8 @@ type RepositoryChange struct {
 	MergeMethod *ledger.MergeMethod
 	StartFrom   *ledger.StartFrom
 	Integration *bool
+	// MergeAuthority is how much of each change the person decides after the review.
+	MergeAuthority *ledger.MergeAuthority
 }
 
 // detectedEvent is the data of EventRepositoryDetected.
@@ -145,6 +147,9 @@ func apply(record ledger.Repository, change RepositoryChange) ledger.Repository 
 	}
 	if change.Integration != nil {
 		record.Integration = *change.Integration
+	}
+	if change.MergeAuthority != nil {
+		record.MergeAuthority = *change.MergeAuthority
 	}
 	return record
 }

@@ -9,14 +9,14 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const repositoryColumns = `id, remote, default_branch, base_branch, forge_binding, merge_method, integration, start_from`
+const repositoryColumns = `id, remote, default_branch, base_branch, forge_binding, merge_method, integration, start_from, merge_authority`
 
 var (
 	stmtInsertRepository = define("repository.insert",
 		`INSERT INTO repositories
-  (workspace_id, id, remote, default_branch, base_branch, forge_binding, merge_method, integration, start_from)
+  (workspace_id, id, remote, default_branch, base_branch, forge_binding, merge_method, integration, start_from, merge_authority)
 VALUES
-  (:workspace_id, :id, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :integration, :start_from)
+  (:workspace_id, :id, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :integration, :start_from, :merge_authority)
 ON CONFLICT DO NOTHING`)
 
 	stmtRepository = define("repository.get",
@@ -34,7 +34,7 @@ ON CONFLICT DO NOTHING`)
 	stmtRepositorySettings = define("repository.settings",
 		`UPDATE repositories
    SET base_branch = :base_branch, forge_binding = :forge_binding, merge_method = :merge_method,
-       integration = :integration, start_from = :start_from
+       integration = :integration, start_from = :start_from, merge_authority = :merge_authority
  WHERE workspace_id = :workspace_id AND id = :id`)
 )
 
@@ -51,10 +51,11 @@ func (t repositoryTx) scoped(p params) params {
 
 func scanRepository(row scanner) (ledger.Repository, error) {
 	var r ledger.Repository
-	var method, start string
+	var method, start, authority string
 	var integration int64
-	err := row.Scan(&r.ID, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &integration, &start)
+	err := row.Scan(&r.ID, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &integration, &start, &authority)
 	r.MergeMethod, r.StartFrom, r.Integration = ledger.MergeMethod(method), ledger.StartFrom(start), integration != 0
+	r.MergeAuthority = ledger.MergeAuthority(authority)
 	return r, err
 }
 
@@ -95,6 +96,7 @@ func repositoryParams(r ledger.Repository) params {
 	return params{
 		"id": r.ID, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
 		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "integration": integration, "start_from": string(r.StartFrom),
+		"merge_authority": string(r.Level()),
 	}
 }
 

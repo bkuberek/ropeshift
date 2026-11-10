@@ -25,6 +25,7 @@ var RepositoryChecks = []Check{
 	{"RB6", "a setting nobody offers is refused and changes nothing", checkRepositoryRefusesBadSettings},
 	{"RB7", "a repository record belongs to one workspace", checkRepositoryIsScoped},
 	{"RB9", "intake makes a repository's record from the facts its source gives, and a source with none makes none", checkIntakeRecordsTheRepository},
+	{"RB10", "a merge authority starts at person_merges, is a member's setting, and is one audited event", checkMergeAuthorityIsAMembersSetting},
 	{"RB8", "intake carries a work order's base to the work order, and a rebuild from events keeps it", checkIntakeCarriesAWorkOrdersBase},
 }
 
@@ -235,9 +236,9 @@ func checkRepositoryRefusesBadSettings(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	method, start := ledger.MergeMethod("fast-forward"), ledger.StartFrom("whenever")
+	method, start, level := ledger.MergeMethod("fast-forward"), ledger.StartFrom("whenever"), ledger.MergeAuthority("whenever")
 	for name, change := range map[string]control.RepositoryChange{
-		"a merge method": {MergeMethod: &method}, "a start": {StartFrom: &start},
+		"a merge method": {MergeMethod: &method}, "a start": {StartFrom: &start}, "a merge authority": {MergeAuthority: &level},
 		"a base with a dash": {Base: text("-rf")}, "a base with a space": {Base: text("a b")},
 	} {
 		if _, err := r.change(s, "repo-1", change, r.Actor); !errors.Is(err, ledger.ErrInvalidRepository) {
@@ -371,4 +372,51 @@ func (r *Rig) listRepositories(s ports.Store) ([]ledger.Repository, error) {
 		return err
 	})
 	return all, err
+}
+
+func checkMergeAuthorityIsAMembersSetting(r *Rig) error {
+	s := r.Store()
+	made, err := r.detect(s, "repo-1", "", "main")
+	if err != nil {
+		return err
+	}
+	if made.MergeAuthority != ledger.PersonMerges {
+		return Violatedf("a new record reads merge authority %q, want %q", made.MergeAuthority, ledger.PersonMerges)
+	}
+	level := ledger.ReviewApproves
+	for _, actor := range []ledger.Actor{
+		{Kind: ledger.ActorOrchestrator, ID: "worker-1"}, {Kind: ledger.ActorLane, ID: "lane-1"},
+		{Kind: ledger.ActorWorker, ID: "worker-1"}, {Kind: ledger.ActorSystem, ID: "review"},
+	} {
+		if _, err := r.change(s, "repo-1", control.RepositoryChange{MergeAuthority: &level}, actor); !errors.Is(err, workorders.ErrForbidden) {
+			return Violatedf("%s raising the merge authority: %v", actor.Kind, err)
+		}
+	}
+	if record, err := r.theRepository(s, "repo-1"); err != nil || record.MergeAuthority != ledger.PersonMerges {
+		return Violatedf("a refused caller left the record at %+v: %v", record, err)
+	}
+	changed, err := r.change(s, "repo-1", control.RepositoryChange{MergeAuthority: &level}, r.Actor)
+	if err != nil || changed.MergeAuthority != ledger.ReviewApproves {
+		return Violatedf("a member's change left %+v: %v", changed, err)
+	}
+	events, err := r.repositoryEvents(s, "repo-1")
+	if err != nil {
+		return err
+	}
+	last := events[len(events)-1]
+	var data struct {
+		Before ledger.Repository `json:"before"`
+		After  ledger.Repository `json:"after"`
+	}
+	if err := json.Unmarshal(last.Data, &data); err != nil {
+		return err
+	}
+	if last.Type != ledger.EventRepositoryChanged || last.Actor != r.Actor || data.Before.MergeAuthority != ledger.PersonMerges || data.After.MergeAuthority != ledger.ReviewApproves {
+		return Violatedf("the last event is %s from %+v, saying %q then %q", last.Type, last.Actor, data.Before.MergeAuthority, data.After.MergeAuthority)
+	}
+	refreshed, err := r.detect(s, "repo-1", "", "trunk")
+	if err != nil || refreshed.MergeAuthority != ledger.ReviewApproves {
+		return Violatedf("a later read left the merge authority at %q: %v", refreshed.MergeAuthority, err)
+	}
+	return nil
 }

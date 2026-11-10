@@ -27,6 +27,8 @@ type RepositoryChange struct {
 	MergeMethod *ledger.MergeMethod `json:"merge_method,omitempty"`
 	StartFrom   *ledger.StartFrom   `json:"start_from,omitempty"`
 	Integration *bool               `json:"integration,omitempty"`
+	// MergeAuthority is how much of each change the person decides after the review.
+	MergeAuthority *ledger.MergeAuthority `json:"merge_authority,omitempty"`
 }
 
 // ViewOf reads a record with the base it resolves to.
