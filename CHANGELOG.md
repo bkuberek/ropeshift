@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.0-alpha.8](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.7...v0.1.0-alpha.8) (2026-11-10)
+
+
+### Features
+
+* **api:** serve review agreement with each repository and in the measures ([bedc8c0](https://github.com/bkuberek/ropeshift/commit/bedc8c09409f672127c86eb636454150873d0483))
+* **api:** show a review's verdicts where a person decides ([a9c7404](https://github.com/bkuberek/ropeshift/commit/a9c7404c4a38e686d36a416a722ab43bd3c08ad7))
+* **cli:** print review agreement in repository show and measures ([4b48cdf](https://github.com/bkuberek/ropeshift/commit/4b48cdf81bf0c507b896f64fc579ecad01fb3253))
+* **control:** create a review when a change lane completes ([e5dc443](https://github.com/bkuberek/ropeshift/commit/e5dc443a1213512d64cf046a52f4735932ae1b7d))
+* **control:** record a calibration when a member decides on reviewed work ([70cd8db](https://github.com/bkuberek/ropeshift/commit/70cd8dbf457c47e2d53ac05fc1fda4058ec4efd3))
+* **control:** settle reviewed work from its verdicts ([ba58560](https://github.com/bkuberek/ropeshift/commit/ba58560c3281ea0e8e70204229009d60d06db357))
+* **lanes:** tell the next attempt why its work came back ([4d61289](https://github.com/bkuberek/ropeshift/commit/4d6128983fe5e02f8b84abebdf98c6253b98af16))
+* **mcp:** remove acceptance_record from the orchestrator ([1424a45](https://github.com/bkuberek/ropeshift/commit/1424a45add287f32ae25d226d0fc170370efa5b0))
+* **measures:** measure review agreement per workspace and repository ([a2ab677](https://github.com/bkuberek/ropeshift/commit/a2ab677fc1accd50ef6aac0182683ecd27748076))
+* **repository:** set the merge authority a member keeps ([483c0a9](https://github.com/bkuberek/ropeshift/commit/483c0a9f85896876a1a7cf3fd87b60d58e8b0dab))
+* **store:** keep review verdicts bound to their commit and lane ([b4185e5](https://github.com/bkuberek/ropeshift/commit/b4185e557f144fdb973f1252c4f56096cf30c70a))
+* **web:** show review agreement per repository on the operations page ([91a0a0a](https://github.com/bkuberek/ropeshift/commit/91a0a0a8e1a30290c54e2433153979b21f922116))
+* **worker:** give a review lane the diff it reviews ([ebfc32f](https://github.com/bkuberek/ropeshift/commit/ebfc32fd69b79221d38be766c3939444e651f8cc))
+* **workorders:** give a review a verdict per criterion ([7437e0f](https://github.com/bkuberek/ropeshift/commit/7437e0f8fe28c2d3aada29ad89c3f0ca93fbd741))
+
+
+### Bug Fixes
+
+* **control:** say what work waits for only while it waits ([a18bdeb](https://github.com/bkuberek/ropeshift/commit/a18bdeb49338f9b8c9760394c412de9e085299d2))
+* **worker:** brief a cleared session only after it is adopted, and keep the brief owed until it lands ([4ab9c4b](https://github.com/bkuberek/ropeshift/commit/4ab9c4b03d7646ea9ec279d8f21c2d712e3f8c95))
+* **worker:** leave a review's report to the control plane when it sent no criterion IDs ([f0b6d29](https://github.com/bkuberek/ropeshift/commit/f0b6d294396b0253edd5483105827c3e6539765b))
+* **worker:** park a headless lane at once when its gated call's peek was missed ([3b3ac2c](https://github.com/bkuberek/ropeshift/commit/3b3ac2cb95ae034d7978ea2cf6d4787201d941da))
+
 ## [0.1.0-alpha.7](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.6...v0.1.0-alpha.7) (2026-11-10)
 
 
