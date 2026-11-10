@@ -10,6 +10,9 @@ function docsPlan(view: Roadmap) {
   return view.goals.find((group) => group.goal?.title === "Ship solo mode")?.plans[0];
 }
 
+// doneShare is how much of a bar its done part fills.
+const doneShare = (bar: HTMLElement) => bar.querySelector<HTMLElement>(".bar-done")?.style.width;
+
 function serve(change: (view: Roadmap) => void) {
   const view = golden<Roadmap>("roadmap");
   change(view);
@@ -24,7 +27,7 @@ describe("the roadmap", () => {
     const plan = within(goal).getByRole("link", { name: "Write the docs" });
     expect(plan.getAttribute("href")).toMatch(/^\/plans\?plan=/);
     const progress = within(goal).getByRole("progressbar", { name: "Write the docs: 0 of 1 done" });
-    expect(progress.getAttribute("max")).toBe("1");
+    expect(progress.getAttribute("aria-valuemax")).toBe("1");
     expect(within(goal).getByText("0 of 1 done")).toBeTruthy();
     expect(within(goal).getByText("Running 1")).toBeTruthy();
   });
@@ -56,10 +59,33 @@ describe("the roadmap", () => {
     });
     openPage("/roadmap");
     const progress = await screen.findByRole("progressbar", { name: "Write the docs: 3 of 4 done" });
-    expect((progress as HTMLProgressElement).value).toBe(3);
+    expect(progress.getAttribute("aria-valuenow")).toBe("3");
     const goal = screen.getByRole("region", { name: "Ship solo mode" });
     expect(within(goal).getByText("Done 3")).toBeTruthy();
     expect(within(goal).getByText("Blocked 1")).toBeTruthy();
+  });
+
+  it("draws only the share that is done, so a plan with nothing done shows an empty bar", async () => {
+    serveViews();
+    openPage("/roadmap");
+    const bar = await screen.findByRole("progressbar", { name: "Write the docs: 0 of 1 done" });
+    expect(bar.getAttribute("aria-valuenow")).toBe("0");
+    expect(bar.getAttribute("aria-valuemin")).toBe("0");
+    expect(bar.getAttribute("aria-valuemax")).toBe("1");
+    expect(bar.getAttribute("aria-valuetext")).toBe("0 of 1 done");
+    expect(doneShare(bar)).toBe("0%");
+  });
+
+  it("draws the done share of a plan with some of its work done", async () => {
+    serve((view) => {
+      const plan = docsPlan(view);
+      if (plan) {
+        plan.total = 4;
+        plan.done = 3;
+      }
+    });
+    openPage("/roadmap");
+    expect(doneShare(await screen.findByRole("progressbar", { name: "Write the docs: 3 of 4 done" }))).toBe("75%");
   });
 
   it("says a plan has no work, and draws no bar for it", async () => {
@@ -104,8 +130,10 @@ describe("a plan's milestones and work", () => {
     expect(milestones[1]?.textContent).toContain("Waiting");
     expect(milestones[2]?.textContent).toContain("Not started");
     const progress = within(goal).getByRole("progressbar", { name: "Build the core: 1 of 2 done" });
-    expect((progress as HTMLProgressElement).value).toBe(1);
+    expect(progress.getAttribute("aria-valuenow")).toBe("1");
+    expect(doneShare(progress)).toBe("50%");
     expect(within(milestones[2] as HTMLElement).getByText("0 of 1 done")).toBeTruthy();
+    expect(doneShare(within(goal).getByRole("progressbar", { name: "Guide a newcomer: 0 of 1 done" }))).toBe("0%");
   });
 
   it("says which milestones a milestone waits for, and how it exits", async () => {
@@ -141,13 +169,29 @@ describe("a plan's milestones and work", () => {
     const goal = await factory();
     const path = within(goal).getByRole("list", { name: "Critical path" });
     expect(itemsOf(path).map((item) => item.textContent)).toEqual(["Build the planning core", "Build the approval page"]);
-    expect(within(goal).getByText("3 left on the critical path")).toBeTruthy();
     const steps = within(goal).getByRole("list", { name: "Work that can run at the same time" });
     const marked = [...steps.querySelectorAll(".layer-work-critical")].map((item) => item.querySelector(".layer-work-title")?.textContent);
     expect(marked).toEqual(["Build the planning core", "Build the approval page"]);
     for (const item of steps.querySelectorAll(".layer-work-critical")) {
       expect(item.textContent).toContain("On the critical path");
     }
+  });
+
+  it("counts the critical path's work orders and size points apart, and says what a size point is", async () => {
+    const goal = await factory();
+    expect(within(goal).getByText("2 work orders, 3 size points left on the critical path")).toBeTruthy();
+    expect(within(goal).getByText("A size point is what a work order's size counts for: small 1, medium 2, large 3.")).toBeTruthy();
+  });
+
+  it("counts one work order and one size point in the singular", async () => {
+    serve((view) => {
+      const plan = view.goals.find((group) => group.goal?.title === "Run the factory")?.plans[0];
+      if (plan) {
+        plan.critical_path = { work_orders: plan.critical_path.work_orders.slice(0, 1), weight: 1 };
+      }
+    });
+    openPage("/roadmap");
+    expect(await screen.findByText("1 work order, 1 size point left on the critical path")).toBeTruthy();
   });
 
   it("says when nothing is left on the critical path", async () => {
