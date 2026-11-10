@@ -99,3 +99,35 @@ func (r *Repo) Rename(from, to string) {
 	r.Git("mv", "--", from, to)
 	r.Git("commit", "--quiet", "-m", "move "+from)
 }
+
+// Advance adds an empty commit on top of a branch without checking the branch out, and returns it.
+// The branch moves and no working tree does, which is what a remote's branch does under a clone.
+func (r *Repo) Advance(branch string) string {
+	r.T.Helper()
+	tip := r.Git("rev-parse", "refs/heads/"+branch)
+	tree := r.Git("rev-parse", tip+"^{tree}")
+	commit := r.Git("commit-tree", tree, "-p", tip, "-m", "advance "+branch)
+	r.Git("update-ref", "refs/heads/"+branch, commit, tip)
+	return commit
+}
+
+// Branch points a new branch at a commit.
+func (r *Repo) Branch(name, at string) {
+	r.T.Helper()
+	r.Git("branch", name, at)
+}
+
+// Merge merges a branch into the checked-out one with a merge commit and returns the result.
+func (r *Repo) Merge(branch string) string {
+	r.T.Helper()
+	r.Git("merge", "--quiet", "--no-ff", "-m", "merge "+branch, branch)
+	return r.Git("rev-parse", "HEAD")
+}
+
+// Clone makes a repository beside this one that fetches from it, with this one as its origin.
+func (r *Repo) Clone(name string) *Repo {
+	r.T.Helper()
+	dir := filepath.Join(filepath.Dir(r.Dir), name)
+	r.Git("clone", "--quiet", r.Dir, dir)
+	return &Repo{T: r.T, Dir: dir, Home: r.Home}
+}
