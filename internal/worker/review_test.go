@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -30,6 +31,20 @@ func (r *laneRig) reviewOf(id string) workorders.WorkOrder {
 		r.t.Fatalf("reviews of %s: %+v, %v", id, found, err)
 	}
 	return found[0]
+}
+
+// judges is a review lane reporting that it completed, with a verdict on the criteria the rig's contract holds.
+func (r *laneRig) judges(verdicts ...workorders.CriterionVerdict) fake.DriverStep {
+	return fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		raw, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: verdicts})
+		if err != nil {
+			r.t.Error(err)
+			return
+		}
+		if _, err := r.journal.SaveReport(context.Background(), spec.Lane, raw); err != nil {
+			r.t.Error(err)
+		}
+	}}
 }
 
 func (r *laneRig) state(id string) workorders.State {
@@ -86,7 +101,9 @@ func TestAReviewLaneReadsTheDiffAtTheReviewedCommitAndLeavesNoBranch(t *testing.
 	}
 	r.driver.Play(fake.DriverScript{
 		SessionID: "session-review", Model: "resolved-model",
-		Turns: [][]fake.DriverStep{{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.1)}},
+		Turns: [][]fake.DriverStep{{{Bound: true}, r.judges(workorders.CriterionVerdict{
+			Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "retry.go adds the budget", Citations: []string{"retry.go:1"},
+		}), completed(0.1)}},
 	})
 	if err := r.subject.Converge(ctx); err != nil {
 		t.Fatal(err)
@@ -124,6 +141,21 @@ func TestAReviewLaneReadsTheDiffAtTheReviewedCommitAndLeavesNoBranch(t *testing.
 
 	if r.state(review.ID) != workorders.Done || r.state(r.id) != workorders.Acceptance {
 		t.Errorf("the review reads %s and the work %s", r.state(review.ID), r.state(r.id))
+	}
+	// The verdict it reported is on record, bound to the commit it read and to its own lane.
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		verdicts, err := tx.Evidence().Verdicts(r.id)
+		if err != nil {
+			return err
+		}
+		if len(verdicts) != 1 || verdicts[0].Criterion != "c1" || verdicts[0].Verdict != workorders.VerdictPass ||
+			verdicts[0].Commit != head || verdicts[0].Lane != "review-1" || verdicts[0].Review != review.ID {
+			t.Errorf("the verdicts on record read %+v, want one pass for c1 at %s from review-1", verdicts, head)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	// The ledger asks the worker to take the worktree away, and the next pass does.
 	if err := r.subject.Converge(ctx); err != nil {

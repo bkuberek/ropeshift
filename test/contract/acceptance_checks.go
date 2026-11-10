@@ -108,7 +108,8 @@ func (r *Rig) anotherAttempt(s ports.Store, id string, result workorders.LaneRes
 	return r.finishReviews(s, id)
 }
 
-// finishReviews runs every open review of a work order to a completed end.
+// finishReviews runs every open review of a work order to an end that judged nothing, so the work is left to
+// its evidence. A review that completes gives a verdict, and the checks of the verdicts speak for those.
 func (r *Rig) finishReviews(s ports.Store, id string) error {
 	open, err := r.reviewsOf(s, id)
 	if err != nil {
@@ -122,7 +123,7 @@ func (r *Rig) finishReviews(s ports.Store, id string) error {
 		if err != nil {
 			return err
 		}
-		if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker("a")); err != nil {
+		if err := r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeFailed, "the review judged nothing"), r.worker("a")); err != nil {
 			return err
 		}
 	}

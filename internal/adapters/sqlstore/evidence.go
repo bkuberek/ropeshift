@@ -33,13 +33,13 @@ ON CONFLICT (workspace_id, id) DO UPDATE SET status = :status, details_uri = :de
 	// tell it from a new one by the rows it changed.
 	stmtVerdictRecord = define("verdict.record",
 		`INSERT INTO review_verdicts
-  (workspace_id, review_id, work_order_id, attempt, commit_digest, lane_id, generation, fence, criterion_id, verdict, reasons, citations, created_at)
+  (workspace_id, review_id, work_order_id, attempt, commit_digest, lane_id, generation, fence, criterion_id, verdict, reasons, citations, max_rounds, created_at)
 VALUES
-  (:workspace_id, :review_id, :work_order_id, :attempt, :commit_digest, :lane_id, :generation, :fence, :criterion_id, :verdict, :reasons, :citations, :now)
+  (:workspace_id, :review_id, :work_order_id, :attempt, :commit_digest, :lane_id, :generation, :fence, :criterion_id, :verdict, :reasons, :citations, :max_rounds, :now)
 ON CONFLICT (workspace_id, review_id, criterion_id) DO NOTHING`)
 
 	stmtVerdictList = define("verdict.list",
-		`SELECT review_id, work_order_id, attempt, commit_digest, lane_id, generation, fence, criterion_id, verdict, reasons, citations, created_at
+		`SELECT review_id, work_order_id, attempt, commit_digest, lane_id, generation, fence, criterion_id, verdict, reasons, citations, max_rounds, created_at
   FROM review_verdicts
  WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id
  ORDER BY created_at, review_id, criterion_id`)
@@ -152,7 +152,7 @@ func (t evidenceTx) RecordVerdict(v workorders.Verdict) error {
 	n, err := t.exec(stmtVerdictRecord, params{
 		"workspace_id": string(t.scope), "review_id": v.Review, "work_order_id": v.WorkOrder, "attempt": v.Attempt,
 		"commit_digest": v.Commit, "lane_id": v.Lane, "generation": v.Generation, "fence": v.Fence, "criterion_id": v.Criterion,
-		"verdict": string(v.Verdict), "reasons": v.Reasons, "citations": string(citations), "now": now,
+		"verdict": string(v.Verdict), "reasons": v.Reasons, "citations": string(citations), "max_rounds": v.MaxRounds, "now": now,
 	})
 	if err != nil {
 		return err
@@ -212,7 +212,7 @@ func (t evidenceTx) Verdicts(workOrder string) ([]workorders.Verdict, error) {
 	for rows.Next() {
 		var v workorders.Verdict
 		var kind, citations string
-		if err := rows.Scan(&v.Review, &v.WorkOrder, &v.Attempt, &v.Commit, &v.Lane, &v.Generation, &v.Fence, &v.Criterion, &kind, &v.Reasons, &citations, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.Review, &v.WorkOrder, &v.Attempt, &v.Commit, &v.Lane, &v.Generation, &v.Fence, &v.Criterion, &kind, &v.Reasons, &citations, &v.MaxRounds, &v.CreatedAt); err != nil {
 			return nil, err
 		}
 		v.Verdict = workorders.VerdictKind(kind)

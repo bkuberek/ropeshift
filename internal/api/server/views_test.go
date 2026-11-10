@@ -553,7 +553,13 @@ func TestCompletedHoldsEveryWayWorkEnds(t *testing.T) {
 	view := readView[api.Completed](t, d, api.ViewCompleted, "")
 	got := map[string]api.CompletedWork{}
 	var order []string
+	var canceledReview bool
 	for _, item := range view.Items {
+		// A member who accepted work ended its open review, and the review stands here as work that ended too.
+		if item.WorkOrder.Kind == workorders.KindReview {
+			canceledReview = canceledReview || (item.WorkOrder.Reviews == "wo-done" && item.WorkOrder.State == workorders.Canceled)
+			continue
+		}
 		got[item.WorkOrder.ID] = item
 		order = append(order, item.WorkOrder.ID)
 		if item.Since == 0 {
@@ -572,6 +578,9 @@ func TestCompletedHoldsEveryWayWorkEnds(t *testing.T) {
 	}
 	if want := []string{"wo-done", "wo-canceled", "wo-failed", "wo-accept"}; !slices.Equal(order, want) {
 		t.Errorf("order %v, want the newest end first", order)
+	}
+	if !canceledReview {
+		t.Error("the review of the work a member accepted is not listed as canceled")
 	}
 }
 

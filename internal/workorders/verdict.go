@@ -115,7 +115,10 @@ type Verdict struct {
 	Lane       string `json:"lane_id"`
 	Generation int64  `json:"generation"`
 	Fence      int64  `json:"fence"`
-	CreatedAt  int64  `json:"created_at"`
+	// MaxRounds is the bound on review rounds the review lane's profile named when it ended, and zero
+	// when it named none.
+	MaxRounds int64 `json:"max_rounds,omitempty"`
+	CreatedAt int64 `json:"created_at"`
 }
 
 // Counted keeps the verdicts that speak for the attempt a work order is at and the commit it left. A

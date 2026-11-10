@@ -97,8 +97,11 @@ func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
 type LaneResult struct {
 	Report
 	// Branch and Head are the final artifact (D17): the branch a member merges, and its commit.
-	Branch           string  `json:"branch,omitempty"`
-	Head             string  `json:"head,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	Head   string `json:"head,omitempty"`
+	// MaxReviewRounds is the bound on review rounds the profile of the lane that ended named, which a
+	// review's verdicts are settled against. Zero names none, and the default holds.
+	MaxReviewRounds  int64   `json:"max_review_rounds,omitempty"`
 	CostUSD          float64 `json:"cost_usd,omitempty"`
 	SessionTotalUSD  float64 `json:"session_total_cost_usd,omitempty"`
 	UnknownCostTurns int64   `json:"unknown_cost_turns,omitempty"`

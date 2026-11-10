@@ -71,7 +71,7 @@
     },
     "work_in_progress": 6
   },
-  "revision": 316,
+  "revision": 318,
   "sources": [
     {
       "adapter": "fake",
@@ -99,14 +99,14 @@
   "work_orders": {
     "acceptance": 1,
     "blocked": 1,
-    "canceled": 1,
+    "canceled": 3,
     "contract_review": 4,
     "done": 2,
     "failed": 1,
     "intake": 1,
     "lapsed": 1,
     "parked": 1,
-    "ready": 5,
+    "ready": 3,
     "running": 5
   },
   "workers": 1,

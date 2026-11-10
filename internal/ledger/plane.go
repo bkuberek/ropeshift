@@ -157,6 +157,9 @@ type DesiredLease struct {
 	Title      string   `json:"title,omitempty"`
 	Statement  string   `json:"statement,omitempty"`
 	Criteria   []string `json:"criteria,omitempty"`
+	// CriterionIDs are the IDs of the criteria above, in the same order, so a worker can hold a review
+	// lane's report to them without taking the ID out of the text.
+	CriterionIDs []string `json:"criterion_ids,omitempty"`
 	// Contract and ContractVersion are the pin the lane works to, which holds across its
 	// generations whatever a later version of the contract says.
 	Contract        string `json:"contract,omitempty"`
@@ -191,6 +194,28 @@ type DesiredLease struct {
 	Review *DesiredReview `json:"review,omitempty"`
 	// Attempt is the work a `review` lane judges.
 	Attempt *DesiredAttempt `json:"attempt,omitempty"`
+	// Rework is why the work came back for this attempt, when it did.
+	Rework *DesiredRework `json:"rework,omitempty"`
+}
+
+// DesiredRework is why a work order's last attempt went back: the reason a member gave, or the review whose
+// failed criteria sent it, with each finding. The lane that takes the work next reads it in its brief, so it
+// does not rediscover what was wrong.
+type DesiredRework struct {
+	// Review is the review work order whose verdicts sent the work back. Empty for a member's own reason.
+	Review string `json:"review,omitempty"`
+	// Reason is the reason recorded with the move.
+	Reason string `json:"reason"`
+	// Findings are the failed criteria, each with the review's reasons and citations.
+	Findings []DesiredFinding `json:"findings,omitempty"`
+}
+
+// DesiredFinding is one failed criterion with what the review said of it.
+type DesiredFinding struct {
+	Criterion string   `json:"criterion"`
+	Text      string   `json:"text,omitempty"`
+	Reasons   string   `json:"reasons"`
+	Citations []string `json:"citations,omitempty"`
 }
 
 // DesiredAttempt is the work a `review` lane judges: one attempt of another work order, at the commit its

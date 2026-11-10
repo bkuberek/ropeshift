@@ -15,6 +15,7 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [],
         "state": "canceled",
         "work_order_id": "wo-canceled"
@@ -58,6 +59,7 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [
           {
             "artifact_id": "generated-2",
@@ -92,6 +94,39 @@
       }
     },
     {
+      "reason": "a member decided wo-done before this review ended",
+      "since": 1790000844001,
+      "standing": {
+        "artifacts": [],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "authority": "person_merges",
+        "checks": [],
+        "state": "canceled",
+        "work_order_id": "generated-5"
+      },
+      "work_order": {
+        "contract_id": "generated-6",
+        "contract_version": 1,
+        "id": "generated-5",
+        "kind": "review",
+        "max_attempts": 1,
+        "repository_id": "repository-1",
+        "reviews": "wo-done",
+        "reviews_fence": 2,
+        "size": "unknown",
+        "state": "canceled",
+        "title": "Review: Ship the first cut"
+      }
+    },
+    {
       "since": 1790000844001,
       "standing": {
         "artifacts": [
@@ -99,7 +134,7 @@
             "created_at": 1790000844001,
             "digest": "abc123",
             "fence": 2,
-            "id": "generated-5",
+            "id": "generated-7",
             "kind": "branch",
             "lane_id": "lane-wo-done",
             "uri": "lane/lane-wo-done"
@@ -107,7 +142,7 @@
           {
             "created_at": 1790000844001,
             "fence": 2,
-            "id": "generated-6",
+            "id": "generated-8",
             "kind": "report",
             "lane_id": "lane-wo-done",
             "uri": "javascript:alert(3)"
@@ -122,13 +157,14 @@
           ],
           "needs": "second_principal"
         },
+        "authority": "person_merges",
         "checks": [
           {
-            "artifact_id": "generated-5",
+            "artifact_id": "generated-7",
             "created_at": 1790000844001,
             "criterion_id": "c1",
             "fence": 2,
-            "id": "generated-7",
+            "id": "generated-9",
             "lane_id": "lane-wo-done",
             "name": "go test",
             "source": "lane",
@@ -136,11 +172,18 @@
             "work_order_id": "wo-done"
           }
         ],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-5",
+            "state": "canceled"
+          }
+        ],
         "state": "done",
         "work_order_id": "wo-done"
       },
       "work_order": {
-        "contract_id": "generated-8",
+        "contract_id": "generated-6",
         "contract_version": 1,
         "fence": 2,
         "id": "wo-done",
@@ -162,7 +205,7 @@
             "created_at": 1790000424001,
             "digest": "abc123",
             "fence": 2,
-            "id": "generated-9",
+            "id": "generated-10",
             "kind": "branch",
             "lane_id": "lane-wo-accept",
             "uri": "lane/lane-wo-accept"
@@ -177,12 +220,20 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-11",
+            "state": "ready"
+          }
+        ],
         "state": "acceptance",
         "work_order_id": "wo-accept"
       },
       "work_order": {
-        "contract_id": "generated-10",
+        "contract_id": "generated-12",
         "contract_version": 1,
         "fence": 2,
         "id": "wo-accept",
@@ -204,10 +255,10 @@
             "created_at": 1790000184000,
             "digest": "abc123",
             "fence": 2,
-            "id": "generated-11",
+            "id": "generated-13",
             "kind": "branch",
-            "lane_id": "lane-generated-12",
-            "uri": "lane/lane-generated-12"
+            "lane_id": "lane-generated-14",
+            "uri": "lane/lane-generated-14"
           }
         ],
         "assessment": {
@@ -219,15 +270,23 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-15",
+            "state": "canceled"
+          }
+        ],
         "state": "done",
-        "work_order_id": "generated-12"
+        "work_order_id": "generated-14"
       },
       "work_order": {
-        "contract_id": "generated-13",
+        "contract_id": "generated-16",
         "contract_version": 1,
         "fence": 2,
-        "id": "generated-12",
+        "id": "generated-14",
         "kind": "change",
         "repository_id": "memory",
         "rev": 1,
@@ -236,7 +295,39 @@
         "state": "done",
         "title": "Write the API client"
       }
+    },
+    {
+      "reason": "a member decided generated-14 before this review ended",
+      "since": 1790000184000,
+      "standing": {
+        "artifacts": [],
+        "assessment": {
+          "criteria": [
+            {
+              "criterion_id": "c1",
+              "standing": "member"
+            }
+          ],
+          "needs": "member"
+        },
+        "authority": "person_merges",
+        "checks": [],
+        "state": "canceled",
+        "work_order_id": "generated-15"
+      },
+      "work_order": {
+        "contract_id": "generated-16",
+        "contract_version": 1,
+        "id": "generated-15",
+        "kind": "review",
+        "repository_id": "memory",
+        "reviews": "generated-14",
+        "reviews_fence": 2,
+        "size": "large",
+        "state": "canceled",
+        "title": "Review: Write the API client"
+      }
     }
   ],
-  "revision": 316
+  "revision": 318
 }

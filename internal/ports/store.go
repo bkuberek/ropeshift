@@ -168,6 +168,8 @@ type WorkOrderReader interface {
 	HeldBy(worker string) ([]workorders.WorkOrder, error)
 	// Woken returns the work orders a wake made ready, each with a lane to resume.
 	Woken() ([]workorders.WorkOrder, error)
+	// ReviewsOf returns the reviews of one work order, oldest attempt first.
+	ReviewsOf(id string) ([]workorders.WorkOrder, error)
 	// ByContract returns the work orders of one contract.
 	ByContract(contract string) ([]workorders.WorkOrder, error)
 	// Expired lists the leases past their deadline at a time. A tick reads this
