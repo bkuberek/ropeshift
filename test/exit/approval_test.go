@@ -193,9 +193,10 @@ func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 }
 
 // A real hook waits on a real edit, and a link takes the place of its file while it waits. The input
-// is the same to the byte, so only where the call lands can show the decision is not about this
-// call: it is void, the hook denies, and the file a write would have reached through the link holds
-// what it held.
+// is the same to the byte, so only where the call lands can show the request is not about this call.
+// The hook's next look finds that before anyone decides: it denies, and the request closes as void in
+// the same step. A member who then approves it is told it is closed, and the file a write would have
+// reached through the link holds what it held.
 func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 	in := newInstall(t)
 	id, repo, d := in.runningLane("lane-edits-a-file", "[lifecycle]\napproval_wait = \"60s\"\nhandoff_timeout = \"2s\"\nmax_restarts = 0\n", "docs/notes.md")
@@ -216,8 +217,6 @@ func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 	if err := os.Symlink(secret, notes); err != nil {
 		t.Fatal(err)
 	}
-	in.must("approval", "approve", a.ID, "--digest", a.SubjectDigest)
-	in.waitFor("the decision to void", func() bool { return in.approval(a.ID).State == authority.ApprovalVoid })
 	dir := doubles.BinDir(in.path)
 	in.waitFor("the hook's denial", func() bool {
 		_, err := os.Stat(filepath.Join(dir, "denied.log"))
@@ -226,6 +225,14 @@ func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 	if denied := logged(t, dir, "denied"); len(denied) != 1 || denied[0] != lanes.ReasonRequestClosed {
 		t.Errorf("denied %q", denied)
 	}
+	in.waitFor("the request to void", func() bool { return in.approval(a.ID).State == authority.ApprovalVoid })
+	if closed := in.approval(a.ID); closed.Channel == authority.ChannelTerminal || closed.DecidedBy != "" {
+		t.Errorf("request %+v", closed)
+	}
+	code, _, stderr := in.run("approval", "approve", a.ID, "--digest", a.SubjectDigest)
+	if code == 0 || !strings.Contains(stderr, "closed") {
+		t.Errorf("a member approved a request whose call moved: exit %d, %s", code, stderr)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "ran.log")); err == nil {
 		t.Error("the edit ran on a decision about another file")
 	}
@@ -233,6 +240,9 @@ func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 		t.Errorf("the file behind the link reads %q: %v", kept, err)
 	}
 	in.waitFor("the lane's outcome, so its session ends with it", func() bool { return in.show(id).State == workorders.Acceptance })
+	if rows := in.approvals(); len(rows) != 1 || rows[0].State != authority.ApprovalVoid {
+		t.Errorf("requests %+v", rows)
+	}
 }
 
 // TestExitE7DigestVoid holds a decision to what its reviewer saw, across a park and a resume: a lane
