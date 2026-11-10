@@ -38,7 +38,7 @@ func TestAPlanningBriefShowsEveryFormat(t *testing.T) {
 	for _, want := range []string{
 		"[[decision]]", "[[exit_criteria]]", "[[work_orders]]", "[[requirement]]", "assets", "depends_on", "shared", "uses", "documents",
 		"kind:id", "binds nothing until", "no requirement", "version",
-		"is not a milestone of its plan", "marked shared", "form a cycle", "wait for",
+		"is not a milestone of its plan", "marked shared", "form a cycle", "wait for", "every contract of it names one",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("the brief says nothing of %q", want)

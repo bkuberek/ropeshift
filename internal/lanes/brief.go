@@ -55,6 +55,8 @@ func planningNotice() string {
 		"- Every document, milestone, and contract names its plan with plan, and the plan lists every document it holds in " +
 		"documents. Write the plan file too: a file that names a plan nobody wrote is a problem, and intake records nothing from it. " +
 		"A contract with no plan gets a plan of its own.\n" +
+		"- When a plan has milestones, every contract of it names one with milestone; a contract in no milestone is a problem and " +
+		"records nothing. A plan with no milestones may leave milestone out.\n" +
 		"- A contract's milestone must be a milestone of its plan, and each contract in uses must be a contract of the same plan " +
 		"that is marked shared with shared = true. A milestone's depends_on must name milestones of its plan. A reference that is not " +
 		"a milestone of its plan, or a contract that is not marked shared, is a problem, and intake records nothing from that file.\n" +

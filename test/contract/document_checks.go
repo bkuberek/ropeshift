@@ -614,7 +614,10 @@ func checkDocumentBatchOrder(r *Rig) error {
 	source.Write("b-spec.md", []byte(DocumentText("spec", "checkout-api", "Checkout API", documentsPlan, "The calls.")))
 	source.Write("c-plan.md", []byte(PlanText(documentsPlan, "Payments v2", "")))
 	source.Write("d-requirements.md", []byte(requirementsOf("payments", documentsPlan, "PAY-12")))
-	source.Write("e-contract.md", []byte(citingFor("alpha", documentsPlan, "One.", "PAY-12", "spec:checkout-api", "milestone:m1", "requirements:payments")))
+	// The plan has a milestone, so the contract sits in one.
+	inMilestone := strings.Replace(citingFor("alpha", documentsPlan, "One.", "PAY-12", "spec:checkout-api", "milestone:m1", "requirements:payments"),
+		"plan = \""+documentsPlan+"\"\n", "plan = \""+documentsPlan+"\"\nmilestone = \"m1\"\n", 1)
+	source.Write("e-contract.md", []byte(inMilestone))
 	report, err := r.intake(s, source)
 	if err != nil {
 		return err

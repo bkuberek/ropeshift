@@ -33,6 +33,7 @@ var MilestoneChecks = []Check{
 	{"ML15", "a poll that changes nothing writes nothing, even when the source moved", checkEdgesAreQuiet},
 	{"ML16", "ready work that gains a dependency goes back to review, and started work is left alone", checkReadyWorkGainingADependency},
 	{"ML17", "ready work stays ready when the work it gains a dependency on is done", checkReadyWorkKeepsADoneDependency},
+	{"ML18", "a contract in no milestone is a problem when its plan has milestones, and is fine when it has none", checkMilestoneRequired},
 }
 
 const milestonePlan = "launch"
@@ -526,7 +527,9 @@ func checkMilestoneEdges(r *Rig) error {
 	source.Write("a.md", []byte(placedContract{ID: "a", Plan: milestonePlan, Milestone: "m1", Orders: []orderIn{{ID: "a1"}, {ID: "a2"}}}.text()))
 	source.Write("b.md", []byte(placedContract{ID: "b", Plan: milestonePlan, Milestone: "m1", Orders: []orderIn{{ID: "b1"}}}.text()))
 	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Orders: []orderIn{{ID: "c1"}, {ID: "c2"}}}.text()))
-	source.Write("d.md", []byte(placedContract{ID: "d", Plan: milestonePlan, Orders: []orderIn{{ID: "d1"}}}.text()))
+	// A milestone that waits for nothing and that nothing waits for: its work stays out of the edges.
+	source.Write("m3.md", []byte(milestoneOf("m3", milestonePlan, 3)))
+	source.Write("d.md", []byte(placedContract{ID: "d", Plan: milestonePlan, Milestone: "m3", Orders: []orderIn{{ID: "d1"}}}.text()))
 	report, err := r.intake(s, source)
 	if err != nil {
 		return err
@@ -714,8 +717,10 @@ func checkEdgesFollowThePlan(r *Rig) error {
 	if err := wantEdges(r, s, "c1 -> a1 [blocking]", "c1 -> a1 [milestone]", "c1 -> a1 [shared_contract]"); err != nil {
 		return err
 	}
-	// The contract leaves its milestone, and its edge to the milestone goes with it.
-	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Uses: []string{"a"}, Orders: []orderIn{{ID: "c1", DependsOn: []string{"a1"}}}}.text()))
+	// The contract moves to a milestone that waits for nothing, and its edge to the old milestone's
+	// dependency goes with it.
+	source.Write("m3.md", []byte(milestoneOf("m3", milestonePlan, 3)))
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m3", Uses: []string{"a"}, Orders: []orderIn{{ID: "c1", DependsOn: []string{"a1"}}}}.text()))
 	if _, err := r.intake(s, source); err != nil {
 		return err
 	}
@@ -859,6 +864,49 @@ func checkReadyWorkKeepsADoneDependency(r *Rig) error {
 	}
 	if kept, err := r.stateOfTitled(s, "c1"); err != nil || kept.State != workorders.Ready {
 		return Violatedf("c1 gained a dependency on work that is done and is %+v: %v", kept, err)
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkMilestoneRequired(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("placed.md", []byte(placedContract{ID: "placed", Plan: milestonePlan, Milestone: "m1"}.text()))
+	source.Write("bare.md", []byte(placedContract{ID: "bare", Plan: milestonePlan}.text()))
+	// A plan with no milestones keeps its contracts as earlier files wrote them.
+	source.Write("free-plan.md", []byte(PlanText("free", "Free", "")))
+	source.Write("free.md", []byte(placedContract{ID: "free", Plan: "free"}.text()))
+	// A contract that names no plan has a plan of its own, with no milestones.
+	source.Write("alone.md", []byte(placedContract{ID: "alone"}.text()))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Versions != 3 || len(report.Problems) != 1 {
+		return Violatedf("report %+v", report)
+	}
+	if err := problemsMention(report.Problems, "bare.md", "bare", "milestone", milestonePlan); err != nil {
+		return err
+	}
+	if err := r.holdsNothingFrom(s, "bare"); err != nil {
+		return err
+	}
+	// The plan's milestone is in the ledger and not in this read, and the plan still has it.
+	source.Write("m1.md", []byte("# Prose, not a milestone any more\n"))
+	report, err = r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Versions != 0 || len(report.Problems) != 1 {
+		return Violatedf("with the milestone file gone %+v", report)
+	}
+	// Naming a milestone of the plan fixes it.
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("bare.md", []byte(placedContract{ID: "bare", Plan: milestonePlan, Milestone: "m1"}.text()))
+	if report, err = r.intake(s, source); err != nil || len(report.Problems) != 0 || report.Versions != 1 {
+		return Violatedf("after the fix %+v: %v", report, err)
 	}
 	return r.CheckPlanning(s)
 }

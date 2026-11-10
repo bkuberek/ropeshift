@@ -50,8 +50,7 @@ func roadmapContract(id, milestone string, shared bool, uses []string, orders ..
 //	build: client (shared) has c1 (large); core uses client and has k1 (medium) and k2 (small)
 //	ship, after build: ui has u1 (small)
 //	polish, after ship: no contract yet
-//
-// and docs, in no milestone, has d1.
+//	extras, which waits for nothing: docs has d1
 func launchDaemon(t *testing.T) *apitest.Daemon {
 	t.Helper()
 	daemon := apitest.Start(t)
@@ -60,10 +59,11 @@ func launchDaemon(t *testing.T) *apitest.Daemon {
 	source.Write("m-build.md", []byte(milestoneFile("build", "1")))
 	source.Write("m-ship.md", []byte(milestoneFile("ship", "2", "build")))
 	source.Write("m-polish.md", []byte(milestoneFile("polish", "3", "ship")))
+	source.Write("m-extras.md", []byte(milestoneFile("extras", "4")))
 	source.Write("client.md", []byte(roadmapContract("client", "build", true, nil, "c1:large")))
 	source.Write("core.md", []byte(roadmapContract("core", "build", false, []string{"client"}, "k1:medium", "k2:small")))
 	source.Write("ui.md", []byte(roadmapContract("ui", "ship", false, nil, "u1:small")))
-	source.Write("docs.md", []byte(roadmapContract("docs", "", false, nil, "d1")))
+	source.Write("docs.md", []byte(roadmapContract("docs", "extras", false, nil, "d1")))
 	report, err := control.NewIntake(daemon.Store).Poll(t.Context(), apitest.Scope, source)
 	if err != nil || len(report.Problems) != 0 {
 		t.Fatalf("report %+v: %v", report, err)
@@ -154,6 +154,7 @@ func TestRoadmapListsMilestonesInPriorityOrderWithTheirProgress(t *testing.T) {
 		{id: "build", state: api.MilestoneNotStarted, priority: 1, total: 3},
 		{id: "ship", state: api.MilestoneWaiting, priority: 2, dependsOn: []string{"build"}, total: 1},
 		{id: "polish", state: api.MilestoneWaiting, priority: 3, dependsOn: []string{"ship"}},
+		{id: "extras", state: api.MilestoneNotStarted, priority: 4, total: 1},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("milestones %+v", got)

@@ -58,6 +58,21 @@ func (b *batchRefs) milestoneHeld(planned ports.PlanningReader, id, planKey, pla
 	return document.PlanID == planID, nil
 }
 
+// planHasMilestones says a plan holds at least one milestone, in the batch or in the ledger. A plan
+// that has none takes contracts in no milestone, as the files written before milestones did.
+func (b *batchRefs) planHasMilestones(planned ports.PlanningReader, planKey, planID string) (bool, error) {
+	for _, plan := range b.milestones {
+		if plan == planKey {
+			return true, nil
+		}
+	}
+	documents, err := planned.PlanDocuments(planID)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(documents, func(d planning.DocumentRecord) bool { return d.Kind == planning.FileMilestone }), nil
+}
+
 // contractHeld says a plan holds a contract, and whether that contract is shared. A contract of
 // another plan is not held. The key names the source the referring file came from, because a native ID
 // belongs to one source.
@@ -83,7 +98,7 @@ func (b *batchRefs) contractHeld(planned ports.PlanningReader, key ledger.Extern
 // returns what is wrong, and nothing when the file sits where it says.
 func (r *itemRecorder) placement(planID string) (string, error) {
 	file := r.item.Contract
-	if file.Milestone == "" && len(file.Uses) == 0 {
+	if file.Plan == "" && file.Milestone == "" && len(file.Uses) == 0 {
 		return "", nil
 	}
 	if file.Plan == "" {
@@ -97,7 +112,15 @@ func (r *itemRecorder) placement(planID string) (string, error) {
 		return fmt.Sprintf("%v: contract %s %s, and names no plan to find them in", planning.ErrBadFile, file.ID, strings.Join(places, " and ")), nil
 	}
 	var problems []string
-	if file.Milestone != "" {
+	if file.Milestone == "" {
+		milestones, err := r.refs.planHasMilestones(r.tx.Planning(), file.Plan, planID)
+		if err != nil {
+			return "", err
+		}
+		if milestones {
+			problems = append(problems, fmt.Sprintf("contract %s is in no milestone, and %s has milestones, so it must name one with milestone", file.ID, planNamed(file.Plan)))
+		}
+	} else {
 		held, err := r.refs.milestoneHeld(r.tx.Planning(), file.Milestone, file.Plan, planID)
 		if err != nil {
 			return "", err
