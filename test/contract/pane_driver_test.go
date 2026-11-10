@@ -552,6 +552,7 @@ func (r *paneRig) hookAnswer(policy string) string {
 // a detach takes it away, and the pane and its session go on.
 func TestAPlanningLanesHookSeesAPersonAttachToItsPane(t *testing.T) {
 	r := newPaneRig(t, "pane-two-turns")
+	r.spec.Planning = true
 	s := r.start()
 	s.until(ports.EventTurnEnded)
 	policy := filepath.Join(r.spec.ConfigDir, "policy-1.json")
@@ -563,16 +564,8 @@ func TestAPlanningLanesHookSeesAPersonAttachToItsPane(t *testing.T) {
 	if err := json.Unmarshal(raw, &compiled); err != nil {
 		t.Fatal(err)
 	}
-	if compiled.AttachedMarker != filepath.Join(r.spec.ConfigDir, "attached-1") {
-		t.Fatalf("the compiled policy names marker %q", compiled.AttachedMarker)
-	}
-	// The driver does not yet tell a planning lane apart, so the test makes the policy one.
-	compiled.QuestionTool = lanes.QuestionToolTerminalIfAttached
-	if raw, err = json.Marshal(compiled); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(policy, raw, 0o600); err != nil {
-		t.Fatal(err)
+	if compiled.QuestionTool != lanes.QuestionToolTerminalIfAttached || compiled.AttachedMarker != filepath.Join(r.spec.ConfigDir, "attached-1") {
+		t.Fatalf("the compiled policy of a planning lane reads %q and marker %q", compiled.QuestionTool, compiled.AttachedMarker)
 	}
 	denied := func() bool { return strings.Contains(r.hookAnswer(policy), `"permissionDecision":"deny"`) }
 	eventually := func(what string, ok func() bool) {

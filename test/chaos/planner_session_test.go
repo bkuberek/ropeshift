@@ -4,6 +4,7 @@ package chaos
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -163,6 +164,16 @@ func (p *plannerRun) markerFor(lane string) (attached bool) {
 	return err == nil && lanes.Attached(info.ModTime(), time.Now())
 }
 
+// policyOf reads the policy file the lane's hook reads.
+func (p *plannerRun) policyOf(lane string) (lanes.DenyPolicy, error) {
+	var policy lanes.DenyPolicy
+	raw, err := os.ReadFile(filepath.Join(p.paths.StateDir, "lanes", lane, "policy-1.json"))
+	if err != nil {
+		return policy, err
+	}
+	return policy, json.Unmarshal(raw, &policy)
+}
+
 // marked waits until the marker says whether a person is attached.
 func (p *plannerRun) marked(lane string, attached bool) error {
 	what := "no marker"
@@ -195,11 +206,16 @@ func TestAPlanningSessionSurvivesADetachAndAWorkerRestart(t *testing.T) {
 	if err := started.sees("fakeclaude"); err != nil {
 		t.Fatalf("%v: %s", err, p.stderr.String())
 	}
-	lanes, err := p.client.Lanes(ctx)
-	if err != nil || len(lanes) != 1 {
-		t.Fatalf("lanes %v: %v", lanes, err)
+	views, err := p.client.Lanes(ctx)
+	if err != nil || len(views) != 1 {
+		t.Fatalf("lanes %v: %v", views, err)
 	}
-	lane := lanes[0].ID
+	lane := views[0].ID
+	// The worker told the driver this lane is a planner, so its hook leaves the question tool to the
+	// terminal while a person is attached.
+	if policy, err := p.policyOf(lane); err != nil || policy.QuestionTool != lanes.QuestionToolTerminalIfAttached {
+		t.Fatalf("the planning lane's policy reads %q: %v", policy.QuestionTool, err)
+	}
 	if err := p.marked(lane, true); err != nil {
 		t.Fatalf("while a person was attached: %v", err)
 	}

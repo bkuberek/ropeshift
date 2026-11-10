@@ -53,6 +53,27 @@ func TestAPlanningLaneRunsAsAPlanner(t *testing.T) {
 	}
 }
 
+// The driver compiles a lane's policy from its spec, so the spec has to say the lane is a planner. The
+// worker reads that from the kind of the work order its lease names, as it does for the role.
+func TestAPlanningLanesSessionIsToldItIsPlanning(t *testing.T) {
+	r := newPlanningRig(t, func(*fake.AgentDriver) {})
+	r.dispatched()
+	r.runWith()
+	if specs := r.driver.Specs(); len(specs) != 1 || !specs[0].Planning {
+		t.Errorf("sessions %+v, want one that is planning", specs)
+	}
+}
+
+// Any other lane's session is not planning, so a question tool call in it is refused as it always was.
+func TestALaneThatIsNoPlanIsNotToldItIsPlanning(t *testing.T) {
+	r := newLaneRigOn(t, func(*fake.AgentDriver) {})
+	r.dispatched()
+	r.runWith()
+	if specs := r.driver.Specs(); len(specs) != 1 || specs[0].Planning {
+		t.Errorf("sessions %+v, want one that is not planning", specs)
+	}
+}
+
 // A planning lane runs where a person can attach, whatever the sign-in and the profile say, because a
 // person is present by construction (ADR-0018).
 func TestAPlanningLaneAlwaysRunsInAPane(t *testing.T) {

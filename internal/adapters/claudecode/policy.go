@@ -91,12 +91,17 @@ func holdPolicy(path, reason string) error {
 }
 
 // questionTool is what the agent's own question tool becomes. Only `-p` honors `defer`, so an
-// interactive session is denied and told to use `ask`.
+// interactive session is denied and told to use `ask`. A planning lane's person answers in the
+// conversation, so while one is attached the tool is left to the terminal, and the denial stands for
+// the rest of the time.
 func questionTool(spec ports.SessionSpec) string {
-	if spec.RunMode == ports.RunModeInteractive {
-		return lanes.QuestionToolDeny
+	switch {
+	case spec.RunMode != ports.RunModeInteractive:
+		return lanes.QuestionToolDefer
+	case spec.Planning:
+		return lanes.QuestionToolTerminalIfAttached
 	}
-	return lanes.QuestionToolDefer
+	return lanes.QuestionToolDeny
 }
 
 // markerPath is the file a worker touches while a person is attached to a generation's pane. It sits

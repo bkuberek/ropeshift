@@ -134,6 +134,9 @@ type SessionSpec struct {
 	TempDir string
 	// RunMode is RunModeHeadless or RunModeInteractive. Empty means headless.
 	RunMode string
+	// Planning says the lane runs a `plan` work order, whose person answers its questions in the
+	// conversation. A driver leaves the agent's own question tool to an attached terminal for it.
+	Planning bool
 	// ReadyTimeout bounds a checked start. Zero takes the driver's default.
 	ReadyTimeout time.Duration
 	// DefaultBranch is the repository's own, which the generation's policy guards.
