@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.0-alpha.5](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.4...v0.1.0-alpha.5) (2026-11-10)
+
+
+### Features
+
+* **api:** show milestones, layers, and the critical path on the roadmap ([5c5f409](https://github.com/bkuberek/ropeshift/commit/5c5f409aa8c24349e652874567e25958d24486a3))
+* **api:** show plan approvals and unreviewed contracts in Needs you ([f5b1f56](https://github.com/bkuberek/ropeshift/commit/f5b1f568bad73409793f28d85b8ad7095d653ccc))
+* **authority:** add plan approvals that only a member decides ([5a37f09](https://github.com/bkuberek/ropeshift/commit/5a37f098bb23629a4049b4e19ed16c9e4a70690b))
+* **cli:** approve a plan ([6c53e36](https://github.com/bkuberek/ropeshift/commit/6c53e366f60afc7d87bc0bd05c345afa2ff39123))
+* **control:** approve a plan in one step, deciding its drafts and passing the review of the work it covers ([29c6ded](https://github.com/bkuberek/ropeshift/commit/29c6ded000ee440b94fe105ad796cb23c87115d8))
+* **control:** ask a member to approve a planning lane's branch before anyone accepts it ([2d120fb](https://github.com/bkuberek/ropeshift/commit/2d120fb9618343fcd8a46dea8b46c9f4e59e7a1a))
+* **control:** make a plan version when the plan digest changes and ask a member to approve it ([04095e5](https://github.com/bkuberek/ropeshift/commit/04095e521468efd0e000758a712811a17e6eea3a))
+* **intake:** expand milestone and shared-contract dependencies ([b2e575a](https://github.com/bkuberek/ropeshift/commit/b2e575aa3530ce890507661fb5d962b740c3f3e5))
+* **intake:** refuse a plan version with a dependency cycle ([1eb1730](https://github.com/bkuberek/ropeshift/commit/1eb1730cbd037b1d96541f4a869e0b676c924992))
+* **intake:** require a milestone when the plan has milestones ([240c633](https://github.com/bkuberek/ropeshift/commit/240c6338193247a69159237c1a7353ce30609115))
+* **intake:** resolve milestones and shared contracts within a plan ([3c925a6](https://github.com/bkuberek/ropeshift/commit/3c925a6567a6df8899541bb7588d70cd5c6c3414))
+* **lanes:** tell a planning lane how its plan is approved ([ee99fce](https://github.com/bkuberek/ropeshift/commit/ee99fce53317516358f45f88cf1a06e44451aebe))
+* **planning:** compute dependency layers, cycles, and the critical path ([8664535](https://github.com/bkuberek/ropeshift/commit/86645357f32a1766ff7a3bde98709311338454ca))
+* **planning:** digest a plan over every record that names it ([208cc67](https://github.com/bkuberek/ropeshift/commit/208cc672575546c9bdc36d2a5df212f5c59642f4))
+* **top:** name a plan that waits for approval and a contract that waits for review ([cd52ffc](https://github.com/bkuberek/ropeshift/commit/cd52ffcb4b4978d3bb40401c5b2687850f6e50fa))
+
+
+### Bug Fixes
+
+* **intake:** hold ready work back when it gains a dependency ([b395515](https://github.com/bkuberek/ropeshift/commit/b395515af1f1683c3b0304ed67501e1addf58b80))
+* **intake:** name the milestones of no plan in a cycle problem ([d1c7f3d](https://github.com/bkuberek/ropeshift/commit/d1c7f3d9544a1c56ff38769673d54f27f1d93762))
+* **planning:** leave canceled work off the critical path weight ([b0305b1](https://github.com/bkuberek/ropeshift/commit/b0305b13714b3ae4a2c4db65a5dd2a51c839657e))
+
 ## [0.1.0-alpha.4](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.3...v0.1.0-alpha.4) (2026-11-10)
 
 
