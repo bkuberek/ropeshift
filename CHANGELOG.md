@@ -14,6 +14,12 @@
 * **web:** show document versions, review state, and requirement traceability ([4bff460](https://github.com/bkuberek/ropeshift/commit/4bff460bedcb18dc15a8e7f3a8cc5152d1144a17))
 * **web:** show milestones, parallel work, and the critical path on the roadmap ([d70bac8](https://github.com/bkuberek/ropeshift/commit/d70bac878cc50c7e4a1c4e991f6d0e3bef6357de))
 
+### Notes
+
+* The planning session is in the web UI too. Open a lane's page to watch its pane and type into it, with a field for lines and buttons for Enter, Escape, Tab, Backspace, the arrows, Ctrl-C, and Ctrl-D. It follows the lane across a park or a restart, and it shows the same conversation as `ropeshift lane attach` in a terminal. `ropeshift plan start` prints the page's address. A web viewer does not yet count as attached, so with only the page open the planning agent's questions go to Needs you.
+* Needs you can approve a plan, showing what changed since the last approved version and the draft decisions, and can pass or send back a contract review.
+* The roadmap shows each plan's milestones with progress, the work that can run at the same time, and the critical path. Documents show their versions and whether a plan approval covers them, and each requirement traces to the criteria and work that serve it.
+
 ## [0.1.0-alpha.5](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.4...v0.1.0-alpha.5) (2026-11-10)
 
 
