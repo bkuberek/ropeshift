@@ -431,6 +431,25 @@ export type Durations = { count: number; median_ms: number | null; p95_ms: numbe
 
 export type Cost = { total_usd: number; done: number; per_done_usd: number | null; lower_bound: boolean };
 
+// How a member's decisions stood against the review agent's verdicts over one period. Agreement is evidence,
+// and nothing in it changes a repository's merge authority.
+export type Agreement = {
+  decisions: number;
+  agreed: number;
+  disagreed: number;
+  unknown: number;
+  agreement_rate: Ratio;
+  approvals_overturned: number;
+  later_defects: number;
+  failures_overridden: number;
+};
+
+export type AgreementPeriods = { last_30_days: Agreement; all_time: Agreement };
+
+export type RepositoryAgreement = AgreementPeriods & { repository_id: string; merge_authority: string };
+
+export type ReviewAgreement = { workspace: AgreementPeriods; repositories: RepositoryAgreement[] };
+
 export type MeasureReport = {
   window: { name: string; from: number; to: number };
   interruptions: number;
@@ -447,6 +466,7 @@ export type MeasureReport = {
   intake_to_done: Durations;
   work_in_progress: number;
   cost_per_outcome: Record<string, Cost>;
+  review_agreement: ReviewAgreement;
 };
 
 export type Route = { method: string; pattern: string; command: string };

@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 // RepositoryView is a repository's record as a client reads it.
@@ -13,6 +14,9 @@ type RepositoryView struct {
 	ledger.Repository
 	// Base is the branch lanes start from: the one a member named, or else the default branch.
 	Base string `json:"base,omitempty"`
+	// ReviewAgreement is how this member's decisions stood against the review agent's verdicts here, over
+	// the last 30 days and over all time. The level above is the one in force, and nothing here changes it.
+	ReviewAgreement measures.AgreementPeriods `json:"review_agreement"`
 }
 
 // RepositoryList is every repository the workspace keeps a record of.
@@ -31,9 +35,16 @@ type RepositoryChange struct {
 	MergeAuthority *ledger.MergeAuthority `json:"merge_authority,omitempty"`
 }
 
-// ViewOf reads a record with the base it resolves to.
-func ViewOf(record ledger.Repository) RepositoryView {
-	return RepositoryView{Repository: record, Base: record.Base()}
+// ViewOf reads a record with the base it resolves to, and the review agreement of its repository when the
+// workspace has any to give.
+func ViewOf(record ledger.Repository, agreement measures.ReviewAgreement) RepositoryView {
+	view := RepositoryView{Repository: record, Base: record.Base()}
+	for _, repo := range agreement.Repositories {
+		if repo.Repository == record.ID {
+			view.ReviewAgreement = repo.AgreementPeriods
+		}
+	}
+	return view
 }
 
 // Repositories lists the records.

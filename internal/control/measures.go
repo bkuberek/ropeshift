@@ -93,7 +93,47 @@ func HistoryIn(tx ports.ReadTx) (measures.History, error) {
 	for _, e := range events {
 		h.read(e)
 	}
-	return h.history, nil
+	h.history.Repositories, h.history.Calibrations, err = agreementFacts(tx)
+	return h.history, err
+}
+
+// agreementFacts reads what review agreement needs from the records themselves: each calibration a member's
+// decision left, and the merge authority each repository holds now.
+func agreementFacts(tx ports.ReadTx) ([]measures.RepositoryFacts, []measures.CalibrationFacts, error) {
+	calibrations, err := tx.Evidence().Calibrations()
+	if err != nil {
+		return nil, nil, err
+	}
+	var facts []measures.CalibrationFacts
+	for _, c := range calibrations {
+		facts = append(facts, measures.CalibrationFacts{
+			At: c.CreatedAt, Repository: c.Repository, Outcome: string(c.Outcome), Decision: string(c.Decision),
+			Agreement: string(c.Agreement), Source: string(c.Source),
+		})
+	}
+	records, err := tx.Repositories().Repositories()
+	if err != nil {
+		return nil, nil, err
+	}
+	var repositories []measures.RepositoryFacts
+	for _, repo := range records {
+		repositories = append(repositories, measures.RepositoryFacts{ID: repo.ID, MergeAuthority: string(repo.Level())})
+	}
+	return repositories, facts, nil
+}
+
+// ReviewAgreementIn reads review agreement as of now inside a read the caller holds, without the event log.
+// It is evidence about the review agent, and it never feeds a merge authority level (FR-CAL-3).
+func ReviewAgreementIn(tx ports.ReadTx) (measures.ReviewAgreement, error) {
+	now, err := tx.Now()
+	if err != nil {
+		return measures.ReviewAgreement{}, err
+	}
+	repositories, calibrations, err := agreementFacts(tx)
+	if err != nil {
+		return measures.ReviewAgreement{}, err
+	}
+	return measures.ReviewAgreementAt(repositories, calibrations, now+1), nil
 }
 
 func (h *historian) interrupted(e ledger.Event, kind, subject string) {

@@ -85,6 +85,10 @@ type History struct {
 	// Attachments counts lanes attached to a question another asked, by when: each is a question
 	// the ladder's second rung kept from being asked again.
 	Attachments []int64
+	// Repositories and Calibrations are what review agreement reads: each repository's level in force, and
+	// each member decision on work a review judged (FR-CAL-2).
+	Repositories []RepositoryFacts
+	Calibrations []CalibrationFacts
 }
 
 // Window is the span of time a report covers, from From up to but not including To.
@@ -167,6 +171,9 @@ type Report struct {
 	IntakeToDone           Durations            `json:"intake_to_done"`
 	WorkInProgress         int64                `json:"work_in_progress"`
 	CostPerOutcome         map[string]Cost      `json:"cost_per_outcome"`
+	// ReviewAgreement reads over the last 30 days and over all time as of the window's end, whatever span the
+	// window covers, because agreement is evidence that grows and a week of it says little.
+	ReviewAgreement ReviewAgreement `json:"review_agreement"`
 }
 
 // inProgress are the states that count as work in progress.
@@ -271,6 +278,7 @@ func Compute(h History, w Window) Report {
 		cost.Done = n
 		r.CostPerOutcome[kind] = cost
 	}
+	r.ReviewAgreement = ReviewAgreementAt(h.Repositories, h.Calibrations, w.To)
 	for kind, cost := range r.CostPerOutcome {
 		if cost.Done > 0 {
 			v := cost.TotalUSD / float64(cost.Done)

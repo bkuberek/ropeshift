@@ -200,7 +200,7 @@
             ],
             "needs": "member"
           },
-          "authority": "person_merges",
+          "authority": "person_approves",
           "checks": [],
           "reviews": [
             {
@@ -581,5 +581,5 @@
       "since": 1790000964001
     }
   ],
-  "revision": 328
+  "revision": 339
 }

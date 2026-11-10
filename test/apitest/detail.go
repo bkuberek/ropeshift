@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -141,9 +142,13 @@ func Detail(w *World, clock *Clock) {
 		},
 		Branch: "lane/lane-wo-done", Head: "abc123",
 	})
+	w.Reviewed("wo-done", workorders.CriterionVerdict{
+		Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "The first cut does what the criterion asks.", Citations: []string{"cut.go:12"},
+	})
 	if _, err := client.Accept(w.ctx, "wo-done"); err != nil {
 		w.t.Fatal(err)
 	}
+	w.Repository("repository-1", ledger.PersonApproves)
 	clock.Advance(time.Minute)
 	w.Running("wo-failed", "Try the impossible").Finish(workorders.LaneResult{
 		Report: workorders.Report{
@@ -162,6 +167,20 @@ func Detail(w *World, clock *Clock) {
 		Problems: []planning.SourceProblem{{Path: "plans/bad.md", Detail: "no kind in " + WorldHostileBit}},
 	})
 	if _, err := client.SetOrchestrator(w.ctx, WorldWorker, api.SetOrchestrator{Desired: ledger.OrchestratorRunning}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// Repository records a repository as git reads it, and a member's choice of how much of each change the
+// person decides after the review.
+func (w *World) Repository(id string, level ledger.MergeAuthority) {
+	w.t.Helper()
+	repositories := control.NewRepositories(w.Daemon.Store)
+	found := control.DetectedRepository{ID: id, Remote: "https://example.invalid/acme/app.git", DefaultBranch: "main"}
+	if _, err := repositories.Detect(w.ctx, Scope, found, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		w.t.Fatal(err)
+	}
+	if _, err := repositories.Change(w.ctx, Scope, id, control.RepositoryChange{MergeAuthority: &level}, worldMember); err != nil {
 		w.t.Fatal(err)
 	}
 }

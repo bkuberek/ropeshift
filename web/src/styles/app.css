@@ -1072,6 +1072,21 @@ fieldset {
   gap: 0 2.5rem;
 }
 
+.agreement {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.agreement-title {
+  font-family: var(--display);
+  font-size: 1.1875rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
 .tables-note {
   margin-top: 0.75rem;
 }

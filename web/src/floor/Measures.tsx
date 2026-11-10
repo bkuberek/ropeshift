@@ -1,4 +1,4 @@
-import type { Durations, MeasureReport, Ratio } from "../api/types";
+import type { Agreement, AgreementPeriods, Durations, MeasureReport, Ratio } from "../api/types";
 import { Fact, Section, words } from "../parts/parts";
 
 const noData = "No data yet";
@@ -41,6 +41,73 @@ function dollars(value: number): string {
 }
 
 const counted = (amount: number, one: string, many: string) => `${amount} ${amount === 1 ? one : many}`;
+
+// levelWords says what each merge authority level leaves to the person, in words, so the level never rests on
+// a colour or an identifier alone.
+const levelWords: Record<string, string> = {
+  person_merges: "person merges, you decide every change after the review",
+  person_approves: "person approves, you approve each change and ropeshift lands it",
+  review_approves: "review approves, the review's approval stands for yours once every criterion passed",
+};
+
+// twice says one figure over both periods of review agreement.
+function twice(last: string, all: string): string {
+  return `${last} in the last 30 days, ${all} over all time`;
+}
+
+function agreedWith(a: Agreement): string {
+  return a.agreement_rate.value === null ? "none to compare" : share(a.agreement_rate);
+}
+
+// overturnedIn says how many approvals the person overturned in one period, and how many of them were a defect
+// found after the work was accepted.
+function overturnedIn(a: Agreement, period: string): string {
+  return `${a.approvals_overturned} ${period}${a.later_defects ? ` (${a.later_defects} of them a later defect)` : ""}`;
+}
+
+// AgreementFacts reads one scope's agreement over both periods. Nothing here changes a merge authority level.
+function AgreementFacts({ periods }: { periods: AgreementPeriods }) {
+  const { last_30_days: last, all_time: all } = periods;
+  if (all.decisions === 0) {
+    return <p className="quiet">No decision after a review yet.</p>;
+  }
+  return (
+    <dl className="facts">
+      <Fact name="Decisions after a review">{twice(`${last.decisions}`, `${all.decisions}`)}</Fact>
+      <Fact name="You agreed with the review">{twice(agreedWith(last), agreedWith(all))}</Fact>
+      <Fact name="Approvals you overturned">
+        {overturnedIn(last, "in the last 30 days")}, {overturnedIn(all, "over all time")}
+      </Fact>
+      <Fact name="Failures you overrode">{twice(`${last.failures_overridden}`, `${all.failures_overridden}`)}</Fact>
+    </dl>
+  );
+}
+
+// ReviewAgreement shows how often the person agreed with the review agent, for the workspace and for each
+// repository, beside the merge authority level in force there. It is the record a person reads to decide
+// when to raise a level, and it never raises one.
+export function ReviewAgreement({ report }: { report: MeasureReport }) {
+  const { workspace, repositories } = report.review_agreement;
+  return (
+    <Section title="Review agreement">
+      <p className="quiet">
+        How often you agreed with the review agent after it judged work, over the last 30 days and over all time. It is evidence for choosing a merge
+        authority level, and ropeshift never changes a level itself.
+      </p>
+      <div role="group" aria-label="Review agreement for the whole workspace" className="agreement">
+        <h3 className="agreement-title">The whole workspace</h3>
+        <AgreementFacts periods={workspace} />
+      </div>
+      {repositories.map((repository) => (
+        <div key={repository.repository_id} role="group" aria-label={`Review agreement for ${repository.repository_id}`} className="agreement">
+          <h3 className="agreement-title mono">{repository.repository_id}</h3>
+          <p>Merge authority: {levelWords[repository.merge_authority] ?? words(repository.merge_authority).toLowerCase()}</p>
+          <AgreementFacts periods={repository} />
+        </div>
+      ))}
+    </Section>
+  );
+}
 
 // Measures shows the product measures the ledger alone gives. The north star stands beside the
 // overturn rate and rework, because interruptions alone reward an agent for never asking.

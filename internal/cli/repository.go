@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 )
 
 // shortRepository is enough of an identity to read and to name the repository again, because every
@@ -52,7 +53,23 @@ func repositoryText(view api.RepositoryView) string {
 	fmt.Fprintf(&out, "integration\t%s\n", onOff(view.Integration))
 	fmt.Fprintf(&out, "start from\t%s\n", view.StartFrom)
 	fmt.Fprintf(&out, "merge authority\t%s\n", view.Level())
+	fmt.Fprintf(&out, "review agreement, last 30 days\t%s\n", agreementText(view.ReviewAgreement.Last30Days))
+	fmt.Fprintf(&out, "review agreement, all time\t%s\n", agreementText(view.ReviewAgreement.AllTime))
 	return out.String()
+}
+
+// agreementText says how a person's decisions stood against the review agent's verdicts. It names each
+// figure in words, because a rate alone does not say which way the person disagreed.
+func agreementText(a measures.Agreement) string {
+	if a.Decisions == 0 {
+		return "no decisions after a review yet"
+	}
+	agreed := "nothing to compare, because the review could not judge"
+	if a.AgreementRate.Value != nil {
+		agreed = rateText(a.AgreementRate, true)
+	}
+	return fmt.Sprintf("%s after a review; you agreed with %s; approvals you overturned %d (later defects %d); failures you overrode %d; the review could not judge %d",
+		api.Count(a.Decisions, "decision", "decisions"), agreed, a.ApprovalsOverturned, a.LaterDefects, a.FailuresOverridden, a.Unknown)
 }
 
 func (c *invocation) repositoryList(args []string) int {

@@ -7,6 +7,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -203,3 +204,15 @@ func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, na
 
 // minRepositoryPrefix is the shortest prefix of an identity that names a repository.
 const minRepositoryPrefix = 7
+
+// ReviewAgreement reads how a member's decisions stood against the review agent's verdicts, for the workspace
+// and for each repository (FR-CAL-2). It reads the records of those decisions and no event.
+func (r *Repositories) ReviewAgreement(ctx context.Context, scope ledger.WorkspaceID) (measures.ReviewAgreement, error) {
+	var out measures.ReviewAgreement
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = ReviewAgreementIn(tx)
+		return err
+	})
+	return out, err
+}

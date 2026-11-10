@@ -7,7 +7,7 @@
     "wip_limit": 0
   },
   "lanes": {
-    "ended": 6,
+    "ended": 7,
     "parked": 1,
     "tripped": 1,
     "working": 5
@@ -65,6 +65,72 @@
       "numerator": 0,
       "value": 0
     },
+    "review_agreement": {
+      "repositories": [
+        {
+          "all_time": {
+            "agreed": 1,
+            "agreement_rate": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1
+            },
+            "approvals_overturned": 0,
+            "decisions": 1,
+            "disagreed": 0,
+            "failures_overridden": 0,
+            "later_defects": 0,
+            "unknown": 0
+          },
+          "last_30_days": {
+            "agreed": 1,
+            "agreement_rate": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1
+            },
+            "approvals_overturned": 0,
+            "decisions": 1,
+            "disagreed": 0,
+            "failures_overridden": 0,
+            "later_defects": 0,
+            "unknown": 0
+          },
+          "merge_authority": "person_approves",
+          "repository_id": "repository-1"
+        }
+      ],
+      "workspace": {
+        "all_time": {
+          "agreed": 1,
+          "agreement_rate": {
+            "denominator": 1,
+            "numerator": 1,
+            "value": 1
+          },
+          "approvals_overturned": 0,
+          "decisions": 1,
+          "disagreed": 0,
+          "failures_overridden": 0,
+          "later_defects": 0,
+          "unknown": 0
+        },
+        "last_30_days": {
+          "agreed": 1,
+          "agreement_rate": {
+            "denominator": 1,
+            "numerator": 1,
+            "value": 1
+          },
+          "approvals_overturned": 0,
+          "decisions": 1,
+          "disagreed": 0,
+          "failures_overridden": 0,
+          "later_defects": 0,
+          "unknown": 0
+        }
+      }
+    },
     "rework": {
       "denominator": 2,
       "numerator": 0,
@@ -77,7 +143,7 @@
     },
     "work_in_progress": 6
   },
-  "revision": 328,
+  "revision": 339,
   "sources": [
     {
       "adapter": "fake",
@@ -105,9 +171,9 @@
   "work_orders": {
     "acceptance": 1,
     "blocked": 1,
-    "canceled": 3,
+    "canceled": 2,
     "contract_review": 4,
-    "done": 3,
+    "done": 4,
     "failed": 1,
     "intake": 1,
     "lapsed": 1,

@@ -15,7 +15,7 @@
           ],
           "needs": "member"
         },
-        "authority": "person_merges",
+        "authority": "person_approves",
         "checks": [],
         "state": "canceled",
         "work_order_id": "wo-canceled"
@@ -59,7 +59,7 @@
           ],
           "needs": "member"
         },
-        "authority": "person_merges",
+        "authority": "person_approves",
         "checks": [
           {
             "artifact_id": "generated-2",
@@ -124,7 +124,7 @@
           ],
           "needs": "second_principal"
         },
-        "authority": "person_merges",
+        "authority": "person_approves",
         "checks": [
           {
             "artifact_id": "generated-5",
@@ -143,10 +143,29 @@
           {
             "attempt": 2,
             "id": "generated-8",
-            "state": "canceled"
+            "state": "done"
           }
         ],
+        "rounds": 1,
         "state": "done",
+        "verdicts": [
+          {
+            "attempt": 2,
+            "citations": [
+              "cut.go:12"
+            ],
+            "commit": "abc123",
+            "created_at": 1790000844001,
+            "criterion": "c1",
+            "fence": 2,
+            "generation": 1,
+            "lane_id": "lane-generated-8",
+            "reasons": "The first cut does what the criterion asks.",
+            "review_id": "generated-8",
+            "verdict": "pass",
+            "work_order_id": "wo-done"
+          }
+        ],
         "work_order_id": "wo-done"
       },
       "work_order": {
@@ -187,7 +206,7 @@
           ],
           "needs": "member"
         },
-        "authority": "person_merges",
+        "authority": "person_approves",
         "checks": [],
         "reviews": [
           {
@@ -285,5 +304,5 @@
       }
     }
   ],
-  "revision": 328
+  "revision": 339
 }
