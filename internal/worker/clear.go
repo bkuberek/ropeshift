@@ -3,7 +3,9 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -14,6 +16,10 @@ import (
 
 // clearedInput names the one brief a cleared generation is owed.
 const clearedInput = "cleared"
+
+// maxBriefAttempts bounds the deliveries of one generation's brief. Each one that finds no session
+// leaves its own failed effect, so a driver that never holds the session ends it at this many.
+const maxBriefAttempts = 5
 
 // processGeneration is the generation that names this lane's session.
 func (r *laneRun) processGeneration() int64 {
@@ -157,19 +163,37 @@ func (w *Worker) briefCleared(ctx context.Context) {
 	}
 }
 
+// briefCleared waits for a session the driver holds. The pass that starts an adoption comes here
+// before its run has taken the session over, and a brief sent then reaches nobody. A lane owes its
+// brief until it lands: a delivery that found no session left the session untold, so the lane tries
+// again, and only a brief that landed, or one that failed some other way, settles what it owes.
 func (r *laneRun) briefCleared(ctx context.Context) {
-	if !r.owesBrief.Load() || r.state.current() != lanes.Idle || r.currentFlight() != nil {
+	if !r.owesBrief.Load() || !r.reached.Load() || r.sessionOver.Load() || r.state.current() != lanes.Idle || r.currentFlight() != nil {
 		return
 	}
 	if _, reported := r.reported(ctx); reported {
 		return
 	}
+	effect, err := r.briefEffect(ctx)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: a cleared session's brief: %w", r.lease.Lane, err))
+		return
+	}
 	text := r.briefText()
-	effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, r.currentGeneration(), "", clearedKey())
 	ran, err := r.w.bracket(ctx, effect, func() error {
 		_, err := r.rt.Driver.Send(ctx, r.sessionHandle(), ports.Input{Text: text})
+		if errors.Is(err, ports.ErrNoSession) {
+			return fmt.Errorf("%s: %w", lanes.DetailNotDelivered, err)
+		}
 		return err
 	})
+	switch {
+	case errors.Is(err, ports.ErrNoSession):
+		r.w.config.Report(fmt.Errorf("lane %s: a cleared session's brief: %w", r.lease.Lane, err))
+		return
+	case err == nil && !ran && r.beingSent(ctx, effect.Key):
+		return
+	}
 	r.owesBrief.Store(false)
 	crashpoint.Hit("worker.clear", "briefed")
 	if err != nil {
@@ -180,4 +204,43 @@ func (r *laneRun) briefCleared(ctx context.Context) {
 		r.setInstruction(text)
 		r.signal(ctx, lanes.OnInputHanded)
 	}
+}
+
+// briefEffect is the effect that delivers the brief now. A delivery that found no session is on
+// record as failed, and a failed record is never written over, so the delivery after it takes the
+// next key and leaves that one as the account of what happened. The last key stands as it is.
+func (r *laneRun) briefEffect(ctx context.Context) (lanes.Effect, error) {
+	generation := r.currentGeneration()
+	for attempt := 1; ; attempt++ {
+		effect := lanes.NewEffect(lanes.EffectInput, r.lease.Lane, generation, "", briefLabel(attempt))
+		if attempt == maxBriefAttempts {
+			return effect, nil
+		}
+		earlier, err := r.w.journal.Effect(ctx, effect.Key)
+		switch {
+		case errors.Is(err, ports.ErrNotFound):
+			return effect, nil
+		case err != nil:
+			return lanes.Effect{}, err
+		case !earlier.Undelivered():
+			return effect, nil
+		}
+	}
+}
+
+// briefLabel names the effect of the brief's nth delivery. The first keeps the one key a generation
+// had before a delivery could be repeated, so a journal an earlier worker wrote reads the same.
+func briefLabel(attempt int) string {
+	label := clearedKey()
+	if attempt > 1 {
+		label += "/retry" + strconv.Itoa(attempt)
+	}
+	return label
+}
+
+// beingSent says another goroutine of this process has the brief on its way. It settles what the
+// lane owes when it lands or fails, and a pass that finds it started leaves that to it.
+func (r *laneRun) beingSent(ctx context.Context, key string) bool {
+	current, err := r.w.journal.Effect(ctx, key)
+	return err == nil && current.State == lanes.EffectStarted
 }

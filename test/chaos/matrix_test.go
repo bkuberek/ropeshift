@@ -95,7 +95,7 @@ func runCrashCase(w *world, c crashCase, step string) error {
 	spec.KillOp, spec.KillStep = c.op, step
 	code, signaled, stderr, err := runToEnd(spec)
 	if err != nil {
-		return err
+		return fmt.Errorf("the run killed at %s/%s: %w", c.op, step, err)
 	}
 	if !signaled {
 		return fmt.Errorf("%s/%s was never reached: exit %d: %s", c.op, step, code, stderr)
@@ -111,7 +111,7 @@ func runCrashCase(w *world, c crashCase, step string) error {
 	spec.KillOp, spec.KillStep = "", ""
 	code, signaled, stderr, err = runToEnd(spec)
 	if err != nil {
-		return err
+		return fmt.Errorf("the retry after %s/%s: %w", c.op, step, err)
 	}
 	if signaled || code != exitDone {
 		return fmt.Errorf("the retry after %s/%s: exit %d: %s", c.op, step, code, stderr)
