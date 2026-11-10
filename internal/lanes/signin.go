@@ -30,6 +30,10 @@ func ReadSignIn(method string) (kind, status string) {
 	return "", SignInUnknown
 }
 
+// ReasonNoInteractiveMode is the reason a planning lane records when this machine cannot run it where
+// a person can attach.
+const ReasonNoInteractiveMode = "no_interactive_mode"
+
 // DefaultRunMode says how a lane runs when no layer of its profile says. A subscription
 // runs where a person can attach, because that is closest to ordinary use, and everything
 // else runs headless.

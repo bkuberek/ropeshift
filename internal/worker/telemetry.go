@@ -77,7 +77,7 @@ func (w *Worker) measureEffect(effect lanes.Effect, state lanes.EffectState, sta
 // model, the effort, the run mode, and the context thresholds of its role. The models and the work's
 // size join them later, because only a binding and the ledger know those.
 func laneSettings(profile lanes.Profile, role, runMode string) measures.Settings {
-	thresholds := profile.Context.Roles[role]
+	thresholds := profile.Context.ThresholdsFor(role)
 	return measures.Settings{
 		Driver: profile.Driver, ModelRequested: profile.Agent.Model, Effort: profile.Agent.Effort, RunMode: runMode,
 		Context: measures.ContextSettings{

@@ -109,3 +109,32 @@ func TestAPolicyReadsItsRole(t *testing.T) {
 		t.Errorf("a role with no thresholds reads %+v", none)
 	}
 }
+
+// A planning lane runs on the writer's thresholds until a profile gives the planner its own, because
+// a role with no thresholds would never compact or hand off.
+func TestAPlannerWithNoThresholdsOfItsOwnReadsTheWriters(t *testing.T) {
+	writer := lanes.RoleThresholds{WarnTokens: 1, CompactTokens: 2, HandoffTokens: 3}
+	planner := lanes.RoleThresholds{WarnTokens: 4, CompactTokens: 5, HandoffTokens: 6}
+	tests := []struct {
+		name  string
+		roles map[string]lanes.RoleThresholds
+		want  lanes.RoleThresholds
+	}{
+		{"the writer's when the profile names no planner", map[string]lanes.RoleThresholds{lanes.RoleWriter: writer}, writer},
+		{"its own when the profile names one", map[string]lanes.RoleThresholds{lanes.RoleWriter: writer, lanes.RolePlanner: planner}, planner},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := lanes.ContextSettings{Roles: tt.roles}
+			if got := settings.ThresholdsFor(lanes.RolePlanner); got != tt.want {
+				t.Errorf("thresholds %+v, want %+v", got, tt.want)
+			}
+			if got := lanes.PolicyFor(settings, lanes.RolePlanner); got.RoleThresholds != tt.want {
+				t.Errorf("policy %+v, want %+v", got.RoleThresholds, tt.want)
+			}
+		})
+	}
+	if got := (lanes.ContextSettings{Roles: map[string]lanes.RoleThresholds{lanes.RoleWriter: writer}}).ThresholdsFor(lanes.RoleOrchestrator); got != (lanes.RoleThresholds{}) {
+		t.Errorf("an orchestrator the profile never named reads the writer's: %+v", got)
+	}
+}
