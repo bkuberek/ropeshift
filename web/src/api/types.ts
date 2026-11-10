@@ -97,6 +97,8 @@ export type WorkOrder = {
   attempts?: number;
   max_attempts?: number;
   review_pins?: string[];
+  size?: string;
+  contract_id?: string;
 };
 
 export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel";
@@ -192,8 +194,11 @@ export type GoalProgress = { goal?: Goal; plans: PlanProgress[] };
 
 export type Roadmap = Stamp & { goals: GoalProgress[] };
 
-export type Criterion = { id: string; text: string };
+// A criterion names the requirements it serves.
+export type Criterion = { id: string; text: string; requirements?: string[] };
 
+// A contract is in one milestone of its plan, by the milestone's ID. A shared contract is one other
+// contracts of the plan use, and `uses` names those a contract uses, by the ID each one's file gave it.
 export type Contract = {
   id: string;
   version: number;
@@ -205,10 +210,14 @@ export type Contract = {
   criteria?: Criterion[];
   requirements?: string[];
   decisions?: string[];
+  milestone?: string;
+  shared?: boolean;
+  uses?: string[];
   status: string;
 };
 
-export type ContractHistory = { id: string; versions: Contract[] };
+// `key` is the ID the contract's file gave it, which another contract's `uses` names.
+export type ContractHistory = { id: string; key?: string; versions: Contract[] };
 
 export type LadderStep = { rung: number; candidates?: string[]; outcome?: string };
 
@@ -231,12 +240,15 @@ export type Question = {
 
 export type PlanReview = { work_order: WorkOrder; open_questions: Question[] };
 
+// `pending_version` is the plan version whose approval waits for a member, when one does.
 export type PlanDetail = {
   plan: Plan;
   goal?: Goal;
   contracts: ContractHistory[];
   reviews: PlanReview[];
   work_orders: WorkOrder[];
+  milestones: MilestoneProgress[];
+  pending_version?: number;
 };
 
 export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[] };

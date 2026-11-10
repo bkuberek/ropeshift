@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { DocumentKind, Documents, RecordedRead } from "../api/types";
+import type { DocumentKind, DocumentRow, Documents, RecordedRead } from "../api/types";
 import { openPage } from "../opening";
 import { golden, refusal, serveViews } from "../testing";
 
@@ -116,6 +116,17 @@ describe("reading a document", () => {
     expect(screen.getByText("Spec")).toBeTruthy();
   });
 
+  it("keeps a long source and digest whole, each on a line of its own", async () => {
+    await open();
+    const shown = golden<DocumentRow>("document");
+    for (const value of [shown.source, shown.digest]) {
+      const fact = screen.getByTitle(value);
+      expect(fact.textContent).toBe(value);
+      expect(fact.className).toBe("id");
+      expect(fact.closest("dl")).not.toBe(screen.getByText("Kind").closest("dl"));
+    }
+  });
+
   it("lays the text out as a reader expects", async () => {
     await open();
     const body = screen.getByRole("region", { name: "The document" });
@@ -177,8 +188,36 @@ describe("the documents a plan recorded", () => {
     openPage("/specs");
     await screen.findByRole("region", { name: "The factory floor" });
     expect(screen.getAllByRole("link", { name: "The factory API" })).toHaveLength(1);
-    const files = screen.getByRole("region", { name: "Files no plan records" });
+    const files = screen.getByRole("region", { name: "Other repository files" });
     expect(within(files).getByRole("link", { name: "The retry spec" }).getAttribute("href")).toBe(specLink);
+  });
+
+  it("says the kind of each of the repository's other files", async () => {
+    serveViews();
+    openPage("/documents");
+    const files = await screen.findByRole("region", { name: "Other repository files" });
+    const row = within(files).getByRole("link", { name: "Notes from the first run" }).closest("li");
+    expect(within(row as HTMLElement).getByRole("list", { name: "Kind" }).textContent).toBe("Document");
+  });
+
+  it("leaves out a file the ledger holds as a goal, a plan, or a contract, which shows on its own page", async () => {
+    serve((view) => {
+      const notes = view.documents.find((document) => document.path === "notes.md");
+      for (const [path, record] of [
+        ["goals/reliable.md", "goal:g1"],
+        ["plans/factory.md", "plan:p1"],
+        ["contracts/client.md", "contract:c1"],
+      ] as const) {
+        if (notes) {
+          view.documents.push({ ...notes, path, title: path, record });
+        }
+      }
+    });
+    openPage("/documents");
+    await screen.findByRole("region", { name: "Other repository files" });
+    for (const path of ["goals/reliable.md", "plans/factory.md", "contracts/client.md"]) {
+      expect(screen.queryByRole("link", { name: path })).toBeNull();
+    }
   });
 
   it("keeps the plain list when no plan recorded anything", async () => {
@@ -190,7 +229,7 @@ describe("the documents a plan recorded", () => {
     });
     openPage("/specs");
     expect(await screen.findByRole("link", { name: "The retry spec" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Files no plan records" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Other repository files" })).toBeNull();
   });
 
   it("puts architecture documents and experience designs with the designs", async () => {
@@ -251,22 +290,35 @@ describe("tracing requirements to work", () => {
     return found;
   };
 
-  it("traces each requirement to the criteria that serve it and the work that carries them", async () => {
+  const childrenOf = (list: HTMLElement) => within(list).getAllByRole("listitem").filter((item) => item.parentElement === list);
+
+  it("traces each requirement to the contracts and criteria that serve it and the work that carries them", async () => {
     const list = await traces();
     const trace = traceOf(list, "FAC-2");
     expect(trace.textContent).toContain("Shared work is built before the work that uses it.");
-    const criteria = within(trace).getByRole("list", { name: "Criteria that serve FAC-2" });
+    const contracts = within(trace).getByRole("list", { name: "Contracts that serve FAC-2" });
+    expect(within(contracts).getByRole("link", { name: "The API client, version 1" }).getAttribute("href")).toMatch(/^\/plans\?plan=/);
+    const criteria = within(contracts).getByRole("list", { name: "Criteria of The API client that serve FAC-2" });
     expect(criteria.textContent).toContain("Every call retries once");
-    expect(within(criteria).getByRole("link", { name: "The API client, version 1" }).getAttribute("href")).toMatch(/^\/plans\?plan=/);
-    const work = within(criteria).getByRole("list", { name: "Work orders" });
+    const work = within(contracts).getByRole("list", { name: "Work orders of The API client" });
     expect(work.textContent).toContain("Write the API client");
     expect(work.textContent).toContain("Done");
   });
 
-  it("lists every criterion that serves a requirement", async () => {
+  it("names each contract once under a requirement, with its criteria under it", async () => {
     const list = await traces();
-    const criteria = within(traceOf(list, "FAC-1")).getByRole("list", { name: "Criteria that serve FAC-1" });
-    expect(within(criteria).getAllByRole("listitem").filter((item) => item.parentElement === criteria)).toHaveLength(3);
+    const trace = traceOf(list, "FAC-1");
+    const contracts = within(trace).getByRole("list", { name: "Contracts that serve FAC-1" });
+    expect(childrenOf(contracts)).toHaveLength(2);
+    expect(childrenOf(within(trace).getByRole("list", { name: "Criteria of The planning core that serve FAC-1" }))).toHaveLength(2);
+    expect(childrenOf(within(trace).getByRole("list", { name: "Criteria of The approval page that serve FAC-1" }))).toHaveLength(1);
+  });
+
+  it("lists a contract's work orders once, however many of its criteria serve the requirement", async () => {
+    const list = await traces();
+    const trace = traceOf(list, "FAC-1");
+    expect(within(trace).getAllByText(/^Build the planning core:/)).toHaveLength(1);
+    expect(childrenOf(within(trace).getByRole("list", { name: "Work orders of The approval page" }))).toHaveLength(2);
   });
 
   it("says when no criterion serves a requirement", async () => {
@@ -274,10 +326,15 @@ describe("tracing requirements to work", () => {
     expect(within(traceOf(list, "FAC-4")).getByText("No criterion serves it yet.")).toBeTruthy();
   });
 
-  it("leaves a place for the review verdicts, which come with reviews", async () => {
+  it("leaves a place for a review verdict on each criterion, which come with reviews", async () => {
     const list = await traces();
-    const criteria = within(traceOf(list, "FAC-3")).getByRole("list", { name: "Criteria that serve FAC-3" });
-    expect(within(criteria).getAllByText("No review verdict yet")).toHaveLength(2);
+    const trace = traceOf(list, "FAC-1");
+    const verdicts = within(trace).getAllByText("No review verdict yet");
+    expect(verdicts).toHaveLength(3);
+    for (const verdict of verdicts) {
+      expect(verdict.closest(".trace-criterion")).not.toBeNull();
+      expect(verdict.closest('[aria-label^="Work orders"]')).toBeNull();
+    }
   });
 });
 
@@ -293,6 +350,17 @@ describe("reading a version the ledger stored", () => {
     const sent = await open();
     expect(sent.some((call) => call.path === "/v1/documents/recorded?id=spec%3Afactory-api")).toBe(true);
     expect(sent.some((call) => call.path.startsWith("/v1/documents/read"))).toBe(false);
+  });
+
+  it("keeps a long source and digest whole, each on a line of its own", async () => {
+    await open();
+    const read = golden<RecordedRead>("recorded-document");
+    for (const value of [read.version.source ?? "", read.version.digest]) {
+      const fact = screen.getByTitle(value);
+      expect(fact.textContent).toBe(value);
+      expect(fact.className).toBe("id");
+      expect(fact.closest("dl")).not.toBe(screen.getByText("Kind").closest("dl"));
+    }
   });
 
   it("states its plan, version, source, and where it stands in review", async () => {

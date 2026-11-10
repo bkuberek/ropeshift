@@ -780,6 +780,21 @@ func unresolved(tx ports.ReadTx, filter ports.RecordFilter) ([]questions.Questio
 	}
 }
 
+// waitingPlanVersions names, for each plan, the newest of its versions whose approval waits for a member.
+func waitingPlanVersions(tx ports.ReadTx) (map[string]int64, error) {
+	approvals, err := tx.Approvals().All()
+	if err != nil {
+		return nil, err
+	}
+	waiting := map[string]int64{}
+	for _, approval := range approvals {
+		if approval.Kind == authority.KindPlan && approval.Open() && approval.PlanVersion > waiting[approval.Plan] {
+			waiting[approval.Plan] = approval.PlanVersion
+		}
+	}
+	return waiting, nil
+}
+
 func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
 	plans, err := plansByTitle(tx)
 	if err != nil {
@@ -797,10 +812,32 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if err != nil {
 		return nil, err
 	}
+	waiting, err := waitingPlanVersions(tx)
+	if err != nil {
+		return nil, err
+	}
+	links, err := tx.Planning().Links()
+	if err != nil {
+		return nil, err
+	}
+	keyOf := map[string]string{}
+	for _, link := range links {
+		if link.RecordKind == planning.SubjectContract {
+			keyOf[link.RecordID] = link.Key.NativeID
+		}
+	}
+	// A work order is in the milestone of its contract's newest version.
+	milestoneOf := map[string]string{}
+	for _, contract := range contracts {
+		milestoneOf[contract.ID] = contract.Milestone
+	}
 	view := api.Plans{Stamp: stamp, Plans: []api.PlanDetail{}, Unplanned: []workorders.WorkOrder{}}
 	held := map[string]bool{}
 	for _, plan := range plans {
-		detail := api.PlanDetail{Plan: plan, Contracts: []api.ContractHistory{}, Reviews: []api.PlanReview{}, WorkOrders: []workorders.WorkOrder{}}
+		detail := api.PlanDetail{
+			Plan: plan, Contracts: []api.ContractHistory{}, Reviews: []api.PlanReview{}, WorkOrders: []workorders.WorkOrder{},
+			PendingVersion: waiting[plan.ID],
+		}
 		if plan.GoalID != "" {
 			goal, err := tx.Planning().Goal(plan.GoalID)
 			if err != nil {
@@ -818,7 +855,7 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 				detail.Contracts[last].Versions = append(detail.Contracts[last].Versions, contract)
 				continue
 			}
-			detail.Contracts = append(detail.Contracts, api.ContractHistory{ID: contract.ID, Versions: []planning.Contract{contract}})
+			detail.Contracts = append(detail.Contracts, api.ContractHistory{ID: contract.ID, Key: keyOf[contract.ID], Versions: []planning.Contract{contract}})
 		}
 		for _, order := range orders {
 			held[order.ID] = held[order.ID] || order.ReviewsPlan == plan.ID || ofPlan[order.ContractID]
@@ -834,6 +871,10 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 			case ofPlan[order.ContractID]:
 				detail.WorkOrders = append(detail.WorkOrders, order)
 			}
+		}
+		detail.Milestones, err = milestonesOf(tx.Planning(), plan.ID, detail.WorkOrders, func(order workorders.WorkOrder) string { return milestoneOf[order.ContractID] })
+		if err != nil {
+			return nil, err
 		}
 		view.Plans = append(view.Plans, detail)
 	}
@@ -865,7 +906,11 @@ func (h *handler) serveDocuments(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		view := api.Documents{Stamp: stamp, Documents: markRecorded(listed, plans), Requirements: []planning.Requirement{}, Plans: plans}
+		marked, err := markRecorded(tx, listed, plans)
+		if err != nil {
+			return nil, err
+		}
+		view := api.Documents{Stamp: stamp, Documents: marked, Requirements: []planning.Requirement{}, Plans: plans}
 		versions, err := tx.Planning().Requirements()
 		if err != nil {
 			return nil, err

@@ -606,25 +606,21 @@ fieldset {
   gap: 0.75rem;
 }
 
-/* The rope of a plan: hemp is the work, and the marker is how far it got. */
-progress {
+/*
+ * How far a plan got. The track is an empty outline, so nothing done reads as nothing, and the marker
+ * fills the share that is done. The words beside the bar say the same.
+ */
+.bar {
   width: 100%;
-  height: 0.625rem;
-  border: 0;
-  border-radius: 0;
-  background: var(--hemp);
-  appearance: none;
+  height: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--muted);
+  background: transparent;
 }
 
-progress::-webkit-progress-bar {
-  background: var(--hemp);
-}
-
-progress::-webkit-progress-value {
-  background: var(--marker);
-}
-
-progress::-moz-progress-bar {
+.bar-done {
+  display: block;
+  height: 100%;
   background: var(--marker);
 }
 
@@ -657,20 +653,38 @@ progress::-moz-progress-bar {
   font-weight: 600;
 }
 
+/* Each contract that serves a requirement stands once, with its criteria and then its work. */
+.trace-contracts {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 68ch;
+}
+
+.trace-contract {
+  display: grid;
+  gap: 0.375rem;
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--hemp);
+}
+
+.trace-contract-title {
+  font-weight: 600;
+}
+
 .trace-criteria {
   display: grid;
-  gap: 0.5rem;
-  max-width: 68ch;
+  gap: 0.375rem;
 }
 
 .trace-criterion {
   display: grid;
   gap: 0.125rem;
   padding-left: 0.75rem;
-  border-left: 0.1875rem solid var(--hemp);
+  border-left: 0.125rem solid var(--muted);
 }
 
 .trace-verdict {
+  font-size: 0.9375rem;
   font-style: italic;
 }
 
@@ -846,6 +860,40 @@ progress::-moz-progress-bar {
   margin-bottom: 1rem;
 }
 
+/* Long facts, such as a source or a digest, stand one to a line, each value on one line of its own. */
+.facts-long {
+  display: grid;
+  gap: 0.375rem;
+  margin-bottom: 1rem;
+}
+
+.facts-long > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.facts-long dt {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.facts-long dd {
+  min-width: 0;
+}
+
+@media (min-width: 40rem) {
+  .facts-long > div {
+    grid-template-columns: 6rem minmax(0, 1fr);
+    align-items: baseline;
+    gap: 1.5rem;
+  }
+}
+
+.facts-page + .facts-long {
+  margin-top: -0.25rem;
+}
+
 .facts dd {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -859,6 +907,33 @@ progress::-moz-progress-bar {
 .version + .version {
   padding-top: 1rem;
   border-top: 2px solid var(--hemp);
+}
+
+/* A plan version that waits for approval says so in words, and leads to where a member gives it. */
+.plan-waiting {
+  margin-bottom: 1rem;
+  color: var(--marker);
+  font-weight: 700;
+}
+
+/* A contract's work orders, each with its size. */
+.contract-work {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.contract-work > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+  min-width: 0;
+}
+
+.contract-work-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .version-title {
@@ -1103,10 +1178,49 @@ progress::-moz-progress-bar {
   padding: 0.625rem 0.75rem;
   overflow-x: auto;
   border-left: 0.3125rem solid var(--hemp);
-  background: var(--lane);
   font-family: var(--mono);
   font-size: 0.9375rem;
   overflow-wrap: normal;
+}
+
+/* A block or a table wider than the text scrolls inside itself, so the page never scrolls sideways. */
+.prose > * {
+  min-width: 0;
+}
+
+.code-block {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.code-label {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.prose table {
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  overflow-wrap: normal;
+}
+
+.prose th,
+.prose td {
+  padding: 0.375rem 0.75rem 0.375rem 0;
+  border-bottom: 1px solid var(--muted);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  border-bottom: 0.1875rem solid var(--hemp);
+  font-weight: 700;
 }
 
 .prose blockquote {
@@ -1288,6 +1402,7 @@ textarea {
 
 .pane {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   margin-top: 1.5rem;
 }
@@ -1300,18 +1415,37 @@ textarea {
   color: var(--muted);
 }
 
-/* The screen keeps its columns, so a narrow window scrolls the screen and not the page. */
+/*
+ * The screen keeps its columns, so a narrow window scrolls the screen and not the page: its width never
+ * reaches the page's layout. It is as tall as its lines, up to most of a window, and scrolls past that.
+ */
 .pane-screen {
   max-width: 100%;
-  overflow-x: auto;
+  max-height: min(40rem, 70vh);
+  overflow: auto;
+  contain: inline-size;
+  overscroll-behavior-x: contain;
   padding: 0.75rem 1rem;
   border-left: 0.1875rem solid var(--hemp);
-  background: var(--lane);
   color: var(--ink);
   font-family: var(--mono);
   font-size: 0.8125rem;
   line-height: 1.35;
   white-space: pre;
+}
+
+/*
+ * A shade stands at an edge a screen or a block runs past, and a cover that scrolls with the text hides it
+ * once the text reaches that edge, so a line cut off at the side reads as one that goes on.
+ */
+.pane-screen,
+.prose pre {
+  background:
+    linear-gradient(to right, var(--lane) 40%, transparent) left / 2rem 100% no-repeat local,
+    linear-gradient(to left, var(--lane) 40%, transparent) right / 2rem 100% no-repeat local,
+    linear-gradient(to right, color-mix(in srgb, var(--ink) 22%, transparent), transparent) left / 0.875rem 100% no-repeat scroll,
+    linear-gradient(to left, color-mix(in srgb, var(--ink) 22%, transparent), transparent) right / 0.875rem 100% no-repeat scroll,
+    var(--lane);
 }
 
 .sgr-bold {

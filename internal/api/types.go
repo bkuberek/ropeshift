@@ -76,6 +76,9 @@ type ErrorDetail struct {
 type Health struct {
 	Status   string `json:"status"`
 	Revision int64  `json:"revision"`
+	// Web is the address the daemon's web UI listens on, as `host:port`, with the port it bound even
+	// when it asked the kernel to pick one. It is empty when the daemon serves no web UI.
+	Web string `json:"web,omitempty"`
 }
 
 // CreateWorkOrder asks for a work order that lives only in the ledger, with the

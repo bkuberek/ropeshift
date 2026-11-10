@@ -97,11 +97,47 @@ export function Id({ value }: { value: string }) {
   );
 }
 
+// Bar draws how much of some work is done. Its track stays empty, so nothing done reads as an empty
+// bar, and the done part fills its share. The words say the same to a screen reader.
+export function Bar({ done, total, label }: { done: number; total: number; label: string }) {
+  const share = total > 0 ? Math.min(Math.max(done, 0), total) / total : 0;
+  return (
+    <div
+      className="bar"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={done}
+      aria-valuetext={`${done} of ${total} done`}
+    >
+      <span className="bar-done" style={{ width: `${Math.round(share * 1000) / 10}%` }} />
+    </div>
+  );
+}
+
+// plural counts something in the words a person would use.
+export const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
 export function Fact({ name, mono = false, children }: { name: string; mono?: boolean; children: ReactNode }) {
   return (
     <div>
       <dt>{name}</dt>
       <dd className={mono ? "mono" : undefined}>{children}</dd>
+    </div>
+  );
+}
+
+// LongFact is a fact too long for a column, such as a source or a digest. It stands in a list of its own
+// with one fact on each line, and an identifier too long for the line ends in an ellipsis with the whole
+// of it in the page for a copy and in its title.
+export function LongFact({ name, value }: { name: string; value: string }) {
+  return (
+    <div>
+      <dt>{name}</dt>
+      <dd>
+        <Id value={value} />
+      </dd>
     </div>
   );
 }

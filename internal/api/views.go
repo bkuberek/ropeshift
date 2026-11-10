@@ -224,9 +224,11 @@ type Roadmap struct {
 	Goals []GoalProgress `json:"goals"`
 }
 
-// ContractHistory is every version of one contract, oldest first.
+// ContractHistory is every version of one contract, oldest first. Key is the ID the contract's file
+// gave it, which is how another contract's `uses` names it.
 type ContractHistory struct {
 	ID       string              `json:"id"`
+	Key      string              `json:"key,omitempty"`
 	Versions []planning.Contract `json:"versions"`
 }
 
@@ -236,13 +238,17 @@ type PlanReview struct {
 	Open      []questions.Question `json:"open_questions"`
 }
 
-// PlanDetail is a plan, its contract versions, and its review results.
+// PlanDetail is a plan, its contract versions, and its review results. Milestones are the plan's
+// milestones in priority order, which a contract names by ID, and PendingVersion is the plan version
+// whose approval waits for a member, or 0 when none does.
 type PlanDetail struct {
-	Plan       planning.Plan          `json:"plan"`
-	Goal       *planning.Goal         `json:"goal,omitempty"`
-	Contracts  []ContractHistory      `json:"contracts"`
-	Reviews    []PlanReview           `json:"reviews"`
-	WorkOrders []workorders.WorkOrder `json:"work_orders"`
+	Plan           planning.Plan          `json:"plan"`
+	Goal           *planning.Goal         `json:"goal,omitempty"`
+	Contracts      []ContractHistory      `json:"contracts"`
+	Reviews        []PlanReview           `json:"reviews"`
+	WorkOrders     []workorders.WorkOrder `json:"work_orders"`
+	Milestones     []MilestoneProgress    `json:"milestones"`
+	PendingVersion int64                  `json:"pending_version,omitempty"`
 }
 
 // Plans is the plans and contracts view. Unplanned is work no plan holds, which stands nowhere else

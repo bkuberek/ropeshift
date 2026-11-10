@@ -154,6 +154,8 @@ type Options struct {
 	Backup ports.LedgerBackup
 	// Panes is the worker's terminal as the web pane reaches it. Nil reaches none.
 	Panes server.Panes
+	// WebAddress is where the daemon says its web UI listens. Empty serves none.
+	WebAddress string
 }
 
 // Start serves the API until the test ends.
@@ -192,7 +194,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	config := server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
-		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes,
+		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 	}
 	handler := server.New(config)
 	if options.Wrap != nil {

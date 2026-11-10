@@ -1,12 +1,12 @@
 import { useId } from "react";
 
 import { readRecorded } from "../api/client";
-import type { PlanDocuments, RecordedDocument, RecordedVersion, RequirementTrace, TracedCriterion } from "../api/types";
+import type { PlanDocuments, RecordedDocument, RecordedVersion, RequirementTrace, TracedCriterion, TracedWork } from "../api/types";
 import { useView } from "../api/useView";
 import type { Live } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { workLabel } from "../floor/states";
-import { Ago, Fact, Page, Section, useClock, ViewTime, words } from "../parts/parts";
+import { Ago, Fact, LongFact, Page, Section, useClock, ViewTime, words } from "../parts/parts";
 import { DocumentText } from "./DocumentText";
 
 // The pages a person looks for a planning document on, by its kind. A kind this build has no page for
@@ -26,15 +26,18 @@ export function homeOfKind(kind: string): DocumentHome {
   }
 }
 
-const recordedKindWords: Record<string, string> = {
+const kindWords: Record<string, string> = {
   requirements: "Requirements",
   spec: "Spec",
+  design: "Design",
   architecture: "Architecture",
   "experience-design": "Experience design",
   milestone: "Milestone",
+  other: "Document",
 };
 
-const kindWord = (kind: string) => recordedKindWords[kind] ?? words(kind);
+// kindWord names a document's kind, of a file or of a record, the way a person says it.
+export const kindWord = (kind: string) => kindWords[kind] ?? words(kind);
 
 // reviewWords says where a version stands: under a plan version a member approved, waiting in one whose
 // approval is open, or in neither.
@@ -98,25 +101,66 @@ export function PlanSections({ plans, home }: { plans: PlanDocuments[]; home: Do
   );
 }
 
-function Criterion({ criterion, plan }: { criterion: TracedCriterion; plan: string }) {
+// A requirement's criteria, gathered under the contract that holds them, in the order they came. Every
+// criterion of one contract carries the same work, so the work is named once, under the contract.
+type TracedContract = { contract: string; title: string; version: number; criteria: TracedCriterion[]; work: TracedWork[] };
+
+function byContract(criteria: TracedCriterion[]): TracedContract[] {
+  const out: TracedContract[] = [];
+  for (const criterion of criteria) {
+    const held = out.find((row) => row.contract === criterion.contract);
+    if (held) {
+      held.criteria.push(criterion);
+      continue;
+    }
+    out.push({
+      contract: criterion.contract,
+      title: criterion.contract_title,
+      version: criterion.contract_version,
+      criteria: [criterion],
+      work: criterion.work_orders,
+    });
+  }
+  return out;
+}
+
+// A review agent's verdict lands on a criterion, so each criterion keeps the place for one.
+function Criterion({ criterion }: { criterion: TracedCriterion }) {
   return (
     <li className="trace-criterion">
       <p>
         <span className="mono">{criterion.criterion}</span> {criterion.text}
       </p>
-      <p className="quiet">
+      <p className="quiet trace-verdict">No review verdict yet</p>
+    </li>
+  );
+}
+
+function Contract({ row, requirement, plan }: { row: TracedContract; requirement: string; plan: string }) {
+  const title = row.title || row.contract;
+  return (
+    <li className="trace-contract">
+      <p className="trace-contract-title">
         <Link to={addressOf("/plans", { plan })}>
-          {criterion.contract_title}, version {criterion.contract_version}
+          {title}, version {row.version}
         </Link>
       </p>
-      <ul className="tags" aria-label="Work orders">
-        {criterion.work_orders.map((order) => (
-          <li key={order.id}>
-            {order.title || order.id}: <span className="tag-strong">{workLabel(order.state)}</span>
-          </li>
+      <ul className="trace-criteria" aria-label={`Criteria of ${title} that serve ${requirement}`}>
+        {row.criteria.map((criterion) => (
+          <Criterion key={criterion.criterion} criterion={criterion} />
         ))}
-        <li className="trace-verdict">No review verdict yet</li>
       </ul>
+      {row.work.length ? (
+        <ul className="tags" aria-label={`Work orders of ${title}`}>
+          {row.work.map((order) => (
+            <li key={order.id}>
+              {order.title || order.id}: <span className="tag-strong">{workLabel(order.state)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="quiet">No work carries it yet.</p>
+      )}
     </li>
   );
 }
@@ -127,9 +171,9 @@ function Trace({ trace, plan }: { trace: RequirementTrace; plan: string }) {
       <p className="trace-key mono">{trace.key}</p>
       <p>{trace.text}</p>
       {trace.criteria.length ? (
-        <ul className="trace-criteria" aria-label={`Criteria that serve ${trace.key}`}>
-          {trace.criteria.map((criterion) => (
-            <Criterion key={`${criterion.contract}:${criterion.criterion}`} criterion={criterion} plan={plan} />
+        <ul className="trace-contracts" aria-label={`Contracts that serve ${trace.key}`}>
+          {byContract(trace.criteria).map((row) => (
+            <Contract key={row.contract} row={row} requirement={trace.key} plan={plan} />
           ))}
         </ul>
       ) : (
@@ -139,9 +183,9 @@ function Trace({ trace, plan }: { trace: RequirementTrace; plan: string }) {
   );
 }
 
-// Traces follows each requirement of a plan to the criteria that serve it and the work that carries them
-// (FR-DOC-7). A review agent's verdicts on each criterion come with reviews, and until then each criterion
-// says it has none.
+// Traces follows each requirement of a plan to the contracts and criteria that serve it and the work that
+// carries them (FR-DOC-7). A review agent's verdicts on each criterion come with reviews, and until then
+// each criterion says it has none.
 export function Traces({ plan }: { plan: PlanDocuments }) {
   return (
     <Section title={plan.plan.title}>
@@ -221,14 +265,10 @@ export function RecordedPage({ id, version, live }: { id: string; version: strin
             ) : null}
             <Fact name="Version">{shown.version.version}</Fact>
             <Fact name="Review">{reviewWords(shown.version)}</Fact>
-            {shown.version.source ? (
-              <Fact name="Source" mono>
-                {shown.version.source}
-              </Fact>
-            ) : null}
-            <Fact name="Digest" mono>
-              {shown.version.digest}
-            </Fact>
+          </dl>
+          <dl className="facts-long">
+            {shown.version.source ? <LongFact name="Source" value={shown.version.source} /> : null}
+            <LongFact name="Digest" value={shown.version.digest} />
           </dl>
           <p className="outside" role="note">
             This text comes from a repository, as anyone with a commit wrote it, and the ledger keeps it as intake read it. It is shown as

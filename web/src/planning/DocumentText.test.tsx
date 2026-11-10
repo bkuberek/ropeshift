@@ -21,16 +21,36 @@ describe("blocksOf", () => {
     ]);
   });
 
-  it("keeps a fenced block whole, and reads nothing inside it", () => {
-    expect(blocksOf("```go\n# not a heading\n\n- not a list\n```\n")).toEqual([{ kind: "code", text: "# not a heading\n\n- not a list" }]);
+  it("keeps a fenced block whole, with its language, and reads nothing inside it", () => {
+    expect(blocksOf("```go\n# not a heading\n\n- not a list\n```\n")).toEqual([{ kind: "code", language: "go", text: "# not a heading\n\n- not a list" }]);
   });
 
-  it("keeps a table's columns as they stand", () => {
-    expect(blocksOf("| a | b |\n|---|---|\n| 1 | 2 |\n")).toEqual([{ kind: "code", text: "| a | b |\n|---|---|\n| 1 | 2 |" }]);
+  it("reads a table: its header, how each column aligns, and its rows", () => {
+    expect(blocksOf("| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n| 4 | 5 |\n")).toEqual([
+      {
+        kind: "table",
+        head: ["a", "b", "c"],
+        align: ["left", "center", "right"],
+        rows: [
+          ["1", "2", "3"],
+          ["4", "5", ""],
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a pipe a cell escapes, and drops cells past the header's", () => {
+    expect(blocksOf("| a | b |\n|---|---|\n| x \\| y | z | extra |\n")).toEqual([
+      { kind: "table", head: ["a", "b"], align: ["", ""], rows: [["x | y", "z"]] },
+    ]);
+  });
+
+  it("keeps lines that only look like a table as they stand", () => {
+    expect(blocksOf("| a | b |\n| 1 | 2 |\n")).toEqual([{ kind: "code", language: "", text: "| a | b |\n| 1 | 2 |" }]);
   });
 
   it("closes a fence the text left open", () => {
-    expect(blocksOf("```\nnever closed")).toEqual([{ kind: "code", text: "never closed" }]);
+    expect(blocksOf("```\nnever closed")).toEqual([{ kind: "code", language: "", text: "never closed" }]);
   });
 
   it("reads Windows line ends", () => {
@@ -65,6 +85,34 @@ describe("a document on the page", () => {
     expect(screen.getByText("now").tagName).toBe("STRONG");
   });
 
+  it("shows a table as a table, with inline code in its cells", () => {
+    show("| Field | Meaning |\n|-------|---------|\n| `order_id` | The order that **changed** |\n");
+    const table = screen.getByRole("table");
+    expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Field", "Meaning"]);
+    const cells = screen.getAllByRole("cell");
+    expect(cells.map((cell) => cell.textContent)).toEqual(["order_id", "The order that changed"]);
+    expect(cells[0]?.querySelector("code")?.textContent).toBe("order_id");
+    expect(cells[1]?.querySelector("strong")?.textContent).toBe("changed");
+    expect(table.textContent).not.toContain("`");
+    expect(screen.getByRole("region", { name: "Table of Field, Meaning" }).getAttribute("tabindex")).toBe("0");
+  });
+
+  it("aligns a column the way its separator says", () => {
+    show("| a | b |\n|:-:|--:|\n| 1 | 2 |\n");
+    const cells = screen.getAllByRole("cell");
+    expect(cells[0]?.style.textAlign).toBe("center");
+    expect(cells[1]?.style.textAlign).toBe("right");
+  });
+
+  it("labels a fenced block by its language, and keeps a diagram's source as text", () => {
+    show("```mermaid\ngraph TD\n  A --> B\n```\n\n```go\nfunc main() {}\n```\n\n```\nplain\n```\n");
+    const diagram = screen.getByRole("figure", { name: "Diagram (Mermaid source)" });
+    expect(diagram.querySelector("pre")?.textContent).toBe("graph TD\n  A --> B");
+    expect(diagram.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("figure", { name: "Code (go)" }).querySelector("pre")?.textContent).toBe("func main() {}");
+    expect(screen.getByRole("figure", { name: "Code" }).querySelector("pre")?.getAttribute("tabindex")).toBe("0");
+  });
+
   it("shows a link as words and an address, and follows neither", () => {
     const { container } = show("See [the site](https://example.com/page) first.\n");
     expect(container.querySelector("a")).toBeNull();
@@ -82,12 +130,20 @@ describe("markup in a document", () => {
     ["a quote", `> ${markup}`],
     ["a fence", "```html\n" + markup + "\n```"],
     ["a table", `| ${markup} |`],
+    ["a table's cell", `| a |\n|---|\n| ${markup} |`],
+    ["a table's header", `| ${markup} |\n|---|\n| a |`],
     ["inline code", "`" + markup + "`"],
     ["emphasis", `**${markup}**`],
   ])("stays text in %s", (_name, body) => {
     const { container } = show(body);
     expect(container.querySelector("img, script")).toBeNull();
     expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+  });
+
+  it("keeps a fence's language as text in its label", () => {
+    const { container } = show("```<script>alert(1)</script>\nbody\n```\n");
+    expect(container.querySelector("script")).toBeNull();
+    expect(screen.getByRole("figure", { name: "Code (<script>alert(1)</script>)" })).toBeTruthy();
   });
 
   it.each([

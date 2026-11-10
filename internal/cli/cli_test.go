@@ -1005,6 +1005,29 @@ func TestPlanShowSaysWhatAWaitingApprovalHoldsAndHowItDiffers(t *testing.T) {
 	}
 }
 
+// A plan approval is about a plan version and not a lane, so `approval show` names the plan and its
+// version and prints no lane line.
+func TestApprovalShowNamesThePlanVersionOfAPlanApproval(t *testing.T) {
+	s := newSession(t)
+	plan, _ := s.plannedWithADraft()
+	rows, err := s.daemon.Client.Approvals(t.Context(), authority.ApprovalPending)
+	if err != nil || len(rows) != 1 || rows[0].Kind != authority.KindPlan {
+		t.Fatalf("approvals %+v: %v", rows, err)
+	}
+	text := s.must("approval", "show", rows[0].ID)
+	if want := "plan: The plan (" + plan + "), version 1\n"; !strings.Contains(text, want) {
+		t.Errorf("no %q in:\n%s", want, text)
+	}
+	if strings.Contains(text, "lane:") {
+		t.Errorf("a plan approval names a lane:\n%s", text)
+	}
+	for _, want := range []string{"state: pending", "digest: " + rows[0].SubjectDigest} {
+		if !strings.Contains(text, want) {
+			t.Errorf("no %q in:\n%s", want, text)
+		}
+	}
+}
+
 func TestPlanApproveApprovesTheVersionItShowsAndDecidesItsDrafts(t *testing.T) {
 	s := newSession(t)
 	plan, _ := s.plannedWithADraft()

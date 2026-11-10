@@ -218,10 +218,37 @@ func recordedPlans(tx ports.ReadTx) ([]api.PlanDocuments, error) {
 	return out, nil
 }
 
-// markRecorded names, on each live file a plan recorded, the record the ledger keeps of it, by the file
-// the record's newest version came from.
-func markRecorded(listed []api.Document, plans []api.PlanDocuments) []api.Document {
+// markRecorded names, on each live file the ledger holds as a record, that record, by the file the
+// record came from: a planning document a plan recorded, by its newest version, and a goal, a plan, or a
+// contract, each of which a page shows on its own.
+func markRecorded(tx ports.ReadTx, listed []api.Document, plans []api.PlanDocuments) ([]api.Document, error) {
 	recordOf := map[string]string{}
+	mark := func(source, kind, id string) {
+		if path := sourcePath(source); path != "" {
+			recordOf[path] = kind + ":" + id
+		}
+	}
+	goals, err := tx.Planning().Goals()
+	if err != nil {
+		return nil, err
+	}
+	for _, goal := range goals {
+		mark(goal.Source, planning.SubjectGoal, goal.ID)
+	}
+	held, err := tx.Planning().Plans()
+	if err != nil {
+		return nil, err
+	}
+	for _, plan := range held {
+		mark(plan.Source, planning.SubjectPlan, plan.ID)
+	}
+	contracts, err := tx.Planning().Contracts()
+	if err != nil {
+		return nil, err
+	}
+	for _, contract := range contracts {
+		mark(contract.Source, planning.SubjectContract, contract.ID)
+	}
 	for _, plan := range plans {
 		for _, document := range plan.Documents {
 			if document.Path != "" {
@@ -233,7 +260,7 @@ func markRecorded(listed []api.Document, plans []api.PlanDocuments) []api.Docume
 	for i := range marked {
 		marked[i].Record = recordOf[marked[i].Path]
 	}
-	return marked
+	return marked, nil
 }
 
 // readRecorded reads one version of a planning document with its stored body. An empty version reads

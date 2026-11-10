@@ -59,6 +59,9 @@ type Config struct {
 	// Panes is the worker's terminal as the web pane reaches it. Nil reaches none, as on a control
 	// plane whose worker has no tmux, and the pane's routes refuse.
 	Panes Panes
+	// WebAddress is the address the web listener bound, which health reports so a command can name a
+	// page of the web UI. Empty means the daemon serves no web UI.
+	WebAddress string
 }
 
 type handler struct {
@@ -262,7 +265,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	var health api.Health
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		workspace, err := tx.Workspace()
-		health = api.Health{Status: "ok", Revision: workspace.Rev}
+		health = api.Health{Status: "ok", Revision: workspace.Rev, Web: h.WebAddress}
 		return err
 	})
 	if err != nil {

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { GoalProgress, MilestoneProgress, PlannedWork, PlanProgress, Roadmap as View } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { stateCounts, workLabel } from "../floor/states";
-import { Section, words } from "../parts/parts";
+import { Bar, plural, Section, words } from "../parts/parts";
 
 // StateCounts says how a plan's work stands, state by state.
 export function StateCounts({ states }: { states: Record<string, number> }) {
@@ -52,7 +52,7 @@ function Milestone({ milestone, titleOf }: { milestone: MilestoneProgress; title
         <li className="tag-strong">{milestoneWords[milestone.state] ?? words(milestone.state)}</li>
         <li>{milestone.total === 0 ? "No work yet" : said}</li>
       </ul>
-      {milestone.total === 0 ? null : <progress value={milestone.done} max={milestone.total} aria-label={`${title}: ${said}`} />}
+      {milestone.total === 0 ? null : <Bar done={milestone.done} total={milestone.total} label={`${title}: ${said}`} />}
       {milestone.depends_on.length ? <p className="quiet">After {milestone.depends_on.map(titleOf).join(", ")}</p> : null}
       {milestone.exit_criteria.length ? (
         <ul className="criteria" aria-label="Exit criteria">
@@ -118,7 +118,10 @@ function PlanMap({ row }: { row: PlanProgress }) {
               <li key={id}>{workOf(id).title || id}</li>
             ))}
           </Part>
-          <p className="quiet">{row.critical_path.weight} left on the critical path</p>
+          <p className="quiet">
+            {plural(row.critical_path.work_orders.length, "work order")}, {plural(row.critical_path.weight, "size point")} left on the critical path
+          </p>
+          <p className="quiet">A size point is what a work order's size counts for: small 1, medium 2, large 3.</p>
         </>
       ) : (
         <p className="quiet">Nothing is left on the critical path.</p>
@@ -138,7 +141,7 @@ function PlanRow({ row }: { row: PlanProgress }) {
         <p className="quiet">No work yet</p>
       ) : (
         <div className="row-progress">
-          <progress value={row.done} max={row.total} aria-label={`${row.plan.title}: ${said}`} />
+          <Bar done={row.done} total={row.total} label={`${row.plan.title}: ${said}`} />
           <p className="quiet">{said}</p>
         </div>
       )}

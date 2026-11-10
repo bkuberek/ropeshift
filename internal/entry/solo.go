@@ -233,18 +233,22 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	batches, windows := soloBatches(paths), soloWindows(paths)
+	webListener, err := listenWeb(opts.web, stderr)
+	if err != nil {
+		return err
+	}
 	config := server.Config{
 		Scope: soloScope, Store: store, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store, Backup: sqlite.LedgerBackup{File: filepath.Join(paths.StateDir, api.LedgerFileName)},
-		Panes: soloPanes(terminal), Starts: soloStarts(opts),
+		Panes: soloPanes(terminal), Starts: soloStarts(opts), WebAddress: webAddressOf(webListener),
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpServer.Serve(listener) }()
 	fmt.Fprintf(stdout, "ropeshiftd: serving %s\n", paths.ControlSocket())
-	webServer, err := startWeb(config, opts.web, stdout, stderr)
+	webServer, err := startWeb(config, webListener, stdout, stderr)
 	if err != nil {
 		return err
 	}
@@ -286,10 +290,12 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	return nil
 }
 
-// startWeb serves the web UI on loopback. An address that is no loopback address is a mistake, and the
+// listenWeb binds the web UI's listener on loopback, before the daemon serves anything, so the address
+// it bound is known to every handler. An address that is no loopback address is a mistake, and the
 // daemon stops on it, because a person asked for something solo mode never does. A port something else
-// holds costs only the UI, so the daemon goes on: lanes do not wait on a page.
-func startWeb(config server.Config, address string, stdout, stderr io.Writer) (*http.Server, error) {
+// holds costs only the UI, so the daemon goes on with no listener: lanes do not wait on a page. A web UI
+// that is off has none either.
+func listenWeb(address string, stderr io.Writer) (net.Listener, error) {
 	if address == api.WebOff {
 		return nil, nil
 	}
@@ -298,8 +304,22 @@ func startWeb(config server.Config, address string, stdout, stderr io.Writer) (*
 		fmt.Fprintf(stderr, "ropeshiftd: web: %v\n", err)
 		return nil, nil
 	}
-	if err != nil {
-		return nil, err
+	return listener, err
+}
+
+// webAddressOf is the address a web listener bound, with the port the kernel picked when it was asked
+// for port 0, or nothing when there is no listener.
+func webAddressOf(listener net.Listener) string {
+	if listener == nil {
+		return ""
+	}
+	return listener.Addr().String()
+}
+
+// startWeb serves the web UI on the listener listenWeb bound, and serves nothing without one.
+func startWeb(config server.Config, listener net.Listener, stdout, stderr io.Writer) (*http.Server, error) {
+	if listener == nil {
+		return nil, nil
 	}
 	assets, err := web.Assets()
 	if err != nil {

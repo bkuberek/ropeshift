@@ -42,8 +42,21 @@ func (c *invocation) approvalShow(args []string) int {
 	defer client.Close()
 	row, err := client.Approval(c.ctx, id)
 	return c.finish(err, row, func() string {
-		return fmt.Sprintf("%s\nstate: %s\nlane: %s\nrequested by: %s\ndigest: %s\n", row.Summary, row.State, row.Lane, row.RequestedBy, row.SubjectDigest)
+		return fmt.Sprintf("%s\nstate: %s\n%s\nrequested by: %s\ndigest: %s\n", row.Summary, row.State, approvalSubject(row), row.RequestedBy, row.SubjectDigest)
 	})
+}
+
+// approvalSubject says what a request is about: the plan version a plan approval covers, which no lane
+// asked for, or the lane that asked.
+func approvalSubject(row authority.Approval) string {
+	if row.Kind != authority.KindPlan {
+		return "lane: " + row.Lane
+	}
+	plan := row.Plan
+	if title := api.PlanDetailOf(row).Title; title != "" {
+		plan = fmt.Sprintf("%s (%s)", title, row.Plan)
+	}
+	return fmt.Sprintf("plan: %s, version %d", plan, row.PlanVersion)
 }
 
 func (c *invocation) approvalApprove(args []string) int { return c.approvalDecide(args, true) }

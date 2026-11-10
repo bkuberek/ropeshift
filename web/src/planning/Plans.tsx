@@ -1,27 +1,51 @@
-import { useId } from "react";
+import { Fragment, useId } from "react";
 
 import type { Contract, ContractHistory, PlanDetail, PlanReview, Plans as View, WorkOrder } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { workLabel } from "../floor/states";
-import { Fact, Id, Section, words } from "../parts/parts";
+import { Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
 import { StateCounts } from "./Roadmap";
 
-const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+// A work order's size says how much of the critical path it weighs.
+const sizeWords = (size: string) => `Size ${size || "unknown"}`;
 
-function WorkRows({ orders }: { orders: WorkOrder[] }) {
+// Names reads what a contract names by ID as a person reads it: a milestone of the plan by its title, a
+// contract of the plan by the newest title of the contract whose file has that ID, and the milestone a
+// work order is in through its contract. A name the plan does not hold stays the ID it was written as.
+type Names = { milestone: (id: string) => string; contract: (key: string) => string; milestoneOf: (order: WorkOrder) => string };
+
+function namesOf(detail: PlanDetail): Names {
+  const milestone = (id: string) => detail.milestones.find((row) => row.id === id)?.title || id;
+  const newest = (history?: ContractHistory) => history?.versions.at(-1);
+  return {
+    milestone,
+    contract: (key) => newest(detail.contracts.find((history) => history.key === key))?.title || key,
+    milestoneOf: (order) => {
+      const id = newest(detail.contracts.find((history) => history.id === order.contract_id))?.milestone;
+      return id ? milestone(id) : "";
+    },
+  };
+}
+
+function WorkRows({ orders, names }: { orders: WorkOrder[]; names?: Names }) {
   return (
     <ol className="rows" role="list">
-      {orders.map((order) => (
-        <li key={order.id} className="row">
-          <p className="row-title">{order.title || order.id}</p>
-          <ul className="tags">
-            <li className="tag-strong">{workLabel(order.state)}</li>
-            <li>
-              <Id value={order.id} />
-            </li>
-          </ul>
-        </li>
-      ))}
+      {orders.map((order) => {
+        const milestone = names?.milestoneOf(order);
+        return (
+          <li key={order.id} className="row">
+            <p className="row-title">{order.title || order.id}</p>
+            <ul className="tags">
+              <li className="tag-strong">{workLabel(order.state)}</li>
+              {order.size !== undefined ? <li>{sizeWords(order.size)}</li> : null}
+              {milestone ? <li>In milestone {milestone}</li> : null}
+              <li>
+                <Id value={order.id} />
+              </li>
+            </ul>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -70,7 +94,24 @@ export function PlanList({ view }: { view: View }) {
   );
 }
 
-function Version({ contract }: { contract: Contract }) {
+// Requirements says which requirements a criterion serves, each linked to its page.
+function Requirements({ keys }: { keys: string[] }) {
+  return (
+    <p className="quiet">
+      Serves{" "}
+      {keys.map((key, at) => (
+        <Fragment key={key}>
+          {at ? ", " : null}
+          <Link className="mono" to={addressOf("/requirements", { key })}>
+            {key}
+          </Link>
+        </Fragment>
+      ))}
+    </p>
+  );
+}
+
+function Version({ contract, names }: { contract: Contract; names: Names }) {
   const heading = useId();
   return (
     <section className="version" aria-labelledby={heading}>
@@ -82,21 +123,19 @@ function Version({ contract }: { contract: Contract }) {
         <ul className="criteria" aria-label="Acceptance criteria">
           {contract.criteria.map((criterion) => (
             <li key={criterion.id}>
-              <span className="mono">{criterion.id}</span> {criterion.text}
+              <p>
+                <span className="mono">{criterion.id}</span> {criterion.text}
+              </p>
+              {criterion.requirements?.length ? <Requirements keys={criterion.requirements} /> : null}
             </li>
           ))}
         </ul>
       ) : null}
       <dl className="facts">
         <Fact name="Status">{words(contract.status)}</Fact>
-        <Fact name="Digest" mono>
-          {contract.digest}
-        </Fact>
-        {contract.source ? (
-          <Fact name="Source" mono>
-            {contract.source}
-          </Fact>
-        ) : null}
+        {contract.milestone ? <Fact name="Milestone">{names.milestone(contract.milestone)}</Fact> : null}
+        {contract.shared ? <Fact name="Shared">Other contracts of this plan use it</Fact> : null}
+        {contract.uses?.length ? <Fact name="Uses">{contract.uses.map(names.contract).join(", ")}</Fact> : null}
         {contract.requirements?.length ? (
           <Fact name="Requirements">
             <ul className="links">
@@ -124,11 +163,34 @@ function Version({ contract }: { contract: Contract }) {
           </Fact>
         ) : null}
       </dl>
+      <dl className="facts-long">
+        {contract.source ? <LongFact name="Source" value={contract.source} /> : null}
+        <LongFact name="Digest" value={contract.digest} />
+      </dl>
     </section>
   );
 }
 
-function History({ history }: { history: ContractHistory }) {
+// A contract's work orders, each with its size, which is what the critical path weighs.
+function ContractWork({ title, orders }: { title: string; orders: WorkOrder[] }) {
+  if (orders.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="contract-work" aria-label={`Work orders of ${title}`}>
+      {orders.map((order) => (
+        <li key={order.id}>
+          <span className="contract-work-title">{order.title || order.id}</span>
+          <ul className="tags">
+            <li>{sizeWords(order.size ?? "")}</li>
+          </ul>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function History({ history, orders, names }: { history: ContractHistory; orders: WorkOrder[]; names: Names }) {
   const heading = useId();
   const [newest, ...older] = [...history.versions].reverse();
   if (!newest) {
@@ -139,12 +201,13 @@ function History({ history }: { history: ContractHistory }) {
       <h3 className="card-title" id={heading}>
         {newest.title}
       </h3>
-      <Version contract={newest} />
+      <Version contract={newest} names={names} />
+      <ContractWork title={newest.title} orders={orders.filter((order) => order.contract_id === history.id)} />
       {older.length ? (
         <details className="older">
           <summary>{plural(older.length, "earlier version")}</summary>
           {older.map((contract) => (
-            <Version key={contract.version} contract={contract} />
+            <Version key={contract.version} contract={contract} names={names} />
           ))}
         </details>
       ) : null}
@@ -184,6 +247,7 @@ function Review({ review }: { review: PlanReview }) {
 }
 
 export function PlanPage({ detail }: { detail: PlanDetail }) {
+  const names = namesOf(detail);
   return (
     <>
       <p className="back">
@@ -192,15 +256,20 @@ export function PlanPage({ detail }: { detail: PlanDetail }) {
       <dl className="facts facts-page">
         <Fact name="Status">{words(detail.plan.status)}</Fact>
         {detail.goal ? <Fact name="Goal">{detail.goal.title}</Fact> : null}
-        {detail.plan.source ? (
-          <Fact name="Source" mono>
-            {detail.plan.source}
-          </Fact>
-        ) : null}
       </dl>
+      {detail.plan.source ? (
+        <dl className="facts-long">
+          <LongFact name="Source" value={detail.plan.source} />
+        </dl>
+      ) : null}
+      {detail.pending_version ? (
+        <p className="plan-waiting">
+          Version {detail.pending_version} waits for approval in <Link to="/">Needs you</Link>.
+        </p>
+      ) : null}
       <Section title="Contracts">
         {detail.contracts.length ? (
-          detail.contracts.map((history) => <History key={history.id} history={history} />)
+          detail.contracts.map((history) => <History key={history.id} history={history} orders={detail.work_orders} names={names} />)
         ) : (
           <p className="quiet">This plan holds no contract yet.</p>
         )}
@@ -213,7 +282,7 @@ export function PlanPage({ detail }: { detail: PlanDetail }) {
         )}
       </Section>
       <Section title="Work">
-        {detail.work_orders.length ? <WorkRows orders={detail.work_orders} /> : <p className="quiet">This plan holds no work yet.</p>}
+        {detail.work_orders.length ? <WorkRows orders={detail.work_orders} names={names} /> : <p className="quiet">This plan holds no work yet.</p>}
       </Section>
     </>
   );

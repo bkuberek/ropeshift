@@ -441,3 +441,21 @@ func TestAShortTerminalFollowsTheCursor(t *testing.T) {
 		t.Errorf("the cursor left the frame:\n%s", frame)
 	}
 }
+
+// Every need's ID starts in one column, so a kind wider than the rest does not push its row to the right.
+func TestEveryNeedsIDStartsInOneColumn(t *testing.T) {
+	snapshot := golden(t)
+	frame := loaded(t, snapshot).View()
+	columns := map[int][]string{}
+	for line := range strings.Lines(frame) {
+		for _, item := range snapshot.Needs.Items {
+			at := strings.Index(line, " "+item.ID+"  ")
+			if at >= 0 && strings.HasSuffix(strings.TrimRight(line[:at], " "), " "+item.Kind) {
+				columns[at+1] = append(columns[at+1], item.Kind)
+			}
+		}
+	}
+	if len(columns) != 1 {
+		t.Errorf("needs start their IDs in %d columns: %v\n%s", len(columns), columns, frame)
+	}
+}

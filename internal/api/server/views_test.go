@@ -256,6 +256,59 @@ func TestPlansListEachContractVersion(t *testing.T) {
 	t.Fatal("no plan names the goal")
 }
 
+func plansRow(t *testing.T, d *apitest.Daemon, title string) api.PlanDetail {
+	t.Helper()
+	for _, row := range readView[api.Plans](t, d, api.ViewPlans, "").Plans {
+		if row.Plan.Title == title {
+			return row
+		}
+	}
+	t.Fatalf("the plans view holds no plan titled %s", title)
+	return api.PlanDetail{}
+}
+
+// A plan's page names the milestone a contract is in and the shared contracts it uses, as its file wrote
+// them, so the view carries the plan's milestones and the ID each contract's file gave it. It also says
+// which version of the plan waits for a member's approval.
+func TestPlansNameTheirMilestonesTheirContractsKeysAndAVersionThatWaits(t *testing.T) {
+	clock := apitest.NewClock()
+	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
+	project := apitest.Factory(apitest.NewWorld(t, d), clock)
+	plan := plansRow(t, d, apitest.FactoryPlanTitle)
+	milestones := map[string]string{}
+	for _, milestone := range plan.Milestones {
+		milestones[milestone.ID] = milestone.Title
+	}
+	if len(plan.Milestones) != 3 || milestones["build"] != "Build the core" || milestones["ship"] != "Ship the approval page" {
+		t.Errorf("milestones %+v", plan.Milestones)
+	}
+	keys := map[string]string{}
+	for _, contract := range plan.Contracts {
+		keys[contract.Key] = contract.Versions[len(contract.Versions)-1].Title
+	}
+	if keys["client"] != "The API client" || keys["core"] != "The planning core" {
+		t.Errorf("contracts by key %v", keys)
+	}
+	if plan.PendingVersion != 0 {
+		t.Errorf("an approved plan says version %d waits", plan.PendingVersion)
+	}
+
+	project.Change()
+	var needs api.NeedsYou
+	if err := d.Client.ReadView(t.Context(), api.ViewNeedsYou, "", &needs); err != nil {
+		t.Fatal(err)
+	}
+	var waiting int64
+	for _, item := range needs.Items {
+		if item.PlanApproval != nil && item.PlanApproval.Title == apitest.FactoryPlanTitle {
+			waiting = item.PlanApproval.Version
+		}
+	}
+	if got := plansRow(t, d, apitest.FactoryPlanTitle).PendingVersion; waiting == 0 || got != waiting {
+		t.Errorf("the plan says version %d waits, and Needs you asks about version %d", got, waiting)
+	}
+}
+
 func TestPlansShowAReviewAndWhatItLeftOpen(t *testing.T) {
 	d, w, _ := aWorld(t)
 	plan := readView[api.Plans](t, d, api.ViewPlans, "").Plans[0]

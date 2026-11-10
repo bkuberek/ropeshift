@@ -1,15 +1,15 @@
 ropeshift top   11 need you   12 lanes   1 worker   read 0s ago
 NEEDS YOU
->   12m  work      wo-lapsed  lapsed  Rotate the keys
-    11m  work      wo-blocked  blocked  Move the archive  no_outcome
-    10m  effect    worker-a:1:11  a crash left input unknown
-     9m  work      wo-accept  acceptance  Trim the log
-     8m  approval  approval-1  lane lane-wo-approval asks about Bash
-     6m  questions generated-6  2 to answer
-     5m  work      wo-parked  parked: waits for question question-1 or a person  Wait for the check
-     4m  work      wo-stalled  stalled  Read the logs
-     4m  work      wo-tripped  tripped  Fix the flaky test
-     0s  plan_approval generated-10  plan The factory floor v6 waits: 1 added, 4 changed, 0 removed since version 5
+>   12m  work            wo-lapsed  lapsed  Rotate the keys
+    11m  work            wo-blocked  blocked  Move the archive  no_outcome
+    10m  effect          worker-a:1:11  a crash left input unknown
+     9m  work            wo-accept  acceptance  Trim the log
+     8m  approval        approval-1  lane lane-wo-approval asks about Bash
+     6m  questions       generated-6  2 to answer
+     5m  work            wo-parked  parked: waits for question question-1 or a person  Wait for the check
+     4m  work            wo-stalled  stalled  Read the logs
+     4m  work            wo-tripped  tripped  Fix the flaky test
+     0s  plan_approval   generated-10  plan The factory floor v6 waits: 1 added, 4 changed, 0 removed since version 5
      0s  contract_review wo-review  contract review: Document the retry budget version 1, work Document the retry budget
     ropeshift work reassign wo-lapsed --reason R
     ropeshift work cancel wo-lapsed --reason R

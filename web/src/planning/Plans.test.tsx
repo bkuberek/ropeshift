@@ -19,6 +19,21 @@ function serve(change: (view: Plans) => void) {
   serveViews((call) => (call.path.startsWith("/v1/views/plans") ? { status: 200, body: view } : undefined));
 }
 
+// The factory floor has milestones, a shared contract and one that uses it, sizes, and a version that
+// waits for approval.
+const openFactory = async () => {
+  serveViews();
+  const plan = golden<Plans>("plans").plans.find((row) => row.plan.title === "The factory floor");
+  openPage(`/plans?plan=${encodeURIComponent(plan?.plan.id ?? "")}`);
+  await screen.findByRole("heading", { level: 1, name: "The factory floor" });
+};
+
+// factsOf reads each fact of a list as its name and its value together.
+const factsOf = (within_: HTMLElement) =>
+  within(within_)
+    .getAllByRole("term")
+    .map((term) => term.closest("div")?.textContent);
+
 const openPlan = async () => {
   const plan = planned();
   openPage(`/plans?plan=${encodeURIComponent(plan.plan.id)}`);
@@ -147,10 +162,63 @@ describe("one plan", () => {
     expect(screen.getByRole("link", { name: "All plans" }).getAttribute("href")).toBe("/plans");
   });
 
+  it("says so when no version of the plan waits for approval", async () => {
+    serveViews();
+    await openPlan();
+    expect(screen.queryByText(/waits for approval/)).toBeNull();
+  });
+
   it("says so when no plan has that ID", async () => {
     serveViews();
     openPage("/plans?plan=no-such-plan");
     expect(await screen.findByRole("heading", { level: 1, name: "No such plan" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "All plans" })).toBeTruthy();
+  });
+});
+
+describe("a plan with milestones", () => {
+  it("names the milestone a contract is in, and the shared contracts it uses", async () => {
+    await openFactory();
+    const core = screen.getByRole("article", { name: "The planning core" });
+    const facts = factsOf(within(core).getByRole("region", { name: "Version 2" }));
+    expect(facts).toContain("MilestoneBuild the core");
+    expect(facts).toContain("UsesThe API client");
+    const client = screen.getByRole("article", { name: "The API client" });
+    expect(factsOf(within(client).getByRole("region", { name: "Version 1" }))).toContain("SharedOther contracts of this plan use it");
+  });
+
+  it("says which requirements each criterion serves", async () => {
+    await openFactory();
+    const page = screen.getByRole("article", { name: "The approval page" });
+    const criteria = within(within(page).getByRole("region", { name: "Version 2" })).getByRole("list", { name: "Acceptance criteria" });
+    const second = within(criteria).getByText(/The roadmap shows parallel work/).closest("li");
+    expect(within(second as HTMLElement).getByRole("link", { name: "FAC-3" }).getAttribute("href")).toBe("/requirements?key=FAC-3");
+    expect(within(second as HTMLElement).queryByRole("link", { name: "FAC-1" })).toBeNull();
+  });
+
+  it("lists a contract's work orders with the size of each", async () => {
+    await openFactory();
+    const page = screen.getByRole("article", { name: "The approval page" });
+    const work = within(page).getByRole("list", { name: "Work orders of The approval page" });
+    const rows = within(work)
+      .getAllByRole("listitem")
+      .filter((item) => item.parentElement === work)
+      .map((item) => item.textContent);
+    expect(rows).toEqual(["Build the approval pageSize small", "Show the critical pathSize small"]);
+  });
+
+  it("gives each work order of the plan its size and milestone", async () => {
+    await openFactory();
+    const work = screen.getByRole("region", { name: "Work" });
+    const row = within(work).getByText("Build the planning core").closest(".row");
+    expect(row?.textContent).toContain("Size medium");
+    expect(row?.textContent).toContain("In milestone Build the core");
+  });
+
+  it("says which version waits for approval, and leads to Needs you", async () => {
+    await openFactory();
+    const waiting = screen.getByText(/^Version 6 waits for approval/);
+    expect(waiting.textContent).toBe("Version 6 waits for approval in Needs you.");
+    expect(within(waiting).getByRole("link", { name: "Needs you" }).getAttribute("href")).toBe("/");
   });
 });
