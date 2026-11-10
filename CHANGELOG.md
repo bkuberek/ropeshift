@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.0-alpha.6](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.5...v0.1.0-alpha.6) (2026-11-10)
+
+
+### Features
+
+* **api:** stream a lane's pane and take its keys ([785af55](https://github.com/bkuberek/ropeshift/commit/785af554d07ae66aa87141403a73686827e171e6))
+* **cli:** name the planning session's web page in plan start ([04d9517](https://github.com/bkuberek/ropeshift/commit/04d951781b066e9cfa46818a0cc8a91a52983bf1))
+* **entry:** give the web pane the worker's terminal ([1acbcac](https://github.com/bkuberek/ropeshift/commit/1acbcac397a75e2b9d28c9957333717cad7f84e4))
+* **tmux:** read a pane's screen for the web pane ([b47c3fc](https://github.com/bkuberek/ropeshift/commit/b47c3fc1622e608b54fe97f1970f531b7982f22a))
+* **web:** approve a plan and review a contract from Needs you ([56d5f06](https://github.com/bkuberek/ropeshift/commit/56d5f0636c70c6898e3bfb74055259ef4ae7a1c8))
+* **web:** show and type into an interactive lane's pane ([7516a0d](https://github.com/bkuberek/ropeshift/commit/7516a0d73a80b6b74e7a5011af2253e85eaf73ea))
+* **web:** show document versions, review state, and requirement traceability ([4bff460](https://github.com/bkuberek/ropeshift/commit/4bff460bedcb18dc15a8e7f3a8cc5152d1144a17))
+* **web:** show milestones, parallel work, and the critical path on the roadmap ([d70bac8](https://github.com/bkuberek/ropeshift/commit/d70bac878cc50c7e4a1c4e991f6d0e3bef6357de))
+
 ## [0.1.0-alpha.5](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.4...v0.1.0-alpha.5) (2026-11-10)
 
 
