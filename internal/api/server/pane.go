@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -36,6 +37,47 @@ type Panes interface {
 type PaneInput struct {
 	Text string
 	Keys []string
+}
+
+// defaultSettle lets an agent CLI take typed text as typing before the Enter after it, because text and
+// Enter that arrive together can read as a paste, in which Enter adds a line instead of submitting.
+const defaultSettle = 700 * time.Millisecond
+
+// TerminalPanes reaches panes on a terminal server this process holds, as the solo daemon's worker
+// does, by the name its driver gives each generation's pane.
+type TerminalPanes struct {
+	Terminal ports.Terminal
+	// Name is the pane's name for a lane's generation, as the driver opened it.
+	Name func(lane string, generation int64) string
+	// Settle is how long typed text rests before the keys after it. Zero takes the default.
+	Settle time.Duration
+}
+
+// Screen reads the screen of a generation's pane.
+func (p TerminalPanes) Screen(ctx context.Context, lane string, generation int64) (string, error) {
+	return p.Terminal.Screen(ctx, p.Name(lane, generation))
+}
+
+// Send types text into a generation's pane, then presses its keys.
+func (p TerminalPanes) Send(ctx context.Context, lane string, generation int64, input PaneInput) error {
+	name := p.Name(lane, generation)
+	if input.Text != "" {
+		if err := p.Terminal.Type(ctx, name, input.Text); err != nil {
+			return err
+		}
+		if len(input.Keys) == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(cmp.Or(p.Settle, defaultSettle)):
+		}
+	}
+	if len(input.Keys) == 0 {
+		return nil
+	}
+	return p.Terminal.Keys(ctx, name, input.Keys...)
 }
 
 // paneKeys names each key a member may press as the terminal names it. A key it does not hold is
