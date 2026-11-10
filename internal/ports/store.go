@@ -94,6 +94,8 @@ type ReadTx interface {
 	Approvals() ApprovalReader
 	// Effects reads what waits for a person's word on an effect a crash left unknown.
 	Effects() EffectReader
+	// Repositories reads the record of each repository.
+	Repositories() RepositoryReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -148,6 +150,8 @@ type WriteTx interface {
 	Approvals() ApprovalWriter
 	// Effects reads and writes what waits for a person's word on an effect a crash left unknown.
 	Effects() EffectWriter
+	// Repositories reads and writes the record of each repository.
+	Repositories() RepositoryWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
@@ -478,6 +482,28 @@ type EffectWriter interface {
 	Decide(id string, decided ledger.EffectDecided, kind string) (bool, error)
 	// Settle records that the worker acted on a decision, and reports whether this was the first time.
 	Settle(id string, at int64) (bool, error)
+}
+
+// RepositoryReader reads the record of each repository. No read here stops at a page, because there are
+// few and each decides where a lane starts.
+type RepositoryReader interface {
+	// Repository returns one record, or ErrNotFound.
+	Repository(id string) (ledger.Repository, error)
+	// Repositories lists every record, by ID.
+	Repositories() ([]ledger.Repository, error)
+}
+
+// RepositoryWriter writes the record of each repository.
+type RepositoryWriter interface {
+	RepositoryReader
+	// Insert adds a record and reports whether it was new.
+	Insert(ledger.Repository) (bool, error)
+	// Detected replaces the remote and the default branch git gave, and reports whether either moved.
+	// A member's settings stay.
+	Detected(id, remote, defaultBranch string) (bool, error)
+	// Settings replaces the settings a member gives. The store itself refuses a combination that
+	// cannot hold.
+	Settings(ledger.Repository) error
 }
 
 // EvidenceReader reads what a work order's lanes left and what its checks said.
