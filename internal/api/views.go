@@ -149,8 +149,8 @@ type MilestoneProgress struct {
 	State        string                   `json:"state"`
 }
 
-// CriticalPath is the heaviest chain of work that is not done, in the order it runs. Weight is what
-// is left of it: a small work order counts 1, a medium one 2, and a large one 3. The ledger computes it
+// CriticalPath is the heaviest chain of work that is left, in the order it runs. Work that is done or
+// canceled is not left, and failed work is, because it has to be redone. Weight is what is left of it: a small work order counts 1, a medium one 2, and a large one 3. The ledger computes it
 // from the dependencies with no model.
 type CriticalPath struct {
 	WorkOrders []string `json:"work_orders"`

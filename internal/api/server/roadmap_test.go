@@ -102,13 +102,19 @@ func named(ids map[string]string, layer []string) []string {
 
 func finish(t *testing.T, daemon *apitest.Daemon, id string) {
 	t.Helper()
+	moveTo(t, daemon, id, workorders.Done)
+}
+
+// moveTo puts a work order in a state the way the end of its life would leave it.
+func moveTo(t *testing.T, daemon *apitest.Daemon, id string, state workorders.State) {
+	t.Helper()
 	err := daemon.Store.Write(t.Context(), apitest.Scope, "note", func(tx ports.WriteTx) error {
 		current, err := tx.WorkOrders().Get(id)
 		if err != nil {
 			return err
 		}
-		if moved, err := tx.WorkOrders().Move(id, current.State, workorders.Done); err != nil || !moved {
-			t.Fatalf("%s did not move to done: %v", id, err)
+		if moved, err := tx.WorkOrders().Move(id, current.State, state); err != nil || !moved {
+			t.Fatalf("%s did not move to %s: %v", id, state, err)
 		}
 		_, err = tx.Append(ledger.EventDraft{
 			Type: "note.added", Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}, Subject: ledger.Subject{Kind: "note", ID: id},
@@ -239,5 +245,27 @@ func TestRoadmapOfAPlanWithoutMilestonesStillShowsItsWorkInLayers(t *testing.T) 
 	}
 	if len(plan.CriticalPath.WorkOrders) != 1 || plan.CriticalPath.Weight != 1 {
 		t.Errorf("critical path %+v", plan.CriticalPath)
+	}
+}
+
+func TestRoadmapWeighsCanceledWorkAsNothingAndFailedWorkAsItself(t *testing.T) {
+	daemon := launchDaemon(t)
+	ids := idsByTitle(t, daemon)
+	// Failed work has to be redone, so it keeps its weight on the path.
+	moveTo(t, daemon, ids["k1"], workorders.Failed)
+	path := launchPlan(t, daemon).CriticalPath
+	if got := named(ids, path.WorkOrders); !slices.Equal(got, []string{"c1", "k1", "u1"}) || path.Weight != 6 {
+		t.Errorf("critical path with k1 failed %v of %d", got, path.Weight)
+	}
+	// Canceled work will never run, so it leaves the weight, like work that is done.
+	moveTo(t, daemon, ids["c1"], workorders.Canceled)
+	path = launchPlan(t, daemon).CriticalPath
+	if got := named(ids, path.WorkOrders); !slices.Equal(got, []string{"k1", "u1"}) || path.Weight != 3 {
+		t.Errorf("critical path with c1 canceled %v of %d", got, path.Weight)
+	}
+	moveTo(t, daemon, ids["k1"], workorders.Canceled)
+	path = launchPlan(t, daemon).CriticalPath
+	if got := named(ids, path.WorkOrders); !slices.Equal(got, []string{"k2", "u1"}) || path.Weight != 2 {
+		t.Errorf("critical path with k1 canceled too %v of %d", got, path.Weight)
 	}
 }

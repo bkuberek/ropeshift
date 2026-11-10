@@ -68,10 +68,8 @@
         },
         {
           "critical_path": {
-            "weight": 1,
-            "work_orders": [
-              "wo-canceled"
-            ]
+            "weight": 0,
+            "work_orders": []
           },
           "done": 0,
           "layers": [

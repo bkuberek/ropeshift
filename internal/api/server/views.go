@@ -565,7 +565,7 @@ func orderDependencies(planned ports.PlanningReader) (map[string][]string, error
 	return waits, nil
 }
 
-// layersOf groups a plan's work orders into layers and finds its critical path. The graph holds the
+// layersOf groups a plan's work orders into layers and finds its critical path by remaining weight. The graph holds the
 // plan's own work, so a dependency on work of another plan is not in it. A graph with a cycle has
 // neither, because intake refuses a plan with one and no order of that work exists.
 func layersOf(held []workorders.WorkOrder, waits map[string][]string) ([][]string, api.CriticalPath) {
@@ -586,8 +586,10 @@ func layersOf(held []workorders.WorkOrder, waits map[string][]string) ([][]strin
 	if err != nil {
 		return [][]string{}, api.CriticalPath{WorkOrders: []string{}}
 	}
+	// Work that is done, and work that was canceled and will never run, leaves the weight. Failed work
+	// keeps it, because it still has to be redone.
 	remaining := func(id string) int {
-		if byID[id].State == workorders.Done {
+		if state := byID[id].State; state == workorders.Done || state == workorders.Canceled {
 			return 0
 		}
 		return planning.SizeWeight(byID[id].Size)
