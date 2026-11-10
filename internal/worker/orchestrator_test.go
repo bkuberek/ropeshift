@@ -31,7 +31,14 @@ type orchestratorRig struct {
 
 func newOrchestratorRig(t *testing.T, scripts ...fake.DriverScript) *orchestratorRig {
 	t.Helper()
-	r := laneRigWith(t, "")
+	return newOrchestratorRigOn(t, newRig(t), scripts...)
+}
+
+// newOrchestratorRigOn builds on a rig a test has already set up, such as one whose worker reads the
+// journal through a wrapper.
+func newOrchestratorRigOn(t *testing.T, base *rig, scripts ...fake.DriverScript) *orchestratorRig {
+	t.Helper()
+	r := newLaneRigFor(t, base).dispatched()
 	r.config.Provisioner.Profiles.(*fake.ProfileSource).PutUser(orchestratorProfile)
 	ctx, cancel := context.WithCancel(t.Context())
 	o := &orchestratorRig{laneRig: r, ctx: ctx, scripts: scripts}
@@ -562,5 +569,72 @@ func TestAnOrchestratorComesBackAfterARestart(t *testing.T) {
 	}
 	if got := len(driver.Specs()); got != 0 {
 		t.Errorf("a restart started %d sessions", got)
+	}
+}
+
+// heldResponse is a journal whose append of a generation's response waits on a gate, so a worker's
+// watch stops after the lane reads idle and before it settles the turn.
+type heldResponse struct {
+	ports.Journal
+	reached chan struct{}
+	release chan struct{}
+	once    sync.Once
+	freed   sync.Once
+}
+
+func newHeldResponse(journal ports.Journal) *heldResponse {
+	return &heldResponse{Journal: journal, reached: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (j *heldResponse) Append(ctx context.Context, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	if event.Type == ledger.UploadGenerationResponded {
+		j.once.Do(func() { close(j.reached) })
+		select {
+		case <-j.release:
+		case <-ctx.Done():
+		case <-time.After(30 * time.Second):
+		}
+	}
+	return j.Journal.Append(ctx, event)
+}
+
+func (j *heldResponse) let() { j.freed.Do(func() { close(j.release) }) }
+
+// A lane reads idle before the worker settles the turn that brought it there, and a pass in between
+// would tell the session the wake it is still answering: a second turn spent on one question.
+func TestNoWakeGoesToASessionStillSettlingItsBrief(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	held := newHeldResponse(base.journal)
+	base.workerJournal = held
+	o := newOrchestratorRigOn(t, base, aSession())
+	t.Cleanup(held.let)
+	o.start(t)
+	o.tick(t)
+	o.asked(t, "q1", "Which retry budget?")
+	o.awaitNoted(t, 1)
+	o.clock.Advance(31 * time.Second)
+	o.awaitSessions(t, 1)
+	select {
+	case <-held.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the turn never reached its response")
+	}
+	lane := o.row(t).Lane()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		record, err := o.journal.Lane(t.Context(), lane)
+		if err == nil && record.Actual == lanes.Idle {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the lane reads %q (%v), not idle", record.Actual, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	o.clock.Advance(time.Hour)
+	o.tick(t)
+	if sent := o.driver.Sent(); len(sent) != 0 {
+		t.Fatalf("a wake went to a session still settling its brief: %+v", sent)
 	}
 }

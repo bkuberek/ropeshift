@@ -248,8 +248,15 @@ func (r *laneRun) limitHolds() bool {
 // deliverWake hands a live session at rest what came due. It keeps no effect, unlike what a lane is
 // told, because a wake that went twice costs one context, and one a kill lost leaves a question nobody
 // reads until something else changes it. What it told lives in this process, so a restart tells again.
+//
+// A lane reads idle when its turn ends, before the worker settles that turn and marks the brief's
+// items as told. The brief sits in pendingWake until then, and a session still answering it is not
+// at rest: the batch would hand it the same items again.
 func (r *laneRun) deliverWake(ctx context.Context) {
 	if r.sessionHandle().ID == "" || r.sessionOver.Load() || r.state.current() != lanes.Idle || r.currentFlight() != nil {
+		return
+	}
+	if len(r.pendingWake()) != 0 {
 		return
 	}
 	items, due := r.w.wakeDue()
