@@ -134,14 +134,6 @@ func TestReviewRoundsCountReviewsThatGaveVerdicts(t *testing.T) {
 	}
 }
 
-func covered(criteria ...string) Assessment {
-	out := Assessment{Needs: NeedNothing}
-	for _, c := range criteria {
-		out.Criteria = append(out.Criteria, CriterionStanding{Criterion: c, Standing: StandingCovered})
-	}
-	return out
-}
-
 func TestWhatVerdictsDecide(t *testing.T) {
 	failedCheck := Assessment{Criteria: []CriterionStanding{{Criterion: "c1", Standing: StandingFailed}}, Failed: []string{"ci"}, Needs: NeedMember}
 	unchecked := Assessment{Criteria: []CriterionStanding{{Criterion: "c1", Standing: StandingMember}, {Criterion: "c2", Standing: StandingMember}}, Needs: NeedMember}
