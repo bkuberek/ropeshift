@@ -524,6 +524,8 @@ type EvidenceReader interface {
 	Verdicts(workOrder string) ([]workorders.Verdict, error)
 	// Reworked returns the newest note on why a work order went back for another attempt, or ErrNotFound.
 	Reworked(workOrder string) (workorders.ReworkNote, error)
+	// Calibrations lists every record of a member's decision on work a review judged, oldest first.
+	Calibrations() ([]workorders.Calibration, error)
 }
 
 // EvidenceWriter writes check results.
@@ -539,6 +541,10 @@ type EvidenceWriter interface {
 	RecordVerdict(verdict workorders.Verdict) error
 	// RecordRework keeps why work went back. The same work order and attempt replace their note.
 	RecordRework(note workorders.ReworkNote) error
+	// RecordCalibration keeps one member's decision on reviewed work, and reports whether it was new. The
+	// store refuses a record that is not whole, and leaves alone a second record for one review, source,
+	// and decision. Nothing it keeps ever reaches a repository's merge authority (FR-CAL-3).
+	RecordCalibration(calibration workorders.Calibration) (bool, error)
 }
 
 // PlanningReader reads what intake recorded.

@@ -60,6 +60,19 @@ ON CONFLICT (workspace_id, work_order_id, attempt) DO UPDATE SET review_id = :re
  WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id
  ORDER BY attempt DESC LIMIT 1`)
 
+	stmtCalibrationRecord = define("calibration.record",
+		`INSERT INTO review_calibrations
+  (workspace_id, id, work_order_id, review_id, commit_digest, repository_id, merge_authority, outcome, verdicts, decision, agreement, source, member_id, reason, created_at)
+VALUES
+  (:workspace_id, :id, :work_order_id, :review_id, :commit_digest, :repository_id, :merge_authority, :outcome, :verdicts, :decision, :agreement, :source, :member_id, :reason, :now)
+ON CONFLICT DO NOTHING`)
+
+	stmtCalibrationList = define("calibration.list",
+		`SELECT id, work_order_id, review_id, commit_digest, repository_id, merge_authority, outcome, verdicts, decision, agreement, source, member_id, reason, created_at
+  FROM review_calibrations
+ WHERE workspace_id = :workspace_id
+ ORDER BY created_at, id`)
+
 	stmtEvidenceArtifacts = define("evidence.artifacts",
 		`SELECT a.id, a.lane_id, a.kind, a.uri, a.digest, a.fence, a.created_at
   FROM artifacts a
@@ -250,4 +263,53 @@ func (t evidenceTx) Reworked(workOrder string) (workorders.ReworkNote, error) {
 		return workorders.ReworkNote{}, fmt.Errorf("work order %s never went back: %w", workOrder, ports.ErrNotFound)
 	}
 	return note, err
+}
+
+// RecordCalibration keeps a member's decision on reviewed work. A second record for one review, source, and
+// decision leaves the first alone, because a decision is made once.
+func (t evidenceTx) RecordCalibration(c workorders.Calibration) (bool, error) {
+	if err := c.Validate(); err != nil {
+		return false, err
+	}
+	verdicts, err := json.Marshal(append([]workorders.SeenVerdict{}, c.Verdicts...))
+	if err != nil {
+		return false, err
+	}
+	now, err := t.readClock()
+	if err != nil {
+		return false, err
+	}
+	n, err := t.exec(stmtCalibrationRecord, params{
+		"workspace_id": string(t.scope), "id": c.ID, "work_order_id": c.WorkOrder, "review_id": c.Review, "commit_digest": c.Commit,
+		"repository_id": c.Repository, "merge_authority": string(c.Authority), "outcome": string(c.Outcome), "verdicts": string(verdicts),
+		"decision": string(c.Decision), "agreement": string(c.Agreement), "source": string(c.Source), "member_id": c.Member,
+		"reason": c.Reason, "now": now,
+	})
+	return n > 0, err
+}
+
+func (t evidenceTx) Calibrations() ([]workorders.Calibration, error) {
+	rows, err := t.rows(stmtCalibrationList, params{"workspace_id": string(t.scope)})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []workorders.Calibration
+	for rows.Next() {
+		var c workorders.Calibration
+		var authority, outcome, decision, agreement, source, verdicts string
+		if err := rows.Scan(&c.ID, &c.WorkOrder, &c.Review, &c.Commit, &c.Repository, &authority, &outcome, &verdicts, &decision, &agreement, &source, &c.Member, &c.Reason, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		c.Authority, c.Outcome, c.Decision = ledger.MergeAuthority(authority), workorders.ReviewOutcome(outcome), workorders.CalibrationDecision(decision)
+		c.Agreement, c.Source = workorders.Agreement(agreement), workorders.CalibrationSource(source)
+		if err := json.Unmarshal([]byte(verdicts), &c.Verdicts); err != nil {
+			return nil, fmt.Errorf("calibration %s: %w", c.ID, err)
+		}
+		if len(c.Verdicts) == 0 {
+			c.Verdicts = nil
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }

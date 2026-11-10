@@ -550,6 +550,9 @@ func createRework(tx ports.WriteTx, old questions.Decision, touched reach, actor
 		if err := insertRework(tx, id, order, old, actor); err != nil {
 			return nil, err
 		}
+		if err := calibrateLaterDefect(tx, order, fmt.Sprintf("decision %s was overturned", old.ID), actor); err != nil {
+			return nil, err
+		}
 		created = append(created, id)
 	}
 	return created, nil

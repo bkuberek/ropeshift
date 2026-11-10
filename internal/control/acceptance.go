@@ -196,6 +196,9 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		if err := endOpenReviews(tx, id, actor); err != nil {
 			return err
 		}
+		if err := calibrateDecision(tx, current, workorders.DecisionAccept, "", actor); err != nil {
+			return err
+		}
 		return accept(tx, id, assessment, actor, func() { crashpoint.Hit("acceptance.accept", "moved") })
 	})
 	if err != nil {
@@ -272,7 +275,13 @@ func (a *Acceptances) Rework(ctx context.Context, scope ledger.WorkspaceID, id, 
 		if err := endOpenReviews(tx, id, actor); err != nil {
 			return err
 		}
-		var err error
+		current, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		if err := calibrateDecision(tx, current, workorders.DecisionRework, reason, actor); err != nil {
+			return err
+		}
 		state, err = rework(tx, id, reason, actor, func() { crashpoint.Hit("acceptance.rework", "moved") })
 		return err
 	})
@@ -597,6 +606,55 @@ func reworkNoteOf(at attemptStanding) workorders.ReworkNote {
 	}
 	note.Reason = strings.Join(parts, "; ")
 	return note
+}
+
+// calibrateDecision keeps what a member decided on work a review judged, in the transaction that decides it
+// (FR-CAL-1). The verdicts are the ones that count for the attempt the work is at, so a verdict on another
+// commit is never a word the member answered. A decision of the control plane writes none, and neither does
+// work no review judged, which has no verdict to agree with. The record is evidence and nothing else: it does
+// not reach the repository's merge authority (FR-CAL-3).
+func calibrateDecision(tx ports.WriteTx, current workorders.WorkOrder, decision workorders.CalibrationDecision, reason string, actor ledger.Actor) error {
+	if authority.PartyOf(actor) != authority.PartyPerson {
+		return nil
+	}
+	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), current)
+	if err != nil {
+		return err
+	}
+	return recordCalibration(tx, current, at, decision, workorders.SourceDecision, reason, actor)
+}
+
+func recordCalibration(tx ports.WriteTx, current workorders.WorkOrder, at attemptStanding, decision workorders.CalibrationDecision, source workorders.CalibrationSource, reason string, actor ledger.Actor) error {
+	if len(at.verdicts) == 0 {
+		return nil
+	}
+	id, err := newID(tx.Now())
+	if err != nil {
+		return err
+	}
+	calibration, err := workorders.NewCalibration(id, current, at.verdicts, at.authority, decision, source, actor.ID, reason)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Evidence().RecordCalibration(calibration)
+	return err
+}
+
+// calibrateLaterDefect keeps a defect found in work that was accepted after a pass as a disagreement with
+// that verdict, bound to the same commit digest. Work the review did not pass, or no review judged, has no
+// approval to have been wrong about.
+func calibrateLaterDefect(tx ports.WriteTx, done workorders.WorkOrder, reason string, actor ledger.Actor) error {
+	if done.State != workorders.Done || authority.PartyOf(actor) != authority.PartyPerson {
+		return nil
+	}
+	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), done)
+	if err != nil {
+		return err
+	}
+	if workorders.ReviewOutcomeOf(workorders.OfFirstReview(at.verdicts)) != workorders.ReviewPass {
+		return nil
+	}
+	return recordCalibration(tx, done, at, workorders.DecisionRework, workorders.SourceLaterDefect, reason, actor)
 }
 
 // endOpenReviews cancels the reviews of a work order that have not ended, once a member has decided it
