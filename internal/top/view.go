@@ -202,15 +202,21 @@ func (m Model) header() string {
 	return line
 }
 
+// needLines gives each need a line. The kind column is as wide as the widest kind listed, so every ID
+// starts in one column.
 func (m Model) needLines() []string {
 	items := m.snapshot.Needs.Items
+	width := 0
+	for _, item := range items {
+		width = max(width, utf8.RuneCountInString(clean(item.Kind)))
+	}
 	lines := make([]string, 0, len(items))
 	for i, item := range items {
 		mark := " "
 		if i == m.cursor {
 			mark = ">"
 		}
-		lines = append(lines, fmt.Sprintf("%s %5s  %-9s %s  %s", mark, age(m.ago(item.Since)), item.Kind, clean(item.ID), what(item)))
+		lines = append(lines, fmt.Sprintf("%s %5s  %-*s %s  %s", mark, age(m.ago(item.Since)), width, clean(item.Kind), clean(item.ID), what(item)))
 	}
 	return lines
 }
