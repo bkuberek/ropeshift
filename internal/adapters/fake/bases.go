@@ -3,7 +3,9 @@ package fake
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -27,6 +29,65 @@ func (w *Worktrees) Grow(repository, branch string) string {
 	w.history[commit] = parents
 	w.tips[tipKey(repository, branch)] = commit
 	return commit
+}
+
+// Touch adds a commit on top of a branch that changes one file, and returns it.
+func (w *Worktrees) Touch(repository, branch, file string) string {
+	commit := w.Grow(repository, branch)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.touched[commit] = append(w.touched[commit], file)
+	return commit
+}
+
+// Branches lists a repository's branches: the ones its history names and the ones a worktree holds.
+func (w *Worktrees) Branches(repository string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	seen := map[string]bool{}
+	for key := range w.tips {
+		if name, ok := strings.CutPrefix(key, repository+"\x00"); ok {
+			seen[name] = true
+		}
+	}
+	for name := range w.branches {
+		seen[name] = true
+	}
+	return slices.Sorted(maps.Keys(seen))
+}
+
+// Diff walks the commits head grew from since base and lists the files they touched. A fake commit holds
+// no text, so the patch only names each file.
+func (w *Worktrees) Diff(_ context.Context, _, base, head string) (ports.Diff, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, name := range []string{base, head} {
+		if _, ok := w.history[name]; !ok || strings.HasPrefix(name, "-") {
+			return ports.Diff{}, fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+	}
+	var files []string
+	seen := map[string]bool{}
+	stack := []string{head}
+	for len(stack) > 0 {
+		at := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if at == base || seen[at] {
+			continue
+		}
+		seen[at] = true
+		for _, file := range w.touched[at] {
+			if !slices.Contains(files, file) {
+				files = append(files, file)
+			}
+		}
+		stack = append(stack, w.history[at]...)
+	}
+	var patch strings.Builder
+	for _, file := range files {
+		fmt.Fprintf(&patch, "diff --git a/%s b/%s\n", file, file)
+	}
+	return ports.Diff{Patch: patch.String(), Files: files}, nil
 }
 
 // Add makes a commit that grew from the given commits and sits on no branch, so a test can build the

@@ -22,6 +22,9 @@ type WorktreeSpec struct {
 	Path       string
 	Branch     string
 	Base       string
+	// Detached checks Base out with no branch at all, and Branch is ignored. Nothing done in the
+	// worktree can move a branch, and it is a place to read from and throw away, as a review lane's is.
+	Detached bool
 }
 
 // Worktree is one worktree as it stands.
@@ -31,13 +34,23 @@ type Worktree struct {
 	Head   string
 	// Clean is false when a tracked or an untracked file differs from HEAD.
 	Clean bool
+	// Detached says the worktree was made with no branch, so it holds nothing to keep.
+	Detached bool
+}
+
+// Diff is what a commit changed since a base.
+type Diff struct {
+	// Patch is the change as a unified diff.
+	Patch string
+	// Files are the paths it touches, in the order git lists them.
+	Files []string
 }
 
 // Worktrees manages git worktrees.
 type Worktrees interface {
 	// Create makes a worktree, or returns the one that already matches, so a retry
 	// after a crash converges. A path or branch held by something else is
-	// ErrWorktreeConflict.
+	// ErrWorktreeConflict. A detached worktree makes no branch.
 	Create(ctx context.Context, spec WorktreeSpec) (Worktree, error)
 	// Inspect reads a worktree, or returns ErrNotFound.
 	Inspect(ctx context.Context, path string) (Worktree, error)
@@ -48,7 +61,7 @@ type Worktrees interface {
 	// already gone is done.
 	Discard(ctx context.Context, repository, path string) error
 	// Survey reads what a stop must account for, and changes nothing a session can see. An
-	// absent worktree is ErrNotFound.
+	// absent worktree is ErrNotFound. A detached worktree holds nothing to account for.
 	Survey(ctx context.Context, path string) (lanes.WorktreeFindings, error)
 	// Snapshot records the worktree as it stands in a commit under ref, untracked files
 	// included, and leaves the lane's index and branch alone. A snapshot of what the ref
@@ -68,4 +81,17 @@ type Worktrees interface {
 	// repeats safely, and a survey, a snapshot, and a removal all read the worktree as if it were
 	// not there.
 	WriteContext(ctx context.Context, path, text string) (string, error)
+}
+
+// ReviewTrees is what a worktrees store offers a review lane beyond a lane's own worktree. A detached
+// WorktreeSpec is honored: the commit is checked out with no branch, and a store without this makes a
+// branch where a review must leave none, so a worker runs no review on a store that does not offer it.
+type ReviewTrees interface {
+	Worktrees
+	// Diff reads what head changed since base, from the repository's own history. A commit the
+	// repository does not hold is ErrNotFound.
+	Diff(ctx context.Context, repository, base, head string) (Diff, error)
+	// WriteContextFile leaves one more named file beside the pack, in the same directory and with the
+	// same rules, and returns its path. The name is a bare file name.
+	WriteContextFile(ctx context.Context, path, name, text string) (string, error)
 }

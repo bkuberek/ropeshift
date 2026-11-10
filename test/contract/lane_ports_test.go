@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -63,6 +65,12 @@ func TestWorktreesContract(t *testing.T) {
 					}
 				},
 				Grow: repo.Advance,
+				Touch: func(name string) string {
+					return repo.Commit(name, "content of "+name+"\n")
+				},
+				Branches: func() []string {
+					return strings.Fields(repo.Git("for-each-ref", "--format=%(refname:short)", "refs/heads"))
+				},
 			}
 		})
 	})
@@ -71,9 +79,11 @@ func TestWorktreesContract(t *testing.T) {
 			worktrees := fake.NewWorktrees()
 			return WorktreeRig{
 				Worktrees: worktrees, Bases: worktrees, Repository: "/work/repository",
-				Path:  func(name string) string { return "/work/lanes/" + name },
-				Dirty: worktrees.Dirty,
-				Grow:  func(branch string) string { return worktrees.Grow("/work/repository", branch) },
+				Path:     func(name string) string { return "/work/lanes/" + name },
+				Dirty:    worktrees.Dirty,
+				Grow:     func(branch string) string { return worktrees.Grow("/work/repository", branch) },
+				Touch:    func(name string) string { return worktrees.Touch("/work/repository", "main", name) },
+				Branches: func() []string { return worktrees.Branches("/work/repository") },
 			}
 		})
 	})
@@ -369,5 +379,69 @@ func TestOutlivingProcessLeavesTheGroup(t *testing.T) {
 	}
 	if group != process.PID() || group == syscall.Getpgrp() {
 		t.Errorf("process group %d of process %d, and this process's is %d", group, process.PID(), syscall.Getpgrp())
+	}
+}
+
+// A review reads a commit no remote holds, which is the usual state of a lane's work. A stop must not
+// read that as work to push or to snapshot, and nothing done in the worktree moves a branch.
+func TestADetachedWorktreeAtUnpushedWorkLeavesNothingToSave(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	origin.Commit("README.txt", "one\n")
+	clone := origin.Clone("clone")
+	unpushed := clone.Advance("main")
+	before := clone.Git("for-each-ref", "--format=%(refname) %(objectname)")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	worktree, err := worktrees.Create(t.Context(), ports.WorktreeSpec{
+		Repository: clone.Dir, Path: filepath.Join(filepath.Dir(clone.Dir), "lanes", "review"), Base: unpushed, Detached: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(filepath.Join(worktree.Path, "scratch.txt"), "notes\n"); err != nil {
+		t.Fatal(err)
+	}
+	found, err := worktrees.Survey(t.Context(), worktree.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan := lanes.PlanGuard(found, lanes.GuardRules{Push: true}); plan != (lanes.GuardPlan{}) || found.Head != unpushed {
+		t.Errorf("a stop would act on %+v with %+v", found, plan)
+	}
+	// A commit made inside it is a commit on no branch.
+	inside := gittest.Repo{T: t, Dir: worktree.Path, Home: clone.Home}
+	inside.Git("add", "scratch.txt")
+	inside.Git("commit", "--quiet", "-m", "scratch")
+	if after := clone.Git("for-each-ref", "--format=%(refname) %(objectname)"); after != before {
+		t.Errorf("the refs were\n%s\nand are\n%s", before, after)
+	}
+	if err := worktrees.Discard(t.Context(), clone.Dir, worktree.Path); err != nil {
+		t.Fatal(err)
+	}
+	if after := clone.Git("for-each-ref", "--format=%(refname) %(objectname)"); after != before {
+		t.Errorf("after the discard the refs are\n%s", after)
+	}
+}
+
+// A diff does not run what a repository names to render one, and does not follow a user's settings
+// for how a path is prefixed.
+func TestADiffRunsNoProgramAndNamesARename(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	base := repo.Commit("old.txt", "one\ntwo\nthree\nfour\nfive\n")
+	marker := filepath.Join(filepath.Dir(repo.Dir), "ran")
+	repo.Git("config", "diff.external", "touch "+marker)
+	repo.Git("config", "diff.noprefix", "true")
+	repo.Rename("old.txt", "new.txt")
+	head := repo.Git("rev-parse", "HEAD")
+	diff, err := gitcli.Worktrees{Env: repo.Env()}.Diff(t.Context(), repo.Dir, base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(diff.Files, []string{"new.txt"}) || !strings.Contains(diff.Patch, "rename from old.txt") || !strings.Contains(diff.Patch, "b/new.txt") {
+		t.Errorf("the diff reads %+v", diff)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("an external diff program ran: %v", err)
 	}
 }
