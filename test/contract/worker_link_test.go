@@ -29,7 +29,11 @@ func memoryLink(t *testing.T, protocol int) *LinkRig {
 	}
 	store := sqlstore.New(db, ShiftedDialect{sqlite.Dialect{}, offset}, sqlstore.Options{})
 	t.Cleanup(func() { _ = store.Close() })
+	if err := restoreMigrated(db); err != nil {
+		t.Fatal(err)
+	}
 	ctx := t.Context()
+	// Every migration finds itself applied, which is the path a restarted store takes.
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
