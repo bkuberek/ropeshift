@@ -18,12 +18,12 @@ import (
 
 // recordFile keeps what a goal, a plan, or a document says. It is one transaction, and
 // a file that says what the ledger holds appends nothing.
-func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.RecordItem) (itemOutcome, error) {
+func (i *Intake) recordFile(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.RecordItem, refs *batchRefs) (itemOutcome, error) {
 	var outcome itemOutcome
 	windows := i.windows
 	err := withLineage(ctx, source, func(known lineages) error {
 		return i.store.Write(ctx, scope, "intake.file", func(tx ports.WriteTx) error {
-			r := &fileRecorder{tx: tx, item: item, known: known, windows: windows}
+			r := &fileRecorder{tx: tx, item: item, known: known, windows: windows, refs: refs}
 			var err error
 			switch {
 			case item.Goal != nil:
@@ -45,6 +45,9 @@ type fileRecorder struct {
 	item    ports.RecordItem
 	known   lineages
 	windows messages.Windows
+	// refs are the milestones and contracts the whole batch holds, which this file's references resolve
+	// against before the ledger.
+	refs *batchRefs
 }
 
 // standing reads a changed record against this file: true when the change stands, and an outcome
@@ -211,6 +214,11 @@ func (r *fileRecorder) document() (itemOutcome, error) {
 	}
 	if !known {
 		return itemOutcome{problem: fmt.Sprintf("%v: plan %s is not known", planning.ErrBadFile, head.Plan)}, nil
+	}
+	if milestone := r.item.File.Milestone; milestone != nil {
+		if problem, err := r.milestoneDependencies(*milestone, plan); err != nil || problem != "" {
+			return itemOutcome{problem: problem}, err
+		}
 	}
 	outcome, err := r.documentVersion(head, plan)
 	if err != nil || outcome.problem != "" || r.item.Requirements == nil {

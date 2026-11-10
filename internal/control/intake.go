@@ -106,13 +106,14 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 		report.saw(problem.Path, problem.Source)
 	}
 	held := map[string]string{}
+	refs := refsOf(batch)
 	for _, item := range batch.Records {
 		report.saw(item.Path, item.Source)
 		if detail := repeatedKey(item, held); detail != "" {
 			report.Problems = append(report.Problems, planning.SourceProblem{Path: item.Path, Detail: detail, Source: item.Source})
 			continue
 		}
-		outcome, err := i.recordFile(ctx, scope, source, item)
+		outcome, err := i.recordFile(ctx, scope, source, item, refs)
 		if err != nil {
 			return report, err
 		}
@@ -121,7 +122,7 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 	}
 	for _, item := range batch.Items {
 		report.saw(item.Path, item.Source)
-		outcome, err := i.recordItem(ctx, scope, source, item)
+		outcome, err := i.recordItem(ctx, scope, source, item, refs)
 		if err != nil {
 			return report, err
 		}
@@ -359,11 +360,11 @@ type itemOutcome struct {
 
 // recordItem is one transaction. The revision serializes it with every other
 // writer, so the digest it compares cannot change before it commits.
-func (i *Intake) recordItem(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.WorkItem) (itemOutcome, error) {
+func (i *Intake) recordItem(ctx context.Context, scope ledger.WorkspaceID, source ports.WorkSource, item ports.WorkItem, refs *batchRefs) (itemOutcome, error) {
 	var outcome itemOutcome
 	err := withLineage(ctx, source, func(known lineages) error {
 		return i.store.Write(ctx, scope, "intake.item", func(tx ports.WriteTx) error {
-			r := &itemRecorder{tx: tx, item: item, windows: i.windows, known: known}
+			r := &itemRecorder{tx: tx, item: item, windows: i.windows, known: known, refs: refs}
 			var err error
 			outcome = itemOutcome{}
 			outcome, err = r.record()
@@ -378,6 +379,9 @@ type itemRecorder struct {
 	item    ports.WorkItem
 	windows messages.Windows
 	known   lineages
+	// refs are the milestones and contracts the whole batch holds, which this file's references resolve
+	// against before the ledger.
+	refs *batchRefs
 	// moved says this file's base moved, once nextVersion has read that.
 	moved bool
 	// latest is the version the ledger holds when this file says what that version does, once
@@ -412,6 +416,9 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 	}
 	if named != "" {
 		contract.PlanID = named
+	}
+	if problem, err := r.placement(contract.PlanID); err != nil || problem != "" {
+		return itemOutcome{problem: problem}, err
 	}
 	pins, unknown, err := r.resolveDocuments()
 	if err != nil {
