@@ -5,10 +5,12 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -28,6 +30,7 @@ var VerdictAcceptanceChecks = []Check{
 	{"VA9", "a member who decides while a review is open cancels it", checkMemberDecisionCancelsTheReview},
 	{"VA10", "the tick sends passed work back when a forge check fails after the review", checkTickReworksAfterTheReview},
 	{"VA11", "a review that fails or is canceled leaves the work to its evidence", checkReviewWithoutVerdictsLeavesTheEvidence},
+	{"VA12", "a review is not a completed work order in the measures", checkReviewIsNotCompletedWork},
 }
 
 func say(criterion string, kind workorders.VerdictKind) workorders.CriterionVerdict {
@@ -681,4 +684,41 @@ func checkReviewWithoutVerdictsLeavesTheEvidence(r *Rig) error {
 		return Violatedf("after a canceled review a tick moved %v: %v", moved, err)
 	}
 	return r.stateIs(s, canceled, workorders.Done)
+}
+
+func checkReviewIsNotCompletedWork(r *Rig) error {
+	s := r.Store()
+	if err := r.atLevel(s, ledger.ReviewApproves); err != nil {
+		return err
+	}
+	id, _, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, id, say(criterionOne, workorders.VerdictPass)); err != nil {
+		return err
+	}
+	if err := r.stateIs(s, id, workorders.Done); err != nil {
+		return err
+	}
+	review, err := r.theReview(s, id)
+	if err != nil {
+		return err
+	}
+	if err := r.stateIs(s, review.ID, workorders.Done); err != nil {
+		return err
+	}
+	var report measures.Report
+	err = s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		report, err = control.ReportIn(tx, "7d", 7*24*time.Hour)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if report.Completed != 1 {
+		return Violatedf("the measures count %d completed work orders, and one change and its review ended", report.Completed)
+	}
+	return nil
 }

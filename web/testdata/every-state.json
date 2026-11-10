@@ -189,39 +189,6 @@
           }
         },
         {
-          "reason": "a member decided wo-done before this review ended",
-          "since": 1790000069001,
-          "standing": {
-            "artifacts": [],
-            "assessment": {
-              "criteria": [
-                {
-                  "criterion_id": "c1",
-                  "standing": "member"
-                }
-              ],
-              "needs": "member"
-            },
-            "authority": "person_merges",
-            "checks": [],
-            "state": "canceled",
-            "work_order_id": "generated-7"
-          },
-          "work_order": {
-            "contract_id": "generated-8",
-            "contract_version": 1,
-            "id": "generated-7",
-            "kind": "review",
-            "max_attempts": 1,
-            "repository_id": "repository-1",
-            "reviews": "wo-done",
-            "reviews_fence": 2,
-            "size": "unknown",
-            "state": "canceled",
-            "title": "Review: Accepted by a member"
-          }
-        },
-        {
           "since": 1790000069001,
           "standing": {
             "artifacts": [
@@ -229,7 +196,7 @@
                 "created_at": 1790000069001,
                 "digest": "abc123",
                 "fence": 2,
-                "id": "generated-9",
+                "id": "generated-7",
                 "kind": "branch",
                 "lane_id": "lane-wo-done",
                 "uri": "lane/lane-wo-done"
@@ -249,7 +216,7 @@
             "reviews": [
               {
                 "attempt": 2,
-                "id": "generated-7",
+                "id": "generated-8",
                 "state": "canceled"
               }
             ],
@@ -257,7 +224,7 @@
             "work_order_id": "wo-done"
           },
           "work_order": {
-            "contract_id": "generated-8",
+            "contract_id": "generated-9",
             "contract_version": 1,
             "fence": 2,
             "id": "wo-done",
@@ -1146,6 +1113,39 @@
               "worker_id": "worker-a"
             },
             "reason": "acceptance",
+            "standing": {
+              "artifacts": [
+                {
+                  "created_at": 1790000067001,
+                  "digest": "abc123",
+                  "fence": 2,
+                  "id": "generated-10",
+                  "kind": "branch",
+                  "lane_id": "lane-wo-acceptance",
+                  "uri": "lane/lane-wo-acceptance"
+                }
+              ],
+              "assessment": {
+                "criteria": [
+                  {
+                    "criterion_id": "c1",
+                    "standing": "member"
+                  }
+                ],
+                "needs": "member"
+              },
+              "authority": "person_merges",
+              "checks": [],
+              "reviews": [
+                {
+                  "attempt": 2,
+                  "id": "generated-11",
+                  "state": "ready"
+                }
+              ],
+              "state": "acceptance",
+              "work_order_id": "wo-acceptance"
+            },
             "work_order": {
               "contract_id": "generated-12",
               "contract_version": 1,
@@ -1321,6 +1321,39 @@
               "worker_id": "worker-a"
             },
             "reason": "acceptance",
+            "standing": {
+              "artifacts": [
+                {
+                  "created_at": 1790000132001,
+                  "digest": "abc123",
+                  "fence": 2,
+                  "id": "generated-1",
+                  "kind": "branch",
+                  "lane_id": "lane-wl-ended",
+                  "uri": "lane/lane-wl-ended"
+                }
+              ],
+              "assessment": {
+                "criteria": [
+                  {
+                    "criterion_id": "c1",
+                    "standing": "member"
+                  }
+                ],
+                "needs": "member"
+              },
+              "authority": "person_merges",
+              "checks": [],
+              "reviews": [
+                {
+                  "attempt": 2,
+                  "id": "generated-2",
+                  "state": "ready"
+                }
+              ],
+              "state": "acceptance",
+              "work_order_id": "wl-ended"
+            },
             "work_order": {
               "contract_id": "generated-3",
               "contract_version": 1,
@@ -2447,7 +2480,7 @@
         {
           "contracts": [
             {
-              "id": "generated-8",
+              "id": "generated-9",
               "versions": [
                 {
                   "criteria": [
@@ -2457,7 +2490,7 @@
                     }
                   ],
                   "digest": "sha256:58e52746e43035f38007c48194d7e2d810910d6ca87a00bda8352397bef9844d",
-                  "id": "generated-8",
+                  "id": "generated-9",
                   "plan_id": "generated-51",
                   "statement": "Accepted by a member.",
                   "status": "active",
@@ -2476,7 +2509,7 @@
           "reviews": [],
           "work_orders": [
             {
-              "contract_id": "generated-8",
+              "contract_id": "generated-9",
               "contract_version": 1,
               "fence": 2,
               "id": "wo-done",
@@ -4318,7 +4351,7 @@
               "created_at": 1790000069001,
               "digest": "abc123",
               "fence": 2,
-              "id": "generated-9",
+              "id": "generated-7",
               "kind": "branch",
               "lane_id": "lane-wo-done",
               "uri": "lane/lane-wo-done"

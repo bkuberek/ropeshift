@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // plainWidth is the width of a frame with no terminal to measure.
@@ -172,10 +173,38 @@ func what(item api.NeedItem) string {
 	if item.Work.Orchestrator != nil {
 		line += "  orchestrator of " + clean(item.Work.Orchestrator.WorkerID)
 	}
+	if found := reviewFound(item.Work.Standing); found != "" {
+		line += "  " + found
+	}
 	if item.Work.Detail != "" {
 		line += "  " + clean(item.Work.Detail)
 	}
 	return line
+}
+
+// reviewFound counts the verdicts a review gave, in the words a person reads in the web UI. Work with none says nothing.
+func reviewFound(standing *workorders.AcceptanceView) string {
+	if standing == nil || len(standing.Verdicts) == 0 {
+		return ""
+	}
+	var counts [3]int
+	for _, v := range standing.Verdicts {
+		switch v.Verdict {
+		case workorders.VerdictPass:
+			counts[0]++
+		case workorders.VerdictFail:
+			counts[1]++
+		case workorders.VerdictCannotJudge:
+			counts[2]++
+		}
+	}
+	var parts []string
+	for i, word := range []string{"pass", "fail", "cannot judge"} {
+		if counts[i] != 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[i], word))
+		}
+	}
+	return "review: " + strings.Join(parts, ", ")
 }
 
 func (m Model) ago(ms int64) time.Duration { return m.config.Now().Sub(time.UnixMilli(ms)) }

@@ -451,6 +451,92 @@ describe("waiting work", () => {
     expect(within(card).queryByText(/without waiting/)).toBeNull();
   });
 
+  it("shows the review's verdict for each criterion, in words, with its reasons and citations", () => {
+    show();
+    const card = cardNamed(/Trim the log/);
+    const review = within(card).getByRole("region", { name: "What the review found" });
+    expect(within(review).getByText("c1")).toBeTruthy();
+    expect(within(review).getByText("Cannot judge")).toBeTruthy();
+    expect(within(review).getByText(/nothing I can run shows it keeps the last day/)).toBeTruthy();
+    expect(within(review).getByText("trim.go:30")).toBeTruthy();
+    expect(within(review).getByText("FR-LOG-2")).toBeTruthy();
+    expect(within(card).getByText(/the review could not judge criterion c1/)).toBeTruthy();
+    // The person still decides, and the card still offers both.
+    expect(within(card).getByRole("button", { name: "Accept" })).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Send back for rework" })).toBeTruthy();
+  });
+
+  it("says a verdict in text for every kind, never by colour alone", () => {
+    const view = goldenNeedsYou();
+    const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
+    if (accept?.kind !== "work" || !accept.work.standing) {
+      throw new Error("no acceptance item in the golden view");
+    }
+    const base = accept.work.standing.verdicts?.[0];
+    if (!base) {
+      throw new Error("no verdict in the golden view");
+    }
+    accept.work.standing.verdicts = [
+      { ...base, criterion: "c1", verdict: "pass", reasons: "retry.go retries twice", citations: ["retry.go:12"] },
+      { ...base, criterion: "c2", verdict: "fail", reasons: "nothing is logged", citations: [] },
+      { ...base, criterion: "c3", verdict: "cannot_judge", reasons: "no test runs here", citations: undefined },
+    ];
+    show(view);
+    const review = within(cardNamed(/Trim the log/)).getByRole("region", { name: "What the review found" });
+    for (const word of ["Pass", "Fail", "Cannot judge"]) {
+      expect(within(review).getByText(word)).toBeTruthy();
+    }
+    expect(within(review).getAllByRole("listitem")).toHaveLength(3 + 1);
+    expect(within(review).getByText("nothing is logged")).toBeTruthy();
+  });
+
+  it("keeps a review's words from becoming markup", () => {
+    const view = goldenNeedsYou();
+    const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
+    const verdict = accept?.kind === "work" ? accept.work.standing?.verdicts?.[0] : undefined;
+    if (!verdict) {
+      throw new Error("no verdict in the golden view");
+    }
+    verdict.reasons = hostile;
+    verdict.citations = [hostile];
+    show(view);
+    const card = cardNamed(/Trim the log/);
+    expect(card.querySelector("img")).toBeNull();
+    expect(card.querySelector("script")).toBeNull();
+    expect(within(card).getAllByText(hostile).length).toBeGreaterThan(0);
+  });
+
+  it("says a review that failed or is still open gave no verdict, and that the person decides without it", () => {
+    for (const [state, words] of [
+      ["failed", /The review of this work failed/],
+      ["running", /A review of this work has not ended/],
+    ] as const) {
+      const view = goldenNeedsYou();
+      const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
+      const standing = accept?.kind === "work" ? accept.work.standing : undefined;
+      if (!standing?.reviews?.[0]) {
+        throw new Error("no review in the golden view");
+      }
+      delete standing.verdicts;
+      standing.reviews[0].state = state;
+      const { unmount } = show(view);
+      expect(within(within(cardNamed(/Trim the log/)).getByRole("region", { name: "What the review found" })).getByText(words)).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("says nothing of a review when work was never reviewed", () => {
+    const view = goldenNeedsYou();
+    const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
+    if (accept?.kind !== "work" || !accept.work.standing) {
+      throw new Error("no acceptance item in the golden view");
+    }
+    delete accept.work.standing.verdicts;
+    delete accept.work.standing.why;
+    show(view);
+    expect(within(cardNamed(/Trim the log/)).queryByRole("region", { name: "What the review found" })).toBeNull();
+  });
+
   it("offers both ways out of blocked", () => {
     show();
     const card = cardNamed(/Move the archive/);

@@ -163,4 +163,6 @@ type AcceptanceView struct {
 	Verdicts  []Verdict             `json:"verdicts,omitempty"`
 	Rounds    int64                 `json:"rounds,omitempty"`
 	Authority ledger.MergeAuthority `json:"authority,omitempty"`
+	// Why says what a work order that waits for a member waits on, when the verdicts hold it.
+	Why string `json:"why,omitempty"`
 }

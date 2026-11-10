@@ -341,6 +341,16 @@ describe("completed", () => {
     expect(within(await line("Trim the log")).getByRole("list", { name: "Acceptance criteria" }).textContent).toContain("Needs a member");
   });
 
+  it("keeps what the review found with the work it judged", async () => {
+    serveViews();
+    openPage("/completed");
+    const review = within(await line("Trim the log")).getByRole("region", { name: "What the review found" });
+    expect(within(review).getByText("Cannot judge")).toBeTruthy();
+    expect(within(review).getByText("trim.go:30")).toBeTruthy();
+    // Work no review judged has nothing to show of one.
+    expect(within(await line("Ship the first cut")).queryByRole("region", { name: "What the review found" })).toBeNull();
+  });
+
   it("counts the attempt that ended it, and never past the limit", async () => {
     serveViews();
     openPage("/completed");

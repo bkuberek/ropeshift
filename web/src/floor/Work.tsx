@@ -2,6 +2,7 @@ import type { Completed as CompletedView, CompletedWork, HeldLane, InProgress as
 import { addressOf, Link } from "../app/route";
 import { workLabels, WorkCard } from "../needs/WorkCard";
 import { Fact, Id, Lasted, Line, Until, words } from "../parts/parts";
+import { Verdicts } from "../parts/Verdicts";
 import { LaneFacts } from "./LaneFacts";
 import { workLabel } from "./states";
 import { WakeWords } from "./WakeWords";
@@ -138,7 +139,7 @@ const standingWords: Record<string, string> = {
 // Work that waits for acceptance still wants something, and work that ended wants nothing of anyone.
 const wantedWords: Record<string, string> = {
   ...standingWords,
-  second_principal: "Needs a second principal",
+  second_principal: "Needs a member",
   member: "Needs a member",
 };
 
@@ -164,6 +165,7 @@ function Ended({ line }: { line: CompletedWork }) {
             ))}
           </ul>
         ) : null}
+        <Verdicts standing={standing} />
         {standing.checks.length ? (
           <ul className="criteria" aria-label="Checks">
             {standing.checks.map((check) => (

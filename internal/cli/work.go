@@ -135,7 +135,48 @@ func (c *invocation) workShow(args []string) int {
 	client := c.client()
 	defer client.Close()
 	row, err := client.WorkOrder(c.ctx, id)
-	return c.finish(err, row, func() string { return workOrderText(row) })
+	if err != nil {
+		return c.finish(err, row, nil)
+	}
+	view, err := client.Acceptance(c.ctx, id)
+	if err != nil {
+		return c.finish(err, row, nil)
+	}
+	detail := api.WorkDetail{WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why}
+	return c.finish(nil, detail, func() string { return workDetailText(detail) })
+}
+
+// workDetailText prints a work order, then its reviews and the verdict each gave for each criterion.
+func workDetailText(detail api.WorkDetail) string {
+	var out strings.Builder
+	out.WriteString(workOrderText(detail.WorkOrder))
+	out.WriteString(reviewLines(detail.JudgedBy))
+	out.WriteString(verdictLines(detail.Verdicts))
+	if detail.Why != "" {
+		fmt.Fprintf(&out, "waiting\tfor a member: %s\n", oneLine(detail.Why))
+	}
+	return out.String()
+}
+
+// oneLine puts text on one line, because a line of output is one record.
+func oneLine(text string) string { return strings.Join(strings.Fields(text), " ") }
+
+func reviewLines(reviews []workorders.ReviewLine) string {
+	var out strings.Builder
+	for _, review := range reviews {
+		fmt.Fprintf(&out, "review\t%s\t%s\tattempt %d\n", review.ID, review.State, review.Attempt)
+	}
+	return out.String()
+}
+
+// verdictLines prints what each review verdict says, one to a line: the criterion, the verdict, the reasons
+// on one line, and the citations.
+func verdictLines(verdicts []workorders.Verdict) string {
+	var out strings.Builder
+	for _, v := range verdicts {
+		fmt.Fprintf(&out, "verdict\t%s\t%s\t%s\t%s\n", v.Criterion, v.Verdict, oneLine(v.Reasons), dashIfEmpty(strings.Join(v.Citations, ", ")))
+	}
+	return out.String()
 }
 
 // workOrderText prints a work order, and says what its start waits for when something other than a
@@ -265,6 +306,8 @@ func (c *invocation) workAcceptance(args []string) int {
 		for _, name := range view.Assessment.Failed {
 			fmt.Fprintf(&out, "failed\t%s\n", name)
 		}
+		out.WriteString(reviewLines(view.Reviews))
+		out.WriteString(verdictLines(view.Verdicts))
 		for _, artifact := range view.Artifacts {
 			fmt.Fprintf(&out, "artifact\t%s\t%s\t%s\n", artifact.Kind, artifact.URI, artifact.Digest)
 		}

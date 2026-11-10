@@ -94,39 +94,6 @@
       }
     },
     {
-      "reason": "a member decided wo-done before this review ended",
-      "since": 1790000844001,
-      "standing": {
-        "artifacts": [],
-        "assessment": {
-          "criteria": [
-            {
-              "criterion_id": "c1",
-              "standing": "member"
-            }
-          ],
-          "needs": "member"
-        },
-        "authority": "person_merges",
-        "checks": [],
-        "state": "canceled",
-        "work_order_id": "generated-5"
-      },
-      "work_order": {
-        "contract_id": "generated-6",
-        "contract_version": 1,
-        "id": "generated-5",
-        "kind": "review",
-        "max_attempts": 1,
-        "repository_id": "repository-1",
-        "reviews": "wo-done",
-        "reviews_fence": 2,
-        "size": "unknown",
-        "state": "canceled",
-        "title": "Review: Ship the first cut"
-      }
-    },
-    {
       "since": 1790000844001,
       "standing": {
         "artifacts": [
@@ -134,7 +101,7 @@
             "created_at": 1790000844001,
             "digest": "abc123",
             "fence": 2,
-            "id": "generated-7",
+            "id": "generated-5",
             "kind": "branch",
             "lane_id": "lane-wo-done",
             "uri": "lane/lane-wo-done"
@@ -142,7 +109,7 @@
           {
             "created_at": 1790000844001,
             "fence": 2,
-            "id": "generated-8",
+            "id": "generated-6",
             "kind": "report",
             "lane_id": "lane-wo-done",
             "uri": "javascript:alert(3)"
@@ -160,11 +127,11 @@
         "authority": "person_merges",
         "checks": [
           {
-            "artifact_id": "generated-7",
+            "artifact_id": "generated-5",
             "created_at": 1790000844001,
             "criterion_id": "c1",
             "fence": 2,
-            "id": "generated-9",
+            "id": "generated-7",
             "lane_id": "lane-wo-done",
             "name": "go test",
             "source": "lane",
@@ -175,7 +142,7 @@
         "reviews": [
           {
             "attempt": 2,
-            "id": "generated-5",
+            "id": "generated-8",
             "state": "canceled"
           }
         ],
@@ -183,7 +150,7 @@
         "work_order_id": "wo-done"
       },
       "work_order": {
-        "contract_id": "generated-6",
+        "contract_id": "generated-9",
         "contract_version": 1,
         "fence": 2,
         "id": "wo-done",
@@ -226,10 +193,31 @@
           {
             "attempt": 2,
             "id": "generated-11",
-            "state": "ready"
+            "state": "done"
           }
         ],
+        "rounds": 1,
         "state": "acceptance",
+        "verdicts": [
+          {
+            "attempt": 2,
+            "citations": [
+              "trim.go:30",
+              "FR-LOG-2"
+            ],
+            "commit": "abc123",
+            "created_at": 1790000424001,
+            "criterion": "c1",
+            "fence": 2,
+            "generation": 1,
+            "lane_id": "lane-generated-11",
+            "reasons": "The log is trimmed in trim.go, but nothing I can run shows it keeps the last day.",
+            "review_id": "generated-11",
+            "verdict": "cannot_judge",
+            "work_order_id": "wo-accept"
+          }
+        ],
+        "why": "the review could not judge criterion c1",
         "work_order_id": "wo-accept"
       },
       "work_order": {
@@ -295,39 +283,7 @@
         "state": "done",
         "title": "Write the API client"
       }
-    },
-    {
-      "reason": "a member decided generated-14 before this review ended",
-      "since": 1790000184000,
-      "standing": {
-        "artifacts": [],
-        "assessment": {
-          "criteria": [
-            {
-              "criterion_id": "c1",
-              "standing": "member"
-            }
-          ],
-          "needs": "member"
-        },
-        "authority": "person_merges",
-        "checks": [],
-        "state": "canceled",
-        "work_order_id": "generated-15"
-      },
-      "work_order": {
-        "contract_id": "generated-16",
-        "contract_version": 1,
-        "id": "generated-15",
-        "kind": "review",
-        "repository_id": "memory",
-        "reviews": "generated-14",
-        "reviews_fence": 2,
-        "size": "large",
-        "state": "canceled",
-        "title": "Review: Write the API client"
-      }
     }
   ],
-  "revision": 318
+  "revision": 328
 }
