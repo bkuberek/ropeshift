@@ -226,9 +226,10 @@ func awaitDecision(cfg config, event lanes.HookEvent, input []byte, stdout io.Wr
 		answerPermission(stdout, lanes.ApprovalDeny, lanes.ReasonNoApproval)
 		return
 	}
-	request := lanes.ApprovalRequest{Tool: call.Tool, Input: call.Input, Call: newCallID()}
+	policy, policyRead := readPolicy(cfg)
+	request := lanes.ApprovalRequest{Tool: call.Tool, Input: call.Input, Call: newCallID(), Missed: policyRead && deferred(policy, call)}
 	line := lanes.Request{Version: lanes.SocketProtocol, Token: cfg.token, Hook: &event, Approval: &request}
-	deadline := time.Now().Add(waitOf(cfg) + hookWaitGrace)
+	deadline := time.Now().Add(waitOf(policy, policyRead) + hookWaitGrace)
 	reason := lanes.ReasonNoApproval
 	for time.Now().Before(deadline) {
 		reply, err := api.CallLane(cfg.socket, line, approvalDial, approvalAnswer)
@@ -256,18 +257,32 @@ func awaitDecision(cfg config, event lanes.HookEvent, input []byte, stdout io.Wr
 	answerPermission(stdout, lanes.ApprovalDeny, reason)
 }
 
-// waitOf reads a lane's bound from the file a denial reads. With no file, a hook gives up soon,
-// because a lane with no policy has no worker that set one.
-func waitOf(cfg config) time.Duration {
+// readPolicy reads the file a denial reads, and says whether it could.
+func readPolicy(cfg config) (lanes.DenyPolicy, bool) {
 	var policy lanes.DenyPolicy
 	raw, err := os.ReadFile(cfg.policy)
 	if err == nil {
 		err = json.Unmarshal(raw, &policy)
 	}
-	if err != nil || policy.ApprovalWaitMs <= 0 {
+	return policy, err == nil
+}
+
+// waitOf reads a lane's bound from its policy. With no policy, a hook gives up soon, because a lane
+// with no policy has no worker that set one.
+func waitOf(policy lanes.DenyPolicy, read bool) time.Duration {
+	if !read || policy.ApprovalWaitMs <= 0 {
 		return unknownWait
 	}
 	return time.Duration(policy.ApprovalWaitMs) * time.Millisecond
+}
+
+// deferred says the policy defers a call, which `PreToolUse` tried to do before this hook was asked.
+// A call that reaches `PermissionRequest` anyway got no deferral, because the worker did not answer
+// the peek in time, and the worker is told so, so that the lane parks and holds no process on a
+// person. A pane's policy defers nothing.
+func deferred(policy lanes.DenyPolicy, call requestedCall) bool {
+	read, err := authority.ReadToolCall(call.Tool, call.Input)
+	return err == nil && policy.Gated(lanes.ToolCall{Tool: call.Tool, Command: read.Command})
 }
 
 func newCallID() string {

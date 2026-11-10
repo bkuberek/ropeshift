@@ -97,3 +97,46 @@ func TestAWaitingHookNamesTheRequestItHolds(t *testing.T) {
 		t.Errorf("the hook answered %s", out.String())
 	}
 }
+
+// A `PermissionRequest` for a call the policy defers is one whose peek missed, because a deferral ends
+// the turn before that hook runs. It says so to the worker, which parks the lane instead of holding a
+// process for the whole wait. A call the policy does not defer, a policy that defers nothing (a pane's),
+// and a policy the hook cannot read all leave the worker to its wait.
+func TestAPermissionRequestSaysWhenItsPeekMissed(t *testing.T) {
+	gated := lanes.DenyPolicy{ApprovalWaitMs: 60000, Gates: []lanes.GateRule{lanes.ReadGate("Bash(git tag *)")}}
+	pane := lanes.DenyPolicy{ApprovalWaitMs: 60000}
+	const tag = `{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"git tag v1"}}`
+	const status = `{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"git status"}}`
+	tests := []struct {
+		name   string
+		policy func(t *testing.T) string
+		input  string
+		missed bool
+	}{
+		{"a call the policy defers", func(t *testing.T) string { return policyFile(t, gated) }, tag, true},
+		{"a call the policy does not defer", func(t *testing.T) string { return policyFile(t, gated) }, status, false},
+		{"a policy that defers nothing", func(t *testing.T) string { return policyFile(t, pane) }, tag, false},
+		{"a policy that cannot be read", func(t *testing.T) string { return filepath.Join(t.TempDir(), "absent.json") }, tag, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			denied := lanes.Reply{OK: true, Approval: &lanes.ApprovalReply{Decision: lanes.ApprovalDeny, Reason: lanes.ReasonApprovalWait, ID: "request-1"}}
+			socket, worker := aScriptedWorker(t, denied)
+			cfg := config{event: eventPermissionRequest, socket: socket, policy: tt.policy(t), token: "a-token", lane: "lane-1", workOrder: "wo", generation: 1}
+			var out bytes.Buffer
+			event, input := take(cfg, strings.NewReader(tt.input))
+			run(cfg, event, input, &out)
+
+			lines := worker.taken()
+			if len(lines) != 1 || lines[0].Approval == nil {
+				t.Fatalf("the hook looked %d times: %+v", len(lines), lines)
+			}
+			if got := lines[0].Approval; got.Missed != tt.missed || got.Peek {
+				t.Errorf("the look: %+v", got)
+			}
+			if !strings.Contains(out.String(), lanes.ReasonApprovalWait) {
+				t.Errorf("the hook answered %s", out.String())
+			}
+		})
+	}
+}

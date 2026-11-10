@@ -548,6 +548,106 @@ func TestAResumeKeepsTheCallItOwes(t *testing.T) {
 	}
 }
 
+// peek is the look a hook takes before a tool runs. It has milliseconds to answer, and a worker that
+// cannot read the ledger in time says unavailable, so a loaded machine gets the same look again, as the
+// hook's caller would not: this test is about what an answer that lands does.
+func (r *laneRig) peek(t *testing.T, input, call string) lanes.Reply {
+	t.Helper()
+	line, err := json.Marshal(lanes.Request{
+		Version: lanes.SocketProtocol, Token: r.token(t),
+		Approval: &lanes.ApprovalRequest{Tool: "Bash", Input: json.RawMessage(input), Call: call, Peek: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := r.subject.AnswerLane(t.Context(), line)
+	for deadline := time.Now().Add(20 * time.Second); reply.Code == lanes.CodeUnavailable && time.Now().Before(deadline); {
+		time.Sleep(time.Millisecond)
+		reply = r.subject.AnswerLane(t.Context(), line)
+	}
+	return reply
+}
+
+// lookAfterMissedPeek is the first look of a `PermissionRequest` hook at a call its policy defers,
+// which it only reaches when no deferral happened.
+func (r *laneRig) lookAfterMissedPeek(t *testing.T, input, call string) lanes.Reply {
+	t.Helper()
+	read, err := authority.ReadToolCall("Bash", []byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := json.Marshal(lanes.Request{
+		Version: lanes.SocketProtocol, Token: r.token(t),
+		Hook:     &lanes.HookEvent{Event: "PermissionRequest", Subject: "s", Tool: "Bash", Digest: read.Digest, AtMs: time.Now().UnixMilli()},
+		Approval: &lanes.ApprovalRequest{Tool: "Bash", Input: json.RawMessage(input), Call: call, Missed: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r.subject.AnswerLane(t.Context(), line)
+}
+
+// A hook that misses its peek leaves a gated call to `PermissionRequest`, which on a headless lane
+// would hold the process and its quota for the whole of `approval_wait`. That look is told the wait
+// ran out, and the lane parks on its request at once, with no clock moved. Parking has begun by the
+// time the hook hears, because a hook that hears lets the turn end, and a turn that ends with a request
+// open and no parking begun closes the request as a person's answer.
+func TestAMissedPeekParksTheLaneAtOnce(t *testing.T) {
+	t.Parallel()
+	r, _ := aLaneThatWaits(t)
+	reply := r.lookAfterMissedPeek(t, gatedCall, "call-1")
+	if decisionIn(t, reply) != lanes.ApprovalDeny || reply.Approval.Reason != lanes.ReasonApprovalWait {
+		t.Fatalf("reply %+v", reply.Approval)
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !record.Parking.Open() {
+		t.Errorf("a hook heard the wait ran out before the lane began to park: %+v", record.Parking)
+	}
+	r.eventually("parking", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Parking) })
+	a := r.onlyRequest(t)
+	if want := lanes.ApprovalWake([]string{a.ID}); r.wakeOf(t, 1).Expr != want {
+		t.Errorf("wake %+v, want %s", r.wakeOf(t, 1), want)
+	}
+	if a.State != authority.ApprovalPending {
+		t.Errorf("request %+v", a)
+	}
+}
+
+// A peek that the worker answered after its hook gave up raised the request with the whole wait. The
+// look that follows it is the same miss, so it ends that wait too.
+func TestALatePeekParksTheLaneAtOnce(t *testing.T) {
+	t.Parallel()
+	r, _ := aLaneThatWaits(t)
+	if got := decisionIn(t, r.peek(t, gatedCall, "call-1")); got != lanes.ApprovalWaiting {
+		t.Fatalf("a peek: %s", got)
+	}
+	r.eventually("a lane that waits", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.NeedsDecision) })
+	reply := r.lookAfterMissedPeek(t, gatedCall, "call-1")
+	if decisionIn(t, reply) != lanes.ApprovalDeny || reply.Approval.Reason != lanes.ReasonApprovalWait {
+		t.Fatalf("reply %+v", reply.Approval)
+	}
+	r.eventually("parking", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Parking) })
+	if a := r.onlyRequest(t); a.State != authority.ApprovalPending {
+		t.Errorf("request %+v", a)
+	}
+}
+
+// A missed peek shortens a wait and grants nothing: a call a member already approved runs.
+func TestAMissedPeekStillRunsACallThatWasApproved(t *testing.T) {
+	t.Parallel()
+	r, _ := aLaneThatWaits(t)
+	if got := decisionIn(t, r.peek(t, gatedCall, "call-1")); got != lanes.ApprovalWaiting {
+		t.Fatalf("a peek: %s", got)
+	}
+	r.memberSays(t, r.onlyRequest(t), true)
+	if got := decisionIn(t, r.lookAfterMissedPeek(t, gatedCall, "call-1")); got != lanes.ApprovalAllow {
+		t.Fatalf("decision %s", got)
+	}
+}
+
 // A worker that returns goes on from what its journal holds: the lane still waits, on the deadline
 // the last worker set.
 func TestARestartKeepsARequestAndItsBound(t *testing.T) {
