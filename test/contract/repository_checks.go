@@ -24,6 +24,7 @@ var RepositoryChecks = []Check{
 	{"RB5", "accepted work cannot start from a repository whose merge method rewrites commits, whichever setting changes second", checkAcceptedNeedsCommitsThatSurvive},
 	{"RB6", "a setting nobody offers is refused and changes nothing", checkRepositoryRefusesBadSettings},
 	{"RB7", "a repository record belongs to one workspace", checkRepositoryIsScoped},
+	{"RB9", "intake makes a repository's record from the facts its source gives, and a source with none makes none", checkIntakeRecordsTheRepository},
 	{"RB8", "intake carries a work order's base to the work order, and a rebuild from events keeps it", checkIntakeCarriesAWorkOrdersBase},
 }
 
@@ -313,4 +314,61 @@ func checkIntakeCarriesAWorkOrdersBase(r *Rig) error {
 		return Violatedf("a rebuild left base %q: %v", rebuilt.Base, err)
 	}
 	return nil
+}
+
+func checkIntakeRecordsTheRepository(r *Rig) error {
+	s := r.Store()
+	files := fake.NewWorkSource()
+	files.Write("a.md", []byte(ContractText("a", "A", "First.")))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	if all, err := r.listRepositories(s); err != nil || len(all) != 0 {
+		return Violatedf("a source with no repository made %+v: %v", all, err)
+	}
+	files.SetRepository("https://example.invalid/acme/app.git", "main")
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	// The fake names its repository "memory", as a source does by its history.
+	record, err := r.theRepository(s, "memory")
+	if err != nil {
+		return Violatedf("a source with facts made no record: %v", err)
+	}
+	if record.Remote != "https://example.invalid/acme/app.git" || record.DefaultBranch != "main" || record.MergeMethod != ledger.MergeCommit || record.Integration {
+		return Violatedf("the record reads %+v", record)
+	}
+	on := true
+	if _, err := r.change(s, "memory", control.RepositoryChange{Integration: &on}, r.Actor); err != nil {
+		return err
+	}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
+		return Violatedf("reading a quiet source again moved the ledger from %d to %d: %v", before, after, err)
+	}
+	files.SetRepository("https://example.invalid/acme/renamed.git", "trunk")
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	moved, err := r.theRepository(s, "memory")
+	if err != nil || moved.DefaultBranch != "trunk" || moved.Remote != "https://example.invalid/acme/renamed.git" || !moved.Integration {
+		return Violatedf("after the facts moved the record reads %+v: %v", moved, err)
+	}
+	return nil
+}
+
+func (r *Rig) listRepositories(s ports.Store) ([]ledger.Repository, error) {
+	var all []ledger.Repository
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		all, err = tx.Repositories().Repositories()
+		return err
+	})
+	return all, err
 }
