@@ -199,7 +199,8 @@ var askTool = map[string]any{
 			"text": map[string]any{"type": "string", "description": "The question, as a person would read it."},
 			"categories": map[string]any{
 				"type": "array", "items": map[string]any{"type": "string"},
-				"description": "Which kinds of member could answer it, such as product, design, architecture, data, security, compliance, operations, or business.",
+				"description": "Which kinds of member could answer it, such as product, design, architecture, data, security, compliance, operations, or business. " +
+					"A planning lane's question goes straight to the person, so it must name at least one.",
 			},
 			"blocking": map[string]any{"type": "boolean", "description": "True when this lane cannot finish without the answer."},
 			"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "What you would choose between, when you know."},

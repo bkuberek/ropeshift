@@ -39,6 +39,8 @@ type rig struct {
 	workerJournal ports.Journal
 	// offset moves database time.
 	offset *atomic.Int64
+	// kind is the next work order's, and a change when it is empty.
+	kind workorders.Kind
 }
 
 func newRig(t *testing.T) *rig {
@@ -110,8 +112,12 @@ func (r *rig) started() *worker.Worker {
 func (r *rig) claimFor(id, worker string) workorders.Grant {
 	r.t.Helper()
 	ctx := r.t.Context()
+	kind := r.kind
+	if kind == "" {
+		kind = workorders.KindChange
+	}
 	_, err := control.NewWorkOrders(r.store).Record(ctx, scope, control.LedgerWork{
-		Order:    workorders.WorkOrder{ID: id, Kind: workorders.KindChange, Title: "T", Deadline: r.deadline},
+		Order:    workorders.WorkOrder{ID: id, Kind: kind, Title: "T", Deadline: r.deadline},
 		Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
 	}, member)
 	if err != nil {

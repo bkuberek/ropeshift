@@ -248,6 +248,24 @@ func TestDecideDeclaresWhatItBindsTo(t *testing.T) {
 	t.Fatal("the tool is not listed")
 }
 
+// A planning lane's question goes straight to the person, who finds it by category, so the schema
+// says a category is needed there before the refusal does.
+func TestAskSaysAPlanningLaneNeedsACategory(t *testing.T) {
+	for _, tool := range ask(t, &worker{}, "tools/list", map[string]any{}).Result.Tools {
+		if tool.Name != lanes.ToolAsk {
+			continue
+		}
+		properties, _ := tool.InputSchema["properties"].(map[string]any)
+		categories, _ := properties["categories"].(map[string]any)
+		description, _ := categories["description"].(string)
+		if !strings.Contains(description, "planning lane") {
+			t.Errorf("categories read %q", description)
+		}
+		return
+	}
+	t.Fatal("the tool is not listed")
+}
+
 // A pack names the documents its contract cites as `document spec:checkout-api@3`, so context_get
 // has to offer that kind for a session to read one by the name the pack gives it.
 func TestContextGetOffersEveryKindAPackNames(t *testing.T) {

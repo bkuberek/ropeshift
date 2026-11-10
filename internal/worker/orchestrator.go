@@ -72,10 +72,17 @@ func (r *laneRun) tools() []string {
 	return lanes.Tools
 }
 
+// planning says this lane runs a `plan` work order. The ledger's work order names the kind in the
+// lease, and nothing the session says can change it.
+func (r *laneRun) planning() bool { return workorders.Kind(r.lease.Kind) == workorders.KindPlan }
+
 // role names the thresholds a session is held to.
 func (r *laneRun) role() string {
-	if r.orchestrating() {
+	switch {
+	case r.orchestrating():
 		return lanes.RoleOrchestrator
+	case r.planning():
+		return lanes.RolePlanner
 	}
 	return lanes.RoleWriter
 }

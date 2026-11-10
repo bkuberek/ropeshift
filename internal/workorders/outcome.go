@@ -34,6 +34,9 @@ const (
 	ReasonHookFailed = "hook_failed"
 	// ReasonHookUnknown says a crash left a hook's end unknown, and a person has to look.
 	ReasonHookUnknown = "hook_unknown"
+	// ReasonNoInteractiveMode says a planning lane did not start because this machine cannot run it
+	// where a person can attach, such as one with no tmux, and it never falls back to headless.
+	ReasonNoInteractiveMode = "no_interactive_mode"
 )
 
 // CheckResult is one check a lane reports. Criterion names what it speaks for, and a check

@@ -113,7 +113,7 @@ type ResourceSettings struct {
 
 // Profile is the resolved settings of a lane. It configures a lane and holds no
 // records. RunMode stays empty until a layer sets it, because the default follows
-// the sign-in kind.
+// the sign-in kind. A lane on a `plan` work order ignores it and runs in a pane.
 type Profile struct {
 	Name      string              `toml:"name" json:"name"`
 	Driver    string              `toml:"driver" json:"driver"`

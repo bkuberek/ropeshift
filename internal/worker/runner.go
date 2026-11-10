@@ -584,6 +584,11 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	spec, err := r.spec(ctx, prepared, repository, packFile)
+	if errors.Is(err, errNoInteractive) {
+		// Another attempt finds the same machine, so the work waits for a person to fix it.
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonNoInteractiveMode}
+	}
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -675,7 +680,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
-	mode, err := runMode(prepared.Profile.RunMode, r.w.signInKind(), slices.Contains(capabilities.RunModes, ports.RunModeInteractive))
+	mode, err := r.runMode(prepared.Profile.RunMode, slices.Contains(capabilities.RunModes, ports.RunModeInteractive))
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
@@ -729,6 +734,23 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		return ports.SessionSpec{}, fmt.Errorf("preflight: %v", report.Problems)
 	}
 	return spec, nil
+}
+
+// errNoInteractive says a planning lane cannot start because the driver offers no run mode where a
+// person can attach, which on the Claude Code driver is a machine with no tmux.
+var errNoInteractive = errors.New("a planning lane runs where a person can attach, and this driver offers no interactive run mode (it needs tmux)")
+
+// runMode picks how this lane runs. A planning lane runs in a pane whatever its profile and its
+// sign-in say, because a person is present by construction (ADR-0018), and it never falls back to
+// headless. Every other lane takes what its profile and sign-in call for.
+func (r *laneRun) runMode(profile string, interactive bool) (string, error) {
+	if !r.planning() {
+		return runMode(profile, r.w.signInKind(), interactive)
+	}
+	if !interactive {
+		return "", errNoInteractive
+	}
+	return ports.RunModeInteractive, nil
 }
 
 // runMode reads a profile's value in the driver's terms. A profile that says nothing takes

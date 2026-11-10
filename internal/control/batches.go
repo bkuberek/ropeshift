@@ -46,13 +46,34 @@ func (q *Questions) openBatch(tx ports.WriteTx, actor ledger.Actor) (questions.B
 // hasten brings a batch's close within what a blocking question may wait. A close that is
 // already sooner stays, so the rule only ever moves it earlier.
 func (q *Questions) hasten(tx ports.WriteTx, batch questions.Batch, actor ledger.Actor) error {
-	limit := tx.Now() + q.batches.MaxWaitMs
+	return hastenTo(tx, batch, tx.Now()+q.batches.MaxWaitMs, actor)
+}
+
+func hastenTo(tx ports.WriteTx, batch questions.Batch, limit int64, actor ledger.Actor) error {
 	moved, err := tx.Questions().HastenBatch(batch.ID, limit)
 	if err != nil || !moved {
 		return err
 	}
 	batch.ClosesAt = limit
 	return appendBatch(tx, batch, actor)
+}
+
+// toPerson sends a drafted question to the person with no ladder, and joins it to the open batch,
+// which it closes now. A planning lane's person is present, so the question does not wait for a window
+// or for the time a blocking one may wait, and the next tick delivers the batch.
+func (q *Questions) toPerson(tx ports.WriteTx, draft questions.Question, actor ledger.Actor) (questions.Question, error) {
+	record, err := questions.ToPerson(draft)
+	if err != nil {
+		return questions.Question{}, err
+	}
+	if err := q.gather(tx, &record, actor); err != nil {
+		return questions.Question{}, err
+	}
+	batch, err := tx.Questions().Batch(record.BatchID)
+	if err != nil {
+		return questions.Question{}, err
+	}
+	return record, hastenTo(tx, batch, tx.Now(), actor)
 }
 
 // hastenFor applies that rule to a question that started blocking after it was gathered. A

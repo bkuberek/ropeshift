@@ -1,11 +1,14 @@
 package lanes
 
-// RoleWriter names a lane's thresholds in a profile. A role is an agent's function, and phase 1
-// starts every lane as a writer until planning and review lanes arrive.
+// RoleWriter names a lane's thresholds in a profile. A role is an agent's function, and a lane
+// is a writer unless its work order says otherwise.
 const RoleWriter = "writer"
 
 // RoleOrchestrator names an orchestrator's thresholds.
 const RoleOrchestrator = "orchestrator"
+
+// RolePlanner names a planning lane's thresholds, the lane that runs a `plan` work order.
+const RolePlanner = "planner"
 
 // ContextPolicy is what one role's lane is held to (FR-LANE-8). The thresholds are absolute,
 // because a fraction of a window would mean five times as much on one model as on another.
@@ -83,7 +86,16 @@ func (p ContextPolicy) Compacted(tokens int64) bool {
 
 // PolicyFor reads a role's policy from a profile.
 func PolicyFor(settings ContextSettings, role string) ContextPolicy {
-	return ContextPolicy{RoleThresholds: settings.Roles[role], MinHeadroom: settings.MinHeadroomTokens}
+	return ContextPolicy{RoleThresholds: settings.ThresholdsFor(role), MinHeadroom: settings.MinHeadroomTokens}
+}
+
+// ThresholdsFor reads a role's thresholds from a profile. A planner the profile does not name takes
+// the writer's, because a role with no thresholds would never compact and never hand off.
+func (c ContextSettings) ThresholdsFor(role string) RoleThresholds {
+	if thresholds, named := c.Roles[role]; named || role != RolePlanner {
+		return thresholds
+	}
+	return c.Roles[RoleWriter]
 }
 
 // Oversized says what a generation starts with leaves too little room under its handoff threshold,

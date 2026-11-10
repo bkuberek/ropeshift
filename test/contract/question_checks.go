@@ -47,6 +47,11 @@ var QuestionChecks = []Check{
 	{"Q25", "a read goes on from where the last one stopped", checkRecordsWalk},
 	{"Q26", "a holder lets go of what it holds, and of nothing else, on the log", checkReleaseHeld},
 	{"Q27", "only one who may hold a question lets one go", checkReleaseActors},
+	{"Q28", "a planner's question reaches the person at once, with no ladder trace", checkDirectReachesPerson},
+	{"Q29", "a planner's question needs a category and no options", checkDirectNeedsCategory},
+	{"Q30", "no rung can take, climb, decide, assume, escalate, or merge a planner's question", checkDirectRefusesTheLadder},
+	{"Q31", "a planner's question matches only what the person owns", checkDirectMatching},
+	{"Q32", "a member answers a planner's question, and the answer is a member's decision", checkDirectAnswered},
 }
 
 // walk reads every record past the bound of one read, a page at a time. A page that does not
@@ -1455,4 +1460,281 @@ func checkDecisionActors(r *Rig) error {
 		}
 	}
 	return nil
+}
+
+// direct makes an ask the one a planning lane's work order gives, which the control plane sets from
+// the ledger and never from the lane.
+func direct(a *questions.Ask) { a.Direct = true }
+
+// planner is the lane a direct question comes from.
+const planner = "plan-lane"
+
+// waitingItems reads what a member sees of the batches that reached them.
+func (r *Rig) waitingItems(s ports.Store) ([]questions.Item, error) {
+	var items []questions.Item
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		batches, err := tx.Questions().WaitingBatches()
+		if err != nil {
+			return err
+		}
+		for _, batch := range batches {
+			rows, err := tx.Questions().BatchQuestions(batch.ID)
+			if err != nil {
+				return err
+			}
+			items = append(items, questions.Present(batch, rows, "").Items...)
+		}
+		return nil
+	})
+	return items, err
+}
+
+func checkDirectReachesPerson(r *Rig) error {
+	s := r.Store()
+	asked, err := r.ask(s, "Who signs in to the admin console?", planner, direct)
+	if err != nil {
+		return err
+	}
+	if asked.Status != questions.AskPending {
+		return Violatedf("result %+v", asked)
+	}
+	row, err := r.readQuestion(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusNeedsHuman || row.Rung != questions.RungEscalate || len(row.LadderTrace) != 0 ||
+		!row.Direct() || row.BatchID == "" || row.ClaimedBy != "" || len(row.Options) != 0 || row.Recommendation != "" {
+		return Violatedf("question %+v", row)
+	}
+	attached, err := r.attachments(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if len(attached) != 1 || attached[0].Lane != planner {
+		return Violatedf("attachments %+v", attached)
+	}
+	// The window is an hour long and no time passes here, so a delivery is the question hastening its batch.
+	if err := r.deliveredOnce(s, asked.QuestionID); err != nil {
+		return err
+	}
+	items, err := r.waitingItems(s)
+	if err != nil {
+		return err
+	}
+	if len(items) != 1 || items[0].ID != asked.QuestionID || len(items[0].Options) != 0 {
+		return Violatedf("a member sees %+v", items)
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkDirectNeedsCategory(r *Rig) error {
+	s := r.Store()
+	for name, change := range map[string]func(*questions.Ask){
+		"no category":      func(a *questions.Ask) { direct(a); a.Categories = nil },
+		"unknown category": func(a *questions.Ask) { direct(a); a.Categories = []string{"unknown"} },
+	} {
+		if _, err := r.ask(s, "Who signs in to the admin console?", planner, change); !errors.Is(err, questions.ErrInvalid) {
+			return Violatedf("%s: %v", name, err)
+		}
+	}
+	rows, err := r.filterQuestions(s, ports.RecordFilter{})
+	if err != nil {
+		return err
+	}
+	if len(rows) != 0 {
+		return Violatedf("a refused question left rows %v", rows)
+	}
+	// An ordinary question takes its categories from the orchestrator that escalates it, so it needs none.
+	if _, err := r.ask(s, "Which log level do retries use?", "lane-a", func(a *questions.Ask) { a.Categories = nil }); err != nil {
+		return Violatedf("an ordinary question with no category: %v", err)
+	}
+	return nil
+}
+
+func checkDirectRefusesTheLadder(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	asked, err := r.ask(s, "Who signs in to the admin console?", planner, direct)
+	if err != nil {
+		return err
+	}
+	other, err := r.ask(s, "Which log level do retries use?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	decided, err := r.decision(s, "Three calls.", nil)
+	if err != nil {
+		return err
+	}
+	id, holder := asked.QuestionID, r.orchestrator("holder")
+	attempts := []struct {
+		name string
+		run  func() error
+	}{
+		{"take", func() error { _, err := ops.Take(r.Ctx, r.Scope, id, TTLMs, holder); return err }},
+		{"climb", func() error {
+			_, err := ops.Climb(r.Ctx, r.Scope, id, questions.Step{Rung: questions.RungEscalate, Outcome: "no match"}, holder)
+			return err
+		}},
+		{"escalate", func() error {
+			_, err := ops.Escalate(r.Ctx, r.Scope, id, questions.Escalation{
+				Reason: questions.ReasonScopeChange, Options: []string{"Keep", "Change"}, Recommendation: "Keep",
+			}, holder)
+			return err
+		}},
+		{"resolve", func() error { _, err := ops.Resolve(r.Ctx, r.Scope, id, decided.ID, holder); return err }},
+		{"decide", func() error {
+			_, err := ops.Rule(r.Ctx, r.Scope, id, ruling(r.ID("d"), questions.DecisionDecided), holder)
+			return err
+		}},
+		{"assume", func() error {
+			_, err := ops.Rule(r.Ctx, r.Scope, id, ruling(r.ID("d"), questions.DecisionAssumed), holder)
+			return err
+		}},
+		{"merge", func() error { return ops.Merge(r.Ctx, r.Scope, id, other.QuestionID, holder) }},
+	}
+	for _, attempt := range attempts {
+		if err := attempt.run(); !errors.Is(err, questions.ErrDirect) || !errors.Is(err, workorders.ErrForbidden) {
+			return Violatedf("an orchestrator's %s: %v", attempt.name, err)
+		}
+	}
+	row, err := r.readQuestion(s, id)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusNeedsHuman || row.Rung != questions.RungEscalate || row.ClaimedBy != "" || row.DecisionID != "" || len(row.LadderTrace) != 0 {
+		return Violatedf("a refused question changed: %+v", row)
+	}
+	return r.CheckQuestions(s)
+}
+
+func checkDirectMatching(r *Rig) error {
+	s := r.Store()
+	const text = "Who signs in to the admin console?"
+	// An ordinary question on the ladder stays there, because an orchestrator could decide it.
+	ordinary, err := r.ask(s, text, "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	first, err := r.ask(s, text, planner, direct)
+	if err != nil {
+		return err
+	}
+	if first.Status != questions.AskPending || first.QuestionID == ordinary.QuestionID {
+		return Violatedf("a planner's question joined the ladder: %+v", first)
+	}
+	row, err := r.readQuestion(s, ordinary.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusOpen || row.Rung != questions.RungLookup {
+		return Violatedf("the ordinary question moved: %+v", row)
+	}
+	// A planner's question asked again attaches the lane, so the person is asked once.
+	again, err := r.ask(s, text, "plan-lane-2", direct)
+	if err != nil {
+		return err
+	}
+	if again.Status != questions.AskAttached || again.QuestionID != first.QuestionID {
+		return Violatedf("a repeat: %+v", again)
+	}
+	// And a question from any lane that matches an open one the person owns waits with it.
+	person, err := r.ask(s, "Which region holds the audit data?", planner, direct)
+	if err != nil {
+		return err
+	}
+	joined, err := r.ask(s, "Which region holds the audit data?", "lane-b", nil)
+	if err != nil {
+		return err
+	}
+	if joined.Status != questions.AskAttached || joined.QuestionID != person.QuestionID {
+		return Violatedf("an ordinary lane did not join: %+v", joined)
+	}
+	if err := r.directMatchesAnswers(s); err != nil {
+		return err
+	}
+	return r.CheckQuestions(s)
+}
+
+// directMatchesAnswers holds what an answered question gives a planner: a decision answers it, and an
+// orchestrator's assumption does not, because no orchestrator may stand in for the person.
+func (r *Rig) directMatchesAnswers(s ports.Store) error {
+	asked, decided, err := r.answered(s, "What is the retry budget?")
+	if err != nil {
+		return err
+	}
+	reused, err := r.ask(s, "What is the retry budget?", planner, direct)
+	if err != nil {
+		return err
+	}
+	if reused.Status != questions.AskAnswered || reused.DecisionID != decided.ID || reused.QuestionID != asked.QuestionID {
+		return Violatedf("a decided answer was not reused: %+v", reused)
+	}
+	assumed, err := r.Assumed(s, "Which log level do retries use?", "")
+	if err != nil {
+		return err
+	}
+	ordinary, err := r.ask(s, "Which log level do retries use?", "lane-c", nil)
+	if err != nil {
+		return err
+	}
+	if ordinary.Status != questions.AskAnswered || ordinary.DecisionID != assumed.ID {
+		return Violatedf("an ordinary lane does not read the assumption: %+v", ordinary)
+	}
+	planned, err := r.ask(s, "Which log level do retries use?", planner, direct)
+	if err != nil {
+		return err
+	}
+	if planned.Status != questions.AskPending || planned.QuestionID == assumed.QuestionID {
+		return Violatedf("an assumption answered a planner: %+v", planned)
+	}
+	row, err := r.readQuestion(s, planned.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusNeedsHuman || !row.Direct() {
+		return Violatedf("question %+v", row)
+	}
+	return nil
+}
+
+func checkDirectAnswered(r *Rig) error {
+	s := r.Store()
+	const text = "Who signs in to the admin console?"
+	asked, err := r.ask(s, text, planner, direct)
+	if err != nil {
+		return err
+	}
+	if err := r.deliveredOnce(s, asked.QuestionID); err != nil {
+		return err
+	}
+	decision, err := r.answer(s, asked.QuestionID, "Only members of the operations group.")
+	if err != nil {
+		return err
+	}
+	if decision.Status != questions.DecisionDecided || decision.DecidedBy != r.Actor.ID || decision.QuestionID != asked.QuestionID {
+		return Violatedf("decision %+v", decision)
+	}
+	row, err := r.readQuestion(s, asked.QuestionID)
+	if err != nil {
+		return err
+	}
+	if row.Status != questions.StatusAnswered || row.DecisionID != decision.ID || len(row.LadderTrace) != 0 {
+		return Violatedf("question after the answer %+v", row)
+	}
+	items, err := r.waitingItems(s)
+	if err != nil {
+		return err
+	}
+	if len(items) != 0 {
+		return Violatedf("an answered question still waits: %+v", items)
+	}
+	again, err := r.ask(s, text, planner, direct)
+	if err != nil {
+		return err
+	}
+	if again.Status != questions.AskAnswered || again.DecisionID != decision.ID {
+		return Violatedf("the next ask reads %+v", again)
+	}
+	return r.CheckQuestions(s)
 }

@@ -25,6 +25,10 @@ const (
 	ReasonScopeChange         = "scope_change"
 )
 
+// ReasonPlannerAsked says a planning lane asked, so the question went to the person with no ladder
+// (FR-SESSION-3). The gate does not accept it, so no orchestrator can give it to a question.
+const ReasonPlannerAsked = "planner_asked"
+
 // GateCheck names one thing the escalation gate requires.
 type GateCheck string
 
@@ -73,6 +77,22 @@ func Gate(q Question) []GateFailure {
 	}
 	return failed
 }
+
+// ToPerson puts a drafted question straight to the person, which is the one way past the gate
+// (FR-QD-3, FR-SESSION-3). It stands at the last rung with no ladder trace, and it needs no options and
+// no recommendation. The gate would have named a category, so this does, because members find questions
+// by category.
+func ToPerson(q Question) (Question, error) {
+	if len(q.Categories) == 0 {
+		return Question{}, fmt.Errorf("%w: a question for the person needs a category, so a member can find it", ErrInvalid)
+	}
+	q.Status, q.Rung, q.EscalationReason = StatusNeedsHuman, RungEscalate, ReasonPlannerAsked
+	return q, nil
+}
+
+// Direct reports a question that went to the person from a planning lane. No orchestrator takes,
+// decides, assumes, or escalates it.
+func (q Question) Direct() bool { return q.EscalationReason == ReasonPlannerAsked }
 
 // OutcomeMerged is the ladder step of a question closed in favor of one that stays.
 const OutcomeMerged = "merged"
@@ -130,6 +150,8 @@ var (
 	ErrAssumptionLimit = errors.New("this work order holds as many assumptions as the policy allows")
 	// ErrDecisionEnded means a decision was already overturned or replaced.
 	ErrDecisionEnded = errors.New("this decision is no longer in force")
+	// ErrDirect means the question is a planning lane's, which belongs to the person.
+	ErrDirect = errors.New("a planning lane's question belongs to the person, so no orchestrator can take, decide, assume, or escalate it")
 )
 
 // NextRung is the rung after the one a question stands on. A one-way category passes rungs
@@ -163,6 +185,9 @@ type Ask struct {
 	Options     []string `json:"options,omitempty"`
 	Lane        string   `json:"lane,omitempty"`
 	Generation  int64    `json:"generation,omitempty"`
+	// Direct says the question goes straight to the person. The control plane sets it from the
+	// ledger's work order when the asking lane runs a plan, so it never travels from a lane.
+	Direct bool `json:"-"`
 }
 
 // AskResult is what `ask` returns at once. Answer and Citations are set for `answered`.

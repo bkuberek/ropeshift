@@ -960,6 +960,7 @@ func (w *Workers) Claim(ctx context.Context, auth ledger.WorkerAuth, request wor
 // fence, and the question is about that work order.
 func (w *Workers) Ask(ctx context.Context, ask questions.LaneAsk) (questions.AskResult, error) {
 	var reviews string
+	var fromPlan bool
 	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		if err := w.checkSession(tx, ask.Auth, ask.Epoch); err != nil {
 			return err
@@ -971,12 +972,15 @@ func (w *Workers) Ask(ctx context.Context, ask questions.LaneAsk) (questions.Ask
 		if order.LeaseWorker != ask.Auth.WorkerID || order.Fence != ask.Fence {
 			return &workorders.FencedError{Current: order.Fence, State: order.State}
 		}
-		reviews = order.ReviewsPlan
+		reviews, fromPlan = order.ReviewsPlan, order.Kind == workorders.KindPlan
 		return nil
 	})
 	if err != nil {
 		return questions.AskResult{}, err
 	}
+	// A planning lane's question goes straight to the person (FR-SESSION-3). The ledger's work order
+	// says whether this lane plans, and nothing the lane sent is read for it.
+	ask.Ask.Direct = fromPlan
 	ask.Ask.SubjectKind, ask.Ask.SubjectID = subjectOf(reviews, ask.WorkOrder)
 	return w.questions.Ask(ctx, w.scope, ask.Ask, ledger.Actor{Kind: ledger.ActorLane, ID: ask.Ask.Lane})
 }
