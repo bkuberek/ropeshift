@@ -28,6 +28,13 @@
 * **intake:** name the milestones of no plan in a cycle problem ([d1c7f3d](https://github.com/bkuberek/ropeshift/commit/d1c7f3d9544a1c56ff38769673d54f27f1d93762))
 * **planning:** leave canceled work off the critical path weight ([b0305b1](https://github.com/bkuberek/ropeshift/commit/b0305b13714b3ae4a2c4db65a5dd2a51c839657e))
 
+### Notes
+
+* Approve a plan in one step. When the planning agent finishes, or when a plan's files change, ropeshift records a plan version and asks a member to approve it. `ropeshift plan show <plan>` prints the pending approval, what changed since the last approved version, and the draft decisions; `ropeshift plan approve <plan>` approves it. Approval records the draft decisions as your decisions, accepts the planning work, and passes contract review for the work the plan covers, so that work becomes ready with no step per work order. Only a member can approve, and the planning agent cannot approve its own plan.
+* Milestones order the work. A contract names its milestone, and when a plan has milestones every contract must name one. Work waits for the milestones its milestone depends on, and for the shared contracts it `uses`. A plan whose dependencies form a cycle is refused as a whole, with the cycle named. The roadmap data now carries each plan's milestones, the work that can run in parallel, and the critical path; the web page for it comes later.
+* After upgrading, each existing plan gets a new version and asks for one approval, because a plan version now covers every document and contract in the plan, not only the plan file.
+* This release adds database migrations `0033` and `0034`. They run on the first start.
+
 ## [0.1.0-alpha.4](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.3...v0.1.0-alpha.4) (2026-11-10)
 
 
