@@ -158,17 +158,28 @@ func (w *Worker) deliverHook(ctx context.Context, event lanes.HookEvent) {
 		event.Generation = run.processGeneration()
 		run.rt.Driver.TakeHook(ctx, event)
 		if len(event.Asked) != 0 {
-			go w.convertAsked(ctx, run.record(), event.Asked)
+			go w.convertAsked(ctx, run.record(), event.Asked, run.askCategories())
 		}
 	}
+}
+
+// askCategories are the categories a converted question carries. A planning lane's question goes
+// straight to the person, and the control plane takes it only with a category a member can find it
+// by, which the agent's own tool call has none of. Every other lane's climbs a ladder that names its
+// own.
+func (r *laneRun) askCategories() []string {
+	if r.planning() {
+		return []string{questions.CategoryProduct}
+	}
+	return nil
 }
 
 // convertAsked records what a deferred question tool call asked. It runs after the hook's
 // answer, because a hook has milliseconds and this reaches the control plane. A repeat
 // attaches to what the first wrote, and a call that failed fires its hook again on resume.
-func (w *Worker) convertAsked(ctx context.Context, lane lanes.Record, asked []lanes.AskedQuestion) {
+func (w *Worker) convertAsked(ctx context.Context, lane lanes.Record, asked []lanes.AskedQuestion, categories []string) {
 	for _, question := range asked {
-		reply := w.takeAsk(ctx, lane, lanes.AskRequest{Text: question.Text, Options: question.Options, Blocking: true})
+		reply := w.takeAsk(ctx, lane, lanes.AskRequest{Text: question.Text, Options: question.Options, Categories: categories, Blocking: true})
 		if !reply.OK {
 			w.config.Report(fmt.Errorf("lane %s: the question tool's question stayed unrecorded: %s", lane.ID, reply.Message))
 		}

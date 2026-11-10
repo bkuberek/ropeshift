@@ -1,8 +1,10 @@
 package worker_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
@@ -147,5 +149,31 @@ func TestAPlannersQuestionIsNoOrchestratorsToWork(t *testing.T) {
 	}
 	if got := r.question(t, "planner-q"); got.Status != questions.StatusNeedsHuman || got.ClaimedBy != "" || got.DecisionID != "" || len(got.LadderTrace) != 0 {
 		t.Errorf("question %+v", got)
+	}
+}
+
+// A question tool call that is converted on a planning lane is a product question, because the control
+// plane takes a planner's question only with a category a member can find it by, and a conversion
+// that named none would be refused and the person would never hear it.
+func TestAPlanningLanesQuestionToolCallBecomesAQuestionForThePerson(t *testing.T) {
+	r := aPlanningLaneAtRest(t)
+	r.hook(t, lanes.HookEvent{
+		Event: "PreToolUse", Tool: lanes.ToolQuestion, Subject: "toolu_1",
+		Asked: []lanes.AskedQuestion{{Text: "Who signs in to the admin console?", Options: []string{"Staff", "Customers"}}},
+	})
+	deadline := time.Now().Add(10 * time.Second)
+	var rows []questions.Question
+	for time.Now().Before(deadline) {
+		if rows = r.questionList(t); len(rows) != 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("questions %+v", rows)
+	}
+	row := rows[0]
+	if row.Status != questions.StatusNeedsHuman || !row.Direct() || !slices.Equal(row.Categories, []string{questions.CategoryProduct}) || !row.Blocking {
+		t.Errorf("question %+v", row)
 	}
 }
