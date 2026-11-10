@@ -39,13 +39,14 @@ const paneTestToken = "pane-test-token"
 func newPaneRig(t *testing.T, fixture string) *paneRig {
 	t.Helper()
 	doubles.RequireTmux(t)
+	// The directory the panes write into is made before the server, so it is removed after the server ends.
+	short := apitest.ShortDir(t)
 	terminal := doubles.PrivateTmux(t)
 	path := doubles.InstallFakeClaude(t, fixture)
 	home := t.TempDir()
 	driver := claudecode.New(osexec.Runner{}, claudecode.Options{
 		Env: []string{"PATH=" + path, "HOME=" + home}, Terminal: terminal, StopGrace: 2 * time.Second,
 	})
-	short := apitest.ShortDir(t)
 	socket := filepath.Join(short, "w.sock")
 	spool := filepath.Join(short, "spool")
 	spec := baseSpec(t)
