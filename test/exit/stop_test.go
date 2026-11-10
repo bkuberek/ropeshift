@@ -95,8 +95,10 @@ func TestAStopSavesWorkToTheRemote(t *testing.T) {
 		out, ok := gitAt(repo, bare, "show", ref+":untracked.txt")
 		return ok && out == "work"
 	})
-	if head, ok := gitAt(repo, bare, "rev-parse", "refs/heads/lane/lane-1"); !ok || head != repo.Git("rev-parse", "refs/heads/lane/lane-1") {
-		t.Errorf("the lane's branch on the remote: %q, %v", head, ok)
+	// The lane began at the commit the remote holds and committed nothing, so its branch holds nothing
+	// the remote lacks and a stop sends only the checkpoint.
+	if head, ok := gitAt(repo, bare, "rev-parse", "refs/heads/lane/lane-1"); ok {
+		t.Errorf("the remote holds a branch for a lane that committed nothing: %q", head)
 	}
 	salvage := func(view ledger.LaneView) []ledger.Artifact {
 		var out []ledger.Artifact
@@ -139,8 +141,8 @@ func TestAStopKeepsWorkOnThisMachineByDefault(t *testing.T) {
 	if got := repo.Git("show", "refs/ropeshift/checkpoints/lane-1/1:untracked.txt"); got != "work" {
 		t.Errorf("the local ref holds %q", got)
 	}
-	if got := repo.Git("rev-parse", "refs/heads/lane/lane-1"); got != repo.Git("rev-parse", "main") {
-		t.Errorf("the lane's branch is at %s", got)
+	if got := repo.Git("rev-parse", "refs/heads/lane/lane-1"); got != pushed {
+		t.Errorf("the lane's branch is at %s, want the commit the remote holds, %s", got, pushed)
 	}
 	code, _, stderr := in.run("lane", "archive", "lane-1")
 	if code != cli.ExitConflict || !strings.Contains(stderr, "no remote") {

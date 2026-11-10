@@ -87,23 +87,44 @@ func startFacts(tx ports.ReadTx, order workorders.WorkOrder) (startInput, error)
 	return in, nil
 }
 
-// tipReads remembers where each base stood in one pass, so a pass over many ready work orders fetches
-// a branch once.
-type tipReads map[string]tipRead
+// pass remembers what git said in one pass, so a pass over many ready work orders fetches a branch once
+// and finds a repository's checkout once.
+type pass struct {
+	tips      map[string]tipRead
+	checkouts map[string]checkoutRead
+}
 
 type tipRead struct {
 	tip ports.BaseTip
 	err error
 }
 
-func (t tipReads) read(ctx context.Context, worktrees ports.Worktrees, path, branch string) (ports.BaseTip, error) {
+type checkoutRead struct {
+	path string
+	err  error
+}
+
+func newPass() *pass {
+	return &pass{tips: map[string]tipRead{}, checkouts: map[string]checkoutRead{}}
+}
+
+func (p *pass) tip(ctx context.Context, worktrees ports.Worktrees, path, branch string) (ports.BaseTip, error) {
 	key := path + "\x00" + branch
-	if known, ok := t[key]; ok {
+	if known, ok := p.tips[key]; ok {
 		return known.tip, known.err
 	}
 	tip, err := worktrees.BaseTip(ctx, path, branch)
-	t[key] = tipRead{tip: tip, err: err}
+	p.tips[key] = tipRead{tip: tip, err: err}
 	return tip, err
+}
+
+func (p *pass) checkout(ctx context.Context, find func(context.Context, string) (string, error), repository string) (string, error) {
+	if known, ok := p.checkouts[repository]; ok {
+		return known.path, known.err
+	}
+	path, err := find(ctx, repository)
+	p.checkouts[repository] = checkoutRead{path: path, err: err}
+	return path, err
 }
 
 func unavailable(format string, args ...any) *workorders.StartHold {
@@ -111,8 +132,8 @@ func unavailable(format string, args ...any) *workorders.StartHold {
 }
 
 // decide gives the start, or the reason there is none yet. It never answers with the checkout's HEAD.
-func (s *Starts) decide(ctx context.Context, in startInput, tips tipReads) (workorders.Start, *workorders.StartHold) {
-	path, err := s.Checkout(ctx, in.order.RepositoryID)
+func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workorders.Start, *workorders.StartHold) {
+	path, err := seen.checkout(ctx, s.Checkout, in.order.RepositoryID)
 	if err != nil {
 		return workorders.Start{}, unavailable("no checkout of repository %s: %v", in.order.RepositoryID, err)
 	}
@@ -122,7 +143,7 @@ func (s *Starts) decide(ctx context.Context, in startInput, tips tipReads) (work
 			return workorders.Start{}, unavailable("the repository names no default branch: %v", err)
 		}
 	}
-	tip, err := tips.read(ctx, s.Worktrees, path, base)
+	tip, err := seen.tip(ctx, s.Worktrees, path, base)
 	if err != nil {
 		return workorders.Start{}, unavailable("%v", err)
 	}
@@ -227,7 +248,7 @@ func (l *Leases) startOf(ctx context.Context, scope ledger.WorkspaceID, request 
 	if err != nil || !needed {
 		return workorders.Start{}, err
 	}
-	start, hold := l.starts.decide(ctx, in, tipReads{})
+	start, hold := l.starts.decide(ctx, in, newPass())
 	crashpoint.Hit("claim", "resolved")
 	if hold != nil {
 		if _, err := l.setHold(ctx, scope, in.order.ID, hold, actor); err != nil {
@@ -311,10 +332,10 @@ func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, ac
 	if err != nil {
 		return nil, err
 	}
-	tips := tipReads{}
+	seen := newPass()
 	var changed []string
 	for _, in := range inputs {
-		_, hold := l.starts.decide(ctx, in, tips)
+		_, hold := l.starts.decide(ctx, in, seen)
 		moved, err := l.setHold(ctx, scope, in.order.ID, hold, actor)
 		if err != nil {
 			return changed, err
