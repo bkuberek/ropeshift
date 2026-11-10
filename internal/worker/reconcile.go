@@ -146,6 +146,20 @@ func (w *Worker) held(lane string) bool {
 	return ok
 }
 
+// heldLanes copies which lanes hold a run now. A pass takes it before it reads the lane
+// records: a run removes itself only after journaling its end, so a lane in this copy has at
+// worst a record that is newer than the copy, and a lane that ended between the two reads
+// cannot look like a running lane with no run.
+func (w *Worker) heldLanes() map[string]bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	held := make(map[string]bool, len(w.running))
+	for lane := range w.running {
+		held[lane] = true
+	}
+	return held
+}
+
 // desiredLeases reads the leases this worker should act on. No desired state yet means
 // no lease, and a worker still reconciles what it holds.
 func (w *Worker) desiredLeases(ctx context.Context) ([]ledger.DesiredLease, error) {
@@ -191,6 +205,10 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	if err != nil {
 		return lanes.World{}, seen, err
 	}
+	// The held lanes come before the records, for the same reason in the other direction: a
+	// run journals its end before it lets go, so a lane that ends after this copy still reads
+	// as held, and a pass never restarts a lane whose run has only just ended.
+	held := w.heldLanes()
 	records, err := w.journal.Lanes(ctx)
 	if err != nil {
 		return lanes.World{}, seen, err
@@ -215,7 +233,7 @@ func (w *Worker) observe(ctx context.Context) (lanes.World, observed, error) {
 	unknownRead := map[string]bool{}
 	for _, record := range records {
 		seen.records[record.ID] = record
-		actual := lanes.Actual{Record: record, Held: w.held(record.ID), Effects: byLane[record.ID]}
+		actual := lanes.Actual{Record: record, Held: held[record.ID], Effects: byLane[record.ID]}
 		actual.ParkRefused = record.State == lanes.StateParked && record.Parking != nil && refused[record.Parking.Seq]
 		if !actual.Held && (record.State == lanes.StateRunning || hasUnknown(byLane[record.ID])) {
 			located, err := w.config.Lanes.Driver.Find(ctx, w.sessionSpec(record))
