@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -211,7 +212,32 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 	if err := (planningWriter{tx: tx, actor: intakeActor}).planVersion(next); err != nil {
 		return false, err
 	}
-	return true, raisePlanApproval(tx, next)
+	record, err := tx.Planning().Plan(plan)
+	if err != nil {
+		return false, err
+	}
+	ref := planFileRef(entries)
+	approved, found, err := approvedBeforeRecorded(tx, next, ref)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		return true, finishApproved(tx, next, approved)
+	}
+	return true, askForPlanApproval(tx, planAsk{
+		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,
+		decisions: len(next.Decisions), source: next.Source, workOrder: next.WorkOrder,
+	})
+}
+
+// planFileRef is the ID the plan's own file gives it, from the entries of a version.
+func planFileRef(entries []planning.Entry) string {
+	for _, entry := range entries {
+		if planning.EntryKind(entry.Ref) == "plan" {
+			return strings.TrimPrefix(entry.Ref, "plan:")
+		}
+	}
+	return ""
 }
 
 // lastApproved reads the newest version of a plan a member approved, which a new version is compared
@@ -254,16 +280,44 @@ func planRequester(tx ports.WriteTx, workOrder string) (ledger.Actor, error) {
 	return intakeActor, nil
 }
 
-// raisePlanApproval asks for one plan version to be approved, bound to its digest, and closes the
-// request for an older version that nobody decided. Approval is never delegated, so the request has
-// no time to expire in: it waits for a member (FR-PLAN-12).
-func raisePlanApproval(tx ports.WriteTx, version planning.PlanVersion) error {
+// planAsk is a plan version a member is asked to approve. It is the same whether the ledger holds the
+// version or only a branch that nothing has read: plan is empty until the ledger holds the plan.
+type planAsk struct {
+	plan      string
+	ref       string
+	title     string
+	version   int64
+	digest    string
+	entries   []planning.Entry
+	decisions int
+	source    string
+	workOrder string
+}
+
+// planDetailOf reads what a plan approval says of its version.
+func planDetailOf(a authority.Approval) planning.PlanDetail {
+	var detail planning.PlanDetail
+	if a.Detail != "" {
+		_ = json.Unmarshal([]byte(a.Detail), &detail)
+	}
+	return detail
+}
+
+// askForPlanApproval asks for one plan version to be approved, bound to its digest, and closes the
+// request for an older version that nobody decided. Approval is never delegated, so the request has no
+// time to expire in: it waits for a member (FR-PLAN-12).
+func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 	rows, err := tx.Approvals().All()
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		if row.Kind != authority.KindPlan || row.Plan != version.PlanID || !row.Open() {
+		if row.Kind != authority.KindPlan || !row.Open() {
+			continue
+		}
+		samePlan := ask.plan != "" && row.Plan == ask.plan
+		sameBranch := ask.workOrder != "" && row.WorkOrder == ask.workOrder && planDetailOf(row).Ref == ask.ref
+		if !samePlan && !sameBranch {
 			continue
 		}
 		next, err := row.Supersede()
@@ -274,28 +328,21 @@ func raisePlanApproval(tx ports.WriteTx, version planning.PlanVersion) error {
 			return err
 		}
 	}
-	plan, err := tx.Planning().Plan(version.PlanID)
-	if err != nil {
-		return err
-	}
-	base, approved, err := lastApproved(tx, version.PlanID)
-	if err != nil {
-		return err
-	}
-	var difference planning.Difference
-	if approved {
-		difference = planning.Compare(base.Version, base.Records, version.Records)
-	} else {
-		difference = planning.Compare(0, nil, version.Records)
+	difference := planning.Compare(0, nil, ask.entries)
+	if ask.plan != "" {
+		if base, approved, err := lastApproved(tx, ask.plan); err != nil {
+			return err
+		} else if approved {
+			difference = planning.Compare(base.Version, base.Records, ask.entries)
+		}
 	}
 	detail, err := json.Marshal(planning.PlanDetail{
-		Title: plan.Title, Counts: planning.CountEntries(version.Records), Decisions: len(version.Decisions),
-		Difference: difference, Source: version.Source,
+		Title: ask.title, Ref: ask.ref, Counts: planning.CountEntries(ask.entries), Decisions: ask.decisions, Difference: difference, Source: ask.source,
 	})
 	if err != nil {
 		return err
 	}
-	requester, err := planRequester(tx, version.WorkOrder)
+	requester, err := planRequester(tx, ask.workOrder)
 	if err != nil {
 		return err
 	}
@@ -304,9 +351,12 @@ func raisePlanApproval(tx ports.WriteTx, version planning.PlanVersion) error {
 		return err
 	}
 	request := authority.Approval{
-		ID: id, Kind: authority.KindPlan, WorkOrder: version.WorkOrder, Subject: planning.ContractKey(version.PlanID, version.Version),
-		SubjectDigest: version.Digest, Summary: planSummary(plan.Title, version), RequestedBy: authority.Principal(requester),
-		State: authority.ApprovalPending, RaisedAt: tx.Now(), Plan: version.PlanID, PlanVersion: version.Version, Detail: string(detail),
+		ID: id, Kind: authority.KindPlan, WorkOrder: ask.workOrder, Subject: ask.ref + "@" + strconv.FormatInt(ask.version, 10),
+		SubjectDigest: ask.digest, Summary: planSummary(ask), RequestedBy: authority.Principal(requester),
+		State: authority.ApprovalPending, RaisedAt: tx.Now(), Plan: ask.plan, PlanVersion: ask.version, Detail: string(detail),
+	}
+	if ask.plan != "" {
+		request.Subject = planning.ContractKey(ask.plan, ask.version)
 	}
 	if err := request.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
@@ -323,18 +373,18 @@ func raisePlanApproval(tx ports.WriteTx, version planning.PlanVersion) error {
 }
 
 // planSummary is what a member reads first of a plan version: what it is and what it holds.
-func planSummary(title string, version planning.PlanVersion) string {
-	counts := planning.CountEntries(version.Records)
+func planSummary(ask planAsk) string {
+	counts := planning.CountEntries(ask.entries)
 	var parts []string
 	for _, kind := range slices.Sorted(maps.Keys(counts)) {
 		parts = append(parts, fmt.Sprintf("%d %s", counts[kind], kind))
 	}
-	if len(version.Decisions) != 0 {
-		parts = append(parts, fmt.Sprintf("%d draft decisions", len(version.Decisions)))
+	if ask.decisions != 0 {
+		parts = append(parts, fmt.Sprintf("%d draft decisions", ask.decisions))
 	}
 	held := "no other records"
 	if len(parts) != 0 {
 		held = strings.Join(parts, ", ")
 	}
-	return fmt.Sprintf("Plan %s, version %d: %s", title, version.Version, held)
+	return fmt.Sprintf("Plan %s, version %d: %s", ask.title, ask.version, held)
 }

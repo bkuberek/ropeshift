@@ -241,7 +241,9 @@ func (d Difference) Summary() string {
 // PlanDetail is what a member reads of a plan version in the request to approve it: what the plan is
 // called, what it holds, how many answers it drafts, and how it differs from the last approved version.
 type PlanDetail struct {
-	Title      string         `json:"title"`
+	Title string `json:"title"`
+	// Ref is the plan's own ID in its file, which names it before the ledger holds it.
+	Ref        string         `json:"ref,omitempty"`
 	Counts     map[string]int `json:"counts,omitempty"`
 	Decisions  int            `json:"decisions,omitempty"`
 	Difference Difference     `json:"difference"`

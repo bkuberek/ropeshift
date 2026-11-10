@@ -41,6 +41,10 @@ ON CONFLICT (workspace_id, id) DO NOTHING`)
  WHERE workspace_id = :workspace_id AND state IN ('pending', 'approved') AND expires_at <> 0 AND expires_at <= :now
  ORDER BY id`)
 
+	stmtLinkApprovalPlan = define("approval.link_plan",
+		`UPDATE approval_requests SET plan_id = :plan_id, plan_version = :plan_version
+ WHERE workspace_id = :workspace_id AND id = :id AND kind = 'plan' AND plan_id IS NULL`)
+
 	stmtSaveApproval = define("approval.save",
 		`UPDATE approval_requests
    SET state = :state, decided_by = :decided_by, decided_kind = :decided_kind, decided_digest = :decided_digest,
@@ -157,5 +161,10 @@ func (t approvalTx) Save(a authority.Approval, from authority.ApprovalState) (bo
 		"decided_digest": nullText(a.DecidedDigest), "decided_at": decidedAt, "reason": a.Reason, "policy_version": a.PolicyVersion,
 		"channel": a.Channel, "used_by": a.UsedBy,
 	}))
+	return n > 0, err
+}
+
+func (t approvalTx) LinkPlan(id, plan string, version int64) (bool, error) {
+	n, err := t.exec(stmtLinkApprovalPlan, t.scoped(params{"id": id, "plan_id": plan, "plan_version": version}))
 	return n > 0, err
 }

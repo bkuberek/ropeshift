@@ -24,6 +24,11 @@ import (
 // that or none of it (FR-PLAN-9, FR-PLAN-10).
 func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
 	version, err := tx.Planning().PlanVersion(approval.Plan, approval.PlanVersion)
+	if errors.Is(err, ports.ErrNotFound) && approval.WorkOrder != "" {
+		// The ledger does not hold this version: it is a branch nothing has read, and approving it is
+		// accepting the work order whose lane wrote it. Intake finishes the approval when it reads it.
+		return acceptLanesPlan(tx, approval, member)
+	}
 	if err != nil {
 		return err
 	}
@@ -110,15 +115,29 @@ func earlierPlanDecision(tx ports.WriteTx, version planning.PlanVersion, draft s
 // coverKey names a contract version by the record and the digest of its file.
 type coverKey struct{ contract, digest string }
 
-// planCoverage maps each contract version to the plan approval that covers it: one in a state given, for
-// a plan version that lists this contract at this digest. An approved request is the one cited when
-// more than one covers it.
-func planCoverage(approvals ports.ApprovalReader, planned ports.PlanningReader, states ...authority.ApprovalState) (map[coverKey]authority.Approval, error) {
+// Coverage says which plan approvals cover which contract versions.
+type Coverage struct {
+	held map[coverKey]authority.Approval
+}
+
+// Of finds the plan approval that covers a contract version, if one does.
+func (c Coverage) Of(contract planning.Contract) (authority.Approval, bool) {
+	approval, held := c.held[coverKey{contract: contract.ID, digest: contract.Digest}]
+	return approval, held
+}
+
+// Empty says nothing is covered.
+func (c Coverage) Empty() bool { return len(c.held) == 0 }
+
+// ReadCoverage maps each contract version to the plan approval that covers it: one in a state given, for
+// a plan version that lists this contract at this digest. An approved request is the one cited when more
+// than one covers it, and the newest version when they stand alike.
+func ReadCoverage(approvals ports.ApprovalReader, planned ports.PlanningReader, states ...authority.ApprovalState) (Coverage, error) {
 	rows, err := approvals.All()
 	if err != nil {
-		return nil, err
+		return Coverage{}, err
 	}
-	covered := map[coverKey]authority.Approval{}
+	covered := Coverage{held: map[coverKey]authority.Approval{}}
 	for _, row := range rows {
 		if row.Kind != authority.KindPlan || row.Plan == "" || !stateIn(row.State, states) {
 			continue
@@ -128,16 +147,20 @@ func planCoverage(approvals ports.ApprovalReader, planned ports.PlanningReader, 
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return Coverage{}, err
+		}
+		if version.Digest != row.SubjectDigest {
+			// The version is not the one this request was bound to, so nothing it says is covered.
+			continue
 		}
 		for _, entry := range version.Records {
 			if planning.EntryKind(entry.Ref) != "contract" || entry.Record == "" {
 				continue
 			}
 			key := coverKey{contract: entry.Record, digest: entry.Digest}
-			if held, taken := covered[key]; !taken || (row.State == authority.ApprovalApproved && held.State != authority.ApprovalApproved) ||
+			if held, taken := covered.held[key]; !taken || (row.State == authority.ApprovalApproved && held.State != authority.ApprovalApproved) ||
 				(row.State == held.State && row.PlanVersion > held.PlanVersion) {
-				covered[key] = row
+				covered.held[key] = row
 			}
 		}
 	}
@@ -153,18 +176,35 @@ func stateIn(state authority.ApprovalState, states []authority.ApprovalState) bo
 	return false
 }
 
+// reviewable says a work order waits for a contract review that nobody has given and that a plan could
+// give: work of a contract version, in review.
+func reviewable(order workorders.WorkOrder) bool {
+	return order.State == workorders.ContractReview && order.ReviewedBy == "" && order.ContractVersion != 0 &&
+		(order.Kind == workorders.KindChange || order.Kind == workorders.KindRework)
+}
+
 // coveredByApproval says which approved plan version covers a work order's contract version, if any.
-func coveredByApproval(tx ports.WriteTx, order workorders.WorkOrder, covered map[coverKey]authority.Approval) (authority.Approval, bool, error) {
-	if order.State != workorders.ContractReview || order.ReviewedBy != "" || order.ContractVersion == 0 ||
-		(order.Kind != workorders.KindChange && order.Kind != workorders.KindRework) {
+func coveredByApproval(planned ports.PlanningReader, order workorders.WorkOrder, covered Coverage) (authority.Approval, bool, error) {
+	if !reviewable(order) {
 		return authority.Approval{}, false, nil
 	}
-	contract, err := tx.Planning().Contract(order.ContractID, order.ContractVersion)
+	contract, err := planned.Contract(order.ContractID, order.ContractVersion)
 	if err != nil {
 		return authority.Approval{}, false, err
 	}
-	approval, held := covered[coverKey{contract: contract.ID, digest: contract.Digest}]
+	approval, held := covered.Of(contract)
 	return approval, held, nil
+}
+
+// WaitsOnAMember says a work order waits for a member's contract review because no plan approval, decided
+// or open, stands behind its contract version. One that a pending approval covers waits for that
+// approval instead, which is what the member is asked for.
+func WaitsOnAMember(planned ports.PlanningReader, order workorders.WorkOrder, covered Coverage) (bool, error) {
+	if !reviewable(order) {
+		return false, nil
+	}
+	_, held, err := coveredByApproval(planned, order, covered)
+	return !held, err
 }
 
 // passCoveredReviews passes the contract review of every work order whose contract version an approved
@@ -173,8 +213,8 @@ func coveredByApproval(tx ports.WriteTx, order workorders.WorkOrder, covered map
 // dependency, or an untraced criterion keeps the work in review with the pass on record. It is
 // idempotent, and it returns the work orders it passed.
 func passCoveredReviews(tx ports.WriteTx, actor ledger.Actor) ([]string, error) {
-	covered, err := planCoverage(tx.Approvals(), tx.Planning(), authority.ApprovalApproved)
-	if err != nil || len(covered) == 0 {
+	covered, err := ReadCoverage(tx.Approvals(), tx.Planning(), authority.ApprovalApproved)
+	if err != nil || covered.Empty() {
 		return nil, err
 	}
 	orders, err := tx.WorkOrders().List()
@@ -183,7 +223,7 @@ func passCoveredReviews(tx ports.WriteTx, actor ledger.Actor) ([]string, error) 
 	}
 	var passed []string
 	for _, order := range orders {
-		approval, held, err := coveredByApproval(tx, order, covered)
+		approval, held, err := coveredByApproval(tx.Planning(), order, covered)
 		if err != nil {
 			return passed, err
 		}
@@ -254,11 +294,11 @@ func (r *Reviews) PassCovered(ctx context.Context, scope ledger.WorkspaceID, act
 			if err != nil {
 				return err
 			}
-			covered, err := planCoverage(tx.Approvals(), tx.Planning(), authority.ApprovalApproved)
+			covered, err := ReadCoverage(tx.Approvals(), tx.Planning(), authority.ApprovalApproved)
 			if err != nil {
 				return err
 			}
-			approval, held, err := coveredByApproval(tx, order, covered)
+			approval, held, err := coveredByApproval(tx.Planning(), order, covered)
 			if err != nil || !held {
 				return err
 			}
@@ -276,4 +316,111 @@ func (r *Reviews) PassCovered(ctx context.Context, scope ledger.WorkspaceID, act
 		}
 	}
 	return passed, nil
+}
+
+// acceptLanesPlan is what approving a branch nothing has read does: it accepts the `plan` work order
+// whose lane wrote it, at the commit the member was shown. Intake reads that commit on its next tick,
+// the way it reads any accepted plan (D17), and finishes the approval then, if what it records is what
+// the member approved.
+func acceptLanesPlan(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
+	order, err := tx.WorkOrders().Get(approval.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if order.State != workorders.Acceptance {
+		return nil
+	}
+	artifacts, err := tx.Evidence().Artifacts(order.ID)
+	if err != nil {
+		return err
+	}
+	if branch := attemptBranch(artifacts, order.Fence); branch.Digest == "" || branch.Digest != planDetailOf(approval).Source {
+		return fmt.Errorf("%w: the lane's branch is no longer the one the member was shown", authority.ErrStaleDigest)
+	}
+	assessment, err := assessAttempt(tx.Planning(), tx.Evidence(), order)
+	if err != nil {
+		return err
+	}
+	if len(assessment.Failed) != 0 {
+		return fmt.Errorf("%w: %s", workorders.ErrNotAcceptable, strings.Join(assessment.Failed, ", "))
+	}
+	return accept(tx, order.ID, assessment, member, func() {})
+}
+
+// approvedBeforeRecorded finds the approval a member gave to the branch that this version came from, if
+// intake read the same files at the commit that was approved: the request is bound to the version's
+// digest, and no version has claimed it.
+func approvedBeforeRecorded(tx ports.WriteTx, version planning.PlanVersion, ref string) (authority.Approval, bool, error) {
+	if version.WorkOrder == "" {
+		return authority.Approval{}, false, nil
+	}
+	rows, err := tx.Approvals().OfWorkOrder(version.WorkOrder)
+	if err != nil {
+		return authority.Approval{}, false, err
+	}
+	for _, row := range rows {
+		named := row.Plan == "" || (row.Plan == version.PlanID && row.PlanVersion == version.Version)
+		if row.Kind == authority.KindPlan && row.State == authority.ApprovalApproved && named &&
+			row.SubjectDigest == version.Digest && planDetailOf(row).Ref == ref {
+			return row, true, nil
+		}
+	}
+	return authority.Approval{}, false, nil
+}
+
+// finishApproved completes the approval of a branch once the ledger holds what it approved: the request
+// names its version, the drafts are decided as the approving member's, and the review of the work the
+// version covers passes. The ledger holds the records because the member accepted the commit, so no
+// word of the lane's reached them before.
+func finishApproved(tx ports.WriteTx, version planning.PlanVersion, approval authority.Approval) error {
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: strings.TrimPrefix(approval.DecidedBy, string(ledger.ActorMember)+":")}
+	if approval.Plan == "" {
+		linked, err := tx.Approvals().LinkPlan(approval.ID, version.PlanID, version.Version)
+		if err != nil || !linked {
+			return err
+		}
+		approval.Plan, approval.PlanVersion = version.PlanID, version.Version
+		event, err := authority.ApprovalEvent(approval, member)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Append(event); err != nil {
+			return err
+		}
+	}
+	if err := decideDrafts(tx, version, member); err != nil {
+		return err
+	}
+	_, err := passCoveredReviews(tx, member)
+	return err
+}
+
+// voidUnclaimed closes the approvals of a branch that no version of the ledger claimed, because intake
+// read other files at the commit than the ones the member approved. A decision is void when the
+// artifact it approved changed.
+func voidUnclaimed(tx ports.WriteTx, workOrder string) error {
+	rows, err := tx.Approvals().OfWorkOrder(workOrder)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Kind != authority.KindPlan || row.State != authority.ApprovalApproved {
+			continue
+		}
+		if row.Plan != "" {
+			version, err := tx.Planning().PlanVersion(row.Plan, row.PlanVersion)
+			if err == nil && version.Digest == row.SubjectDigest {
+				continue
+			}
+			if err != nil && !errors.Is(err, ports.ErrNotFound) {
+				return err
+			}
+		}
+		next := row
+		next.State = authority.ApprovalVoid
+		if err := noteApproval(tx, next, row.State, intakeActor); err != nil {
+			return err
+		}
+	}
+	return nil
 }

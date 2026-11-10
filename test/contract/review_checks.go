@@ -497,9 +497,12 @@ func checkPlanTakenIn(r *Rig) error {
 	return r.CheckProjection(s)
 }
 
+// checkUnacceptedPlanStays holds D17 for a plan nobody accepted: intake may read its branch to ask a
+// member to approve it, and nothing the lane wrote becomes a record, and the plan is not taken in.
 func checkUnacceptedPlanStays(r *Rig) error {
 	s := r.Store()
-	if _, err := r.planLane(s); err != nil {
+	id, err := r.planLane(s)
+	if err != nil {
 		return err
 	}
 	var asked []string
@@ -507,8 +510,15 @@ func checkUnacceptedPlanStays(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if len(taken) != 0 || len(asked) != 0 {
-		return Violatedf("a plan nobody accepted: taken %v, read %v", taken, asked)
+	if len(taken) != 0 {
+		return Violatedf("a plan nobody accepted was taken in: %v", taken)
+	}
+	if _, err := r.orderByTitle(s, plannedOrder); err == nil {
+		return Violatedf("a plan nobody accepted made the work its branch holds")
+	}
+	row, err := r.WorkOrder(s, id)
+	if err != nil || row.State != workorders.Acceptance || row.PlanCommit != "" {
+		return Violatedf("the plan reads %+v: %v", row, err)
 	}
 	return nil
 }

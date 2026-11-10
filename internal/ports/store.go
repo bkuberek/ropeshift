@@ -452,6 +452,9 @@ type ApprovalWriter interface {
 	// Save is the compare-and-set of a request's state: it replaces what can change on one that still
 	// stands in the state its caller read, and reports whether it did.
 	Save(approval authority.Approval, from authority.ApprovalState) (bool, error)
+	// LinkPlan names the plan version a plan approval is about once the ledger holds it, for a request
+	// that was raised for a branch nothing had read yet. It reports whether the request had none.
+	LinkPlan(id, plan string, version int64) (bool, error)
 }
 
 // EffectReader reads what a person can decide of an effect a crash left unknown. No read here stops

@@ -31,6 +31,10 @@ var PlanApprovalChecks = []Check{
 	{"PA9", "approving a plan passes the review of the work its contracts cover, and the definition of ready still applies", checkApprovalPassesCoveredReviews},
 	{"PA10", "a contract the approved version does not cover stays in review until its version is approved", checkUncoveredContractStaysInReview},
 	{"PA11", "a contract whose content an approved version covers is passed by the tick", checkTickPassesCoveredContracts},
+	{"PA12", "a planning lane's branch asks for approval before anyone accepts it, and records nothing until then", checkLaneBranchAsksBeforeItIsRecorded},
+	{"PA13", "approving a lane's plan accepts its work order, and intake then records the commit, decides the drafts, and passes the review", checkApprovalAcceptsTheLanesPlan},
+	{"PA14", "a plan accepted by hand first is approved as the version intake recorded", checkAcceptedFirstIsApprovedAfterwards},
+	{"PA15", "an approval of a branch that intake reads differently is void, and the version asks again", checkChangedBranchVoidsTheApproval},
 }
 
 const approvalPlan = "retry"
@@ -710,6 +714,187 @@ func checkTickPassesCoveredContracts(r *Rig) error {
 	order, err := r.orderOfContract(s, "budget")
 	if err != nil || order.State != workorders.Ready || order.ReviewedBy != theMember.ID {
 		return Violatedf("after the contract returned to what was approved: %+v: %v", order, err)
+	}
+	return nil
+}
+
+// laneFiles are what a planning lane left on its branch: a plan that drafts an answer, a spec, and a
+// contract.
+func laneFiles(spec string) map[string]string {
+	return map[string]string{
+		"plan.md":   planWith(approvalPlan, "Retry budget", nil, "Stripe"),
+		"spec.md":   DocumentText("spec", "api", "The API", approvalPlan, spec),
+		"budget.md": placedContract{ID: "budget", Plan: approvalPlan}.text(),
+	}
+}
+
+// aLanePlanAsksForApproval takes a plan lane's branch in a tick and returns the one request it raised.
+func (r *Rig) aLanePlanAsksForApproval(s ports.Store, files map[string]string) (string, authority.Approval, error) {
+	id, err := r.planLane(s)
+	if err != nil {
+		return "", authority.Approval{}, err
+	}
+	var asked []string
+	taken, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(files), &asked))
+	if err != nil {
+		return "", authority.Approval{}, err
+	}
+	if len(taken) != 0 {
+		return "", authority.Approval{}, Violatedf("a plan nobody accepted was taken in: %v", taken)
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	return id, pending, err
+}
+
+func checkLaneBranchAsksBeforeItIsRecorded(r *Rig) error {
+	s := r.Store()
+	id, pending, err := r.aLanePlanAsksForApproval(s, laneFiles("The first draft."))
+	if err != nil {
+		return err
+	}
+	var detail planning.PlanDetail
+	if err := json.Unmarshal([]byte(pending.Detail), &detail); err != nil {
+		return err
+	}
+	if pending.WorkOrder != id || pending.Plan != "" || pending.PlanVersion != 1 || detail.Ref != approvalPlan || detail.Source != acceptedHead ||
+		!strings.HasPrefix(pending.RequestedBy, "lane:") || detail.Title != "Retry budget" || detail.Decisions != 1 ||
+		detail.Difference.Base != 0 || len(detail.Difference.Added) != 3 || pending.SubjectDigest == "" {
+		return Violatedf("the request is %+v with detail %+v", pending, detail)
+	}
+	// Nothing the lane wrote is a record, and the work order still waits for acceptance.
+	if _, held, err := r.contractTitled(s, "budget"); err != nil || held {
+		return Violatedf("the branch left its contract in the ledger (%v): %v", held, err)
+	}
+	if versions, err := r.planVersionsOf(s, ""); err != nil || len(versions) != 0 {
+		return Violatedf("the branch left plan versions %+v: %v", versions, err)
+	}
+	if row, err := r.WorkOrder(s, id); err != nil || row.State != workorders.Acceptance {
+		return Violatedf("the plan work order is %+v: %v", row, err)
+	}
+	// The same commit asks once, and a tick that finds it again writes nothing.
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	var asked []string
+	if _, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(laneFiles("The first draft.")), &asked)); err != nil {
+		return err
+	}
+	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
+		return Violatedf("a second tick moved the revision from %d to %d: %v", before, after, err)
+	}
+	return nil
+}
+
+func checkApprovalAcceptsTheLanesPlan(r *Rig) error {
+	s := r.Store()
+	files := laneFiles("The first draft.")
+	id, pending, err := r.aLanePlanAsksForApproval(s, files)
+	if err != nil {
+		return err
+	}
+	approved, err := r.approve(s, pending, true, theMember)
+	if err != nil || approved.State != authority.ApprovalApproved {
+		return Violatedf("approval: %+v: %v", approved, err)
+	}
+	if row, err := r.WorkOrder(s, id); err != nil || row.State != workorders.Done {
+		return Violatedf("after approval the plan work order is %+v: %v", row, err)
+	}
+	// Intake has not read the commit yet, so the plan has no records, and the approval decided nothing.
+	if _, held, err := r.contractTitled(s, "budget"); err != nil || held {
+		return Violatedf("approval recorded the contract of the branch (%v): %v", held, err)
+	}
+	var asked []string
+	taken, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(files), &asked))
+	if err != nil || !slices.Equal(taken, []string{id}) {
+		return Violatedf("taken %v: %v", taken, err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	versions, err := r.planVersionsOf(s, plan)
+	if err != nil || len(versions) != 1 || versions[0].Digest != pending.SubjectDigest || versions[0].WorkOrder != id {
+		return Violatedf("versions %+v for the digest %s: %v", versions, pending.SubjectDigest, err)
+	}
+	all, err := r.planApprovals(s)
+	if err != nil || len(all) != 1 || all[0].State != authority.ApprovalApproved || all[0].Plan != plan || all[0].PlanVersion != 1 {
+		return Violatedf("the requests are %+v: %v", all, err)
+	}
+	decisions, err := r.planDecisions(s, plan)
+	if err != nil || len(decisions) != 1 || decisions[0].DecidedBy != theMember.ID || !strings.Contains(decisions[0].Statement, "Stripe") {
+		return Violatedf("decisions %+v: %v", decisions, err)
+	}
+	order, err := r.orderOfContract(s, "budget")
+	if err != nil || order.State != workorders.Ready || order.ReviewedBy != theMember.ID {
+		return Violatedf("the work of the contract is %+v: %v", order, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkAcceptedFirstIsApprovedAfterwards(r *Rig) error {
+	s := r.Store()
+	files := laneFiles("The first draft.")
+	id, pending, err := r.aLanePlanAsksForApproval(s, files)
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.member()); err != nil {
+		return err
+	}
+	var asked []string
+	if _, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(files), &asked)); err != nil {
+		return err
+	}
+	all, err := r.planApprovals(s)
+	if err != nil || len(all) != 2 {
+		return Violatedf("the requests are %+v: %v", all, err)
+	}
+	if all[0].ID != pending.ID || all[0].State != authority.ApprovalSuperseded {
+		return Violatedf("the request for the branch was not replaced by the version intake made: %+v", all[0])
+	}
+	recorded := all[1]
+	if recorded.State != authority.ApprovalPending || recorded.Plan == "" || recorded.PlanVersion != 1 || !strings.HasPrefix(recorded.RequestedBy, "lane:") ||
+		recorded.WorkOrder != id || recorded.SubjectDigest != pending.SubjectDigest {
+		return Violatedf("the request for the recorded version is %+v", recorded)
+	}
+	if _, err := r.approve(s, recorded, true, theMember); err != nil {
+		return err
+	}
+	if order, err := r.orderOfContract(s, "budget"); err != nil || order.State != workorders.Ready {
+		return Violatedf("the work of the contract is %+v: %v", order, err)
+	}
+	return nil
+}
+
+func checkChangedBranchVoidsTheApproval(r *Rig) error {
+	s := r.Store()
+	id, pending, err := r.aLanePlanAsksForApproval(s, laneFiles("The first draft."))
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	// What intake reads at the approved commit is not what the member approved.
+	var asked []string
+	taken, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(laneFiles("A different draft.")), &asked))
+	if err != nil || !slices.Equal(taken, []string{id}) {
+		return Violatedf("taken %v: %v", taken, err)
+	}
+	all, err := r.planApprovals(s)
+	if err != nil || len(all) != 2 || all[0].State != authority.ApprovalVoid || all[1].State != authority.ApprovalPending {
+		return Violatedf("the requests are %+v: %v", all, err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	if decisions, err := r.planDecisions(s, plan); err != nil || len(decisions) != 0 {
+		return Violatedf("an approval of other files decided %+v: %v", decisions, err)
+	}
+	if order, err := r.orderOfContract(s, "budget"); err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		return Violatedf("the work of the contract is %+v: %v", order, err)
 	}
 	return nil
 }
