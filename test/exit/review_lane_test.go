@@ -24,7 +24,7 @@ const reviewsAndTries = `{
     {"tool": "Bash", "command": "git branch review-notes"},
     {"tool": "Bash", "command": "echo notes > notes.txt"},
     {"wait_file": "release-review"},
-    {"mcp": "lane_report", "arguments": {"outcome": "completed", "checks": [{"name": "the retry is built", "passed": true, "criterion": "c1"}]}},
+    {"mcp": "lane_report", "arguments": {"outcome": "completed", "verdicts": [{"criterion": "c1", "verdict": "pass", "reasons": "work.txt builds the retry", "citations": ["work.txt:1"]}]}},
     {"emit": {"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.02, "usage": {"input_tokens": 3, "output_tokens": 5}}}
   ]]
 }`
@@ -136,8 +136,13 @@ func TestAReviewLaneReadsTheReviewedCommitAndLeavesNoBranch(t *testing.T) {
 	if state := in.show(order).State; state != workorders.Acceptance {
 		t.Errorf("the reviewed work reads %s", state)
 	}
-	if len(in.acceptance(reviewID).Checks) != 1 || branchesOf(in.acceptance(reviewID)) != nil {
+	if branchesOf(in.acceptance(reviewID)) != nil {
 		t.Errorf("the review's evidence reads %+v", in.acceptance(reviewID))
+	}
+	// What it said is a verdict on the work it judged, bound to the commit it read, and the work waits for
+	// a member at the default merge authority.
+	if judged := in.acceptance(order); len(judged.Verdicts) != 1 || judged.Verdicts[0].Verdict != workorders.VerdictPass || judged.Verdicts[0].Commit != head || judged.Verdicts[0].Review != reviewID {
+		t.Errorf("the verdicts on the work read %+v, want one pass on %s", judged.Verdicts, head)
 	}
 
 	// The ledger asks the worker to take the worktree away, and it does: nothing of the review is left,
