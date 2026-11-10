@@ -245,6 +245,11 @@ func (w *Worker) takeReport(ctx context.Context, lane lanes.Record, report worko
 	if err := report.Validate(); err != nil {
 		return refused(lanes.CodeInvalid, err.Error())
 	}
+	if run := w.runOf(lane.ID); run != nil {
+		if err := run.holdsToItsWork(report); err != nil {
+			return refused(lanes.CodeInvalid, err.Error())
+		}
+	}
 	raw, err := json.Marshal(report)
 	if err != nil {
 		return refused(lanes.CodeInvalid, err.Error())

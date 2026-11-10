@@ -99,6 +99,9 @@ func TestAReviewLaneReadsTheDiffAtTheReviewedCommitAndLeavesNoBranch(t *testing.
 	if _, err := leases.Dispatch(ctx, scope, review.ID, "review-1", member); err != nil {
 		t.Fatal(err)
 	}
+	// The repository's profile bounds the review rounds, and the review's end carries the bound with its
+	// verdicts, because the control plane reads no profile.
+	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", "[review]\nmax_review_rounds = 2\n")
 	r.driver.Play(fake.DriverScript{
 		SessionID: "session-review", Model: "resolved-model",
 		Turns: [][]fake.DriverStep{{{Bound: true}, r.judges(workorders.CriterionVerdict{
@@ -149,8 +152,8 @@ func TestAReviewLaneReadsTheDiffAtTheReviewedCommitAndLeavesNoBranch(t *testing.
 			return err
 		}
 		if len(verdicts) != 1 || verdicts[0].Criterion != "c1" || verdicts[0].Verdict != workorders.VerdictPass ||
-			verdicts[0].Commit != head || verdicts[0].Lane != "review-1" || verdicts[0].Review != review.ID {
-			t.Errorf("the verdicts on record read %+v, want one pass for c1 at %s from review-1", verdicts, head)
+			verdicts[0].Commit != head || verdicts[0].Lane != "review-1" || verdicts[0].Review != review.ID || verdicts[0].MaxRounds != 2 {
+			t.Errorf("the verdicts on record read %+v, want one pass for c1 at %s from review-1, bounded at 2 rounds", verdicts, head)
 		}
 		return nil
 	})

@@ -11,6 +11,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/mcpserver"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // worker stands in for the socket, and keeps what reached it.
@@ -286,5 +287,92 @@ func TestContextGetOffersEveryKindAPackNames(t *testing.T) {
 		if !slices.Contains(got, want) {
 			t.Errorf("context_get offers %v, and not %q", got, want)
 		}
+	}
+}
+
+func report(arguments map[string]any) map[string]any {
+	return map[string]any{"name": lanes.ToolLaneReport, "arguments": arguments}
+}
+
+// A review lane reports its verdicts through the tool every lane has, one per criterion, each with its
+// reasons and citations, and the tool's schema says so (ADR-0014).
+func TestLaneReportCarriesAVerdictPerCriterion(t *testing.T) {
+	w := &worker{}
+	var schema map[string]any
+	for _, tool := range ask(t, w, "tools/list", map[string]any{}).Result.Tools {
+		if tool.Name == lanes.ToolLaneReport {
+			schema = tool.InputSchema
+		}
+	}
+	verdicts, ok := schema["properties"].(map[string]any)["verdicts"].(map[string]any)
+	if !ok {
+		t.Fatalf("lane_report offers no verdicts: %v", schema)
+	}
+	item := verdicts["items"].(map[string]any)
+	properties := item["properties"].(map[string]any)
+	for _, field := range []string{"criterion", "verdict", "reasons", "citations"} {
+		if _, ok := properties[field]; !ok {
+			t.Errorf("a verdict has no %s", field)
+		}
+	}
+	kinds := properties["verdict"].(map[string]any)["enum"].([]any)
+	if len(kinds) != 3 || kinds[0] != "pass" || kinds[1] != "fail" || kinds[2] != "cannot_judge" {
+		t.Errorf("a verdict is one of %v", kinds)
+	}
+	required := item["required"].([]any)
+	if len(required) != 3 {
+		t.Errorf("a verdict requires %v", required)
+	}
+
+	got := ask(t, w, "tools/call", report(map[string]any{
+		"outcome": "completed",
+		"verdicts": []map[string]any{
+			{"criterion": "c1", "verdict": "pass", "reasons": "retry.go retries twice", "citations": []string{"retry.go:12", "FR-1"}},
+			{"criterion": "c2", "verdict": "fail", "reasons": "nothing is logged"},
+		},
+	}))
+	if got.Result.IsError {
+		t.Fatalf("a whole report was refused: %+v", got.Result.Content)
+	}
+	var sent *workorders.Report
+	for _, request := range w.requests {
+		if request.Report != nil {
+			sent = request.Report
+		}
+	}
+	if sent == nil || len(sent.Verdicts) != 2 || sent.Verdicts[0].Criterion != "c1" || sent.Verdicts[0].Verdict != workorders.VerdictPass ||
+		!slices.Equal(sent.Verdicts[0].Citations, []string{"retry.go:12", "FR-1"}) || sent.Verdicts[1].Verdict != workorders.VerdictFail {
+		t.Errorf("the worker was sent %+v", sent)
+	}
+}
+
+// A verdict that is not whole never reaches the worker, and the lane is told what to mend.
+func TestLaneReportRefusesAVerdictThatIsNotWhole(t *testing.T) {
+	for name, verdict := range map[string]map[string]any{
+		"a verdict nobody offers": {"criterion": "c1", "verdict": "maybe", "reasons": "x"},
+		"no reasons":              {"criterion": "c1", "verdict": "pass"},
+		"no criterion":            {"verdict": "pass", "reasons": "x"},
+	} {
+		w := &worker{}
+		got := ask(t, w, "tools/call", report(map[string]any{"outcome": "completed", "verdicts": []map[string]any{verdict}}))
+		if !got.Result.IsError || len(got.Result.Content) == 0 || got.Result.Content[0].Text == "" {
+			t.Errorf("%s: %+v", name, got.Result)
+		}
+		for _, request := range w.requests {
+			if request.Report != nil {
+				t.Errorf("%s reached the worker", name)
+			}
+		}
+	}
+}
+
+// What the worker refuses of a report, such as a criterion left out, comes back to the lane in words.
+func TestLaneReportTellsTheLaneWhatTheWorkerRefused(t *testing.T) {
+	w := &worker{refuse: "the review gives no verdict for criterion c2"}
+	got := ask(t, w, "tools/call", report(map[string]any{
+		"outcome": "completed", "verdicts": []map[string]any{{"criterion": "c1", "verdict": "pass", "reasons": "x"}},
+	}))
+	if !got.Result.IsError || !strings.Contains(got.Result.Content[0].Text, "criterion c2") {
+		t.Errorf("the lane hears %+v", got.Result)
 	}
 }

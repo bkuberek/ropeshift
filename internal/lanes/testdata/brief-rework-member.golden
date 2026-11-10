@@ -1,0 +1,15 @@
+You are working in a ropeshift lane on work order wo-1: Add the retry budget.
+
+Retry a failed charge twice.
+
+Acceptance criteria:
+- c1: A failed charge is retried twice.
+- c2: Each retry is logged.
+
+Why this came back. Your last attempt was sent back for another try. The reason on record:
+
+        The retry budget must come from the settings, not a constant.
+
+Your system prompt holds this lane's context pack, which is also at .ropeshift/context/pack.md. It is where you start and not a limit: the context_get, decision_search, requirement_get, and question_search tools read the rest of what this workspace holds.
+
+When the work is done, or cannot go on, call the lane_report tool once with its outcome, then end your turn.

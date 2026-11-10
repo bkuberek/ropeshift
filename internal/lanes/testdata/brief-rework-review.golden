@@ -1,0 +1,21 @@
+You are working in a ropeshift lane on work order wo-1: Add the retry budget.
+
+Retry a failed charge twice.
+
+Acceptance criteria:
+- c1: A failed charge is retried twice.
+- c2: Each retry is logged.
+
+What the review found. Review rv-9 judged your last attempt against each criterion, and it failed these:
+
+- c2: Each retry is logged.
+        Why it failed: The second retry is not logged: retry.go sends it without calling logAttempt.
+        It rests on: retry.go:41, FR-LOG-2, spec:checkout-api
+
+It was sent back as: review rv-9 failed criteria c2; failed checks: ci-c2.
+
+Address each finding in this attempt.
+
+Your system prompt holds this lane's context pack, which is also at .ropeshift/context/pack.md. It is where you start and not a limit: the context_get, decision_search, requirement_get, and question_search tools read the rest of what this workspace holds.
+
+When the work is done, or cannot go on, call the lane_report tool once with its outcome, then end your turn.
