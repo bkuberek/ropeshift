@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -254,6 +255,74 @@ func (t *Terminal) Type(ctx context.Context, name, text string) error {
 
 var signalNumbers = map[ports.Signal]syscall.Signal{
 	ports.SignalInterrupt: syscall.SIGINT, ports.SignalTerminate: syscall.SIGTERM, ports.SignalKill: syscall.SIGKILL,
+}
+
+// clientFormat is what a listing of a pane's clients asks tmux for. The name is the client's terminal,
+// and only the count of lines is read.
+const clientFormat = "#{client_name}"
+
+// detachGrace is how long a client the context ended has to restore the person's terminal before it
+// is killed.
+const detachGrace = 2 * time.Second
+
+// Clients counts the clients attached to a pane's session. A pane tmux does not hold, and a server
+// that is not there, are not found, as for a read of the pane.
+func (t *Terminal) Clients(ctx context.Context, name string) (int, error) {
+	out, err := t.run(ctx, "list-clients", "-t", target(name), "-F", clientFormat)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// Attach runs a tmux client on the person's terminal and waits for it. It is the one call that is
+// not bounded by commandLimit and is not detached, because the client is the person's session: it
+// reads their keyboard and draws on their screen until they detach. It leaves other clients of the
+// pane alone, so a pane one person watches can be attached by another.
+func (t *Terminal) Attach(ctx context.Context, name string, console ports.Console) error {
+	var refused bytes.Buffer
+	stderr := io.Writer(&refused)
+	if console.Stderr != nil {
+		stderr = io.MultiWriter(console.Stderr, &refused)
+	}
+	process, err := t.runner.Start(ctx, ports.ProcessSpec{
+		Path: t.binary, Args: []string{"-u", "-f", os.DevNull, "-S", t.socket, "attach-session", "-t", target(name)}, Env: t.env,
+		Stdin: console.Stdin, Stdout: console.Stdout, Stderr: stderr,
+	})
+	if err != nil {
+		return err
+	}
+	finished := make(chan error, 1)
+	go func() {
+		status, err := process.Wait()
+		if err == nil && (status.Code != 0 || status.Signal != "") {
+			err = fmt.Errorf("tmux attach-session: %s", strings.TrimSpace(refused.String()))
+			if isAbsent(refused.String()) {
+				err = fmt.Errorf("%w: %v", ports.ErrNotFound, err)
+			}
+		}
+		finished <- err
+	}()
+	select {
+	case err := <-finished:
+		return err
+	case <-ctx.Done():
+		_ = process.Signal(ports.SignalTerminate)
+		select {
+		case err := <-finished:
+			// A client ended by a signal reports that signal, and the person asked for the end.
+			_ = err
+		case <-time.After(detachGrace):
+			_ = process.Signal(ports.SignalKill)
+		}
+		return ctx.Err()
+	}
 }
 
 // Signal sends a signal to the exact process a pane runs now. A pane whose process ended
