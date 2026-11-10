@@ -3,6 +3,9 @@ package contract
 import (
 	"encoding/json"
 	"errors"
+	"strings"
+
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -21,6 +24,7 @@ var RepositoryChecks = []Check{
 	{"RB5", "accepted work cannot start from a repository whose merge method rewrites commits, whichever setting changes second", checkAcceptedNeedsCommitsThatSurvive},
 	{"RB6", "a setting nobody offers is refused and changes nothing", checkRepositoryRefusesBadSettings},
 	{"RB7", "a repository record belongs to one workspace", checkRepositoryIsScoped},
+	{"RB8", "intake carries a work order's base to the work order, and a rebuild from events keeps it", checkIntakeCarriesAWorkOrdersBase},
 }
 
 func (r *Rig) repositories(s ports.Store) *control.Repositories { return control.NewRepositories(s) }
@@ -276,6 +280,37 @@ func checkRepositoryIsScoped(r *Rig) error {
 	}
 	if kept, err := r.theRepository(s, "repo-1"); err != nil || kept.DefaultBranch != "main" {
 		return Violatedf("workspace b changed workspace a's record to %+v: %v", kept, err)
+	}
+	return nil
+}
+
+func checkIntakeCarriesAWorkOrdersBase(r *Rig) error {
+	s := r.Store()
+	files := fake.NewWorkSource()
+	files.Write("plain.md", []byte(ContractText("plain", "Plain", "Follow the repository's base.")))
+	files.Write("fix.md", []byte(strings.Replace(ContractText("fix", "Fix", "Build on the release."), `size = "small"`, "size = \"small\"\nbase = \"release/1.2\"", 1)))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	fix, err := r.orderByTitle(s, "The work order of fix")
+	if err != nil {
+		return err
+	}
+	if fix.Base != "release/1.2" {
+		return Violatedf("a work order that named its base reads %q", fix.Base)
+	}
+	if plain, err := r.orderByTitle(s, "The work order of plain"); err != nil || plain.Base != "" {
+		return Violatedf("a work order that named none reads %q: %v", plain.Base, err)
+	}
+	if err := r.CheckProjection(s); err != nil {
+		return err
+	}
+	if err := r.NewOps(s).Rebuild(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	rebuilt, err := r.orderByTitle(s, "The work order of fix")
+	if err != nil || rebuilt.Base != "release/1.2" {
+		return Violatedf("a rebuild left base %q: %v", rebuilt.Base, err)
 	}
 	return nil
 }

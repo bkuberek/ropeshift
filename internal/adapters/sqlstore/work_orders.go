@@ -14,7 +14,7 @@ import (
 const workOrderColumns = `id, kind, state, title, repository_id, priority, size, requirements, needs,
        contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
        takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts,
-       deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit`
+       deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base`
 
 var (
 	stmtReadWorkOrder = define("work_order.read",
@@ -55,11 +55,11 @@ var (
 		`INSERT INTO work_orders
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
    contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
-   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit)
+   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base)
 VALUES
   (:workspace_id, :id, :kind, :state, :title, :repository_id, :priority, :size, :requirements, :needs,
    :contract_id, :contract_version, :fence, :claim_id, :lease_worker, :lease_until,
-   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit)`)
+   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base)`)
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
@@ -221,6 +221,7 @@ func workOrderParams(scope ledger.WorkspaceID, w workorders.WorkOrder) (params, 
 		"reviews_plan":     nullText(w.ReviewsPlan),
 		"review_pins":      pins,
 		"plan_commit":      nullText(w.PlanCommit),
+		"base":             nullText(w.Base),
 		"workspace_id":     string(scope),
 		"id":               w.ID,
 		"kind":             string(w.Kind),
@@ -268,16 +269,16 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	var w workorders.WorkOrder
 	var kind, state string
 	var title, repository, size, requirements, needs, contractID, claimID, leaseWorker sql.NullString
-	var branch, resumeLane, reworkOf, reviewedBy, reviewsPlan, reviewPins, planCommit sql.NullString
+	var branch, resumeLane, reworkOf, reviewedBy, reviewsPlan, reviewPins, planCommit, base sql.NullString
 	var contractVersion, leaseUntil, takeoverAfter, deadline sql.NullInt64
 	err := row.Scan(&w.ID, &kind, &state, &title, &repository, &w.Priority, &size, &requirements, &needs,
 		&contractID, &contractVersion, &w.Fence, &claimID, &leaseWorker, &leaseUntil,
 		&takeoverAfter, &branch, &resumeLane, &reworkOf, &w.Attempts, &w.MaxAttempts,
-		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit)
+		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
-	w.ReviewsPlan, w.PlanCommit = reviewsPlan.String, planCommit.String
+	w.ReviewsPlan, w.PlanCommit, w.Base = reviewsPlan.String, planCommit.String, base.String
 	if reviewPins.Valid {
 		if err := json.Unmarshal([]byte(reviewPins.String), &w.ReviewPins); err != nil {
 			return workorders.WorkOrder{}, fmt.Errorf("review pins: %w", err)

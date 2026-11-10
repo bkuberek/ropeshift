@@ -8,6 +8,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // FileKind is the `kind` key of a repository file.
@@ -86,6 +88,8 @@ type WorkOrderSpec struct {
 	Size      string            `toml:"size" json:"size"`
 	DependsOn []string          `toml:"depends_on" json:"depends_on,omitempty"`
 	Needs     map[string]string `toml:"needs" json:"needs,omitempty"`
+	// Base is the branch this work starts from. It overrides the repository's base branch (FR-BASE-2).
+	Base string `toml:"base" json:"base,omitempty"`
 }
 
 // ContractFile is the front matter of a contract file. Requirements at this level is the key list of
@@ -525,6 +529,11 @@ func (f ContractFile) Normalize() (ContractFile, error) {
 			return f, fmt.Errorf("%w: work order %q: %v", ErrBadFile, order.ID, err)
 		}
 		orders[i].Size = size
+		if order.Base != "" {
+			if err := ledger.CheckBranch(order.Base); err != nil {
+				return f, fmt.Errorf("%w: work order %q: %v", ErrBadFile, order.ID, err)
+			}
+		}
 		if order.Repo == "" {
 			orders[i].Repo = CurrentRepository
 		}

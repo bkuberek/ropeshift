@@ -842,6 +842,7 @@ func (r *itemRecorder) recordOrder(contract planning.Contract, spec planning.Wor
 		Size:            spec.Size,
 		Requirements:    contract.Requirements,
 		Needs:           spec.Needs,
+		Base:            spec.Base,
 		ContractID:      contract.ID,
 		ContractVersion: contract.Version,
 	})

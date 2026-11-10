@@ -19,3 +19,6 @@ CREATE TABLE repositories (
   CONSTRAINT repository_start_from CHECK (start_from IN ('merged', 'accepted')),
   CONSTRAINT repository_commits_survive CHECK (start_from <> 'accepted' OR merge_method = 'merge')
 );
+
+-- The branch a work order names to start from, which overrides its repository's base branch.
+ALTER TABLE work_orders ADD COLUMN base TEXT;
