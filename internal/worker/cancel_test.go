@@ -56,6 +56,7 @@ func (r *laneRig) expectCanceled(t *testing.T) {
 }
 
 func TestACanceledLaneStopsThroughTheGuardAndTheLedgerHearsItEnd(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		told func(*testing.T, *laneRig)
@@ -109,6 +110,7 @@ func TestACanceledLaneStopsThroughTheGuardAndTheLedgerHearsItEnd(t *testing.T) {
 // Setting a lane up can take minutes, and a cancel can land in them. A session that started after that
 // would run on work nobody wants.
 func TestALaneCanceledWhileItIsSetUpStartsNoSession(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n")
 	reached, release := make(chan struct{}), make(chan struct{})
 	r.config.Provisioner.Hooks.(*fake.HookRunner).Programs["./scripts/setup.sh"] = func(ports.HookCommand) ports.HookResult {
@@ -159,6 +161,7 @@ func (d *slowAdoption) Adopt(ctx context.Context, h ports.SessionHandle, from po
 // also stops it, and a stop that reaches the driver before the adoption finds no session there: that
 // failure must not be the lane's only stop, or the session runs on and the pass waits on it forever.
 func TestALaneLostAsItsSessionIsAdoptedStops(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.config.Driver = &slowAdoption{AgentDriver: w.driver, asked: make(chan struct{})}
 	w.record("lane-1", lanes.StateRunning)
@@ -181,6 +184,7 @@ func TestALaneLostAsItsSessionIsAdoptedStops(t *testing.T) {
 }
 
 func TestACanceledLaneWaitingOnItsBreakerEnds(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script(crashed()))
 	r.start()
@@ -205,6 +209,7 @@ func TestACanceledLaneWaitingOnItsBreakerEnds(t *testing.T) {
 // A cancel can land between a lane's parked commit in the journal and that commit reaching the ledger.
 // The ledger refuses the commit, the worker ends the lane instead, and the ledger hears that end.
 func TestACanceledLaneThatParkedOnItsWayOutEnds(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}, completed(0.02))
 	r.link.FailUpload.Store(true)

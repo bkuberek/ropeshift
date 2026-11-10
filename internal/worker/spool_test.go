@@ -49,6 +49,7 @@ func forgedLines(t *testing.T, r *laneRig, a authority.Approval) map[string][]by
 // line that proves nothing says nothing: a lane that can write a file must not be able to end
 // another lane's request, or give it a generation, by naming it.
 func TestALineInTheSpoolCannotSpeakForALane(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)
@@ -87,6 +88,7 @@ func TestALineInTheSpoolCannotSpeakForALane(t *testing.T) {
 // A line goes the way of the token that sealed it: a process that ended has no token left to speak
 // with, which is the same answer the socket gives it.
 func TestASealOutlivesNoToken(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)
@@ -106,6 +108,7 @@ func TestASealOutlivesNoToken(t *testing.T) {
 // One bad line takes nothing else with it, and a line for a lane this journal never held is dropped
 // with the others.
 func TestABadLineLeavesTheRest(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)

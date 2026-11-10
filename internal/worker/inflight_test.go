@@ -24,6 +24,7 @@ func reads(t *testing.T, view ledger.LaneView, stalled bool) {
 // A call that ends with no `PostToolUse` leaves nothing at work, or a lane that stopped moving reads
 // as one waiting on a tool for the rest of its turn.
 func TestACallThatEndedHidesNoStall(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		events []lanes.HookEvent
@@ -56,6 +57,7 @@ func TestACallThatEndedHidesNoStall(t *testing.T) {
 
 // A refused call is still a session that went on, which is all a compaction's failure needs to show.
 func TestARefusedCallIsStillActivity(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, stallProfile)
 	g := newGate()
 	r.finishLater(g)
@@ -71,6 +73,7 @@ func TestARefusedCallIsStillActivity(t *testing.T) {
 
 // Neither hook names the other call, so ending one must leave one still at work alone.
 func TestAnEndedCallLeavesTheOtherAtWork(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, stallProfile)
 	g := newGate()
 	r.finishLater(g)
@@ -87,6 +90,7 @@ func TestAnEndedCallLeavesTheOtherAtWork(t *testing.T) {
 // A cancelled call and a deferred one report no end at all, and a turn's end closes what is left of
 // it, or the next turn inherits a tool nothing runs.
 func TestATurnsEndClosesItsCalls(t *testing.T) {
+	t.Parallel()
 	first, second := newGate(), newGate()
 	r := laneRigWith(t, stallProfile)
 	r.finishLater(first)
@@ -111,6 +115,7 @@ func TestATurnsEndClosesItsCalls(t *testing.T) {
 // A member's refusal reaches a call a `PermissionRequest` held, which names no call, so only its
 // digest ties it to the start it ends. It has to end that call alone.
 func TestARefusedRequestEndsItsCallAlone(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		other   string
@@ -182,6 +187,7 @@ func aTurnNoEndReaches(t *testing.T) (*laneRig, *gate) {
 // A new worker reads what the hooks said from the journal, so a refusal has to survive there, or a
 // restart brings the same tool back to life.
 func TestARestartKeepsACallEnded(t *testing.T) {
+	t.Parallel()
 	t.Run("denied by a hook", func(t *testing.T) {
 		r, g := aTurnNoEndReaches(t)
 		r.hook(t, lanes.HookEvent{Event: "PreToolUse", Subject: "toolu_1", Tool: "Bash", Detail: lanes.DetailDenied, AtMs: 1})

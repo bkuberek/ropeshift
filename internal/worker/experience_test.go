@@ -33,6 +33,7 @@ func (r *laneRig) experience(subject string) measures.Experience {
 // opens when its session binds, with the agent, both models, the effort, its role's thresholds, and
 // its work's size, and its end fills the outcome once, with the cost its agent reported.
 func TestALanesExperienceHoldsItsSettingsAndItsOutcome(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -56,6 +57,7 @@ func TestALanesExperienceHoldsItsSettingsAndItsOutcome(t *testing.T) {
 // TestMeasuresExportAsMetrics copies each window's measures out as `ropeshift.measure.*` gauges, which a
 // backend charts; the measures themselves need no pipeline.
 func TestMeasuresExportAsMetrics(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -90,6 +92,7 @@ func TestMeasuresExportAsMetrics(t *testing.T) {
 // TestOnlyAPersonsApprovalInterrupts reads approvals from the log: one a member decided reached a
 // person, and one an orchestrator decided under delegation reached nobody.
 func TestOnlyAPersonsApprovalInterrupts(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	for _, decided := range []struct {
 		id   string
@@ -111,6 +114,7 @@ func TestOnlyAPersonsApprovalInterrupts(t *testing.T) {
 
 // A lane whose session never bound still has a record, opened at its end with what it ran on.
 func TestALaneThatNeverBoundHasARecordToo(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, noRestarts)
 	r.driver.Play(script([]fake.DriverStep{{Crash: true}}))
 	if err := r.subject.Converge(t.Context()); err != nil {

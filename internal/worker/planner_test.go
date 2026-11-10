@@ -34,6 +34,7 @@ func (d noPane) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 // A planning lane is a planner for the thresholds it is held to and for the record of what it ran on.
 // The worker reads that from the kind of the work order its lease names, and the session says nothing.
 func TestAPlanningLaneRunsAsAPlanner(t *testing.T) {
+	t.Parallel()
 	r := newPlanningRig(t, func(*fake.AgentDriver) {})
 	r.config.Telemetry.Endpoint = "http://127.0.0.1:7318"
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
@@ -56,6 +57,7 @@ func TestAPlanningLaneRunsAsAPlanner(t *testing.T) {
 // The driver compiles a lane's policy from its spec, so the spec has to say the lane is a planner. The
 // worker reads that from the kind of the work order its lease names, as it does for the role.
 func TestAPlanningLanesSessionIsToldItIsPlanning(t *testing.T) {
+	t.Parallel()
 	r := newPlanningRig(t, func(*fake.AgentDriver) {})
 	r.dispatched()
 	r.runWith()
@@ -66,6 +68,7 @@ func TestAPlanningLanesSessionIsToldItIsPlanning(t *testing.T) {
 
 // Any other lane's session is not planning, so a question tool call in it is refused as it always was.
 func TestALaneThatIsNoPlanIsNotToldItIsPlanning(t *testing.T) {
+	t.Parallel()
 	r := newLaneRigOn(t, func(*fake.AgentDriver) {})
 	r.dispatched()
 	r.runWith()
@@ -77,6 +80,7 @@ func TestALaneThatIsNoPlanIsNotToldItIsPlanning(t *testing.T) {
 // A planning lane runs where a person can attach, whatever the sign-in and the profile say, because a
 // person is present by construction (ADR-0018).
 func TestAPlanningLaneAlwaysRunsInAPane(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		kind    string
@@ -104,6 +108,7 @@ func TestAPlanningLaneAlwaysRunsInAPane(t *testing.T) {
 
 // Any other lane keeps what its profile and sign-in say, so the planner's rule does not leak.
 func TestALaneThatIsNoPlanKeepsItsRunMode(t *testing.T) {
+	t.Parallel()
 	r := newLaneRigOn(t, func(driver *fake.AgentDriver) { driver.SetSignIn(ports.SignInAPIKey) })
 	r.dispatched()
 	r.runWith()
@@ -115,6 +120,7 @@ func TestALaneThatIsNoPlanKeepsItsRunMode(t *testing.T) {
 // With no way to run in a pane, a planning lane does not start, and it never falls back to headless.
 // The work order stops in `blocked` with a reason a person can read, and nothing is retried.
 func TestAPlanningLaneWithNoPaneDoesNotStart(t *testing.T) {
+	t.Parallel()
 	r := newPlanningRig(t, func(*fake.AgentDriver) {})
 	r.config.Driver = noPane{r.driver}
 	r.config.Provisioner.Profiles.(*fake.ProfileSource).Put("/repository", "run_mode = \"headless\"\n")
@@ -136,6 +142,7 @@ func TestAPlanningLaneWithNoPaneDoesNotStart(t *testing.T) {
 
 // A lane that is no plan is not held to the pane, so a machine with no tmux still runs its headless work.
 func TestAWriterWithNoPaneStillRunsHeadless(t *testing.T) {
+	t.Parallel()
 	r := newLaneRigOn(t, func(driver *fake.AgentDriver) { driver.SetSignIn(ports.SignInAPIKey) })
 	r.config.Driver = noPane{r.driver}
 	r.dispatched()

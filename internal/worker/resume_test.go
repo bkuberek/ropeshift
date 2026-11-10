@@ -65,6 +65,7 @@ func (r *laneRig) resumed(t *testing.T) {
 }
 
 func TestAWokenLaneContinuesItsSession(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWoken(t, notCarried, nil)
 	r.resumed(t)
 	got := r.driver.Resumed()
@@ -81,6 +82,7 @@ func TestAWokenLaneContinuesItsSession(t *testing.T) {
 }
 
 func TestAResumePassesEveryStartFlagAgain(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWoken(t, notCarried, nil)
 	r.resumed(t)
 	specs := r.driver.Specs()
@@ -101,6 +103,7 @@ func TestAResumePassesEveryStartFlagAgain(t *testing.T) {
 }
 
 func TestAWokenLaneWithAGoodHandoffPastTheCacheStartsFresh(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWoken(t, narrativeText, func(r *handoffRig) {
 		r.driver.SetResumeCosts(lanes.ResumeCosts{})
 	})
@@ -119,6 +122,7 @@ func TestAWokenLaneWithAGoodHandoffPastTheCacheStartsFresh(t *testing.T) {
 }
 
 func TestAResumeChoosesByTheTable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		narrative string
@@ -192,6 +196,7 @@ func stoppedMidTurn(t *testing.T, before func(*handoffRig)) *handoffRig {
 }
 
 func TestAStoppedTurnIsStatedAgainOnBothPaths(t *testing.T) {
+	t.Parallel()
 	const instruction = "When the work is done, or cannot go on"
 	t.Run("native", func(t *testing.T) {
 		r := stoppedMidTurn(t, nil)
@@ -219,6 +224,7 @@ func TestAStoppedTurnIsStatedAgainOnBothPaths(t *testing.T) {
 }
 
 func TestATurnThatFinishedLeavesNothingPending(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWoken(t, notCarried, nil)
 	if checkpoint := r.checkpointOf(t, 1); checkpoint.PendingInstruction != "" {
 		t.Errorf("checkpoint %+v", checkpoint)
@@ -239,6 +245,7 @@ func (d stalledResume) Resume(context.Context, ports.SessionSpec, ports.ResumeRe
 }
 
 func TestAStalledResumeStartsFreshInTheSameGeneration(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWoken(t, notCarried, nil)
 	r.config.Driver = stalledResume{AgentDriver: r.driver}
 	r.resumed(t)
@@ -256,6 +263,7 @@ func TestAStalledResumeStartsFreshInTheSameGeneration(t *testing.T) {
 }
 
 func TestAWokenLaneWaitsForADrainingFleet(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWoken(t, notCarried, nil)
 	r.drainFleet(t)
 	r.pass(t)
@@ -269,6 +277,7 @@ func TestAWokenLaneWaitsForADrainingFleet(t *testing.T) {
 }
 
 func TestAResumeKeepsTheSessionsRunningTotal(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWoken(t, notCarried, nil)
 	r.resumed(t)
 	got := r.driver.Resumed()
@@ -281,6 +290,7 @@ func TestAResumeKeepsTheSessionsRunningTotal(t *testing.T) {
 // under, after the lane resumed under another on the same work order. That fence is true, and it
 // says nothing about the claim that runs now.
 func TestAFenceOnTheLastClaimLeavesTheNextOneAlone(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	var r *handoffRig
 	r = atWorkBefore(t, func(lane *laneRig) fake.DriverScript {
@@ -367,6 +377,7 @@ func (r *laneRig) awaitRest(t *testing.T, generation int64) {
 // a lane parked: the ledger reads the new generation as provisioning until it hears otherwise, and
 // a worker that thought it had said so already would leave it reading that for good.
 func TestANewGenerationSaysWhatTheLastOneSaid(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restingProfile)
 	r.driver.Play(r.asksThenNarrates("The first question?", notCarried))
 	r.driver.PlayAfter(r.asksThenNarrates("The second question?", notCarried), r.toldToGoOn())
@@ -402,6 +413,7 @@ func TestANewGenerationSaysWhatTheLastOneSaid(t *testing.T) {
 // a real session: the second question belongs to the generation that came back, and it must
 // reach the ledger, hold the lane at rest, and park it with a wake of its own.
 func TestAResumedLaneAsksAndParksAgain(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restingProfile)
 	r.driver.Play(r.asksThenNarrates("The first question?", notCarried))
 	r.driver.PlayAfter(r.asksThenNarrates("The second question?", notCarried), r.toldToGoOn())
@@ -452,6 +464,7 @@ func TestAResumedLaneAsksAndParksAgain(t *testing.T) {
 // parked. A session resumed in the other mode is untested, so a native resume keeps its mode, and
 // a fresh session has no such history and takes what the profile says now.
 func TestANativeResumeStaysInTheRunModeItStartedIn(t *testing.T) {
+	t.Parallel()
 	const pane, headless = "run_mode = \"tmux\"\n", "run_mode = \"headless\"\n"
 	tests := []struct {
 		name   string
@@ -504,6 +517,7 @@ func (j killedAtResume) BeginResume(ctx context.Context, lane lanes.Record, even
 // the next process starts that generation from the record. A lane still reading `parked` takes
 // no signal the table has an edge for: it never rests, never parks, and never hands off.
 func TestALaneKilledInItsResumeStillComesToRest(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restingProfile)
 	r.driver.Play(r.asksThenNarrates("The first question?", notCarried))
 	r.start()
@@ -584,6 +598,7 @@ func (r *laneRig) otherWorker(t *testing.T, driver *fake.AgentDriver) (*worker.W
 }
 
 func TestAnotherWorkerStartsFromWhatTheLedgerHolds(t *testing.T) {
+	t.Parallel()
 	driver := fake.NewAgentDriver()
 	r := parkedAndWoken(t, narrativeText, nil)
 	other, journal, worktrees := r.otherWorker(t, driver)

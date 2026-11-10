@@ -95,6 +95,7 @@ func TestAStalledCompactionWithNothingToAnswerStays(t *testing.T) {
 // A draining fleet's deadline is the same bound for a compaction as for a turn: a lane parks by it
 // where it stands.
 func TestADrainParksACompactionPastItsDeadline(t *testing.T) {
+	t.Parallel()
 	r := atWorkOn(t, hungProfile, (*laneRig).toldToGoOn, fake.DriverStep{Hold: true})
 	r.compacting(t)
 	r.drainFleet(t)
@@ -123,6 +124,7 @@ func TestADrainParksACompactionPastItsDeadline(t *testing.T) {
 // Only the two holds above may take a lane out of a compaction. A park that asks for any other reason
 // waits for it, as it always has.
 func TestACompactionRefusesAnyOtherPark(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, hungProfile)
 	g := newGate()
 	r.finishLater(g)

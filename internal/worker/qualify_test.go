@@ -98,6 +98,7 @@ func TestANewVersionIsProbedOnceAndHoldsDispatchUntilItEnds(t *testing.T) {
 // TestAQualificationReplaysFromTheLog is the record of a probe: the ledger's log replays to what the
 // worker holds, and a document that is no probe's result is refused and leaves nothing to replay.
 func TestAQualificationReplaysFromTheLog(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.driver.Play(completedLane(r))
 	if _, err := r.subject.Reconcile(t.Context()); err != nil {
@@ -129,6 +130,7 @@ func TestAQualificationReplaysFromTheLog(t *testing.T) {
 // TestALaneWithNoHeadlessModeRunsInTmux is ADR-0002's fallback: a version whose `-p` lost a
 // subscription's login offers no headless lane, so a lane its profile sends headless starts in tmux.
 func TestALaneWithNoHeadlessModeRunsInTmux(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "run_mode = \"headless\"\n")
 	r.driver.SetHeadless(false)
 	r.driver.Play(completedLane(r))
@@ -152,6 +154,7 @@ func firstMode(specs []ports.SessionSpec) string {
 // A CLI that updates itself under a running worker is probed again before its next session, and
 // a lane that was qualified does not carry that over: the probe's result decides.
 func TestAVersionThatChangesUnderARunningWorkerIsProbedAgain(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), {Crash: true}}))
@@ -182,6 +185,7 @@ func TestAVersionThatChangesUnderARunningWorkerIsProbedAgain(t *testing.T) {
 // A worker that restarts on a version it already probed reads its result from the journal, hands it
 // to the driver, and starts work with no second probe.
 func TestARestartOnTheSameVersionDoesNotProbeAgain(t *testing.T) {
+	t.Parallel()
 	first := laneRigWith(t, "")
 	first.driver.Play(completedLane(first))
 	if _, err := first.subject.Reconcile(t.Context()); err != nil {
@@ -206,6 +210,7 @@ func TestARestartOnTheSameVersionDoesNotProbeAgain(t *testing.T) {
 // on them for good. Nothing is probed, and the lane goes on to its start, where the driver reads the
 // version again.
 func TestAVersionNobodyCouldReadIsNotProbed(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.driver.SetVersion("", true)
 	r.driver.HoldProbes()
@@ -229,6 +234,7 @@ func TestAVersionNobodyCouldReadIsNotProbed(t *testing.T) {
 // A probe that cannot run holds nothing forever: the version is degraded, its record says every
 // check is unobserved, and the lane starts on documented surfaces.
 func TestAProbeThatCannotRunLeavesTheVersionDegraded(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.driver.FailProbe(errors.New("the CLI would not start"))
 	r.driver.Play(completedLane(r))

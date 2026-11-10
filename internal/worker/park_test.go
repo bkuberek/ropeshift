@@ -87,6 +87,7 @@ func (r *laneRig) checkpointOf(t *testing.T, generation int64) ledger.Checkpoint
 }
 
 func TestAParkedLaneSavedItsWorkAndHoldsNoProcess(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) {
 		r.worktrees().Dirty(stopWorktree)
@@ -142,6 +143,7 @@ func TestAParkedLaneSavedItsWorkAndHoldsNoProcess(t *testing.T) {
 // goes to a local ref, nothing is pushed, and the checkpoint says no remote holds it, which binds
 // the lane's resume to the machine that has it.
 func TestAParkedLaneNobodyChoseToPushStaysWithThisMachine(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) {
 		r.worktrees().Dirty(stopWorktree)
@@ -161,6 +163,7 @@ func TestAParkedLaneNobodyChoseToPushStaysWithThisMachine(t *testing.T) {
 }
 
 func TestAnAnswerDuringParkingFiresAtTheCommit(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	question := "q-during"
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) {
@@ -187,6 +190,7 @@ func TestAnAnswerDuringParkingFiresAtTheCommit(t *testing.T) {
 // TestParkingRunsWithNoControlPlane holds what a partition must not break: a worker runs the
 // same sequence, and the ledger hears of it on return.
 func TestParkingRunsWithNoControlPlane(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}, completed(0.02))
 	r.link.FailUpload.Store(true)
@@ -207,6 +211,7 @@ func TestParkingRunsWithNoControlPlane(t *testing.T) {
 }
 
 func TestNoNarrativeInTimeDegradesAndStillParks(t *testing.T) {
+	t.Parallel()
 	r := atWorkOn(t, profileAt+restarts+"handoff_timeout = \"30ms\"\n", (*laneRig).toldToGoOn, fake.DriverStep{Hold: true})
 	r.park(t, humanPark())
 	r.awaitOrder(t, workorders.Parked)
@@ -218,6 +223,7 @@ func TestNoNarrativeInTimeDegradesAndStillParks(t *testing.T) {
 }
 
 func TestAStopIsAnInterruptFirst(t *testing.T) {
+	t.Parallel()
 	var how []ports.StopMode
 	r := atWorkOn(t, handoffProfile, (*laneRig).toldToGoOn, fake.DriverStep{Hold: true})
 	r.config.Driver = stopWatcher{AgentDriver: r.driver, how: &how}
@@ -278,6 +284,7 @@ func TestALiveProcessKeepsItsLease(t *testing.T) {
 }
 
 func TestALaneThatReportsWhileParkingEnds(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(spec ports.SessionSpec) {
 		r.reports(workorders.OutcomeCompleted).Do(spec)
@@ -291,6 +298,7 @@ func TestALaneThatReportsWhileParkingEnds(t *testing.T) {
 }
 
 func TestAFencedLaneDoesNotPark(t *testing.T) {
+	t.Parallel()
 	r := atWorkOn(t, handoffProfile, (*laneRig).toldToGoOn, fake.DriverStep{Hold: true})
 	holder := workorders.Holder{Lease: r.grant.Lease, Lane: "lane-1", Generation: 1}
 	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: "taken"}}
@@ -310,6 +318,7 @@ func TestAFencedLaneDoesNotPark(t *testing.T) {
 }
 
 func TestAParkedCommitTheLedgerFencedEndsTheLane(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}, completed(0.02))
 	r.link.FailUpload.Store(true)
@@ -338,6 +347,7 @@ func TestAParkedCommitTheLedgerFencedEndsTheLane(t *testing.T) {
 }
 
 func TestAnUnknownScreenParksForAPerson(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.config.Driver = startRefusal{AgentDriver: r.driver, err: fmt.Errorf("check: %w", ports.ErrUnknownScreen)}
 	if _, err := r.subject.Reconcile(t.Context()); err != nil {
@@ -428,6 +438,7 @@ func (r *laneRig) drainFleet(t *testing.T) {
 // TestAQuestionAnsweredOnAReadHoldsNothing is a lane that asked again and read its answer: it
 // has nothing left to wait on, so it takes the ordinary nudge, and parks on nothing.
 func TestAQuestionAnsweredOnAReadHoldsNothing(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"1s\"\n")
 	const text = "What is the retry budget?"
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) {
@@ -461,6 +472,7 @@ func TestAQuestionAnsweredOnAReadHoldsNothing(t *testing.T) {
 }
 
 func TestADrainingFleetParksALaneAtRest(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[lifecycle]\nhandoff_timeout = \"30ms\"\n")
 	g := newGate()
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), completed(0.01)}))
@@ -478,6 +490,7 @@ func TestADrainingFleetParksALaneAtRest(t *testing.T) {
 }
 
 func TestADrainParksAWorkingLanePastItsDeadline(t *testing.T) {
+	t.Parallel()
 	r := atWorkOn(t, profileAt+"[lifecycle]\ndrain_deadline = \"5m\"\nhandoff_timeout = \"30ms\"\n", (*laneRig).toldToGoOn, fake.DriverStep{Hold: true})
 	r.drainFleet(t)
 	parking := func() *lanes.ParkProgress {
@@ -503,6 +516,7 @@ func TestADrainParksAWorkingLanePastItsDeadline(t *testing.T) {
 }
 
 func TestParkingFinishesAfterARestartFromItsWake(t *testing.T) {
+	t.Parallel()
 	r := atWork(t, fake.DriverStep{Hold: true})
 	if err := r.subject.Park(t.Context(), "lane-1", humanPark()); err != nil {
 		t.Fatal(err)

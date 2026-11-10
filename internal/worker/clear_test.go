@@ -88,6 +88,7 @@ func (j *clearAmidSave) SaveProgress(ctx context.Context, lane string, generatio
 // What a clear wrote stands: a save that started before it is of a generation that has ended, and it
 // would tell a restart the new one owes no brief.
 func TestASaveOfTheGenerationBeforeAClearChangesNothing(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	raced := &clearAmidSave{Journal: base.journal, landed: make(chan struct{})}
 	base.workerJournal = raced
@@ -116,6 +117,7 @@ func TestASaveOfTheGenerationBeforeAClearChangesNothing(t *testing.T) {
 // A clear runs inside a process, so it starts no session, and the record says so: a new generation,
 // with no handoff, on the session the second hook named. A reply tells a hook which one it is.
 func TestAClearIsANewGenerationWithNoHandoff(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneAtWork(t)
 	reply := r.cleared(t, clearedSession)
 	if !reply.OK || reply.Generation != 2 {
@@ -199,6 +201,7 @@ func aLaneAheadOfItsBinding(t *testing.T, names string) *laneRig {
 // A clear's hooks can reach the worker before it reads the session's binding from the stream. The
 // generation the clear ends still names its session, or a resume or an audit loses that session.
 func TestAClearAheadOfTheBindingKeepsTheOldSession(t *testing.T) {
+	t.Parallel()
 	r := aLaneAheadOfItsBinding(t, "")
 	if reply := r.cleared(t, clearedSession); !reply.OK || reply.Generation != 2 {
 		t.Fatalf("reply %+v", reply)
@@ -218,6 +221,7 @@ func TestAClearAheadOfTheBindingKeepsTheOldSession(t *testing.T) {
 // A driver can hold the session a clear began before the clear's hook arrives, and then knows
 // nothing of the one before. That session is not the old generation's, and the clear stands.
 func TestAClearAheadOfTheBindingTakesNoNewSessionForTheOld(t *testing.T) {
+	t.Parallel()
 	r := aLaneAheadOfItsBinding(t, clearedSession)
 	if reply := r.cleared(t, clearedSession); !reply.OK || reply.Generation != 2 {
 		t.Fatalf("reply %+v", reply)
@@ -230,6 +234,7 @@ func TestAClearAheadOfTheBindingTakesNoNewSessionForTheOld(t *testing.T) {
 
 // The token a process started with goes on, and acts as the generation the lane is in now (D4).
 func TestATokenOutlivesAClearAsTheCurrentGeneration(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneAtWork(t)
 	before := r.token(t)
 	r.cleared(t, clearedSession)
@@ -247,6 +252,7 @@ func TestATokenOutlivesAClearAsTheCurrentGeneration(t *testing.T) {
 
 // A hook repeats, so a second report of one clear is no second generation, and a second clear is.
 func TestARepeatOfAClearChangesNothing(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneAtWork(t)
 	r.cleared(t, clearedSession)
 	r.cleared(t, clearedSession)
@@ -261,6 +267,7 @@ func TestARepeatOfAClearChangesNothing(t *testing.T) {
 
 // A process that ended takes its token with it, whatever comes next (ADR-0016).
 func TestATokenEndsWithItsProcess(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[lifecycle]\nmax_restarts = 2\nrestart_window = \"1h\"\nrestart_backoff = \"1h\"\n")
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Crash: true}}))
 	r.start()
@@ -286,6 +293,7 @@ func TestATokenEndsWithItsProcess(t *testing.T) {
 // A hook's tags say the generation its process started in, and a spooled line has no token to
 // correct them, so what it says is read against the process it came from.
 func TestASpooledHookAfterAClearReachesTheRun(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneAtWork(t)
 	r.cleared(t, clearedSession)
 	path := filepath.Join(r.dir, "spool")
@@ -301,6 +309,7 @@ func TestASpooledHookAfterAClearReachesTheRun(t *testing.T) {
 
 // A session's driver knows it by the process, which a clear does not change.
 func TestAHookAfterAClearReachesItsSession(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneAtWork(t)
 	r.cleared(t, clearedSession)
 	r.hook(t, lanes.HookEvent{Event: "Stop", Subject: clearedSession, SessionID: clearedSession, AtMs: 4})
@@ -313,6 +322,7 @@ func TestAHookAfterAClearReachesItsSession(t *testing.T) {
 
 // A worker that returns finds a cleared session where its process started.
 func TestAClearedLaneSurvivesARestart(t *testing.T) {
+	t.Parallel()
 	r, g := aLaneAtWork(t)
 	r.cleared(t, clearedSession)
 	r.eventually("the new generation", func(view ledger.LaneView) bool { return view.Generation == 2 })
@@ -326,6 +336,7 @@ func TestAClearedLaneSurvivesARestart(t *testing.T) {
 
 // A clear no worker heard of is in what its hooks left, and the worker that returns records it.
 func TestAClearWithNoWorkerListeningIsRecordedOnItsReturn(t *testing.T) {
+	t.Parallel()
 	r, g := aLaneAtWork(t)
 	g.release <- struct{}{}
 	r.stopWorker()
@@ -342,6 +353,7 @@ func TestAClearWithNoWorkerListeningIsRecordedOnItsReturn(t *testing.T) {
 // A cleared session knows nothing, so a lane at rest with no outcome is told its work once, on the
 // next pass of its worker, and a restart does not tell it twice.
 func TestAClearedLaneAtRestIsToldItsWorkOnce(t *testing.T) {
+	t.Parallel()
 	var r *laneRig
 	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
 	r = aLaneAtRest(t, []fake.DriverStep{finish, completed(0.02)})
@@ -391,6 +403,7 @@ func (d *heldSend) Send(ctx context.Context, h ports.SessionHandle, in ports.Inp
 // journal reads an effect one of them is performing as started, as it reads one a retry cleared, so
 // a pass that finds the brief on its way leaves it, or a cleared session is told its work twice.
 func TestTwoPassesAtOnceTellAClearedSessionItsWorkOnce(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\n")
 	held := &heldSend{AgentDriver: r.driver, inside: make(chan struct{}), release: make(chan struct{})}
 	r.config.Driver = held
@@ -457,6 +470,7 @@ func (j *passAtRest) SaveProgress(ctx context.Context, lane string, generation i
 // The pass that briefs a cleared session can come between the clear's end of turn and what its run
 // makes of that turn. The turn is still the clear's, so it draws no nudge on top of the brief.
 func TestABriefAsAClearsTurnEndsDrawsNoNudge(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	journal := &passAtRest{Journal: base.journal, decided: make(chan struct{})}
 	base.workerJournal = journal

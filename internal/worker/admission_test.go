@@ -49,6 +49,7 @@ func (r *laneRig) heldNotes() []string {
 }
 
 func TestPauseHoldsANewLaneUntilTheFleetRuns(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.setFleet(ledger.FleetPause)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.1)}))
@@ -75,6 +76,7 @@ func TestPauseHoldsANewLaneUntilTheFleetRuns(t *testing.T) {
 }
 
 func TestDrainHoldsANewLane(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.setFleet(ledger.FleetDrain)
 	if _, err := r.subject.Reconcile(t.Context()); err != nil {
@@ -86,6 +88,7 @@ func TestDrainHoldsANewLane(t *testing.T) {
 }
 
 func TestARunningLaneContinuesUnderPauseAndDrain(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []ledger.FleetMode{ledger.FleetPause, ledger.FleetDrain} {
 		t.Run(string(mode), func(t *testing.T) {
 			r := laneRigWith(t, "")
@@ -106,6 +109,7 @@ func TestARunningLaneContinuesUnderPauseAndDrain(t *testing.T) {
 }
 
 func TestPauseStillAllowsACrashRestart(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), {Crash: true}}))
@@ -122,6 +126,7 @@ func TestPauseStillAllowsACrashRestart(t *testing.T) {
 }
 
 func TestDrainStopsANewGeneration(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), {Crash: true}}))
@@ -141,6 +146,7 @@ func TestDrainStopsANewGeneration(t *testing.T) {
 }
 
 func TestDrainDoesNotContinueALaneThatNeverStarted(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.setFleet(ledger.FleetDrain)
 	record := lanes.Record{ID: "lane-1", WorkOrder: r.id, ClaimID: r.grant.ClaimID, Fence: r.grant.Fence, Generation: 1, State: lanes.StateRunning}
@@ -172,6 +178,7 @@ func (r *laneRig) secondLane(id, lane string) {
 }
 
 func TestStartHoldsWhatOnlyTheMachineSees(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		profile string
@@ -220,6 +227,7 @@ func plentyOf() lanes.MachineReading {
 }
 
 func TestAMachineThatCannotBeReadStartsTheLane(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.config.Provisioner.Profiles.(*fake.ProfileSource).PutUser("[admission]\nmin_free_memory_mb = 512\n")
 	machine := fake.NewMachine(lanes.MachineReading{})
@@ -237,6 +245,7 @@ func TestAMachineThatCannotBeReadStartsTheLane(t *testing.T) {
 }
 
 func TestTheDailyCapChargesGenerations(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[lifecycle]\nmax_restarts = 5\nrestart_window = \"1m\"\nmax_generations_per_day = 2\nrestart_backoff = \"1s\"\n")
 	r.driver.Play(script(crashed()))
 	r.driver.PlayAfter(script(crashed()))
@@ -252,6 +261,7 @@ func TestTheDailyCapChargesGenerations(t *testing.T) {
 }
 
 func TestTheDefaultRunModeFollowsTheSignIn(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		kind    string
@@ -279,6 +289,7 @@ func TestTheDefaultRunModeFollowsTheSignIn(t *testing.T) {
 }
 
 func TestALanesOwnLayerReachesItsSession(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	id := "wo-2"
 	r.claimFor(id, r.subject.Auth().WorkerID)
@@ -299,6 +310,7 @@ func TestALanesOwnLayerReachesItsSession(t *testing.T) {
 }
 
 func TestWorkIsOfferedOnlyToAWorkerThatCanRunIt(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		needs map[string]string
@@ -357,6 +369,7 @@ func TestWorkIsOfferedOnlyToAWorkerThatCanRunIt(t *testing.T) {
 }
 
 func TestACapacityAdvertisedHoldsAtClaim(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	driver := fake.NewAgentDriver()
 	config := &worker.LaneRuntime{Driver: driver}

@@ -9,6 +9,7 @@ import (
 // Both halves of the rule guard one write: neither the state nor the flag alone lets a lane park
 // from where the table gives it no edge.
 func TestWhereALaneMayPark(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		state lanes.ActualState

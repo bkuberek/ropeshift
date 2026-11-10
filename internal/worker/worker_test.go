@@ -2,9 +2,12 @@ package worker_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,6 +24,11 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
+// Every rig has its own store, journal, clock, driver, and directories, and no test sets the
+// environment or the working directory, so the tests run in parallel. A test stays serial when its
+// check depends on how far the worker gets in real time, because the load of the other tests would
+// move that: one that lets time pass and then reads what the worker did or did not do in it, or one
+// that bounds how long a call takes. Go runs the serial tests before the parallel ones.
 const scope = ledger.WorkspaceID("w")
 
 var member = ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
@@ -47,12 +55,20 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	ctx := t.Context()
 	offset := &atomic.Int64{}
+	image, err := migratedStore()
+	if err != nil {
+		t.Fatal(err)
+	}
 	db, err := sqlite.OpenMemoryDB()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := onConnection(ctx, db, func(c imageConn) error { return c.Deserialize(image) }); err != nil {
+		t.Fatal(err)
+	}
 	store := &fake.Store{Store: sqlstore.New(db, shiftedDialect{Dialect: sqlite.Dialect{}, offset: offset}, sqlstore.Options{})}
 	t.Cleanup(func() { _ = store.Close() })
+	// Every migration finds itself applied, which is the path a restarted store takes.
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +88,51 @@ func newRig(t *testing.T) *rig {
 		t: t, store: store, plane: plane, link: &fake.WorkerLink{Plane: plane},
 		journal: journal, clock: fake.NewClock(time.UnixMilli(1_000_000)), offset: offset,
 	}
+}
+
+// migratedStore is the image of a store every migration has run on, made once per test
+// binary. Each rig starts from a copy of it: under -race the migrations cost far more than
+// most tests, and every rig ran them again.
+var migratedStore = sync.OnceValues(func() ([]byte, error) {
+	ctx := context.Background()
+	db, err := sqlite.OpenMemoryDB()
+	if err != nil {
+		return nil, err
+	}
+	store := sqlstore.New(db, shiftedDialect{Dialect: sqlite.Dialect{}, offset: &atomic.Int64{}}, sqlstore.Options{})
+	defer func() { _ = store.Close() }()
+	if err := store.Migrate(ctx); err != nil {
+		return nil, err
+	}
+	var image []byte
+	err = onConnection(ctx, db, func(c imageConn) error {
+		var err error
+		image, err = c.Serialize()
+		return err
+	})
+	return image, err
+})
+
+// imageConn is the SQLite driver's connection, which reads and writes a whole database image.
+type imageConn interface {
+	Serialize() ([]byte, error)
+	Deserialize([]byte) error
+}
+
+// onConnection runs a function on the one connection a memory database lives on.
+func onConnection(ctx context.Context, db *sql.DB, f func(imageConn) error) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	return conn.Raw(func(driverConn any) error {
+		c, ok := driverConn.(imageConn)
+		if !ok {
+			return fmt.Errorf("the driver connection %T cannot copy a database image", driverConn)
+		}
+		return f(c)
+	})
 }
 
 // shiftedDialect adds an offset to database time, which is how a test moves that clock.
@@ -150,6 +211,7 @@ func (r *rig) events() []ledger.Event {
 }
 
 func TestFirstStartRegistersOnce(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	first := r.started()
 	id := first.Auth().WorkerID
@@ -175,6 +237,7 @@ func TestFirstStartRegistersOnce(t *testing.T) {
 }
 
 func TestRegistrationResumesFromTheJournal(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	if err := r.journal.SaveIdentity(t.Context(), ledger.WorkerIdentity{WorkerID: "kept"}); err != nil {
 		t.Fatal(err)
@@ -185,6 +248,7 @@ func TestRegistrationResumesFromTheJournal(t *testing.T) {
 }
 
 func TestStartNeedsAToken(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := worker.New(r.link, r.journal, r.clock, worker.Config{})
 	if err := subject.Start(t.Context()); err == nil {
@@ -193,6 +257,7 @@ func TestStartNeedsAToken(t *testing.T) {
 }
 
 func TestDesiredStateReachesTheJournal(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -210,6 +275,7 @@ func TestDesiredStateReachesTheJournal(t *testing.T) {
 }
 
 func TestLeaseDeadlineCountsFromTheSend(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	r.claimFor("wo", subject.Auth().WorkerID)
@@ -247,6 +313,7 @@ func (l *slowLink) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger
 }
 
 func TestFencedLeaseLeavesTheJournal(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -274,6 +341,7 @@ func TestFencedLeaseLeavesTheJournal(t *testing.T) {
 }
 
 func TestWrongNonceChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	r.claimFor("wo", subject.Auth().WorkerID)
@@ -293,6 +361,7 @@ func TestWrongNonceChangesNothing(t *testing.T) {
 }
 
 func TestLostUploadAnswerStoresOneEvent(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -329,6 +398,7 @@ func TestLostUploadAnswerStoresOneEvent(t *testing.T) {
 }
 
 func TestFencedEventIsKept(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -349,6 +419,7 @@ func TestFencedEventIsKept(t *testing.T) {
 }
 
 func TestEventsWaitForAnAbsentControlPlane(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	ctx := t.Context()
@@ -382,6 +453,7 @@ func (l *downLink) OpenSession(ctx context.Context, request ledger.SessionReques
 }
 
 func TestRunConvergesAndStops(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -411,6 +483,7 @@ func TestRunConvergesAndStops(t *testing.T) {
 }
 
 func TestRunStopsOnARefusedProtocol(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := worker.New(r.link, r.journal, r.clock, worker.Config{
 		Protocol: 99,
@@ -425,6 +498,7 @@ func TestRunStopsOnARefusedProtocol(t *testing.T) {
 }
 
 func TestNewEpochAfterAnotherProcessReplacedThisOne(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	first := r.started()
 	r.started()

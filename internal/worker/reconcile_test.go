@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -138,28 +139,37 @@ func (r *laneRig) holdEverySession() {
 // TestReconcileTwiceNoActions is NFR-REL-3 over generated world states: a pass acts,
 // and a second pass with no external change does nothing.
 func TestReconcileTwiceNoActions(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
 	seen := map[lanes.ActionKind]int{}
-	for seed := range uint64(generatedWorlds) {
-		t.Run(fmt.Sprint(seed), func(t *testing.T) {
-			w := newWorldRig(t)
-			w.holdEverySession()
-			w.generate(seed)
-			first, err := w.subject.Reconcile(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, action := range first {
-				seen[action.Kind]++
-			}
-			second, err := w.subject.Reconcile(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(second) != 0 {
-				t.Errorf("the first pass did %v, and the second did %v", first, second)
-			}
-		})
-	}
+	// Each world has a worker of its own, so the worlds run in parallel. The group returns
+	// only when every world has ended, which the count below needs.
+	t.Run("worlds", func(t *testing.T) {
+		for seed := range uint64(generatedWorlds) {
+			t.Run(fmt.Sprint(seed), func(t *testing.T) {
+				t.Parallel()
+				w := newWorldRig(t)
+				w.holdEverySession()
+				w.generate(seed)
+				first, err := w.subject.Reconcile(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				mu.Lock()
+				for _, action := range first {
+					seen[action.Kind]++
+				}
+				mu.Unlock()
+				second, err := w.subject.Reconcile(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(second) != 0 {
+					t.Errorf("the first pass did %v, and the second did %v", first, second)
+				}
+			})
+		}
+	})
 	for _, kind := range []lanes.ActionKind{
 		lanes.ActionStart, lanes.ActionConfirm, lanes.ActionRetry, lanes.ActionAbandon,
 		lanes.ActionContinue, lanes.ActionAdopt, lanes.ActionEnd,
@@ -189,6 +199,7 @@ func (j *lanesRead) Lanes(ctx context.Context) ([]lanes.Record, error) {
 // A run that ends between a pass reading the lanes and checking which lanes this worker
 // holds must not look like a running lane with no session, or the next pass restarts it.
 func TestASecondPassLeavesALaneThatEndsWhileItReads(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	read := &lanesRead{Journal: base.journal}
 	base.workerJournal = read
@@ -229,6 +240,7 @@ func (r *laneRig) awaitRunsEnd(t *testing.T) {
 // A lane that starts while a pass reads holds resources the pass finds with no record of
 // the lane behind them. Those resources are a running lane's, and they are not free.
 func TestAPassLeavesAStartingLanesResourcesAlone(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	read := &lanesRead{Journal: base.journal}
 	base.workerJournal = read
@@ -283,6 +295,7 @@ func (r *laneRig) awaitAllocation(t *testing.T) {
 }
 
 func TestAStartedEffectIsUnknownAfterACrash(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
 	effect := w.effect(lanes.EffectSession, "lane-1", lanes.EffectStarted)
@@ -297,6 +310,7 @@ func TestAStartedEffectIsUnknownAfterACrash(t *testing.T) {
 
 // A spawn is not idempotent, so one that happened must not happen twice.
 func TestAnEffectFoundIsNotRepeated(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.desire("lane-1")
 	w.record("lane-1", lanes.StateRunning)
@@ -319,6 +333,7 @@ func TestAnEffectFoundIsNotRepeated(t *testing.T) {
 }
 
 func TestAnEffectNotFoundIsRetried(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.desire("lane-1")
 	w.record("lane-1", lanes.StateRunning)
@@ -338,6 +353,7 @@ func TestAnEffectNotFoundIsRetried(t *testing.T) {
 // Nothing shows whether a session took an input, so a person decides, and a restart
 // never sends it again.
 func TestATargetWithNoObservationStaysUnknown(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
 	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
@@ -353,6 +369,7 @@ func TestATargetWithNoObservationStaysUnknown(t *testing.T) {
 }
 
 func TestAnIncompleteReadStartsAndEndsNothing(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.desire("lane-1")
 	w.record("lane-1", lanes.StateRunning)
@@ -382,6 +399,7 @@ func TestAnIncompleteReadStartsAndEndsNothing(t *testing.T) {
 }
 
 func TestAWorktreeMadeBeforeACrashIsNotMadeAgain(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.desire("lane-1")
 	w.record("lane-1", lanes.StateRunning)
@@ -410,6 +428,7 @@ func TestAWorktreeMadeBeforeACrashIsNotMadeAgain(t *testing.T) {
 // TestAdoptionContinuesFromTheJournal holds the counts across a restart: a generation's
 // cost continues, and the stream is read from the last turn this worker finished with.
 func TestAdoptionContinuesFromTheJournal(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
 	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
@@ -441,6 +460,7 @@ func (w *worldRig) reportsCompleted() fake.DriverStep {
 }
 
 func TestALaneThatReportedIsStoppedOnAdoption(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
 	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)
@@ -458,6 +478,7 @@ func TestALaneThatReportedIsStoppedOnAdoption(t *testing.T) {
 }
 
 func TestAGoneSessionThatRanEndsTheLane(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
 	w.effect(lanes.EffectSession, "lane-1", lanes.EffectCompleted)

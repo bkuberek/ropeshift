@@ -84,6 +84,7 @@ func (r *toolRig) question(t *testing.T, id string) questions.Question {
 // A lane's token is refused here too, because a lane can reach the socket without `ropeshift mcp`,
 // and this is where it would otherwise reach the ledger.
 func TestALaneTokenIsRefusedOnWorkClaim(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	for _, tool := range []string{lanes.ToolWorkClaim, lanes.ToolLaneStart, lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolAcceptanceRecord} {
 		reply := callTool(t, r.subject, r.laneRig.token(t), tool, map[string]any{"work_order": "wo", "question": "q1"})
@@ -94,6 +95,7 @@ func TestALaneTokenIsRefusedOnWorkClaim(t *testing.T) {
 }
 
 func TestAnUnknownToolIsRefused(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	if reply := r.tool(t, "lane_report", nil); reply.OK {
 		t.Errorf("reply %+v", reply)
@@ -104,6 +106,7 @@ func TestAnUnknownToolIsRefused(t *testing.T) {
 // either, whatever the call is named. What a tool does not exist for, the worker refuses on its own,
 // because a session can reach this socket without `ropeshift mcp`.
 func TestNoSessionOpensAWindowOrAcknowledgesTheRisk(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	worker := r.subject.Auth().WorkerID
 	names := []string{
@@ -135,6 +138,7 @@ func TestNoSessionOpensAWindowOrAcknowledgesTheRisk(t *testing.T) {
 // A window closed after a claim leaves the claim, and a session that goes on to start a lane hears
 // why it cannot: a session starts on a person's say, and that person has gone.
 func TestAStartWaitsForAWindowAsAClaimDoes(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	ops := control.NewAutonomy(r.store)
 	worker := r.subject.Auth().WorkerID
@@ -167,6 +171,7 @@ func TestAStartWaitsForAWindowAsAClaimDoes(t *testing.T) {
 // Rung 1: a decision on record answers it, and the core holds the answer to what the policy lets an
 // orchestrator rely on.
 func TestRungOneAnswersFromTheRecord(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	decision, err := control.NewQuestions(r.store, questions.BatchPolicy{}).RecordDecision(t.Context(), scope, questions.Decision{
 		ID: "d1", Status: questions.DecisionDecided, Statement: "Twice.", Rationale: "It follows.", Scope: "retries", Reversibility: "reversible", DecidedBy: "member-1",
@@ -182,6 +187,7 @@ func TestRungOneAnswersFromTheRecord(t *testing.T) {
 
 // Rung 2: the same question twice leaves one, and the record says which.
 func TestRungTwoAttachesToAnOpenQuestion(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	r.asked(t, "q2", "How many retries?")
 	r.done(t, lanes.ToolQuestionAttach, map[string]any{"question": "q2", "into": "q1", "lookup": []string{"d0"}})
@@ -195,6 +201,7 @@ func TestRungTwoAttachesToAnOpenQuestion(t *testing.T) {
 }
 
 func TestRungThreeDecides(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	raw := r.done(t, lanes.ToolDecisionRecord, map[string]any{
 		"question": "q1", "status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "retries", "reversibility": "reversible",
@@ -214,6 +221,7 @@ func TestRungThreeDecides(t *testing.T) {
 }
 
 func TestRungFourAssumes(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	r.done(t, lanes.ToolDecisionRecord, map[string]any{
 		"question": "q1", "status": "assumed", "statement": "Twice for now.", "rationale": "It can change.", "scope": "retries", "reversibility": "reversible",
@@ -226,6 +234,7 @@ func TestRungFourAssumes(t *testing.T) {
 
 // A one-way choice skips the rungs an orchestrator may decide on, whatever it asks for.
 func TestAOneWayCategoryCannotBeDecided(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	if err := r.oneWay(t, "q2", "Which key?"); err != nil {
 		t.Fatal(err)
@@ -250,6 +259,7 @@ func (r *toolRig) oneWay(t *testing.T, id, text string) error {
 // Rung 5 goes through the gate: a refusal names what is missing and changes nothing, and a question
 // that passes reaches a person.
 func TestRungFiveGoesThroughTheGate(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	if err := r.oneWay(t, "q2", "Which key?"); err != nil {
 		t.Fatal(err)
@@ -271,6 +281,7 @@ func TestRungFiveGoesThroughTheGate(t *testing.T) {
 
 // A call that failed part way can be made again, because a rung passed once is not passed again.
 func TestAToolCanBeCalledAgainAfterARefusal(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	bad := r.tool(t, lanes.ToolDecisionRecord, map[string]any{"question": "q1", "status": "decided", "statement": ""})
 	if bad.OK {
@@ -285,6 +296,7 @@ func TestAToolCanBeCalledAgainAfterARefusal(t *testing.T) {
 // A tool reads its arguments by their exact names, because a decoder that folds case would take a
 // field the schema never declared for one it did.
 func TestAToolReadsArgumentsByTheirExactNames(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	reply := r.tool(t, lanes.ToolDecisionRecord, map[string]any{
 		"QUESTION": "q1", "Status": "decided", "statement": "Twice.", "rationale": "It follows.", "scope": "retries", "reversibility": "reversible",
@@ -301,6 +313,7 @@ func TestAToolReadsArgumentsByTheirExactNames(t *testing.T) {
 // Two orchestrators never work one question: one that another holds is not next, and it cannot be
 // decided past that hold.
 func TestAQuestionAnotherHoldsIsNotNext(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	other := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "another-worker"}
 	if _, err := control.NewQuestions(r.store, questions.BatchPolicy{}).Take(t.Context(), scope, "q1", 60_000, other); err != nil {
@@ -318,6 +331,7 @@ func TestAQuestionAnotherHoldsIsNotNext(t *testing.T) {
 }
 
 func TestABlockingQuestionComesNext(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	_, err := control.NewQuestions(r.store, questions.BatchPolicy{}).Ask(t.Context(), scope, questions.Ask{ID: "z-blocks", Text: "Which queue?", Blocking: true}, member)
 	if err != nil {
@@ -347,6 +361,7 @@ func recordOffers(read control.LadderRead, kind string) (control.LadderCandidate
 // and a session told only that a requirement exists has nothing to decide on. Two real panes took a
 // question that a requirement answered, and neither recorded that answer.
 func TestTheNextQuestionStatesWhatTheRecordSays(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	source := fake.NewWorkSource()
 	source.Write("requirements.md", []byte("+++\nkind = \"requirements\"\nid = \"logs\"\n\n[[requirement]]\nid = \"LOG-1\"\ntext = \"Retries log at warn.\"\n+++\n"))
@@ -422,6 +437,7 @@ func (r *toolRig) orderOf(t *testing.T, id string) workorders.WorkOrder {
 
 // Candidates hold only what this worker can run, woken lanes first, then priority, then age.
 func TestCandidatesComeInOrder(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	r.addOrder(t, "01-old-low", 1, nil)
 	r.addOrder(t, "02-new-high", 5, nil)
@@ -447,6 +463,7 @@ func TestCandidatesComeInOrder(t *testing.T) {
 // A workspace that has closed many questions still has its next one: the wake that names it and the
 // tool that takes it read the same list.
 func TestAQuestionPastTheFirstPageIsNext(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
 	if err := ops.Dismiss(t.Context(), scope, "q1", member); err != nil {
@@ -477,6 +494,7 @@ func TestAQuestionPastTheFirstPageIsNext(t *testing.T) {
 // A wake costs a whole context, and a fleet that takes no claims has no work to offer, so what is
 // claimable wakes nobody until it can be claimed.
 func TestAFleetThatTakesNoClaimsOffersNoWork(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []ledger.FleetMode{ledger.FleetPause, ledger.FleetDrain} {
 		t.Run(string(mode), func(t *testing.T) {
 			o := newOrchestratorRig(t, aSession())
@@ -498,6 +516,7 @@ func TestAFleetThatTakesNoClaimsOffersNoWork(t *testing.T) {
 // This is why a token came before the routes: a request reaches an orchestrator in its wake, with the
 // digest a decision binds to, and the decision it makes with that digest is the one that stands.
 func TestAnOrchestratorDecidesWhatItsWakeNamed(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	policy := authority.DelegationPolicy{Version: 2, Classes: []authority.DelegationClass{{Tool: "Bash", CommandPrefix: "git tag"}}}
 	body := "[delegation_policy]\nversion = 2\n\n[[delegation_policy.classes]]\ntool = \"Bash\"\ncommand_prefix = \"git tag\"\n"
@@ -542,6 +561,7 @@ func TestAnOrchestratorDecidesWhatItsWakeNamed(t *testing.T) {
 
 // Pulling work is a claim and then a lane, and each is its own act.
 func TestAnOrchestratorPullsWork(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	r.addOrder(t, "wo-2", 1, nil)
 	r.done(t, lanes.ToolWorkClaim, map[string]any{"work_order": "wo-2"})
@@ -567,6 +587,7 @@ func TestAnOrchestratorPullsWork(t *testing.T) {
 
 // Any orchestrator can work any question, and each runs only what its own machine holds.
 func TestAnOrchestratorRunsOnlyWhatItsWorkerHolds(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	token, err := r.plane.CreateJoinToken(t.Context(), member)
 	if err != nil {
@@ -590,6 +611,7 @@ func TestAnOrchestratorRunsOnlyWhatItsWorkerHolds(t *testing.T) {
 
 // `lane_stop` ends a stuck session and keeps the work. Canceling it is a member's.
 func TestLaneStopReplacesASession(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	r.done(t, lanes.ToolLaneStop, map[string]any{"work_order": "wo"})
 	if got := r.orderOf(t, "wo"); got.State != workorders.Running {
@@ -605,6 +627,7 @@ func TestLaneStopReplacesASession(t *testing.T) {
 }
 
 func TestDecliningNeedsAReason(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	r.addOrder(t, "wo-2", 1, nil)
 	if reply := r.tool(t, lanes.ToolWorkDecline, map[string]any{"work_order": "wo-2"}); reply.OK {
@@ -627,6 +650,7 @@ func TestDecliningNeedsAReason(t *testing.T) {
 
 // Near a limit, a worker starts nothing new, and only this machine knows that.
 func TestNoClaimAtALimit(t *testing.T) {
+	t.Parallel()
 	o := newOrchestratorRig(t)
 	o.scripts = []fake.DriverScript{script(
 		[]fake.DriverStep{{Bound: true}, *rejected(o.clock.Now().Add(time.Hour).UnixMilli()), completed(0.01)},
@@ -647,6 +671,7 @@ func TestNoClaimAtALimit(t *testing.T) {
 
 // A worker's credential is not enough: with no run a member asked for, nothing acts.
 func TestAnActNeedsTheRunAMemberAskedFor(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	row := r.row(t)
 	stale := ledger.OrchestratorCall{Auth: r.subject.Auth(), Epoch: r.subject.Session().Epoch, Lane: row.Lane() + "0"}
@@ -665,6 +690,7 @@ func TestAnActNeedsTheRunAMemberAskedFor(t *testing.T) {
 // A member's stop ends a run while its last turn ends, and what that turn held has nothing to wait
 // for. Letting go is the one act a stopped run keeps, and a run a later start replaced has none.
 func TestAStoppedRunLetsGoOfWhatItHeld(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	r.done(t, lanes.ToolQuestionNext, nil)
 	if row := r.question(t, "q1"); row.ClaimedBy == "" {
@@ -691,6 +717,7 @@ func TestAStoppedRunLetsGoOfWhatItHeld(t *testing.T) {
 }
 
 func TestAnUnknownVerbActsOnNothing(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	call := ledger.OrchestratorCall{Auth: r.subject.Auth(), Epoch: r.subject.Session().Epoch, Lane: r.row(t).Lane()}
 	if _, err := r.plane.Orchestrate(t.Context(), "dismiss", call); !errors.Is(err, workorders.ErrInvalid) {
