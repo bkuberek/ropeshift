@@ -327,3 +327,22 @@ func (c *invocation) documentVersions(args []string) int {
 		return out.String()
 	})
 }
+
+// documentRecorded prints one version of a planning document as the ledger stored it, which stays what a
+// contract cited after the file moves on.
+func (c *invocation) documentRecorded(args []string) int {
+	set := c.flags()
+	version := set.Int64("version", 0, "a version number, which defaults to the newest")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		c.usageError("takes one document reference, <kind>:<id>")
+		return ExitUsage
+	}
+	client := c.client()
+	defer client.Close()
+	read, err := client.RecordedDocument(c.ctx, positional[0], *version)
+	return c.finish(err, read, func() string { return read.Body })
+}

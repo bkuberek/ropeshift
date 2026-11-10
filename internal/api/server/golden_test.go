@@ -109,7 +109,8 @@ func TestGoldenReadModels(t *testing.T) {
 	}
 }
 
-// TestGoldenDocument writes one document as a page reads it, with the text an attacker could commit.
+// TestGoldenDocument writes one document as a page reads it, with the text an attacker could commit, and
+// the newest version of a planning document as the ledger stored it.
 func TestGoldenDocument(t *testing.T) {
 	d := aDetailedWorld(t)
 	ref := api.DocumentRef{Path: apitest.WorldSpecPath}
@@ -123,6 +124,11 @@ func TestGoldenDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	holdsGolden(t, "document-versions", pretty(t, api.DocumentVersions{Versions: versions}))
+	recorded, err := d.Client.RecordedDocument(t.Context(), "spec:factory-api", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "recorded-document", steady(pretty(t, recorded)))
 }
 
 // everyState is what the web test reads: both state tables, the values that stand beside a lane's

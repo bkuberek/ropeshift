@@ -14,6 +14,7 @@ import {
   readDocument,
   readDocumentVersions,
   readNeedsYou,
+  readRecorded,
   readView,
   sendBack,
   signIn,
@@ -56,6 +57,7 @@ describe("the client", () => {
     await readView("questions", "security");
     await readDocument({ path: "docs/a b.md", instance: "repository", version: "1" });
     await readDocumentVersions({ path: "docs/a b.md" });
+    await readRecorded("spec:a b", "2");
     expect(sent.length).toBeGreaterThan(20);
     for (const call of sent) {
       expect(reachable(call.method, call.path), `${call.method} ${call.path}`).toBe(true);
@@ -75,6 +77,16 @@ describe("the client", () => {
     await readDocument({ path: "../a&b.md", instance: "x y" });
     expect(sent[0]?.path).toBe("/v1/views/questions?category=a%26b%3Dc");
     expect(sent[1]?.path).toBe("/v1/documents/read?path=..%2Fa%26b.md&instance=x+y");
+  });
+
+  it("names a recorded document by its reference, and a version only when given one", async () => {
+    const sent = serveApi(() => ({ status: 200, body: {} }));
+    await readRecorded("spec:a&b");
+    await readRecorded("spec:a&b", "2");
+    expect(sent.map((call) => call.path)).toEqual([
+      "/v1/documents/recorded?id=spec%3Aa%26b",
+      "/v1/documents/recorded?id=spec%3Aa%26b&version=2",
+    ]);
   });
 
   it("names no filter it was not given", async () => {

@@ -40,12 +40,263 @@
       "source": "notes.md@5",
       "title": "Notes from the first run",
       "version": "5"
+    },
+    {
+      "adapter": "fake-knowledge",
+      "digest": "sha256:f63a9fe8e8ccf3a33a473bc28818a4392932394c9d16ee6a0f569f1fa591e20b",
+      "instance": "memory",
+      "kind": "spec",
+      "path": "plans/factory/spec-api.md",
+      "record": "spec:factory-api",
+      "source": "plans/factory/spec-api.md@6",
+      "title": "The factory API",
+      "version": "6"
+    }
+  ],
+  "plans": [
+    {
+      "documents": [
+        {
+          "id": "architecture:factory",
+          "kind": "architecture",
+          "path": "plans/factory/architecture.md",
+          "title": "How the factory is built",
+          "versions": [
+            {
+              "digest": "sha256:319e08dd12bb9f9545763f5a49912fdc8ceba4d7285e5d18b5117e8ab5eecad5",
+              "plan_version": 6,
+              "recorded_at": 1790000964001,
+              "review": "pending",
+              "source": "plans/factory/architecture.md@16",
+              "version": 1
+            }
+          ]
+        },
+        {
+          "id": "milestone:build",
+          "kind": "milestone",
+          "path": "plans/factory/m-build.md",
+          "title": "Build the core",
+          "versions": [
+            {
+              "digest": "sha256:96a26ad40a30cbbf37d0661a1949df53887baae5108fc9a52b0ebc50ca2a1bcb",
+              "plan_version": 5,
+              "recorded_at": 1790000060000,
+              "review": "approved",
+              "source": "plans/factory/m-build.md@7",
+              "version": 1
+            }
+          ]
+        },
+        {
+          "id": "milestone:guide",
+          "kind": "milestone",
+          "path": "plans/factory/m-guide.md",
+          "title": "Guide a newcomer",
+          "versions": [
+            {
+              "digest": "sha256:a8d3269770f074491ca303bb90fa5001b1f2ed3b2735c8c1fa3deb84551c5635",
+              "plan_version": 5,
+              "recorded_at": 1790000060000,
+              "review": "approved",
+              "source": "plans/factory/m-guide.md@7",
+              "version": 1
+            }
+          ]
+        },
+        {
+          "id": "milestone:ship",
+          "kind": "milestone",
+          "path": "plans/factory/m-ship.md",
+          "title": "Ship the approval page",
+          "versions": [
+            {
+              "digest": "sha256:445d14cc5a6cd94b153f48aa0f63b6e76b30966e8cf4052310783754f65720a5",
+              "plan_version": 5,
+              "recorded_at": 1790000060000,
+              "review": "approved",
+              "source": "plans/factory/m-ship.md@7",
+              "version": 1
+            }
+          ]
+        },
+        {
+          "id": "requirements:factory",
+          "kind": "requirements",
+          "path": "plans/factory/requirements.md",
+          "title": "What the factory must do",
+          "versions": [
+            {
+              "digest": "sha256:cffebe81280e19a2096b3167d568a8aa5e7a696902ecdaa6e41680112548d6fc",
+              "plan_version": 5,
+              "recorded_at": 1790000060000,
+              "review": "approved",
+              "source": "plans/factory/requirements.md@7",
+              "version": 1
+            }
+          ]
+        },
+        {
+          "id": "spec:factory-api",
+          "kind": "spec",
+          "path": "plans/factory/spec-api.md",
+          "title": "The factory API",
+          "versions": [
+            {
+              "digest": "sha256:5fdda22e9e2807cbae132b1a8d4c6a5ecc59eb622f53da16476172202a02b77e",
+              "plan_version": 6,
+              "recorded_at": 1790000964001,
+              "review": "pending",
+              "source": "plans/factory/spec-api.md@16",
+              "version": 2
+            },
+            {
+              "digest": "sha256:cd2ff1c8dfea4c91782f67156f10c6f5a6c5fb2a0cf12033394b9704788520c7",
+              "plan_version": 5,
+              "recorded_at": 1790000060000,
+              "review": "approved",
+              "source": "plans/factory/spec-api.md@7",
+              "version": 1
+            }
+          ]
+        }
+      ],
+      "plan": {
+        "goal_id": "generated-1",
+        "id": "generated-2",
+        "source": "plans/factory/plan.md@16",
+        "status": "active",
+        "title": "The factory floor"
+      },
+      "requirements": [
+        {
+          "criteria": [
+            {
+              "contract": "generated-3",
+              "contract_title": "The planning core",
+              "contract_version": 2,
+              "criterion": "c1",
+              "text": "A plan version has one digest, over every record",
+              "work_orders": [
+                {
+                  "id": "generated-4",
+                  "state": "contract_review",
+                  "title": "Build the planning core"
+                }
+              ]
+            },
+            {
+              "contract": "generated-3",
+              "contract_title": "The planning core",
+              "contract_version": 2,
+              "criterion": "c2",
+              "text": "A changed criterion asks again",
+              "work_orders": [
+                {
+                  "id": "generated-4",
+                  "state": "contract_review",
+                  "title": "Build the planning core"
+                }
+              ]
+            },
+            {
+              "contract": "generated-5",
+              "contract_title": "The approval page",
+              "contract_version": 2,
+              "criterion": "c1",
+              "text": "A member approves a plan in one press",
+              "work_orders": [
+                {
+                  "id": "generated-6",
+                  "state": "contract_review",
+                  "title": "Build the approval page"
+                },
+                {
+                  "id": "generated-7",
+                  "state": "contract_review",
+                  "title": "Show the critical path"
+                }
+              ]
+            }
+          ],
+          "document": "requirements:factory",
+          "key": "FAC-1",
+          "text": "A person approves a whole plan in one step."
+        },
+        {
+          "criteria": [
+            {
+              "contract": "generated-8",
+              "contract_title": "The API client",
+              "contract_version": 1,
+              "criterion": "c1",
+              "text": "Every call retries once",
+              "work_orders": [
+                {
+                  "id": "generated-9",
+                  "state": "done",
+                  "title": "Write the API client"
+                }
+              ]
+            }
+          ],
+          "document": "requirements:factory",
+          "key": "FAC-2",
+          "text": "Shared work is built before the work that uses it."
+        },
+        {
+          "criteria": [
+            {
+              "contract": "generated-5",
+              "contract_title": "The approval page",
+              "contract_version": 2,
+              "criterion": "c2",
+              "text": "The roadmap shows parallel work",
+              "work_orders": [
+                {
+                  "id": "generated-6",
+                  "state": "contract_review",
+                  "title": "Build the approval page"
+                },
+                {
+                  "id": "generated-7",
+                  "state": "contract_review",
+                  "title": "Show the critical path"
+                }
+              ]
+            },
+            {
+              "contract": "generated-10",
+              "contract_title": "The newcomer guide",
+              "contract_version": 1,
+              "criterion": "c1",
+              "text": "The guide shows which work runs at once",
+              "work_orders": [
+                {
+                  "id": "generated-11",
+                  "state": "ready",
+                  "title": "Write the guide"
+                }
+              ]
+            }
+          ],
+          "document": "requirements:factory",
+          "key": "FAC-3",
+          "text": "A person sees which work can run at the same time."
+        },
+        {
+          "criteria": [],
+          "document": "requirements:factory",
+          "key": "FAC-4",
+          "text": "A reviewer's verdict names each criterion."
+        }
+      ]
     }
   ],
   "requirements": [
     {
       "digest": "sha256:6784c99aff4eb589733b96d4e041b89cc0e023f69d4561a48ee3f973e4d93e11",
-      "id": "generated-1",
+      "id": "generated-12",
       "key": "FAC-1",
       "source": "plans/factory/requirements.md@7",
       "text": "A person approves a whole plan in one step.",
@@ -53,7 +304,7 @@
     },
     {
       "digest": "sha256:e8dcdd6fcc11ef66629d863f46c857855a9a1751ac69cb93ca45e027d57a2dc4",
-      "id": "generated-2",
+      "id": "generated-13",
       "key": "FAC-2",
       "source": "plans/factory/requirements.md@7",
       "text": "Shared work is built before the work that uses it.",
@@ -61,7 +312,7 @@
     },
     {
       "digest": "sha256:e454d6c9d0ee77eef0499f55d760bbe51f33d7d959b1761d412be7035172f20f",
-      "id": "generated-3",
+      "id": "generated-14",
       "key": "FAC-3",
       "source": "plans/factory/requirements.md@7",
       "text": "A person sees which work can run at the same time.",
@@ -69,7 +320,7 @@
     },
     {
       "digest": "sha256:63b1a3d5a748e723564c648583b067639d276f6b77832a02d90e2e1b32037bc4",
-      "id": "generated-4",
+      "id": "generated-15",
       "key": "FAC-4",
       "source": "plans/factory/requirements.md@7",
       "text": "A reviewer's verdict names each criterion.",

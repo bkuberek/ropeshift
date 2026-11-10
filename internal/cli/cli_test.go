@@ -567,6 +567,54 @@ func TestDocumentCommands(t *testing.T) {
 	}
 }
 
+// TestDocumentRecordedPrintsAStoredVersion reads a planning document's versions from the ledger, which
+// keeps each body after the file moves on.
+func TestDocumentRecordedPrintsAStoredVersion(t *testing.T) {
+	s := newSession(t)
+	source := fake.NewWorkSource()
+	spec := func(body string) []byte {
+		return []byte("+++\nkind = \"spec\"\nid = \"api\"\ntitle = \"The API\"\nplan = \"a-plan\"\n+++\n\n" + body + "\n")
+	}
+	source.Write("plan.md", []byte(contract.PlanText("a-plan", "The plan", "")))
+	source.Write("spec.md", spec("The first draft."))
+	poll := func() {
+		if report, err := control.NewIntake(s.daemon.Store).Poll(t.Context(), apitest.Scope, source); err != nil || len(report.Problems) != 0 {
+			t.Fatalf("report %+v: %v", report, err)
+		}
+	}
+	poll()
+	source.Write("spec.md", spec("The second draft."))
+	poll()
+	if text := s.must("document", "recorded", "spec:api"); text != "The second draft.\n" {
+		t.Errorf("newest %q", text)
+	}
+	if text := s.must("document", "recorded", "spec:api", "--version", "1"); text != "The first draft.\n" {
+		t.Errorf("version 1 %q", text)
+	}
+	want, err := s.daemon.Client.RecordedDocument(t.Context(), "spec:api", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got api.RecordedRead
+	if err := json.Unmarshal([]byte(s.must("document", "recorded", "spec:api", "--version", "1", "--json")), &got); err != nil {
+		t.Fatal(err)
+	}
+	// Each read states the database time it ran at, which moves between two reads on this clock.
+	if got.AsOf == 0 || want.AsOf == 0 {
+		t.Errorf("a read states no time: %d and %d", got.AsOf, want.AsOf)
+	}
+	got.AsOf, want.AsOf = 0, 0
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the CLI printed %+v, and the API holds %+v", got, want)
+	}
+	if code, _, _ := s.run("document", "recorded", "spec:absent"); code != cli.ExitNotFound {
+		t.Errorf("exit %d", code)
+	}
+	if code, _, _ := s.run("document", "recorded"); code != cli.ExitUsage {
+		t.Errorf("no reference: exit %d", code)
+	}
+}
+
 func TestQuestionCommands(t *testing.T) {
 	s := newSession(t)
 	s.must("category", "add", "pricing")

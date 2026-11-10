@@ -253,11 +253,47 @@ export type DocumentRow = {
   digest: string;
   source: string;
   body?: string;
+  // The planning document the ledger recorded from this file, when a plan holds it.
+  record?: string;
 };
 
 export type Requirement = { id: string; version: number; key: string; text: string; source?: string; digest: string };
 
-export type Documents = Stamp & { documents: DocumentRow[]; requirements: Requirement[] };
+// Where a version of a planning document stands in review: covered by a plan version a member approved,
+// listed by one whose approval waits, or neither.
+export type ReviewState = "approved" | "pending" | "none";
+
+export type RecordedVersion = {
+  version: number;
+  digest: string;
+  source?: string;
+  recorded_at: number;
+  review: ReviewState;
+  plan_version?: number;
+};
+
+// A planning document intake recorded from a plan's files, with every version, newest first.
+export type RecordedDocument = { id: string; kind: string; title: string; path?: string; versions: RecordedVersion[] };
+
+export type TracedWork = { id: string; title: string; state: string };
+
+export type TracedCriterion = {
+  contract: string;
+  contract_title: string;
+  contract_version: number;
+  criterion: string;
+  text: string;
+  work_orders: TracedWork[];
+};
+
+export type RequirementTrace = { key: string; text: string; document: string; criteria: TracedCriterion[] };
+
+export type PlanDocuments = { plan: Plan; documents: RecordedDocument[]; requirements: RequirementTrace[] };
+
+export type Documents = Stamp & { documents: DocumentRow[]; requirements: Requirement[]; plans: PlanDocuments[] };
+
+// One version of a planning document with the body the ledger stored.
+export type RecordedRead = { as_of: number; document: RecordedDocument; plan?: Plan; version: RecordedVersion; body: string };
 
 export type DocumentRef = { path: string; instance?: string; version?: string };
 

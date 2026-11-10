@@ -72,6 +72,7 @@ var operations = map[string]string{
 	"GET /v1/documents":                                "document list",
 	"GET /v1/documents/read":                           "document show",
 	"GET /v1/documents/versions":                       "document versions",
+	"GET /v1/documents/recorded":                       "document recorded",
 	"POST /v1/messages":                                "message send",
 	"GET /v1/messages/{id}":                            "message show",
 	"GET /v1/lanes/{id}/messages":                      "message list",

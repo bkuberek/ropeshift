@@ -1,4 +1,4 @@
-import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, WorkAction } from "./types";
+import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, RecordedRead, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -21,6 +21,7 @@ export const paths = {
   view: (name: string, category = "") => `/v1/views/${encodeURIComponent(name)}${category ? `?${new URLSearchParams({ category })}` : ""}`,
   documentRead: (ref: DocumentRef) => `/v1/documents/read?${documentQuery(ref)}`,
   documentVersions: (ref: DocumentRef) => `/v1/documents/versions?${documentQuery(ref)}`,
+  documentRecorded: (id: string, version = "") => `/v1/documents/recorded?${new URLSearchParams(version ? { id, version } : { id })}`,
   answer: (id: string) => `/v1/questions/${encodeURIComponent(id)}/answer`,
   decideApproval: (id: string) => `/v1/approvals/${encodeURIComponent(id)}/decide`,
   decideEffect: (id: string) => `/v1/effects/${encodeURIComponent(id)}/decide`,
@@ -103,6 +104,11 @@ export function readDocument(ref: DocumentRef): Promise<DocumentRow> {
 
 export function readDocumentVersions(ref: DocumentRef): Promise<DocumentVersions> {
   return call("GET", paths.documentVersions(ref));
+}
+
+// readRecorded reads a version of a planning document as the ledger stored it. No version reads the newest.
+export function readRecorded(id: string, version = ""): Promise<RecordedRead> {
+  return call("GET", paths.documentRecorded(id, version));
 }
 
 export function signIn(passphrase: string): Promise<unknown> {

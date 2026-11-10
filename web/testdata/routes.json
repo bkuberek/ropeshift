@@ -25,6 +25,11 @@
     "command": "document versions"
   },
   {
+    "method": "GET",
+    "pattern": "/v1/documents/recorded",
+    "command": "document recorded"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/questions/{id}/answer",
     "command": "question answer"

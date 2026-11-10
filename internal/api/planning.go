@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -95,6 +96,9 @@ type Document struct {
 	Digest  string                `json:"digest"`
 	Source  string                `json:"source"`
 	Body    string                `json:"body,omitempty"`
+	// Record is the planning document the ledger recorded from this file, `<kind>:<id>`, when a plan
+	// holds it. The documents view names it, so a page lists the file once, with its versions.
+	Record string `json:"record,omitempty"`
 }
 
 // DocumentList is the answer to a list of documents.
@@ -111,6 +115,94 @@ type DocumentVersion struct {
 // DocumentVersions is the answer to a list of one document's versions.
 type DocumentVersions struct {
 	Versions []DocumentVersion `json:"versions"`
+}
+
+// Where a version of a planning document stands in review: covered by a plan version a member approved,
+// listed by a plan version whose approval waits, or neither (FR-DOC-3).
+const (
+	ReviewApproved = "approved"
+	ReviewPending  = "pending"
+	ReviewNone     = "none"
+)
+
+// RecordedVersion is one version of a planning document the ledger keeps: its number, its digest, the
+// file and commit it came from, when intake recorded it, and where it stands in review. PlanVersion is
+// the plan version that covers it, or that waits to.
+type RecordedVersion struct {
+	Version     int64  `json:"version"`
+	Digest      string `json:"digest"`
+	Source      string `json:"source,omitempty"`
+	RecordedAt  int64  `json:"recorded_at"`
+	Review      string `json:"review"`
+	PlanVersion int64  `json:"plan_version,omitempty"`
+}
+
+// RecordedDocument is a planning document intake recorded from a plan's files, with every version,
+// newest first. ID is its reference, `<kind>:<id>`, and Path the file its newest version came from.
+type RecordedDocument struct {
+	ID       string            `json:"id"`
+	Kind     planning.FileKind `json:"kind"`
+	Title    string            `json:"title"`
+	Path     string            `json:"path,omitempty"`
+	Versions []RecordedVersion `json:"versions"`
+}
+
+// TracedWork is a work order that carries a criterion, and where it stands.
+type TracedWork struct {
+	ID    string           `json:"id"`
+	Title string           `json:"title"`
+	State workorders.State `json:"state"`
+}
+
+// TracedCriterion is a criterion of a contract's newest version that serves a requirement, with the work
+// orders of that contract.
+type TracedCriterion struct {
+	Contract        string       `json:"contract"`
+	ContractTitle   string       `json:"contract_title"`
+	ContractVersion int64        `json:"contract_version"`
+	Criterion       string       `json:"criterion"`
+	Text            string       `json:"text"`
+	WorkOrders      []TracedWork `json:"work_orders"`
+}
+
+// RequirementTrace is one requirement a plan's requirements document holds, and the criteria that serve
+// it (FR-DOC-7). Document is the requirements document's reference.
+type RequirementTrace struct {
+	Key      string            `json:"key"`
+	Text     string            `json:"text"`
+	Document string            `json:"document"`
+	Criteria []TracedCriterion `json:"criteria"`
+}
+
+// PlanDocuments is what a plan's files recorded: each document with its versions, and how each
+// requirement traces to criteria and work.
+type PlanDocuments struct {
+	Plan         planning.Plan      `json:"plan"`
+	Documents    []RecordedDocument `json:"documents"`
+	Requirements []RequirementTrace `json:"requirements"`
+}
+
+// RecordedRead is one version of a planning document with the body the ledger stored, beside every
+// version of it, so a page reads what a contract cited after the file has moved on. AsOf is database
+// time at the read, which a page counts each version's age from.
+type RecordedRead struct {
+	AsOf     int64            `json:"as_of"`
+	Document RecordedDocument `json:"document"`
+	Plan     *planning.Plan   `json:"plan,omitempty"`
+	Version  RecordedVersion  `json:"version"`
+	Body     string           `json:"body"`
+}
+
+// RecordedDocument reads one version of a planning document, by its reference, with its stored body. A
+// version of 0 reads the newest.
+func (c *Client) RecordedDocument(ctx context.Context, id string, version int64) (RecordedRead, error) {
+	values := url.Values{"id": {id}}
+	if version != 0 {
+		values.Set("version", strconv.FormatInt(version, 10))
+	}
+	var out RecordedRead
+	err := c.Do(ctx, http.MethodGet, "/v1/documents/recorded?"+values.Encode(), nil, &out)
+	return out, err
 }
 
 // Plans lists plans.

@@ -846,7 +846,8 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 }
 
 // serveDocuments lists the sources before it opens a read, because a source runs a subprocess for each
-// file, and nothing that slow belongs inside a read of the ledger.
+// file, and nothing that slow belongs inside a read of the ledger. A file a plan recorded names its
+// record, which the view lists with every version beside how the plan's requirements trace to work.
 func (h *handler) serveDocuments(w http.ResponseWriter, r *http.Request) {
 	listed := []api.Document{}
 	for _, source := range h.Knowledge {
@@ -860,7 +861,11 @@ func (h *handler) serveDocuments(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.serveView(w, r, func(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
-		view := api.Documents{Stamp: stamp, Documents: listed, Requirements: []planning.Requirement{}}
+		plans, err := recordedPlans(tx)
+		if err != nil {
+			return nil, err
+		}
+		view := api.Documents{Stamp: stamp, Documents: markRecorded(listed, plans), Requirements: []planning.Requirement{}, Plans: plans}
 		versions, err := tx.Planning().Requirements()
 		if err != nil {
 			return nil, err

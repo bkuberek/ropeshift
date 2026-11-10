@@ -628,6 +628,52 @@ progress::-moz-progress-bar {
   background: var(--marker);
 }
 
+/* Where a planning document's version stands in review. Words carry the state, and weight marks what waits. */
+.review-approved {
+  color: var(--ink);
+}
+
+.review-pending {
+  color: var(--marker);
+  font-weight: 700;
+}
+
+/* A requirement traced to the criteria that serve it and the work that carries them. */
+.traces {
+  display: grid;
+}
+
+.trace {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+  padding: 0.75rem 0;
+  border-bottom: 2px solid var(--lane);
+  overflow-wrap: anywhere;
+}
+
+.trace-key {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.trace-criteria {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 68ch;
+}
+
+.trace-criterion {
+  display: grid;
+  gap: 0.125rem;
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--hemp);
+}
+
+.trace-verdict {
+  font-style: italic;
+}
+
 /* A plan's map: its milestones in priority order, the work that can run at once, and the critical path. */
 .plan-map {
   display: grid;

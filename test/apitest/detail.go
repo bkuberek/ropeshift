@@ -22,13 +22,15 @@ const (
 	worldReview = "review-1"
 )
 
-// Documents lays out a source's documents: one of each kind, and a second version of one.
+// Documents lays out a source's documents: one of each kind, a second version of one, and the spec a
+// factory world's plan also records, so a live file stands beside its ledger record.
 func Documents(knowledge interface{ Write(path, body string) }) {
 	knowledge.Write("design.md", "# The retry budget\n")
 	knowledge.Write("design.md", "# The retry budget\n\nA budget bounds a lane's retries.\n")
 	knowledge.Write("docs/requirements.md", "# What retries must do\n\nA lane must stop retrying at its budget.\n")
 	knowledge.Write(WorldSpecPath, WorldHostileSpec)
 	knowledge.Write("notes.md", "# Notes from the first run\n")
+	knowledge.Write(FactorySpecPath, "# The factory API\n\nA client reads the roadmap and approves a plan.\n")
 }
 
 // Requirement adds one version of a requirement, as intake would.

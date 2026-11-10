@@ -253,11 +253,14 @@ type Plans struct {
 	Unplanned []workorders.WorkOrder `json:"unplanned"`
 }
 
-// Documents is requirements, specs, and designs. Bodies stay out, and a reader asks for one at a time.
+// Documents is requirements, specs, and designs: the files of every source as they stand, each
+// requirement's newest version, and for each plan the documents its files recorded with every version
+// and how its requirements trace to work. Bodies stay out, and a reader asks for one at a time.
 type Documents struct {
 	Stamp
 	Documents    []Document             `json:"documents"`
 	Requirements []planning.Requirement `json:"requirements"`
+	Plans        []PlanDocuments        `json:"plans"`
 }
 
 // DecisionLine is a decision and its lineage: the chain it belongs to, oldest first, and what took its

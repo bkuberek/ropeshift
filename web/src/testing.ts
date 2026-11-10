@@ -48,7 +48,8 @@ export function serveApi(answers: (sent: Sent) => Answer | undefined) {
 
 export const refusal = (status: number, code: string, message = code) => ({ status, body: { error: { code, message } } });
 
-// serveViews answers every view from its golden, and a document's reads from theirs. A test answers
+// serveViews answers every view from its golden, and a document's reads from theirs, a version the ledger
+// stored among them. A test answers
 // anything else, or answers differently, by returning something from `answer`.
 export function serveViews(answer?: (sent: Sent) => Answer | undefined) {
   return serveApi((call) => {
@@ -65,6 +66,9 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined) {
     }
     if (call.path.startsWith("/v1/documents/versions")) {
       return { status: 200, body: golden("document-versions") };
+    }
+    if (call.path.startsWith("/v1/documents/recorded")) {
+      return { status: 200, body: golden("recorded-document") };
     }
     return undefined;
   });
