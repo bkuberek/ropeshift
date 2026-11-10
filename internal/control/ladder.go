@@ -47,7 +47,7 @@ func (q *Questions) askIn(tx ports.WriteTx, draft questions.Question, ask questi
 	for i := range same {
 		switch {
 		case same[i].Status == questions.StatusAnswered:
-			answer, usable, err := answerOf(tx, same[i])
+			answer, usable, err := answerOf(tx, same[i], ask.Direct)
 			if err != nil {
 				return questions.AskResult{}, err
 			}
@@ -55,7 +55,10 @@ func (q *Questions) askIn(tx ports.WriteTx, draft questions.Question, ask questi
 				return answer, nil
 			}
 		case same[i].Status.Unresolved():
-			open = &same[i]
+			// A planner's question never joins one on the ladder, where an orchestrator could decide it.
+			if !ask.Direct || same[i].Direct() {
+				open = &same[i]
+			}
 		}
 	}
 	if open != nil {
@@ -63,6 +66,12 @@ func (q *Questions) askIn(tx ports.WriteTx, draft questions.Question, ask questi
 	}
 	if err := checkCategories(tx.Questions(), draft.Categories); err != nil {
 		return questions.AskResult{}, err
+	}
+	if ask.Direct {
+		var err error
+		if draft, err = q.toPerson(tx, draft, actor); err != nil {
+			return questions.AskResult{}, err
+		}
 	}
 	if err := insertQuestion(tx, draft, actor); err != nil {
 		return questions.AskResult{}, err
@@ -79,13 +88,14 @@ func (q *Questions) askIn(tx ports.WriteTx, draft questions.Question, ask questi
 }
 
 // answerOf reads what answered a question. A decision a person overturned or a later one
-// replaced answers nothing, so the question is asked again.
-func answerOf(tx ports.WriteTx, question questions.Question) (questions.AskResult, bool, error) {
+// replaced answers nothing, so the question is asked again. An assumption answers nothing for a planner,
+// because no orchestrator may stand in for the person it asks.
+func answerOf(tx ports.WriteTx, question questions.Question, direct bool) (questions.AskResult, bool, error) {
 	decision, err := tx.Questions().Decision(question.DecisionID)
 	if err != nil {
 		return questions.AskResult{}, false, err
 	}
-	if decision.Status != questions.DecisionDecided && decision.Status != questions.DecisionAssumed {
+	if decision.Status != questions.DecisionDecided && (decision.Status != questions.DecisionAssumed || direct) {
 		return questions.AskResult{}, false, nil
 	}
 	return questions.AskResult{
@@ -215,6 +225,9 @@ func (q *Questions) Take(ctx context.Context, scope ledger.WorkspaceID, id strin
 			if !record.Status.Unresolved() {
 				return fmt.Errorf("%w: %s", questions.ErrResolved, record.Status)
 			}
+			if record.Direct() {
+				return refuseDirect(id)
+			}
 			return fmt.Errorf("%w: %s holds %s", questions.ErrTaken, record.ClaimedBy, id)
 		}
 		crashpoint.Hit("question.take", "taken")
@@ -260,7 +273,13 @@ func (q *Questions) LetGo(ctx context.Context, scope ledger.WorkspaceID, actor l
 	return released, nil
 }
 
-// held reads a question the caller may work: unresolved, and held by it with time left.
+// refuseDirect is why no rung works a planning lane's question. It is a refusal of the caller's
+// authority, so it reads as one wherever the ledger's errors become replies.
+func refuseDirect(id string) error {
+	return fmt.Errorf("%w: %w: %s", workorders.ErrForbidden, questions.ErrDirect, id)
+}
+
+// held reads a question the caller may work: unresolved, not a planner's, and held by it with time left.
 func held(tx ports.WriteTx, id string, actor ledger.Actor) (questions.Question, error) {
 	record, err := tx.Questions().Question(id)
 	if err != nil {
@@ -268,6 +287,9 @@ func held(tx ports.WriteTx, id string, actor ledger.Actor) (questions.Question, 
 	}
 	if !record.Status.Unresolved() {
 		return questions.Question{}, fmt.Errorf("%w: %s", questions.ErrResolved, record.Status)
+	}
+	if record.Direct() {
+		return questions.Question{}, refuseDirect(id)
 	}
 	if record.ClaimedBy != actor.ID || record.ClaimUntil <= tx.Now() {
 		return questions.Question{}, fmt.Errorf("%w: %s", questions.ErrNotHeld, id)
