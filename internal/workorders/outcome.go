@@ -53,13 +53,16 @@ type Report struct {
 	Reason    string        `json:"reason,omitempty"`
 	Artifacts []string      `json:"artifacts,omitempty"`
 	Checks    []CheckResult `json:"checks,omitempty"`
+	// Verdicts are a review lane's judgment, one per criterion of the contract it read. Another lane
+	// reports none.
+	Verdicts []CriterionVerdict `json:"verdicts,omitempty"`
 }
 
-// Validate refuses a report that names no outcome the ledger holds.
+// Validate refuses a report that names no outcome the ledger holds, or whose verdicts are not whole.
 func (r Report) Validate() error {
 	switch r.Outcome {
 	case OutcomeCompleted, OutcomeBlocked, OutcomeFailed:
-		return nil
+		return r.checkVerdicts()
 	}
 	return fmt.Errorf("%w: outcome %q", ErrInvalid, r.Outcome)
 }

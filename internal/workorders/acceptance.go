@@ -155,4 +155,12 @@ type AcceptanceView struct {
 	Assessment Assessment        `json:"assessment"`
 	Artifacts  []ledger.Artifact `json:"artifacts"`
 	Checks     []Evidence        `json:"checks"`
+	// Reviews are the reviews of this work order, oldest first. Verdicts are the ones that speak for the
+	// current attempt and its commit, in the order of the contract's criteria, and Rounds is how many
+	// reviews have judged this work. Authority is the repository's merge authority, which says who decides
+	// after the review.
+	Reviews   []ReviewLine          `json:"reviews,omitempty"`
+	Verdicts  []Verdict             `json:"verdicts,omitempty"`
+	Rounds    int64                 `json:"rounds,omitempty"`
+	Authority ledger.MergeAuthority `json:"authority,omitempty"`
 }
