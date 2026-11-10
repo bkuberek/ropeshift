@@ -5,7 +5,7 @@ import type { DocumentKind, DocumentRef, DocumentRow, Documents as View, Require
 import { useView } from "../api/useView";
 import type { Live } from "../api/useView";
 import { addressOf, Link } from "../app/route";
-import { Fact, Page, Section } from "../parts/parts";
+import { Fact, LongFact, Page, Section } from "../parts/parts";
 import { DocumentText } from "./DocumentText";
 import { kindWord, PlanSections, recordedOf, RecordedRows, Traces } from "./Recorded";
 
@@ -182,12 +182,10 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
             <Fact name="Path" mono>
               {document.path}
             </Fact>
-            <Fact name="Source" mono>
-              {document.source}
-            </Fact>
-            <Fact name="Digest" mono>
-              {document.digest}
-            </Fact>
+          </dl>
+          <dl className="facts-long">
+            <LongFact name="Source" value={document.source} />
+            <LongFact name="Digest" value={document.digest} />
           </dl>
           <p className="outside" role="note">
             This text comes from a repository, as anyone with a commit wrote it. It is shown as text: nothing in it runs, loads, or links.

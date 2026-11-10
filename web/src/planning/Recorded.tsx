@@ -6,7 +6,7 @@ import { useView } from "../api/useView";
 import type { Live } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { workLabel } from "../floor/states";
-import { Ago, Fact, Page, Section, useClock, ViewTime, words } from "../parts/parts";
+import { Ago, Fact, LongFact, Page, Section, useClock, ViewTime, words } from "../parts/parts";
 import { DocumentText } from "./DocumentText";
 
 // The pages a person looks for a planning document on, by its kind. A kind this build has no page for
@@ -265,14 +265,10 @@ export function RecordedPage({ id, version, live }: { id: string; version: strin
             ) : null}
             <Fact name="Version">{shown.version.version}</Fact>
             <Fact name="Review">{reviewWords(shown.version)}</Fact>
-            {shown.version.source ? (
-              <Fact name="Source" mono>
-                {shown.version.source}
-              </Fact>
-            ) : null}
-            <Fact name="Digest" mono>
-              {shown.version.digest}
-            </Fact>
+          </dl>
+          <dl className="facts-long">
+            {shown.version.source ? <LongFact name="Source" value={shown.version.source} /> : null}
+            <LongFact name="Digest" value={shown.version.digest} />
           </dl>
           <p className="outside" role="note">
             This text comes from a repository, as anyone with a commit wrote it, and the ledger keeps it as intake read it. It is shown as

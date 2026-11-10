@@ -860,6 +860,40 @@ fieldset {
   margin-bottom: 1rem;
 }
 
+/* Long facts, such as a source or a digest, stand one to a line, each value on one line of its own. */
+.facts-long {
+  display: grid;
+  gap: 0.375rem;
+  margin-bottom: 1rem;
+}
+
+.facts-long > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.facts-long dt {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.facts-long dd {
+  min-width: 0;
+}
+
+@media (min-width: 40rem) {
+  .facts-long > div {
+    grid-template-columns: 6rem minmax(0, 1fr);
+    align-items: baseline;
+    gap: 1.5rem;
+  }
+}
+
+.facts-page + .facts-long {
+  margin-top: -0.25rem;
+}
+
 .facts dd {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1121,6 +1155,46 @@ fieldset {
   font-family: var(--mono);
   font-size: 0.9375rem;
   overflow-wrap: normal;
+}
+
+/* A block or a table wider than the text scrolls inside itself, so the page never scrolls sideways. */
+.prose > * {
+  min-width: 0;
+}
+
+.code-block {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.code-label {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.prose table {
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  overflow-wrap: normal;
+}
+
+.prose th,
+.prose td {
+  padding: 0.375rem 0.75rem 0.375rem 0;
+  border-bottom: 1px solid var(--muted);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  border-bottom: 0.1875rem solid var(--hemp);
+  font-weight: 700;
 }
 
 .prose blockquote {

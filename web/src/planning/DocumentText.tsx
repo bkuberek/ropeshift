@@ -1,20 +1,28 @@
-import { Fragment } from "react";
+import { Fragment, useId } from "react";
 import type { ReactNode } from "react";
 
 // A document is text anyone with a commit wrote, so nothing in it becomes part of the page. This reads
 // the shape of its lines and hands React plain strings, which React shows as text whatever they hold.
 // It makes no link and loads no picture, so a document cannot send a person anywhere or tell anyone it
-// was read: an address stays visible as words.
+// was read: an address stays visible as words. A diagram stays the text it was written as.
+
+// How a table's column aligns, as its separator row says: `:--`, `:-:`, `--:`, or none.
+export type Align = "" | "left" | "center" | "right";
 
 export type Block =
   | { kind: "heading"; level: number; text: string }
   | { kind: "paragraph"; text: string }
   | { kind: "list"; ordered: boolean; items: string[] }
   | { kind: "quote"; text: string }
-  | { kind: "code"; text: string }
+  | { kind: "code"; language: string; text: string }
+  | { kind: "table"; head: string[]; align: Align[]; rows: string[][] }
   | { kind: "rule" };
 
 const fence = /^\s*(```|~~~)/;
+// The language a fence names is the first word after it.
+const fenceLanguage = /^\s*(?:```|~~~)\s*(\S*)/;
+// A table's separator row: a run of dashes for each column, a colon at either end saying how it aligns.
+const separator = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
 const bullet = /^\s*[-*+]\s+(.*)$/;
 const numbered = /^\s*\d+[.)]\s+(.*)$/;
@@ -24,6 +32,55 @@ const table = /^\s*\|/;
 
 function startsBlock(line: string): boolean {
   return [fence, heading, bullet, numbered, quote, rule, table].some((shape) => shape.test(line));
+}
+
+// cellsOf splits a table row on its pipes. A pipe a backslash escapes stays in its cell.
+function cellsOf(line: string): string[] {
+  let row = line.trim();
+  if (row.startsWith("|")) {
+    row = row.slice(1);
+  }
+  if (row.endsWith("|") && !row.endsWith("\\|")) {
+    row = row.slice(0, -1);
+  }
+  const cells: string[] = [];
+  let cell = "";
+  for (let at = 0; at < row.length; at += 1) {
+    const char = row[at];
+    if (char === "\\" && row[at + 1] === "|") {
+      cell += "|";
+      at += 1;
+    } else if (char === "|") {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+function alignOf(cell: string): Align {
+  const left = cell.startsWith(":");
+  const right = cell.endsWith(":");
+  if (left && right) {
+    return "center";
+  }
+  return right ? "right" : left ? "left" : "";
+}
+
+// tableOf reads a run of table lines as a table: a header, a separator with a column for each of the
+// header's, and rows, each fitted to the header's columns. Lines with no separator are not a table.
+function tableOf(lines: string[]): Block {
+  const [header = "", divider = "", ...body] = lines;
+  const head = cellsOf(header);
+  const columns = cellsOf(divider);
+  if (!separator.test(divider) || columns.length !== head.length) {
+    return { kind: "code", language: "", text: lines.join("\n") };
+  }
+  const fit = (cells: string[]) => head.map((_, at) => cells[at] ?? "");
+  return { kind: "table", head, align: columns.map(alignOf), rows: body.map((row) => fit(cellsOf(row))) };
 }
 
 export function blocksOf(body: string): Block[] {
@@ -45,10 +102,11 @@ export function blocksOf(body: string): Block[] {
     if (line.trim() === "") {
       at += 1;
     } else if (fence.test(line)) {
+      const language = fenceLanguage.exec(line)?.[1] ?? "";
       at += 1;
       const inside = takeWhile((candidate) => !fence.test(candidate));
       at += 1;
-      blocks.push({ kind: "code", text: inside.join("\n") });
+      blocks.push({ kind: "code", language, text: inside.join("\n") });
     } else if (shaped) {
       at += 1;
       blocks.push({ kind: "heading", level: shaped[1]?.length ?? 1, text: shaped[2] ?? "" });
@@ -56,7 +114,7 @@ export function blocksOf(body: string): Block[] {
       at += 1;
       blocks.push({ kind: "rule" });
     } else if (table.test(line)) {
-      blocks.push({ kind: "code", text: takeWhile((candidate) => table.test(candidate)).join("\n") });
+      blocks.push(tableOf(takeWhile((candidate) => table.test(candidate))));
     } else if (quote.test(line)) {
       const said = takeWhile((candidate) => quote.test(candidate));
       blocks.push({ kind: "quote", text: said.map((row) => quote.exec(row)?.[1] ?? "").join(" ").trim() });
@@ -112,6 +170,61 @@ function Heading({ level, children }: { level: number; children: ReactNode }) {
   }
 }
 
+// A fenced block says what it holds above it. A diagram shows as its source: drawing it would run what
+// the document wrote.
+function codeLabel(language: string): string {
+  if (language.toLowerCase() === "mermaid") {
+    return "Diagram (Mermaid source)";
+  }
+  return language ? `Code (${language})` : "Code";
+}
+
+// A block keeps its lines, so a long one scrolls inside it and not the page, and a keyboard reaches it.
+function CodeBlock({ language, text }: { language: string; text: string }) {
+  const label = useId();
+  return (
+    <figure className="code-block" aria-labelledby={label}>
+      <figcaption className="code-label" id={label}>
+        {codeLabel(language)}
+      </figcaption>
+      <pre tabIndex={0}>{text}</pre>
+    </figure>
+  );
+}
+
+const alignment = (align: Align | undefined) => (align ? { textAlign: align } : undefined);
+
+// A table names itself by its header, and scrolls inside its region when it is wider than the page.
+function Table({ head, align, rows }: { head: string[]; align: Align[]; rows: string[][] }) {
+  const named = head.map((cell) => cell.replaceAll(/[`*]/g, "")).join(", ");
+  return (
+    <div className="table-scroll" role="region" aria-label={`Table of ${named}`} tabIndex={0}>
+      <table>
+        <thead>
+          <tr>
+            {head.map((cell, at) => (
+              <th key={at} scope="col" style={alignment(align[at])}>
+                {inline(cell)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, line) => (
+            <tr key={line}>
+              {row.map((cell, at) => (
+                <td key={at} style={alignment(align[at])}>
+                  {inline(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Shown({ block }: { block: Block }) {
   switch (block.kind) {
     case "heading":
@@ -121,7 +234,9 @@ function Shown({ block }: { block: Block }) {
     case "quote":
       return <blockquote>{inline(block.text)}</blockquote>;
     case "code":
-      return <pre tabIndex={0}>{block.text}</pre>;
+      return <CodeBlock language={block.language} text={block.text} />;
+    case "table":
+      return <Table head={block.head} align={block.align} rows={block.rows} />;
     case "rule":
       return <hr />;
     case "list": {

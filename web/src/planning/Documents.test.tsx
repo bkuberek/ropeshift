@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { DocumentKind, Documents, RecordedRead } from "../api/types";
+import type { DocumentKind, DocumentRow, Documents, RecordedRead } from "../api/types";
 import { openPage } from "../opening";
 import { golden, refusal, serveViews } from "../testing";
 
@@ -114,6 +114,17 @@ describe("reading a document", () => {
     expect(screen.getByText("docs/specs/retry.md")).toBeTruthy();
     expect(screen.getByText("docs/specs/retry.md@4")).toBeTruthy();
     expect(screen.getByText("Spec")).toBeTruthy();
+  });
+
+  it("keeps a long source and digest whole, each on a line of its own", async () => {
+    await open();
+    const shown = golden<DocumentRow>("document");
+    for (const value of [shown.source, shown.digest]) {
+      const fact = screen.getByTitle(value);
+      expect(fact.textContent).toBe(value);
+      expect(fact.className).toBe("id");
+      expect(fact.closest("dl")).not.toBe(screen.getByText("Kind").closest("dl"));
+    }
   });
 
   it("lays the text out as a reader expects", async () => {
@@ -339,6 +350,17 @@ describe("reading a version the ledger stored", () => {
     const sent = await open();
     expect(sent.some((call) => call.path === "/v1/documents/recorded?id=spec%3Afactory-api")).toBe(true);
     expect(sent.some((call) => call.path.startsWith("/v1/documents/read"))).toBe(false);
+  });
+
+  it("keeps a long source and digest whole, each on a line of its own", async () => {
+    await open();
+    const read = golden<RecordedRead>("recorded-document");
+    for (const value of [read.version.source ?? "", read.version.digest]) {
+      const fact = screen.getByTitle(value);
+      expect(fact.textContent).toBe(value);
+      expect(fact.className).toBe("id");
+      expect(fact.closest("dl")).not.toBe(screen.getByText("Kind").closest("dl"));
+    }
   });
 
   it("states its plan, version, source, and where it stands in review", async () => {

@@ -128,6 +128,20 @@ export function Fact({ name, mono = false, children }: { name: string; mono?: bo
   );
 }
 
+// LongFact is a fact too long for a column, such as a source or a digest. It stands in a list of its own
+// with one fact on each line, and an identifier too long for the line ends in an ellipsis with the whole
+// of it in the page for a copy and in its title.
+export function LongFact({ name, value }: { name: string; value: string }) {
+  return (
+    <div>
+      <dt>{name}</dt>
+      <dd>
+        <Id value={value} />
+      </dd>
+    </div>
+  );
+}
+
 // Section is a part of a view a screen reader can jump to.
 export function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
   const heading = useId();
