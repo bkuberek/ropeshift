@@ -90,7 +90,9 @@ It makes the calls a member makes by hand, and the ledger records each as yours.
 
 A planning lane runs in a tmux pane, because you are present by construction. Without tmux on the machine, the work order stops in `blocked` with the reason `no_interactive_mode` and no session runs.
 
-What you type goes to the agent, and its questions come to you in the conversation. Detach with `C-b d`, or `C-b C-b d` inside tmux, because the status line is off. Detaching leaves the lane running. To rejoin it, run `ropeshift lane attach <lane>`; `ropeshift lane list` names the lane. The session also goes on through a park and through a restart of the daemon, which adopts the pane again, and `lane attach` follows the lane to the pane of its next generation. With no terminal, `--no-attach` or `--json`, `plan start` starts the session and prints the command that joins it.
+What you type goes to the agent. Detach with `C-b d`, or `C-b C-b d` inside tmux, because the status line is off. Detaching leaves the lane running. To rejoin it, run `ropeshift lane attach <lane>`; `ropeshift lane list` names the lane. The session also goes on through a park and through a restart of the daemon, which adopts the pane again, and `lane attach` follows the lane to the pane of its next generation. With no terminal, `--no-attach` or `--json`, `plan start` starts the session and prints the command that joins it.
+
+A planning lane's questions are yours. While you are attached, the agent asks in the conversation: its question tool shows in your terminal, and you answer there. With nobody attached, or when the worker cannot tell, the question tool is refused and the agent asks through `ask`, which puts the question in Needs you as a product question, with no orchestrator to decide it or assume an answer for it. The worker tells the lane's hook who is attached about once a second, so a question asked in the moment after you attach or detach can go either way.
 
 ## Run the daemon as a service
 
