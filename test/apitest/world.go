@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -141,6 +142,16 @@ func (w *World) Ready(id, title string) {
 	w.Recorded(id, title)
 	if _, err := control.NewReviews(w.Daemon.Store).Pass(w.ctx, Scope, id, worldMember); err != nil {
 		w.t.Fatal(err)
+	}
+}
+
+// Planned reads the files of a source as intake would. A plan among them gets a version, and a member a
+// request to approve it, and the work orders of its contracts wait in `contract_review`.
+func (w *World) Planned(source *fake.WorkSource) {
+	w.t.Helper()
+	report, err := control.NewIntake(w.Daemon.Store).Poll(w.ctx, Scope, source)
+	if err != nil || len(report.Problems) != 0 {
+		w.t.Fatalf("intake read %+v: %v", report, err)
 	}
 }
 

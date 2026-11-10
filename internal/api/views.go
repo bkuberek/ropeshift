@@ -52,6 +52,11 @@ const (
 	NeedApproval  = "approval"
 	NeedEffect    = "effect"
 	NeedWork      = "work"
+	// NeedPlanApproval is a plan version that waits for a member to approve it (FR-PLAN-12).
+	NeedPlanApproval = "plan_approval"
+	// NeedContractReview is work whose contract waits for a member's review, because no plan approval
+	// stands behind it.
+	NeedContractReview = "contract_review"
 )
 
 // Why work waits for a person. The first five are the design's stuck list.
@@ -107,16 +112,40 @@ type WorkNeed struct {
 	Actions      []string              `json:"actions"`
 }
 
+// PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
+// and how it differs from the last version a member approved. A new version that changes nothing
+// approved and adds no work shows an empty difference.
+type PlanApprovalNeed struct {
+	Approval    authority.Approval  `json:"approval"`
+	Title       string              `json:"title"`
+	Version     int64               `json:"version"`
+	RequestedBy string              `json:"requested_by"`
+	Counts      map[string]int      `json:"counts"`
+	Decisions   int                 `json:"decisions"`
+	Difference  planning.Difference `json:"difference"`
+	Summary     string              `json:"summary"`
+}
+
+// ContractReviewNeed is work in `contract_review` that no plan approval covers, so a member passes its
+// review by hand.
+type ContractReviewNeed struct {
+	WorkOrder workorders.WorkOrder `json:"work_order"`
+	Contract  string               `json:"contract"`
+	Version   int64                `json:"version"`
+}
+
 // NeedItem is one thing that waits for a person. Since is database time, and Kind says which field
 // holds the rest.
 type NeedItem struct {
-	Kind     string               `json:"kind"`
-	ID       string               `json:"id"`
-	Since    int64                `json:"since"`
-	Batch    *questions.Presented `json:"batch,omitempty"`
-	Approval *authority.Approval  `json:"approval,omitempty"`
-	Effect   *EffectView          `json:"effect,omitempty"`
-	Work     *WorkNeed            `json:"work,omitempty"`
+	Kind           string               `json:"kind"`
+	ID             string               `json:"id"`
+	Since          int64                `json:"since"`
+	Batch          *questions.Presented `json:"batch,omitempty"`
+	Approval       *authority.Approval  `json:"approval,omitempty"`
+	Effect         *EffectView          `json:"effect,omitempty"`
+	Work           *WorkNeed            `json:"work,omitempty"`
+	PlanApproval   *PlanApprovalNeed    `json:"plan_approval,omitempty"`
+	ContractReview *ContractReviewNeed  `json:"contract_review,omitempty"`
 }
 
 // NeedsYou is the default view: what a member can act on, the longest wait first (FR-UI-2).

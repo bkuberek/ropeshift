@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -79,13 +80,45 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 			}
 			view.Goal = &goal
 		}
-		return fillPlan(tx, &view)
+		if err := fillPlan(tx, &view); err != nil {
+			return err
+		}
+		view.Approval, err = planApprovalView(tx, plan.ID)
+		return err
 	})
 	if err != nil {
 		fail(w, err)
 		return
 	}
 	reply(w, http.StatusOK, view)
+}
+
+// planApprovalView reads the request to approve a plan: the one waiting, or else the newest, with the
+// version it is about. A plan nobody has asked about has none.
+func planApprovalView(tx ports.ReadTx, plan string) (*api.PlanApprovalView, error) {
+	rows, err := tx.Approvals().All()
+	if err != nil {
+		return nil, err
+	}
+	var chosen *authority.Approval
+	for i := range rows {
+		if rows[i].Kind != authority.KindPlan || rows[i].Plan != plan {
+			continue
+		}
+		if chosen == nil || (rows[i].Open() && !chosen.Open()) || (rows[i].Open() == chosen.Open() && rows[i].PlanVersion > chosen.PlanVersion) {
+			chosen = &rows[i]
+		}
+	}
+	if chosen == nil {
+		return nil, nil
+	}
+	view := &api.PlanApprovalView{Approval: *chosen, Detail: api.PlanDetailOf(*chosen)}
+	version, err := tx.Planning().PlanVersion(plan, chosen.PlanVersion)
+	if err != nil {
+		return nil, err
+	}
+	view.Records, view.Drafts = version.Records, version.Decisions
+	return view, nil
 }
 
 // fillPlan adds each contract's newest version and its work orders. Versions arrive in

@@ -968,6 +968,26 @@
           }
         },
         {
+          "contract_review": {
+            "contract": "Waiting for a contract review",
+            "version": 1,
+            "work_order": {
+              "contract_id": "generated-26",
+              "contract_version": 1,
+              "id": "wo-contract_review",
+              "kind": "change",
+              "max_attempts": 1,
+              "repository_id": "repository-1",
+              "size": "unknown",
+              "state": "contract_review",
+              "title": "Waiting for a contract review"
+            }
+          },
+          "id": "wo-contract_review",
+          "kind": "contract_review",
+          "since": 1790000062001
+        },
+        {
           "id": "wo-parked",
           "kind": "work",
           "since": 1790000066001,
@@ -1006,7 +1026,7 @@
               }
             ],
             "work_order": {
-              "contract_id": "generated-26",
+              "contract_id": "generated-27",
               "contract_version": 1,
               "fence": 2,
               "id": "wo-parked",
@@ -1099,7 +1119,7 @@
                   "created_at": 1790000068001,
                   "digest": "abc123",
                   "fence": 2,
-                  "id": "generated-27",
+                  "id": "generated-28",
                   "kind": "branch",
                   "lane_id": "lane-wo-blocked",
                   "uri": "lane/lane-wo-blocked"
@@ -1128,7 +1148,7 @@
             },
             "reason": "blocked",
             "work_order": {
-              "contract_id": "generated-28",
+              "contract_id": "generated-29",
               "contract_version": 1,
               "fence": 2,
               "id": "wo-blocked",
@@ -1295,7 +1315,7 @@
               }
             ],
             "work_order": {
-              "contract_id": "generated-29",
+              "contract_id": "generated-30",
               "contract_version": 1,
               "fence": 2,
               "id": "wl-parked",
@@ -1401,7 +1421,7 @@
             }
           ],
           "work_order": {
-            "contract_id": "generated-26",
+            "contract_id": "generated-27",
             "contract_version": 1,
             "fence": 2,
             "id": "wo-parked",
@@ -1447,7 +1467,7 @@
             }
           ],
           "work_order": {
-            "contract_id": "generated-29",
+            "contract_id": "generated-30",
             "contract_version": 1,
             "fence": 2,
             "id": "wl-parked",
@@ -1547,7 +1567,7 @@
       },
       "revision": 337,
       "sources": [],
-      "waiting_for_a_person": 8,
+      "waiting_for_a_person": 9,
       "work_orders": {
         "acceptance": 2,
         "blocked": 1,
@@ -1583,7 +1603,7 @@
                   ],
                   "digest": "sha256:d8ed756787c722eccccf99424e6f25208e4d707288d8dc8b3e845292f8a3628b",
                   "id": "generated-20",
-                  "plan_id": "generated-30",
+                  "plan_id": "generated-31",
                   "statement": "A lane in backoff.",
                   "status": "active",
                   "title": "A lane in backoff",
@@ -1593,7 +1613,7 @@
             }
           ],
           "plan": {
-            "id": "generated-30",
+            "id": "generated-31",
             "status": "active",
             "title": "A lane in backoff"
           },
@@ -1632,7 +1652,7 @@
                   ],
                   "digest": "sha256:2a91e4283983ca9463ccc6746889ba9379b8194ef3727073c4a66814850c1f87",
                   "id": "generated-12",
-                  "plan_id": "generated-31",
+                  "plan_id": "generated-32",
                   "statement": "A lane in briefing.",
                   "status": "active",
                   "title": "A lane in briefing",
@@ -1642,7 +1662,7 @@
             }
           ],
           "plan": {
-            "id": "generated-31",
+            "id": "generated-32",
             "status": "active",
             "title": "A lane in briefing"
           },
@@ -1681,7 +1701,7 @@
                   ],
                   "digest": "sha256:5907240a53cd23bd5931d2405eddf4fe465498971b6eb16922b27e4db3749406",
                   "id": "generated-13",
-                  "plan_id": "generated-32",
+                  "plan_id": "generated-33",
                   "statement": "A lane in compacting.",
                   "status": "active",
                   "title": "A lane in compacting",
@@ -1691,7 +1711,7 @@
             }
           ],
           "plan": {
-            "id": "generated-32",
+            "id": "generated-33",
             "status": "active",
             "title": "A lane in compacting"
           },
@@ -1730,7 +1750,7 @@
                   ],
                   "digest": "sha256:bb8b4791f746c3a0dec4d97161482365a40ba5c231291e3075603256a49dca32",
                   "id": "generated-2",
-                  "plan_id": "generated-33",
+                  "plan_id": "generated-34",
                   "statement": "A lane in ended.",
                   "status": "active",
                   "title": "A lane in ended",
@@ -1740,7 +1760,7 @@
             }
           ],
           "plan": {
-            "id": "generated-33",
+            "id": "generated-34",
             "status": "active",
             "title": "A lane in ended"
           },
@@ -1776,7 +1796,7 @@
                   ],
                   "digest": "sha256:e77cd35ea57cf0a4a241b84741a5e39bf433615fd03ddc2457dcb37ea0331bcb",
                   "id": "generated-21",
-                  "plan_id": "generated-34",
+                  "plan_id": "generated-35",
                   "statement": "A lane in handing_off.",
                   "status": "active",
                   "title": "A lane in handing_off",
@@ -1786,7 +1806,7 @@
             }
           ],
           "plan": {
-            "id": "generated-34",
+            "id": "generated-35",
             "status": "active",
             "title": "A lane in handing_off"
           },
@@ -1825,7 +1845,7 @@
                   ],
                   "digest": "sha256:062de691a50b8dd45efa0f7541d03adf2169f593f14e0fd0306178d261ac12e3",
                   "id": "generated-14",
-                  "plan_id": "generated-35",
+                  "plan_id": "generated-36",
                   "statement": "A lane in idle.",
                   "status": "active",
                   "title": "A lane in idle",
@@ -1835,7 +1855,7 @@
             }
           ],
           "plan": {
-            "id": "generated-35",
+            "id": "generated-36",
             "status": "active",
             "title": "A lane in idle"
           },
@@ -1874,7 +1894,7 @@
                   ],
                   "digest": "sha256:43a2c2695841d7129880d199b53b91bb42db68ed3b0ac374fb39666ce5aacf82",
                   "id": "generated-15",
-                  "plan_id": "generated-36",
+                  "plan_id": "generated-37",
                   "statement": "A lane in needs_decision.",
                   "status": "active",
                   "title": "A lane in needs_decision",
@@ -1884,7 +1904,7 @@
             }
           ],
           "plan": {
-            "id": "generated-36",
+            "id": "generated-37",
             "status": "active",
             "title": "A lane in needs_decision"
           },
@@ -1912,7 +1932,7 @@
         {
           "contracts": [
             {
-              "id": "generated-29",
+              "id": "generated-30",
               "versions": [
                 {
                   "criteria": [
@@ -1922,8 +1942,8 @@
                     }
                   ],
                   "digest": "sha256:24c7c555255e1e2837ea72f895cb6aa5beadf13fd0dd66dc8725cb6070925f53",
-                  "id": "generated-29",
-                  "plan_id": "generated-37",
+                  "id": "generated-30",
+                  "plan_id": "generated-38",
                   "statement": "A lane in parked.",
                   "status": "active",
                   "title": "A lane in parked",
@@ -1933,14 +1953,14 @@
             }
           ],
           "plan": {
-            "id": "generated-37",
+            "id": "generated-38",
             "status": "active",
             "title": "A lane in parked"
           },
           "reviews": [],
           "work_orders": [
             {
-              "contract_id": "generated-29",
+              "contract_id": "generated-30",
               "contract_version": 1,
               "fence": 2,
               "id": "wl-parked",
@@ -1969,7 +1989,7 @@
                   ],
                   "digest": "sha256:5fc08864d90022cdb7f6a1834a4d719f7253460f79f9ad42bb07e7ed6b62cb53",
                   "id": "generated-22",
-                  "plan_id": "generated-38",
+                  "plan_id": "generated-39",
                   "statement": "A lane in parking.",
                   "status": "active",
                   "title": "A lane in parking",
@@ -1979,7 +1999,7 @@
             }
           ],
           "plan": {
-            "id": "generated-38",
+            "id": "generated-39",
             "status": "active",
             "title": "A lane in parking"
           },
@@ -2018,7 +2038,7 @@
                   ],
                   "digest": "sha256:3c84c4beb0d107552bdf36c1a91fc87e8870a839d96d720986e38a278ee52d0c",
                   "id": "generated-16",
-                  "plan_id": "generated-39",
+                  "plan_id": "generated-40",
                   "statement": "A lane in pending.",
                   "status": "active",
                   "title": "A lane in pending",
@@ -2028,7 +2048,7 @@
             }
           ],
           "plan": {
-            "id": "generated-39",
+            "id": "generated-40",
             "status": "active",
             "title": "A lane in pending"
           },
@@ -2067,7 +2087,7 @@
                   ],
                   "digest": "sha256:1153bd99c4d649246ad6dbad8edbd0b61797e8cd62e61963fecc3b31064ced84",
                   "id": "generated-17",
-                  "plan_id": "generated-40",
+                  "plan_id": "generated-41",
                   "statement": "A lane in provisioning.",
                   "status": "active",
                   "title": "A lane in provisioning",
@@ -2077,7 +2097,7 @@
             }
           ],
           "plan": {
-            "id": "generated-40",
+            "id": "generated-41",
             "status": "active",
             "title": "A lane in provisioning"
           },
@@ -2116,7 +2136,7 @@
                   ],
                   "digest": "sha256:351c2bbb6873b9a428854dba709bc0bc6a8899b28a49273b8dfcabcfab8f6277",
                   "id": "generated-23",
-                  "plan_id": "generated-41",
+                  "plan_id": "generated-42",
                   "statement": "A lane in retiring.",
                   "status": "active",
                   "title": "A lane in retiring",
@@ -2126,7 +2146,7 @@
             }
           ],
           "plan": {
-            "id": "generated-41",
+            "id": "generated-42",
             "status": "active",
             "title": "A lane in retiring"
           },
@@ -2165,7 +2185,7 @@
                   ],
                   "digest": "sha256:adb87709e1ce5c181ed6498c200902e1606ff0952b7a0976a5487ce7896bd5bc",
                   "id": "generated-18",
-                  "plan_id": "generated-42",
+                  "plan_id": "generated-43",
                   "statement": "A lane in starting.",
                   "status": "active",
                   "title": "A lane in starting",
@@ -2175,7 +2195,7 @@
             }
           ],
           "plan": {
-            "id": "generated-42",
+            "id": "generated-43",
             "status": "active",
             "title": "A lane in starting"
           },
@@ -2214,7 +2234,7 @@
                   ],
                   "digest": "sha256:7b702eb109e174b86c09eb1b7029a21d2f63181da4fc987ff26cbffb5df06e8d",
                   "id": "generated-24",
-                  "plan_id": "generated-43",
+                  "plan_id": "generated-44",
                   "statement": "A lane in tripped.",
                   "status": "active",
                   "title": "A lane in tripped",
@@ -2224,7 +2244,7 @@
             }
           ],
           "plan": {
-            "id": "generated-43",
+            "id": "generated-44",
             "status": "active",
             "title": "A lane in tripped"
           },
@@ -2263,7 +2283,7 @@
                   ],
                   "digest": "sha256:d507df0f1e560df2ba0102055c03b7cd338ceec74aeb4022b1a11b618fb80d03",
                   "id": "generated-19",
-                  "plan_id": "generated-44",
+                  "plan_id": "generated-45",
                   "statement": "A lane in working.",
                   "status": "active",
                   "title": "A lane in working",
@@ -2273,7 +2293,7 @@
             }
           ],
           "plan": {
-            "id": "generated-44",
+            "id": "generated-45",
             "status": "active",
             "title": "A lane in working"
           },
@@ -2312,7 +2332,7 @@
                   ],
                   "digest": "sha256:c2abad9d8b36dc3707154205c74a4005a7d3b6cc48ee76851eb234e4168d9ca9",
                   "id": "generated-11",
-                  "plan_id": "generated-45",
+                  "plan_id": "generated-46",
                   "statement": "A lane works on this.",
                   "status": "active",
                   "title": "A lane works on this",
@@ -2322,7 +2342,7 @@
             }
           ],
           "plan": {
-            "id": "generated-45",
+            "id": "generated-46",
             "status": "active",
             "title": "A lane works on this"
           },
@@ -2361,7 +2381,7 @@
                   ],
                   "digest": "sha256:58e52746e43035f38007c48194d7e2d810910d6ca87a00bda8352397bef9844d",
                   "id": "generated-7",
-                  "plan_id": "generated-46",
+                  "plan_id": "generated-47",
                   "statement": "Accepted by a member.",
                   "status": "active",
                   "title": "Accepted by a member",
@@ -2371,7 +2391,7 @@
             }
           ],
           "plan": {
-            "id": "generated-46",
+            "id": "generated-47",
             "status": "active",
             "title": "Accepted by a member"
           },
@@ -2407,7 +2427,7 @@
                   ],
                   "digest": "sha256:951fdea0d3216d70ebbaeabe5ed65f9b511974d475183993332e0a4f5428f772",
                   "id": "generated-3",
-                  "plan_id": "generated-47",
+                  "plan_id": "generated-48",
                   "statement": "Called off.",
                   "status": "active",
                   "title": "Called off",
@@ -2417,7 +2437,7 @@
             }
           ],
           "plan": {
-            "id": "generated-47",
+            "id": "generated-48",
             "status": "active",
             "title": "Called off"
           },
@@ -2450,7 +2470,7 @@
                   ],
                   "digest": "sha256:2308bc76cf95de573612ef265f93317e4deec936fd522c453ed61c3312bdf7ab",
                   "id": "generated-10",
-                  "plan_id": "generated-48",
+                  "plan_id": "generated-49",
                   "statement": "Claimed with no lane yet.",
                   "status": "active",
                   "title": "Claimed with no lane yet",
@@ -2460,7 +2480,7 @@
             }
           ],
           "plan": {
-            "id": "generated-48",
+            "id": "generated-49",
             "status": "active",
             "title": "Claimed with no lane yet"
           },
@@ -2498,7 +2518,7 @@
                   ],
                   "digest": "sha256:2e90fd21aff88e1e3ac641d942c9f13e83add15778d5c744d7d0b6973b302335",
                   "id": "generated-9",
-                  "plan_id": "generated-49",
+                  "plan_id": "generated-50",
                   "statement": "Finished and waiting for a word.",
                   "status": "active",
                   "title": "Finished and waiting for a word",
@@ -2508,7 +2528,7 @@
             }
           ],
           "plan": {
-            "id": "generated-49",
+            "id": "generated-50",
             "status": "active",
             "title": "Finished and waiting for a word"
           },
@@ -2544,7 +2564,7 @@
                   ],
                   "digest": "sha256:eee7aea7070af4255bf210dbdd5652cdde0e4fadccf80753a4db72e22aee3881",
                   "id": "generated-25",
-                  "plan_id": "generated-50",
+                  "plan_id": "generated-51",
                   "statement": "Its worker went quiet.",
                   "status": "active",
                   "title": "Its worker went quiet",
@@ -2554,7 +2574,7 @@
             }
           ],
           "plan": {
-            "id": "generated-50",
+            "id": "generated-51",
             "status": "active",
             "title": "Its worker went quiet"
           },
@@ -2593,7 +2613,7 @@
                   ],
                   "digest": "sha256:5c6cd9831a2b19d0692001f8c0b190584382f0de39d25ab0b2072c4278947006",
                   "id": "generated-5",
-                  "plan_id": "generated-51",
+                  "plan_id": "generated-52",
                   "statement": "Out of attempts.",
                   "status": "active",
                   "title": "Out of attempts",
@@ -2603,7 +2623,7 @@
             }
           ],
           "plan": {
-            "id": "generated-51",
+            "id": "generated-52",
             "status": "active",
             "title": "Out of attempts"
           },
@@ -2629,7 +2649,7 @@
         {
           "contracts": [
             {
-              "id": "generated-26",
+              "id": "generated-27",
               "versions": [
                 {
                   "criteria": [
@@ -2639,8 +2659,8 @@
                     }
                   ],
                   "digest": "sha256:fc6bf81463ed696c78148d45c0876fb786f2ff4958952d8f0714f804791b301f",
-                  "id": "generated-26",
-                  "plan_id": "generated-52",
+                  "id": "generated-27",
+                  "plan_id": "generated-53",
                   "statement": "Parked until a person says go.",
                   "status": "active",
                   "title": "Parked until a person says go",
@@ -2650,14 +2670,14 @@
             }
           ],
           "plan": {
-            "id": "generated-52",
+            "id": "generated-53",
             "status": "active",
             "title": "Parked until a person says go"
           },
           "reviews": [],
           "work_orders": [
             {
-              "contract_id": "generated-26",
+              "contract_id": "generated-27",
               "contract_version": 1,
               "fence": 2,
               "id": "wo-parked",
@@ -2675,7 +2695,7 @@
         {
           "contracts": [
             {
-              "id": "generated-53",
+              "id": "generated-54",
               "versions": [
                 {
                   "criteria": [
@@ -2685,8 +2705,8 @@
                     }
                   ],
                   "digest": "sha256:c18a99451d22c5ade388a55d3f4ca7828d407428974800e0a892b4310beed17b",
-                  "id": "generated-53",
-                  "plan_id": "generated-54",
+                  "id": "generated-54",
+                  "plan_id": "generated-55",
                   "statement": "Ready for a worker.",
                   "status": "active",
                   "title": "Ready for a worker",
@@ -2696,14 +2716,14 @@
             }
           ],
           "plan": {
-            "id": "generated-54",
+            "id": "generated-55",
             "status": "active",
             "title": "Ready for a worker"
           },
           "reviews": [],
           "work_orders": [
             {
-              "contract_id": "generated-53",
+              "contract_id": "generated-54",
               "contract_version": 1,
               "id": "wo-ready",
               "kind": "change",
@@ -2719,7 +2739,7 @@
         {
           "contracts": [
             {
-              "id": "generated-55",
+              "id": "generated-56",
               "versions": [
                 {
                   "criteria": [
@@ -2729,8 +2749,8 @@
                     }
                   ],
                   "digest": "sha256:9b27fe8b11e71debc99beaf1c8f9ea0120a46b29b1f626e04daaf896c7a071d2",
-                  "id": "generated-55",
-                  "plan_id": "generated-56",
+                  "id": "generated-56",
+                  "plan_id": "generated-57",
                   "statement": "Sent back to planning.",
                   "status": "active",
                   "title": "Sent back to planning",
@@ -2740,14 +2760,14 @@
             }
           ],
           "plan": {
-            "id": "generated-56",
+            "id": "generated-57",
             "status": "active",
             "title": "Sent back to planning"
           },
           "reviews": [],
           "work_orders": [
             {
-              "contract_id": "generated-55",
+              "contract_id": "generated-56",
               "contract_version": 1,
               "id": "wo-planning",
               "kind": "change",
@@ -2762,7 +2782,7 @@
         {
           "contracts": [
             {
-              "id": "generated-28",
+              "id": "generated-29",
               "versions": [
                 {
                   "criteria": [
@@ -2772,8 +2792,8 @@
                     }
                   ],
                   "digest": "sha256:3b96fc2dd7684eccec73436c0646de3493299f745d04e8c4bb0537b006c419d0",
-                  "id": "generated-28",
-                  "plan_id": "generated-57",
+                  "id": "generated-29",
+                  "plan_id": "generated-58",
                   "statement": "Stopped by a lane.",
                   "status": "active",
                   "title": "Stopped by a lane",
@@ -2783,14 +2803,14 @@
             }
           ],
           "plan": {
-            "id": "generated-57",
+            "id": "generated-58",
             "status": "active",
             "title": "Stopped by a lane"
           },
           "reviews": [],
           "work_orders": [
             {
-              "contract_id": "generated-28",
+              "contract_id": "generated-29",
               "contract_version": 1,
               "fence": 2,
               "id": "wo-blocked",
@@ -2808,7 +2828,7 @@
         {
           "contracts": [
             {
-              "id": "generated-58",
+              "id": "generated-26",
               "versions": [
                 {
                   "criteria": [
@@ -2818,7 +2838,7 @@
                     }
                   ],
                   "digest": "sha256:28738c2a6f8a01ecc52d442494686ae94af991c9bb185ff9c493c88052d43ceb",
-                  "id": "generated-58",
+                  "id": "generated-26",
                   "plan_id": "generated-59",
                   "statement": "Waiting for a contract review.",
                   "status": "active",
@@ -2836,7 +2856,7 @@
           "reviews": [],
           "work_orders": [
             {
-              "contract_id": "generated-58",
+              "contract_id": "generated-26",
               "contract_version": 1,
               "id": "wo-contract_review",
               "kind": "change",
@@ -2896,7 +2916,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-30",
+                "id": "generated-31",
                 "status": "active",
                 "title": "A lane in backoff"
               },
@@ -2920,7 +2940,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-31",
+                "id": "generated-32",
                 "status": "active",
                 "title": "A lane in briefing"
               },
@@ -2944,7 +2964,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-32",
+                "id": "generated-33",
                 "status": "active",
                 "title": "A lane in compacting"
               },
@@ -2968,7 +2988,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-33",
+                "id": "generated-34",
                 "status": "active",
                 "title": "A lane in ended"
               },
@@ -2992,7 +3012,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-34",
+                "id": "generated-35",
                 "status": "active",
                 "title": "A lane in handing_off"
               },
@@ -3016,7 +3036,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-35",
+                "id": "generated-36",
                 "status": "active",
                 "title": "A lane in idle"
               },
@@ -3040,7 +3060,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-36",
+                "id": "generated-37",
                 "status": "active",
                 "title": "A lane in needs_decision"
               },
@@ -3064,7 +3084,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-37",
+                "id": "generated-38",
                 "status": "active",
                 "title": "A lane in parked"
               },
@@ -3088,7 +3108,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-38",
+                "id": "generated-39",
                 "status": "active",
                 "title": "A lane in parking"
               },
@@ -3112,7 +3132,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-39",
+                "id": "generated-40",
                 "status": "active",
                 "title": "A lane in pending"
               },
@@ -3136,7 +3156,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-40",
+                "id": "generated-41",
                 "status": "active",
                 "title": "A lane in provisioning"
               },
@@ -3160,7 +3180,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-41",
+                "id": "generated-42",
                 "status": "active",
                 "title": "A lane in retiring"
               },
@@ -3184,7 +3204,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-42",
+                "id": "generated-43",
                 "status": "active",
                 "title": "A lane in starting"
               },
@@ -3208,7 +3228,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-43",
+                "id": "generated-44",
                 "status": "active",
                 "title": "A lane in tripped"
               },
@@ -3232,7 +3252,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-44",
+                "id": "generated-45",
                 "status": "active",
                 "title": "A lane in working"
               },
@@ -3256,7 +3276,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-45",
+                "id": "generated-46",
                 "status": "active",
                 "title": "A lane works on this"
               },
@@ -3278,7 +3298,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-46",
+                "id": "generated-47",
                 "status": "active",
                 "title": "Accepted by a member"
               },
@@ -3300,7 +3320,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-47",
+                "id": "generated-48",
                 "status": "active",
                 "title": "Called off"
               },
@@ -3324,7 +3344,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-48",
+                "id": "generated-49",
                 "status": "active",
                 "title": "Claimed with no lane yet"
               },
@@ -3348,7 +3368,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-49",
+                "id": "generated-50",
                 "status": "active",
                 "title": "Finished and waiting for a word"
               },
@@ -3372,7 +3392,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-50",
+                "id": "generated-51",
                 "status": "active",
                 "title": "Its worker went quiet"
               },
@@ -3396,7 +3416,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-51",
+                "id": "generated-52",
                 "status": "active",
                 "title": "Out of attempts"
               },
@@ -3420,7 +3440,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-52",
+                "id": "generated-53",
                 "status": "active",
                 "title": "Parked until a person says go"
               },
@@ -3444,7 +3464,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-54",
+                "id": "generated-55",
                 "status": "active",
                 "title": "Ready for a worker"
               },
@@ -3468,7 +3488,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-56",
+                "id": "generated-57",
                 "status": "active",
                 "title": "Sent back to planning"
               },
@@ -3492,7 +3512,7 @@
               ],
               "milestones": [],
               "plan": {
-                "id": "generated-57",
+                "id": "generated-58",
                 "status": "active",
                 "title": "Stopped by a lane"
               },
@@ -3959,7 +3979,7 @@
               "created_at": 1790000068001,
               "digest": "abc123",
               "fence": 2,
-              "id": "generated-27",
+              "id": "generated-28",
               "kind": "branch",
               "lane_id": "lane-wo-blocked",
               "uri": "lane/lane-wo-blocked"
@@ -4211,7 +4231,7 @@
                 "created_at": 1790000068001,
                 "digest": "abc123",
                 "fence": 2,
-                "id": "generated-27",
+                "id": "generated-28",
                 "kind": "branch",
                 "lane_id": "lane-wo-blocked",
                 "uri": "lane/lane-wo-blocked"
@@ -4241,7 +4261,7 @@
           "reason": "blocked",
           "since": 1790000068001,
           "work_order": {
-            "contract_id": "generated-28",
+            "contract_id": "generated-29",
             "contract_version": 1,
             "fence": 2,
             "id": "wo-blocked",
