@@ -629,6 +629,52 @@ describe("operations", () => {
     expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toBe("Interruptions1 batch of questions, 0 approvals, 0 forced actions");
   });
 
+  it("shows review agreement for each repository beside the merge authority in words", async () => {
+    serving<Operations>("operations", (view) => {
+      const period = (decisions: number, agreed: number, disagreed: number, overturned: number, later: number, overrode: number) => ({
+        decisions,
+        agreed,
+        disagreed,
+        unknown: decisions - agreed - disagreed,
+        agreement_rate: { numerator: agreed, denominator: agreed + disagreed, value: agreed + disagreed ? agreed / (agreed + disagreed) : null },
+        approvals_overturned: overturned,
+        later_defects: later,
+        failures_overridden: overrode,
+      });
+      view.measures.review_agreement = {
+        workspace: { last_30_days: period(8, 4, 3, 2, 1, 1), all_time: period(10, 5, 4, 3, 1, 1) },
+        repositories: [
+          { repository_id: "repository-1", merge_authority: "person_approves", last_30_days: period(8, 4, 3, 2, 1, 1), all_time: period(10, 5, 4, 3, 1, 1) },
+          { repository_id: "repository-2", merge_authority: "review_approves", last_30_days: period(0, 0, 0, 0, 0, 0), all_time: period(0, 0, 0, 0, 0, 0) },
+        ],
+      };
+    });
+    openPage("/operations");
+    const section = await screen.findByRole("region", { name: "Review agreement" });
+    const first = within(section).getByRole("group", { name: "Review agreement for repository-1" });
+    expect(first.textContent).toContain("Merge authority: person approves, you approve each change and ropeshift lands it");
+    expect(within(first).getByText("Decisions after a review").closest("div")?.textContent).toContain("8 in the last 30 days, 10 over all time");
+    expect(within(first).getByText("You agreed with the review").closest("div")?.textContent).toContain("57.1% (4 of 7) in the last 30 days, 55.6% (5 of 9) over all time");
+    expect(within(first).getByText("Approvals you overturned").closest("div")?.textContent).toContain(
+      "2 in the last 30 days (1 of them a later defect), 3 over all time (1 of them a later defect)",
+    );
+    expect(within(first).getByText("Failures you overrode").closest("div")?.textContent).toContain("1 in the last 30 days, 1 over all time");
+    const second = within(section).getByRole("group", { name: "Review agreement for repository-2" });
+    expect(second.textContent).toContain("Merge authority: review approves, the review's approval stands for yours once every criterion passed");
+    expect(second.textContent).toContain("No decision after a review yet");
+    expect(within(section).getByRole("group", { name: "Review agreement for the whole workspace" }).textContent).toContain("10 over all time");
+  });
+
+  it("reads review agreement from the ledger's own fixture", async () => {
+    serveViews();
+    openPage("/operations");
+    const section = await screen.findByRole("region", { name: "Review agreement" });
+    const repository = within(section).getByRole("group", { name: "Review agreement for repository-1" });
+    expect(repository.textContent).toContain("Merge authority: person approves");
+    expect(within(repository).getByText("Decisions after a review").closest("div")?.textContent).toContain("1 in the last 30 days, 1 over all time");
+    expect(within(repository).getByText("You agreed with the review").closest("div")?.textContent).toContain("100% (1 of 1)");
+  });
+
   it("states cost as a lower bound when some of it went unreported", async () => {
     serving<Operations>("operations", (view) => {
       view.measures.cost_per_outcome = { change: { total_usd: 3, done: 2, per_done_usd: 1.5, lower_bound: true } };
