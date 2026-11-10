@@ -530,6 +530,8 @@ type PlanningReader interface {
 	// LatestPlanVersion returns a plan's newest version, or ErrNotFound for a plan recorded before
 	// plans had versions.
 	LatestPlanVersion(plan string) (planning.PlanVersion, error)
+	// PlanVersion returns one version of a plan, or ErrNotFound.
+	PlanVersion(plan string, version int64) (planning.PlanVersion, error)
 	// PlanVersions returns every version of every plan, by plan and then by version.
 	PlanVersions() ([]planning.PlanVersion, error)
 	// Link returns the record of one external key, or ErrNotFound.

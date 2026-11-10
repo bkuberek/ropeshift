@@ -22,6 +22,9 @@ import (
 type batchRefs struct {
 	milestones map[string]string
 	contracts  map[string]batchContract
+	// plans are the plan files this batch changed, by the plan's ID in the ledger, which the end of the
+	// batch gives a plan version.
+	plans map[string]planFileRead
 }
 
 type batchContract struct {
@@ -30,7 +33,7 @@ type batchContract struct {
 }
 
 func refsOf(batch ports.ChangeBatch) *batchRefs {
-	refs := &batchRefs{milestones: map[string]string{}, contracts: map[string]batchContract{}}
+	refs := &batchRefs{milestones: map[string]string{}, contracts: map[string]batchContract{}, plans: map[string]planFileRead{}}
 	for _, item := range batch.Records {
 		if file := item.File.Milestone; file != nil {
 			refs.milestones[file.ID] = file.Plan

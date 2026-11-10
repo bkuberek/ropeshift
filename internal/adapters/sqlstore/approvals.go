@@ -12,16 +12,16 @@ import (
 
 const approvalColumns = `id, lane_id, work_order_id, generation, kind, subject, subject_digest, input, command, path, summary,
        requested_by, state, decided_by, decided_kind, decided_digest, decided_at, reason, policy_version, raised_at, expires_at,
-       channel, used_by`
+       channel, used_by, plan_id, plan_version, detail`
 
 var (
 	stmtInsertApproval = define("approval.insert",
 		`INSERT INTO approval_requests
   (workspace_id, id, lane_id, work_order_id, generation, kind, subject, subject_digest, input, command, path, summary,
-   requested_by, state, reason, policy_version, raised_at, expires_at, channel, used_by)
+   requested_by, state, reason, policy_version, raised_at, expires_at, channel, used_by, plan_id, plan_version, detail)
 VALUES
   (:workspace_id, :id, :lane_id, :work_order_id, :generation, :kind, :subject, :subject_digest, :input, :command, :path, :summary,
-   :requested_by, :state, :reason, :policy_version, :raised_at, :expires_at, :channel, :used_by)
+   :requested_by, :state, :reason, :policy_version, :raised_at, :expires_at, :channel, :used_by, :plan_id, :plan_version, :detail)
 ON CONFLICT (workspace_id, id) DO NOTHING`)
 
 	stmtApproval = define("approval.get",
@@ -62,11 +62,13 @@ func (t approvalTx) scoped(p params) params {
 func scanApproval(row scanner) (authority.Approval, error) {
 	var a authority.Approval
 	var state string
-	var decidedBy, decidedKind, decidedDigest sql.NullString
-	var decidedAt sql.NullInt64
-	err := row.Scan(&a.ID, &a.Lane, &a.WorkOrder, &a.Generation, &a.Kind, &a.Subject, &a.SubjectDigest, &a.Input, &a.Command, &a.Path,
+	var lane, workOrder, decidedBy, decidedKind, decidedDigest, plan sql.NullString
+	var generation, decidedAt, planVersion sql.NullInt64
+	err := row.Scan(&a.ID, &lane, &workOrder, &generation, &a.Kind, &a.Subject, &a.SubjectDigest, &a.Input, &a.Command, &a.Path,
 		&a.Summary, &a.RequestedBy, &state, &decidedBy, &decidedKind, &decidedDigest, &decidedAt, &a.Reason, &a.PolicyVersion,
-		&a.RaisedAt, &a.ExpiresAt, &a.Channel, &a.UsedBy)
+		&a.RaisedAt, &a.ExpiresAt, &a.Channel, &a.UsedBy, &plan, &planVersion, &a.Detail)
+	a.Lane, a.WorkOrder, a.Generation = lane.String, workOrder.String, generation.Int64
+	a.Plan, a.PlanVersion = plan.String, planVersion.Int64
 	a.State, a.DecidedBy, a.DecidedKind = authority.ApprovalState(state), decidedBy.String, decidedKind.String
 	a.DecidedDigest, a.DecidedAt = decidedDigest.String, decidedAt.Int64
 	return a, err
@@ -131,11 +133,19 @@ func (t approvalTx) Due(now int64) ([]string, error) {
 }
 
 func (t approvalTx) Insert(a authority.Approval) (bool, error) {
+	// A plan approval belongs to a plan and not to a lane, and the table holds no empty lane for any
+	// other kind, so the lane, the work order, and the generation are empty only for that kind.
+	var generation sql.NullInt64
+	if a.Kind != authority.KindPlan {
+		generation = sql.NullInt64{Int64: a.Generation, Valid: true}
+	}
+	planVersion := sql.NullInt64{Int64: a.PlanVersion, Valid: a.PlanVersion != 0}
 	n, err := t.exec(stmtInsertApproval, t.scoped(params{
-		"id": a.ID, "lane_id": a.Lane, "work_order_id": a.WorkOrder, "generation": a.Generation, "kind": a.Kind, "subject": a.Subject,
+		"id": a.ID, "lane_id": nullText(a.Lane), "work_order_id": nullText(a.WorkOrder), "generation": generation, "kind": a.Kind, "subject": a.Subject,
 		"subject_digest": a.SubjectDigest, "input": a.Input, "command": a.Command, "path": a.Path, "summary": a.Summary,
 		"requested_by": a.RequestedBy, "state": string(a.State), "reason": a.Reason, "policy_version": a.PolicyVersion,
 		"raised_at": a.RaisedAt, "expires_at": a.ExpiresAt, "channel": a.Channel, "used_by": a.UsedBy,
+		"plan_id": nullText(a.Plan), "plan_version": planVersion, "detail": a.Detail,
 	}))
 	return n > 0, err
 }

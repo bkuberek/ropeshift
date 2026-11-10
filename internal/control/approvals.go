@@ -279,7 +279,9 @@ func expireApprovals(tx ports.WriteTx, workOrder string) error {
 }
 
 func expireApproval(tx ports.WriteTx, row authority.Approval) error {
-	if !row.Live() {
+	// A plan approval waits for a member and not for a session, so nothing returns to a lane when its
+	// work order ends, and no time runs out on it.
+	if !row.Live() || row.Kind == authority.KindPlan {
 		return nil
 	}
 	next := row

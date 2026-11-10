@@ -271,7 +271,7 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 		return err
 	}
 	crashpoint.Hit("intake.plan", "polled")
-	report, err := i.record(ctx, scope, source, batch)
+	report, err := i.record(ctx, scope, source, batch, planOrigin{workOrder: plan.order.ID})
 	if err != nil {
 		return err
 	}
