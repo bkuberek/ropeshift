@@ -31,6 +31,8 @@ var MilestoneChecks = []Check{
 	{"ML13", "a work order waits for the work its milestone and its shared contracts depend on", checkReadyWaitsForDerivedEdges},
 	{"ML14", "a changed plan removes the derived dependencies it no longer implies and keeps the written ones", checkEdgesFollowThePlan},
 	{"ML15", "a poll that changes nothing writes nothing, even when the source moved", checkEdgesAreQuiet},
+	{"ML16", "ready work that gains a dependency goes back to review, and started work is left alone", checkReadyWorkGainingADependency},
+	{"ML17", "ready work stays ready when the work it gains a dependency on is done", checkReadyWorkKeepsADoneDependency},
 }
 
 const milestonePlan = "launch"
@@ -582,20 +584,26 @@ func checkDerivedAndWrittenEdgesCoexist(r *Rig) error {
 	return r.CheckPlanning(s)
 }
 
-// forceDone puts a work order in `done` the way a finished one would stand, with an event for the move.
-func (r *Rig) forceDone(s ports.Store, id string) error {
+// forceState puts a work order in a state the way a finished or started one would stand, with an event
+// for the move.
+func (r *Rig) forceState(s ports.Store, id string, to workorders.State) error {
 	return s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
 		current, err := tx.WorkOrders().Get(id)
 		if err != nil {
 			return err
 		}
-		moved, err := tx.WorkOrders().Move(id, current.State, workorders.Done)
+		moved, err := tx.WorkOrders().Move(id, current.State, to)
 		if err != nil || !moved {
-			return Violatedf("%s did not move to done (%v)", id, err)
+			return Violatedf("%s did not move to %s (%v)", id, to, err)
 		}
-		_, err = tx.Append(r.noteDraft(r.ID("done")))
+		_, err = tx.Append(r.noteDraft(r.ID("move")))
 		return err
 	})
+}
+
+// forceDone puts a work order in `done`.
+func (r *Rig) forceDone(s ports.Store, id string) error {
+	return r.forceState(s, id, workorders.Done)
 }
 
 func (r *Rig) reviewTitled(s ports.Store, title string) (control.ReviewResult, error) {
@@ -750,4 +758,107 @@ func checkEdgesAreQuiet(r *Rig) error {
 		return Violatedf("a poll that found nothing new moved the revision from %d to %d: %+v", before, after, second)
 	}
 	return r.CheckRevisions(s, r.Scope)
+}
+
+// twoMilestones writes a plan whose second milestone waits for the first only when it is told to.
+func twoMilestones(source *fake.WorkSource, secondWaits bool) {
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	if secondWaits {
+		source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	} else {
+		source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2)))
+	}
+	source.Write("a.md", []byte(placedContract{ID: "a", Plan: milestonePlan, Milestone: "m1", Orders: []orderIn{{ID: "a1"}}}.text()))
+	source.Write("c.md", []byte(placedContract{ID: "c", Plan: milestonePlan, Milestone: "m2", Orders: []orderIn{{ID: "c1"}, {ID: "c2"}}}.text()))
+}
+
+func (r *Rig) stateOfTitled(s ports.Store, title string) (workorders.WorkOrder, error) {
+	return r.orderByTitle(s, "The work order "+title)
+}
+
+func checkReadyWorkGainingADependency(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	twoMilestones(source, false)
+	if report, err := r.intake(s, source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("report %+v: %v", report, err)
+	}
+	for _, title := range []string{"The work order c1", "The work order c2"} {
+		if result, err := r.reviewTitled(s, title); err != nil || result.State != workorders.Ready {
+			return Violatedf("%s: %+v: %v", title, result, err)
+		}
+	}
+	// One of them is claimed and running by the time the plan changes.
+	running, err := r.stateOfTitled(s, "c2")
+	if err != nil {
+		return err
+	}
+	if err := r.forceState(s, running.ID, workorders.Running); err != nil {
+		return err
+	}
+	twoMilestones(source, true)
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Edges != 2 {
+		return Violatedf("report %+v", report)
+	}
+	held, err := r.stateOfTitled(s, "c1")
+	if err != nil {
+		return err
+	}
+	if held.State != workorders.ContractReview || held.ReviewedBy == "" {
+		return Violatedf("c1 gained a dependency on work that is not done and is in %s, reviewed by %q", held.State, held.ReviewedBy)
+	}
+	if started, err := r.stateOfTitled(s, "c2"); err != nil || started.State != workorders.Running {
+		return Violatedf("c2 was running and is %+v: %v", started, err)
+	}
+	// The review stays: the work returns to ready when the work it waits for is done, with no new review.
+	if moved, err := r.NewOps(s).Promote(r.Ctx, r.Scope, r.Actor); err != nil || len(moved) != 0 {
+		return Violatedf("work moved to ready while it waits: %v: %v", moved, err)
+	}
+	first, err := r.stateOfTitled(s, "a1")
+	if err != nil {
+		return err
+	}
+	if err := r.forceDone(s, first.ID); err != nil {
+		return err
+	}
+	if moved, err := r.NewOps(s).Promote(r.Ctx, r.Scope, r.Actor); err != nil || !slices.Equal(moved, []string{held.ID}) {
+		return Violatedf("after its dependency is done %v moved: %v", moved, err)
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkReadyWorkKeepsADoneDependency(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	twoMilestones(source, false)
+	if report, err := r.intake(s, source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("report %+v: %v", report, err)
+	}
+	first, err := r.stateOfTitled(s, "a1")
+	if err != nil {
+		return err
+	}
+	if err := r.forceDone(s, first.ID); err != nil {
+		return err
+	}
+	if result, err := r.reviewTitled(s, "The work order c1"); err != nil || result.State != workorders.Ready {
+		return Violatedf("c1: %+v: %v", result, err)
+	}
+	twoMilestones(source, true)
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if report.Edges == 0 {
+		return Violatedf("report %+v", report)
+	}
+	if kept, err := r.stateOfTitled(s, "c1"); err != nil || kept.State != workorders.Ready {
+		return Violatedf("c1 gained a dependency on work that is done and is %+v: %v", kept, err)
+	}
+	return r.CheckPlanning(s)
 }

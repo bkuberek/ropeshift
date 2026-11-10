@@ -306,6 +306,9 @@ func (i *Intake) reconcileEdges(ctx context.Context, scope ledger.WorkspaceID) (
 					return err
 				}
 			}
+			if err := holdBackReadyWork(tx, add); err != nil {
+				return err
+			}
 			changed += len(add) + len(remove)
 			return nil
 		})
@@ -314,6 +317,33 @@ func (i *Intake) reconcileEdges(ctx context.Context, scope ledger.WorkspaceID) (
 		}
 	}
 	return changed, nil
+}
+
+// holdBackReadyWork sends work that was `ready` back to `contract_review` when it gained a dependency
+// on work that is not done, because the definition of ready runs only on the way into `ready`. The
+// review stays, so the work returns to `ready` on its own once what it waits for is done. Work that is
+// claimed, running, or past that is left alone, because it started under the plan it read.
+func holdBackReadyWork(tx ports.WriteTx, gained []planning.Dependency) error {
+	for _, edge := range gained {
+		fact, err := dependencyFact(tx.Planning(), tx.WorkOrders(), edge)
+		if err != nil {
+			return err
+		}
+		if !fact.Blocking || (fact.Known && fact.State == workorders.Done) {
+			continue
+		}
+		current, err := tx.WorkOrders().Get(edge.WorkOrder)
+		if err != nil {
+			return err
+		}
+		if current.State != workorders.Ready {
+			continue
+		}
+		if err := takeEdge(tx, current.ID, workorders.TriggerBackToReview, intakeActor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // removedDependency takes away a derived dependency the plan no longer implies.
