@@ -189,6 +189,24 @@ type DesiredLease struct {
 	Kind string `json:"kind,omitempty"`
 	// Review is what a `contract_review` lane reads.
 	Review *DesiredReview `json:"review,omitempty"`
+	// Attempt is the work a `review` lane judges.
+	Attempt *DesiredAttempt `json:"attempt,omitempty"`
+}
+
+// DesiredAttempt is the work a `review` lane judges: one attempt of another work order, at the commit its
+// lane ended on. The review's own BaseRef and BaseCommit are that branch and commit, so its worktree
+// starts there, and the diff it reads begins at the commit that attempt's lane began from.
+type DesiredAttempt struct {
+	// WorkOrder and Title name the work order under review.
+	WorkOrder string `json:"work_order"`
+	Title     string `json:"title,omitempty"`
+	// Branch is the branch that attempt left, and Commit its head: the commit under review.
+	Branch string `json:"branch"`
+	Commit string `json:"commit"`
+	// BaseRef and BaseCommit are where that attempt's lane began its branch. Empty when none was recorded,
+	// and then there is no diff to read.
+	BaseRef    string `json:"base_ref,omitempty"`
+	BaseCommit string `json:"base_commit,omitempty"`
 }
 
 // DesiredReview is a plan as a review lane reads it, at the contract versions its review covers.

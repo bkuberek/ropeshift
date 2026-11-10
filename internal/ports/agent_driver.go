@@ -134,6 +134,10 @@ type SessionSpec struct {
 	TempDir string
 	// RunMode is RunModeHeadless or RunModeInteractive. Empty means headless.
 	RunMode string
+	// ReadOnly says the session reads and reports: it holds no rule that lets it stage or commit, it may
+	// not edit a file with a tool, and it may not commit, push, or move a branch or a tag. A review lane's
+	// session is one.
+	ReadOnly bool
 	// Planning says the lane runs a `plan` work order, whose person answers its questions in the
 	// conversation. A driver leaves the agent's own question tool to an attached terminal for it.
 	Planning bool

@@ -349,3 +349,59 @@ func TestWrittenPolicyGuardsTheWorktreeAndTheBranches(t *testing.T) {
 		t.Error("a write inside was denied")
 	}
 }
+
+// A review lane has no commit rule, so a commit prompts, and a prompt on a lane with nobody there is a
+// wait nobody answers. The deny rules answer it first: no editing tool, and no command that writes a
+// commit or a ref, in the settings the CLI enforces and in the policy a hook reads.
+func TestAReadOnlySessionHoldsNoCommitRuleAndDeniesEveryWrite(t *testing.T) {
+	spec := policySpec(t)
+	spec.Tools, spec.ReadOnly = []string{"lane_report"}, true
+	permissions := generateSettings(spec).Permissions
+	if !slices.Contains(permissions.Allow, "mcp__ropeshift__lane_report") {
+		t.Errorf("a review lane lost its own tool: %v", permissions.Allow)
+	}
+	for _, rule := range permissions.Allow {
+		if strings.Contains(rule, "git") {
+			t.Errorf("a review lane may run with no prompt: %s", rule)
+		}
+	}
+	for _, tool := range []string{"Write", "Edit", "MultiEdit", "NotebookEdit"} {
+		if !slices.Contains(permissions.Deny, tool) {
+			t.Errorf("%s is not denied: %v", tool, permissions.Deny)
+		}
+	}
+	for _, rule := range []string{"Bash(git commit*)", "Bash(git push*)", "Bash(git branch*)", "Bash(git tag*)", "Bash(git update-ref*)", "Bash(git checkout*)"} {
+		if !slices.Contains(permissions.Deny, rule) {
+			t.Errorf("%s is not denied: %v", rule, permissions.Deny)
+		}
+	}
+	policy := compilePolicy(spec)
+	for _, command := range []string{"git commit -m x", "git branch review", "git push origin HEAD:refs/heads/review"} {
+		if reason, denied := policy.Decide(lanes.ToolCall{Tool: lanes.ToolBash, Command: command, Cwd: spec.Dir}); !denied || reason != lanes.ReasonReadOnly {
+			t.Errorf("%q: denied %v with %q", command, denied, reason)
+		}
+	}
+	if reason, denied := policy.Decide(lanes.ToolCall{Tool: "Write", Path: filepath.Join(spec.Dir, "a.go"), Cwd: spec.Dir}); !denied || reason != lanes.ReasonReadOnly {
+		t.Errorf("a write: denied %v with %q", denied, reason)
+	}
+	if reason, denied := policy.Decide(lanes.ToolCall{Tool: lanes.ToolBash, Command: "git log --oneline && git diff HEAD~1", Cwd: spec.Dir}); denied {
+		t.Errorf("a read was denied: %s", reason)
+	}
+}
+
+// Every other session keeps what it had: the commit rules, and no blanket denial of editing.
+func TestASessionThatWritesIsNotReadOnly(t *testing.T) {
+	spec := policySpec(t)
+	permissions := generateSettings(spec).Permissions
+	for _, tool := range []string{"Write", "Edit", "MultiEdit", "NotebookEdit", "Bash(git commit*)", "Bash(git branch*)"} {
+		if slices.Contains(permissions.Deny, tool) {
+			t.Errorf("a writing session denies %s", tool)
+		}
+	}
+	if !runsWithNoPrompt(permissions.Allow, "git commit -m plan") {
+		t.Errorf("a writing session lost its commit rule: %v", permissions.Allow)
+	}
+	if reason, denied := compilePolicy(spec).Decide(lanes.ToolCall{Tool: lanes.ToolBash, Command: "git commit -m x", Cwd: spec.Dir}); denied {
+		t.Errorf("a writing session's commit was denied: %s", reason)
+	}
+}

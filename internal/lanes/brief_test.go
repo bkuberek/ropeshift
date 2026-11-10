@@ -86,3 +86,51 @@ func TestAChangeIsToldNeither(t *testing.T) {
 		}
 	}
 }
+
+func reviewedAttempt() *ledger.DesiredAttempt {
+	return &ledger.DesiredAttempt{
+		WorkOrder: "wo-1", Title: "Add the retry budget", Branch: "lane/lane-1", Commit: "c0ffee0000000000000000000000000000000001",
+		BaseRef: "origin/main", BaseCommit: "ba5e000000000000000000000000000000000002",
+	}
+}
+
+// A review lane is told what it judges, that it may change nothing, where the diff is, and how to
+// report: one check for each criterion.
+func TestAReviewBriefSaysWhatIsJudgedAndWhatIsForbidden(t *testing.T) {
+	brief := Brief(BriefSpec{
+		WorkOrder: "rv-1", Title: "Review: Add the retry budget", Statement: "Retry twice.", Criteria: []string{"c1: It retries.", "c2: It logs."},
+		Pack: true, Kind: workorders.KindReview, Attempt: reviewedAttempt(),
+	})
+	for _, want := range []string{
+		"work order wo-1", "Add the retry budget", "c0ffee0000000000000000000000000000000001", "lane/lane-1",
+		"ba5e000000000000000000000000000000000002", "origin/main", "You did not write it",
+		"may not edit a file with a tool, commit, push, or move a branch", ReviewDiffFile, ReviewFilesFile,
+		"c1: It retries.", "c2: It logs.", "requirements and documents the contract cites", "information and not evidence",
+		"one check for each criterion", ToolLaneReport, "criterion field",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief leaves out %q:\n%s", want, brief)
+		}
+	}
+}
+
+// A review of work that recorded no base has no diff, and the brief says so and sends the reviewer to
+// the history instead of naming a file that holds nothing.
+func TestAReviewBriefWithNoRecordedBaseHasNoDiff(t *testing.T) {
+	attempt := reviewedAttempt()
+	attempt.BaseRef, attempt.BaseCommit = "", ""
+	brief := Brief(BriefSpec{WorkOrder: "rv-1", Title: "Review", Kind: workorders.KindReview, Attempt: attempt})
+	if !strings.Contains(brief, "recorded no base") || !strings.Contains(brief, "git log") || strings.Contains(brief, ReviewFilesFile) {
+		t.Errorf("the brief reads:\n%s", brief)
+	}
+}
+
+// Every other lane reads as it always has.
+func TestAChangeIsNotToldItReviews(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Change it", Kind: workorders.KindChange})
+	for _, absent := range []string{"This is a review", ReviewDiffFile, "you may not edit"} {
+		if strings.Contains(brief, absent) {
+			t.Errorf("a change's brief says %q", absent)
+		}
+	}
+}

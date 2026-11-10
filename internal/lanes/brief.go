@@ -18,6 +18,13 @@ const Nudge = "You ended your turn with no outcome. Call the " + ToolLaneReport 
 // PackFile is where a pack sits in a worktree, in a directory git does not see.
 const PackFile = ".ropeshift/context/pack.md"
 
+// ReviewDiffFile and ReviewFilesFile sit beside the pack in a review lane's worktree: what the reviewed
+// lane changed, as a patch, and the paths it touches, one to a line.
+const (
+	ReviewDiffFile  = ".ropeshift/context/review.diff"
+	ReviewFilesFile = ".ropeshift/context/review-files.txt"
+)
+
 // BriefSpec is what a first prompt is built from.
 type BriefSpec struct {
 	WorkOrder string
@@ -34,8 +41,10 @@ type BriefSpec struct {
 	Facts []ledger.MessageFact
 	// Kind says what this work produces, which is what a planning or review lane is told to do.
 	Kind workorders.Kind
-	// Review is what a review lane reads.
+	// Review is what a contract review lane reads.
 	Review *ledger.DesiredReview
+	// Attempt is the work a review lane judges.
+	Attempt *ledger.DesiredAttempt
 }
 
 // planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
@@ -102,6 +111,37 @@ func writeReview(out *strings.Builder, review ledger.DesiredReview) {
 	}
 }
 
+// writeAttempt tells a review lane what it judges, that it may change nothing, and how it reports. The
+// lane judges against the criteria the brief states, and against the requirements and documents the
+// contract cites, which its pack holds. What the reviewed lane reported of itself is in the pack too, and
+// is said to be information, because a lane's account of its own work is not evidence of it.
+func writeAttempt(out *strings.Builder, attempt ledger.DesiredAttempt) {
+	out.WriteString("\nThis is a review. You are judging work order " + attempt.WorkOrder)
+	if title := strings.TrimSpace(attempt.Title); title != "" {
+		out.WriteString(", " + title)
+	}
+	fmt.Fprintf(out, ", which a lane finished at commit %s on branch %s.", attempt.Commit, attempt.Branch)
+	if attempt.BaseCommit != "" {
+		fmt.Fprintf(out, " That lane began at commit %s (%s).", attempt.BaseCommit, attempt.BaseRef)
+	}
+	out.WriteString(" You did not write it. Your worktree is a checkout of that commit with no branch, and you may not edit a file " +
+		"with a tool, commit, push, or move a branch: nothing you write there reaches the work, and the worktree is discarded when you finish.\n\n")
+	if attempt.BaseCommit != "" {
+		out.WriteString("What the lane changed is in " + ReviewDiffFile + ", and the files it touches are listed in " + ReviewFilesFile +
+			". Read the diff, then the code around it, and run what the repository offers to check it. ")
+	} else {
+		out.WriteString("The lane recorded no base, so there is no diff to read: read the branch with git log and git show, then the code, " +
+			"and run what the repository offers to check it. ")
+	}
+	out.WriteString("Judge each acceptance criterion above against what the change does and against the requirements and documents the " +
+		"contract cites, which your context pack holds. The pack also holds the checks the lane reported for itself. They are information and " +
+		"not evidence: they are what the lane says of its own work.\n\n" +
+		"Report through the " + ToolLaneReport + " tool once, with one check for each criterion: name the criterion's ID in the check's " +
+		"criterion field, and set passed to true only when the change meets it. Say why in the reason, with the files and lines, the " +
+		"requirement IDs, and the documents you rest on. Report completed when you judged every criterion, whatever you found, and blocked " +
+		"when you cannot judge them.\n")
+}
+
 // Brief is a lane's first prompt: the contract, where its context pack is, and how the lane ends.
 func Brief(spec BriefSpec) string {
 	var out strings.Builder
@@ -120,6 +160,9 @@ func Brief(spec BriefSpec) string {
 	}
 	if spec.Review != nil {
 		writeReview(&out, *spec.Review)
+	}
+	if spec.Attempt != nil {
+		writeAttempt(&out, *spec.Attempt)
 	}
 	if spec.Pack {
 		out.WriteString("\nYour system prompt holds this lane's context pack, which is also at " + PackFile + ". It is where you start " +
