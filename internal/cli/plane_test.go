@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net"
@@ -49,6 +50,7 @@ func (p *plane) serve(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	p.calls = append(p.calls, request{Method: r.Method, Path: r.URL.Path, Body: string(body)})
 	p.mu.Unlock()
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	p.mux.ServeHTTP(w, r)
 }
 
