@@ -128,7 +128,37 @@ export type Goal = { id: string; title: string; status: string; statement?: stri
 
 export type Plan = { id: string; goal_id?: string; title: string; status: string; source?: string };
 
-export type PlanProgress = { plan: Plan; total: number; done: number; states: Record<string, number> };
+export type ExitCriterion = { id: string; text: string };
+
+// A milestone's state comes from its work and the milestones it depends on.
+export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done";
+
+export type MilestoneProgress = {
+  id: string;
+  title: string;
+  priority: number;
+  depends_on: string[];
+  exit_criteria: ExitCriterion[];
+  total: number;
+  done: number;
+  state: MilestoneState;
+};
+
+export type CriticalPath = { work_orders: string[]; weight: number };
+
+export type PlannedWork = { id: string; title: string; state: string; size?: string; milestone?: string };
+
+// Layers group a plan's work orders by how much must come before each, so one layer's work can run at once.
+export type PlanProgress = {
+  plan: Plan;
+  total: number;
+  done: number;
+  states: Record<string, number>;
+  milestones: MilestoneProgress[];
+  layers: string[][];
+  critical_path: CriticalPath;
+  work: PlannedWork[];
+};
 
 export type GoalProgress = { goal?: Goal; plans: PlanProgress[] };
 

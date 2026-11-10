@@ -521,7 +521,7 @@ func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp)
 	for _, plan := range plans {
 		progress[plan.ID] = &api.PlanProgress{
 			Plan: plan, States: map[workorders.State]int64{}, Milestones: []api.MilestoneProgress{}, Layers: [][]string{},
-			CriticalPath: api.CriticalPath{WorkOrders: []string{}},
+			CriticalPath: api.CriticalPath{WorkOrders: []string{}}, Work: []api.PlannedWork{},
 		}
 	}
 	if err := layOutPlans(tx.Planning(), progress, contracts, orders); err != nil {
@@ -584,6 +584,11 @@ func layOutPlans(planned ports.PlanningReader, progress map[string]*api.PlanProg
 			return err
 		}
 		row.Layers, row.CriticalPath = layersOf(held, waits)
+		for _, order := range held {
+			row.Work = append(row.Work, api.PlannedWork{
+				ID: order.ID, Title: order.Title, State: order.State, Size: order.Size, Milestone: placed[order.ContractID].milestone,
+			})
+		}
 	}
 	return nil
 }

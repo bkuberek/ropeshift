@@ -585,6 +585,128 @@ progress::-moz-progress-bar {
   background: var(--marker);
 }
 
+/* A plan's map: its milestones in priority order, the work that can run at once, and the critical path. */
+.plan-map {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.plan-part {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.plan-part-title {
+  font-family: var(--display);
+  font-size: 1.1875rem;
+  font-variation-settings: "opsz" 72;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.milestones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.5rem;
+}
+
+.milestone {
+  display: grid;
+  align-content: start;
+  gap: 0.375rem;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  border-left: 0.3125rem solid var(--hemp);
+  background: var(--lane);
+}
+
+/* Work that waits on another milestone reads as a broken strand, so the state does not rest on color. */
+.milestone-waiting {
+  border-left-style: dashed;
+}
+
+.milestone-done {
+  border-left-color: var(--marker);
+}
+
+.milestone-title {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.layers {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.layer {
+  display: grid;
+  gap: 0.25rem 0.75rem;
+}
+
+@media (min-width: 40rem) {
+  .layer {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.layer-title {
+  padding-top: 0.375rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.layer-works {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.layer-work {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.375rem 0.625rem;
+  border-left: 0.1875rem solid var(--hemp);
+  background: var(--lane);
+}
+
+.layer-work-critical {
+  border-left: 0.3125rem solid var(--marker);
+  outline: 2px solid var(--marker);
+  outline-offset: -2px;
+}
+
+.layer-work-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.tag-critical {
+  color: var(--marker);
+  font-weight: 700;
+}
+
+.path {
+  display: grid;
+  gap: 0.25rem;
+  padding-left: 1.75rem;
+  list-style: decimal;
+}
+
+.path > li {
+  padding-left: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.path > li::marker {
+  color: var(--marker);
+  font-weight: 700;
+}
+
 .measures,
 .criteria {
   display: grid;

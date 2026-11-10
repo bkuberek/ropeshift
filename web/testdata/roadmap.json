@@ -97,7 +97,44 @@
             "done": 1,
             "ready": 1
           },
-          "total": 5
+          "total": 5,
+          "work": [
+            {
+              "id": "generated-4",
+              "milestone": "build",
+              "size": "large",
+              "state": "done",
+              "title": "Write the API client"
+            },
+            {
+              "id": "generated-2",
+              "milestone": "build",
+              "size": "medium",
+              "state": "contract_review",
+              "title": "Build the planning core"
+            },
+            {
+              "id": "generated-3",
+              "milestone": "ship",
+              "size": "small",
+              "state": "contract_review",
+              "title": "Build the approval page"
+            },
+            {
+              "id": "generated-5",
+              "milestone": "guide",
+              "size": "small",
+              "state": "ready",
+              "title": "Write the guide"
+            },
+            {
+              "id": "generated-6",
+              "milestone": "ship",
+              "size": "small",
+              "state": "contract_review",
+              "title": "Show the critical path"
+            }
+          ]
         }
       ]
     },
@@ -136,7 +173,15 @@
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-running",
+              "size": "unknown",
+              "state": "running",
+              "title": "Write the docs"
+            }
+          ]
         }
       ]
     },
@@ -164,7 +209,15 @@
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-effect",
+              "size": "unknown",
+              "state": "running",
+              "title": "Add the retry budget"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -188,7 +241,15 @@
           "states": {
             "contract_review": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-review",
+              "size": "unknown",
+              "state": "contract_review",
+              "title": "Document the retry budget"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -210,7 +271,15 @@
           "states": {
             "canceled": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-canceled",
+              "size": "unknown",
+              "state": "canceled",
+              "title": "Drop the old plan"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -234,7 +303,15 @@
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-tripped",
+              "size": "unknown",
+              "state": "running",
+              "title": "Fix the flaky test"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -258,7 +335,15 @@
           "states": {
             "blocked": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-blocked",
+              "size": "unknown",
+              "state": "blocked",
+              "title": "Move the archive"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -282,7 +367,15 @@
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-stalled",
+              "size": "unknown",
+              "state": "running",
+              "title": "Read the logs"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -306,7 +399,15 @@
           "states": {
             "lapsed": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-lapsed",
+              "size": "unknown",
+              "state": "lapsed",
+              "title": "Rotate the keys"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -328,7 +429,15 @@
           "states": {
             "done": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-done",
+              "size": "unknown",
+              "state": "done",
+              "title": "Ship the first cut"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -352,7 +461,15 @@
           "states": {
             "running": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-approval",
+              "size": "unknown",
+              "state": "running",
+              "title": "Tag the release"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -376,7 +493,15 @@
           "states": {
             "acceptance": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-accept",
+              "size": "unknown",
+              "state": "acceptance",
+              "title": "Trim the log"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -400,7 +525,15 @@
           "states": {
             "failed": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-failed",
+              "size": "unknown",
+              "state": "failed",
+              "title": "Try the impossible"
+            }
+          ]
         },
         {
           "critical_path": {
@@ -424,7 +557,15 @@
           "states": {
             "parked": 1
           },
-          "total": 1
+          "total": 1,
+          "work": [
+            {
+              "id": "wo-parked",
+              "size": "unknown",
+              "state": "parked",
+              "title": "Wait for the check"
+            }
+          ]
         }
       ]
     }

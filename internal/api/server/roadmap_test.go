@@ -269,3 +269,32 @@ func TestRoadmapWeighsCanceledWorkAsNothingAndFailedWorkAsItself(t *testing.T) {
 		t.Errorf("critical path with k1 canceled too %v of %d", got, path.Weight)
 	}
 }
+
+// A layer and the critical path name work orders by ID, which says nothing to a person, so the plan names
+// each work order it places: its title, state, size, and milestone.
+func TestRoadmapNamesEachWorkOrderItPlaces(t *testing.T) {
+	daemon := launchDaemon(t)
+	ids := idsByTitle(t, daemon)
+	plan := launchPlan(t, daemon)
+	byID := map[string]api.PlannedWork{}
+	for _, work := range plan.Work {
+		byID[work.ID] = work
+	}
+	if len(plan.Work) != plan.Total {
+		t.Errorf("the plan names %d work orders of %d: %+v", len(plan.Work), plan.Total, plan.Work)
+	}
+	for _, layer := range plan.Layers {
+		for _, id := range layer {
+			if _, named := byID[id]; !named {
+				t.Errorf("layer work %s is not named", id)
+			}
+		}
+	}
+	core := byID[ids["k1"]]
+	if core.Title != "Work k1" || core.Size != "medium" || core.Milestone != "build" || core.State != workorders.ContractReview {
+		t.Errorf("k1 reads %+v", core)
+	}
+	if docs := byID[ids["d1"]]; docs.Milestone != "extras" || docs.Title != "Work d1" {
+		t.Errorf("d1 reads %+v", docs)
+	}
+}

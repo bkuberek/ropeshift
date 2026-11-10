@@ -186,9 +186,19 @@ type CriticalPath struct {
 	Weight     int      `json:"weight"`
 }
 
+// PlannedWork is one work order of a plan as the roadmap places it: what it is called, where it stands,
+// how large it is, and the milestone its contract belongs to.
+type PlannedWork struct {
+	ID        string           `json:"id"`
+	Title     string           `json:"title"`
+	State     workorders.State `json:"state"`
+	Size      string           `json:"size,omitempty"`
+	Milestone string           `json:"milestone,omitempty"`
+}
+
 // PlanProgress is a plan and how far its work got. Milestones come in priority order. Layers group every
 // work order of the plan by how much must come before it, so the work of one layer can run at the same
-// time.
+// time. Work names each work order the layers and the critical path hold.
 type PlanProgress struct {
 	Plan         planning.Plan              `json:"plan"`
 	Total        int                        `json:"total"`
@@ -197,6 +207,7 @@ type PlanProgress struct {
 	Milestones   []MilestoneProgress        `json:"milestones"`
 	Layers       [][]string                 `json:"layers"`
 	CriticalPath CriticalPath               `json:"critical_path"`
+	Work         []PlannedWork              `json:"work"`
 }
 
 // GoalProgress is a goal and its plans. A plan under no goal stands in a group with a nil Goal.
