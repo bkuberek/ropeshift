@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/top"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -115,6 +116,40 @@ func TestAParkedLaneSaysWhatItWaitsFor(t *testing.T) {
 	}}}
 	if frame := loaded(t, snapshot).View(); !strings.Contains(frame, "wo-old  long parked: waits for something this build cannot read") {
 		t.Errorf("a wake this build cannot read says nothing of itself:\n%s", frame)
+	}
+}
+
+// A plan waiting for a member says which plan and version, what differs, and the command that approves
+// it. Work whose contract waits for a review says that, and what passes it.
+func TestAPlanApprovalAndAContractReviewSayWhatToDo(t *testing.T) {
+	snapshot := top.Snapshot{}
+	snapshot.Needs.Items = []api.NeedItem{
+		{Kind: api.NeedPlanApproval, ID: "approval-1", PlanApproval: &api.PlanApprovalNeed{
+			Approval: authority.Approval{ID: "approval-1", Plan: "plan-1", PlanVersion: 2}, Title: "Retry budget", Version: 2,
+			RequestedBy: "lane:lane-1", Summary: "1 added, 2 changed, 0 removed since version 1",
+		}},
+		{Kind: api.NeedContractReview, ID: "wo-review", ContractReview: &api.ContractReviewNeed{
+			WorkOrder: workorders.WorkOrder{ID: "wo-review", Title: "Add the budget"}, Contract: "The budget", Version: 3,
+		}},
+	}
+	frame := loaded(t, snapshot).View()
+	for _, want := range []string{
+		"plan Retry budget v2 waits: 1 added, 2 changed, 0 removed",
+		"contract review: The budget version 3, work Add the budget",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	// The cursor is on the plan, and the commands under it are the ones that read and approve it.
+	for _, want := range []string{"    ropeshift plan show plan-1", "    ropeshift plan approve plan-1 --version 2"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	moved := keyed(t, loaded(t, snapshot), "j").View()
+	if !strings.Contains(moved, "    ropeshift work review wo-review") {
+		t.Errorf("a contract review offers no review:\n%s", moved)
 	}
 }
 
