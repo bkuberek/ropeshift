@@ -251,22 +251,35 @@ describe("tracing requirements to work", () => {
     return found;
   };
 
-  it("traces each requirement to the criteria that serve it and the work that carries them", async () => {
+  const childrenOf = (list: HTMLElement) => within(list).getAllByRole("listitem").filter((item) => item.parentElement === list);
+
+  it("traces each requirement to the contracts and criteria that serve it and the work that carries them", async () => {
     const list = await traces();
     const trace = traceOf(list, "FAC-2");
     expect(trace.textContent).toContain("Shared work is built before the work that uses it.");
-    const criteria = within(trace).getByRole("list", { name: "Criteria that serve FAC-2" });
+    const contracts = within(trace).getByRole("list", { name: "Contracts that serve FAC-2" });
+    expect(within(contracts).getByRole("link", { name: "The API client, version 1" }).getAttribute("href")).toMatch(/^\/plans\?plan=/);
+    const criteria = within(contracts).getByRole("list", { name: "Criteria of The API client that serve FAC-2" });
     expect(criteria.textContent).toContain("Every call retries once");
-    expect(within(criteria).getByRole("link", { name: "The API client, version 1" }).getAttribute("href")).toMatch(/^\/plans\?plan=/);
-    const work = within(criteria).getByRole("list", { name: "Work orders" });
+    const work = within(contracts).getByRole("list", { name: "Work orders of The API client" });
     expect(work.textContent).toContain("Write the API client");
     expect(work.textContent).toContain("Done");
   });
 
-  it("lists every criterion that serves a requirement", async () => {
+  it("names each contract once under a requirement, with its criteria under it", async () => {
     const list = await traces();
-    const criteria = within(traceOf(list, "FAC-1")).getByRole("list", { name: "Criteria that serve FAC-1" });
-    expect(within(criteria).getAllByRole("listitem").filter((item) => item.parentElement === criteria)).toHaveLength(3);
+    const trace = traceOf(list, "FAC-1");
+    const contracts = within(trace).getByRole("list", { name: "Contracts that serve FAC-1" });
+    expect(childrenOf(contracts)).toHaveLength(2);
+    expect(childrenOf(within(trace).getByRole("list", { name: "Criteria of The planning core that serve FAC-1" }))).toHaveLength(2);
+    expect(childrenOf(within(trace).getByRole("list", { name: "Criteria of The approval page that serve FAC-1" }))).toHaveLength(1);
+  });
+
+  it("lists a contract's work orders once, however many of its criteria serve the requirement", async () => {
+    const list = await traces();
+    const trace = traceOf(list, "FAC-1");
+    expect(within(trace).getAllByText(/^Build the planning core:/)).toHaveLength(1);
+    expect(childrenOf(within(trace).getByRole("list", { name: "Work orders of The approval page" }))).toHaveLength(2);
   });
 
   it("says when no criterion serves a requirement", async () => {
@@ -274,10 +287,15 @@ describe("tracing requirements to work", () => {
     expect(within(traceOf(list, "FAC-4")).getByText("No criterion serves it yet.")).toBeTruthy();
   });
 
-  it("leaves a place for the review verdicts, which come with reviews", async () => {
+  it("leaves a place for a review verdict on each criterion, which come with reviews", async () => {
     const list = await traces();
-    const criteria = within(traceOf(list, "FAC-3")).getByRole("list", { name: "Criteria that serve FAC-3" });
-    expect(within(criteria).getAllByText("No review verdict yet")).toHaveLength(2);
+    const trace = traceOf(list, "FAC-1");
+    const verdicts = within(trace).getAllByText("No review verdict yet");
+    expect(verdicts).toHaveLength(3);
+    for (const verdict of verdicts) {
+      expect(verdict.closest(".trace-criterion")).not.toBeNull();
+      expect(verdict.closest('[aria-label^="Work orders"]')).toBeNull();
+    }
   });
 });
 

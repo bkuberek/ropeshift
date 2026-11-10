@@ -653,20 +653,38 @@ fieldset {
   font-weight: 600;
 }
 
+/* Each contract that serves a requirement stands once, with its criteria and then its work. */
+.trace-contracts {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 68ch;
+}
+
+.trace-contract {
+  display: grid;
+  gap: 0.375rem;
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--hemp);
+}
+
+.trace-contract-title {
+  font-weight: 600;
+}
+
 .trace-criteria {
   display: grid;
-  gap: 0.5rem;
-  max-width: 68ch;
+  gap: 0.375rem;
 }
 
 .trace-criterion {
   display: grid;
   gap: 0.125rem;
   padding-left: 0.75rem;
-  border-left: 0.1875rem solid var(--hemp);
+  border-left: 0.125rem solid var(--muted);
 }
 
 .trace-verdict {
+  font-size: 0.9375rem;
   font-style: italic;
 }
 
