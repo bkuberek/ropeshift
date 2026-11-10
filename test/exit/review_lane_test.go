@@ -88,6 +88,7 @@ func TestAReviewLaneReadsTheReviewedCommitAndLeavesNoBranch(t *testing.T) {
 	in.aReviewLane()
 	in.must("work", "claim", reviewID, "--worker", in.workers()[0].ID, "--claim-id", "c2")
 	in.must("lane", "start", reviewID, "--lane", "review-1")
+	doubles.ReapShims(t, filepath.Join(in.paths().StateDir, "lanes", "review-1"))
 	worktree := filepath.Join(laneRoot, "review-1")
 	in.waitFor("the review lane's three denied calls", func() bool { return len(deniedCalls(in)) == 3 })
 	in.waitFor("the diff in its context folder", func() bool {

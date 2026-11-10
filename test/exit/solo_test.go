@@ -241,7 +241,34 @@ func (in *install) waitFor(what string, done func() bool) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	in.t.Fatalf("%s did not happen", what)
+	in.t.Fatalf("%s did not happen\n%s", what, in.productState())
+}
+
+// productState reads what the product holds, for a failure that would otherwise say only that a
+// wait ran out: each work order's state, and each lane's state with its generations.
+func (in *install) productState() string {
+	in.t.Helper()
+	var out strings.Builder
+	code, stdout, stderr := in.run("work", "list", "--json")
+	var orders api.WorkOrderList
+	if code != 0 || json.Unmarshal([]byte(stdout), &orders) != nil {
+		fmt.Fprintf(&out, "work orders unread: exit %d: %s%s\n", code, stdout, stderr)
+	}
+	for _, row := range orders.WorkOrders {
+		fmt.Fprintf(&out, "work order %s %q %s\n", row.ID, row.Title, row.State)
+	}
+	code, stdout, stderr = in.run("lane", "list", "--json")
+	var lanes api.LaneList
+	if code != 0 || json.Unmarshal([]byte(stdout), &lanes) != nil {
+		fmt.Fprintf(&out, "lanes unread: exit %d: %s%s\n", code, stdout, stderr)
+	}
+	for _, lane := range lanes.Lanes {
+		fmt.Fprintf(&out, "lane %s on %s: %s, %s, generation %d, archived %t\n", lane.ID, lane.WorkOrder, lane.ActualState, lane.Freshness, lane.Generation, lane.Archived)
+		for _, generation := range lane.Generations {
+			fmt.Fprintf(&out, "  generation %d: %s, from %d to %d, ended for %q\n", generation.Number, generation.StartReason, generation.StartedAt, generation.EndedAt, generation.EndReason)
+		}
+	}
+	return out.String()
 }
 
 // TestSoloPrivateSocket checks the socket at the path D19 names, and that this
@@ -453,5 +480,30 @@ func TestUsageOfTheDaemon(t *testing.T) {
 		d.exited <- err
 	case <-time.After(30 * time.Second):
 		t.Fatal("a bad flag kept running")
+	}
+}
+
+// TestAWaitThatRunsOutSaysWhatTheProductHolds keeps the diagnostic a failed wait prints honest: after
+// one lane ran, it names the work order's state and the lane's generation, so a failure that no test
+// explains can be read from its log.
+func TestAWaitThatRunsOutSaysWhatTheProductHolds(t *testing.T) {
+	in := newInstall(t)
+	in.aLaneThatCommits()
+	repo := gittest.New(t)
+	repo.Commit(".ropeshift/profile.toml", "[lifecycle]\nmax_restarts = 0\n")
+	repo.Commit("first.md", contract.ContractText("first", "First", "Build the first."))
+	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--source", repo.Dir)
+	t.Cleanup(d.stop)
+	in.waitReady(d)
+	in.waitFor("the worker's session", func() bool { return len(in.workers()) == 1 })
+	order := in.workOrders(1)["The work order of first"]
+	in.must("work", "review", order)
+	in.startLane(order, "c1", "lane-1")
+	in.waitFor("the lane's outcome", func() bool { return in.show(order).State == workorders.Acceptance })
+	state := in.productState()
+	for _, want := range []string{order, "The work order of first", string(workorders.Acceptance), "lane lane-1 on " + order, "generation 1:"} {
+		if !strings.Contains(state, want) {
+			t.Errorf("the state does not say %q:\n%s", want, state)
+		}
 	}
 }

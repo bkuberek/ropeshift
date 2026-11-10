@@ -45,11 +45,13 @@ func (in *install) aLaneThatCommits() {
 	}
 }
 
-// startLane claims a work order for the install's worker and starts a lane.
+// startLane claims a work order for the install's worker and starts a lane. A lane's shim outlives
+// the daemon by design, so a test that fails before its lane ends must still end the shim.
 func (in *install) startLane(id, claim, lane string) {
 	in.t.Helper()
 	in.must("work", "claim", id, "--worker", in.workers()[0].ID, "--claim-id", claim)
 	in.must("lane", "start", id, "--lane", lane)
+	doubles.ReapShims(in.t, filepath.Join(in.paths().StateDir, "lanes", lane))
 }
 
 // dependentContract is a contract whose one work order waits for another's.
