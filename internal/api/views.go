@@ -125,12 +125,49 @@ type NeedsYou struct {
 	Items []NeedItem `json:"items"`
 }
 
-// PlanProgress is a plan and how far its work got.
+// The states of a milestone, from its work orders and the milestones it depends on. A milestone is done
+// when it holds work and all of it is done, and it is in progress once any of its work went past
+// `ready`. Otherwise it waits when a milestone it depends on is not done, and it has not started when
+// none is.
+const (
+	MilestoneNotStarted = "not_started"
+	MilestoneWaiting    = "waiting"
+	MilestoneInProgress = "in_progress"
+	MilestoneDone       = "done"
+)
+
+// MilestoneProgress is one milestone of a plan and how far its work got. DependsOn lists the IDs of the
+// milestones it waits for, and Total and Done count the work orders of the contracts in it.
+type MilestoneProgress struct {
+	ID           string                   `json:"id"`
+	Title        string                   `json:"title"`
+	Priority     int64                    `json:"priority"`
+	DependsOn    []string                 `json:"depends_on"`
+	ExitCriteria []planning.ExitCriterion `json:"exit_criteria"`
+	Total        int                      `json:"total"`
+	Done         int                      `json:"done"`
+	State        string                   `json:"state"`
+}
+
+// CriticalPath is the heaviest chain of work that is left, in the order it runs. Work that is done or
+// canceled is not left, and failed work is, because it has to be redone. Weight is what is left of it: a small work order counts 1, a medium one 2, and a large one 3. The ledger computes it
+// from the dependencies with no model.
+type CriticalPath struct {
+	WorkOrders []string `json:"work_orders"`
+	Weight     int      `json:"weight"`
+}
+
+// PlanProgress is a plan and how far its work got. Milestones come in priority order. Layers group every
+// work order of the plan by how much must come before it, so the work of one layer can run at the same
+// time.
 type PlanProgress struct {
-	Plan   planning.Plan              `json:"plan"`
-	Total  int                        `json:"total"`
-	Done   int                        `json:"done"`
-	States map[workorders.State]int64 `json:"states"`
+	Plan         planning.Plan              `json:"plan"`
+	Total        int                        `json:"total"`
+	Done         int                        `json:"done"`
+	States       map[workorders.State]int64 `json:"states"`
+	Milestones   []MilestoneProgress        `json:"milestones"`
+	Layers       [][]string                 `json:"layers"`
+	CriticalPath CriticalPath               `json:"critical_path"`
 }
 
 // GoalProgress is a goal and its plans. A plan under no goal stands in a group with a nil Goal.

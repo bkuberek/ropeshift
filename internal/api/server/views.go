@@ -463,7 +463,13 @@ func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp)
 	}
 	progress := map[string]*api.PlanProgress{}
 	for _, plan := range plans {
-		progress[plan.ID] = &api.PlanProgress{Plan: plan, States: map[workorders.State]int64{}}
+		progress[plan.ID] = &api.PlanProgress{
+			Plan: plan, States: map[workorders.State]int64{}, Milestones: []api.MilestoneProgress{}, Layers: [][]string{},
+			CriticalPath: api.CriticalPath{WorkOrders: []string{}},
+		}
+	}
+	if err := layOutPlans(tx.Planning(), progress, contracts, orders); err != nil {
+		return nil, err
 	}
 	for _, order := range orders {
 		row, ok := progress[planOf[order.ContractID]]
@@ -493,6 +499,190 @@ func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp)
 		view.Goals = append(view.Goals, api.GoalProgress{Plans: loose})
 	}
 	return view, nil
+}
+
+// layOutPlans fills in how each plan places its work: its milestones in priority order with the progress
+// of each, the layers of its work orders, and its critical path. The ledger computes all of it from the
+// dependencies it holds, with no model (FR-MILE-5). A work order counts in a milestone through its
+// contract, at the contract's newest version.
+func layOutPlans(planned ports.PlanningReader, progress map[string]*api.PlanProgress, contracts []planning.Contract, orders []workorders.WorkOrder) error {
+	type place struct{ plan, milestone string }
+	placed := map[string]place{}
+	for _, contract := range contracts {
+		placed[contract.ID] = place{plan: contract.PlanID, milestone: contract.Milestone}
+	}
+	waits, err := orderDependencies(planned)
+	if err != nil {
+		return err
+	}
+	ordersOf := map[string][]workorders.WorkOrder{}
+	for _, order := range orders {
+		if plan := placed[order.ContractID].plan; progress[plan] != nil {
+			ordersOf[plan] = append(ordersOf[plan], order)
+		}
+	}
+	for id, row := range progress {
+		held := ordersOf[id]
+		row.Milestones, err = milestonesOf(planned, id, held, func(order workorders.WorkOrder) string { return placed[order.ContractID].milestone })
+		if err != nil {
+			return err
+		}
+		row.Layers, row.CriticalPath = layersOf(held, waits)
+	}
+	return nil
+}
+
+// orderDependencies reads every dependency as the work order it names, whichever kind it is. A
+// dependency a file wrote names its target by the ID the file gave it and the source, which the
+// external links resolve.
+func orderDependencies(planned ports.PlanningReader) (map[string][]string, error) {
+	links, err := planned.Links()
+	if err != nil {
+		return nil, err
+	}
+	byKey := map[ledger.ExternalKey]string{}
+	for _, link := range links {
+		if link.RecordKind == workorders.SubjectKind {
+			byKey[link.Key] = link.RecordID
+		}
+	}
+	edges, err := planned.AllDependencies()
+	if err != nil {
+		return nil, err
+	}
+	waits := map[string][]string{}
+	for _, edge := range edges {
+		target := edge.DependsOn
+		if key, external := edge.Key(); external {
+			resolved, known := byKey[key]
+			if !known {
+				continue
+			}
+			target = resolved
+		}
+		waits[edge.WorkOrder] = append(waits[edge.WorkOrder], target)
+	}
+	return waits, nil
+}
+
+// layersOf groups a plan's work orders into layers and finds its critical path by remaining weight. The graph holds the
+// plan's own work, so a dependency on work of another plan is not in it. A graph with a cycle has
+// neither, because intake refuses a plan with one and no order of that work exists.
+func layersOf(held []workorders.WorkOrder, waits map[string][]string) ([][]string, api.CriticalPath) {
+	graph := planning.NewGraph()
+	byID := map[string]workorders.WorkOrder{}
+	for _, order := range held {
+		graph.AddNode(order.ID)
+		byID[order.ID] = order
+	}
+	for _, order := range held {
+		for _, target := range waits[order.ID] {
+			if _, inPlan := byID[target]; inPlan {
+				graph.AddEdge(order.ID, target)
+			}
+		}
+	}
+	layers, err := graph.Layers()
+	if err != nil {
+		return [][]string{}, api.CriticalPath{WorkOrders: []string{}}
+	}
+	// Work that is done, and work that was canceled and will never run, leaves the weight. Failed work
+	// keeps it, because it still has to be redone.
+	remaining := func(id string) int {
+		if state := byID[id].State; state == workorders.Done || state == workorders.Canceled {
+			return 0
+		}
+		return planning.SizeWeight(byID[id].Size)
+	}
+	path, weight, err := graph.CriticalPath(remaining)
+	if err != nil || path == nil {
+		path = []string{}
+	}
+	if layers == nil {
+		layers = [][]string{}
+	}
+	return layers, api.CriticalPath{WorkOrders: path, Weight: weight}
+}
+
+// milestonesOf lists a plan's milestones by priority, with how far each one's work got. A milestone is
+// a document, so its newest version says what it depends on and how it exits.
+func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.WorkOrder, milestone func(workorders.WorkOrder) string) ([]api.MilestoneProgress, error) {
+	documents, err := planned.PlanDocuments(plan)
+	if err != nil {
+		return nil, err
+	}
+	out := []api.MilestoneProgress{}
+	for _, document := range documents {
+		if document.Kind != planning.FileMilestone {
+			continue
+		}
+		latest, err := planned.LatestDocumentVersion(document.ID)
+		if err != nil {
+			return nil, err
+		}
+		var file planning.MilestoneFile
+		if err := latest.Decode(&file); err != nil {
+			return nil, err
+		}
+		row := api.MilestoneProgress{
+			ID: file.ID, Title: document.Title, Priority: file.Priority, DependsOn: nonNil(file.DependsOn), ExitCriteria: nonNil(file.ExitCriteria),
+		}
+		started := false
+		for _, order := range held {
+			if milestone(order) != file.ID {
+				continue
+			}
+			row.Total++
+			if order.State == workorders.Done {
+				row.Done++
+			}
+			started = started || beyondReady(order.State)
+		}
+		switch {
+		case row.Total > 0 && row.Done == row.Total:
+			row.State = api.MilestoneDone
+		case started:
+			row.State = api.MilestoneInProgress
+		default:
+			row.State = api.MilestoneNotStarted
+		}
+		out = append(out, row)
+	}
+	slices.SortFunc(out, func(a, b api.MilestoneProgress) int {
+		return cmp.Or(cmp.Compare(a.Priority, b.Priority), cmp.Compare(a.ID, b.ID))
+	})
+	finished := map[string]bool{}
+	for _, row := range out {
+		finished[row.ID] = row.State == api.MilestoneDone
+	}
+	for i := range out {
+		if out[i].State != api.MilestoneNotStarted {
+			continue
+		}
+		for _, dependency := range out[i].DependsOn {
+			if done, found := finished[dependency]; found && !done {
+				out[i].State = api.MilestoneWaiting
+			}
+		}
+	}
+	return out, nil
+}
+
+// beyondReady says work went past the states that come before it can be claimed.
+func beyondReady(state workorders.State) bool {
+	switch state {
+	case workorders.Intake, workorders.Planning, workorders.ContractReview, workorders.Ready:
+		return false
+	}
+	return true
+}
+
+// nonNil keeps an empty list a list in JSON.
+func nonNil[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
 }
 
 // unresolved walks past the bound of one read, which a filter stops at.

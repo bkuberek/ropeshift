@@ -142,9 +142,39 @@ What this milestone delivers and why it comes first, in prose.
 	},
 	{
 		Kind: FileContract,
-		Intro: "A contract belongs to one milestone and cites the documents it depends on in documents. Each criterion lists the " +
-			"requirement ids it serves. shared = true marks a contract that others build on, and uses lists the ids of the shared " +
-			"contracts this one builds on. Each work order sets repo, priority, size, depends_on, and needs.",
+		Intro: "A shared contract is one that other contracts build on. It is marked shared = true, and every contract that builds " +
+			"on it lists its id in uses. The work of a shared contract is built first.",
+		Text: `+++
+kind = "contract"
+id = "payments-client"
+title = "Payments client"
+plan = "payments-v2"
+milestone = "m1-reliable-checkout"
+shared = true
+documents = ["architecture:payments"]
+
+[[criteria]]
+id = "c1"
+text = "Every payment call goes through one client that carries an idempotency key"
+requirements = ["PAY-12"]
+
+[[work_orders]]
+id = "client-base"
+title = "Build the payments client"
+repo = "."
+priority = 1
+size = "medium"
+needs = { driver = "claude-code" }
++++
+
+What the shared client must offer the contracts that use it, in prose.
+`,
+	},
+	{
+		Kind: FileContract,
+		Intro: "A contract belongs to one milestone of its plan and cites the documents it depends on in documents. Each criterion " +
+			"lists the requirement ids it serves. uses lists the ids of the shared contracts of the plan this one builds on, and " +
+			"each of its work orders waits for theirs. Each work order sets repo, priority, size, depends_on, and needs.",
 		Text: `+++
 kind = "contract"
 id = "checkout-retry"

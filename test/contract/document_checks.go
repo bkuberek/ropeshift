@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -502,10 +503,15 @@ func checkContractUnknownDocument(r *Rig) error {
 func checkContractPlacement(r *Rig) error {
 	s := r.Store()
 	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(documentsPlan, "Payments v2", "")))
+	source.Write("milestone.md", []byte(milestoneOf("m1", documentsPlan, 1)))
+	source.Write("payments-client.md", []byte(placedContract{ID: "payments-client", Plan: documentsPlan, Milestone: "m1", Shared: true}.text()))
+	source.Write("ledger-client.md", []byte(placedContract{ID: "ledger-client", Plan: documentsPlan, Milestone: "m1", Shared: true}.text()))
 	source.Write(intakeFile, []byte(`+++
 kind = "contract"
 id = "alpha"
 title = "The contract alpha"
+plan = "payments-v2"
 milestone = "m1"
 shared = true
 uses = ["payments-client", "ledger-client"]
@@ -525,8 +531,8 @@ id = "alpha-order"
 title = "The work order of alpha"
 +++
 `))
-	if _, err := r.intake(s, source); err != nil {
-		return err
+	if report, err := r.intake(s, source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("report %+v: %v", report, err)
 	}
 	contract, err := r.contractVersion(s, "alpha", 1)
 	if err != nil {
@@ -608,7 +614,10 @@ func checkDocumentBatchOrder(r *Rig) error {
 	source.Write("b-spec.md", []byte(DocumentText("spec", "checkout-api", "Checkout API", documentsPlan, "The calls.")))
 	source.Write("c-plan.md", []byte(PlanText(documentsPlan, "Payments v2", "")))
 	source.Write("d-requirements.md", []byte(requirementsOf("payments", documentsPlan, "PAY-12")))
-	source.Write("e-contract.md", []byte(citingFor("alpha", documentsPlan, "One.", "PAY-12", "spec:checkout-api", "milestone:m1", "requirements:payments")))
+	// The plan has a milestone, so the contract sits in one.
+	inMilestone := strings.Replace(citingFor("alpha", documentsPlan, "One.", "PAY-12", "spec:checkout-api", "milestone:m1", "requirements:payments"),
+		"plan = \""+documentsPlan+"\"\n", "plan = \""+documentsPlan+"\"\nmilestone = \"m1\"\n", 1)
+	source.Write("e-contract.md", []byte(inMilestone))
 	report, err := r.intake(s, source)
 	if err != nil {
 		return err
@@ -666,34 +675,57 @@ func checkDocumentsReplay(planned ports.PlanningReader, book planning.Book) erro
 func checkFormatExamplesAreASet(r *Rig) error {
 	s := r.Store()
 	source := fake.NewWorkSource()
-	for _, example := range planning.FormatExamples {
-		source.Write(string(example.Kind)+".md", []byte(example.Text))
+	for i, example := range planning.FormatExamples {
+		source.Write(fmt.Sprintf("%02d-%s.md", i, example.Kind), []byte(example.Text))
 	}
 	report, err := r.intake(s, source)
 	if err != nil {
 		return err
 	}
-	if len(report.Problems) != 0 || report.Versions != 1 || report.WorkOrders != 1 || report.Conflicts != 0 {
+	if len(report.Problems) != 0 || report.Versions != 2 || report.WorkOrders != 2 || report.Conflicts != 0 {
 		return Violatedf("report %+v", report)
 	}
-	orders, err := r.readOrders(s)
-	if err != nil || len(orders) != 1 {
-		return Violatedf("work orders %+v: %v", orders, err)
-	}
-	result, err := r.NewOps(s).Pass(r.Ctx, r.Scope, orders[0].ID, r.member())
+	// The shared contract is built first: the work that uses it waits until its work is done.
+	client, err := r.reviewTitled(s, "Build the payments client")
 	if err != nil {
 		return err
 	}
-	if result.State != workorders.Ready || len(result.Failures) != 0 {
-		return Violatedf("the work the examples describe did not reach ready: %+v", result)
+	if client.State != workorders.Ready || len(client.Failures) != 0 {
+		return Violatedf("the shared work did not reach ready: %+v", client)
+	}
+	waiting, err := r.reviewTitled(s, "Add the retry budget")
+	if err != nil {
+		return err
+	}
+	if waiting.State != workorders.ContractReview || len(waiting.Failures) != 1 || waiting.Failures[0].Check != workorders.CheckDependencies {
+		return Violatedf("the work that uses it did not wait: %+v", waiting)
+	}
+	base, err := r.orderByTitle(s, "Build the payments client")
+	if err != nil {
+		return err
+	}
+	if err := r.forceDone(s, base.ID); err != nil {
+		return err
+	}
+	ready, err := r.reviewTitled(s, "Add the retry budget")
+	if err != nil {
+		return err
+	}
+	if ready.State != workorders.Ready || len(ready.Failures) != 0 {
+		return Violatedf("the work the examples describe did not reach ready: %+v", ready)
 	}
 	contracts, err := r.readContracts(s)
-	if err != nil || len(contracts) != 1 {
+	if err != nil || len(contracts) != 2 {
 		return Violatedf("contracts %+v: %v", contracts, err)
 	}
-	// Every citation of the contract found the document it names.
-	if len(contracts[0].Documents) != 2 || contracts[0].Milestone != "m1-reliable-checkout" {
-		return Violatedf("contract %+v", contracts[0])
+	// Every citation of the contract found the document it names, and it sits where it says.
+	i := slices.IndexFunc(contracts, func(c planning.Contract) bool { return c.Title == "Retry failed checkout calls" })
+	if i < 0 {
+		return Violatedf("no contract checkout-retry in %+v", contracts)
+	}
+	retry := contracts[i]
+	if len(retry.Documents) != 2 || retry.Milestone != "m1-reliable-checkout" || !slices.Equal(retry.Uses, []string{"payments-client"}) {
+		return Violatedf("contract %+v", retry)
 	}
 	return r.CheckPlanning(s)
 }

@@ -895,6 +895,11 @@ func (r *Rig) CheckPlanning(s ports.Store) error {
 		if len(dependencies) != len(book.Dependencies) {
 			return Violatedf("%d dependencies, the log replays to %d", len(dependencies), len(book.Dependencies))
 		}
+		for _, dependency := range dependencies {
+			if want, ok := book.Dependencies[planning.DependencyKey(dependency)]; !ok || want != dependency {
+				return Violatedf("dependency %+v disagrees with its log", dependency)
+			}
+		}
 		return nil
 	})
 }

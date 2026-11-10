@@ -2882,7 +2882,19 @@
         {
           "plans": [
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-backoff"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-backoff"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-30",
                 "status": "active",
@@ -2894,7 +2906,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-briefing"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-briefing"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-31",
                 "status": "active",
@@ -2906,7 +2930,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-compacting"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-compacting"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-32",
                 "status": "active",
@@ -2918,7 +2954,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-ended"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-ended"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-33",
                 "status": "active",
@@ -2930,7 +2978,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-handing_off"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-handing_off"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-34",
                 "status": "active",
@@ -2942,7 +3002,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-idle"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-idle"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-35",
                 "status": "active",
@@ -2954,7 +3026,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-needs_decision"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-needs_decision"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-36",
                 "status": "active",
@@ -2966,7 +3050,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-parked"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-parked"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-37",
                 "status": "active",
@@ -2978,7 +3074,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-parking"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-parking"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-38",
                 "status": "active",
@@ -2990,7 +3098,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-pending"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-pending"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-39",
                 "status": "active",
@@ -3002,7 +3122,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-provisioning"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-provisioning"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-40",
                 "status": "active",
@@ -3014,7 +3146,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-retiring"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-retiring"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-41",
                 "status": "active",
@@ -3026,7 +3170,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-starting"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-starting"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-42",
                 "status": "active",
@@ -3038,7 +3194,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-tripped"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-tripped"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-43",
                 "status": "active",
@@ -3050,7 +3218,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wl-working"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wl-working"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-44",
                 "status": "active",
@@ -3062,7 +3242,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-running"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-running"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-45",
                 "status": "active",
@@ -3074,7 +3266,17 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 0,
+                "work_orders": []
+              },
               "done": 1,
+              "layers": [
+                [
+                  "wo-done"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-46",
                 "status": "active",
@@ -3086,7 +3288,17 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 0,
+                "work_orders": []
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-canceled"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-47",
                 "status": "active",
@@ -3098,7 +3310,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-claimed"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-claimed"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-48",
                 "status": "active",
@@ -3110,7 +3334,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-acceptance"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-acceptance"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-49",
                 "status": "active",
@@ -3122,7 +3358,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-lapsed"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-lapsed"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-50",
                 "status": "active",
@@ -3134,7 +3382,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-failed"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-failed"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-51",
                 "status": "active",
@@ -3146,7 +3406,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-parked"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-parked"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-52",
                 "status": "active",
@@ -3158,7 +3430,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-ready"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-ready"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-54",
                 "status": "active",
@@ -3170,7 +3454,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-planning"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-planning"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-56",
                 "status": "active",
@@ -3182,7 +3478,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-blocked"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-blocked"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-57",
                 "status": "active",
@@ -3194,7 +3502,19 @@
               "total": 1
             },
             {
+              "critical_path": {
+                "weight": 1,
+                "work_orders": [
+                  "wo-contract_review"
+                ]
+              },
               "done": 0,
+              "layers": [
+                [
+                  "wo-contract_review"
+                ]
+              ],
+              "milestones": [],
               "plan": {
                 "id": "generated-59",
                 "status": "active",

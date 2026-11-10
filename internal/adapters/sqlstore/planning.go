@@ -101,15 +101,19 @@ VALUES (:workspace_id, :record_kind, :adapter, :instance, :native_id, :record_id
 		`INSERT INTO dependencies (workspace_id, work_order_id, depends_on, adapter, instance, kind)
 VALUES (:workspace_id, :work_order_id, :depends_on, :adapter, :instance, :kind)`)
 
+	stmtDeleteDependency = define("dependency.delete",
+		`DELETE FROM dependencies
+ WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id AND depends_on = :depends_on AND kind = :kind`)
+
 	stmtDependenciesOf = define("dependency.of",
 		`SELECT work_order_id, depends_on, adapter, instance, kind FROM dependencies
  WHERE workspace_id = :workspace_id AND work_order_id = :work_order_id
- ORDER BY depends_on`)
+ ORDER BY depends_on, kind`)
 
 	stmtListDependencies = define("dependency.list",
 		`SELECT work_order_id, depends_on, adapter, instance, kind FROM dependencies
  WHERE workspace_id = :workspace_id
- ORDER BY work_order_id, depends_on`)
+ ORDER BY work_order_id, depends_on, kind`)
 
 	stmtReadBinding = define("binding.read",
 		`SELECT id, port, adapter, instance_url, cursor, health, detail, problems FROM source_bindings
@@ -465,6 +469,13 @@ func (t planningTx) InsertDependency(d planning.Dependency) error {
 	_, err := t.exec(stmtInsertDependency, t.scoped(params{
 		"work_order_id": d.WorkOrder, "depends_on": d.DependsOn, "adapter": nullText(d.Adapter),
 		"instance": nullText(d.Instance), "kind": string(d.Kind),
+	}))
+	return err
+}
+
+func (t planningTx) DeleteDependency(d planning.Dependency) error {
+	_, err := t.exec(stmtDeleteDependency, t.scoped(params{
+		"work_order_id": d.WorkOrder, "depends_on": d.DependsOn, "kind": string(d.Kind),
 	}))
 	return err
 }

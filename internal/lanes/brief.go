@@ -55,6 +55,17 @@ func planningNotice() string {
 		"- Every document, milestone, and contract names its plan with plan, and the plan lists every document it holds in " +
 		"documents. Write the plan file too: a file that names a plan nobody wrote is a problem, and intake records nothing from it. " +
 		"A contract with no plan gets a plan of its own.\n" +
+		"- When a plan has milestones, every contract of it names one with milestone; a contract in no milestone is a problem and " +
+		"records nothing. A plan with no milestones may leave milestone out.\n" +
+		"- A contract's milestone must be a milestone of its plan, and each contract in uses must be a contract of the same plan " +
+		"that is marked shared with shared = true. A milestone's depends_on must name milestones of its plan. A reference that is not " +
+		"a milestone of its plan, or a contract that is not marked shared, is a problem, and intake records nothing from that file.\n" +
+		"- Dependencies never form a cycle: milestones that depend on each other in a loop, contracts that use each other, or work " +
+		"orders whose depends_on lead back to themselves. Intake refuses every file of a plan that has a cycle and names the cycle, " +
+		"so the plan records nothing until it is gone.\n" +
+		"- Intake makes every work order of a milestone wait for every work order of the milestones it depends on, and every work " +
+		"order of a contract wait for the work orders of each shared contract it uses, so shared contracts are built first. Use " +
+		"depends_on between work orders only for a finer order.\n" +
 		"- A contract's documents cite documents you commit with it. Intake pins each citation to the version in your commit, " +
 		"and a citation of a document nobody wrote records nothing.\n" +
 		"- When the plan has a requirements file, each criterion lists at least one requirement id from it. A criterion with no " +

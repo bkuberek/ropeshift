@@ -41,7 +41,9 @@ const (
 	EventPlanVersion        = "plan.version_recorded"
 	EventLinkRecorded       = "external_link.recorded"
 	EventDependencyRecorded = "dependency.recorded"
-	EventBindingChanged     = "source_binding.changed"
+	// EventDependencyRemoved holds the dependency that intake took away, because the plan no longer implies it.
+	EventDependencyRemoved = "dependency.removed"
+	EventBindingChanged    = "source_binding.changed"
 )
 
 // DigestGitBlob and DigestSHA256 prefix a digest with its kind, so a comparison
@@ -185,8 +187,31 @@ func (c Contract) RequirementKeys() []string {
 // DependencyKind says what a dependency does to the definition of ready.
 type DependencyKind string
 
-// DependencyBlocking holds a work order back until the dependency is done.
-const DependencyBlocking DependencyKind = "blocking"
+// The kinds of dependency. A blocking one is written in a work order's `depends_on`. A milestone one and a
+// shared contract one are derived by intake: from the milestones a work order's milestone depends on,
+// and from the shared contracts its contract uses. All three hold a work order back until the work
+// they name is done, and a dependency of one kind never takes the place of another between the same
+// two work orders.
+const (
+	DependencyBlocking       DependencyKind = "blocking"
+	DependencyMilestone      DependencyKind = "milestone"
+	DependencySharedContract DependencyKind = "shared_contract"
+)
+
+// Blocks says a dependency of this kind holds a work order back until its target is done.
+func (k DependencyKind) Blocks() bool {
+	switch k {
+	case DependencyBlocking, DependencyMilestone, DependencySharedContract:
+		return true
+	}
+	return false
+}
+
+// Derived says intake works out a dependency of this kind from the plan's structure, and a file
+// never writes one.
+func (k DependencyKind) Derived() bool {
+	return k == DependencyMilestone || k == DependencySharedContract
+}
 
 // Dependency is one edge between work orders. A source names its work orders by
 // native ID, and the named one may not exist yet, so the edge keeps the name and
@@ -311,9 +336,10 @@ func LinkKey(link ledger.ExternalLink) string {
 	return link.RecordKind + ":" + link.Key.String()
 }
 
-// DependencyKey identifies a dependency in a Book.
+// DependencyKey identifies a dependency in a Book. The kind is part of it, because a derived dependency
+// and one a file writes can name the same target.
 func DependencyKey(d Dependency) string {
-	return d.WorkOrder + "->" + d.DependsOn
+	return d.WorkOrder + "->" + d.DependsOn + "#" + string(d.Kind)
 }
 
 // ErrReplay means the log holds a planning event that cannot be read or that
@@ -414,6 +440,15 @@ func (b Book) apply(e ledger.Event) error {
 			return err
 		}
 		b.Dependencies[DependencyKey(dependency)] = dependency
+	case EventDependencyRemoved:
+		var dependency Dependency
+		if err := json.Unmarshal(e.Data, &dependency); err != nil {
+			return err
+		}
+		if _, held := b.Dependencies[DependencyKey(dependency)]; !held {
+			return fmt.Errorf("dependency %s removed before it was recorded", DependencyKey(dependency))
+		}
+		delete(b.Dependencies, DependencyKey(dependency))
 	}
 	return nil
 }

@@ -14,7 +14,19 @@
       },
       "plans": [
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-running"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-running"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "goal_id": "goal-1",
             "id": "generated-1",
@@ -31,7 +43,19 @@
     {
       "plans": [
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-effect"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-effect"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-2",
             "status": "active",
@@ -43,7 +67,17 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 0,
+            "work_orders": []
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-canceled"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-3",
             "status": "active",
@@ -55,7 +89,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-tripped"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-tripped"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-4",
             "status": "active",
@@ -67,7 +113,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-blocked"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-blocked"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-5",
             "status": "active",
@@ -79,7 +137,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-stalled"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-stalled"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-6",
             "status": "active",
@@ -91,7 +161,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-lapsed"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-lapsed"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-7",
             "status": "active",
@@ -103,7 +185,17 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 0,
+            "work_orders": []
+          },
           "done": 1,
+          "layers": [
+            [
+              "wo-done"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-8",
             "status": "active",
@@ -115,7 +207,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-approval"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-approval"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-9",
             "status": "active",
@@ -127,7 +231,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-accept"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-accept"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-10",
             "status": "active",
@@ -139,7 +255,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-failed"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-failed"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-11",
             "status": "active",
@@ -151,7 +279,19 @@
           "total": 1
         },
         {
+          "critical_path": {
+            "weight": 1,
+            "work_orders": [
+              "wo-parked"
+            ]
+          },
           "done": 0,
+          "layers": [
+            [
+              "wo-parked"
+            ]
+          ],
+          "milestones": [],
           "plan": {
             "id": "generated-12",
             "status": "active",

@@ -212,7 +212,7 @@ func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, a
 // dependencyFact resolves what a dependency names. A name nothing holds yet is an
 // unknown dependency, which is an answer and not an error.
 func dependencyFact(planned ports.PlanningReader, orders ports.WorkOrderReader, d planning.Dependency) (workorders.DependencyFact, error) {
-	fact := workorders.DependencyFact{Name: d.DependsOn, Blocking: d.Kind == planning.DependencyBlocking}
+	fact := workorders.DependencyFact{Name: d.DependsOn, Blocking: d.Kind.Blocks()}
 	id := d.DependsOn
 	if key, external := d.Key(); external {
 		link, err := planned.Link(workorders.SubjectKind, key)
