@@ -53,6 +53,9 @@ type Config struct {
 	// Backup copies the ledger while it runs. Nil has none, as on Postgres, which a team backs up
 	// with its own tooling.
 	Backup ports.LedgerBackup
+	// Panes is the worker's terminal as the web pane reaches it. Nil reaches none, as on a control
+	// plane whose worker has no tmux, and the pane's routes refuse.
+	Panes Panes
 }
 
 type handler struct {
@@ -91,6 +94,7 @@ func New(config Config) http.Handler {
 	h.noticeRoutes(mux)
 	h.telemetryRoutes(mux)
 	h.measureRoutes(mux)
+	h.paneRoutes(mux)
 	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
