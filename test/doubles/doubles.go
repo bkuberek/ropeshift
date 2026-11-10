@@ -304,6 +304,10 @@ func RequireTmux(t testing.TB) {
 func PrivateTmux(t testing.TB) *tmux.Terminal {
 	t.Helper()
 	terminal, stop := NewTmux(t)
+	// The first t.TempDir registers the cleanup that removes every temporary directory of the
+	// test, and cleanups run last registered first. A pane's files live in those directories, so
+	// that removal is registered now to run after the server ends.
+	_ = t.TempDir()
 	t.Cleanup(stop)
 	return terminal
 }
@@ -339,12 +343,7 @@ func NewTmux(t testing.TB) (*tmux.Terminal, func()) {
 		t.Fatal(err)
 	}
 	return terminal, func() {
-		binary, err := exec.LookPath(tmux.Binary)
-		if err == nil {
-			kill := exec.Command(binary, "-S", socket, "kill-server")
-			kill.Env = env
-			_ = kill.Run()
-		}
+		endTmuxServer(socket, env)
 		_ = os.RemoveAll(dir)
 	}
 }
@@ -358,14 +357,7 @@ func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		binary, err := exec.LookPath(tmux.Binary)
-		if err == nil {
-			kill := exec.Command(binary, "-S", socket, "kill-server")
-			kill.Env = env
-			_ = kill.Run()
-		}
-	})
+	t.Cleanup(func() { endTmuxServer(socket, env) })
 	return terminal
 }
 
@@ -374,14 +366,53 @@ func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
 func EndTmuxOn(t testing.TB, socket string) {
 	t.Helper()
 	t.Cleanup(func() {
-		binary, err := exec.LookPath(tmux.Binary)
-		if err != nil {
-			return
-		}
-		kill := exec.Command(binary, "-S", socket, "kill-server")
-		kill.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket)}
-		_ = kill.Run()
+		endTmuxServer(socket, []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket)})
 	})
+}
+
+// tmuxExitWait is how long the processes of an ended server get to exit before each one that was
+// recorded is killed.
+const tmuxExitWait = 5 * time.Second
+
+// endTmuxServer ends the server on a socket, if one runs there, and returns when the server and the
+// process of every pane it held have exited. kill-server returns before they do, and a pane's process
+// can still be writing into the test's directory. It signals only the process IDs it recorded first,
+// and leaves out a dead pane, whose process ID may belong to another process by now.
+func endTmuxServer(socket string, env []string) {
+	binary, err := exec.LookPath(tmux.Binary)
+	if err != nil {
+		return
+	}
+	run := func(args ...string) string {
+		cmd := exec.Command(binary, append([]string{"-S", socket}, args...)...)
+		cmd.Env = env
+		out, _ := cmd.Output()
+		return string(out)
+	}
+	var pids []int
+	for _, field := range strings.Fields(run("display-message", "-p", "#{pid}") + "\n" + run("list-panes", "-a", "-f", "#{==:#{pane_dead},0}", "-F", "#{pane_pid}")) {
+		if pid, err := strconv.Atoi(field); err == nil && pid > 1 {
+			pids = append(pids, pid)
+		}
+	}
+	run("kill-server")
+	deadline := time.Now().Add(tmuxExitWait)
+	for time.Now().Before(deadline) && slices.ContainsFunc(pids, alive) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, pid := range pids {
+		if alive(pid) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+	for time.Now().Before(deadline.Add(tmuxExitWait)) && slices.ContainsFunc(pids, alive) {
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// alive says whether a process with this ID still exists.
+func alive(pid int) bool {
+	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }
 
 // KillTmux closes one pane when a test ends, which ends a server with no other pane.
