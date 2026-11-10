@@ -186,6 +186,46 @@ func (j *lanesRead) Lanes(ctx context.Context) ([]lanes.Record, error) {
 	return records, err
 }
 
+// A run that ends between a pass reading the lanes and checking which lanes this worker
+// holds must not look like a running lane with no session, or the next pass restarts it.
+func TestASecondPassLeavesALaneThatEndsWhileItReads(t *testing.T) {
+	base := newRig(t)
+	read := &lanesRead{Journal: base.journal}
+	base.workerJournal = read
+	w := &worldRig{laneRig: newLaneRigFor(t, base)}
+	t.Cleanup(func() { w.driver.StopEverySession(); w.subject.Wait() })
+	w.holdEverySession()
+	w.generate(82)
+	first, err := w.subject.Reconcile(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := func() { w.awaitRunsEnd(t) } // the continued run ends between the read and the held check
+	read.then.Store(&end)
+	second, err := w.subject.Reconcile(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 0 {
+		t.Errorf("the first pass did %v, and the second did %v", first, second)
+	}
+}
+
+// awaitRunsEnd waits for every run to end, and fails the test rather than hang.
+func (r *laneRig) awaitRunsEnd(t *testing.T) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		r.subject.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Error("the runs never ended")
+	}
+}
+
 // A lane that starts while a pass reads holds resources the pass finds with no record of
 // the lane behind them. Those resources are a running lane's, and they are not free.
 func TestAPassLeavesAStartingLanesResourcesAlone(t *testing.T) {
