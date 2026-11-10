@@ -185,6 +185,18 @@ func (a Approval) Decide(decision Decision, actor ledger.Actor, policy, at int64
 	return a, nil
 }
 
+// Moved ends a request whose call lands somewhere else than it said, which a hook that holds the call
+// has seen, and keeps note as the reason it closed. Only a request that can still lead to a tool
+// running has anything to end: one already denied, used, answered, expired, or void keeps the state it
+// reached. What an approving decider said stays in the event that recorded the approval.
+func (a Approval) Moved(digest, note string) (Approval, bool) {
+	if !a.Live() || a.SubjectDigest != digest {
+		return a, false
+	}
+	a.State, a.Reason = ApprovalVoid, note
+	return a, true
+}
+
 // Supersede closes a plan approval that is still open because a newer version of the plan replaced
 // it. One a member already approved stays approved, because that version was approved.
 func (a Approval) Supersede() (Approval, error) {
@@ -296,6 +308,13 @@ type WorkerDecision struct {
 // TerminalAnswer is what a session's hooks showed of a call with an open request: its tool ended, or
 // its turn did with no tool run. Note says which, because neither proves who answered.
 type TerminalAnswer struct {
+	Digest string `json:"digest"`
+	Note   string `json:"note,omitempty"`
+}
+
+// MovedCall is what a worker's hook showed of a call with a request: the call it holds lands somewhere
+// else now, so the request stands for nothing. Digest names the request, and Note says why it closed.
+type MovedCall struct {
 	Digest string `json:"digest"`
 	Note   string `json:"note,omitempty"`
 }

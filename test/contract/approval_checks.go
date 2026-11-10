@@ -36,6 +36,7 @@ var ApprovalChecks = []Check{
 	{"AP18", "a worker session that ended reads no answer", checkEndedSessionReadsNothing},
 	{"AP19", "a decision sent twice is one decision", checkRetryDecidesOnce},
 	{"AP20", "a worker reads only the lane of the work order it holds", checkLaneOfThatWorkOrder},
+	{"AP21", "a worker's word that a call moved voids a request that could still run, and no other", checkMovedCallVoids},
 }
 
 var (
@@ -672,6 +673,126 @@ func checkSaveComparesItsState(r *Rig) error {
 	}
 	if row.State != authority.ApprovalApproved {
 		return Violatedf("an approved request is %s after a late write", row.State)
+	}
+	return nil
+}
+
+// checkMovedCallVoids holds what a worker's word that a call lands somewhere else does. It ends the
+// request that stood for the call while that request could still lead to a tool running, and it wakes
+// what waits on it in the same write. A request that already ended keeps the end it reached, and the
+// word sent twice is the same word.
+func checkMovedCallVoids(r *Rig) error {
+	s, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	moved := func(a authority.Approval) error {
+		raw, err := json.Marshal(authority.MovedCall{Digest: a.SubjectDigest, Note: "moved"})
+		if err != nil {
+			return err
+		}
+		reply, err := s.uploadAt(1, ledger.UploadApprovalVoid, raw)
+		if err != nil || len(reply.Rejected) != 0 {
+			return fmt.Errorf("moved: %+v, %w", reply, err)
+		}
+		return nil
+	}
+	expect := func(what string, a authority.Approval, want authority.ApprovalState) error {
+		row, err := s.approval(a.ID)
+		if err != nil {
+			return err
+		}
+		if row.State != want {
+			return Violatedf("%s reads %s, want %s", what, row.State, want)
+		}
+		return nil
+	}
+	pending, err := s.raised(gatedInput)
+	if err != nil {
+		return err
+	}
+	bystander, err := s.raised(`{"command":"git tag v2"}`)
+	if err != nil {
+		return err
+	}
+	approved, err := s.raised(`{"command":"git tag v3"}`)
+	if err != nil {
+		return err
+	}
+	denied, err := s.raised(`{"command":"git tag v4"}`)
+	if err != nil {
+		return err
+	}
+	used, err := s.raised(`{"command":"git tag v5"}`)
+	if err != nil {
+		return err
+	}
+	answered, err := s.raised(`{"command":"git tag v6"}`)
+	if err != nil {
+		return err
+	}
+	// A call of the tool voids every other approval of it, so the one that runs goes first.
+	if _, err := s.decide(used, true, theMember); err != nil {
+		return err
+	}
+	if answer, err := s.use(used.SubjectDigest, "call-1"); err != nil || !answer.Allowed {
+		return Violatedf("the decided call answers %+v, %v", answer, err)
+	}
+	if _, err := s.decide(approved, true, theMember); err != nil {
+		return err
+	}
+	if _, err := s.decide(denied, false, theMember); err != nil {
+		return err
+	}
+	said, err := json.Marshal(authority.TerminalAnswer{Digest: answered.SubjectDigest, Note: "answered"})
+	if err != nil {
+		return err
+	}
+	if reply, err := s.uploadAt(1, ledger.UploadApprovalAnswered, said); err != nil || len(reply.Rejected) != 0 {
+		return fmt.Errorf("answered: %+v, %w", reply, err)
+	}
+	wake := "lane-wake"
+	if err := s.parkOn(wake, pending); err != nil {
+		return err
+	}
+	if err := s.wakeFired(wake, false); err != nil {
+		return err
+	}
+	for _, a := range []authority.Approval{pending, approved, denied, used, answered} {
+		if err := moved(a); err != nil {
+			return err
+		}
+	}
+	if err := moved(pending); err != nil {
+		return fmt.Errorf("the same word again: %w", err)
+	}
+	if err := s.wakeFired(wake, true); err != nil {
+		return err
+	}
+	for _, want := range []struct {
+		what  string
+		row   authority.Approval
+		state authority.ApprovalState
+	}{
+		{"a request nobody decided", pending, authority.ApprovalVoid},
+		{"an approval nobody spent", approved, authority.ApprovalVoid},
+		{"a request for a call that did not move", bystander, authority.ApprovalPending},
+		{"a denial", denied, authority.ApprovalDenied},
+		{"an approval that ran", used, authority.ApprovalUsed},
+		{"an answer at a terminal", answered, authority.ApprovalAnswered},
+	} {
+		if err := expect(want.what, want.row, want.state); err != nil {
+			return err
+		}
+	}
+	for _, a := range []authority.Approval{pending, approved} {
+		voided, err := s.approval(a.ID)
+		if err != nil {
+			return err
+		}
+		if voided.Reason != "moved" || voided.Channel == authority.ChannelTerminal {
+			return Violatedf("a request whose call moved reads %+v", voided)
+		}
 	}
 	return nil
 }

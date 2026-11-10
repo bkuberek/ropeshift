@@ -212,6 +212,9 @@ type ApprovalRequest struct {
 	// Raised says an earlier look reached a worker, so a request stands, and an end to it is an
 	// answer. A first look at a call that ended raises it again.
 	Raised bool `json:"raised,omitempty"`
+	// Held names the request an earlier answer gave this hook, so a worker can tell that the call it
+	// holds now lands somewhere else than that request says, and close the request for good.
+	Held string `json:"held,omitempty"`
 }
 
 // ApprovalReply is what a look found.

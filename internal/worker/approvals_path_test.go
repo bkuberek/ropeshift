@@ -2,15 +2,19 @@ package worker_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 const (
@@ -23,21 +27,29 @@ const (
 type fileRig struct {
 	*laneRig
 	worktree, outside string
+	// turn is the gate that holds the lane's first turn open.
+	turn *gate
 }
 
 func aLaneOnRealFiles(t *testing.T) *fileRig {
+	t.Helper()
+	return aLaneOnRealFilesThen(t)
+}
+
+// aLaneOnRealFilesThen is a lane on real files whose later turns play these steps.
+func aLaneOnRealFilesThen(t *testing.T, next ...[]fake.DriverStep) *fileRig {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	profile := fmt.Sprintf("[worktree]\nroot = %q\n\n[lifecycle]\napproval_wait = \"5m\"\nhandoff_timeout = \"30ms\"\n", root)
-	r, _ := aLaneThatWaitsUnder(t, profile)
+	r, g := aLaneThatWaitsUnder(t, profile, next...)
 	record, err := r.journal.Lane(t.Context(), "lane-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fileRig{laneRig: r, worktree: record.Worktree, outside: filepath.Join(root, "outside")}
+	f := &fileRig{laneRig: r, worktree: record.Worktree, outside: filepath.Join(root, "outside"), turn: g}
 	for _, dir := range []string{"docs", "src"} {
 		if err := os.MkdirAll(filepath.Join(f.worktree, dir), 0o700); err != nil {
 			t.Fatal(err)
@@ -222,6 +234,175 @@ func TestAWaitingHookSeesACallMove(t *testing.T) {
 	}
 	if row := f.onlyRequest(t); row.State != authority.ApprovalVoid {
 		t.Errorf("request %+v", row)
+	}
+}
+
+// swapForALink takes the place of docs/a.md with a link out of the worktree, which moves where a call
+// to it lands and leaves its input as it was.
+func (f *fileRig) swapForALink(t *testing.T) {
+	t.Helper()
+	mustDo(t, os.Remove(f.path("docs", "a.md")))
+	mustDo(t, os.Symlink(filepath.Join(f.outside, "a.md"), f.path("docs", "a.md")))
+}
+
+// firstLookHeld is a hook's first look at a call, and the ID of the request it was given to hold.
+func (f *fileRig) firstLookHeld(t *testing.T, input string) string {
+	t.Helper()
+	first := f.lookAtEdit(t, input, "call-1", false)
+	if got := decisionIn(t, first); got != lanes.ApprovalWaiting {
+		t.Fatalf("decision %s", got)
+	}
+	return first.Approval.ID
+}
+
+// decide is a member's decision, which a closed request refuses.
+func (f *fileRig) decide(t *testing.T, a authority.Approval, allow bool) error {
+	t.Helper()
+	_, err := control.NewApprovals(f.store).Decide(t.Context(), scope, authority.Decision{ID: a.ID, Digest: a.SubjectDigest, Allow: allow}, member)
+	return err
+}
+
+func (f *fileRig) openRows(t *testing.T) []lanes.OpenApproval {
+	t.Helper()
+	rows, err := f.journal.OpenApprovals(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+// A hook that looks again after its call moved, with nobody having decided, is told the request is
+// closed, and the request is closed for everyone else too. One left pending could be approved by a
+// member who reads a call that no longer exists, and a turn's end would record it as a person's answer
+// at a terminal, which ropeshift's own hook never asked for.
+func TestAWaitingHookSeesACallMoveBeforeADecision(t *testing.T) {
+	t.Parallel()
+	f := aLaneOnRealFiles(t)
+	input := anEdit(t, f.path("docs", "a.md"))
+	held := f.firstLookHeld(t, input)
+	f.swapForALink(t)
+	reply := f.lookHolding(t, editTool, input, "call-1", true, held)
+	if got := decisionIn(t, reply); got != lanes.ApprovalDeny || reply.Approval.Reason != lanes.ReasonRequestClosed {
+		t.Fatalf("reply %+v", reply.Approval)
+	}
+	row := f.onlyRequest(t)
+	if row.State != authority.ApprovalVoid || row.Channel != "" || row.Reason == "" {
+		t.Errorf("request %+v", row)
+	}
+	if err := f.decide(t, row, true); !errors.Is(err, authority.ErrApprovalClosed) {
+		t.Errorf("a member's approval of a request whose call moved: %v", err)
+	}
+	if open := f.openRows(t); len(open) != 0 {
+		t.Errorf("the worker still follows %+v", open)
+	}
+	if after := f.onlyRequest(t); after.State != authority.ApprovalVoid {
+		t.Errorf("request %+v", after)
+	}
+}
+
+// A member's approval does not keep a request alive when the call moves after it. The hook that holds
+// the request closes it as void on its next look, and what was approved can no longer be spent.
+func TestAWaitingHookSeesACallMoveAfterAnApproval(t *testing.T) {
+	t.Parallel()
+	f := aLaneOnRealFiles(t)
+	input := anEdit(t, f.path("docs", "a.md"))
+	held := f.firstLookHeld(t, input)
+	f.memberSays(t, f.onlyRequest(t), true)
+	f.swapForALink(t)
+	reply := f.lookHolding(t, editTool, input, "call-1", true, held)
+	if got := decisionIn(t, reply); got != lanes.ApprovalDeny || reply.Approval.Reason != lanes.ReasonRequestClosed {
+		t.Fatalf("reply %+v", reply.Approval)
+	}
+	if row := f.onlyRequest(t); row.State != authority.ApprovalVoid || row.DecidedBy == "" {
+		t.Errorf("request %+v", row)
+	}
+	if open := f.openRows(t); len(open) != 0 {
+		t.Errorf("the worker still follows %+v", open)
+	}
+}
+
+// A look that names a request closes it only when the call has moved from what that request says. A
+// call that lands where it did, a request the worker does not follow, and no request at all leave
+// every request as it was.
+func TestALookThatSeesNoMoveClosesNothing(t *testing.T) {
+	t.Parallel()
+	for name, held := range map[string]func(string) string{
+		"the request the hook holds":        func(id string) string { return id },
+		"a request that is not this lane's": func(string) string { return "somebody-elses" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := aLaneOnRealFiles(t)
+			input := anEdit(t, f.path("docs", "a.md"))
+			id := f.firstLookHeld(t, input)
+			reply := f.lookHolding(t, editTool, input, "call-1", true, held(id))
+			if got := decisionIn(t, reply); got != lanes.ApprovalWaiting || reply.Approval.ID != id {
+				t.Fatalf("reply %+v", reply.Approval)
+			}
+			if row := f.onlyRequest(t); row.State != authority.ApprovalPending || row.ID != id {
+				t.Errorf("request %+v", row)
+			}
+			if open := f.openRows(t); len(open) != 1 || open[0].ID != id {
+				t.Errorf("the worker follows %+v", open)
+			}
+		})
+	}
+}
+
+// Closing a request that moved is not a person answering at a terminal. The turn ends with the hook
+// gone and nothing left open, so the end records nothing, where a request left pending is marked
+// answered on the terminal channel by it.
+func TestACallItsHookDeniedAsMovedIsNeverAnsweredAtATerminal(t *testing.T) {
+	t.Parallel()
+	f := aLaneOnRealFilesThen(t, []fake.DriverStep{{Hold: true}})
+	input := anEdit(t, f.path("docs", "a.md"))
+	held := f.firstLookHeld(t, input)
+	f.swapForALink(t)
+	if got := decisionIn(t, f.lookHolding(t, editTool, input, "call-1", true, held)); got != lanes.ApprovalDeny {
+		t.Fatalf("decision %s", got)
+	}
+	f.eventually("the turn again", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	f.turn.release <- struct{}{}
+	f.awaitNudge(t)
+	if row := f.onlyRequest(t); row.State != authority.ApprovalVoid || row.Channel == authority.ChannelTerminal {
+		t.Errorf("request %+v", row)
+	}
+}
+
+// awaitNudge waits for a lane to be told to go on, which comes after its turn's end was read.
+func (r *laneRig) awaitNudge(t *testing.T) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if len(r.driver.Sent()) != 0 {
+			return
+		}
+	}
+	t.Fatal("the lane was never told to go on")
+}
+
+// A lane parks on its request once its wait runs out, and a hook that is still looking finds the call
+// moved by then. The turn that ends under a parking lane leaves its requests open on purpose, so the
+// request must be closed at the look, or nothing would close it before a member approved it.
+func TestACallThatMovesAsTheLaneParksVoidsItsRequest(t *testing.T) {
+	t.Parallel()
+	f := aLaneOnRealFiles(t)
+	input := anEdit(t, f.path("docs", "a.md"))
+	held := f.firstLookHeld(t, input)
+	request := f.onlyRequest(t)
+	f.clock.Advance(6 * time.Minute)
+	if reply := f.lookHolding(t, editTool, input, "call-1", true, held); decisionIn(t, reply) != lanes.ApprovalDeny || reply.Approval.Reason != lanes.ReasonApprovalWait {
+		t.Fatalf("reply %+v", reply.Approval)
+	}
+	f.eventually("parking", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Parking) })
+	f.swapForALink(t)
+	reply := f.lookHolding(t, editTool, input, "call-1", true, held)
+	if got := decisionIn(t, reply); got != lanes.ApprovalDeny || reply.Approval.Reason != lanes.ReasonRequestClosed {
+		t.Fatalf("reply %+v", reply.Approval)
+	}
+	if row := f.onlyRequest(t); row.ID != request.ID || row.State != authority.ApprovalVoid {
+		t.Errorf("request %+v", row)
+	}
+	if open := f.openRows(t); len(open) != 0 {
+		t.Errorf("the worker still follows %+v", open)
 	}
 }
 

@@ -215,9 +215,11 @@ func readCall(input []byte) (authority.ToolCall, error) {
 }
 
 // awaitDecision is the one hook that waits (NFR-PERF-2). The worker reads the call and raises the
-// request, and this looks until a decision comes or the wait runs out. A worker that goes away
-// comes back to what its journal holds, so a look that fails is tried again, and only the hook's
-// own bound ends the wait. Nothing here can allow a call the worker did not.
+// request, and this looks until a decision comes or the wait runs out. Each look after the first names
+// the request the worker gave it, so a worker that finds the call landing elsewhere can close that
+// request instead of leaving it for someone to approve. A worker that goes away comes back to what
+// its journal holds, so a look that fails is tried again, and only the hook's own bound ends the
+// wait. Nothing here can allow a call the worker did not.
 func awaitDecision(cfg config, event lanes.HookEvent, input []byte, stdout io.Writer) {
 	var call requestedCall
 	if json.Unmarshal(input, &call) != nil {
@@ -236,6 +238,9 @@ func awaitDecision(cfg config, event lanes.HookEvent, input []byte, stdout io.Wr
 		}
 		if err == nil && reply.OK && reply.Approval != nil {
 			request.Raised, line.Hook = true, nil
+			if reply.Approval.ID != "" {
+				request.Held = reply.Approval.ID
+			}
 			switch reply.Approval.Decision {
 			case lanes.ApprovalAllow, lanes.ApprovalDeny:
 				answerPermission(stdout, reply.Approval.Decision, reply.Approval.Reason)
