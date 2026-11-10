@@ -10,7 +10,8 @@ const (
 	// ActionAccept accepts work whose criteria a forge covered, so no person need stand behind
 	// it. The tick takes this one.
 	ActionAccept Action = "acceptance.accept"
-	// ActionAcceptLaneChecks accepts work only its lane vouches for, as a second principal.
+	// ActionAcceptLaneChecks accepts work only its lane vouches for. No agent is a second principal any more
+	// (ADR-0014), so it is a member's alone.
 	ActionAcceptLaneChecks Action = "acceptance.lane_checks"
 	// ActionAcceptUnchecked accepts a criterion no check maps to. Only a person answers for that.
 	ActionAcceptUnchecked Action = "acceptance.unchecked"
@@ -96,8 +97,8 @@ func Actions() []Action {
 // none of these.
 var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
-		ActionAccept: true, ActionAcceptLaneChecks: true, ActionAddPackItem: true, ActionArchiveLane: true, ActionDecideApproval: true, ActionDismissQuestion: true,
-		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRespawnLane: true, ActionRework: true,
+		ActionAddPackItem: true, ActionArchiveLane: true, ActionDecideApproval: true, ActionDismissQuestion: true,
+		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRespawnLane: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},
 	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true},

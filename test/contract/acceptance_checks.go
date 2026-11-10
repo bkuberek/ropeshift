@@ -22,7 +22,7 @@ var AcceptanceChecks = []Check{
 	{"A1", "a lane cannot accept its own work, whatever its evidence says", checkLaneCannotAccept},
 	{"A2", "a passed forge result counts by itself", checkForgeCounts},
 	{"A3", "a failed forge result sends the work back", checkForgeFailure},
-	{"A4", "a check only the lane reports needs a second principal", checkSecondPrincipal},
+	{"A4", "a check only the lane reports needs a member, and no agent stands behind it", checkSecondPrincipal},
 	{"A5", "a criterion no check maps to needs a member", checkMemberNeeded},
 	{"A6", "a failed check cannot be accepted, and the tick sends it back", checkFailedCheck},
 	{"A7", "an earlier attempt's evidence does not count, and stays on record", checkEarlierAttempt},
@@ -315,13 +315,17 @@ func checkSecondPrincipal(r *Rig) error {
 	if _, err := ops.Accept(r.Ctx, r.Scope, byOrchestrator, r.tick()); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("nobody stood behind a lane's check: %v", err)
 	}
-	if _, err := ops.Accept(r.Ctx, r.Scope, byOrchestrator, r.orchestrator("o1")); err != nil {
-		return Violatedf("an orchestrator is a second principal: %v", err)
+	// An orchestrator is no second principal: acceptance rests on a review's verdicts and forge checks.
+	if _, err := ops.Accept(r.Ctx, r.Scope, byOrchestrator, r.orchestrator("o1")); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("an orchestrator stood behind a lane's check: %v", err)
 	}
-	if _, err := ops.Accept(r.Ctx, r.Scope, byMember, r.Actor); err != nil {
-		return Violatedf("a member is a second principal: %v", err)
+	if err := r.stateIs(s, byOrchestrator, workorders.Acceptance); err != nil {
+		return err
 	}
 	for _, id := range []string{byOrchestrator, byMember} {
+		if _, err := ops.Accept(r.Ctx, r.Scope, id, r.Actor); err != nil {
+			return Violatedf("a member answering for a lane's check: %v", err)
+		}
 		if err := r.stateIs(s, id, workorders.Done); err != nil {
 			return err
 		}

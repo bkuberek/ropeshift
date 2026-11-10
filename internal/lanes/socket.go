@@ -72,11 +72,9 @@ const (
 	ToolQuestionEscalate = "question_escalate"
 )
 
-// The acts the design gives an orchestrator with no group of their own (D2).
-const (
-	ToolWorkDecline      = "work_decline"
-	ToolAcceptanceRecord = "acceptance_record"
-)
+// ToolWorkDecline is the one act the design gives an orchestrator with no group of its own (D2). It has no
+// tool to accept work: acceptance rests on a review's verdicts and on forge checks (ADR-0014).
+const ToolWorkDecline = "work_decline"
 
 // OrchestratorTools is what `ropeshift mcp` lists for an orchestrator's token, and all of them. More
 // tools raise prompt cost and widen authority, so a further one needs a need a trial named (ADR-0014).
@@ -84,7 +82,7 @@ var OrchestratorTools = []string{
 	ToolContextGet, ToolDecisionSearch, ToolRequirementGet, ToolQuestionSearch,
 	ToolWorkCandidates, ToolWorkClaim, ToolLaneStart, ToolLaneStop,
 	ToolQuestionNext, ToolQuestionAttach, ToolDecisionRecord, ToolQuestionEscalate,
-	ToolWorkDecline, ToolApprovalDecide, ToolAcceptanceRecord,
+	ToolWorkDecline, ToolApprovalDecide,
 }
 
 // WorkRequest is one call of an orchestrator's tool. Args go as the session wrote them, so the

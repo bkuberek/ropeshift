@@ -131,7 +131,7 @@ func TestEachCallerSeesExactlyItsTools(t *testing.T) {
 		"context_get", "decision_search", "requirement_get", "question_search",
 		"work_candidates", "work_claim", "lane_start", "lane_stop",
 		"question_next", "question_attach", "decision_record", "question_escalate",
-		"work_decline", "approval_decide", "acceptance_record",
+		"work_decline", "approval_decide",
 	}
 	if got := listed(t, &worker{}); !slices.Equal(got, lane) {
 		t.Errorf("a lane sees %d: %v", len(got), got)
@@ -374,5 +374,25 @@ func TestLaneReportTellsTheLaneWhatTheWorkerRefused(t *testing.T) {
 	}))
 	if !got.Result.IsError || !strings.Contains(got.Result.Content[0].Text, "criterion c2") {
 		t.Errorf("the lane hears %+v", got.Result)
+	}
+}
+
+// Acceptance rests on a review's verdicts and on forge checks, so an orchestrator is not a second principal
+// and has no tool to accept work (ADR-0014). The tool is gone for every caller, whatever it asks.
+func TestNoCallerHasAnAcceptanceTool(t *testing.T) {
+	for _, owner := range []string{"", lanes.OwnerOrchestrator} {
+		w := &worker{owner: owner}
+		for _, name := range listed(t, w) {
+			if strings.Contains(name, "accept") {
+				t.Errorf("owner %q is offered %s", owner, name)
+			}
+		}
+		got := ask(t, w, "tools/call", map[string]any{"name": "acceptance_record", "arguments": map[string]any{"work_order": "wo"}})
+		if got.Error == nil || !strings.Contains(got.Error.Message, "no such tool") {
+			t.Errorf("owner %q calling acceptance_record: %+v", owner, got)
+		}
+		if calls := w.works(); len(calls) != 0 {
+			t.Errorf("owner %q reached the worker with %+v", owner, calls)
+		}
 	}
 }

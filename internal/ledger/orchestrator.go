@@ -177,7 +177,6 @@ const (
 	VerbResolve    = "resolve"
 	VerbMerge      = "merge"
 	VerbRule       = "rule"
-	VerbAccept     = "accept"
 )
 
 // OrchestratorCall is one such act. Lane names the run it speaks for, so a call from a start that was

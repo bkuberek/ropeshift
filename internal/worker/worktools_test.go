@@ -86,7 +86,7 @@ func (r *toolRig) question(t *testing.T, id string) questions.Question {
 func TestALaneTokenIsRefusedOnWorkClaim(t *testing.T) {
 	t.Parallel()
 	r := aToolRig(t)
-	for _, tool := range []string{lanes.ToolWorkClaim, lanes.ToolLaneStart, lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolAcceptanceRecord} {
+	for _, tool := range []string{lanes.ToolWorkClaim, lanes.ToolLaneStart, lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate} {
 		reply := callTool(t, r.subject, r.laneRig.token(t), tool, map[string]any{"work_order": "wo", "question": "q1"})
 		if reply.OK || reply.Code != lanes.CodeForbidden {
 			t.Errorf("%s: %+v", tool, reply)
@@ -111,7 +111,7 @@ func TestNoSessionOpensAWindowOrAcknowledgesTheRisk(t *testing.T) {
 	worker := r.subject.Auth().WorkerID
 	names := []string{
 		"window_open", "run_window_open", "window_close", "open_window", "autonomy", "autonomy_set", "worker_level",
-		"risk_acknowledge", "acknowledge_risk", "policy_publish",
+		"risk_acknowledge", "acknowledge_risk", "policy_publish", "acceptance_record", "work_accept",
 	}
 	for _, token := range []string{r.token, r.laneRig.token(t)} {
 		for _, name := range names {

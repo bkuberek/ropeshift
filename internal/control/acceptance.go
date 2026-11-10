@@ -348,8 +348,7 @@ type awaiting struct {
 // Settle reads what a forge ran on each waiting attempt's commit, and moves the work its
 // evidence decides by itself. It is a tick: the list is read with no lock, the forge is read
 // outside every transaction, and each item is one transaction that reads again. A nil forge
-// means no independent source exists, which leaves a lane's checks to a second principal
-// (D16). A forge that fails decides nothing about its item, and the rest go on.
+// means no independent source exists, which leaves a lane's checks to a member (D16). A forge that fails decides nothing about its item, and the rest go on.
 func (a *Acceptances) Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error) {
 	waiting, err := a.waiting(ctx, scope)
 	if err != nil {

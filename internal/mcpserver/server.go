@@ -116,7 +116,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 				contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
 				workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
 				questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
-				workDeclineTool, approvalDecideTool, acceptanceRecordTool,
+				workDeclineTool, approvalDecideTool,
 			}
 		}
 		out.Result = map[string]any{"tools": tools}
@@ -378,10 +378,6 @@ var questionEscalateTool = objectTool(lanes.ToolQuestionEscalate, "Take a questi
 		"recommendation": textField("What you would choose, and why."), "lookup": considered, "open": matched,
 	}, "question", "reason", "options", "recommendation")
 
-var acceptanceRecordTool = objectTool(lanes.ToolAcceptanceRecord, "Act as the second principal on a finished lane, once you read that its evidence holds. "+
-	"A failed check cannot be accepted, and what needs a person stays with a person.",
-	map[string]any{"work_order": workOrderField}, "work_order")
-
 func searchTool(name, description string) map[string]any {
 	return map[string]any{
 		"name":        name,
@@ -434,7 +430,7 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		}
 		return callDecide(request.Arguments, call), nil
 	case lanes.ToolWorkCandidates, lanes.ToolWorkClaim, lanes.ToolLaneStart, lanes.ToolLaneStop, lanes.ToolQuestionNext, lanes.ToolQuestionAttach,
-		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline, lanes.ToolAcceptanceRecord:
+		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline:
 		if !orchestrating(call) {
 			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
 		}
