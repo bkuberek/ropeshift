@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -141,5 +143,81 @@ func TestLaneShowSaysWhereTheLaneBegan(t *testing.T) {
 	}
 	if text := cli.LaneDetail(ledger.LaneView{ID: "lane-2"}); strings.Contains(text, "base") {
 		t.Errorf("a lane that began where its checkout was says it began somewhere:\n%s", text)
+	}
+}
+
+// calibrate leaves the records of a member's decisions after a review: two the member agreed with, and one
+// approval the member sent back.
+func (s *session) calibrate(repository string) {
+	s.t.Helper()
+	records := []workorders.Calibration{
+		{Outcome: workorders.ReviewPass, Decision: workorders.DecisionAccept, Agreement: workorders.AgreementAgree},
+		{Outcome: workorders.ReviewFail, Decision: workorders.DecisionRework, Agreement: workorders.AgreementAgree},
+		{Outcome: workorders.ReviewPass, Decision: workorders.DecisionRework, Agreement: workorders.AgreementDisagree},
+	}
+	err := s.daemon.Store.Write(s.t.Context(), apitest.Scope, "calibration.test", func(tx ports.WriteTx) error {
+		for i, c := range records {
+			c.ID, c.WorkOrder, c.Review, c.Commit = fmt.Sprintf("cal-%d", i), fmt.Sprintf("wo-%d", i), fmt.Sprintf("review-%d", i), "abc123"
+			c.Repository, c.Authority, c.Source, c.Member = repository, ledger.PersonMerges, workorders.SourceDecision, "member-1"
+			c.Verdicts = []workorders.SeenVerdict{{Criterion: "c1", Verdict: workorders.VerdictKind(c.Outcome)}}
+			if _, err := tx.Evidence().RecordCalibration(c); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Append(ledger.EventDraft{
+			Type: workorders.EventEvidenceRecorded, Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}, Subject: ledger.Subject{Kind: workorders.SubjectKind, ID: "wo-0"},
+		})
+		return err
+	})
+	if err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+func TestRepositoryShowSaysHowOftenYouAgreedWithTheReview(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	text := s.must("repository", "show", aRepositoryID[:8])
+	for _, want := range []string{"merge authority\tperson_merges", "review agreement, last 30 days\tno decisions after a review yet", "review agreement, all time\tno decisions after a review yet"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("show lacks %q before any decision:\n%s", want, text)
+		}
+	}
+	s.calibrate(aRepositoryID)
+	text = s.must("repository", "show", aRepositoryID[:8])
+	for _, want := range []string{
+		"merge authority\tperson_merges",
+		"review agreement, last 30 days\t3 decisions after a review; you agreed with 66.7% (2 of 3); approvals you overturned 1 (later defects 0); failures you overrode 0; the review could not judge 0",
+		"review agreement, all time\t3 decisions after a review; you agreed with 66.7% (2 of 3)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("show lacks %q:\n%s", want, text)
+		}
+	}
+	var view api.RepositoryView
+	if err := json.Unmarshal([]byte(s.must("repository", "show", aRepositoryID, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.ReviewAgreement.AllTime.Decisions != 3 || view.ReviewAgreement.AllTime.Agreed != 2 {
+		t.Errorf("json %+v", view.ReviewAgreement)
+	}
+	// Seeing the record is not choosing the level.
+	if got := s.must("repository", "show", aRepositoryID); !strings.Contains(got, "merge authority\tperson_merges") {
+		t.Errorf("the level moved:\n%s", got)
+	}
+}
+
+func TestMeasuresPrintsReviewAgreementPerRepository(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	s.calibrate(aRepositoryID)
+	text := s.must("measures")
+	for _, want := range []string{
+		"review agreement, all time\t3 decisions after a review; you agreed with 66.7% (2 of 3)",
+		"review agreement, " + aRepositoryID[:12] + " (person_merges), all time\t3 decisions after a review",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("measures lack %q:\n%s", want, text)
+		}
 	}
 }
