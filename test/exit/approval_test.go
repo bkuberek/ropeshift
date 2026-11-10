@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -160,8 +161,21 @@ func TestExitE7NoSelfApproval(t *testing.T) {
 	}
 }
 
-// A gated call on a headless lane ends its turn at once, so the lane parks with no process waiting
-// on a person, and the same call comes back on a resume and runs on the decision.
+// witnessed reads what the fake CLI logged under a name, and nothing when it logged none.
+func witnessed(t *testing.T, dir, name string) []string {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(dir, name+".log")); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return logged(t, dir, name)
+}
+
+// A gated call on a headless lane parks the lane at once, with no process waiting on a person, and the
+// same call runs on the decision. Two paths reach the park, and a loaded machine decides which: the
+// hook's peek answers in time and defers the turn (a native resume then runs the call by itself, so
+// its prompt must not say to repeat it), or the peek misses and the call reaches `PermissionRequest`,
+// which is told the wait ran out (a denied call does not run by itself, so the resume prompt owes it).
+// TestADeferredTurnParksOnItsRequest covers the deferral on its own.
 func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 	in := newInstall(t)
 	id, _, d := in.runningLane("lane-defers", "[agent]\ngates = [\"Bash(touch gated*)\"]\n\n[lifecycle]\napproval_wait = \"60s\"\nhandoff_timeout = \"2s\"\nmax_restarts = 0\n")
@@ -169,9 +183,6 @@ func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 	a := in.awaitRequest(authority.ApprovalPending)
 	in.waitFor("the lane to park", func() bool { return in.show(id).State == workorders.Parked })
 	dir := doubles.BinDir(in.path)
-	if deferred := logged(t, dir, "deferred"); len(deferred) != 1 {
-		t.Fatalf("deferred %q", deferred)
-	}
 	if _, err := os.Stat(filepath.Join(dir, "ran.log")); err == nil {
 		t.Fatal("the call ran with no decision")
 	}
@@ -183,12 +194,22 @@ func TestADeferredCallParksAndRunsOnItsDecision(t *testing.T) {
 	if rows := in.approvals(); len(rows) != 1 || rows[0].State != authority.ApprovalUsed {
 		t.Errorf("requests %+v", rows)
 	}
-	// RS11 saw this on a real session: a native resume runs the deferred call by itself, so a prompt
-	// that says to make it again runs it twice, or raises a request for a call already made.
-	for _, prompt := range logged(t, dir, "prompts") {
-		if strings.Contains(prompt, "make the call below") || strings.Contains(prompt, "did not finish") {
-			t.Errorf("a resume told the session to repeat a call that comes back by itself: %s", prompt)
+	deferred, denied, prompts := witnessed(t, dir, "deferred"), witnessed(t, dir, "denied"), logged(t, dir, "prompts")
+	switch {
+	case len(deferred) == 1 && len(denied) == 0:
+		// RS11 saw this on a real session: a native resume runs the deferred call by itself, so a prompt
+		// that says to make it again runs it twice, or raises a request for a call already made.
+		for _, prompt := range prompts {
+			if strings.Contains(prompt, "make the call below") || strings.Contains(prompt, "did not finish") {
+				t.Errorf("a resume told the session to repeat a call that comes back by itself: %s", prompt)
+			}
 		}
+	case len(deferred) == 0 && len(denied) == 1 && denied[0] == lanes.ReasonApprovalWait:
+		if !slices.ContainsFunc(prompts, func(prompt string) bool { return strings.Contains(prompt, "make the call below") }) {
+			t.Errorf("a resume never told the session to make the call its wait denied: %q", prompts)
+		}
+	default:
+		t.Errorf("the call neither deferred nor was denied for its wait: deferred %q, denied %q", deferred, denied)
 	}
 }
 
