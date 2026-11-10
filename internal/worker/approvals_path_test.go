@@ -119,6 +119,7 @@ func mustDo(t *testing.T, err error) {
 // digest of the input alone cannot see. The call must not run, its decision is void, and what it
 // asks next goes to a member, because no class reaches where it lands now.
 func TestADecisionBindsToWhereACallLands(t *testing.T) {
+	t.Parallel()
 	type attack struct {
 		name string
 		file func(f *fileRig) string
@@ -209,6 +210,7 @@ func TestADecisionBindsToWhereACallLands(t *testing.T) {
 // A hook already waiting on a request reads the same way: the next look finds the call lands
 // elsewhere, and it goes no further than that look.
 func TestAWaitingHookSeesACallMove(t *testing.T) {
+	t.Parallel()
 	f := aLaneOnRealFiles(t)
 	input := anEdit(t, f.path("docs", "a.md"))
 	f.lookAtEdit(t, input, "call-1", false)
@@ -226,6 +228,7 @@ func TestAWaitingHookSeesACallMove(t *testing.T) {
 // Nothing moved, so what was decided is what runs. A link put back before the use leaves the same
 // landing, and that runs too: a decision reads where a call lands, not what happened on the way.
 func TestACallThatLandsWhereItWasDecidedRuns(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		move func(t *testing.T, f *fileRig)
@@ -264,6 +267,7 @@ func TestACallThatLandsWhereItWasDecidedRuns(t *testing.T) {
 // and in what its digest covers, so a link moved from one place outside to another voids a member's
 // decision as well.
 func TestACallThatLandsOutsideSaysSoFromTheStart(t *testing.T) {
+	t.Parallel()
 	f := aLaneOnRealFiles(t)
 	mustDo(t, os.Remove(f.path("docs", "a.md")))
 	mustDo(t, os.Symlink(filepath.Join(f.outside, "a.md"), f.path("docs", "a.md")))
@@ -294,6 +298,7 @@ func TestACallThatLandsOutsideSaysSoFromTheStart(t *testing.T) {
 // must still find a request bound to where the call lands, or a person's answer at a terminal stays
 // open for good.
 func TestATerminalAnswerFindsACallWithAPath(t *testing.T) {
+	t.Parallel()
 	f := aLaneOnRealFiles(t)
 	input := anEdit(t, f.path("docs", "a.md"))
 	f.lookAtEdit(t, input, "call-1", false)

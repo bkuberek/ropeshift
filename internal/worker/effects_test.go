@@ -52,6 +52,7 @@ func (w *worldRig) decide(t *testing.T, id string, outcome ledger.EffectOutcome)
 }
 
 func TestAnEffectNothingCanObserveReachesAPerson(t *testing.T) {
+	t.Parallel()
 	w, effect := unknownInput(t)
 	w.pass(t, w.subject)
 	w.pass(t, w.subject)
@@ -66,6 +67,7 @@ func TestAnEffectNothingCanObserveReachesAPerson(t *testing.T) {
 }
 
 func TestAnEffectThatCanBeObservedTroublesNobody(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
 	w.effect(lanes.EffectSession, "lane-1", lanes.EffectStarted)
@@ -77,6 +79,7 @@ func TestAnEffectThatCanBeObservedTroublesNobody(t *testing.T) {
 }
 
 func TestAPersonsWordSettlesAnEffect(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		outcome ledger.EffectOutcome
@@ -118,6 +121,7 @@ func TestAPersonsWordSettlesAnEffect(t *testing.T) {
 // A restart reads the same word from desired state until the ledger hears the worker acted. Run twice,
 // a retry would count two attempts and could send the input twice.
 func TestAWordAppliesOnceAcrossARestart(t *testing.T) {
+	t.Parallel()
 	w, effect := unknownInput(t)
 	w.pass(t, w.subject)
 	w.decide(t, w.raised(t)[0].ID, ledger.EffectRetry)
@@ -147,6 +151,7 @@ func TestAWordAppliesOnceAcrossARestart(t *testing.T) {
 
 // A retry that a crash cuts short is unknown again, and only a person can say what happened to it.
 func TestARetryACrashCutShortAsksAgain(t *testing.T) {
+	t.Parallel()
 	w, effect := unknownInput(t)
 	w.pass(t, w.subject)
 	w.decide(t, w.raised(t)[0].ID, ledger.EffectRetry)
@@ -201,6 +206,7 @@ func (r *handoffRig) decideEffect(t *testing.T, id string, outcome ledger.Effect
 }
 
 func TestARetriedMessageIsWrittenAgain(t *testing.T) {
+	t.Parallel()
 	r, id := unknownMessage(t)
 	r.decideEffect(t, id, ledger.EffectRetry)
 	if inputs := r.peerInputs(); len(inputs) != 1 {
@@ -213,6 +219,7 @@ func TestARetriedMessageIsWrittenAgain(t *testing.T) {
 }
 
 func TestAMessageAPersonSawArrivedIsHandedOff(t *testing.T) {
+	t.Parallel()
 	r, id := unknownMessage(t)
 	r.decideEffect(t, id, ledger.EffectHappened)
 	if inputs := r.peerInputs(); len(inputs) != 0 {
@@ -225,6 +232,7 @@ func TestAMessageAPersonSawArrivedIsHandedOff(t *testing.T) {
 }
 
 func TestAMessageAPersonSaysNeverArrivedStaysUnwritten(t *testing.T) {
+	t.Parallel()
 	r, id := unknownMessage(t)
 	r.decideEffect(t, id, ledger.EffectNotHappened)
 	if inputs := r.peerInputs(); len(inputs) != 0 {

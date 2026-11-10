@@ -37,6 +37,7 @@ func (r *laneRig) questionList(t *testing.T) []questions.Question {
 }
 
 func TestAnAskBecomesALedgerQuestion(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g := newGate()
 	r.finishLater(g)
@@ -96,6 +97,7 @@ func (r *laneRig) forceFence(t *testing.T) {
 }
 
 func TestAFencedLaneIsToldSo(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g := newGate()
 	r.finishLater(g)
@@ -114,6 +116,7 @@ func TestAFencedLaneIsToldSo(t *testing.T) {
 // TestAQuestionToolCallBecomesALedgerQuestion is the conversion on a headless lane. The hook
 // is answered at once, and the question follows.
 func TestAQuestionToolCallBecomesALedgerQuestion(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g := newGate()
 	r.finishLater(g)

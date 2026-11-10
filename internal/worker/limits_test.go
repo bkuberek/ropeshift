@@ -222,6 +222,7 @@ func startedFleet(t *testing.T, count int, signal fake.DriverStep) *limitRig {
 // TestALimitParksEveryLaneOnItsSignIn is the outcome: one lane reaches a limit, every lane on that
 // sign-in parks with a wake of its own naming one key, and none is asked to write anything.
 func TestALimitParksEveryLaneOnItsSignIn(t *testing.T) {
+	t.Parallel()
 	reset := time.Now().Add(time.Hour).UnixMilli()
 	r := startedFleet(t, 3, *rejected(reset))
 	r.awaitOrders(t, workorders.Parked)
@@ -242,6 +243,7 @@ func TestALimitParksEveryLaneOnItsSignIn(t *testing.T) {
 // TestOneSignalWakesEveryLane is D10: a reset fires one signal, every wake that names the key
 // fires, and each lane goes on in a new generation of its own session.
 func TestOneSignalWakesEveryLane(t *testing.T) {
+	t.Parallel()
 	reset := time.Now().Add(time.Hour).UnixMilli()
 	r := startedFleet(t, 3, *rejected(reset))
 	r.awaitOrders(t, workorders.Parked)
@@ -263,6 +265,7 @@ func TestOneSignalWakesEveryLane(t *testing.T) {
 
 // TestAGradualStartAfterAReset holds what a reset releases to the sign-in's own cap.
 func TestAGradualStartAfterAReset(t *testing.T) {
+	t.Parallel()
 	reset := time.Now().Add(time.Hour).UnixMilli()
 	r := startedFleet(t, 3, *rejected(reset))
 	r.awaitOrders(t, workorders.Parked)
@@ -293,6 +296,7 @@ func TestAGradualStartAfterAReset(t *testing.T) {
 }
 
 func TestARetryOfARateLimitParksOnlyPastItsTries(t *testing.T) {
+	t.Parallel()
 	var r *limitRig
 	seen := make(chan struct{})
 	r = fleetOf(t, 1, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
@@ -312,11 +316,13 @@ func TestARetryOfARateLimitParksOnlyPastItsTries(t *testing.T) {
 }
 
 func TestARetryPastItsTriesParks(t *testing.T) {
+	t.Parallel()
 	r := startedFleet(t, 2, fake.DriverStep{Retry: lanes.FailureUsageLimit, Attempt: lanes.RetriesBeforeLimit})
 	r.awaitOrders(t, workorders.Parked)
 }
 
 func TestARetryOfAnythingElseParksNothing(t *testing.T) {
+	t.Parallel()
 	var r *limitRig
 	seen := make(chan struct{})
 	r = fleetOf(t, 1, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
@@ -336,6 +342,7 @@ func TestARetryOfAnythingElseParksNothing(t *testing.T) {
 
 // TestATurnThatFailedAtALimitParks keeps a lane that hit its limit in a turn from reading as failed.
 func TestATurnThatFailedAtALimitParks(t *testing.T) {
+	t.Parallel()
 	failedAtLimit := fake.DriverStep{Turn: &fake.DriverTurn{Status: ports.TurnFailed, Reason: lanes.FailureUsageLimit, TotalUSD: 0.01}}
 	r := startedFleet(t, 2, failedAtLimit)
 	r.awaitOrders(t, workorders.Parked)
@@ -343,6 +350,7 @@ func TestATurnThatFailedAtALimitParks(t *testing.T) {
 
 // TestAStopFailureParks is the signal a pane has, which reaches a headless lane as a hook too.
 func TestAStopFailureParks(t *testing.T) {
+	t.Parallel()
 	r := fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript { return atRest() })
 	r.start()
 	r.eventually("the lane at work", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
@@ -353,6 +361,7 @@ func TestAStopFailureParks(t *testing.T) {
 }
 
 func TestAStopFailureOfAnythingElseParksNothing(t *testing.T) {
+	t.Parallel()
 	r := fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript { return atRest() })
 	r.start()
 	r.eventually("the lane at work", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
@@ -370,6 +379,7 @@ func TestAStopFailureOfAnythingElseParksNothing(t *testing.T) {
 // TestTheLastReadingNamesTheReset is the design's rule: what says a limit was reached carries no
 // time, so a worker uses the last one any lane read.
 func TestTheLastReadingNamesTheReset(t *testing.T) {
+	t.Parallel()
 	reset := time.Now().Add(time.Hour).UnixMilli()
 	r := fleetOf(t, 1, limitProfile, func(ports.SessionSpec) fake.DriverScript {
 		return script([]fake.DriverStep{
@@ -387,6 +397,7 @@ func TestTheLastReadingNamesTheReset(t *testing.T) {
 // TestNoKnownResetReadsUsageAndProbes is the path with no time at all: `/usage` is read once and
 // kept on this machine, one lane is the probe, and it backs off until it gets through.
 func TestNoKnownResetReadsUsageAndProbes(t *testing.T) {
+	t.Parallel()
 	var r *limitRig
 	tries := 0
 	r = fleetOf(t, 3, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
@@ -457,6 +468,7 @@ func TestNoKnownResetReadsUsageAndProbes(t *testing.T) {
 // TestAProbeThatGetsThroughWakesTheOthers holds the probe at work, so only what it heard back can
 // end the limit: a lane that goes on has no end for a worker to read.
 func TestAProbeThatGetsThroughWakesTheOthers(t *testing.T) {
+	t.Parallel()
 	for name, heard := range map[string]fake.DriverStep{
 		"a turn that finished":        completed(0.02),
 		"a reading that says allowed": {Limit: &lanes.UsageReading{Status: lanes.UsageAllowed}},
@@ -527,6 +539,7 @@ func (j *refusedSignal) SaveSignIn(ctx context.Context, state lanes.SignInState,
 // TestAWriteThatFailedEndsNoLimit keeps memory behind the journal: a worker that thought a limit was
 // over, with no word of that written, would leave every other lane waiting for good.
 func TestAWriteThatFailedEndsNoLimit(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	journal := &refusedSignal{Journal: base.journal}
 	base.workerJournal = journal
@@ -551,6 +564,7 @@ func TestAWriteThatFailedEndsNoLimit(t *testing.T) {
 
 // TestAProbeThatEndsReleasesTheOthers: nothing else would ever wake them.
 func TestAProbeThatEndsReleasesTheOthers(t *testing.T) {
+	t.Parallel()
 	var r *limitRig
 	r = fleetOf(t, 2, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
 		switch {
@@ -573,6 +587,7 @@ func TestAProbeThatEndsReleasesTheOthers(t *testing.T) {
 }
 
 func TestALimitHoldsANewLane(t *testing.T) {
+	t.Parallel()
 	reset := time.Now().Add(time.Hour).UnixMilli()
 	r := startedFleet(t, 1, *rejected(reset))
 	r.awaitOrders(t, workorders.Parked)
@@ -590,6 +605,7 @@ func TestALimitHoldsANewLane(t *testing.T) {
 }
 
 func TestNearTheLimitHoldsANewLaneAndNotAWokenOne(t *testing.T) {
+	t.Parallel()
 	warning := fake.DriverStep{Limit: &lanes.UsageReading{Status: lanes.UsageWarning}}
 	var r *limitRig
 	seen := make(chan struct{})
@@ -646,6 +662,7 @@ func (r *limitRig) wake2(t *testing.T) {
 // TestAnExpiredSignInParksUntilTheDoctorSaysSo holds a lane that has no budget and no sign-in, and
 // the doctor is what ends that.
 func TestAnExpiredSignInParksUntilTheDoctorSaysSo(t *testing.T) {
+	t.Parallel()
 	r := startedFleet(t, 2, fake.DriverStep{Retry: lanes.FailureSignIn, Attempt: 1})
 	r.driver.SetSignInStatus(lanes.SignedOut)
 	r.awaitOrders(t, workorders.Parked)
@@ -706,6 +723,7 @@ func (j *watchedParking) SaveSignIn(ctx context.Context, state lanes.SignInState
 // a signal counts only for wakes stored before it, so a wake journaled after one would wait for
 // good. Nothing else on a sign-in can land between what a lane read and what it journaled.
 func TestNoWordOnASignInLandsInsideAParking(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	journal := &watchedParking{Journal: base.journal, reached: make(chan struct{})}
 	base.workerJournal = journal
@@ -731,6 +749,7 @@ func TestNoWordOnASignInLandsInsideAParking(t *testing.T) {
 // TestARestartKeepsWhatASignInSaid holds a new lane on a limit an earlier process saw, because the
 // journal is what a worker knows.
 func TestARestartKeepsWhatASignInSaid(t *testing.T) {
+	t.Parallel()
 	reset := time.Now().Add(time.Hour).UnixMilli()
 	r := startedFleet(t, 1, *rejected(reset))
 	r.awaitOrders(t, workorders.Parked)
@@ -753,6 +772,7 @@ func TestARestartKeepsWhatASignInSaid(t *testing.T) {
 }
 
 func TestAWorkerSaysNothingOfASignInToTheLedger(t *testing.T) {
+	t.Parallel()
 	reset := time.Now().Add(time.Hour).UnixMilli()
 	r := startedFleet(t, 1, *rejected(reset))
 	r.awaitOrders(t, workorders.Parked)

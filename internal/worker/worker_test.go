@@ -24,6 +24,11 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
+// Every rig has its own store, journal, clock, driver, and directories, and no test sets the
+// environment or the working directory, so the tests run in parallel. A test stays serial when its
+// check depends on how far the worker gets in real time, because the load of the other tests would
+// move that: one that lets time pass and then reads what the worker did or did not do in it, or one
+// that bounds how long a call takes. Go runs the serial tests before the parallel ones.
 const scope = ledger.WorkspaceID("w")
 
 var member = ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
@@ -206,6 +211,7 @@ func (r *rig) events() []ledger.Event {
 }
 
 func TestFirstStartRegistersOnce(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	first := r.started()
 	id := first.Auth().WorkerID
@@ -231,6 +237,7 @@ func TestFirstStartRegistersOnce(t *testing.T) {
 }
 
 func TestRegistrationResumesFromTheJournal(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	if err := r.journal.SaveIdentity(t.Context(), ledger.WorkerIdentity{WorkerID: "kept"}); err != nil {
 		t.Fatal(err)
@@ -241,6 +248,7 @@ func TestRegistrationResumesFromTheJournal(t *testing.T) {
 }
 
 func TestStartNeedsAToken(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := worker.New(r.link, r.journal, r.clock, worker.Config{})
 	if err := subject.Start(t.Context()); err == nil {
@@ -249,6 +257,7 @@ func TestStartNeedsAToken(t *testing.T) {
 }
 
 func TestDesiredStateReachesTheJournal(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -266,6 +275,7 @@ func TestDesiredStateReachesTheJournal(t *testing.T) {
 }
 
 func TestLeaseDeadlineCountsFromTheSend(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	r.claimFor("wo", subject.Auth().WorkerID)
@@ -303,6 +313,7 @@ func (l *slowLink) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger
 }
 
 func TestFencedLeaseLeavesTheJournal(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -330,6 +341,7 @@ func TestFencedLeaseLeavesTheJournal(t *testing.T) {
 }
 
 func TestWrongNonceChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	r.claimFor("wo", subject.Auth().WorkerID)
@@ -349,6 +361,7 @@ func TestWrongNonceChangesNothing(t *testing.T) {
 }
 
 func TestLostUploadAnswerStoresOneEvent(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -385,6 +398,7 @@ func TestLostUploadAnswerStoresOneEvent(t *testing.T) {
 }
 
 func TestFencedEventIsKept(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	grant := r.claimFor("wo", subject.Auth().WorkerID)
@@ -405,6 +419,7 @@ func TestFencedEventIsKept(t *testing.T) {
 }
 
 func TestEventsWaitForAnAbsentControlPlane(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := r.started()
 	ctx := t.Context()
@@ -438,6 +453,7 @@ func (l *downLink) OpenSession(ctx context.Context, request ledger.SessionReques
 }
 
 func TestRunConvergesAndStops(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -467,6 +483,7 @@ func TestRunConvergesAndStops(t *testing.T) {
 }
 
 func TestRunStopsOnARefusedProtocol(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	subject := worker.New(r.link, r.journal, r.clock, worker.Config{
 		Protocol: 99,
@@ -481,6 +498,7 @@ func TestRunStopsOnARefusedProtocol(t *testing.T) {
 }
 
 func TestNewEpochAfterAnotherProcessReplacedThisOne(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	first := r.started()
 	r.started()

@@ -47,6 +47,7 @@ func (w *worldRig) awaitActual(t *testing.T, want lanes.ActualState) {
 // A compaction in a turn ended while no worker listened. The state it left is in the journal, or a
 // restart would read a running turn as a lane at rest, and hand it input.
 func TestACompactionAdoptedInATurnReturnsToTheTurn(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.adoptedAt(t, lanes.Compacting, lanes.Working)
 	w.merged(t, "PreCompact", 10)
@@ -98,6 +99,7 @@ func TestAWaitOnAnAnswerSitsOutACompaction(t *testing.T) {
 // A compaction that fails reports nothing, and a tool call shows the session went on, so the lane
 // leaves through `working` and the policy reads it again.
 func TestAFailedCompactionLeavesThroughWorking(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := laneRigWith(t, "")
 	r.finishLater(g)
@@ -113,6 +115,7 @@ func TestAFailedCompactionLeavesThroughWorking(t *testing.T) {
 // progress, because a lane that was quiet before it has not been stuck in it, and its end does too,
 // because a turn goes on from there.
 func TestAHungCompactionStalls(t *testing.T) {
+	t.Parallel()
 	stalled := func(view ledger.LaneView) bool { return slices.Contains(view.Conditions, string(lanes.Stalled)) }
 	r := laneRigWith(t, "[lifecycle]\nstall_after = \"20m\"\n")
 	g := newGate()
@@ -138,6 +141,7 @@ func TestAHungCompactionStalls(t *testing.T) {
 // A compaction whose end no hook reported ends with its turn, or a lane reads `compacting` for
 // the rest of its generation and no threshold reaches it.
 func TestATurnsEndClosesACompactionWithNoEnd(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\n")
 	g := newGate()
 	r.finishLater(g)
@@ -152,6 +156,7 @@ func TestATurnsEndClosesACompactionWithNoEnd(t *testing.T) {
 // A figure can come after the turn it belongs to, and nothing saves a turn that has ended. A verdict
 // has to be kept where it lands, or a restart reads a compaction still waiting on a call that came.
 func TestAVerdictThatComesAfterItsTurnIsKept(t *testing.T) {
+	t.Parallel()
 	r := contextRig(t,
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		aCompactionsEnd(),
@@ -203,6 +208,7 @@ func TestAPersonsCompactionEndsNoTurnOfTheLanes(t *testing.T) {
 // A compaction this lane asked for ends the same way in a pane, and only a request tells the two
 // apart: that one is its turn, and the session is told to go on.
 func TestACompactionItAskedForEndsItsTurn(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},

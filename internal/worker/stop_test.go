@@ -63,6 +63,7 @@ func (r *laneRig) runWith(steps ...fake.DriverStep) {
 }
 
 func TestAStopGuardsTheWorktree(t *testing.T) {
+	t.Parallel()
 	checkpoint := lanes.CheckpointRef("lane-1", 1)
 	branch := lanes.HeadsRef("lane/lane-1")
 	tests := []struct {
@@ -149,6 +150,7 @@ func uniq(values []string) []string {
 // removal sends anything, the work keeps its local branch and a local ref, the outcome and its
 // evidence still reach the ledger, and the ledger says the work exists only here.
 func TestWorkStaysOnThisMachineUnlessTheUserChosePush(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")
 	r.runWith(r.committing(stopWorktree), r.dirtying(stopWorktree))
@@ -191,6 +193,7 @@ func TestWorkStaysOnThisMachineUnlessTheUserChosePush(t *testing.T) {
 // A session keeps working while a stop waits for it, so the last word is the reading after
 // it is gone.
 func TestWorkMadeDuringTheStopIsGuarded(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")
 	r.driver.OnStop(func() { r.worktrees().Dirty(stopWorktree) })
@@ -201,6 +204,7 @@ func TestWorkMadeDuringTheStopIsGuarded(t *testing.T) {
 }
 
 func TestASnapshotThatSavesWorkIsOnRecord(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")
 	r.runWith(r.dirtying(stopWorktree))
@@ -222,6 +226,7 @@ func TestASnapshotThatSavesWorkIsOnRecord(t *testing.T) {
 }
 
 func TestACrashedLaneIsGuardedToo(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+noRestarts)
 	r.worktrees().UseRemote("origin")
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.dirtying(stopWorktree), {Crash: true}}))
@@ -234,6 +239,7 @@ func TestACrashedLaneIsGuardedToo(t *testing.T) {
 }
 
 func TestAFailedReadNeverReadsAsClean(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.worktrees().FailSurvey(errors.New("git is gone"))
 	r.runWith()
@@ -264,6 +270,7 @@ func (r *laneRig) settle() {
 }
 
 func TestRemovingUnpushedWorkNeedsAForcedCommand(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.runWith(r.dirtying(stopWorktree))
 	if err := r.archive(false); !errors.Is(err, workorders.ErrUnpushedWork) {
@@ -293,6 +300,7 @@ func TestRemovingUnpushedWorkNeedsAForcedCommand(t *testing.T) {
 }
 
 func TestARemovalOfCleanWorkNeedsNoForce(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")
 	r.runWith()
@@ -312,6 +320,7 @@ func TestARemovalOfCleanWorkNeedsNoForce(t *testing.T) {
 // Work can appear after a stop's reading, so the removal reads again, and what it finds
 // cancels a request nobody forced.
 func TestARemovalReadsTheWorktreeAgain(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")
 	r.runWith()
@@ -334,6 +343,7 @@ func TestARemovalReadsTheWorktreeAgain(t *testing.T) {
 }
 
 func TestARunningLaneKeepsItsWorktree(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
 	r.start()
@@ -363,6 +373,7 @@ func (r *laneRig) eventuallyUp() {
 }
 
 func TestAFencedLaneStopsThroughTheGuard(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.choosesPush()
 	r.worktrees().UseRemote("origin")
@@ -404,6 +415,7 @@ func TestAFencedLaneStopsThroughTheGuard(t *testing.T) {
 // lease out of what the beat presents, so the beat can never say it was fenced. The session has to
 // stop anyway, because desired state is the rule and a beat is only how a worker hears sooner.
 func TestALaneNoDesiredStateNamesStopsWithNoBeatToSaySo(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt)
 	r.worktrees().UseRemote("origin")
 	wrote := make(chan struct{})
@@ -456,6 +468,7 @@ func (r *laneRig) loseLease(t *testing.T) {
 }
 
 func TestAResourceBlockReachesTheLane(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[resources]\nports_per_lane = 10\ncompose_project_prefix = \"rs\"\n")
 	r.runWith()
 	spec := r.driver.Specs()[0]
@@ -465,6 +478,7 @@ func TestAResourceBlockReachesTheLane(t *testing.T) {
 }
 
 func TestAnEndedLaneGivesItsResourcesBack(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.runWith()
 	if held, err := r.journal.Allocations(t.Context()); err != nil || len(held) != 0 {
@@ -474,6 +488,7 @@ func TestAnEndedLaneGivesItsResourcesBack(t *testing.T) {
 
 // A kill between a lane's end and its release leaves an ended lane holding a block.
 func TestReconcileReleasesWhatACrashLeft(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.runWith()
 	request := lanes.AllocationRequest{Lane: "lane-1", Ports: 10, Pool: lanes.DefaultPortPool}
@@ -493,6 +508,7 @@ func TestReconcileReleasesWhatACrashLeft(t *testing.T) {
 }
 
 func TestARestartGetsTheSameBlock(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script(crashed()))
 	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.1)}))
@@ -535,6 +551,7 @@ func portOf(spec ports.SessionSpec) string {
 }
 
 func TestAHookRunsOnceWithTheLanesEnvironment(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[hooks]\non_lane_created = [\"./scripts/setup.sh\", \"{lane.name}\"]\n")
 	hooks := r.config.Provisioner.Hooks.(*fake.HookRunner)
 	r.runWith()
@@ -557,6 +574,7 @@ func TestAHookRunsOnceWithTheLanesEnvironment(t *testing.T) {
 }
 
 func TestAHookThatFailsFailsTheLaneBeforeASession(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n")
 	r.config.Provisioner.Hooks.(*fake.HookRunner).Fail(errors.New("no such setup"))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -571,6 +589,7 @@ func TestAHookThatFailsFailsTheLaneBeforeASession(t *testing.T) {
 }
 
 func TestAHookACrashLeftUnknownStopsTheLaneForAPerson(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, profileAt+"[hooks]\non_lane_created = [\"./scripts/setup.sh\"]\n")
 	effect := lanes.NewEffect(lanes.EffectHook, "lane-1", 1, stopWorktree, lanes.HookLaneCreated)
 	if _, err := r.journal.BeginEffect(t.Context(), effect); err != nil {

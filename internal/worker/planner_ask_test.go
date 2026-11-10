@@ -29,6 +29,7 @@ func aPlanningLaneAtRest(t *testing.T) *laneRig {
 // A planning lane's question is the person's: it stands in Needs you with no ladder trace, and the
 // lane parks on it as any lane does.
 func TestAPlanningLanesAskGoesStraightToThePerson(t *testing.T) {
+	t.Parallel()
 	r := aPlanningLaneAtRest(t)
 	reply := r.ask(t, lanes.AskRequest{Text: "Who signs in to the admin console?", Categories: []string{questions.CategoryProduct}, Blocking: true})
 	if !reply.OK || reply.Ask == nil || reply.Ask.Status != questions.AskPending {
@@ -50,6 +51,7 @@ func TestAPlanningLanesAskGoesStraightToThePerson(t *testing.T) {
 
 // With no ladder to name a category, the lane has to, and the refusal tells it so.
 func TestAPlanningLanesAskNeedsACategory(t *testing.T) {
+	t.Parallel()
 	r := aPlanningLaneAtRest(t)
 	reply := r.ask(t, lanes.AskRequest{Text: "Who signs in to the admin console?"})
 	if reply.OK || reply.Code != lanes.CodeInvalid || !strings.Contains(reply.Message, "category") {
@@ -63,6 +65,7 @@ func TestAPlanningLanesAskNeedsACategory(t *testing.T) {
 // Any other lane's question climbs the ladder, and the control plane reads which kind of lane asked
 // from the ledger's work order. A lane that asserts the other kind changes nothing.
 func TestTheLedgerSaysWhoseQuestionGoesStraightToThePerson(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		kind   workorders.Kind
@@ -110,6 +113,7 @@ func TestTheLedgerSaysWhoseQuestionGoesStraightToThePerson(t *testing.T) {
 // No orchestrator works a planner's question: it is not next, and each rung a session can reach is
 // refused with the reason, whichever tool reaches it.
 func TestAPlannersQuestionIsNoOrchestratorsToWork(t *testing.T) {
+	t.Parallel()
 	r := aToolRig(t)
 	other := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "another-worker"}
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
@@ -156,6 +160,7 @@ func TestAPlannersQuestionIsNoOrchestratorsToWork(t *testing.T) {
 // plane takes a planner's question only with a category a member can find it by, and a conversion
 // that named none would be refused and the person would never hear it.
 func TestAPlanningLanesQuestionToolCallBecomesAQuestionForThePerson(t *testing.T) {
+	t.Parallel()
 	r := aPlanningLaneAtRest(t)
 	r.hook(t, lanes.HookEvent{
 		Event: "PreToolUse", Tool: lanes.ToolQuestion, Subject: "toolu_1",

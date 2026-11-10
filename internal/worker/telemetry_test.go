@@ -29,6 +29,7 @@ func attribute(attributes []ports.Attribute, key string) any {
 // TestALaneIsTaggedAtSpawn holds FR-OBS-2: the session's telemetry goes to the worker's receiver,
 // tagged with what produced it.
 func TestALaneIsTaggedAtSpawn(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.config.Telemetry = worker.LaneTelemetry{Endpoint: "http://127.0.0.1:7318", Header: "x-ropeshift-telemetry=t", Workspace: "default"}
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
@@ -53,6 +54,7 @@ func TestALaneIsTaggedAtSpawn(t *testing.T) {
 }
 
 func TestAWorkerWithNoReceiverTagsNothing(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -64,6 +66,7 @@ func TestAWorkerWithNoReceiverTagsNothing(t *testing.T) {
 }
 
 func TestAProfilesTelemetryReachesTheSpec(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[telemetry]\ntraces = true\nomit_repository = true\n")
 	r.config.Telemetry = worker.LaneTelemetry{Endpoint: "http://127.0.0.1:7318", Header: "x=y"}
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
@@ -88,6 +91,7 @@ func spanNamed(t *testing.T, telemetry *fake.Telemetry, name string) ports.Span 
 // TestSpansFollowALaneFromClaimToItsEnd reads a lane's whole life from the ledger and finds its claim,
 // its lane, and its generation in the work order's trace, each with its parent.
 func TestSpansFollowALaneFromClaimToItsEnd(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -118,6 +122,7 @@ func TestSpansFollowALaneFromClaimToItsEnd(t *testing.T) {
 }
 
 func TestSpansStartAtTheHead(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -160,6 +165,7 @@ func statusEvent(t *testing.T, status ledger.LaneStatus) ledger.EventDraft {
 // TestStallTimeIsReadFromTheLanesStatus holds FR-OBS-1's stall time: how long a lane read `stalled`,
 // from the first status that said so to the first that did not.
 func TestStallTimeIsReadFromTheLanesStatus(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.appendEvent(t, statusEvent(t, ledger.LaneStatus{ActualState: "working", Liveness: "alive"}))
 	r.appendEvent(t, statusEvent(t, ledger.LaneStatus{ActualState: "working", Liveness: "alive", Conditions: []string{string(lanes.Stalled)}}))
@@ -198,6 +204,7 @@ func approvalEvent(t *testing.T, approval authority.Approval) ledger.EventDraft 
 // TestApprovalWaitIsTheTimeToADecision holds FR-OBS-1's approval wait, by who decided, with the
 // pending count going up and back down. The summary a person reads stays out.
 func TestApprovalWaitIsTheTimeToADecision(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	approval := authority.Approval{ID: "a-1", Lane: "lane-9", WorkOrder: "wo-9", Generation: 2, Kind: "tool", Summary: "rm -rf the secret plan", State: authority.ApprovalPending}
 	r.appendEvent(t, approvalEvent(t, approval))
@@ -242,6 +249,7 @@ func messageEvent(t *testing.T, message messages.Message) ledger.EventDraft {
 // TestMessageLatencyRunsFromHandOffToReply holds FR-OBS-1's message latency, and keeps a body out of
 // every span and measurement.
 func TestMessageLatencyRunsFromHandOffToReply(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	message := messages.Message{ID: "msg-1", To: messages.Target{Lane: "lane-9", Generation: 1}, Kind: messages.KindInstruction, Body: "the secret plan", State: messages.Queued}
 	for _, step := range []struct {
@@ -279,6 +287,7 @@ func TestMessageLatencyRunsFromHandOffToReply(t *testing.T) {
 // TestPerLaneMetricsFromDriverReports holds part of FR-OBS-1: context, tokens, and cost per lane,
 // with a turn's cost the difference between running totals.
 func TestPerLaneMetricsFromDriverReports(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{
 		{Bound: true},

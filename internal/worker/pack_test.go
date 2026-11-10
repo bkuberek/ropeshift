@@ -53,6 +53,7 @@ func (r *laneRig) generationsOf(t *testing.T) []ledger.Generation {
 }
 
 func TestALaneStartsWithItsPackInTheSystemPrompt(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -102,6 +103,7 @@ func inASession(t *testing.T) *laneRig {
 }
 
 func TestALaneReadsPastItsPack(t *testing.T) {
+	t.Parallel()
 	r := inASession(t)
 	ops := control.NewQuestions(r.store, questions.BatchPolicy{})
 	decided, err := ops.RecordDecision(t.Context(), scope, questions.Decision{
@@ -125,6 +127,7 @@ func TestALaneReadsPastItsPack(t *testing.T) {
 }
 
 func TestARefusedReadSaysWhy(t *testing.T) {
+	t.Parallel()
 	r := inASession(t)
 	if reply := r.callContext(t, lanes.ContextRequest{Tool: "lane_delete"}); reply.OK || reply.Code != lanes.CodeInvalid {
 		t.Errorf("a tool nobody named reads %+v", reply)
@@ -140,6 +143,7 @@ func TestARefusedReadSaysWhy(t *testing.T) {
 
 // A read goes only as far as a lane's own lease, whatever line a process sends.
 func TestAProcessWithNoTokenReadsNothing(t *testing.T) {
+	t.Parallel()
 	r := inASession(t)
 	line, err := json.Marshal(lanes.Request{Version: lanes.SocketProtocol, Token: "not-a-token", Context: &lanes.ContextRequest{Tool: lanes.ToolDecisionSearch}})
 	if err != nil {
@@ -151,6 +155,7 @@ func TestAProcessWithNoTokenReadsNothing(t *testing.T) {
 }
 
 func TestAMeasuredBaselineCanReadOversized(t *testing.T) {
+	t.Parallel()
 	const profile = "[context]\nmin_headroom_tokens = 50\n\n[context.roles.writer]\nhandoff_tokens = 100\n"
 	tests := []struct {
 		name  string
@@ -186,6 +191,7 @@ func TestAMeasuredBaselineCanReadOversized(t *testing.T) {
 
 // The first call of a generation is what it started with, and a later call is a conversation.
 func TestAGenerationRecordsItsBaseline(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, noRestarts)
 	r.driver.Play(script([]fake.DriverStep{
 		{Bound: true}, {Context: &lanes.Usage{InputTokens: 700}}, {Context: &lanes.Usage{InputTokens: 900}}, r.reports(workorders.OutcomeCompleted), completed(0.25),
@@ -219,6 +225,7 @@ func (r *laneRig) oneWayOn(t *testing.T) {
 }
 
 func TestAPolicyParksALaneForAPerson(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	r.letGoOnFailure(t)
@@ -241,6 +248,7 @@ func TestAPolicyParksALaneForAPerson(t *testing.T) {
 
 // The default policy tells a lane and leaves it running.
 func TestALaneNoPolicyAskedKeepsWorking(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	r.letGoOnFailure(t)
@@ -266,6 +274,7 @@ func TestALaneNoPolicyAskedKeepsWorking(t *testing.T) {
 
 // A generation reads the newest version when it starts, and the one before it keeps what it read.
 func TestANextGenerationReadsTheNewestPack(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	r.letGoOnFailure(t)
@@ -327,6 +336,7 @@ func (r *laneRig) renewPack(t *testing.T, previous contextpacks.Pack) {
 
 // A handoff under way has its own way out, and parking waits for it to finish.
 func TestAHandoffUnderWayOutranksAPolicy(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	r.letGoOnFailure(t)
@@ -359,6 +369,7 @@ func (r *handoffRig) letGoOnFailure(t *testing.T) {
 }
 
 func TestAGenerationRecordsThePackItRead(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -374,6 +385,7 @@ func TestAGenerationRecordsThePackItRead(t *testing.T) {
 // A lane keeps its pack across a handoff, and the next generation's cache depends on the bytes
 // staying the same.
 func TestALaneKeepsItsPackAcrossAHandoff(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	r.handOff(t)
@@ -403,6 +415,7 @@ func TestALaneKeepsItsPackAcrossAHandoff(t *testing.T) {
 }
 
 func TestALaneThatCannotWriteItsPackDoesNotStart(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, noRestarts)
 	r.worktrees().FailContext(errors.New("the disk is full"))
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
@@ -419,6 +432,7 @@ func TestALaneThatCannotWriteItsPackDoesNotStart(t *testing.T) {
 
 // A claim from before packs has none, and that lane still runs.
 func TestALaneWithNoPackStartsWithoutTheFlag(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	base.link.StripPacks.Store(true)
 	r := newLaneRigFor(t, base)

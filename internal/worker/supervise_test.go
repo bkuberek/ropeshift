@@ -107,6 +107,7 @@ func (r *laneRig) laneState(want lanes.ActualState) {
 }
 
 func TestStalledComesOnlyFromAQuietWorkingLane(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.finishLater(g)
@@ -123,6 +124,7 @@ func TestStalledComesOnlyFromAQuietWorkingLane(t *testing.T) {
 }
 
 func TestAToolInFlightSuppressesStalled(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.finishLater(g)
@@ -137,6 +139,7 @@ func TestAToolInFlightSuppressesStalled(t *testing.T) {
 }
 
 func TestLaneWaitDeclaresAWaitThatEnds(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.finishLater(g)
@@ -158,6 +161,7 @@ func TestLaneWaitDeclaresAWaitThatEnds(t *testing.T) {
 }
 
 func TestAWaitDoesNotSuppressOverdue(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	base.deadline = base.clock.Now().Add(time.Hour).UnixMilli()
 	r := newLaneRigFor(t, base)
@@ -225,6 +229,7 @@ func (j *heldCharge) Restarts(ctx context.Context, lane string) ([]lanes.Restart
 // A delay counts from the crash. A reader who sees `backoff` and moves the clock has moved
 // it past that crash, however late the worker gets to the charge.
 func TestARestartDelayCountsFromTheCrash(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	held := &heldCharge{Journal: base.journal, reached: make(chan struct{}), release: make(chan struct{})}
 	base.workerJournal = held
@@ -247,6 +252,7 @@ func TestARestartDelayCountsFromTheCrash(t *testing.T) {
 }
 
 func TestACrashBeforeASessionBoundStartsFresh(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script([]fake.DriverStep{{Crash: true}}))
 	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
@@ -283,6 +289,7 @@ func TestTheSlidingWindowTrips(t *testing.T) {
 // A worker held below unattended reads a bound its profile may not state, and a lane that crashes
 // past it waits for a person, as a breaker's trip does.
 func TestAWorkerBelowUnattendedHoldsARestartToItsPolicy(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	worker := r.subject.Auth().WorkerID
 	ops := control.NewAutonomy(r.store)
@@ -306,6 +313,7 @@ func TestAWorkerBelowUnattendedHoldsARestartToItsPolicy(t *testing.T) {
 }
 
 func TestAHumanResetLeavesTripped(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script(crashed()))
 	r.start()
@@ -336,6 +344,7 @@ func TestAHumanResetLeavesTripped(t *testing.T) {
 // stamp it has moved past, and a status it refused would never be sent again, because the
 // worker remembers it as sent.
 func TestAStatusGoesOutUnderTheGenerationItWasReadIn(t *testing.T) {
+	t.Parallel()
 	base := newRig(t)
 	read := &lanesRead{Journal: base.journal}
 	base.workerJournal = read
@@ -371,6 +380,7 @@ func TestAStatusGoesOutUnderTheGenerationItWasReadIn(t *testing.T) {
 }
 
 func TestOnlyAMemberResetsABreaker(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	worker := ledger.Actor{Kind: ledger.ActorWorker, ID: "w"}
 	err := r.plane2(t).ResetLane(t.Context(), scope, r.id, worker)
@@ -380,6 +390,7 @@ func TestOnlyAMemberResetsABreaker(t *testing.T) {
 }
 
 func TestUnknownLivenessIsNoCrash(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.finishLater(g)
@@ -401,6 +412,7 @@ func TestUnknownLivenessIsNoCrash(t *testing.T) {
 }
 
 func TestAnUnconfirmedBriefRetriesOnceWithANewID(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	g := newGate()
 	r.finishLater(g)
@@ -433,6 +445,7 @@ func TestAnUnconfirmedBriefRetriesOnceWithANewID(t *testing.T) {
 }
 
 func TestACrashAfterAReportKeepsItsEndAndDoesNotRestart(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), {Crash: true}}))
 	r.start()
@@ -445,6 +458,7 @@ func TestACrashAfterAReportKeepsItsEndAndDoesNotRestart(t *testing.T) {
 // A worker that dies inside a backoff leaves one charge, and the next one waits out the
 // rest of the delay it finds.
 func TestACrashRestartChargesOnceAcrossAWorkerRestart(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script(crashed()))
 	r.start()

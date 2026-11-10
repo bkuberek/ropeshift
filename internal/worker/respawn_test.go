@@ -14,6 +14,7 @@ import (
 // A person's reset ends a crash loop, so the lane starts from its pinned brief and not from the
 // session that kept crashing.
 func TestAResetStartsFromThePinnedBrief(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, restarts)
 	r.driver.Play(script(crashed()))
 	r.start()
@@ -45,6 +46,7 @@ func TestAResetStartsFromThePinnedBrief(t *testing.T) {
 // A member asks for a new generation of a lane that is running: the session stops, and the next
 // one goes on from it, once, however many passes read the request.
 func TestAMemberRespawnsARunningLane(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g, after := newGate(), newGate()
 	r.finishLater(g)
@@ -87,6 +89,7 @@ func TestAMemberRespawnsARunningLane(t *testing.T) {
 
 // Only a principal that may ask for one can, and a lane is not one.
 func TestARespawnNeedsTheRightToAsk(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	err := r.plane2(t).RespawnLane(t.Context(), scope, r.id, ledger.Actor{Kind: ledger.ActorLane, ID: "lane-1"})
 	if err == nil {
