@@ -3,6 +3,8 @@ package control
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -146,4 +148,99 @@ func planNamed(key string) string {
 		return "the files that name no plan"
 	}
 	return "plan " + key
+}
+
+// refusal is a file a batch gives up, with the reason a person reads.
+type refusal struct {
+	path, source, detail string
+}
+
+// planFiles is what a batch says of the structure of one plan, and what the plan is called in a problem.
+type planFiles struct {
+	what  string
+	shape planning.Shape
+}
+
+// refuseCycles takes out of a batch every file of a plan whose dependencies form a cycle, whether the
+// cycle runs through milestones, shared contracts, or work orders, alone or together, and says which
+// files it took out. A plan version with a cycle is not a version: the ledger keeps what it holds, and
+// the next poll that finds the cycle gone records the plan (FR-MILE-4). A contract that names no plan has
+// a plan of its own, so only its own work orders can make a cycle.
+func refuseCycles(batch ports.ChangeBatch) (ports.ChangeBatch, []refusal) {
+	plans := map[string]*planFiles{}
+	of := func(key, what string) *planFiles {
+		if plans[key] == nil {
+			plans[key] = &planFiles{what: what}
+		}
+		return plans[key]
+	}
+	for _, item := range batch.Records {
+		if milestone := item.File.Milestone; milestone != nil {
+			plan := of(planKey(milestone.Plan), planNamed(milestone.Plan))
+			plan.shape.Milestones = append(plan.shape.Milestones, planning.ShapeMilestone{ID: milestone.ID, DependsOn: milestone.DependsOn})
+		}
+	}
+	for _, item := range batch.Items {
+		file := item.Contract
+		plan := of(itemPlanKey(item), planNamed(file.Plan))
+		if file.Plan == "" {
+			plan.what = "contract " + file.ID
+		}
+		contract := planning.ShapeContract{ID: file.ID, Milestone: file.Milestone, Uses: file.Uses}
+		for _, order := range file.WorkOrders {
+			contract.Orders = append(contract.Orders, planning.ShapeOrder{ID: order.ID, DependsOn: order.DependsOn})
+		}
+		plan.shape.Contracts = append(plan.shape.Contracts, contract)
+	}
+	details := map[string]string{}
+	for _, key := range slices.Sorted(maps.Keys(plans)) {
+		if cycle := plans[key].shape.Cycle(); cycle != nil {
+			details[key] = fmt.Sprintf("%v: %s has a dependency cycle: %s", planning.ErrBadFile, plans[key].what, planning.FormatCycle(cycle))
+		}
+	}
+	if len(details) == 0 {
+		return batch, nil
+	}
+	var refused []refusal
+	var kept ports.ChangeBatch
+	kept.Cursor, kept.Problems = batch.Cursor, batch.Problems
+	for _, item := range batch.Records {
+		if detail, cyclic := details[recordPlanKey(item)]; cyclic {
+			refused = append(refused, refusal{path: item.Path, source: item.Source, detail: detail})
+			continue
+		}
+		kept.Records = append(kept.Records, item)
+	}
+	for _, item := range batch.Items {
+		if detail, cyclic := details[itemPlanKey(item)]; cyclic {
+			refused = append(refused, refusal{path: item.Path, source: item.Source, detail: detail})
+			continue
+		}
+		kept.Items = append(kept.Items, item)
+	}
+	return kept, refused
+}
+
+// planKey names a plan in the groups refuseCycles makes. A record that names no plan is in the group
+// of the files that name none.
+func planKey(plan string) string { return "plan " + plan }
+
+// recordPlanKey names the group a record file is in: the plan it is, or names. A goal is in none.
+func recordPlanKey(item ports.RecordItem) string {
+	if item.Plan != nil {
+		return planKey(item.Plan.ID)
+	}
+	if head, document := item.Head(); document {
+		return planKey(head.Plan)
+	}
+	return ""
+}
+
+// itemPlanKey names the group a contract file is in. A contract that names no plan has a plan of its
+// own, so it is a group alone.
+func itemPlanKey(item ports.WorkItem) string {
+	if item.Contract.Plan == "" {
+		return "contract " + item.Contract.ID
+	}
+	return planKey(item.Contract.Plan)
 }

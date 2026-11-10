@@ -157,3 +157,97 @@ func TestSizeWeightCountsSmallAsOneMediumAsTwoAndLargeAsThree(t *testing.T) {
 		}
 	}
 }
+
+func order(id string, dependsOn ...string) planning.ShapeOrder {
+	return planning.ShapeOrder{ID: id, DependsOn: dependsOn}
+}
+
+func TestShapeCycleSeesEveryKindOfDependency(t *testing.T) {
+	cases := []struct {
+		name  string
+		shape planning.Shape
+		want  []string
+	}{
+		{"a plan with no loop", planning.Shape{
+			Milestones: []planning.ShapeMilestone{{ID: "m1"}, {ID: "m2", DependsOn: []string{"m1"}}},
+			Contracts: []planning.ShapeContract{
+				{ID: "base", Milestone: "m1", Orders: []planning.ShapeOrder{order("b1")}},
+				{ID: "app", Milestone: "m2", Uses: []string{"base"}, Orders: []planning.ShapeOrder{order("a1", "b1")}},
+			},
+		}, nil},
+		{"milestones that depend on each other", planning.Shape{
+			Milestones: []planning.ShapeMilestone{{ID: "m1", DependsOn: []string{"m2"}}, {ID: "m2", DependsOn: []string{"m1"}}},
+		}, []string{"milestone:m1", "milestone:m2"}},
+		{"milestones in a longer loop", planning.Shape{
+			Milestones: []planning.ShapeMilestone{
+				{ID: "c", DependsOn: []string{"a"}}, {ID: "a", DependsOn: []string{"b"}}, {ID: "b", DependsOn: []string{"c"}},
+			},
+		}, []string{"milestone:a", "milestone:b", "milestone:c"}},
+		{"contracts that use each other", planning.Shape{
+			Contracts: []planning.ShapeContract{{ID: "x", Uses: []string{"y"}}, {ID: "y", Uses: []string{"x"}}},
+		}, []string{"contract:x", "contract:y"}},
+		{"work orders that depend on each other across contracts", planning.Shape{
+			Contracts: []planning.ShapeContract{
+				{ID: "x", Orders: []planning.ShapeOrder{order("x1", "y1")}},
+				{ID: "y", Orders: []planning.ShapeOrder{order("y1", "x1")}},
+			},
+		}, []string{"work_order:x1", "work_order:y1"}},
+		{"work that is earlier by milestone and later by an explicit dependency", planning.Shape{
+			Milestones: []planning.ShapeMilestone{{ID: "m1"}, {ID: "m2", DependsOn: []string{"m1"}}},
+			Contracts: []planning.ShapeContract{
+				{ID: "early", Milestone: "m1", Orders: []planning.ShapeOrder{order("e1", "l1")}},
+				{ID: "late", Milestone: "m2", Orders: []planning.ShapeOrder{order("l1")}},
+			},
+		}, []string{"work_order:e1", "work_order:l1"}},
+		{"a shared contract in a milestone that waits for the milestone of the contract that uses it", planning.Shape{
+			Milestones: []planning.ShapeMilestone{{ID: "m1"}, {ID: "m2", DependsOn: []string{"m1"}}},
+			Contracts: []planning.ShapeContract{
+				{ID: "app", Milestone: "m1", Uses: []string{"base"}, Orders: []planning.ShapeOrder{order("a1")}},
+				{ID: "base", Milestone: "m2", Orders: []planning.ShapeOrder{order("b1")}},
+			},
+		}, []string{"work_order:a1", "work_order:b1"}},
+		{"a reference to something the plan does not hold is no edge", planning.Shape{
+			Milestones: []planning.ShapeMilestone{{ID: "m1", DependsOn: []string{"gone"}}},
+			Contracts:  []planning.ShapeContract{{ID: "x", Milestone: "gone", Uses: []string{"gone"}, Orders: []planning.ShapeOrder{order("x1", "gone")}}},
+		}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.shape.Cycle(); !slices.Equal(got, tc.want) {
+				t.Fatalf("cycle %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestShapeExpandTurnsMilestonesAndSharedContractsIntoEdgesBetweenWorkOrders(t *testing.T) {
+	shape := planning.Shape{
+		Milestones: []planning.ShapeMilestone{{ID: "m1"}, {ID: "m2", DependsOn: []string{"m1"}}, {ID: "m3", DependsOn: []string{"m1", "m2"}}},
+		Contracts: []planning.ShapeContract{
+			{ID: "base", Milestone: "m1", Orders: []planning.ShapeOrder{order("b1"), order("b2")}},
+			{ID: "solo", Milestone: "m1", Orders: []planning.ShapeOrder{order("s1")}},
+			{ID: "app", Milestone: "m2", Uses: []string{"base"}, Orders: []planning.ShapeOrder{order("a1")}},
+			{ID: "loose", Orders: []planning.ShapeOrder{order("l1")}},
+			{ID: "last", Milestone: "m3", Uses: []string{"loose", "gone"}, Orders: []planning.ShapeOrder{order("z1", "b1")}},
+		},
+	}
+	type edge = planning.ShapeEdge
+	want := []edge{
+		{Order: "a1", DependsOn: "b1", Kind: planning.DependencyMilestone},
+		{Order: "a1", DependsOn: "b1", Kind: planning.DependencySharedContract},
+		{Order: "a1", DependsOn: "b2", Kind: planning.DependencyMilestone},
+		{Order: "a1", DependsOn: "b2", Kind: planning.DependencySharedContract},
+		{Order: "a1", DependsOn: "s1", Kind: planning.DependencyMilestone},
+		{Order: "z1", DependsOn: "a1", Kind: planning.DependencyMilestone},
+		{Order: "z1", DependsOn: "b1", Kind: planning.DependencyMilestone},
+		{Order: "z1", DependsOn: "b2", Kind: planning.DependencyMilestone},
+		{Order: "z1", DependsOn: "l1", Kind: planning.DependencySharedContract},
+		{Order: "z1", DependsOn: "s1", Kind: planning.DependencyMilestone},
+	}
+	if got := shape.Expand(); !slices.Equal(got, want) {
+		t.Fatalf("edges\n%v\nwant\n%v", got, want)
+	}
+	if got := (planning.Shape{}).Expand(); len(got) != 0 {
+		t.Fatalf("an empty plan expands to %v", got)
+	}
+}

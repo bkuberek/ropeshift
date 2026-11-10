@@ -185,8 +185,31 @@ func (c Contract) RequirementKeys() []string {
 // DependencyKind says what a dependency does to the definition of ready.
 type DependencyKind string
 
-// DependencyBlocking holds a work order back until the dependency is done.
-const DependencyBlocking DependencyKind = "blocking"
+// The kinds of dependency. A blocking one is written in a work order's `depends_on`. A milestone one and a
+// shared contract one are derived by intake: from the milestones a work order's milestone depends on,
+// and from the shared contracts its contract uses. All three hold a work order back until the work
+// they name is done, and a dependency of one kind never takes the place of another between the same
+// two work orders.
+const (
+	DependencyBlocking       DependencyKind = "blocking"
+	DependencyMilestone      DependencyKind = "milestone"
+	DependencySharedContract DependencyKind = "shared_contract"
+)
+
+// Blocks says a dependency of this kind holds a work order back until its target is done.
+func (k DependencyKind) Blocks() bool {
+	switch k {
+	case DependencyBlocking, DependencyMilestone, DependencySharedContract:
+		return true
+	}
+	return false
+}
+
+// Derived says intake works out a dependency of this kind from the plan's structure, and a file
+// never writes one.
+func (k DependencyKind) Derived() bool {
+	return k == DependencyMilestone || k == DependencySharedContract
+}
 
 // Dependency is one edge between work orders. A source names its work orders by
 // native ID, and the named one may not exist yet, so the edge keeps the name and

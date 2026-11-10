@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -19,6 +20,10 @@ var MilestoneChecks = []Check{
 	{"ML3", "a contract that uses an unknown, foreign, or unshared contract is a problem, and nothing is recorded from it", checkUnresolvedUses},
 	{"ML4", "a milestone that depends on an unknown or foreign milestone is a problem, and nothing is recorded from it", checkMilestoneUnresolvedDependency},
 	{"ML5", "a reference resolves whatever order the files sort in", checkReferencesIgnoreFileOrder},
+	{"ML6", "a plan whose milestones form a cycle is refused whole, and each file's problem names the cycle", checkMilestoneCycle},
+	{"ML7", "a cycle through uses, work orders, or both kinds of dependency refuses its plan", checkOtherCycles},
+	{"ML8", "a plan version with a cycle changes nothing the ledger holds, and the plan returns when the cycle is gone", checkCycleLeavesTheLedgerAlone},
+	{"ML9", "a contract that names no plan is refused for a cycle among its own work orders", checkContractCycleWithoutAPlan},
 }
 
 const milestonePlan = "launch"
@@ -276,6 +281,191 @@ func checkReferencesIgnoreFileOrder(r *Rig) error {
 	}
 	if len(report.Problems) != 0 || report.Versions != 2 {
 		return Violatedf("report %+v", report)
+	}
+	return r.CheckPlanning(s)
+}
+
+const calmPlan = "calm"
+
+func checkMilestoneCycle(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("calm-plan.md", []byte(PlanText(calmPlan, "Calm", "")))
+	source.Write("calm.md", []byte(placedContract{ID: "calm", Plan: calmPlan}.text()))
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1, "m2")))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	source.Write("contract.md", []byte(placedContract{ID: "inside", Plan: milestonePlan, Milestone: "m1"}.text()))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 4 || report.Versions != 1 || report.WorkOrders != 1 || report.Records != 1 {
+		return Violatedf("report %+v", report)
+	}
+	for _, file := range []string{"plan.md", "m1.md", "m2.md", "contract.md"} {
+		if err := problemsMention(report.Problems, file, "milestone:m1 -> milestone:m2 -> milestone:m1", milestonePlan); err != nil {
+			return err
+		}
+	}
+	if _, err := r.planID(s, "Launch"); err == nil {
+		return Violatedf("the plan with a cycle was recorded")
+	}
+	documents, err := r.documentRecords(s)
+	if err != nil || len(documents) != 0 {
+		return Violatedf("documents %+v: %v", documents, err)
+	}
+	if err := r.holdsNothingFrom(s, "inside"); err != nil {
+		return err
+	}
+	// The binding keeps one problem for each file, so a person sees the cycle where the files are.
+	binding, err := r.binding(s, control.BindingID("fake", "memory"))
+	if err != nil || len(binding.Problems) != 4 {
+		return Violatedf("binding %+v: %v", binding, err)
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkOtherCycles(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	// Contracts that use each other.
+	source.Write("u-plan.md", []byte(PlanText("uses", "Uses", "")))
+	source.Write("u-x.md", []byte(placedContract{ID: "ux", Plan: "uses", Shared: true, Uses: []string{"uy"}}.text()))
+	source.Write("u-y.md", []byte(placedContract{ID: "uy", Plan: "uses", Shared: true, Uses: []string{"ux"}}.text()))
+	// Work orders that depend on each other across contracts.
+	source.Write("o-plan.md", []byte(PlanText("orders", "Orders", "")))
+	source.Write("o-p.md", []byte(placedContract{ID: "op", Plan: "orders", Orders: []orderIn{{ID: "p1", DependsOn: []string{"q1"}}}}.text()))
+	source.Write("o-q.md", []byte(placedContract{ID: "oq", Plan: "orders", Orders: []orderIn{{ID: "q1", DependsOn: []string{"p1"}}}}.text()))
+	// Work that is earlier by milestone and later by its own dependency.
+	source.Write("x-plan.md", []byte(PlanText("mixed", "Mixed", "")))
+	source.Write("x-m1.md", []byte(milestoneOf("first", "mixed", 1)))
+	source.Write("x-m2.md", []byte(milestoneOf("second", "mixed", 2, "first")))
+	source.Write("x-early.md", []byte(placedContract{ID: "early", Plan: "mixed", Milestone: "first", Orders: []orderIn{{ID: "e1", DependsOn: []string{"l1"}}}}.text()))
+	source.Write("x-late.md", []byte(placedContract{ID: "late", Plan: "mixed", Milestone: "second", Orders: []orderIn{{ID: "l1"}}}.text()))
+	// Shared work in a milestone that waits for the milestone of the contract that uses it.
+	source.Write("s-plan.md", []byte(PlanText("shared", "Shared", "")))
+	source.Write("s-m1.md", []byte(milestoneOf("one", "shared", 1)))
+	source.Write("s-m2.md", []byte(milestoneOf("two", "shared", 2, "one")))
+	source.Write("s-app.md", []byte(placedContract{ID: "app", Plan: "shared", Milestone: "one", Uses: []string{"base"}}.text()))
+	source.Write("s-base.md", []byte(placedContract{ID: "base", Plan: "shared", Milestone: "two", Shared: true}.text()))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 16 || report.Versions != 0 || report.WorkOrders != 0 || report.Records != 0 {
+		return Violatedf("report %+v", report)
+	}
+	cycles := map[string]string{
+		"u-": "contract:ux -> contract:uy -> contract:ux",
+		"o-": "work_order:p1 -> work_order:q1 -> work_order:p1",
+		"x-": "work_order:e1 -> work_order:l1 -> work_order:e1",
+		"s-": "work_order:app-order -> work_order:base-order -> work_order:app-order",
+	}
+	for prefix, cycle := range cycles {
+		for _, problem := range report.Problems {
+			if strings.HasPrefix(problem.Path, prefix) && !strings.Contains(problem.Detail, cycle) {
+				return Violatedf("the problem for %s is %q, and it does not name %q", problem.Path, problem.Detail, cycle)
+			}
+		}
+	}
+	return r.CheckPlanning(s)
+}
+
+func checkCycleLeavesTheLedgerAlone(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(PlanText(milestonePlan, "Launch", "")))
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	source.Write("m2.md", []byte(milestoneOf("m2", milestonePlan, 2, "m1")))
+	source.Write("contract.md", []byte(placedContract{ID: "inside", Plan: milestonePlan, Milestone: "m2"}.text()))
+	if report, err := r.intake(s, source); err != nil || len(report.Problems) != 0 || report.Versions != 1 {
+		return Violatedf("report %+v: %v", report, err)
+	}
+	before, err := r.versionsHeld(s)
+	if err != nil {
+		return err
+	}
+	// A new version of a milestone closes a loop, and the contract changes beside it.
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1, "m2")))
+	source.Write("contract.md", []byte(strings.Replace(placedContract{ID: "inside", Plan: milestonePlan, Milestone: "m2"}.text(), "The statement", "A new statement", 1)))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 4 || report.Versions != 0 || report.Records != 0 {
+		return Violatedf("report %+v", report)
+	}
+	after, err := r.versionsHeld(s)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(before, after) {
+		return Violatedf("the ledger held %v, and after a plan version with a cycle %v", before, after)
+	}
+	// Once the loop is gone the plan reads again, and a file that says what the ledger holds adds nothing.
+	source.Write("m1.md", []byte(milestoneOf("m1", milestonePlan, 1)))
+	if report, err = r.intake(s, source); err != nil {
+		return err
+	}
+	if len(report.Problems) != 0 || report.Versions != 1 {
+		return Violatedf("after the fix %+v", report)
+	}
+	return r.CheckPlanning(s)
+}
+
+// versionsHeld lists every contract, document, and plan version the ledger holds, as `id@version`.
+func (r *Rig) versionsHeld(s ports.Store) ([]string, error) {
+	var out []string
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		contracts, err := tx.Planning().Contracts()
+		if err != nil {
+			return err
+		}
+		for _, c := range contracts {
+			out = append(out, "contract "+planning.ContractKey(c.ID, c.Version))
+		}
+		documents, err := tx.Planning().DocumentVersions()
+		if err != nil {
+			return err
+		}
+		for _, d := range documents {
+			out = append(out, "document "+planning.ContractKey(d.DocumentID, d.Version))
+		}
+		plans, err := tx.Planning().PlanVersions()
+		if err != nil {
+			return err
+		}
+		for _, p := range plans {
+			out = append(out, "plan "+planning.ContractKey(p.PlanID, p.Version))
+		}
+		return nil
+	})
+	slices.Sort(out)
+	return out, err
+}
+
+func checkContractCycleWithoutAPlan(r *Rig) error {
+	s := r.Store()
+	source := fake.NewWorkSource()
+	source.Write("loop.md", []byte(placedContract{ID: "loopy", Orders: []orderIn{
+		{ID: "a", DependsOn: []string{"b"}}, {ID: "b", DependsOn: []string{"a"}},
+	}}.text()))
+	source.Write("line.md", []byte(placedContract{ID: "line", Orders: []orderIn{
+		{ID: "c"}, {ID: "d", DependsOn: []string{"c"}},
+	}}.text()))
+	report, err := r.intake(s, source)
+	if err != nil {
+		return err
+	}
+	if len(report.Problems) != 1 || report.Versions != 1 || report.WorkOrders != 2 {
+		return Violatedf("report %+v", report)
+	}
+	if err := problemsMention(report.Problems, "loop.md", "work_order:a -> work_order:b -> work_order:a", "loopy"); err != nil {
+		return err
+	}
+	if err := r.holdsNothingFrom(s, "loopy"); err != nil {
+		return err
 	}
 	return r.CheckPlanning(s)
 }

@@ -105,6 +105,11 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 	for _, problem := range batch.Problems {
 		report.saw(problem.Path, problem.Source)
 	}
+	batch, refused := refuseCycles(batch)
+	for _, file := range refused {
+		report.saw(file.path, file.source)
+		report.Problems = append(report.Problems, planning.SourceProblem{Path: file.path, Detail: file.detail, Source: file.source})
+	}
 	held := map[string]string{}
 	refs := refsOf(batch)
 	for _, item := range batch.Records {

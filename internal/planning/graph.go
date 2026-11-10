@@ -1,6 +1,7 @@
 package planning
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"strings"
@@ -217,4 +218,148 @@ func SizeWeight(size string) int {
 		return 3
 	}
 	return 1
+}
+
+// ShapeMilestone is a milestone as the plan's graph sees it.
+type ShapeMilestone struct {
+	ID        string
+	DependsOn []string
+}
+
+// ShapeOrder is a work order and the work orders its `depends_on` names.
+type ShapeOrder struct {
+	ID        string
+	DependsOn []string
+}
+
+// ShapeContract is a contract with the milestone it is in, the shared contracts it uses, and its
+// work orders.
+type ShapeContract struct {
+	ID        string
+	Milestone string
+	Uses      []string
+	Orders    []ShapeOrder
+}
+
+// Shape is how one plan places its work: its milestones, and its contracts with their work orders. It
+// holds only what a plan says, so the same code reads a plan from a batch of files and from the
+// ledger. A reference to a milestone, contract, or work order the shape does not hold makes no edge.
+type Shape struct {
+	Milestones []ShapeMilestone
+	Contracts  []ShapeContract
+}
+
+// ShapeEdge is one dependency that follows from a plan's structure: the work order Order waits for
+// the work order DependsOn.
+type ShapeEdge struct {
+	Order     string
+	DependsOn string
+	Kind      DependencyKind
+}
+
+// Expand works out the dependencies a plan's structure implies (FR-MILE-2, FR-MILE-3). Every work order of
+// a contract in milestone M waits for every work order of each contract in each milestone M depends on,
+// and every work order of a contract waits for every work order of each shared contract it uses. Edges
+// come out once each, ordered by work order, target, and kind.
+func (s Shape) Expand() []ShapeEdge {
+	milestones := map[string]ShapeMilestone{}
+	for _, m := range s.Milestones {
+		milestones[m.ID] = m
+	}
+	contracts := map[string]ShapeContract{}
+	inMilestone := map[string][]ShapeOrder{}
+	for _, c := range s.Contracts {
+		contracts[c.ID] = c
+		if c.Milestone != "" {
+			inMilestone[c.Milestone] = append(inMilestone[c.Milestone], c.Orders...)
+		}
+	}
+	seen := map[ShapeEdge]bool{}
+	var edges []ShapeEdge
+	add := func(order ShapeOrder, target ShapeOrder, kind DependencyKind) {
+		edge := ShapeEdge{Order: order.ID, DependsOn: target.ID, Kind: kind}
+		if order.ID != target.ID && !seen[edge] {
+			seen[edge] = true
+			edges = append(edges, edge)
+		}
+	}
+	for _, c := range s.Contracts {
+		for _, dependency := range milestones[c.Milestone].DependsOn {
+			for _, order := range c.Orders {
+				for _, target := range inMilestone[dependency] {
+					add(order, target, DependencyMilestone)
+				}
+			}
+		}
+		for _, use := range c.Uses {
+			shared, held := contracts[use]
+			if !held {
+				continue
+			}
+			for _, order := range c.Orders {
+				for _, target := range shared.Orders {
+					add(order, target, DependencySharedContract)
+				}
+			}
+		}
+	}
+	slices.SortFunc(edges, func(a, b ShapeEdge) int {
+		return cmp.Or(cmp.Compare(a.Order, b.Order), cmp.Compare(a.DependsOn, b.DependsOn), cmp.Compare(a.Kind, b.Kind))
+	})
+	return edges
+}
+
+// Graph builds the graph a cycle can hide in: milestones, contracts, and work orders are nodes, named
+// `milestone:<id>`, `contract:<id>`, and `work_order:<id>`, and the edges are the milestone
+// dependencies, the shared contracts a contract uses, the work orders' own `depends_on`, and the
+// edges Expand derives.
+func (s Shape) Graph() *Graph {
+	g := NewGraph()
+	milestones := map[string]bool{}
+	for _, m := range s.Milestones {
+		milestones[m.ID] = true
+		g.AddNode(shapeNode("milestone", m.ID))
+	}
+	contracts := map[string]bool{}
+	orders := map[string]bool{}
+	for _, c := range s.Contracts {
+		contracts[c.ID] = true
+		g.AddNode(shapeNode("contract", c.ID))
+		for _, o := range c.Orders {
+			orders[o.ID] = true
+			g.AddNode(shapeNode("work_order", o.ID))
+		}
+	}
+	for _, m := range s.Milestones {
+		for _, dependency := range m.DependsOn {
+			if milestones[dependency] {
+				g.AddEdge(shapeNode("milestone", m.ID), shapeNode("milestone", dependency))
+			}
+		}
+	}
+	for _, c := range s.Contracts {
+		for _, use := range c.Uses {
+			if contracts[use] {
+				g.AddEdge(shapeNode("contract", c.ID), shapeNode("contract", use))
+			}
+		}
+		for _, o := range c.Orders {
+			for _, dependency := range o.DependsOn {
+				if orders[dependency] {
+					g.AddEdge(shapeNode("work_order", o.ID), shapeNode("work_order", dependency))
+				}
+			}
+		}
+	}
+	for _, edge := range s.Expand() {
+		g.AddEdge(shapeNode("work_order", edge.Order), shapeNode("work_order", edge.DependsOn))
+	}
+	return g
+}
+
+func shapeNode(kind, id string) string { return kind + ":" + id }
+
+// Cycle finds a dependency cycle in a plan, named by the typed IDs of Graph, or reports nil.
+func (s Shape) Cycle() []string {
+	return s.Graph().Cycle()
 }
