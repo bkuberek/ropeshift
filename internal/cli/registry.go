@@ -86,6 +86,7 @@ func registry() []section {
 		}},
 		{"Lanes and messages", []registered{
 			command("lane start", "<work-order> [--lane L] [--profile F]", "run a lane on a claimed work order", (*invocation).laneStart),
+			command("lane attach", "<lane>", "put your terminal on an interactive lane's pane, which detaching leaves running", (*invocation).laneAttach),
 			command("lane list", "", "list lanes, each with its freshness", (*invocation).laneList),
 			command("lane show", "<lane>", "show one lane, with its freshness", (*invocation).laneShow),
 			command("lane reset", "<work-order>", "let a lane its breaker stopped start again", (*invocation).laneReset),

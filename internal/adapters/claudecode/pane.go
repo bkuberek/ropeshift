@@ -137,11 +137,42 @@ func paneArgs(spec ports.SessionSpec) []string {
 	return append(append(out, packArgs(spec)...), spec.Override.PaneArgs()...)
 }
 
-// paneName is the pane's name on the terminal server. A lane ID holds no character tmux
-// treats as a separator, because it names a directory, and this keeps it that way.
-func paneName(spec ports.SessionSpec) string {
-	lane := strings.NewReplacer(".", "_", ":", "_").Replace(spec.Lane)
-	return fmt.Sprintf("%s-g%d", lane, spec.Generation)
+// PaneName is the pane's name on the terminal server, which is how a person's client finds the pane
+// of a lane's generation. A lane ID holds no character tmux treats as a separator, because it names a
+// directory, and this keeps it that way.
+func PaneName(lane string, generation int64) string {
+	lane = strings.NewReplacer(".", "_", ":", "_").Replace(lane)
+	return fmt.Sprintf("%s-g%d", lane, generation)
+}
+
+func paneName(spec ports.SessionSpec) string { return PaneName(spec.Lane, spec.Generation) }
+
+// Panes is a terminal server's panes as a person's command reaches them, by the lane and the
+// generation that own a pane. It holds no state, so it needs no start and survives any restart.
+type Panes struct {
+	Terminal ports.Terminal
+	// Console is the person's terminal, which an attach hands to the client.
+	Console ports.Console
+}
+
+// Has says a generation has a pane a person can use. A pane whose process ended is not one, because
+// it shows nothing but its end until the worker removes it. A read that did not finish is an error and
+// not an absence.
+func (p Panes) Has(ctx context.Context, lane string, generation int64) (bool, error) {
+	pane, err := p.Terminal.Pane(ctx, PaneName(lane, generation))
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return !pane.Dead, nil
+}
+
+// Attach puts the person's terminal on a generation's pane and returns when they detach or the pane
+// goes. It leaves the lane running either way.
+func (p Panes) Attach(ctx context.Context, lane string, generation int64) error {
+	return p.Terminal.Attach(ctx, PaneName(lane, generation), p.Console)
 }
 
 // paneEnv is the session's environment, which the launcher sets exactly.
