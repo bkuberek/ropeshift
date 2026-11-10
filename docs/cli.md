@@ -58,7 +58,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift policy show <version> [--kind K]` | Prints one version as its author wrote it |
 | `ropeshift policy publish --file F` | Publishes a new version of the policy its table names, `[decision_policy]`, `[lane_policy]`, `[delegation_policy]`, `[autonomy_policy]`, or `[notify_policy]`. A body names its version, and it must be newer than the one in force. Only a member can |
 | `ropeshift approval list [--state S]` | Lists requests, each with what it asks and how it stands |
-| `ropeshift approval show <id>` | Shows one request: its call, its digest, and how it stands |
+| `ropeshift approval show <id>` | Shows one request: its call, the lane that asked or, for a plan approval, the plan and version, its digest, and how it stands |
 | `ropeshift approval approve <id> --digest D [--reason R]` | Approves the one call a request names, and `--digest` says what you read. It also approves a plan version, the same as `plan approve`, and an orchestrator never can. See [authorization](authorization.md) |
 | `ropeshift approval deny <id> --digest D [--reason R]` | Denies it |
 | `ropeshift effect list` | Lists the effects a crash left unknown that nothing can observe, such as an input to a session or a profile's hook, each with its worker, lane, and how it stands |
