@@ -162,6 +162,14 @@ ropeshift repository set 3f2a1b0 --start-from accepted
 
 The lane then starts from the accepted commit of the dependency that holds the accepted commits of the others, and a work order whose dependencies are on separate lines of work reads `dependencies_diverge` until a person joins them. Ropeshift refuses `--start-from accepted` for a repository whose merge method is `squash` or `rebase`, because those write new commits and the branch the dependent work was built on is not the one the base then holds. A dependency in another repository gates readiness as it always did and moves nothing here.
 
+### Who reviews a lane's work
+
+An agent does not approve its own work. When a lane completes a `change` or `rework` work order and leaves a commit, ropeshift makes a `review` work order for that commit in the same step. It pins the contract version the work ran on, it is ready at once, and it is claimed and dispatched like any other work: `ropeshift work list` shows it as `Review: <title>`, and `ropeshift work show --json` on it names the work order it judges in `reviews`. A lane that leaves no commit has nothing to review and makes no review. A review is no part of the plan its contract belongs to, so it counts in no milestone and no critical path.
+
+A review's lane has the `reviewer` role, which reads the `writer` context thresholds in your profile unless it names thresholds of its own. It starts at the commit under review in a worktree that has no branch, and the worker leaves the diff from where the reviewed lane began, and the paths it touches, in `.ropeshift/context/review.diff` and `.ropeshift/context/review-files.txt` beside the pack. Its session is read-only: it holds no rule that stages or commits, it may not edit a file with a tool, and it may not commit, push, or move a branch or a tag. A shell command can still write a file in its worktree, which is thrown away: when the lane ends the worker removes the worktree, and the repository holds the same branches it held before. The review lane reports through `lane_report` as any lane does, with a check for each criterion. A review that completes is `done`. For now the report decides nothing about the work it judged, and nothing sends that work on.
+
+The work it judges waits in `acceptance` while its review is open, and the forge tick leaves it alone. You can still accept it or send it back at any time, with `ropeshift work accept` or `ropeshift work rework`.
+
 ### Claude subscriptions and automated use
 
 Ropeshift is designed to run the unmodified `claude` binary that you installed and signed in to, as your own session. It is an independent project. It is not affiliated with or endorsed by Anthropic, and no vendor has approved this use. Nothing here is legal advice.
