@@ -53,6 +53,10 @@ func TestOtherPrincipalsHoldNarrowScopes(t *testing.T) {
 		{"an orchestrator cannot decide outside the policy", ledger.ActorOrchestrator, authority.ActionDecideUnbound, false},
 		{"an orchestrator cannot overturn a decision", ledger.ActorOrchestrator, authority.ActionOverturn, false},
 		{"an orchestrator cannot change a policy", ledger.ActorOrchestrator, authority.ActionPublishPolicy, false},
+		{"an orchestrator cannot change a repository", ledger.ActorOrchestrator, authority.ActionSetRepository, false},
+		{"a tick cannot change a repository", ledger.ActorSystem, authority.ActionSetRepository, false},
+		{"a lane cannot change a repository", ledger.ActorLane, authority.ActionSetRepository, false},
+		{"a worker cannot change a repository", ledger.ActorWorker, authority.ActionSetRepository, false},
 		{"a tick may make the solo join token", ledger.ActorSystem, authority.ActionCreateJoinToken, true},
 		{"a tick decides nothing", ledger.ActorSystem, authority.ActionRecordDecision, false},
 		{"a lane decides nothing", ledger.ActorLane, authority.ActionRecordDecision, false},
@@ -76,5 +80,29 @@ func TestOnlyAMemberApprovesAPlan(t *testing.T) {
 		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionApprovePlan) {
 			t.Errorf("%s may approve a plan", kind)
 		}
+	}
+}
+
+// Where work starts, what it merges with, and whether ropeshift integrates it are the person's setting,
+// and learning cannot widen them (FR-REPO-1). The action is its own, so a role that may publish a
+// policy does not thereby change a repository.
+func TestOnlyAMemberChangesARepository(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionSetRepository) {
+		t.Error("a member may not change a repository")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionSetRepository) {
+			t.Errorf("%s may change a repository", kind)
+		}
+	}
+	if authority.ActionSetRepository == authority.ActionPublishPolicy {
+		t.Error("changing a repository shares an action with publishing a policy")
+	}
+	listed := false
+	for _, action := range authority.Actions() {
+		listed = listed || action == authority.ActionSetRepository
+	}
+	if !listed {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 }

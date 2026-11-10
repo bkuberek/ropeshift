@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"path"
 	"slices"
 	"strings"
@@ -49,28 +50,92 @@ func New(config Config) *Source {
 	}
 }
 
-// Describe names the repository by its first commit, because a path changes with
-// the machine, a remote may not exist, and neither identifies the history.
-func (s *Source) Describe(ctx context.Context) (ports.SourceDescription, error) {
+// Instance names the repository by its first commit, because a path changes with the machine, a
+// remote may not exist, and neither identifies the history.
+func (s *Source) Instance(ctx context.Context) (string, error) {
 	ref, err := s.ref(ctx)
 	if err != nil {
-		return ports.SourceDescription{}, err
+		return "", err
 	}
 	roots, err := s.git.Text(ctx, "rev-list", "--max-parents=0", ref)
 	if err != nil {
-		return ports.SourceDescription{}, err
+		return "", err
 	}
 	all := strings.Fields(roots)
 	if len(all) == 0 {
-		return ports.SourceDescription{}, fmt.Errorf("%s has no commits", ref)
+		return "", fmt.Errorf("%s has no commits", ref)
 	}
 	slices.Sort(all)
+	return all[0], nil
+}
+
+// Describe names the repository by its identity, and says what git knows of it.
+func (s *Source) Describe(ctx context.Context) (ports.SourceDescription, error) {
+	instance, err := s.Instance(ctx)
+	if err != nil {
+		return ports.SourceDescription{}, err
+	}
+	remote, defaultBranch := s.repositoryFacts(ctx)
 	return ports.SourceDescription{
-		Adapter:     Adapter,
-		Instance:    all[0],
-		APIVersions: []string{"adr-0013"},
-		BudgetModel: "none",
+		Adapter:       Adapter,
+		Instance:      instance,
+		APIVersions:   []string{"adr-0013"},
+		BudgetModel:   "none",
+		Remote:        remote,
+		DefaultBranch: defaultBranch,
 	}, nil
+}
+
+// repositoryFacts reads what git says of the repository: the URL of its remote with no credential in
+// it, and the branch work lands on. A fact git cannot give is empty, because a description that cannot
+// be read stops intake and these are only noted.
+func (s *Source) repositoryFacts(ctx context.Context) (remote, defaultBranch string) {
+	name, err := s.remote(ctx)
+	if err != nil {
+		name = ""
+	}
+	if name != "" {
+		if address, err := s.git.Text(ctx, "config", "--get", "remote."+name+".url"); err == nil {
+			remote = withoutCredential(address)
+		}
+	}
+	return remote, s.defaultBranch(ctx, name)
+}
+
+// defaultBranch prefers the branch the remote's HEAD names, then main or master, then the branch the
+// checkout is on. The checkout's own branch is last because a person works on any branch.
+func (s *Source) defaultBranch(ctx context.Context, remote string) string {
+	if remote != "" {
+		if head, err := s.git.Text(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/"+remote+"/HEAD"); err == nil && head != "" {
+			return strings.TrimPrefix(head, remote+"/")
+		}
+	}
+	for _, name := range []string{"main", "master"} {
+		if remote != "" {
+			if _, err := s.git.Commit(ctx, "refs/remotes/"+remote+"/"+name); err == nil {
+				return name
+			}
+		}
+		if _, err := s.git.Commit(ctx, "refs/heads/"+name); err == nil {
+			return name
+		}
+	}
+	head, err := s.git.Text(ctx, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return head
+}
+
+// withoutCredential drops the user and password of a URL, because a remote can carry a token and the
+// ledger is copied into backups. A remote in scp form names a user and no secret.
+func withoutCredential(remote string) string {
+	parsed, err := url.Parse(remote)
+	if err != nil || parsed.User == nil || !strings.Contains(remote, "://") {
+		return remote
+	}
+	parsed.User = nil
+	return parsed.String()
 }
 
 // Fields returns the keys of the files of the format.

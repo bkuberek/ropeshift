@@ -76,6 +76,9 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 	if err != nil {
 		return IntakeReport{}, err
 	}
+	if err := i.keepRepository(ctx, scope, description); err != nil {
+		return IntakeReport{}, err
+	}
 	id := BindingID(description.Adapter, description.Instance)
 	cursor, err := i.cursor(ctx, scope, id)
 	if err != nil {
@@ -100,6 +103,24 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 	}
 	read := settling{binding: binding, report: report, unmoved: batch.Cursor == cursor, recorded: report.Versions+report.Records+report.Edges+report.PlanVersions > 0}
 	return report, i.settle(ctx, scope, source, read)
+}
+
+// keepRepository makes the record of the repository a source reads, or refreshes the two facts git gives
+// of it (FR-REPO-1). A source that says nothing of a repository makes none.
+func (i *Intake) keepRepository(ctx context.Context, scope ledger.WorkspaceID, description ports.SourceDescription) error {
+	if description.Instance == "" || (description.Remote == "" && description.DefaultBranch == "") {
+		return nil
+	}
+	repositories := NewRepositories(i.store)
+	// A poll finds the same facts nearly every time, and a read costs the workspace lock nothing.
+	if known, err := repositories.Get(ctx, scope, description.Instance); err == nil &&
+		known.Remote == description.Remote && known.DefaultBranch == description.DefaultBranch {
+		return nil
+	}
+	_, err := repositories.Detect(ctx, scope, DetectedRepository{
+		ID: description.Instance, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
+	}, intakeActor)
+	return err
 }
 
 // record stores what one read of a source found, item by item.
@@ -842,6 +863,7 @@ func (r *itemRecorder) recordOrder(contract planning.Contract, spec planning.Wor
 		Size:            spec.Size,
 		Requirements:    contract.Requirements,
 		Needs:           spec.Needs,
+		Base:            spec.Base,
 		ContractID:      contract.ID,
 		ContractVersion: contract.Version,
 	})

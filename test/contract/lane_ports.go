@@ -174,12 +174,17 @@ func checkWaitTwice(t *testing.T, ctx context.Context, rig ProcessRig) {
 
 // WorktreeRig is a worktree store and one repository with a commit.
 type WorktreeRig struct {
-	Worktrees  ports.Worktrees
+	Worktrees ports.Worktrees
+	// Bases answers what the control plane asks of the same repository.
+	Bases      ports.Bases
 	Repository string
 	// Path names a place for a worktree.
 	Path func(name string) string
 	// Dirty changes a file in a worktree.
 	Dirty func(path string)
+	// Grow adds a commit on top of a branch of the repository and returns it. A branch with no commit
+	// yet gets its first.
+	Grow func(branch string) string
 }
 
 // RunWorktrees runs one contract on one store.
@@ -205,6 +210,11 @@ func RunWorktrees(t *testing.T, fresh func(*testing.T) WorktreeRig) {
 		{"a push with no remote is an error", checkWorktreePushNoRemote},
 		{"a discard removes a dirty worktree and repeats", checkWorktreeDiscard},
 		{"a pack left in a worktree is nothing git sees", checkWorktreeContext},
+		{"a base branch reads as the commit it stands at, and moves with it", checkBaseTipFollowsTheBranch},
+		{"a branch nobody holds is an unavailable base", checkBaseTipOfNothing},
+		{"a commit contains the commits it grew from and not the ones that grew from it", checkContainsFollowsAncestry},
+		{"a commit the repository lacks is not found", checkContainsOfNothing},
+		{"a worktree starts at the commit it is given", checkWorktreeStartsAtItsBase},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -553,5 +563,70 @@ func checkProfileDigest(t *testing.T, ctx context.Context, r ProfileRig) {
 	after, err := second.Digest()
 	if err != nil || after == before {
 		t.Errorf("digests %s and %s: %v", before, after, err)
+	}
+}
+
+func checkBaseTipFollowsTheBranch(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	tip, err := r.Bases.BaseTip(ctx, r.Repository, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tip.Commit != first || tip.Ref != "main" {
+		t.Errorf("tip %+v, want main at %s", tip, first)
+	}
+	second := r.Grow("main")
+	if tip, err = r.Bases.BaseTip(ctx, r.Repository, "main"); err != nil || tip.Commit != second {
+		t.Errorf("after the branch moved: %+v: %v", tip, err)
+	}
+}
+
+func checkBaseTipOfNothing(t *testing.T, ctx context.Context, r WorktreeRig) {
+	r.Grow("main")
+	for _, branch := range []string{"no-such-branch", "-rf", "", "a..b"} {
+		if _, err := r.Bases.BaseTip(ctx, r.Repository, branch); !errors.Is(err, ports.ErrBaseUnavailable) {
+			t.Errorf("base %q: %v", branch, err)
+		}
+	}
+}
+
+func checkContainsFollowsAncestry(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	second := r.Grow("main")
+	for _, test := range []struct {
+		name             string
+		ancestor, commit string
+		want             bool
+	}{
+		{"a commit and the one it grew into", first, second, true},
+		{"a commit and itself", second, second, true},
+		{"a commit and the one it grew from", second, first, false},
+	} {
+		got, err := r.Bases.Contains(ctx, r.Repository, test.ancestor, test.commit)
+		if err != nil || got != test.want {
+			t.Errorf("%s: %v, %v", test.name, got, err)
+		}
+	}
+}
+
+func checkContainsOfNothing(t *testing.T, ctx context.Context, r WorktreeRig) {
+	tip := r.Grow("main")
+	missing := "0123456789012345678901234567890123456789"
+	for _, pair := range [][2]string{{missing, tip}, {tip, missing}} {
+		if _, err := r.Bases.Contains(ctx, r.Repository, pair[0], pair[1]); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("contains %v: %v", pair, err)
+		}
+	}
+}
+
+func checkWorktreeStartsAtItsBase(t *testing.T, ctx context.Context, r WorktreeRig) {
+	first := r.Grow("main")
+	r.Grow("main")
+	worktree, err := r.Worktrees.Create(ctx, ports.WorktreeSpec{Repository: r.Repository, Path: r.Path("based"), Branch: "lane/based", Base: first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worktree.Head != first {
+		t.Errorf("head %s, want %s", worktree.Head, first)
 	}
 }

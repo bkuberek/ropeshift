@@ -132,7 +132,7 @@ A repository's own configuration can run code. In a headless session, [Claude Co
 
 ### Work stays on this machine
 
-When a lane stops, its worker saves what the worktree holds: commits stay on the lane's branch, and uncommitted changes go to a checkpoint ref under `refs/ropeshift/`. By default nothing is pushed, so the branch and its refs exist only on this machine. A lane whose worktree holds commits or changes the remote lacks reads `unpushed_work`, `ropeshift lane archive` needs `--force` to remove its worktree, and a parked lane resumes only on this machine. A lane's branch starts from the repository's current branch, so a push of it would also send any of your commits the remote does not have yet.
+When a lane stops, its worker saves what the worktree holds: commits stay on the lane's branch, and uncommitted changes go to a checkpoint ref under `refs/ropeshift/`. By default nothing is pushed, so the branch and its refs exist only on this machine. A lane whose worktree holds commits or changes the remote lacks reads `unpushed_work`, `ropeshift lane archive` needs `--force` to remove its worktree, and a parked lane resumes only on this machine. A lane's branch starts from the repository's [base branch](#where-a-lane-starts) as the remote holds it, never from what your checkout has out, so a push of it sends the lane's commits and, for work that starts from accepted work, that work's commits too.
 
 To have the worker push the lane's branch and its checkpoint refs to the repository's remote when the lane stops and before its worktree is removed, so the work survives the loss of this machine and a parked lane can resume on another, set this in your own profile layer, `profile.toml` in the installation's directory:
 
@@ -142,6 +142,25 @@ push_on_stop = true
 ```
 
 Only your layer sets it, because a push sends work off the machine. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot change it: a layer that sets another value is refused, and the lane does not start. A push never forces and runs no repository hook.
+
+### Where a lane starts
+
+A lane's worktree starts from the repository's base branch, and never from the commit your checkout has out. The base branch is the repository's default branch, which the daemon reads from git, until you name another:
+
+```sh
+ropeshift repository list
+ropeshift repository set 3f2a1b0 --base release/1.2
+```
+
+A work order can name its own base with `base = "release/1.2"` in its `[[work_orders]]` table, which overrides the repository's. With a remote, ropeshift fetches the base branch before it grants a claim and starts the lane from the commit the remote holds. With none, it starts from the local branch. If the fetch fails, or the branch does not exist, the work order stays ready with the reason `base_unavailable` on it, and the next claim or the next pass of the daemon's intake tries again. A lane never starts from your checkout instead. The lane records the ref and the commit it started from, and `ropeshift lane show` prints them.
+
+Work that lists another work order in the same repository in `depends_on` starts from that work once it is in the base branch. Until the dependency's accepted commit is an ancestor of the base branch, a claim is refused and the work order reads `waiting_for_merge` and names the dependency, so merge the dependency's branch and the reason clears by itself. A repository can start dependent work from the dependency's accepted commit instead:
+
+```sh
+ropeshift repository set 3f2a1b0 --start-from accepted
+```
+
+The lane then starts from the accepted commit of the dependency that holds the accepted commits of the others, and a work order whose dependencies are on separate lines of work reads `dependencies_diverge` until a person joins them. Ropeshift refuses `--start-from accepted` for a repository whose merge method is `squash` or `rebase`, because those write new commits and the branch the dependent work was built on is not the one the base then holds. A dependency in another repository gates readiness as it always did and moves nothing here.
 
 ### Claude subscriptions and automated use
 

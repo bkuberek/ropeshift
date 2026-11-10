@@ -19,7 +19,10 @@ type LaneRequest struct {
 	Repository string
 	// Branch is what the ledger assigned. Empty names a new branch for this lane.
 	Branch string
-	Base   string
+	// Base is the commit a new branch begins at, which the control plane resolved from the base branch
+	// when it granted the claim. A branch that exists keeps the commit it has. Empty begins a new
+	// branch at the checkout's HEAD, which only a claim made before bases were resolved leaves.
+	Base string
 	// Tags are ropeshift's own variables for this lane.
 	Tags map[string]string
 	// Bracket records the worktree's creation as an external effect. It reports false

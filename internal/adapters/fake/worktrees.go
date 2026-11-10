@@ -29,6 +29,13 @@ type Worktrees struct {
 	snapshots map[string]string
 	contexts  map[string][]string
 	context   error
+	// history is the commits a repository holds, each with the commits it grew from. tips maps a
+	// repository and a branch to its commit. specs lists every worktree asked for, in order.
+	history   map[string][]string
+	tips      map[string]string
+	fetchFail error
+	specs     []ports.WorktreeSpec
+	grown     int
 }
 
 // NewWorktrees returns an empty store.
@@ -36,6 +43,7 @@ func NewWorktrees() *Worktrees {
 	return &Worktrees{
 		byPath: map[string]ports.Worktree{}, branches: map[string]string{}, ahead: map[string]int64{},
 		snapshots: map[string]string{}, contexts: map[string][]string{},
+		history: map[string][]string{}, tips: map[string]string{},
 	}
 }
 
@@ -158,7 +166,12 @@ func (w *Worktrees) Create(_ context.Context, spec ports.WorktreeSpec) (ports.Wo
 	if holder, taken := w.branches[spec.Branch]; taken {
 		return ports.Worktree{}, fmt.Errorf("%w: %s is checked out at %s", ports.ErrWorktreeConflict, spec.Branch, holder)
 	}
-	created := ports.Worktree{Path: spec.Path, Branch: spec.Branch, Head: "fake-head", Clean: true}
+	w.specs = append(w.specs, spec)
+	head := "fake-head"
+	if spec.Base != "" {
+		head = spec.Base
+	}
+	created := ports.Worktree{Path: spec.Path, Branch: spec.Branch, Head: head, Clean: true}
 	w.byPath[spec.Path] = created
 	w.branches[spec.Branch] = spec.Path
 	return created, nil

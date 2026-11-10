@@ -34,6 +34,8 @@ type WorkSource struct {
 	line    string
 	held    map[string]bool
 	history *sourceHistory
+	// remote and branch are what Describe says of the repository, empty for a source that has none.
+	remote, branch string
 }
 
 // sourceHistory is what a source and its forks share, as a repository's objects are shared.
@@ -139,9 +141,22 @@ func (s *WorkSource) SetHealth(health ports.SourceHealth) {
 	s.health = health
 }
 
+// SetRepository sets the remote and the default branch Describe reports, as a source on a git
+// repository does. A source with neither says nothing of a repository.
+func (s *WorkSource) SetRepository(remote, defaultBranch string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.remote, s.branch = remote, defaultBranch
+}
+
 // Describe names the fake.
 func (s *WorkSource) Describe(context.Context) (ports.SourceDescription, error) {
-	return ports.SourceDescription{Adapter: sourceAdapter, Instance: sourceInstance, APIVersions: []string{"fake"}, BudgetModel: "none"}, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return ports.SourceDescription{
+		Adapter: sourceAdapter, Instance: sourceInstance, APIVersions: []string{"fake"}, BudgetModel: "none",
+		Remote: s.remote, DefaultBranch: s.branch,
+	}, nil
 }
 
 // Fields returns the required keys of the format.

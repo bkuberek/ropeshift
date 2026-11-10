@@ -56,10 +56,14 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 	driver := fake.NewAgentDriver()
 	setup(driver)
 	dir := t.TempDir()
+	worktrees := base.worktrees
+	if worktrees == nil {
+		worktrees = fake.NewWorktrees()
+	}
 	config := &worker.LaneRuntime{
 		Driver: driver,
 		Provisioner: worker.Provisioner{
-			Profiles: fake.NewProfileSource(), Worktrees: fake.NewWorktrees(), Hooks: fake.NewHookRunner(),
+			Profiles: fake.NewProfileSource(), Worktrees: worktrees, Hooks: fake.NewHookRunner(),
 			Lookup: func(string) (string, bool) { return "", false },
 		},
 		Secrets:    fake.SecretResolver{},
@@ -229,6 +233,35 @@ func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
 	}
 	if result.Branch != "lane/lane-1" || result.Head != "fake-head" {
 		t.Errorf("the lane's end names %s at %s", result.Branch, result.Head)
+	}
+}
+
+// A worktree starts at the commit the claim named, which the control plane resolved from the base
+// branch, and not at wherever the checkout is (FR-BASE-1).
+func TestALanesWorktreeStartsAtTheBaseItsClaimNamed(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	worktrees := fake.NewWorktrees()
+	tip := worktrees.Grow("/repository", "main")
+	base.worktrees, base.repository = worktrees, "repo-1"
+	base.starts = &control.Starts{Bases: worktrees, Checkout: func(context.Context, string) (string, error) { return "/repository", nil }}
+	r := newLaneRigFor(t, base)
+	// The base moves while the lane is not yet running.
+	worktrees.Grow("/repository", "main")
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	created := worktrees.Created()
+	if len(created) != 1 || created[0].Base != tip || created[0].Repository != "/repository" {
+		t.Fatalf("the worker asked for %+v, want a worktree at %s", created, tip)
+	}
+	var result workorders.LaneResult
+	if err := json.Unmarshal(r.outcome().Payload, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Head != tip {
+		t.Errorf("the lane ended at %s, want the base %s it began on", result.Head, tip)
 	}
 }
 

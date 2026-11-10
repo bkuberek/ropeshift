@@ -55,13 +55,14 @@ func TestWorktreesContract(t *testing.T) {
 			repo.Commit("README.txt", "seed\n")
 			lanesDir := filepath.Join(filepath.Dir(repo.Dir), "lanes")
 			return WorktreeRig{
-				Worktrees: gitcli.Worktrees{Env: repo.Env()}, Repository: repo.Dir,
+				Worktrees: gitcli.Worktrees{Env: repo.Env()}, Bases: gitcli.Worktrees{Env: repo.Env()}, Repository: repo.Dir,
 				Path: func(name string) string { return filepath.Join(lanesDir, name) },
 				Dirty: func(path string) {
 					if err := writeFile(filepath.Join(path, "untracked.txt"), "work\n"); err != nil {
 						t.Fatal(err)
 					}
 				},
+				Grow: repo.Advance,
 			}
 		})
 	})
@@ -69,9 +70,10 @@ func TestWorktreesContract(t *testing.T) {
 		RunWorktrees(t, func(*testing.T) WorktreeRig {
 			worktrees := fake.NewWorktrees()
 			return WorktreeRig{
-				Worktrees: worktrees, Repository: "/work/repository",
+				Worktrees: worktrees, Bases: worktrees, Repository: "/work/repository",
 				Path:  func(name string) string { return "/work/lanes/" + name },
 				Dirty: worktrees.Dirty,
+				Grow:  func(branch string) string { return worktrees.Grow("/work/repository", branch) },
 			}
 		})
 	})
@@ -241,6 +243,53 @@ func TestWorktreeStartsAtTheBase(t *testing.T) {
 	}
 	if worktree.Head != first {
 		t.Errorf("head %s, want %s", worktree.Head, first)
+	}
+}
+
+// A repository with a remote starts lanes from what the remote holds, which is not what its own
+// branch holds: the checkout a person works in falls behind, and a lane must not.
+func TestBaseTipIsWhatTheRemoteHolds(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	origin.Commit("README.txt", "one\n")
+	clone := origin.Clone("clone")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	local := clone.Git("rev-parse", "main")
+	remote := origin.Advance("main")
+	tip, err := worktrees.BaseTip(t.Context(), clone.Dir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tip.Commit != remote || tip.Ref != "origin/main" {
+		t.Errorf("tip %+v, want origin/main at %s", tip, remote)
+	}
+	if now := clone.Git("rev-parse", "main"); now != local {
+		t.Errorf("reading the base moved the local branch from %s to %s", local, now)
+	}
+	// A branch the remote holds and the clone never made is a base too.
+	origin.Branch("release/1.2", remote)
+	if tip, err = worktrees.BaseTip(t.Context(), clone.Dir, "release/1.2"); err != nil || tip.Commit != remote || tip.Ref != "origin/release/1.2" {
+		t.Errorf("a branch only the remote holds: %+v: %v", tip, err)
+	}
+}
+
+// With a remote there is no other answer than the remote's: a branch only this checkout has, and a
+// remote that does not answer, are an unavailable base, never HEAD.
+func TestBaseTipNeverFallsBackToTheCheckout(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	origin.Commit("README.txt", "one\n")
+	clone := origin.Clone("clone")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	clone.Branch("only-here", "main")
+	if tip, err := worktrees.BaseTip(t.Context(), clone.Dir, "only-here"); !errors.Is(err, ports.ErrBaseUnavailable) {
+		t.Errorf("a branch the remote lacks: %+v, %v", tip, err)
+	}
+	if err := os.RemoveAll(origin.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if tip, err := worktrees.BaseTip(t.Context(), clone.Dir, "main"); !errors.Is(err, ports.ErrBaseUnavailable) {
+		t.Errorf("a remote that does not answer: %+v, %v", tip, err)
 	}
 }
 

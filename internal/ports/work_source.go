@@ -36,6 +36,11 @@ type SourceDescription struct {
 	Capabilities SourceCapabilities
 	APIVersions  []string
 	BudgetModel  string
+	// Remote and DefaultBranch are what a source that reads a git repository knows of it: the URL of the
+	// remote work lands on, with no credential in it, and the branch that work lands on. A source with
+	// no repository leaves both empty.
+	Remote        string
+	DefaultBranch string
 }
 
 // FieldSchema is one field a source holds.

@@ -53,6 +53,9 @@ type Config struct {
 	// Backup copies the ledger while it runs. Nil has none, as on Postgres, which a team backs up
 	// with its own tooling.
 	Backup ports.LedgerBackup
+	// Starts places the lane of every claim: the base it begins from, fetched, and the wait for the merge
+	// of the work it depends on. Nil places none, and a worker begins a branch where its checkout is.
+	Starts *control.Starts
 	// Panes is the worker's terminal as the web pane reaches it. Nil reaches none, as on a control
 	// plane whose worker has no tmux, and the pane's routes refuse.
 	Panes Panes
@@ -60,20 +63,21 @@ type Config struct {
 
 type handler struct {
 	Config
-	workOrders *control.WorkOrders
-	leases     *control.Leases
-	reviews    *control.Reviews
-	accepting  *control.Acceptances
-	questions  *control.Questions
-	workers    *control.Workers
-	fleet      *control.Fleet
-	wakes      *control.Wakes
-	messages   *control.Messages
-	sessions   *control.Sessions
-	approvals  *control.Approvals
-	autonomy   *control.Autonomy
-	effects    *control.Effects
-	notices    *control.Notices
+	workOrders   *control.WorkOrders
+	leases       *control.Leases
+	reviews      *control.Reviews
+	accepting    *control.Acceptances
+	questions    *control.Questions
+	workers      *control.Workers
+	fleet        *control.Fleet
+	wakes        *control.Wakes
+	messages     *control.Messages
+	sessions     *control.Sessions
+	approvals    *control.Approvals
+	autonomy     *control.Autonomy
+	effects      *control.Effects
+	notices      *control.Notices
+	repositories *control.Repositories
 }
 
 // New returns the versioned API.
@@ -88,6 +92,7 @@ func New(config Config) http.Handler {
 	h.approvalRoutes(mux)
 	h.orchestratorRoutes(mux)
 	h.autonomyRoutes(mux)
+	h.repositoryRoutes(mux)
 	h.effectRoutes(mux)
 	h.viewRoutes(mux)
 	h.eventRoutes(mux)
@@ -116,22 +121,23 @@ func New(config Config) http.Handler {
 
 func newHandler(config Config) *handler {
 	return &handler{
-		Config:     config,
-		workOrders: control.NewWorkOrders(config.Store),
-		leases:     control.NewLeases(config.Store).Budgeted(config.PackTokens),
-		reviews:    control.NewReviews(config.Store),
-		accepting:  control.NewAcceptances(config.Store),
-		questions:  control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
-		fleet:      control.NewFleet(config.Store),
-		wakes:      control.NewWakes(config.Store),
-		messages:   control.NewMessages(config.Store, config.Windows),
-		sessions:   control.NewSessions(config.Store, config.Identity),
-		approvals:  control.NewApprovals(config.Store),
-		autonomy:   control.NewAutonomy(config.Store),
-		effects:    control.NewEffects(config.Store),
+		Config:       config,
+		workOrders:   control.NewWorkOrders(config.Store),
+		leases:       control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
+		reviews:      control.NewReviews(config.Store),
+		accepting:    control.NewAcceptances(config.Store),
+		questions:    control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
+		fleet:        control.NewFleet(config.Store),
+		wakes:        control.NewWakes(config.Store),
+		messages:     control.NewMessages(config.Store, config.Windows),
+		sessions:     control.NewSessions(config.Store, config.Identity),
+		approvals:    control.NewApprovals(config.Store),
+		autonomy:     control.NewAutonomy(config.Store),
+		effects:      control.NewEffects(config.Store),
+		repositories: control.NewRepositories(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
-			PackTokens: config.PackTokens, Matcher: config.Matcher,
+			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts,
 		}),
 		notices: control.NewNotices(config.Store, func(authority.NotifyPolicy) []ports.Notifier { return nil }),
 	}
@@ -187,7 +193,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, authority.ErrRiskNotAcknowledged):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeRiskNotAcknowledged, Message: err.Error()})

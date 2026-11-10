@@ -310,6 +310,24 @@ func TestParseFile(t *testing.T) {
 			},
 		},
 		{
+			name:    "a work order may name the branch it starts from",
+			fixture: "contract-base.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if c := doc.Contract; c == nil || len(c.WorkOrders) != 1 || c.WorkOrders[0].Base != "release/1.2" {
+					t.Fatalf("contract %+v", c)
+				}
+			},
+		},
+		{
+			name:    "a work order that names no base follows its repository's",
+			fixture: "valid.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if base := doc.Contract.WorkOrders[0].Base; base != "" {
+					t.Errorf("base %q", base)
+				}
+			},
+		},
+		{
 			name:    "a contract written for phase 1 keeps its contract-level requirements",
 			fixture: "valid.md",
 			check: func(t *testing.T, doc planning.Document) {
@@ -332,6 +350,7 @@ func TestParseFile(t *testing.T) {
 		{name: "bad TOML", fixture: "bad-toml.md", wantErr: planning.ErrBadFile},
 		{name: "a front matter with no end", fixture: "unclosed.md", wantErr: planning.ErrBadFile},
 		{name: "a size the format does not name", fixture: "bad-size.md", wantErr: planning.ErrBadFile},
+		{name: "a base git would take as an option", fixture: "bad-base.md", wantErr: planning.ErrBadFile},
 		{name: "one work order twice", fixture: "repeated-order.md", wantErr: planning.ErrBadFile},
 		{name: "a plain document", fixture: "no-front-matter.md", wantErr: planning.ErrNotOurs},
 	}

@@ -50,36 +50,41 @@ const EventCreated = "work_order.created"
 // WorkOrder is the projection of one work order's events. Zero values stand for
 // absent fields.
 type WorkOrder struct {
-	ID              string            `json:"id"`
-	Kind            Kind              `json:"kind"`
-	State           State             `json:"state"`
-	Title           string            `json:"title,omitempty"`
-	RepositoryID    string            `json:"repository_id,omitempty"`
-	Priority        int64             `json:"priority,omitempty"`
-	Size            string            `json:"size,omitempty"`
-	Requirements    []string          `json:"requirements,omitempty"`
-	Needs           map[string]string `json:"needs,omitempty"`
-	ContractID      string            `json:"contract_id,omitempty"`
-	ContractVersion int64             `json:"contract_version,omitempty"`
-	Fence           int64             `json:"fence,omitempty"`
-	ClaimID         string            `json:"claim_id,omitempty"`
-	LeaseWorker     string            `json:"lease_worker,omitempty"`
-	LeaseUntil      int64             `json:"lease_until,omitempty"`
-	TakeoverAfter   int64             `json:"takeover_after,omitempty"`
-	Branch          string            `json:"branch,omitempty"`
-	ResumeLaneID    string            `json:"resume_lane_id,omitempty"`
-	ReworkOf        string            `json:"rework_of,omitempty"`
-	Attempts        int64             `json:"attempts,omitempty"`
-	MaxAttempts     int64             `json:"max_attempts,omitempty"`
-	Deadline        int64             `json:"deadline,omitempty"`
-	ReviewedBy      string            `json:"reviewed_by,omitempty"`
-	Rev             int64             `json:"rev,omitempty"`
+	ID           string            `json:"id"`
+	Kind         Kind              `json:"kind"`
+	State        State             `json:"state"`
+	Title        string            `json:"title,omitempty"`
+	RepositoryID string            `json:"repository_id,omitempty"`
+	Priority     int64             `json:"priority,omitempty"`
+	Size         string            `json:"size,omitempty"`
+	Requirements []string          `json:"requirements,omitempty"`
+	Needs        map[string]string `json:"needs,omitempty"`
+	// Base is the branch this work starts from, which overrides its repository's base branch (FR-BASE-2).
+	Base            string `json:"base,omitempty"`
+	ContractID      string `json:"contract_id,omitempty"`
+	ContractVersion int64  `json:"contract_version,omitempty"`
+	Fence           int64  `json:"fence,omitempty"`
+	ClaimID         string `json:"claim_id,omitempty"`
+	LeaseWorker     string `json:"lease_worker,omitempty"`
+	LeaseUntil      int64  `json:"lease_until,omitempty"`
+	TakeoverAfter   int64  `json:"takeover_after,omitempty"`
+	Branch          string `json:"branch,omitempty"`
+	ResumeLaneID    string `json:"resume_lane_id,omitempty"`
+	ReworkOf        string `json:"rework_of,omitempty"`
+	Attempts        int64  `json:"attempts,omitempty"`
+	MaxAttempts     int64  `json:"max_attempts,omitempty"`
+	Deadline        int64  `json:"deadline,omitempty"`
+	ReviewedBy      string `json:"reviewed_by,omitempty"`
+	Rev             int64  `json:"rev,omitempty"`
 	// ReviewsPlan is the plan a `contract_review` work order reads, and ReviewPins the contract
 	// versions it reads: a review covers those versions and no later one.
 	ReviewsPlan string   `json:"reviews_plan,omitempty"`
 	ReviewPins  []string `json:"review_pins,omitempty"`
 	// PlanCommit is the commit intake read for an accepted `plan` work order (D17).
 	PlanCommit string `json:"plan_commit,omitempty"`
+	// StartHeld is the reason this ready work is not claimed, when something other than a lack of
+	// ready work keeps it from starting.
+	StartHeld *StartHold `json:"start_held,omitempty"`
 }
 
 // Completed reports a state past its lane's work: the work is waiting for acceptance or was
@@ -147,6 +152,8 @@ type Change struct {
 	ContractVersion int64 `json:"contract_version,omitempty"`
 	// PlanCommit is the commit intake read for an accepted plan.
 	PlanCommit string `json:"plan_commit,omitempty"`
+	// Hold is the reason a start is held, on EventStartHeld.
+	Hold *StartHold `json:"hold,omitempty"`
 }
 
 // EventType names the event of a transition.
@@ -291,6 +298,14 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 		current.PlanCommit = change.PlanCommit
 		return current, nil
 	}
+	if e.Type == EventStartHeld {
+		current.StartHeld = change.Hold
+		return current, nil
+	}
+	if e.Type == EventStartResolved {
+		current.StartHeld = nil
+		return current, nil
+	}
 	if change.Guarded {
 		if change.Fence != current.Fence {
 			return current, fmt.Errorf("%w: a write with fence %d under fence %d", ErrInvalid, change.Fence, current.Fence)
@@ -317,7 +332,7 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 			return w, fmt.Errorf("%w: grant at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
 		}
 		w.Fence, w.ClaimID, w.LeaseWorker = change.Fence, change.ClaimID, change.Worker
-		w.LeaseUntil = change.LeaseUntil
+		w.LeaseUntil, w.StartHeld = change.LeaseUntil, nil
 	case TriggerLaneStarted:
 		if change.Fence != w.Fence {
 			return w, fmt.Errorf("%w: lane started at fence %d under fence %d", ErrInvalid, change.Fence, w.Fence)
@@ -389,6 +404,7 @@ func Diff(a, b WorkOrder) []string {
 	note("size", a.Size == b.Size)
 	note("requirements", slices.Equal(a.Requirements, b.Requirements))
 	note("needs", sameNeeds(a.Needs, b.Needs))
+	note("base", a.Base == b.Base)
 	note("contract_id", a.ContractID == b.ContractID)
 	note("contract_version", a.ContractVersion == b.ContractVersion)
 	note("fence", a.Fence == b.Fence)
@@ -406,6 +422,7 @@ func Diff(a, b WorkOrder) []string {
 	note("reviews_plan", a.ReviewsPlan == b.ReviewsPlan)
 	note("review_pins", slices.Equal(a.ReviewPins, b.ReviewPins))
 	note("plan_commit", a.PlanCommit == b.PlanCommit)
+	note("start_held", sameHold(a.StartHeld, b.StartHeld))
 	return fields
 }
 
@@ -419,4 +436,11 @@ func sameNeeds(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func sameHold(a, b *StartHold) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

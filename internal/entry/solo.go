@@ -238,7 +238,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store, Backup: sqlite.LedgerBackup{File: filepath.Join(paths.StateDir, api.LedgerFileName)},
-		Panes: soloPanes(terminal),
+		Panes: soloPanes(terminal), Starts: soloStarts(opts),
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
@@ -489,16 +489,22 @@ func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (po
 func checkouts(opts soloOptions) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, id string) (string, error) {
 		for _, path := range opts.sources {
-			description, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}).Describe(ctx)
+			instance, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}).Instance(ctx)
 			if err != nil {
 				return "", err
 			}
-			if description.Instance == id {
+			if instance == id {
 				return filepath.Abs(path)
 			}
 		}
 		return "", fmt.Errorf("no source holds repository %q", id)
 	}
+}
+
+// soloStarts places the lane of every claim from the daemon's checkouts: where the base branch stands, and
+// whether the work a lane depends on is in it.
+func soloStarts(opts soloOptions) *control.Starts {
+	return &control.Starts{Bases: gitcli.Worktrees{}, Checkout: checkouts(opts)}
 }
 
 // acceptedCommits reads a repository at the commit a person accepted, under the same directory the
@@ -604,7 +610,7 @@ func soloWindows(paths api.Paths) messages.Windows {
 }
 
 func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
-	leases := control.NewLeases(store)
+	leases := control.NewLeases(store).Starting(soloStarts(opts))
 	delivering := control.NewMessages(store, windows)
 	asked := control.NewQuestions(store, batches)
 	intake := control.NewIntake(store).Telling(windows)
@@ -680,6 +686,9 @@ func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolic
 					failed = append(failed, err)
 				}
 				if _, err := reviews.Promote(ctx, soloScope, tickActor("intake-tick")); err != nil {
+					failed = append(failed, err)
+				}
+				if _, err := leases.RefreshStarts(ctx, soloScope, tickActor("intake-tick")); err != nil {
 					failed = append(failed, err)
 				}
 				return errors.Join(failed...)

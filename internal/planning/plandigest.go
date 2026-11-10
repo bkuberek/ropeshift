@@ -104,8 +104,12 @@ func WorkOrderPart(w WorkOrderSpec) Part {
 		needs = append(needs, key+"="+value)
 	}
 	slices.Sort(needs)
-	return Part{Ref: "work_order:" + w.ID, Digest: ContentDigest(
-		"work_order", w.ID, w.Title, strconv.FormatInt(w.Priority, 10), w.Size, strings.Join(needs, ","))}
+	read := []string{"work_order", w.ID, w.Title, strconv.FormatInt(w.Priority, 10), w.Size, strings.Join(needs, ",")}
+	// A work order that names no base keeps the digest it had before the format could name one.
+	if w.Base != "" {
+		read = append(read, "base="+w.Base)
+	}
+	return Part{Ref: "work_order:" + w.ID, Digest: ContentDigest(read...)}
 }
 
 // PartDifference lists the parts of one kind that a contract gained, changed, and lost, by ID.

@@ -188,3 +188,22 @@ func TestEntriesAreCountedByTheKindOfRecord(t *testing.T) {
 		}
 	}
 }
+
+func TestAWorkOrdersBaseIsPartOfWhatAPersonSeesOfIt(t *testing.T) {
+	plain := planning.WorkOrderSpec{ID: "w1", Title: "Add the budget", Size: planning.SizeSmall}
+	based := plain
+	based.Base = "release/1.2"
+	if planning.WorkOrderPart(plain).Digest == planning.WorkOrderPart(based).Digest {
+		t.Error("a work order that moved to another base kept its digest")
+	}
+}
+
+// A work order that names no base keeps the digest it had before the format could name one, so no
+// plan reads as changed because ropeshift learned a new key.
+func TestAWorkOrderWithNoBaseKeepsItsDigest(t *testing.T) {
+	spec := planning.WorkOrderSpec{ID: "w1", Title: "Add the budget", Priority: 2, Size: planning.SizeSmall, Needs: map[string]string{"driver": "claude-code"}}
+	want := planning.ContentDigest("work_order", "w1", "Add the budget", "2", planning.SizeSmall, "driver=claude-code")
+	if got := planning.WorkOrderPart(spec).Digest; got != want {
+		t.Errorf("digest %s, not %s", got, want)
+	}
+}

@@ -98,6 +98,11 @@ type Claim struct {
 	// PackID names the context pack this claim pinned. A lane keeps it across generations and
 	// across the claims that bring it back.
 	PackID string
+	// BaseRef and BaseCommit are where this claim's lane began its branch, resolved before the claim was
+	// made. A claim that brings a parked lane back keeps its first claim's, because the branch already
+	// exists (FR-BASE-4).
+	BaseRef    string
+	BaseCommit string
 }
 
 // Ended reports a claim that no longer holds anything.
