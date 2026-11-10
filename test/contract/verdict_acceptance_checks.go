@@ -367,8 +367,15 @@ func checkPassAcceptsAtReviewApproves(r *Rig) error {
 			if len(view.Verdicts) != 2 || view.Authority != tt.level {
 				return Violatedf("at %s the standing reads %+v", tt.level, view)
 			}
+			if view.Why == "" {
+				return Violatedf("at %s the standing does not say what the work waits for", tt.level)
+			}
 			if state, err := r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.Actor); err != nil || state != workorders.Done {
 				return Violatedf("a member accepting reviewed work: %v, %v", state, err)
+			}
+			// Accepted work waits for nobody, so its standing says so.
+			if view, err := r.verdictsCounted(s, id); err != nil || view.Why != "" {
+				return Violatedf("accepted work still says it waits: %q: %v", view.Why, err)
 			}
 		}
 		if err := r.stateIs(s, review.ID, workorders.Done); err != nil {

@@ -64,7 +64,10 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	view := workorders.AcceptanceView{
 		WorkOrder: id, State: current.State, Assessment: at.assessment,
 		Artifacts: append([]ledger.Artifact{}, artifacts...), Checks: append([]workorders.Evidence{}, checks...),
-		Verdicts: at.verdicts, Rounds: at.rounds, Authority: at.authority, Why: at.judgement.Why,
+		Verdicts: at.verdicts, Rounds: at.rounds, Authority: at.authority,
+	}
+	if current.State == workorders.Acceptance {
+		view.Why = at.judgement.Why
 	}
 	for _, review := range reviews {
 		view.Reviews = append(view.Reviews, workorders.ReviewLine{ID: review.ID, State: review.State, Attempt: review.ReviewsFence})
