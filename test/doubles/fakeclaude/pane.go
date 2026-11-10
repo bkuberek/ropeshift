@@ -232,6 +232,7 @@ func listen(lines chan<- string) string {
 					// A message counts when the socket takes it, so a repeat shows even if
 					// the session ends before a turn would have reached it.
 					witness("messages", messageID(scanner.Text()))
+					witness("prompts", strconv.Quote(messageText(scanner.Text())))
 					lines <- scanner.Text()
 				}
 			}()
