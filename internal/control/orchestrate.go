@@ -132,11 +132,6 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 			return nil, err
 		}
 		return w.questions.Rule(ctx, w.scope, call.Question, ruling, actor)
-	case ledger.VerbAccept:
-		if err := w.heldToStanding(ctx, actor.ID, authority.AutonomyStanding.MayWork); err != nil {
-			return nil, err
-		}
-		return w.accepting.Accept(ctx, w.scope, call.WorkOrder, actor)
 	}
 	return nil, fmt.Errorf("%w: no such act: %q", workorders.ErrInvalid, verb)
 }

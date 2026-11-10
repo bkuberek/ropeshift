@@ -231,12 +231,12 @@ func TestGoldenPaneKeys(t *testing.T) {
 // and is not planned work in a plan's list, and the plan holds it so it is not listed as unplanned.
 func TestAReviewIsNoPartOfThePlanItsContractBelongsTo(t *testing.T) {
 	d := aDetailedWorld(t)
-	ready, err := d.Client.WorkOrders(t.Context(), workorders.Ready)
+	every, err := d.Client.WorkOrders(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	reviews := 0
-	for _, order := range ready {
+	for _, order := range every {
 		if order.Kind == workorders.KindReview {
 			reviews++
 		}

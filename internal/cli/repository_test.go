@@ -48,7 +48,7 @@ func TestRepositoryShowNamesEverySetting(t *testing.T) {
 	text := s.must("repository", "show", aRepositoryID[:8])
 	for _, want := range []string{
 		"repository\t" + aRepositoryID, "remote\thttps://example.invalid/acme/app.git", "default branch\tmain", "base\tmain\t(the default branch)",
-		"forge binding\t-", "merge method\tmerge", "integration\toff", "start from\tmerged",
+		"forge binding\t-", "merge method\tmerge", "integration\toff", "start from\tmerged", "merge authority\tperson_merges",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("show lacks %q:\n%s", want, text)
@@ -70,6 +70,23 @@ func TestRepositorySetChangesWhatAMemberNames(t *testing.T) {
 	}
 	if text := s.must("repository", "set", aRepositoryID, "--base", "", "--integration", "off"); !strings.Contains(text, "base\tmain\t(the default branch)") || !strings.Contains(text, "integration\toff") {
 		t.Errorf("clearing the base:\n%s", text)
+	}
+}
+
+func TestRepositorySetChangesTheMergeAuthority(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	if text := s.must("repository", "list"); !strings.Contains(text, "authority person_merges") {
+		t.Errorf("list does not say the level:\n%s", text)
+	}
+	if text := s.must("repository", "set", aRepositoryID[:8], "--merge-authority", "review_approves"); !strings.Contains(text, "merge authority\treview_approves") {
+		t.Errorf("set printed:\n%s", text)
+	}
+	if code, _, stderr := s.run("repository", "set", aRepositoryID, "--merge-authority", "whenever"); code == cli.ExitOK || stderr == "" {
+		t.Errorf("a level nobody offers: exit %d, stderr %q", code, stderr)
+	}
+	if got := s.must("repository", "show", aRepositoryID); !strings.Contains(got, "merge authority\treview_approves") {
+		t.Errorf("a refused level changed the record:\n%s", got)
 	}
 }
 

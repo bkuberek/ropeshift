@@ -28,7 +28,7 @@ var PlanLaneChecks = []Check{
 	{"PL7", "a review lane that parked holds nothing back", checkParkedReviewHoldsNothing},
 	{"PL8", "accepting a review passes the versions it read", checkAcceptedReviewPasses},
 	{"PL9", "a version a review did not read stays unreviewed", checkReviewCoversItsVersions},
-	{"PL10", "an orchestrator's acceptance passes no review", checkOrchestratorPassesNoReview},
+	{"PL10", "an orchestrator cannot accept a review, so it passes none", checkOrchestratorPassesNoReview},
 	{"PL11", "an accepted plan reaches the ledger at its commit", checkPlanTakenIn},
 	{"PL12", "a plan nobody accepted reaches nothing", checkUnacceptedPlanStays},
 	{"PL13", "a commit is read once", checkPlanTakenInOnce},
@@ -413,12 +413,23 @@ func checkReviewCoversItsVersions(r *Rig) error {
 }
 
 func checkOrchestratorPassesNoReview(r *Rig) error {
-	_, order, err := r.reviewAccepted(aWorkerAsOrch, nil)
+	s, _, err := r.reviewRunning()
+	if err != nil {
+		return err
+	}
+	if err := s.reviewEnds(); err != nil {
+		return err
+	}
+	// An orchestrator is no second principal, so its word accepts nothing and passes no review.
+	if _, err := control.NewAcceptances(s.store).Accept(r.Ctx, r.Scope, s.grant.WorkOrder, aWorkerAsOrch); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("an orchestrator accepting a review: %v", err)
+	}
+	order, err := r.orderByTitle(s.store, plannedOrder)
 	if err != nil {
 		return err
 	}
 	if order.ReviewedBy != "" || order.State != workorders.ContractReview {
-		return Violatedf("an orchestrator's acceptance passed a review: %+v", order)
+		return Violatedf("an orchestrator's refused acceptance still moved a review: %+v", order)
 	}
 	return nil
 }

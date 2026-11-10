@@ -808,7 +808,7 @@ func checkManualKeepsToTheLadder(r *Rig) error {
 	if _, err := r.NewOps(a.store).Claim(r.Ctx, r.Scope, r.Request(id, a.worker()), theMember); err != nil {
 		return err
 	}
-	for _, verb := range []string{ledger.VerbClaim, ledger.VerbStart, ledger.VerbStop, ledger.VerbAccept} {
+	for _, verb := range []string{ledger.VerbClaim, ledger.VerbStart, ledger.VerbStop} {
 		if _, err := a.plane.Orchestrate(r.Ctx, verb, call); !errors.Is(err, workorders.ErrIneligible) {
 			return Violatedf("%s at manual: %v", verb, err)
 		}

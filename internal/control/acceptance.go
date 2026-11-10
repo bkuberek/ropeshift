@@ -45,7 +45,11 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	if err != nil {
 		return workorders.AcceptanceView{}, err
 	}
-	assessment, err := assessAttempt(tx.Planning(), tx.Evidence(), current)
+	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), current)
+	if err != nil {
+		return workorders.AcceptanceView{}, err
+	}
+	reviews, err := tx.WorkOrders().ReviewsOf(id)
 	if err != nil {
 		return workorders.AcceptanceView{}, err
 	}
@@ -57,23 +61,96 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	if err != nil {
 		return workorders.AcceptanceView{}, err
 	}
-	return workorders.AcceptanceView{
-		WorkOrder: id, State: current.State, Assessment: assessment,
+	view := workorders.AcceptanceView{
+		WorkOrder: id, State: current.State, Assessment: at.assessment,
 		Artifacts: append([]ledger.Artifact{}, artifacts...), Checks: append([]workorders.Evidence{}, checks...),
-	}, nil
+		Verdicts: at.verdicts, Rounds: at.rounds, Authority: at.authority,
+	}
+	if current.State == workorders.Acceptance {
+		view.Why = at.judgement.Why
+	}
+	for _, review := range reviews {
+		view.Reviews = append(view.Reviews, workorders.ReviewLine{ID: review.ID, State: review.State, Attempt: review.ReviewsFence})
+	}
+	return view, nil
+}
+
+// attemptStanding is where one attempt stands: what its checks say, and the verdicts that speak for it.
+type attemptStanding struct {
+	assessment workorders.Assessment
+	// verdicts are the ones bound to this attempt and the commit it left, in the order of the contract.
+	verdicts []workorders.Verdict
+	// rounds is how many reviews have judged this work order, whichever attempt they read.
+	rounds    int64
+	authority ledger.MergeAuthority
+	judgement workorders.Judgement
+}
+
+// readAttempt reads an attempt's evidence and verdicts, and what they settle at the repository's merge
+// authority. A work order whose repository has no record is at the default level.
+func readAttempt(planned ports.PlanningReader, evidence ports.EvidenceReader, repositories ports.RepositoryReader, w workorders.WorkOrder) (attemptStanding, error) {
+	criteria, err := criteriaOf(planned, w)
+	if err != nil {
+		return attemptStanding{}, err
+	}
+	rows, err := evidence.Attempt(w.ID, w.Fence)
+	if err != nil {
+		return attemptStanding{}, err
+	}
+	at := attemptStanding{assessment: workorders.Assess(criteria, rows), authority: ledger.PersonMerges}
+	artifacts, err := evidence.Artifacts(w.ID)
+	if err != nil {
+		return attemptStanding{}, err
+	}
+	all, err := evidence.Verdicts(w.ID)
+	if err != nil {
+		return attemptStanding{}, err
+	}
+	at.rounds = workorders.Rounds(all)
+	at.verdicts = workorders.Counted(all, w.Fence, attemptBranch(artifacts, w.Fence).Digest)
+	slices.SortStableFunc(at.verdicts, func(a, b workorders.Verdict) int {
+		return slices.Index(criteria, a.Criterion) - slices.Index(criteria, b.Criterion)
+	})
+	var bound int64
+	for _, v := range at.verdicts {
+		bound = max(bound, v.MaxRounds)
+	}
+	if w.RepositoryID != "" {
+		record, err := repositories.Repository(w.RepositoryID)
+		switch {
+		case err == nil:
+			at.authority = record.Level()
+		case !errors.Is(err, ports.ErrNotFound):
+			return attemptStanding{}, err
+		}
+	}
+	at.judgement = workorders.Judge(workorders.JudgeInput{
+		Criteria: criteria, Verdicts: at.verdicts, Assessment: at.assessment, Authority: at.authority, Rounds: at.rounds, MaxRounds: bound,
+	})
+	return at, nil
+}
+
+// criteriaOf lists the IDs of the criteria a work order's pinned contract version holds.
+func criteriaOf(planned ports.PlanningReader, w workorders.WorkOrder) ([]string, error) {
+	if w.ContractVersion == 0 {
+		return nil, nil
+	}
+	contract, err := planned.Contract(w.ContractID, w.ContractVersion)
+	if err != nil {
+		return nil, err
+	}
+	criteria := make([]string, 0, len(contract.Criteria))
+	for _, criterion := range contract.Criteria {
+		criteria = append(criteria, criterion.ID)
+	}
+	return criteria, nil
 }
 
 // assessAttempt compares the pinned contract with the current attempt's evidence.
 func assessAttempt(planned ports.PlanningReader, evidence ports.EvidenceReader, w workorders.WorkOrder) (workorders.Assessment, error) {
-	var criteria []string
-	if w.ContractVersion != 0 {
-		contract, err := planned.Contract(w.ContractID, w.ContractVersion)
-		if err != nil {
-			return workorders.Assessment{}, err
-		}
-		for _, criterion := range contract.Criteria {
-			criteria = append(criteria, criterion.ID)
-		}
+	criteria, err := criteriaOf(planned, w)
+	if err != nil {
+		return workorders.Assessment{}, err
 	}
 	rows, err := evidence.Attempt(w.ID, w.Fence)
 	if err != nil {
@@ -116,6 +193,9 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		if len(assessment.Failed) != 0 {
 			return fmt.Errorf("%w: %s", workorders.ErrNotAcceptable, strings.Join(assessment.Failed, ", "))
 		}
+		if err := endOpenReviews(tx, id, actor); err != nil {
+			return err
+		}
 		return accept(tx, id, assessment, actor, func() { crashpoint.Hit("acceptance.accept", "moved") })
 	})
 	if err != nil {
@@ -125,7 +205,18 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 }
 
 func accept(tx ports.WriteTx, id string, assessment workorders.Assessment, actor ledger.Actor, moved func()) error {
-	payload, err := json.Marshal(assessment)
+	return acceptCiting(tx, id, assessment, "", actor, moved)
+}
+
+// acceptedOn is the payload of an acceptance: the assessment it rested on, and the review whose verdicts
+// stood for a member's word when one did.
+type acceptedOn struct {
+	workorders.Assessment
+	Review string `json:"review_id,omitempty"`
+}
+
+func acceptCiting(tx ports.WriteTx, id string, assessment workorders.Assessment, review string, actor ledger.Actor, moved func()) error {
+	payload, err := json.Marshal(acceptedOn{Assessment: assessment, Review: review})
 	if err != nil {
 		return err
 	}
@@ -178,6 +269,9 @@ func (a *Acceptances) Rework(ctx context.Context, scope ledger.WorkspaceID, id, 
 	}
 	var state workorders.State
 	err := a.store.Write(ctx, scope, "acceptance.rework", func(tx ports.WriteTx) error {
+		if err := endOpenReviews(tx, id, actor); err != nil {
+			return err
+		}
 		var err error
 		state, err = rework(tx, id, reason, actor, func() { crashpoint.Hit("acceptance.rework", "moved") })
 		return err
@@ -191,8 +285,44 @@ func (a *Acceptances) Rework(ctx context.Context, scope ledger.WorkspaceID, id, 
 // rework runs the definition of ready, as every move into `ready` does, so a question that
 // opened during the attempt holds the work back in `contract_review`.
 func rework(tx ports.WriteTx, id, reason string, actor ledger.Actor, moved func()) (workorders.State, error) {
-	err := leaveAcceptance(tx, id, workorders.Change{Trigger: workorders.TriggerRework, Reason: reason}, actor, moved)
+	return reworkFor(tx, id, workorders.ReworkNote{Reason: reason}, nil, actor, moved)
+}
+
+// reworkedOn is the payload of a rework a review decided: the review, and each criterion it failed with
+// what it said, so the audit reads without the verdicts table.
+type reworkedOn struct {
+	Review string          `json:"review_id"`
+	Failed []reworkFinding `json:"failed,omitempty"`
+}
+
+type reworkFinding struct {
+	Criterion string   `json:"criterion"`
+	Reasons   string   `json:"reasons"`
+	Citations []string `json:"citations,omitempty"`
+}
+
+// reworkFor sends completed work back, and keeps why with the work order, for the brief of the attempt that
+// follows. A note that names a review carries the criteria that review failed.
+func reworkFor(tx ports.WriteTx, id string, note workorders.ReworkNote, failed []workorders.Verdict, actor ledger.Actor, moved func()) (workorders.State, error) {
+	current, err := tx.WorkOrders().Get(id)
 	if err != nil {
+		return "", err
+	}
+	change := workorders.Change{Trigger: workorders.TriggerRework, Reason: note.Reason}
+	if note.Review != "" {
+		on := reworkedOn{Review: note.Review}
+		for _, v := range failed {
+			on.Failed = append(on.Failed, reworkFinding{Criterion: v.Criterion, Reasons: v.Reasons, Citations: v.Citations})
+		}
+		if change.Payload, err = json.Marshal(on); err != nil {
+			return "", err
+		}
+	}
+	if err := leaveAcceptance(tx, id, change, actor, moved); err != nil {
+		return "", err
+	}
+	note.WorkOrder, note.Attempt = id, current.Fence
+	if err := tx.Evidence().RecordRework(note); err != nil {
 		return "", err
 	}
 	back, err := tx.WorkOrders().Get(id)
@@ -221,8 +351,7 @@ type awaiting struct {
 // Settle reads what a forge ran on each waiting attempt's commit, and moves the work its
 // evidence decides by itself. It is a tick: the list is read with no lock, the forge is read
 // outside every transaction, and each item is one transaction that reads again. A nil forge
-// means no independent source exists, which leaves a lane's checks to a second principal
-// (D16). A forge that fails decides nothing about its item, and the rest go on.
+// means no independent source exists, which leaves a lane's checks to a member (D16). A forge that fails decides nothing about its item, and the rest go on.
 func (a *Acceptances) Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error) {
 	waiting, err := a.waiting(ctx, scope)
 	if err != nil {
@@ -314,12 +443,28 @@ func (a *Acceptances) settle(ctx context.Context, scope ledger.WorkspaceID, item
 			return err
 		}
 		crashpoint.Hit("acceptance.settle", "recorded")
-		assessment, err := assessAttempt(tx.Planning(), tx.Evidence(), current)
+		at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), current)
 		if err != nil {
 			return err
 		}
+		assessment := at.assessment
 		moved := func() { crashpoint.Hit("acceptance.settle", "moved") }
+		spoke, moves, err := settleByVerdicts(tx, current, at, actor, moved)
+		if err != nil {
+			return err
+		}
+		if moves {
+			settled = true
+			return nil
+		}
 		switch {
+		case spoke:
+			// The verdicts hold the work for a member. A forge result still lands on record.
+			if recorded {
+				_, err = tx.Append(ledger.EventDraft{
+					Type: workorders.EventEvidenceRecorded, Actor: actor, Subject: ledger.Subject{Kind: workorders.SubjectKind, ID: current.ID},
+				})
+			}
 		case len(assessment.Failed) != 0:
 			settled = true
 			_, err = rework(tx, current.ID, "failed: "+strings.Join(assessment.Failed, ", "), actor, moved)
@@ -413,6 +558,125 @@ func recordEvidence(tx ports.WriteTx, holder workorders.Holder, fence int64, res
 // reviewActor is the control plane closing a review by rule: no lane and no worker accepts a thing.
 var reviewActor = ledger.Actor{Kind: ledger.ActorSystem, ID: "review"}
 
+// settleByVerdicts moves an attempt its verdicts decide, as the control plane by rule. It reports whether the
+// verdicts spoke at all, which keeps the older rule on evidence from deciding what they hold for a member,
+// and whether it moved the work.
+func settleByVerdicts(tx ports.WriteTx, current workorders.WorkOrder, at attemptStanding, actor ledger.Actor, moved func()) (spoke, moves bool, err error) {
+	switch at.judgement.Settlement {
+	case workorders.SettleNone:
+		return false, false, nil
+	case workorders.SettleMember:
+		return true, false, nil
+	case workorders.SettleRework:
+		note := reworkNoteOf(at)
+		_, err = reworkFor(tx, current.ID, note, at.judgement.Failed, actor, moved)
+		return true, err == nil, err
+	}
+	if !authority.Allowed(actor, authority.ActionAcceptReviewed) {
+		return true, false, workorders.ErrForbidden
+	}
+	err = acceptCiting(tx, current.ID, at.assessment, at.verdicts[0].Review, actor, moved)
+	return true, err == nil, err
+}
+
+// reworkNoteOf says why an attempt goes back, citing the review whose criteria failed and the checks that
+// did. A note names a review only when it failed a criterion, because the next brief lists those.
+func reworkNoteOf(at attemptStanding) workorders.ReworkNote {
+	var note workorders.ReworkNote
+	var parts []string
+	if failed := at.judgement.Failed; len(failed) != 0 {
+		ids := make([]string, 0, len(failed))
+		for _, v := range failed {
+			ids = append(ids, v.Criterion)
+		}
+		note.Review = failed[0].Review
+		parts = append(parts, fmt.Sprintf("review %s failed criteria %s", note.Review, strings.Join(ids, ", ")))
+	}
+	if checks := at.assessment.Failed; len(checks) != 0 {
+		parts = append(parts, "failed checks: "+strings.Join(checks, ", "))
+	}
+	note.Reason = strings.Join(parts, "; ")
+	return note
+}
+
+// endOpenReviews cancels the reviews of a work order that have not ended, once a member has decided it
+// without them. A member's word does not wait for a review, and a review nobody reads is a lane for
+// nothing. Only a member's decision ends a review this way.
+func endOpenReviews(tx ports.WriteTx, id string, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionCancelWork) {
+		return nil
+	}
+	reviews, err := tx.WorkOrders().ReviewsOf(id)
+	if err != nil {
+		return err
+	}
+	for _, review := range reviews {
+		if !review.OpenReview() {
+			continue
+		}
+		if err := cancelWork(tx, review.ID, "a member decided "+id+" before this review ended", actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordVerdicts keeps what a completed review said, in the transaction that ends its lane, bound to the
+// commit that attempt of the reviewed work left. It refuses a report that does not hold to the contract the
+// review pinned, and a verdict from any lane but a review's own.
+func recordVerdicts(tx ports.WriteTx, review workorders.WorkOrder, holder workorders.Holder, fence int64, result workorders.LaneResult) error {
+	if review.Kind != workorders.KindReview {
+		if len(result.Verdicts) != 0 {
+			return fmt.Errorf("%w: only a review reports verdicts, and %s is a %s", workorders.ErrInvalid, review.ID, review.Kind)
+		}
+		return nil
+	}
+	if result.Outcome != workorders.OutcomeCompleted {
+		return nil
+	}
+	criteria, err := criteriaOf(tx.Planning(), review)
+	if err != nil {
+		return err
+	}
+	if err := result.CheckVerdicts(criteria); err != nil {
+		return err
+	}
+	artifacts, err := tx.Evidence().Artifacts(review.Reviews)
+	if err != nil {
+		return err
+	}
+	commit := attemptBranch(artifacts, review.ReviewsFence).Digest
+	for _, v := range result.Verdicts {
+		err := tx.Evidence().RecordVerdict(workorders.Verdict{
+			CriterionVerdict: v, Review: review.ID, WorkOrder: review.Reviews, Attempt: review.ReviewsFence, Commit: commit,
+			Lane: holder.Lane, Generation: holder.Generation, Fence: fence, MaxRounds: result.MaxReviewRounds,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// settleReviewed decides the work a review judged, once the review ended with its verdicts. The work moves
+// only if it still waits at the attempt the review read: a member may have decided it, or sent it back, while
+// the review ran.
+func settleReviewed(tx ports.WriteTx, review workorders.WorkOrder) error {
+	reviewed, err := tx.WorkOrders().Get(review.Reviews)
+	if err != nil {
+		return err
+	}
+	if reviewed.State != workorders.Acceptance || reviewed.Fence != review.ReviewsFence {
+		return nil
+	}
+	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), reviewed)
+	if err != nil {
+		return err
+	}
+	_, _, err = settleByVerdicts(tx, reviewed, at, reviewActor, func() {})
+	return err
+}
+
 // afterLaneEnd does what the end of a lane owes beyond moving its own work order, in the transaction that
 // moves it. A change or a rework that completed leaves a review of its commit. A review's lane leaves its
 // worktree to be taken away, whichever way it ended, and a review that completed is done: what it judged
@@ -425,7 +689,10 @@ func afterLaneEnd(tx ports.WriteTx, ended workorders.WorkOrder, holder workorder
 		if result.Outcome != workorders.OutcomeCompleted {
 			return nil
 		}
-		return closeReview(tx, ended.ID)
+		if err := closeReview(tx, ended.ID); err != nil {
+			return err
+		}
+		return settleReviewed(tx, ended)
 	}
 	if result.Outcome != workorders.OutcomeCompleted {
 		return nil

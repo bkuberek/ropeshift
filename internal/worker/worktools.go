@@ -114,8 +114,6 @@ func (w *Worker) workTool(ctx context.Context, lane lanes.Record, tool string, a
 		return w.record(ctx, call, args, act)
 	case lanes.ToolQuestionEscalate:
 		return w.escalate(ctx, call, args, act)
-	case lanes.ToolAcceptanceRecord:
-		return act(ledger.VerbAccept)
 	}
 	return nil, fmt.Errorf("%w: no such tool: %q", workorders.ErrInvalid, tool)
 }

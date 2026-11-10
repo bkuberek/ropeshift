@@ -6,6 +6,7 @@ import { Freshness } from "../floor/LaneFacts";
 import { laneLabel } from "../floor/states";
 import { onlyAPerson, readWake, WakeWords } from "../floor/WakeWords";
 import { Id } from "../parts/parts";
+import { Verdicts } from "../parts/Verdicts";
 import { useAct } from "./useAct";
 
 export const workLabels: Record<string, string> = {
@@ -53,7 +54,12 @@ function Lead({ work }: { work: WorkNeed }) {
   const wake = work.wakes?.[0];
   const term = wake ? readWake(wake.expression) : null;
   if (!wake || !term || onlyAPerson(term)) {
-    return <p className="lead">{said}</p>;
+    return (
+      <>
+        <p className="lead">{said}</p>
+        {work.standing?.why ? <p className="quiet">It waits because {work.standing.why}.</p> : null}
+      </>
+    );
   }
   return (
     <>
@@ -90,6 +96,7 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
   return (
     <div className="card-body">
       <Lead work={work} />
+      {work.standing ? <Verdicts standing={work.standing} /> : null}
       {work.orchestrator ? (
         <dl className="facts">
           <div>

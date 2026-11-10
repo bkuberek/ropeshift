@@ -277,9 +277,10 @@ func checkReviewEndsAlone(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	// A review lane leaves no branch of its own, and says nothing the ledger takes for a verdict yet.
+	// A review lane leaves no branch of its own, and its verdicts decide the work it judged, not itself.
 	result := laneResult(workorders.OutcomeCompleted, "")
 	result.Checks = []workorders.CheckResult{LaneCheck(criterionOne, true)}
+	result.Verdicts = []workorders.CriterionVerdict{say(criterionOne, workorders.VerdictPass)}
 	if err := ops.EndLane(r.Ctx, r.Scope, holder, result, r.worker("a")); err != nil {
 		return err
 	}
@@ -360,9 +361,16 @@ func checkWorkWaitsForItsReview(r *Rig) error {
 		return err
 	}
 
-	// A member can still accept it, or send it back, as before.
+	// A member can still accept it, or send it back, as before, and the review nobody needs any more ends.
+	open, err := r.openReviewOf(s, waiting)
+	if err != nil {
+		return err
+	}
 	if state, err := ops.Accept(r.Ctx, r.Scope, waiting, r.Actor); err != nil || state != workorders.Done {
 		return Violatedf("a member accepting work with an open review: %v, %v", state, err)
+	}
+	if err := r.stateIs(s, open.ID, workorders.Canceled); err != nil {
+		return err
 	}
 	sentBack, err := r.AwaitingReview(s, []string{criterionOne}, LaneFinished(r.ID("commit")))
 	if err != nil {
@@ -611,7 +619,9 @@ func checkReviewLaneIsArchived(r *Rig) error {
 		return Violatedf("before the review ended the worker is asked to archive %+v: %v", archives, err)
 	}
 	holder := workorders.Holder{Lease: rig.grant.Lease, Lane: rig.lane, Generation: 1}
-	if err := ops.EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeCompleted, ""), r.worker(rig.auth.WorkerID)); err != nil {
+	ended := laneResult(workorders.OutcomeCompleted, "")
+	ended.Verdicts = []workorders.CriterionVerdict{say(criterionOne, workorders.VerdictPass)}
+	if err := ops.EndLane(r.Ctx, r.Scope, holder, ended, r.worker(rig.auth.WorkerID)); err != nil {
 		return err
 	}
 	archives, err := desired()

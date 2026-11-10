@@ -1526,3 +1526,51 @@ textarea {
     transform: none;
   }
 }
+
+/* What a review found of each criterion. The word says the verdict; the class only sets it apart. */
+
+.part-title {
+  font-size: 1rem;
+}
+
+.verdicts {
+  display: grid;
+  gap: 0.625rem;
+  max-width: 62ch;
+}
+
+.verdict {
+  display: grid;
+  gap: 0.25rem;
+  padding-left: 0.75rem;
+  border-left: 0.1875rem solid var(--hemp);
+  overflow-wrap: anywhere;
+}
+
+.verdict-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+
+.verdict-word {
+  font-weight: 700;
+}
+
+.verdict-fail .verdict-word {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.verdict-reasons {
+  white-space: pre-line;
+}
+
+.verdict-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.875em;
+}

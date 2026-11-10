@@ -114,6 +114,8 @@ export type WorkNeed = {
   orchestrator?: Orchestrator;
   // What a parked lane waits for, as its wakes state it.
   wakes?: Wake[];
+  // Where finished work stands, with the review's verdict for each criterion.
+  standing?: Standing;
   actions: (WorkAction | OrchestratorAction)[];
 };
 
@@ -354,7 +356,35 @@ export type Assessment = { criteria: { criterion_id: string; standing: string }[
 
 export type CheckRecord = { id: string; name: string; status: string; source: string; criterion_id?: string; details_uri?: string };
 
-export type Standing = { work_order_id: string; state: string; assessment: Assessment; artifacts: Artifact[]; checks: CheckRecord[] };
+// A verdict is what a review found of one criterion, bound to the commit it read.
+export type VerdictKind = "pass" | "fail" | "cannot_judge";
+
+export type Verdict = {
+  criterion: string;
+  verdict: VerdictKind;
+  reasons: string;
+  citations?: string[];
+  review_id: string;
+  work_order_id: string;
+  commit: string;
+};
+
+export type ReviewLine = { id: string; state: string; attempt: number };
+
+export type Standing = {
+  work_order_id: string;
+  state: string;
+  assessment: Assessment;
+  artifacts: Artifact[];
+  checks: CheckRecord[];
+  // The reviews this work has had, the verdicts that speak for its current attempt and commit, and what
+  // the work waits on when those verdicts hold it for a member.
+  reviews?: ReviewLine[];
+  verdicts?: Verdict[];
+  rounds?: number;
+  authority?: string;
+  why?: string;
+};
 
 export type CompletedWork = { work_order: WorkOrder; standing: Standing; since: number; reason?: string };
 

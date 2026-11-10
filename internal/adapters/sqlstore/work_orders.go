@@ -47,6 +47,13 @@ var (
 	// stmtWorkOrdersByContract reads the work a contract planned. A review pins the contract of the work it
 	// judges, and is no part of that plan: it must not be re-pinned to a new version, counted in a
 	// milestone, or held by a question about the contract.
+	stmtWorkOrdersReviewing = define("work_order.reviews_of",
+		`SELECT `+workOrderColumns+`
+  FROM work_orders
+ WHERE workspace_id = :workspace_id
+   AND reviews = :reviews
+ ORDER BY reviews_fence, id`)
+
 	stmtWorkOrdersByContract = define("work_order.by_contract",
 		`SELECT `+workOrderColumns+`
   FROM work_orders
@@ -142,6 +149,10 @@ func (t workOrderTx) HeldBy(worker string) ([]workorders.WorkOrder, error) {
 
 func (t workOrderTx) Woken() ([]workorders.WorkOrder, error) {
 	return t.list(stmtWoken, params{})
+}
+
+func (t workOrderTx) ReviewsOf(id string) ([]workorders.WorkOrder, error) {
+	return t.list(stmtWorkOrdersReviewing, params{"reviews": id})
 }
 
 func (t workOrderTx) ByContract(contract string) ([]workorders.WorkOrder, error) {

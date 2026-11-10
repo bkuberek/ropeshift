@@ -109,7 +109,10 @@ type WorkNeed struct {
 	Lane         *ledger.LaneView      `json:"lane,omitempty"`
 	Orchestrator *ledger.Orchestrator  `json:"orchestrator,omitempty"`
 	Wakes        []WakeView            `json:"wakes,omitempty"`
-	Actions      []string              `json:"actions"`
+	// Standing is where finished work stands when it waits for a member: its checks, and the verdict the review
+	// gave for each criterion with its reasons and citations.
+	Standing *workorders.AcceptanceView `json:"standing,omitempty"`
+	Actions  []string                   `json:"actions"`
 }
 
 // PlanApprovalNeed is a plan version that waits for a member: what it is, who asked, what it holds,
@@ -394,4 +397,14 @@ func (c *Client) ReadView(ctx context.Context, name, category string, out any) e
 		path += "?category=" + url.QueryEscape(category)
 	}
 	return c.Do(ctx, http.MethodGet, path, nil, out)
+}
+
+// WorkDetail is a work order with how its review stands: the reviews it has had, the verdicts that speak for
+// its current attempt, and what the work waits on when its verdicts hold it for a member.
+type WorkDetail struct {
+	workorders.WorkOrder
+	// JudgedBy is named apart from the work order's own `reviews`, which a review sets to the work it judges.
+	JudgedBy []workorders.ReviewLine `json:"judged_by,omitempty"`
+	Verdicts []workorders.Verdict    `json:"verdicts,omitempty"`
+	Why      string                  `json:"why,omitempty"`
 }

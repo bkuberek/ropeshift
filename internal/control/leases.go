@@ -472,49 +472,55 @@ func (l *Leases) Cancel(ctx context.Context, scope ledger.WorkspaceID, workOrder
 		return fmt.Errorf("%w: a cancel needs a reason", workorders.ErrInvalid)
 	}
 	return l.store.Write(ctx, scope, "cancel", func(tx ports.WriteTx) error {
-		current, err := tx.WorkOrders().Get(workOrder)
-		if err != nil {
-			return err
-		}
-		if current.State == workorders.Canceled {
-			return nil
-		}
-		edge, ok := workorders.Next(current.State, workorders.TriggerCanceled)
-		if !ok {
-			return fmt.Errorf("%w: canceling %s work", workorders.ErrIllegalMove, current.State)
-		}
-		won, err := tx.Leases().Cancel(workOrder, edge.From, current.Fence, edge.Leased)
-		if err != nil {
-			return err
-		}
-		if !won {
-			return fmt.Errorf("%w: canceling %s work", workorders.ErrIllegalMove, current.State)
-		}
-		crashpoint.Hit("cancel", "moved")
-		change := workorders.Change{Trigger: workorders.TriggerCanceled, ClaimID: current.ClaimID, Reason: reason}
-		if edge.Leased {
-			change.Fence = current.Fence + 1
-			if err := tx.Claims().End(current.ClaimID, workorders.EndCanceled); err != nil {
-				return err
-			}
-		}
-		if err := endParkedLanes(tx, workOrder, actor); err != nil {
-			return err
-		}
-		crashpoint.Hit("cancel", "lanes-ended")
-		if err := rollWorkOrder(tx, workOrder, actor); err != nil {
-			return err
-		}
-		if err := retireWakes(tx, workOrder, parking.RetiredCanceled); err != nil {
-			return err
-		}
-		event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerCanceled), workOrder, change, actor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(event)
-		return err
+		return cancelWork(tx, workOrder, reason, actor)
 	})
+}
+
+// cancelWork is a cancel inside the transaction of whoever asks. A member's decision on reviewed work cancels
+// the review in the same transaction, so the work and its review never disagree on record.
+func cancelWork(tx ports.WriteTx, workOrder, reason string, actor ledger.Actor) error {
+	current, err := tx.WorkOrders().Get(workOrder)
+	if err != nil {
+		return err
+	}
+	if current.State == workorders.Canceled {
+		return nil
+	}
+	edge, ok := workorders.Next(current.State, workorders.TriggerCanceled)
+	if !ok {
+		return fmt.Errorf("%w: canceling %s work", workorders.ErrIllegalMove, current.State)
+	}
+	won, err := tx.Leases().Cancel(workOrder, edge.From, current.Fence, edge.Leased)
+	if err != nil {
+		return err
+	}
+	if !won {
+		return fmt.Errorf("%w: canceling %s work", workorders.ErrIllegalMove, current.State)
+	}
+	crashpoint.Hit("cancel", "moved")
+	change := workorders.Change{Trigger: workorders.TriggerCanceled, ClaimID: current.ClaimID, Reason: reason}
+	if edge.Leased {
+		change.Fence = current.Fence + 1
+		if err := tx.Claims().End(current.ClaimID, workorders.EndCanceled); err != nil {
+			return err
+		}
+	}
+	if err := endParkedLanes(tx, workOrder, actor); err != nil {
+		return err
+	}
+	crashpoint.Hit("cancel", "lanes-ended")
+	if err := rollWorkOrder(tx, workOrder, actor); err != nil {
+		return err
+	}
+	if err := retireWakes(tx, workOrder, parking.RetiredCanceled); err != nil {
+		return err
+	}
+	event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerCanceled), workOrder, change, actor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(event)
+	return err
 }
 
 // endParkedLanes ends the lanes of canceled work that have no process, which no worker will report.
@@ -782,6 +788,9 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 		return err
 	}
 	if err := recordEvidence(tx, holder, current.Fence+1, result); err != nil {
+		return err
+	}
+	if err := recordVerdicts(tx, current, holder, current.Fence+1, result); err != nil {
 		return err
 	}
 	crashpoint.Hit("lane.end", "evidence")

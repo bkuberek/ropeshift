@@ -53,13 +53,16 @@ type Report struct {
 	Reason    string        `json:"reason,omitempty"`
 	Artifacts []string      `json:"artifacts,omitempty"`
 	Checks    []CheckResult `json:"checks,omitempty"`
+	// Verdicts are a review lane's judgment, one per criterion of the contract it read. Another lane
+	// reports none.
+	Verdicts []CriterionVerdict `json:"verdicts,omitempty"`
 }
 
-// Validate refuses a report that names no outcome the ledger holds.
+// Validate refuses a report that names no outcome the ledger holds, or whose verdicts are not whole.
 func (r Report) Validate() error {
 	switch r.Outcome {
 	case OutcomeCompleted, OutcomeBlocked, OutcomeFailed:
-		return nil
+		return r.checkVerdicts()
 	}
 	return fmt.Errorf("%w: outcome %q", ErrInvalid, r.Outcome)
 }
@@ -94,8 +97,11 @@ func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
 type LaneResult struct {
 	Report
 	// Branch and Head are the final artifact (D17): the branch a member merges, and its commit.
-	Branch           string  `json:"branch,omitempty"`
-	Head             string  `json:"head,omitempty"`
+	Branch string `json:"branch,omitempty"`
+	Head   string `json:"head,omitempty"`
+	// MaxReviewRounds is the bound on review rounds the profile of the lane that ended named, which a
+	// review's verdicts are settled against. Zero names none, and the default holds.
+	MaxReviewRounds  int64   `json:"max_review_rounds,omitempty"`
 	CostUSD          float64 `json:"cost_usd,omitempty"`
 	SessionTotalUSD  float64 `json:"session_total_cost_usd,omitempty"`
 	UnknownCostTurns int64   `json:"unknown_cost_turns,omitempty"`

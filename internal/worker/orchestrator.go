@@ -80,6 +80,44 @@ func (r *laneRun) planning() bool { return workorders.Kind(r.lease.Kind) == work
 // it. The ledger's work order names the kind in the lease, and nothing the session says can change it.
 func (r *laneRun) reviewing() bool { return workorders.Kind(r.lease.Kind) == workorders.KindReview }
 
+// noteReviewBound keeps the bound on review rounds a profile sets. A profile that sets none leaves what an
+// earlier read found, so a lane's end reports the bound it ran under.
+func (r *laneRun) noteReviewBound(profile lanes.Profile) {
+	if profile.Review.MaxReviewRounds < 1 {
+		return
+	}
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	r.maxReviewRounds = profile.Review.MaxReviewRounds
+}
+
+// reviewBound is the bound on review rounds this lane's profile set, and zero when it set none. A review
+// reports it with its verdicts, because the control plane reads no profile.
+func (r *laneRun) reviewBound() int64 {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.maxReviewRounds
+}
+
+// holdsToItsWork refuses a report the control plane would refuse, while the lane can still say more. A
+// review reports a verdict for every criterion of the contract it read when it completes, and no other
+// lane reports one.
+func (r *laneRun) holdsToItsWork(report workorders.Report) error {
+	if !r.reviewing() {
+		if len(report.Verdicts) != 0 {
+			return fmt.Errorf("%w: only a review lane reports verdicts", workorders.ErrInvalid)
+		}
+		return nil
+	}
+	if report.Outcome != workorders.OutcomeCompleted {
+		return nil
+	}
+	if len(r.lease.CriterionIDs) == 0 && len(r.lease.Criteria) != 0 {
+		return nil
+	}
+	return report.CheckVerdicts(r.lease.CriterionIDs)
+}
+
 // role names the thresholds a session is held to.
 func (r *laneRun) role() string {
 	switch {

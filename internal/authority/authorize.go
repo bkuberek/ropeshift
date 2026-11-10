@@ -10,13 +10,18 @@ const (
 	// ActionAccept accepts work whose criteria a forge covered, so no person need stand behind
 	// it. The tick takes this one.
 	ActionAccept Action = "acceptance.accept"
-	// ActionAcceptLaneChecks accepts work only its lane vouches for, as a second principal.
+	// ActionAcceptLaneChecks accepts work only its lane vouches for. No agent is a second principal any more
+	// (ADR-0014), so it is a member's alone.
 	ActionAcceptLaneChecks Action = "acceptance.lane_checks"
 	// ActionAcceptUnchecked accepts a criterion no check maps to. Only a person answers for that.
 	ActionAcceptUnchecked Action = "acceptance.unchecked"
-	ActionAddCategory     Action = "category.add"
-	ActionAnswerQuestion  Action = "question.answer"
-	ActionArchiveLane     Action = "lane.archive"
+	// ActionAcceptReviewed accepts work a review passed on every criterion, at a repository whose merge
+	// authority leaves that to the review. The control plane takes it by rule, as a system actor, and
+	// names the review it rests on.
+	ActionAcceptReviewed Action = "acceptance.reviewed"
+	ActionAddCategory    Action = "category.add"
+	ActionAnswerQuestion Action = "question.answer"
+	ActionArchiveLane    Action = "lane.archive"
 	// ActionCancelWork ends a work order for good. It throws away a claim and whatever a lane was
 	// doing, so no row below may ever grant it.
 	ActionCancelWork Action = "work_order.cancel"
@@ -78,7 +83,7 @@ const (
 // Actions lists every action, so a test can hold each one to the function.
 func Actions() []Action {
 	return []Action{
-		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAddCategory, ActionAddPackItem, ActionAnswerQuestion,
+		ActionAccept, ActionAcceptLaneChecks, ActionAcceptUnchecked, ActionAcceptReviewed, ActionAddCategory, ActionAddPackItem, ActionAnswerQuestion,
 		ActionArchiveLane, ActionCancelWork, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
@@ -92,11 +97,11 @@ func Actions() []Action {
 // none of these.
 var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
-		ActionAccept: true, ActionAcceptLaneChecks: true, ActionAddPackItem: true, ActionArchiveLane: true, ActionDecideApproval: true, ActionDismissQuestion: true,
-		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRespawnLane: true, ActionRework: true,
+		ActionAddPackItem: true, ActionArchiveLane: true, ActionDecideApproval: true, ActionDismissQuestion: true,
+		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRespawnLane: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},
-	ledger.ActorSystem: {ActionAccept: true, ActionCreateJoinToken: true, ActionRework: true},
+	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true},
 }
 
 // Allowed is the one authorization function. Every check passes through it. There are no

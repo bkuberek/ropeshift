@@ -85,8 +85,6 @@ type Workers struct {
 	leases  *Leases
 	// questions records what a lane asks.
 	questions *Questions
-	// accepting carries an orchestrator's word as the second principal.
-	accepting *Acceptances
 }
 
 // NewWorkers returns the plane over a Store, for one workspace.
@@ -103,7 +101,6 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 	return &Workers{
 		store: store, scope: scope, options: options, leases: NewLeases(store).Budgeted(options.PackTokens).Starting(options.Starts),
 		questions: NewQuestions(store, options.Batches).Telling(options.Windows).Budgeted(options.PackTokens),
-		accepting: NewAcceptances(store),
 	}
 }
 
@@ -501,18 +498,51 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 			return lease, err
 		}
 	}
-	if row.ContractVersion == 0 {
-		return lease, nil
+	texts := map[string]string{}
+	if row.ContractVersion != 0 {
+		pinned, err := tx.Planning().Contract(row.ContractID, row.ContractVersion)
+		if err != nil {
+			return lease, err
+		}
+		lease.Statement = pinned.Statement
+		for _, criterion := range pinned.Criteria {
+			lease.Criteria = append(lease.Criteria, criterion.ID+": "+criterion.Text)
+			lease.CriterionIDs = append(lease.CriterionIDs, criterion.ID)
+			texts[criterion.ID] = criterion.Text
+		}
 	}
-	pinned, err := tx.Planning().Contract(row.ContractID, row.ContractVersion)
+	lease.Rework, err = desiredRework(tx.Evidence(), row, texts)
+	return lease, err
+}
+
+// desiredRework tells the lane that takes work up again why it came back: the reason on record, and when a
+// review sent it, each criterion that review failed with what it said. Only the work itself is told. A
+// review judges an attempt and is never sent back.
+func desiredRework(evidence ports.EvidenceReader, row workorders.WorkOrder, texts map[string]string) (*ledger.DesiredRework, error) {
+	if row.Kind == workorders.KindReview {
+		return nil, nil
+	}
+	note, err := evidence.Reworked(row.ID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		return lease, err
+		return nil, err
 	}
-	lease.Statement = pinned.Statement
-	for _, criterion := range pinned.Criteria {
-		lease.Criteria = append(lease.Criteria, criterion.ID+": "+criterion.Text)
+	out := &ledger.DesiredRework{Review: note.Review, Reason: note.Reason}
+	if note.Review == "" {
+		return out, nil
 	}
-	return lease, nil
+	verdicts, err := evidence.Verdicts(row.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range verdicts {
+		if v.Review == note.Review && v.Verdict == workorders.VerdictFail {
+			out.Findings = append(out.Findings, ledger.DesiredFinding{Criterion: v.Criterion, Text: texts[v.Criterion], Reasons: v.Reasons, Citations: v.Citations})
+		}
+	}
+	return out, nil
 }
 
 // Watch hints that the revision moved. Every hint it drops is one the next heartbeat

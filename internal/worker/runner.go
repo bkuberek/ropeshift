@@ -70,6 +70,8 @@ type laneRun struct {
 	degraded      bool
 	// settings are what this lane runs on, which its experience record holds (FR-EXP-2).
 	settings measures.Settings
+	// maxReviewRounds is the bound on review rounds this lane's profile set, and zero when it set none.
+	maxReviewRounds int64
 
 	bound   bool
 	nudged  atomic.Bool
@@ -439,7 +441,7 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 	return r.w.endLane(context.WithoutCancel(ctx), r.record(), workorders.LaneResult{
 		Report: report, CostUSD: r.priorUSD + r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
 		UnknownCostTurns: r.priorUnknown + r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
-		Settings: r.endSettings(),
+		Settings: r.endSettings(), MaxReviewRounds: r.reviewBound(),
 	}, r.fenced.Load())
 }
 
@@ -714,6 +716,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	r.version, r.degraded = capabilities.Version, capabilities.Degraded
 	r.settings = laneSettings(prepared.Profile, r.role(), mode)
 	r.handleLock.Unlock()
+	r.noteReviewBound(prepared.Profile)
 	r.state.mu.Lock()
 	r.state.degraded = capabilities.Degraded
 	r.state.mu.Unlock()

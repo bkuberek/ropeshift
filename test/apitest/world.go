@@ -3,6 +3,7 @@ package apitest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -199,6 +200,25 @@ func (w *World) Run(id string) *Lane {
 	l.Upload(ledger.UploadLaneStarted, nil)
 	l.Status(ledger.LaneStatus{ActualState: "working", Liveness: "alive", ModelReach: "reachable", LedgerReach: "reachable"})
 	return l
+}
+
+// Reviewed runs the review a completed work order left, on a lane of its own, and ends it with these verdicts.
+func (w *World) Reviewed(id string, verdicts ...workorders.CriterionVerdict) {
+	w.t.Helper()
+	var review workorders.WorkOrder
+	err := w.Daemon.Store.Read(w.ctx, Scope, func(tx ports.ReadTx) error {
+		reviews, err := tx.WorkOrders().ReviewsOf(id)
+		if err != nil || len(reviews) == 0 {
+			return fmt.Errorf("%s has no review: %v", id, err)
+		}
+		review = reviews[len(reviews)-1]
+		return nil
+	})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	lane := w.Run(review.ID)
+	lane.Upload(ledger.UploadLaneEnded, workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: verdicts}})
 }
 
 // Orchestrator starts this world's worker's orchestrator through a member, and has its worker report
@@ -466,6 +486,11 @@ func Populate(w *World, clock *Clock) {
 	clock.Advance(time.Minute)
 
 	w.Running("wo-accept", "Trim the log").End(workorders.OutcomeCompleted, "")
+	w.Reviewed("wo-accept", workorders.CriterionVerdict{
+		Criterion: "c1", Verdict: workorders.VerdictCannotJudge,
+		Reasons:   "The log is trimmed in trim.go, but nothing I can run shows it keeps the last day.",
+		Citations: []string{"trim.go:30", "FR-LOG-2"},
+	})
 	clock.Advance(time.Minute)
 
 	w.Running("wo-approval", "Tag the release").Approval("approval-1", `{"command":"git tag v1"}`)

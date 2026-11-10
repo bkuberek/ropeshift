@@ -116,7 +116,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 				contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
 				workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
 				questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
-				workDeclineTool, approvalDecideTool, acceptanceRecordTool,
+				workDeclineTool, approvalDecideTool,
 			}
 		}
 		out.Result = map[string]any{"tools": tools}
@@ -149,7 +149,8 @@ var laneReportTool = map[string]any{
 	"name": lanes.ToolLaneReport,
 	"description": "Report this lane's outcome. Call it once, when the work is done or cannot go on. " +
 		"Use completed when the contract is met, blocked when the lane cannot finish and no answer would change that, " +
-		"and failed when the work ended abnormally.",
+		"and failed when the work ended abnormally. A review lane completes with a verdict for every criterion it was given, " +
+		"and no other lane reports verdicts.",
 	"inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -169,6 +170,29 @@ var laneReportTool = map[string]any{
 				},
 				"required": []string{"name", "passed"},
 			}},
+			"verdicts": map[string]any{
+				"type": "array",
+				"description": "A review lane's judgment: one verdict for each acceptance criterion it was given, none left out and none for a " +
+					"criterion it was not given. A report that does is refused, and the reason says which.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"criterion": map[string]any{"type": "string", "description": "The ID of the acceptance criterion judged."},
+						"verdict": map[string]any{
+							"type": "string", "enum": []string{
+								string(workorders.VerdictPass), string(workorders.VerdictFail), string(workorders.VerdictCannotJudge),
+							},
+							"description": "pass when the change meets the criterion, fail when it does not, cannot_judge when what you can read and run does not let you tell.",
+						},
+						"reasons": map[string]any{"type": "string", "description": "Why, in words the next lane can act on. For a fail, say what is wrong and what would meet the criterion."},
+						"citations": map[string]any{
+							"type": "array", "items": map[string]any{"type": "string"},
+							"description": "What the verdict rests on: files and lines such as path:line, requirement IDs, and documents as kind:id.",
+						},
+					},
+					"required": []string{"criterion", "verdict", "reasons"},
+				},
+			},
 		},
 		"required": []string{"outcome"},
 	},
@@ -354,10 +378,6 @@ var questionEscalateTool = objectTool(lanes.ToolQuestionEscalate, "Take a questi
 		"recommendation": textField("What you would choose, and why."), "lookup": considered, "open": matched,
 	}, "question", "reason", "options", "recommendation")
 
-var acceptanceRecordTool = objectTool(lanes.ToolAcceptanceRecord, "Act as the second principal on a finished lane, once you read that its evidence holds. "+
-	"A failed check cannot be accepted, and what needs a person stays with a person.",
-	map[string]any{"work_order": workOrderField}, "work_order")
-
 func searchTool(name, description string) map[string]any {
 	return map[string]any{
 		"name":        name,
@@ -410,7 +430,7 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		}
 		return callDecide(request.Arguments, call), nil
 	case lanes.ToolWorkCandidates, lanes.ToolWorkClaim, lanes.ToolLaneStart, lanes.ToolLaneStop, lanes.ToolQuestionNext, lanes.ToolQuestionAttach,
-		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline, lanes.ToolAcceptanceRecord:
+		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline:
 		if !orchestrating(call) {
 			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
 		}

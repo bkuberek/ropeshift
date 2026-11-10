@@ -71,6 +71,9 @@ type historian struct {
 	recorded  map[string]int64
 	citations map[string][]string
 	parking   map[string]int64
+	// reviews are the work orders that judge other work. A review is a lane's cost and no outcome of its own, so
+	// it is no completed work order and no flow time.
+	reviews   map[string]bool
 	approvals map[string]authority.ApprovalState
 	// orchestrators are the last projection each orchestrator's events held.
 	orchestrators map[string]ledger.Orchestrator
@@ -85,7 +88,7 @@ func HistoryIn(tx ports.ReadTx) (measures.History, error) {
 	h := &historian{
 		tx: tx, orders: map[string]int{}, questions: map[string]int{}, asked: map[string]questions.Question{},
 		decisions: map[string]int{}, recorded: map[string]int64{}, citations: map[string][]string{}, parking: map[string]int64{},
-		approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
+		reviews: map[string]bool{}, approvals: map[string]authority.ApprovalState{}, orchestrators: map[string]ledger.Orchestrator{},
 	}
 	for _, e := range events {
 		h.read(e)
@@ -139,10 +142,30 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 		if json.Unmarshal(e.Data, &created) != nil {
 			return
 		}
+		if created.Kind == workorders.KindReview {
+			h.reviews[id] = true
+			return
+		}
 		h.orders[id] = len(h.history.WorkOrders)
 		h.history.WorkOrders = append(h.history.WorkOrders, measures.WorkOrderFacts{
 			ID: id, Kind: string(created.Kind), State: string(created.State), CreatedAt: e.RecordedAt, ReworkOf: created.ReworkOf,
 		})
+		return
+	}
+	var change workorders.Change
+	if json.Unmarshal(e.Data, &change) != nil {
+		return
+	}
+	if h.reviews[id] {
+		// What a review's lane spent counts, by the kind that ran it, and so does a person taking it out of a
+		// stop. Nothing else of a review does.
+		if member && slices.Contains(forcedTriggers, change.Trigger) {
+			h.interrupted(e, measures.InterruptionForced, e.ID)
+		}
+		switch change.Trigger {
+		case workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailedRetry, workorders.TriggerAttemptsExhausted:
+			h.laneResult(string(workorders.KindReview), e.RecordedAt, change.Payload)
+		}
 		return
 	}
 	at, known := h.orders[id]
@@ -150,10 +173,6 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 		return
 	}
 	order := &h.history.WorkOrders[at]
-	var change workorders.Change
-	if json.Unmarshal(e.Data, &change) != nil {
-		return
-	}
 	if e.Type == workorders.EventLaneParking {
 		h.parking[id] = e.RecordedAt
 	}

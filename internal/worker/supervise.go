@@ -43,6 +43,7 @@ func (r *laneRun) loadProfile(ctx context.Context) {
 		return
 	}
 	r.state.thresholds(profile, r.role())
+	r.noteReviewBound(profile)
 	r.handleLock.Lock()
 	if r.settings.Driver == "" {
 		r.settings = laneSettings(profile, r.role(), r.startedMode)
@@ -381,7 +382,7 @@ func (r *laneRun) briefText() string {
 	return lanes.FirstCall(r.callsOwed(), lanes.Brief(lanes.BriefSpec{
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
 		Pack: r.readPack() != nil, Handoff: r.inherited, Pending: r.pendingInstruction(), Facts: r.factsOwed(),
-		Kind: workorders.Kind(r.lease.Kind), Review: r.lease.Review, Attempt: r.lease.Attempt,
+		Kind: workorders.Kind(r.lease.Kind), Review: r.lease.Review, Attempt: r.lease.Attempt, Rework: r.lease.Rework,
 	}))
 }
 

@@ -15,6 +15,7 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [],
         "state": "canceled",
         "work_order_id": "wo-canceled"
@@ -58,6 +59,7 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [
           {
             "artifact_id": "generated-2",
@@ -122,6 +124,7 @@
           ],
           "needs": "second_principal"
         },
+        "authority": "person_merges",
         "checks": [
           {
             "artifact_id": "generated-5",
@@ -136,11 +139,18 @@
             "work_order_id": "wo-done"
           }
         ],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-8",
+            "state": "canceled"
+          }
+        ],
         "state": "done",
         "work_order_id": "wo-done"
       },
       "work_order": {
-        "contract_id": "generated-8",
+        "contract_id": "generated-9",
         "contract_version": 1,
         "fence": 2,
         "id": "wo-done",
@@ -162,7 +172,7 @@
             "created_at": 1790000424001,
             "digest": "abc123",
             "fence": 2,
-            "id": "generated-9",
+            "id": "generated-10",
             "kind": "branch",
             "lane_id": "lane-wo-accept",
             "uri": "lane/lane-wo-accept"
@@ -177,12 +187,41 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-11",
+            "state": "done"
+          }
+        ],
+        "rounds": 1,
         "state": "acceptance",
+        "verdicts": [
+          {
+            "attempt": 2,
+            "citations": [
+              "trim.go:30",
+              "FR-LOG-2"
+            ],
+            "commit": "abc123",
+            "created_at": 1790000424001,
+            "criterion": "c1",
+            "fence": 2,
+            "generation": 1,
+            "lane_id": "lane-generated-11",
+            "reasons": "The log is trimmed in trim.go, but nothing I can run shows it keeps the last day.",
+            "review_id": "generated-11",
+            "verdict": "cannot_judge",
+            "work_order_id": "wo-accept"
+          }
+        ],
+        "why": "the review could not judge criterion c1",
         "work_order_id": "wo-accept"
       },
       "work_order": {
-        "contract_id": "generated-10",
+        "contract_id": "generated-12",
         "contract_version": 1,
         "fence": 2,
         "id": "wo-accept",
@@ -204,10 +243,10 @@
             "created_at": 1790000184000,
             "digest": "abc123",
             "fence": 2,
-            "id": "generated-11",
+            "id": "generated-13",
             "kind": "branch",
-            "lane_id": "lane-generated-12",
-            "uri": "lane/lane-generated-12"
+            "lane_id": "lane-generated-14",
+            "uri": "lane/lane-generated-14"
           }
         ],
         "assessment": {
@@ -219,15 +258,23 @@
           ],
           "needs": "member"
         },
+        "authority": "person_merges",
         "checks": [],
+        "reviews": [
+          {
+            "attempt": 2,
+            "id": "generated-15",
+            "state": "canceled"
+          }
+        ],
         "state": "done",
-        "work_order_id": "generated-12"
+        "work_order_id": "generated-14"
       },
       "work_order": {
-        "contract_id": "generated-13",
+        "contract_id": "generated-16",
         "contract_version": 1,
         "fence": 2,
-        "id": "generated-12",
+        "id": "generated-14",
         "kind": "change",
         "repository_id": "memory",
         "rev": 1,
@@ -238,5 +285,5 @@
       }
     }
   ],
-  "revision": 316
+  "revision": 328
 }

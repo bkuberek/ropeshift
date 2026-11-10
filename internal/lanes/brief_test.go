@@ -95,7 +95,7 @@ func reviewedAttempt() *ledger.DesiredAttempt {
 }
 
 // A review lane is told what it judges, that it may change nothing, where the diff is, and how to
-// report: one check for each criterion.
+// report: one verdict for each criterion.
 func TestAReviewBriefSaysWhatIsJudgedAndWhatIsForbidden(t *testing.T) {
 	brief := Brief(BriefSpec{
 		WorkOrder: "rv-1", Title: "Review: Add the retry budget", Statement: "Retry twice.", Criteria: []string{"c1: It retries.", "c2: It logs."},
@@ -106,7 +106,7 @@ func TestAReviewBriefSaysWhatIsJudgedAndWhatIsForbidden(t *testing.T) {
 		"ba5e000000000000000000000000000000000002", "origin/main", "You did not write it",
 		"may not edit a file with a tool, commit, push, or move a branch", ReviewDiffFile, ReviewFilesFile,
 		"c1: It retries.", "c2: It logs.", "requirements and documents the contract cites", "information and not evidence",
-		"one check for each criterion", ToolLaneReport, "criterion field",
+		"a verdict for every acceptance criterion", ToolLaneReport, "cannot_judge", "citations", "a report that does is refused",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("the brief leaves out %q:\n%s", want, brief)

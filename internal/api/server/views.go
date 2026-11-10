@@ -393,6 +393,11 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 		switch {
 		case order.State == workorders.Acceptance:
 			need.Reason, need.Actions = api.ReasonAcceptance, []string{api.ActAccept, api.ActRework}
+			standing, err := control.StandingIn(tx, order.ID)
+			if err != nil {
+				return nil, err
+			}
+			need.Standing = &standing
 		case order.State == workorders.Parked && need.Lane != nil && waitsOnAPerson(wakes[need.Lane.ID]) && !seen[order.ID]:
 			need.Reason, need.Actions, need.Wakes = api.ReasonResume, []string{api.ActResume}, wakeViews(wakes[need.Lane.ID])
 		default:
@@ -1056,6 +1061,11 @@ func (h *handler) readCompleted(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	}
 	view := api.Completed{Stamp: stamp, Items: []api.CompletedWork{}}
 	for _, order := range orders {
+		// A review is read with the work it judged, whose standing lists it and its verdicts. Listed on its own,
+		// every piece of work would come twice.
+		if order.Kind == workorders.KindReview {
+			continue
+		}
 		if !order.State.Completed() && !workorders.Terminal(order.State) {
 			continue
 		}

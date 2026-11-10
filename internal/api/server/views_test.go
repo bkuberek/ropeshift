@@ -183,6 +183,34 @@ func TestNeedsYouCarriesWhatItTakesToAnswer(t *testing.T) {
 	}
 }
 
+// Reviewed work waits for a member with the review's verdict for each criterion, its reasons and its citations
+// in hand, so the person decides on what the review found and not on a bare request (FR-MERGE-4).
+func TestNeedsYouShowsTheVerdictsOfReviewedWork(t *testing.T) {
+	d, _, _ := aWorld(t)
+	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
+	need := workNeed(t, view, api.ReasonAcceptance)
+	if need.Standing == nil {
+		t.Fatalf("the acceptance item carries no standing: %+v", need)
+	}
+	standing := need.Standing
+	if standing.Authority != ledger.PersonMerges || standing.Rounds != 1 || len(standing.Reviews) != 1 || standing.Reviews[0].State != workorders.Done {
+		t.Errorf("the standing reads %+v", standing)
+	}
+	if len(standing.Verdicts) != 1 {
+		t.Fatalf("verdicts %+v", standing.Verdicts)
+	}
+	got := standing.Verdicts[0]
+	if got.Criterion != "c1" || got.Verdict != workorders.VerdictCannotJudge || got.Reasons == "" || len(got.Citations) != 2 {
+		t.Errorf("the verdict reads %+v", got)
+	}
+	if standing.Why == "" {
+		t.Error("the standing does not say what the work waits for")
+	}
+	if need.WorkOrder == nil || need.WorkOrder.ID != "wo-accept" {
+		t.Errorf("the item is %+v", need.WorkOrder)
+	}
+}
+
 func TestSomethingAnsweredLeavesNeedsYou(t *testing.T) {
 	d, _, _ := aWorld(t)
 	ctx := t.Context()
@@ -529,12 +557,19 @@ func TestAParkedLaneIsNotStuckBeforeItsTime(t *testing.T) {
 func TestCompletedHoldsOutcomesWithArtifacts(t *testing.T) {
 	d, _, _ := aWorld(t)
 	view := readView[api.Completed](t, d, api.ViewCompleted, "")
+	// The review that judged the work is read with it, in its standing, and is not listed as work of its own.
 	if len(view.Items) != 1 {
 		t.Fatalf("items %+v", view.Items)
 	}
 	item := view.Items[0]
+	if len(item.Standing.Reviews) != 1 || item.Standing.Reviews[0].State != workorders.Done {
+		t.Errorf("the completed work lists its reviews as %+v", item.Standing.Reviews)
+	}
 	if item.WorkOrder.ID != "wo-accept" || item.Standing.State != workorders.Acceptance || len(item.Standing.Artifacts) == 0 {
 		t.Errorf("item %+v", item)
+	}
+	if len(item.Standing.Verdicts) != 1 || item.Standing.Verdicts[0].Verdict != workorders.VerdictCannotJudge {
+		t.Errorf("the completed work carries the verdicts %+v", item.Standing.Verdicts)
 	}
 }
 
@@ -572,6 +607,10 @@ func TestCompletedHoldsEveryWayWorkEnds(t *testing.T) {
 	}
 	if want := []string{"wo-done", "wo-canceled", "wo-failed", "wo-accept"}; !slices.Equal(order, want) {
 		t.Errorf("order %v, want the newest end first", order)
+	}
+	// A member who accepted work ended its open review, and the work's standing says so.
+	if reviews := got["wo-done"].Standing.Reviews; len(reviews) != 1 || reviews[0].State != workorders.Canceled {
+		t.Errorf("the accepted work lists its reviews as %+v", reviews)
 	}
 }
 

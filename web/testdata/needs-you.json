@@ -179,8 +179,62 @@
           "worker_id": "worker-a"
         },
         "reason": "acceptance",
+        "standing": {
+          "artifacts": [
+            {
+              "created_at": 1790000424001,
+              "digest": "abc123",
+              "fence": 2,
+              "id": "generated-4",
+              "kind": "branch",
+              "lane_id": "lane-wo-accept",
+              "uri": "lane/lane-wo-accept"
+            }
+          ],
+          "assessment": {
+            "criteria": [
+              {
+                "criterion_id": "c1",
+                "standing": "member"
+              }
+            ],
+            "needs": "member"
+          },
+          "authority": "person_merges",
+          "checks": [],
+          "reviews": [
+            {
+              "attempt": 2,
+              "id": "generated-5",
+              "state": "done"
+            }
+          ],
+          "rounds": 1,
+          "state": "acceptance",
+          "verdicts": [
+            {
+              "attempt": 2,
+              "citations": [
+                "trim.go:30",
+                "FR-LOG-2"
+              ],
+              "commit": "abc123",
+              "created_at": 1790000424001,
+              "criterion": "c1",
+              "fence": 2,
+              "generation": 1,
+              "lane_id": "lane-generated-5",
+              "reasons": "The log is trimmed in trim.go, but nothing I can run shows it keeps the last day.",
+              "review_id": "generated-5",
+              "verdict": "cannot_judge",
+              "work_order_id": "wo-accept"
+            }
+          ],
+          "why": "the review could not judge criterion c1",
+          "work_order_id": "wo-accept"
+        },
         "work_order": {
-          "contract_id": "generated-5",
+          "contract_id": "generated-6",
           "contract_version": 1,
           "fence": 2,
           "id": "wo-accept",
@@ -221,7 +275,7 @@
         "batch": {
           "closes_at": 1790000544002,
           "delivered_at": 1790000604001,
-          "id": "generated-6",
+          "id": "generated-7",
           "opened_at": 1790000544001,
           "status": "delivered"
         },
@@ -261,7 +315,7 @@
           }
         ]
       },
-      "id": "generated-6",
+      "id": "generated-7",
       "kind": "questions",
       "since": 1790000604001
     },
@@ -304,7 +358,7 @@
           }
         ],
         "work_order": {
-          "contract_id": "generated-7",
+          "contract_id": "generated-8",
           "contract_version": 1,
           "fence": 2,
           "id": "wo-parked",
@@ -355,7 +409,7 @@
         "reason": "stalled",
         "work_order": {
           "claim_id": "claim-wo-stalled",
-          "contract_id": "generated-8",
+          "contract_id": "generated-9",
           "contract_version": 1,
           "fence": 1,
           "id": "wo-stalled",
@@ -405,7 +459,7 @@
         "reason": "tripped",
         "work_order": {
           "claim_id": "claim-wo-tripped",
-          "contract_id": "generated-9",
+          "contract_id": "generated-10",
           "contract_version": 1,
           "fence": 1,
           "id": "wo-tripped",
@@ -423,21 +477,21 @@
       }
     },
     {
-      "id": "generated-10",
+      "id": "generated-11",
       "kind": "plan_approval",
       "plan_approval": {
         "approval": {
           "detail": "{\"title\":\"The factory floor\",\"ref\":\"factory\",\"counts\":{\"architecture\":1,\"contract\":4,\"milestone\":3,\"requirements\":1,\"spec\":1},\"decisions\":2,\"difference\":{\"base\":5,\"added\":[\"architecture:factory\"],\"changed\":[\"contract:core\",\"contract:ui\",\"plan:factory\",\"spec:factory-api\"],\"contracts\":[{\"ref\":\"contract:core\",\"criteria\":{\"added\":[\"c2\"],\"changed\":[\"c1\"]},\"work_orders\":{}},{\"ref\":\"contract:ui\",\"criteria\":{},\"work_orders\":{\"added\":[\"ui-2\"]}}]},\"source\":\"plans/factory/plan.md@16\"}",
           "generation": 0,
-          "id": "generated-10",
+          "id": "generated-11",
           "kind": "plan",
           "lane_id": "",
-          "plan_id": "generated-11",
+          "plan_id": "generated-12",
           "plan_version": 6,
           "raised_at": 1790000964001,
           "requested_by": "system:intake",
           "state": "pending",
-          "subject": "generated-11@6",
+          "subject": "generated-12@6",
           "subject_digest": "sha256:e86a2a838f6bb9b66bb8817e866d11764a989566982a6cb03a69f0cce3d156a3",
           "summary": "Plan The factory floor, version 6: 1 architecture, 4 contract, 3 milestone, 1 requirements, 1 spec, 2 draft decisions",
           "work_order_id": ""
@@ -508,10 +562,10 @@
     {
       "contract_review": {
         "contract": "Document the retry budget",
-        "plan": "generated-12",
+        "plan": "generated-13",
         "version": 1,
         "work_order": {
-          "contract_id": "generated-13",
+          "contract_id": "generated-14",
           "contract_version": 1,
           "id": "wo-review",
           "kind": "change",
@@ -527,5 +581,5 @@
       "since": 1790000964001
     }
   ],
-  "revision": 316
+  "revision": 328
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // ErrBadProfile means a layer cannot become settings.
@@ -129,6 +130,24 @@ type Profile struct {
 	Messages map[string]MessageWindow `toml:"messages" json:"messages"`
 	// Telemetry says what a lane's agent sends to the worker's receiver, and how long the worker keeps it.
 	Telemetry TelemetrySettings `toml:"telemetry" json:"telemetry"`
+	// Review bounds the reviews of one work order. It stays out of the digest while a profile leaves it
+	// unset, so no lane's recorded profile moves.
+	Review ReviewSettings `toml:"review" json:"review,omitzero"`
+}
+
+// ReviewSettings is the `[review]` table of a profile.
+type ReviewSettings struct {
+	// MaxReviewRounds bounds how many times the review agent judges one work order (FR-REVIEW-8). At the
+	// bound, work its review still fails waits for a person. Unset reads as the default of three.
+	MaxReviewRounds int64 `toml:"max_review_rounds" json:"max_review_rounds,omitempty"`
+}
+
+// Rounds is the bound in force: the one a profile set, or else the default.
+func (s ReviewSettings) Rounds() int64 {
+	if s.MaxReviewRounds < 1 {
+		return workorders.DefaultMaxReviewRounds
+	}
+	return s.MaxReviewRounds
 }
 
 // The values of `run_mode`. The default waits for the doctor, and until then an empty

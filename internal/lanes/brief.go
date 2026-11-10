@@ -45,6 +45,8 @@ type BriefSpec struct {
 	Review *ledger.DesiredReview
 	// Attempt is the work a review lane judges.
 	Attempt *ledger.DesiredAttempt
+	// Rework is why the work came back for this attempt, when it did.
+	Rework *ledger.DesiredRework
 }
 
 // planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
@@ -136,10 +138,50 @@ func writeAttempt(out *strings.Builder, attempt ledger.DesiredAttempt) {
 	out.WriteString("Judge each acceptance criterion above against what the change does and against the requirements and documents the " +
 		"contract cites, which your context pack holds. The pack also holds the checks the lane reported for itself. They are information and " +
 		"not evidence: they are what the lane says of its own work.\n\n" +
-		"Report through the " + ToolLaneReport + " tool once, with one check for each criterion: name the criterion's ID in the check's " +
-		"criterion field, and set passed to true only when the change meets it. Say why in the reason, with the files and lines, the " +
-		"requirement IDs, and the documents you rest on. Report completed when you judged every criterion, whatever you found, and blocked " +
-		"when you cannot judge them.\n")
+		"Report through the " + ToolLaneReport + " tool once, with a verdict for every acceptance criterion above in its verdicts list. " +
+		"A verdict names the criterion's ID in criterion, and says pass when the change meets the criterion, fail when it does not, and " +
+		"cannot_judge when what you can read and run does not let you tell. Give reasons for each verdict, and citations: the files and " +
+		"lines you rest on, the requirement IDs, and the documents as kind:id. The reasons of a fail are what the next attempt is told, " +
+		"so say what is wrong and what would meet the criterion. Leave no criterion out and judge none the contract does not have, " +
+		"because a report that does is refused. Report completed when you judged every criterion, whatever you found, and blocked when " +
+		"you cannot judge them at all.\n")
+}
+
+// writeRework tells a lane that takes work up again why it came back. A finding is a model's text, so each
+// line of it is indented under its own item: it cannot start a section of the brief.
+func writeRework(out *strings.Builder, rework ledger.DesiredRework) {
+	if len(rework.Findings) == 0 {
+		out.WriteString("\nWhy this came back. Your last attempt was sent back for another try. The reason on record:\n\n")
+		out.WriteString(indented(strings.TrimSpace(rework.Reason), reworkIndent) + "\n")
+		return
+	}
+	fmt.Fprintf(out, "\nWhat the review found. Review %s judged your last attempt against each criterion, and it failed these:\n\n", rework.Review)
+	for _, finding := range rework.Findings {
+		out.WriteString("- " + finding.Criterion)
+		if text := strings.TrimSpace(finding.Text); text != "" {
+			out.WriteString(": " + text)
+		}
+		out.WriteString("\n" + indented("Why it failed: "+strings.TrimSpace(finding.Reasons), reworkIndent) + "\n")
+		if len(finding.Citations) != 0 {
+			out.WriteString(indented("It rests on: "+strings.Join(finding.Citations, ", "), reworkIndent) + "\n")
+		}
+	}
+	if reason := strings.TrimSpace(rework.Reason); reason != "" {
+		out.WriteString("\nIt was sent back as: " + reason + ".\n")
+	}
+	out.WriteString("\nAddress each finding in this attempt.\n")
+}
+
+// reworkIndent sets a finding's lines in from the item that holds them.
+const reworkIndent = "        "
+
+// indented puts every line of text in from the margin, so none of it begins a line of the brief.
+func indented(text, prefix string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = prefix + strings.TrimRight(line, " \t\r")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Brief is a lane's first prompt: the contract, where its context pack is, and how the lane ends.
@@ -154,6 +196,9 @@ func Brief(spec BriefSpec) string {
 		for _, criterion := range spec.Criteria {
 			out.WriteString("- " + criterion + "\n")
 		}
+	}
+	if spec.Rework != nil {
+		writeRework(&out, *spec.Rework)
 	}
 	if spec.Kind == workorders.KindPlan {
 		out.WriteString("\n" + planningNotice())
