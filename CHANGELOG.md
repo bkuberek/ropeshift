@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.0-alpha.4](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.3...v0.1.0-alpha.4) (2026-11-10)
+
+
+### Features
+
+* **cli:** attach to an interactive lane ([7471d8e](https://github.com/bkuberek/ropeshift/commit/7471d8e4da5bd808b8a995757970efb86c050e0e))
+* **cli:** start a planning session ([c3edb1d](https://github.com/bkuberek/ropeshift/commit/c3edb1d2f5920be94da31022bdcfb9cbbb576dc4))
+* **hook:** leave the question tool to an attached terminal ([194619b](https://github.com/bkuberek/ropeshift/commit/194619b89a4ddb98bbad643c16f83f4b5d1d97c8))
+* **intake:** record document and plan versions ([1c11afd](https://github.com/bkuberek/ropeshift/commit/1c11afdbdbe3353e70a455497179709a3c3726f0))
+* **lanes:** add the planner role and run planning lanes interactively ([baaac59](https://github.com/bkuberek/ropeshift/commit/baaac59bd5497073c5328d69f961eb7f52bc726d))
+* **lanes:** leave AskUserQuestion to an attached terminal in planning lanes ([b76ee21](https://github.com/bkuberek/ropeshift/commit/b76ee215a2a101724e920e837f4cba58b580ba87))
+* **lanes:** show every file format in the planning brief ([d853455](https://github.com/bkuberek/ropeshift/commit/d8534554c2839a7517ffcfd79c441e507fb10f97))
+* **packs:** pin cited documents and notify lanes of new versions ([a4ff29d](https://github.com/bkuberek/ropeshift/commit/a4ff29dd43f7a98f988cad5358c425a622c94fdb))
+* **planning:** list a parsed milestone with its own document kind ([f136e7e](https://github.com/bkuberek/ropeshift/commit/f136e7ece3ea452d2a2aeef1dc3ea66939a7b63a))
+* **planning:** parse spec, architecture, experience-design, and milestone files ([9eadd2a](https://github.com/bkuberek/ropeshift/commit/9eadd2aaed4443fea603e5bcf9758350dfa5adeb))
+* **questions:** file a planner's converted question under product ([ca62f43](https://github.com/bkuberek/ropeshift/commit/ca62f438d2e9abd92d60ae91147e1369e1c9e990))
+* **questions:** send planner questions straight to the person ([1908d04](https://github.com/bkuberek/ropeshift/commit/1908d04caa6c88302be68bc214bafd684179d283))
+* **ready:** require criterion requirement mappings when a plan has requirements ([1e34e93](https://github.com/bkuberek/ropeshift/commit/1e34e931032d0381975d9e2820eb0b267c3f3c13))
+* **tmux:** attach a person's terminal to a pane and count its clients ([2a9073f](https://github.com/bkuberek/ropeshift/commit/2a9073f585b924a7c77c41c97034ccc9a07e349f))
+
+
+### Bug Fixes
+
+* **worker:** snapshot held lanes before reading lane records ([d3a680d](https://github.com/bkuberek/ropeshift/commit/d3a680d92a57dcd4f3d83683f0fa2723bba7b538))
+
 ## [0.1.0-alpha.3](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.2...v0.1.0-alpha.3) (2026-11-09)
 
 
