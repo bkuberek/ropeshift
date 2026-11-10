@@ -3,6 +3,12 @@ package worker
 // MessageLabel starts the effect key of a message's one write.
 const MessageLabel = messageLabel
 
+// BriefLabel names the effect of a cleared session's nth delivery of its brief, and MaxBriefAttempts is
+// how many deliveries a generation's brief gets.
+func BriefLabel(attempt int) string { return briefLabel(attempt) }
+
+const MaxBriefAttempts = maxBriefAttempts
+
 // WakeWaiting counts what a worker read for its orchestrator and has not told it. A debounce starts
 // where a worker reads an item, so a test has to see that before it moves its clock.
 func (w *Worker) WakeWaiting() int {

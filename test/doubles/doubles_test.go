@@ -1,11 +1,14 @@
 package doubles
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // A record is named for a process, and process IDs come round: a session that started later can hold
@@ -55,5 +58,28 @@ func TestAPrebuiltBundleNeedsNoGo(t *testing.T) {
 	}
 	if dir, _, _ := strings.Cut(CanaryPath(t), string(os.PathListSeparator)); dir != filepath.Join(bundle, PrebuiltCanary) {
 		t.Errorf("the canary is in %q", dir)
+	}
+}
+
+// A pane that is still writing into the test's directory when the test ends must not make the
+// directory's removal fail: the private tmux server and its panes end before the files go.
+func TestPrivateTmuxEndsBeforeTheTestsFilesAreRemoved(t *testing.T) {
+	RequireTmux(t)
+	terminal := PrivateTmux(t)
+	dir := t.TempDir()
+	loop := `i=0; while :; do i=$((i+1)); : > f$i; done`
+	spec := ports.PaneSpec{Name: "writer", Dir: dir, Width: 130, Height: 45, Command: []string{"/bin/sh", "-c", loop}}
+	if _, err := terminal.Open(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "f1")); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pane wrote nothing")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

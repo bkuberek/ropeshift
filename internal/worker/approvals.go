@@ -204,7 +204,7 @@ func (r *laneRun) lookAt(ctx context.Context, lane lanes.Record, call authority.
 			r.sendRequests()
 		}
 	}
-	return r.keepWaiting(ctx, lane, call, request.Raised)
+	return r.keepWaiting(ctx, lane, call, request)
 }
 
 // movedCall reads a look of a hook that holds a request, at a call that lands somewhere else than that
@@ -289,8 +289,8 @@ func (r *laneRun) askLedger(ctx context.Context, lane lanes.Record, call authori
 
 // keepWaiting keeps a request on record and says how much longer a call waits. Past its bound a hook
 // denies, and the lane is on its way to parking, so the request stands for when it comes back.
-func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call authority.ToolCall, raised bool) lanes.Reply {
-	open, err := r.standingRequest(ctx, lane, call, raised)
+func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call authority.ToolCall, request lanes.ApprovalRequest) lanes.Reply {
+	open, err := r.standingRequest(ctx, lane, call, request)
 	if errors.Is(err, errRequestGone) {
 		return answer(lanes.ApprovalDeny, lanes.ReasonRequestClosed, "")
 	}
@@ -299,6 +299,9 @@ func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call autho
 	}
 	left := time.UnixMilli(open.DeadlineMs).Sub(r.w.clock.Now())
 	if left <= 0 {
+		if request.Missed {
+			r.parkOnWaitRanOut(ctx)
+		}
 		return answer(lanes.ApprovalDeny, lanes.ReasonApprovalWait, open.ID)
 	}
 	reply := answer(lanes.ApprovalWaiting, "", open.ID)
@@ -310,20 +313,32 @@ func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call autho
 // was answered at a terminal and the ledger has not heard yet. Only a new call raises one.
 var errRequestGone = errors.New("this call has no request left")
 
+// waitOf says how long a look lets a call wait on a person. A look whose peek missed gets none: the
+// hook did not defer the call, so `PermissionRequest` holds a headless lane's process and quota for
+// the whole `approval_wait` unless the lane parks now, and a deferral would have parked it at once.
+// The look is told the wait ran out, which parks the lane the way any wait that ran out does.
+func (r *laneRun) waitOf(request lanes.ApprovalRequest) time.Duration {
+	if request.Missed {
+		return 0
+	}
+	return r.state.approvalWait()
+}
+
 // standingRequest finds what this lane asked of this call, or raises it. The row and the event that
 // carries it are one journal write, so a kill leaves a request the ledger hears of or none at all. A
-// generation that goes on from the one that asked waits for itself.
-func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call authority.ToolCall, raised bool) (lanes.OpenApproval, error) {
+// generation that goes on from the one that asked waits for itself, and so does a request that a late
+// peek raised with the whole wait, once the look after that peek says it missed.
+func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call authority.ToolCall, request lanes.ApprovalRequest) (lanes.OpenApproval, error) {
 	rows, err := r.w.journal.OpenApprovals(ctx, lane.ID)
 	if err != nil {
 		return lanes.OpenApproval{}, err
 	}
-	deadline := r.w.clock.Now().Add(r.state.approvalWait()).UnixMilli()
+	deadline := r.w.clock.Now().Add(r.waitOf(request)).UnixMilli()
 	for _, row := range rows {
 		if row.Digest != call.Digest {
 			continue
 		}
-		if row.Generation != lane.Generation {
+		if row.Generation != lane.Generation || (request.Missed && row.DeadlineMs > deadline) {
 			row.Generation, row.DeadlineMs = lane.Generation, deadline
 			if err := r.w.journal.RenewApproval(ctx, row.ID, row.Generation, row.DeadlineMs); err != nil {
 				return lanes.OpenApproval{}, err
@@ -332,7 +347,7 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 		}
 		return row, nil
 	}
-	if raised {
+	if request.Raised {
 		return lanes.OpenApproval{}, errRequestGone
 	}
 	id, err := newToken(questionIDBytes)
@@ -444,6 +459,21 @@ func (r *laneRun) awaitApproval(ctx context.Context) {
 			}
 		}
 	})
+}
+
+// parkOnWaitRanOut begins parking before a hook hears that its wait ran out, where `awaitApproval`
+// would begin it at its next look at the clock. A hook told the wait ran out lets the turn end, and a
+// turn that ends with a request open and no parking begun reads as a person's answer at a terminal,
+// which closes the request and leaves the lane to go on. Begun twice, the second finds it begun.
+func (r *laneRun) parkOnWaitRanOut(ctx context.Context) {
+	rows, err := r.requestsOfThisGeneration(ctx)
+	if err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return
+	}
+	if len(rows) != 0 {
+		r.parkOnApprovals(r.lifeOr(ctx), rows, false)
+	}
 }
 
 // parkOnApprovals parks a lane on what it asked. A wake holds each request, so an answer that comes

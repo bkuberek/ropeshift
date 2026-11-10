@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -38,6 +39,8 @@ const (
 type clearDriver struct {
 	*handoffDriver
 	ticks sync.Once
+	// passes counts the passes the tick has made.
+	passes atomic.Int64
 }
 
 // tick stands for the worker's reconcile loop, which a child of this suite does not run.
@@ -48,6 +51,7 @@ func (d *clearDriver) tick() {
 				if _, err := d.subject.Reconcile(d.ctx); err != nil && d.ctx.Err() == nil {
 					fmt.Fprintln(os.Stderr, "tick:", err)
 				}
+				d.passes.Add(1)
 				time.Sleep(clearTick)
 			}
 		}()
@@ -86,6 +90,23 @@ func (d *clearDriver) finish() fake.DriverStep {
 	}}
 }
 
+// afterPasses is how many passes a session that took its brief lets the worker make before it
+// reports. A worker briefs a session on a pass after it holds it, so a restart that tells the session
+// its work again does so there, and a session that reports at once ends the lane before that pass.
+const afterPasses = 5
+
+// finishAfterPasses reports once the worker has had passes enough to tell the session its work again.
+func (d *clearDriver) finishAfterPasses() fake.DriverStep {
+	report := d.finish()
+	return fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		until := d.passes.Load() + afterPasses
+		for deadline := time.Now().Add(20 * time.Second); d.passes.Load() < until && time.Now().Before(deadline) && d.ctx.Err() == nil; {
+			time.Sleep(time.Millisecond)
+		}
+		report.Do(spec)
+	}}
+}
+
 // atWork clears itself, ends the turn that held it, and holds the turn its brief starts. It answers
 // that brief only under the worker that takes over, because a report here could reach the journal
 // before the kill at `briefed` lands, and a lane that already ended owes nothing a broken restart
@@ -103,11 +124,27 @@ func (d *clearDriver) atWork() fake.DriverScript {
 // one still waiting has a turn left to end.
 func (d *clearDriver) readOn(lane string) fake.DriverScript {
 	first := []fake.DriverStep{{Bound: true}, clearedTurn(0.01)}
-	key := lanes.NewEffect(lanes.EffectInput, lane, 2, "", "cleared").Key
-	if effect, err := d.journal.Effect(context.Background(), key); err == nil && effect.State != lanes.EffectFailed {
-		first = []fake.DriverStep{{Bound: true}, d.finish(), clearedTurn(0.02)}
+	if d.briefTaken(lane) {
+		first = []fake.DriverStep{{Bound: true}, d.finishAfterPasses(), clearedTurn(0.02)}
 	}
 	return fake.DriverScript{SessionID: clearedTo, Model: "fixture", Turns: [][]fake.DriverStep{first, {d.finish(), clearedTurn(0.02)}}}
+}
+
+// briefTaken says an earlier process handed the brief to the session. Any delivery of it that did not
+// fail did: one that failed, for want of a session or otherwise, left the session untold.
+func (d *clearDriver) briefTaken(lane string) bool {
+	prefix := lanes.NewEffect(lanes.EffectInput, lane, 2, "", "cleared").Key
+	effects, err := d.journal.Effects(context.Background())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "effects:", err)
+		return false
+	}
+	for _, effect := range effects {
+		if strings.HasPrefix(effect.Key, prefix) && effect.State != lanes.EffectFailed {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *clearDriver) Start(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
@@ -123,11 +160,14 @@ func (d *clearDriver) Adopt(ctx context.Context, h ports.SessionHandle, from por
 	return d.AgentDriver.Adopt(ctx, h, from)
 }
 
+// Send witnesses an input once the session has it. A brief that found no session was never told, and
+// a worker that asks again for it has told the session once.
 func (d *clearDriver) Send(ctx context.Context, h ports.SessionHandle, in ports.Input) (ports.SendReceipt, error) {
-	if err := d.witness(witnessCleared, h.ID); err != nil {
-		return ports.SendReceipt{}, err
+	receipt, err := d.handoffDriver.Send(ctx, h, in)
+	if err != nil {
+		return receipt, err
 	}
-	return d.handoffDriver.Send(ctx, h, in)
+	return receipt, d.witness(witnessCleared, h.ID)
 }
 
 // roleWorkerClear runs one lane through a clear on a real worker.

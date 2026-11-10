@@ -207,6 +207,10 @@ type ApprovalRequest struct {
 	// Peek looks at a call before a turn ends: it spends nothing, and asks for what a hook needs to
 	// defer the turn.
 	Peek bool `json:"peek,omitempty"`
+	// Missed says the policy a hook read defers this call, and this look is the one that call reaches
+	// when no deferral happened, so the peek at it missed its few milliseconds. A worker holds such a
+	// call no longer than a deferral would have: the lane parks on its request at once.
+	Missed bool `json:"missed,omitempty"`
 	// Raised says an earlier look reached a worker, so a request stands, and an end to it is an
 	// answer. A first look at a call that ended raises it again.
 	Raised bool `json:"raised,omitempty"`

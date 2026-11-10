@@ -1,6 +1,9 @@
 package lanes
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // EffectState says what a worker knows about one external effect.
 type EffectState string
@@ -57,6 +60,10 @@ const (
 	DetailSaidNotHappened = "a member said it did not happen"
 )
 
+// DetailNotDelivered begins the detail of an input that failed because no session held it. Nothing
+// read that input, so it did not happen, and what fails any other way may have reached a session.
+const DetailNotDelivered = "no session took it"
+
 // EffectVerdict is what a person's word does to one attempt at an effect. Retry sends it back to
 // started for a run to repeat, and State and Detail settle it otherwise.
 type EffectVerdict struct {
@@ -81,6 +88,12 @@ type Effect struct {
 	State    EffectState
 	Attempts int64
 	Detail   string
+}
+
+// Undelivered says this input failed for want of a session, so it can be delivered for the first time
+// by a later attempt. A record that failed is settled for good, so that attempt keeps a key of its own.
+func (e Effect) Undelivered() bool {
+	return e.Kind == EffectInput && e.State == EffectFailed && strings.HasPrefix(e.Detail, DetailNotDelivered)
 }
 
 // NewEffect names one effect of a generation. Label separates effects of one kind.

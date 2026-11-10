@@ -165,8 +165,9 @@ func TestTheTmuxServerOutlivesTheWorkersService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doubles.EndTmuxOn(t, filepath.Join(dir, "tmux.sock"))
 	path := doubles.InstallFakeClaude(t, "pane-terminal")
+	// The server ends before the fake CLI's directory goes, so it comes after the directory is made.
+	doubles.EndTmuxOn(t, filepath.Join(dir, "tmux.sock"))
 	spec := ports.PaneSpec{Name: "pane", Dir: dir, Width: 130, Height: 45, Command: []string{filepath.Join(doubles.BinDir(path), "claude"), "--tui"}}
 	if _, err := terminal.Open(t.Context(), spec); err != nil {
 		t.Fatal(err)

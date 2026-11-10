@@ -244,7 +244,8 @@ func startChild(spec childSpec) (*proc, error) {
 		return nil, err
 	}
 	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), childEnv+"="+string(raw))
+	// A child that hangs is asked for its goroutines, and the runtime writes them all only when it is told to.
+	cmd.Env = append(os.Environ(), childEnv+"="+string(raw), "GOTRACEBACK=all")
 	p := &proc{cmd: cmd, at: make(chan string, 1), exited: make(chan struct{}), stderr: &lockedBuffer{}}
 	cmd.Stderr = p.stderr
 	stdout, err := cmd.StdoutPipe()
@@ -274,6 +275,21 @@ func (p *proc) sigkill() {
 	<-p.exited
 }
 
+// dumpGrace is how long a child that hung has to write its goroutines out once it is asked to.
+const dumpGrace = 10 * time.Second
+
+// quitThenKill ends a child that hung. SIGQUIT makes the Go runtime write every goroutine's stack to
+// stderr before the process exits, which is the one record of what it waited on, and SIGKILL follows
+// only for a child that does not end on it.
+func (p *proc) quitThenKill() {
+	_ = p.cmd.Process.Signal(syscall.SIGQUIT)
+	select {
+	case <-p.exited:
+	case <-time.After(dumpGrace):
+		p.sigkill()
+	}
+}
+
 func (p *proc) exitCode() (code int, signaled bool) {
 	var exit *exec.ExitError
 	if errors.As(p.status, &exit) {
@@ -285,7 +301,33 @@ func (p *proc) exitCode() (code int, signaled bool) {
 	return 0, false
 }
 
-// runToEnd runs one child with a deadline and returns how it ended.
+// childDeadline is how long runToEnd waits for a child to end.
+const childDeadline = 45 * time.Second
+
+// stderrKept is how much of a hung child's stderr a failure quotes, from its end, where the
+// goroutines are.
+const stderrKept = 96 << 10
+
+// describe says which child a spec runs and where it is told to die, for a failure that has to name
+// the run that hung.
+func (s childSpec) describe() string {
+	kill := "to run to its end"
+	if s.KillOp != "" {
+		kill = fmt.Sprintf("to die at %s/%s", s.KillOp, s.KillStep)
+	}
+	return fmt.Sprintf("child %s/%d, told %s", s.Role, s.Slot, kill)
+}
+
+// tail is the end of a child's stderr, which a hung child ends with its goroutines.
+func tail(stderr string) string {
+	if len(stderr) <= stderrKept {
+		return stderr
+	}
+	return "...\n" + stderr[len(stderr)-stderrKept:]
+}
+
+// runToEnd runs one child with a deadline and returns how it ended. A child that outlasts it is
+// asked for its goroutines before it is killed, and the error names the run and carries its stderr.
 func runToEnd(spec childSpec) (code int, signaled bool, stderr string, err error) {
 	p, err := startChild(spec)
 	if err != nil {
@@ -293,9 +335,10 @@ func runToEnd(spec childSpec) (code int, signaled bool, stderr string, err error
 	}
 	select {
 	case <-p.exited:
-	case <-time.After(45 * time.Second):
-		p.sigkill()
-		return 0, false, p.stderr.String(), fmt.Errorf("child %s did not end", spec.Role)
+	case <-time.After(childDeadline):
+		p.quitThenKill()
+		stderr = p.stderr.String()
+		return 0, false, stderr, fmt.Errorf("%s did not end in %s; its stderr:\n%s", spec.describe(), childDeadline, tail(stderr))
 	}
 	code, signaled = p.exitCode()
 	return code, signaled, p.stderr.String(), nil
