@@ -1178,7 +1178,6 @@ fieldset {
   padding: 0.625rem 0.75rem;
   overflow-x: auto;
   border-left: 0.3125rem solid var(--hemp);
-  background: var(--lane);
   font-family: var(--mono);
   font-size: 0.9375rem;
   overflow-wrap: normal;
@@ -1428,21 +1427,25 @@ textarea {
   overscroll-behavior-x: contain;
   padding: 0.75rem 1rem;
   border-left: 0.1875rem solid var(--hemp);
-  /*
-   * A shade stands at an edge the screen runs past, and a cover that scrolls with the text hides it once
-   * the text reaches that edge, so a line cut off at the side reads as one that goes on.
-   */
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+/*
+ * A shade stands at an edge a screen or a block runs past, and a cover that scrolls with the text hides it
+ * once the text reaches that edge, so a line cut off at the side reads as one that goes on.
+ */
+.pane-screen,
+.prose pre {
   background:
     linear-gradient(to right, var(--lane) 40%, transparent) left / 2rem 100% no-repeat local,
     linear-gradient(to left, var(--lane) 40%, transparent) right / 2rem 100% no-repeat local,
     linear-gradient(to right, color-mix(in srgb, var(--ink) 22%, transparent), transparent) left / 0.875rem 100% no-repeat scroll,
     linear-gradient(to left, color-mix(in srgb, var(--ink) 22%, transparent), transparent) right / 0.875rem 100% no-repeat scroll,
     var(--lane);
-  color: var(--ink);
-  font-family: var(--mono);
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  white-space: pre;
 }
 
 .sgr-bold {
