@@ -174,7 +174,9 @@ func checkWaitTwice(t *testing.T, ctx context.Context, rig ProcessRig) {
 
 // WorktreeRig is a worktree store and one repository with a commit.
 type WorktreeRig struct {
-	Worktrees  ports.Worktrees
+	Worktrees ports.Worktrees
+	// Bases answers what the control plane asks of the same repository.
+	Bases      ports.Bases
 	Repository string
 	// Path names a place for a worktree.
 	Path func(name string) string
@@ -566,7 +568,7 @@ func checkProfileDigest(t *testing.T, ctx context.Context, r ProfileRig) {
 
 func checkBaseTipFollowsTheBranch(t *testing.T, ctx context.Context, r WorktreeRig) {
 	first := r.Grow("main")
-	tip, err := r.Worktrees.BaseTip(ctx, r.Repository, "main")
+	tip, err := r.Bases.BaseTip(ctx, r.Repository, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +576,7 @@ func checkBaseTipFollowsTheBranch(t *testing.T, ctx context.Context, r WorktreeR
 		t.Errorf("tip %+v, want main at %s", tip, first)
 	}
 	second := r.Grow("main")
-	if tip, err = r.Worktrees.BaseTip(ctx, r.Repository, "main"); err != nil || tip.Commit != second {
+	if tip, err = r.Bases.BaseTip(ctx, r.Repository, "main"); err != nil || tip.Commit != second {
 		t.Errorf("after the branch moved: %+v: %v", tip, err)
 	}
 }
@@ -582,7 +584,7 @@ func checkBaseTipFollowsTheBranch(t *testing.T, ctx context.Context, r WorktreeR
 func checkBaseTipOfNothing(t *testing.T, ctx context.Context, r WorktreeRig) {
 	r.Grow("main")
 	for _, branch := range []string{"no-such-branch", "-rf", "", "a..b"} {
-		if _, err := r.Worktrees.BaseTip(ctx, r.Repository, branch); !errors.Is(err, ports.ErrBaseUnavailable) {
+		if _, err := r.Bases.BaseTip(ctx, r.Repository, branch); !errors.Is(err, ports.ErrBaseUnavailable) {
 			t.Errorf("base %q: %v", branch, err)
 		}
 	}
@@ -600,7 +602,7 @@ func checkContainsFollowsAncestry(t *testing.T, ctx context.Context, r WorktreeR
 		{"a commit and itself", second, second, true},
 		{"a commit and the one it grew from", second, first, false},
 	} {
-		got, err := r.Worktrees.Contains(ctx, r.Repository, test.ancestor, test.commit)
+		got, err := r.Bases.Contains(ctx, r.Repository, test.ancestor, test.commit)
 		if err != nil || got != test.want {
 			t.Errorf("%s: %v, %v", test.name, got, err)
 		}
@@ -611,7 +613,7 @@ func checkContainsOfNothing(t *testing.T, ctx context.Context, r WorktreeRig) {
 	tip := r.Grow("main")
 	missing := "0123456789012345678901234567890123456789"
 	for _, pair := range [][2]string{{missing, tip}, {tip, missing}} {
-		if _, err := r.Worktrees.Contains(ctx, r.Repository, pair[0], pair[1]); !errors.Is(err, ports.ErrNotFound) {
+		if _, err := r.Bases.Contains(ctx, r.Repository, pair[0], pair[1]); !errors.Is(err, ports.ErrNotFound) {
 			t.Errorf("contains %v: %v", pair, err)
 		}
 	}

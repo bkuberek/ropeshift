@@ -19,8 +19,8 @@ import (
 // another, so the decision reads git only through the worktree port, and the same facts and the same
 // answers give the same start.
 type Starts struct {
-	// Worktrees answers what git says of a repository.
-	Worktrees ports.Worktrees
+	// Bases answers what git says of a repository.
+	Bases ports.Bases
 	// Checkout names the directory a repository's lanes branch from, by the repository's identity.
 	Checkout func(ctx context.Context, repository string) (string, error)
 }
@@ -108,12 +108,12 @@ func newPass() *pass {
 	return &pass{tips: map[string]tipRead{}, checkouts: map[string]checkoutRead{}}
 }
 
-func (p *pass) tip(ctx context.Context, worktrees ports.Worktrees, path, branch string) (ports.BaseTip, error) {
+func (p *pass) tip(ctx context.Context, bases ports.Bases, path, branch string) (ports.BaseTip, error) {
 	key := path + "\x00" + branch
 	if known, ok := p.tips[key]; ok {
 		return known.tip, known.err
 	}
-	tip, err := worktrees.BaseTip(ctx, path, branch)
+	tip, err := bases.BaseTip(ctx, path, branch)
 	p.tips[key] = tipRead{tip: tip, err: err}
 	return tip, err
 }
@@ -139,11 +139,11 @@ func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workord
 	}
 	base := in.base
 	if base == "" {
-		if base, err = s.Worktrees.DefaultBranch(ctx, path); err != nil || base == "" {
+		if base, err = s.Bases.DefaultBranch(ctx, path); err != nil || base == "" {
 			return workorders.Start{}, unavailable("the repository names no default branch: %v", err)
 		}
 	}
-	tip, err := seen.tip(ctx, s.Worktrees, path, base)
+	tip, err := seen.tip(ctx, s.Bases, path, base)
 	if err != nil {
 		return workorders.Start{}, unavailable("%v", err)
 	}
@@ -160,7 +160,7 @@ func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workord
 // base, which holds them.
 func (s *Starts) mergedStart(ctx context.Context, path string, tip ports.BaseTip, dependencies []dependencyWork) (workorders.Start, *workorders.StartHold) {
 	for _, dependency := range dependencies {
-		merged, err := s.Worktrees.Contains(ctx, path, dependency.Commit, tip.Commit)
+		merged, err := s.Bases.Contains(ctx, path, dependency.Commit, tip.Commit)
 		if err != nil {
 			return workorders.Start{}, unavailable("reading whether %s is in %s: %v", short(dependency.Commit), tip.Ref, err)
 		}
@@ -180,7 +180,7 @@ func (s *Starts) acceptedStart(ctx context.Context, path string, dependencies []
 	for _, candidate := range dependencies {
 		holdsAll := true
 		for _, other := range dependencies {
-			holds, err := s.Worktrees.Contains(ctx, path, other.Commit, candidate.Commit)
+			holds, err := s.Bases.Contains(ctx, path, other.Commit, candidate.Commit)
 			if err != nil {
 				return workorders.Start{}, unavailable("reading whether %s holds %s: %v", short(candidate.Commit), short(other.Commit), err)
 			}

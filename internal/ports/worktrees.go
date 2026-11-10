@@ -13,19 +13,7 @@ var (
 	ErrWorktreeDirty = errors.New("the worktree has uncommitted work")
 	// ErrWorktreeConflict means the path or the branch belongs to something else.
 	ErrWorktreeConflict = errors.New("the path or branch is taken")
-	// ErrBaseUnavailable means the branch a lane starts from could not be read: the remote did not
-	// answer, or it, or the repository, holds no such branch. A caller waits and tries again, and
-	// never starts from anything else.
-	ErrBaseUnavailable = errors.New("the base branch is unavailable")
 )
-
-// BaseTip is where a base branch stands: the ref a person reads it by and the commit it names.
-type BaseTip struct {
-	// Ref is the remote-tracking branch when the repository has a remote, such as origin/main, and the
-	// branch itself when it has none.
-	Ref    string
-	Commit string
-}
 
 // WorktreeSpec asks for one lane's worktree. An empty Base starts the branch at the
 // repository's HEAD.
@@ -73,14 +61,6 @@ type Worktrees interface {
 	// go on from work another machine pushed. A repository with no remote, and a ref the remote
 	// does not hold, are done: a worktree then starts from what this machine has.
 	Fetch(ctx context.Context, repository string, refs []string) error
-	// BaseTip reads the commit a base branch stands at. A repository with a remote fetches the branch
-	// first and answers with the remote-tracking commit, whatever the local branch holds. One with no
-	// remote answers with the local branch. A failed fetch, or a branch nobody holds, is
-	// ErrBaseUnavailable: there is no other answer to give, and never HEAD.
-	BaseTip(ctx context.Context, repository, branch string) (BaseTip, error)
-	// Contains reports whether ancestor is reachable from commit, and a commit contains itself. A commit
-	// the repository does not hold is ErrNotFound.
-	Contains(ctx context.Context, repository, ancestor, commit string) (bool, error)
 	// DefaultBranch names the branch a repository's work lands on. It reads an upstream's
 	// default first, and a repository with none has its current branch.
 	DefaultBranch(ctx context.Context, repository string) (string, error)

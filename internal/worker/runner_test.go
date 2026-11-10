@@ -244,7 +244,7 @@ func TestALanesWorktreeStartsAtTheBaseItsClaimNamed(t *testing.T) {
 	worktrees := fake.NewWorktrees()
 	tip := worktrees.Grow("/repository", "main")
 	base.worktrees, base.repository = worktrees, "repo-1"
-	base.starts = &control.Starts{Worktrees: worktrees, Checkout: func(context.Context, string) (string, error) { return "/repository", nil }}
+	base.starts = &control.Starts{Bases: worktrees, Checkout: func(context.Context, string) (string, error) { return "/repository", nil }}
 	r := newLaneRigFor(t, base)
 	// The base moves while the lane is not yet running.
 	worktrees.Grow("/repository", "main")

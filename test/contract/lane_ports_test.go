@@ -55,7 +55,7 @@ func TestWorktreesContract(t *testing.T) {
 			repo.Commit("README.txt", "seed\n")
 			lanesDir := filepath.Join(filepath.Dir(repo.Dir), "lanes")
 			return WorktreeRig{
-				Worktrees: gitcli.Worktrees{Env: repo.Env()}, Repository: repo.Dir,
+				Worktrees: gitcli.Worktrees{Env: repo.Env()}, Bases: gitcli.Worktrees{Env: repo.Env()}, Repository: repo.Dir,
 				Path: func(name string) string { return filepath.Join(lanesDir, name) },
 				Dirty: func(path string) {
 					if err := writeFile(filepath.Join(path, "untracked.txt"), "work\n"); err != nil {
@@ -70,7 +70,7 @@ func TestWorktreesContract(t *testing.T) {
 		RunWorktrees(t, func(*testing.T) WorktreeRig {
 			worktrees := fake.NewWorktrees()
 			return WorktreeRig{
-				Worktrees: worktrees, Repository: "/work/repository",
+				Worktrees: worktrees, Bases: worktrees, Repository: "/work/repository",
 				Path:  func(name string) string { return "/work/lanes/" + name },
 				Dirty: worktrees.Dirty,
 				Grow:  func(branch string) string { return worktrees.Grow("/work/repository", branch) },

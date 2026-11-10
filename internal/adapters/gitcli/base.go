@@ -73,3 +73,5 @@ func (w Worktrees) Contains(ctx context.Context, repository, ancestor, commit st
 	}
 	return false, err
 }
+
+var _ ports.Bases = Worktrees{}

@@ -45,7 +45,7 @@ type startWorld struct {
 
 func (r *Rig) startWorld(s ports.Store) *startWorld {
 	git := fake.NewWorktrees()
-	starts := &control.Starts{Worktrees: git, Checkout: func(_ context.Context, repository string) (string, error) {
+	starts := &control.Starts{Bases: git, Checkout: func(_ context.Context, repository string) (string, error) {
 		return "/work/" + repository, nil
 	}}
 	return &startWorld{r: r, s: s, git: git, starts: starts, leases: control.NewLeases(s).Starting(starts)}

@@ -504,7 +504,7 @@ func checkouts(opts soloOptions) func(context.Context, string) (string, error) {
 // soloStarts places the lane of every claim from the daemon's checkouts: where the base branch stands, and
 // whether the work a lane depends on is in it.
 func soloStarts(opts soloOptions) *control.Starts {
-	return &control.Starts{Worktrees: gitcli.Worktrees{}, Checkout: checkouts(opts)}
+	return &control.Starts{Bases: gitcli.Worktrees{}, Checkout: checkouts(opts)}
 }
 
 // acceptedCommits reads a repository at the commit a person accepted, under the same directory the

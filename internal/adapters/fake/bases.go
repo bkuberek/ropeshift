@@ -108,3 +108,5 @@ func (w *Worktrees) Contains(_ context.Context, _, ancestor, commit string) (boo
 	}
 	return false, nil
 }
+
+var _ ports.Bases = (*Worktrees)(nil)
