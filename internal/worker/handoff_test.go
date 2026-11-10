@@ -133,6 +133,7 @@ func (r *laneRig) awaitSecondGeneration(t *testing.T) {
 }
 
 func TestANarrativeBecomesADocumentAndANewGeneration(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) {
 		r.worktrees().Dirty(stopWorktree)
@@ -192,6 +193,7 @@ func TestANarrativeBecomesADocumentAndANewGeneration(t *testing.T) {
 
 // A generation records why it began and what it read, and its identity is ropeshift's own.
 func TestAGenerationRecordsItsStartAndItsHandoff(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	r.handOff(t)
@@ -263,6 +265,7 @@ func checkDegraded(t *testing.T, r *laneRig) {
 }
 
 func TestAMalformedNarrativeDegrades(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	var reply lanes.Reply
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) {
@@ -278,6 +281,7 @@ func TestAMalformedNarrativeDegrades(t *testing.T) {
 }
 
 func TestASessionThatDiesDuringAHandoffDegrades(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.worktrees().Dirty(stopWorktree) }}, fake.DriverStep{Crash: true})
 	r.handOff(t)
@@ -289,6 +293,7 @@ func TestASessionThatDiesDuringAHandoffDegrades(t *testing.T) {
 }
 
 func TestAPlaneThatIsAwayLeavesItsFactsOut(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	r.link.FailLaneFacts.Store(true)
@@ -301,6 +306,7 @@ func TestAPlaneThatIsAwayLeavesItsFactsOut(t *testing.T) {
 }
 
 func TestAPreviousGenerationCannotWriteAfterAHandoff(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	token := r.token(t)
@@ -322,6 +328,7 @@ func TestAPreviousGenerationCannotWriteAfterAHandoff(t *testing.T) {
 }
 
 func TestAHandoffKeepsTheContractVersion(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	pinned := r.row().ContractVersion
@@ -337,6 +344,7 @@ func TestAHandoffKeepsTheContractVersion(t *testing.T) {
 }
 
 func TestAnOpenQuestionGoesIntoTheHandoff(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	asked := r.ask(t, lanes.AskRequest{Text: "Which budget?", Blocking: true})
@@ -355,6 +363,7 @@ func TestAnOpenQuestionGoesIntoTheHandoff(t *testing.T) {
 }
 
 func TestALaneAtNoRestCannotHandOff(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, handoffProfile)
 	r.driver.Play(script(crashed()))
 	r.start()
@@ -371,6 +380,7 @@ func TestALaneAtNoRestCannotHandOff(t *testing.T) {
 }
 
 func TestASecondHandoffAsksNothing(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, r2(&r, narrativeText), completed(0.02))
 	if err := r.subject.HandOff(t.Context(), "lane-1", lanes.HandoffContextThreshold); err != nil {
@@ -387,6 +397,7 @@ func TestASecondHandoffAsksNothing(t *testing.T) {
 }
 
 func TestANarrativeNobodyAskedForIsRefused(t *testing.T) {
+	t.Parallel()
 	r := atWork(t)
 	close(r.release)
 	if reply := r.callHandoff(narrativeText); reply.OK || reply.Code != lanes.CodeInvalid {
@@ -395,6 +406,7 @@ func TestANarrativeNobodyAskedForIsRefused(t *testing.T) {
 }
 
 func TestAnOutcomeDuringAHandoffEndsTheLane(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}, completed(0.02))
 	r.handOff(t)
@@ -408,6 +420,7 @@ func TestAnOutcomeDuringAHandoffEndsTheLane(t *testing.T) {
 }
 
 func TestAFencedLaneStartsNoNextGeneration(t *testing.T) {
+	t.Parallel()
 	r := atWork(t, fake.DriverStep{Hold: true})
 	r.handOff(t)
 	r.eventually("the wait", func(ledger.LaneView) bool { return len(r.driver.Sent()) == 1 })
@@ -450,6 +463,7 @@ func (r *handoffRig) workerDies(t *testing.T, left lanes.Session, script fake.Dr
 
 // A restart reads the deadline from the journal, so a wait counts from the first process.
 func TestARestartGoesOnWithAHandoff(t *testing.T) {
+	t.Parallel()
 	r := atWork(t)
 	r.handOff(t)
 	r.eventually("the wait", func(ledger.LaneView) bool { return len(r.driver.Sent()) == 1 })
@@ -474,6 +488,7 @@ func TestARestartGoesOnWithAHandoff(t *testing.T) {
 
 // A restart that finds a session reads on, so a narrative a session writes then still counts.
 func TestANarrativeReachesTheWorkerThatTookOver(t *testing.T) {
+	t.Parallel()
 	r := atWork(t)
 	r.handOff(t)
 	r.eventually("the wait", func(ledger.LaneView) bool { return len(r.driver.Sent()) == 1 })
@@ -506,6 +521,7 @@ func TestANarrativeReachesTheWorkerThatTookOver(t *testing.T) {
 // A session that went with the worker leaves a handoff nothing can read, and that handoff
 // still finishes, because it degrades and cannot block.
 func TestAHandoffWhoseSessionWentFinishesOnTheNextPass(t *testing.T) {
+	t.Parallel()
 	r := atWork(t)
 	r.handOff(t)
 	r.eventually("the wait", func(ledger.LaneView) bool { return len(r.driver.Sent()) == 1 })
@@ -528,6 +544,7 @@ func TestAHandoffWhoseSessionWentFinishesOnTheNextPass(t *testing.T) {
 }
 
 func TestADegradedHandoffShowsOnTheLane(t *testing.T) {
+	t.Parallel()
 	stays := func(*laneRig) fake.DriverScript { return script([]fake.DriverStep{{Bound: true}, {Hold: true}}) }
 	r := atWorkBefore(t, stays, fake.DriverStep{Crash: true})
 	r.handOff(t)

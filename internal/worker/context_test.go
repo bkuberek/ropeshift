@@ -124,6 +124,7 @@ func (r *laneRig) hookAdmits(t *testing.T, text string) {
 }
 
 func TestContextUnderItsThresholdsDoesNothing(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), tokens(140), r.reports(workorders.OutcomeCompleted), completed(0.01)})
 	r.awaitOrderState(t, workorders.Acceptance)
@@ -139,6 +140,7 @@ func TestContextUnderItsThresholdsDoesNothing(t *testing.T) {
 // the instruction goes on the mid-turn path, the next tool call is denied until the session takes
 // it, and the lane hands off to a new generation.
 func TestAThresholdDuringATurnSendsTheInstruction(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) {
@@ -179,6 +181,7 @@ func TestAThresholdDuringATurnSendsTheInstruction(t *testing.T) {
 
 // A hook reports what a pane took, and a session with a stream reports it on the stream.
 func TestAnInstructionAdmittedByAHookLiftsTheHold(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
@@ -192,6 +195,7 @@ func TestAnInstructionAdmittedByAHookLiftsTheHold(t *testing.T) {
 }
 
 func TestWithNoChannelTheNextToolCallIsDenied(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	var r *laneRig
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
@@ -221,6 +225,7 @@ func TestWithNoChannelTheNextToolCallIsDenied(t *testing.T) {
 
 // A socket that takes nothing leaves the instruction to the end of the turn, and the hold in place.
 func TestAnInstructionTheSocketRefusesWaitsForTheTurnToEnd(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
@@ -237,6 +242,7 @@ func TestAnInstructionTheSocketRefusesWaitsForTheTurnToEnd(t *testing.T) {
 }
 
 func TestAtRestAThresholdCompacts(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
@@ -257,6 +263,7 @@ func TestAtRestAThresholdCompacts(t *testing.T) {
 
 // The first call after a compaction is what counts, and a compaction that left too much hands off.
 func TestACompactionThatLeftTooMuchHandsOff(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	r.startOn(
@@ -276,6 +283,7 @@ func TestACompactionThatLeftTooMuchHandsOff(t *testing.T) {
 
 // A compaction's own API call comes before its boundary, and it is no evidence of anything.
 func TestAUsageBeforeTheBoundaryIsNoEvidence(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	r.startOn(
@@ -289,6 +297,7 @@ func TestAUsageBeforeTheBoundaryIsNoEvidence(t *testing.T) {
 
 // A turn that ended with no boundary did not compact, whatever its figures say.
 func TestARunWithNoBoundaryDidNotCompact(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	r.startOn(
@@ -306,6 +315,7 @@ func TestARunWithNoBoundaryDidNotCompact(t *testing.T) {
 }
 
 func TestAnOversizedPackHoldsNoHandoff(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := contextRig(t, []fake.DriverStep{{Bound: true}, tokens(170), tokens(190), g.step(), completed(0.01)}, []fake.DriverStep{{Hold: true}})
 	g.letGoOnFailure(t)
@@ -326,6 +336,7 @@ func TestAnOversizedPackHoldsNoHandoff(t *testing.T) {
 // A restart reads what a run left, so a compaction in flight is still judged by its next call, and
 // the worker that took over tells the session to go on.
 func TestARestartKeepsACompactionInFlight(t *testing.T) {
+	t.Parallel()
 	r := contextRig(t,
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{{Hold: true}},
@@ -357,6 +368,7 @@ func TestARestartKeepsACompactionInFlight(t *testing.T) {
 // A boundary the last worker read is still a boundary, so the next figure is the verdict, and a lane
 // past its threshold after that is in a running turn with its compaction behind it.
 func TestARestartKeepsABoundaryItRead(t *testing.T) {
+	t.Parallel()
 	r := contextRig(t,
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
 		[]fake.DriverStep{{Compaction: true}, completed(0.02)},
@@ -409,6 +421,7 @@ func (r *laneRig) takeOver(t *testing.T, plays fake.DriverScript) *fake.AgentDri
 // the baseline a restart reads is the one the session began with, or a lane near its threshold
 // would read as one with no room to hand off.
 func TestARunThatTookOverGoesOnByThePolicy(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := contextLane(t)
 	finish := fake.DriverStep{Do: func(ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(ports.SessionSpec{Lane: "lane-1"}) }}
@@ -432,6 +445,7 @@ func TestARunThatTookOverGoesOnByThePolicy(t *testing.T) {
 
 // Past the handoff line a lane with no room stays, so what a first call read must survive a restart.
 func TestARestartKeepsWhatAGenerationBeganWith(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := contextRig(t, []fake.DriverStep{{Bound: true}, tokens(30), g.step(), completed(0.01)})
 	r.reach(t, g)
@@ -446,6 +460,7 @@ func TestARestartKeepsWhatAGenerationBeganWith(t *testing.T) {
 
 // A lane that reported is done, whatever its last calls of a turn say.
 func TestALaneThatReportedIsNotToldToHandOff(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), r.reports(workorders.OutcomeCompleted), tokens(185), completed(0.01)})
 	r.awaitOrderState(t, workorders.Acceptance)
@@ -459,6 +474,7 @@ func TestALaneThatReportedIsNotToldToHandOff(t *testing.T) {
 
 // A driver with no path to a compaction goes straight to the next tier.
 func TestWithNoCompactionTheCompactThresholdHandsOff(t *testing.T) {
+	t.Parallel()
 	var r *laneRig
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	r = laneRigWith(t, contextProfile)
@@ -479,6 +495,7 @@ func TestWithNoCompactionTheCompactThresholdHandsOff(t *testing.T) {
 // A pane that waits on an answer takes no keys, and that says nothing about a later compaction: the
 // lane goes on as it would have, and the next time it rests it compacts.
 func TestACompactionThatMustWaitForAnAnswerTriesAgain(t *testing.T) {
+	t.Parallel()
 	var r *laneRig
 	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
 	r = laneRigWith(t, contextProfile)
@@ -507,6 +524,7 @@ func TestACompactionThatMustWaitForAnAnswerTriesAgain(t *testing.T) {
 
 // What one generation's compaction came to says nothing of the next, which has a new session.
 func TestANewGenerationMayCompact(t *testing.T) {
+	t.Parallel()
 	var r *laneRig
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
@@ -534,6 +552,7 @@ func TestANewGenerationMayCompact(t *testing.T) {
 
 // A compaction that cannot start is one that did not run, and the lane has a next tier.
 func TestACompactionThatCannotStartHandsOff(t *testing.T) {
+	t.Parallel()
 	var r *laneRig
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	r = laneRigWith(t, contextProfile)
@@ -552,6 +571,7 @@ func TestACompactionThatCannotStartHandsOff(t *testing.T) {
 // That leaves a verdict to come and not a failed compaction: the lane goes on as a lane with no
 // outcome does, and the next figure judges it.
 func TestAFigureThatFollowsTheTurnStillJudges(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
@@ -571,6 +591,7 @@ func TestAFigureThatFollowsTheTurnStillJudges(t *testing.T) {
 
 // A session that cannot be told to go on gives no next call, so nothing will ever judge it.
 func TestACompactionThatCannotGoOnHandsOff(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}
 	refused := fake.DriverStep{Do: func(ports.SessionSpec) { r.driver.FailSend(errors.New("the session took nothing")) }}
@@ -587,6 +608,7 @@ func TestACompactionThatCannotGoOnHandsOff(t *testing.T) {
 
 // One compaction working does not use the next one up: context that grows back compacts again.
 func TestASecondCompactionHasItsOwnInputs(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	r.startOn(
 		[]fake.DriverStep{{Bound: true}, tokens(30), tokens(160), completed(0.01)},
@@ -606,6 +628,7 @@ func TestASecondCompactionHasItsOwnInputs(t *testing.T) {
 
 // A compaction nobody here asked for is not this policy's to judge, and its next call is no verdict.
 func TestABoundaryNobodyAskedForChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := contextLane(t)
 	r.startOn([]fake.DriverStep{{Bound: true}, tokens(30), {Compaction: true}, tokens(40), r.reports(workorders.OutcomeCompleted), completed(0.01)})
 	r.awaitOrderState(t, workorders.Acceptance)
@@ -619,6 +642,7 @@ func TestABoundaryNobodyAskedForChangesNothing(t *testing.T) {
 
 // Both a stream and a hook say a session took its instruction, and the first is enough.
 func TestAHoldLiftsOnce(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := contextLane(t)
 	answer := fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}

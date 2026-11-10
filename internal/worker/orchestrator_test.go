@@ -255,6 +255,7 @@ func TestASecondBatchIsOneWakeUnderTheFloor(t *testing.T) {
 // It has no work order and no outcome, so a turn that ends leaves it waiting: nothing nudges it,
 // and nothing ends it.
 func TestARestingOrchestratorIsNotALaneWithNoOutcome(t *testing.T) {
+	t.Parallel()
 	o := newOrchestratorRig(t, aSession())
 	o.wokenOnce(t)
 	if sent := o.driver.Sent(); len(sent) != 0 {
@@ -268,6 +269,7 @@ func TestARestingOrchestratorIsNotALaneWithNoOutcome(t *testing.T) {
 // Its token reaches its own tools and nothing of a lane's: it has no work to report on and no lane
 // to ask for.
 func TestAnOrchestratorsTokenReachesOnlyItsOwnTools(t *testing.T) {
+	t.Parallel()
 	o := newOrchestratorRig(t, aSession())
 	o.wokenOnce(t)
 	spec := o.specs()[0]
@@ -308,6 +310,7 @@ func TestAnOrchestratorsTokenReachesOnlyItsOwnTools(t *testing.T) {
 // An orchestrator judges through its own tools. It has no repository to read, a call that prompts has
 // nobody to answer it, and every vendor tool would sit in each generation's baseline.
 func TestAnOrchestratorHoldsNothingButItsTools(t *testing.T) {
+	t.Parallel()
 	o := newOrchestratorRig(t, aSession())
 	o.wokenOnce(t)
 	if !o.specs()[0].OnlyTools {
@@ -355,6 +358,7 @@ func TestACrashedOrchestratorStopsNoLane(t *testing.T) {
 
 // A member's stop ends the session and leaves the lanes alone.
 func TestAMembersStopEndsTheSession(t *testing.T) {
+	t.Parallel()
 	o := newOrchestratorRig(t, aSession())
 	o.wokenOnce(t)
 	if _, err := o.plane.SetOrchestrator(t.Context(), o.subject.Auth().WorkerID, ledger.OrchestratorStopped, member); err != nil {

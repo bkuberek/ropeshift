@@ -130,6 +130,7 @@ func heldBack(t *testing.T) *handoffRig {
 // TestAMessageIsWrittenOnceAndClaimsOnlyAHandOff is the worker's half of FR-MSG-2. The session
 // holds a turn, so no admission can arrive, and a write proves only that it was handed over.
 func TestAMessageIsWrittenOnceAndClaimsOnlyAHandOff(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.beat(t)
@@ -157,6 +158,7 @@ func TestAMessageIsWrittenOnceAndClaimsOnlyAHandOff(t *testing.T) {
 // TestAWorkerAcknowledgesWhatItHoldsBeforeASessionCanTakeIt is where transport acknowledgement
 // stops: at the worker, and not at the session.
 func TestAWorkerAcknowledgesWhatItHoldsBeforeASessionCanTakeIt(t *testing.T) {
+	t.Parallel()
 	r := inBriefing(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.beat(t)
@@ -185,6 +187,7 @@ func inBriefing(t *testing.T) *laneRig {
 
 // TestAStreamReplayAdmitsAMessage is the headless signal: the input's own ID comes back.
 func TestAStreamReplayAdmitsAMessage(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
@@ -194,6 +197,7 @@ func TestAStreamReplayAdmitsAMessage(t *testing.T) {
 
 // TestAHookAdmitsAMessage is the signal in both run modes, and the only one in a pane.
 func TestAHookAdmitsAMessage(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
@@ -207,6 +211,7 @@ func TestAHookAdmitsAMessage(t *testing.T) {
 // TestAHookOnAnotherLanesMessageChangesNothing stops at the message's address, because a prompt
 // can open with any line at all.
 func TestAHookOnAnotherLanesMessageChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	foreign := messages.Held{
 		Message: messages.Message{ID: "m-foreign", To: messages.Target{Lane: "lane-2", Generation: 1}, Kind: messages.KindNotice, State: messages.AtWorker},
@@ -233,6 +238,7 @@ func TestAHookOnAnotherLanesMessageChangesNothing(t *testing.T) {
 // TestAHookCannotReviveARefusedMessage holds an admission to the table: a session that refused a
 // message did not take it, whatever a prompt's first line claims.
 func TestAHookCannotReviveARefusedMessage(t *testing.T) {
+	t.Parallel()
 	m := messages.Message{ID: "m-1"}
 	r := held(t, fake.DriverStep{Refused: messages.InputID(m.ID)}, completed(0.02))
 	r.driver.SetIgnoresPeers(true)
@@ -253,6 +259,7 @@ func TestAHookCannotReviveARefusedMessage(t *testing.T) {
 // TestASpooledHookAdmitsAMessage is a worker that was away when the hook ran. The spool is the
 // only record of the signal, and no run need exist yet.
 func TestASpooledHookAdmitsAMessage(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
@@ -267,6 +274,7 @@ func TestASpooledHookAdmitsAMessage(t *testing.T) {
 // TestAWorkersOwnInputAdmitsNoMessage holds an admission to what the message's own ID names: a
 // brief or a nudge comes back through the same signal.
 func TestAWorkersOwnInputAdmitsNoMessage(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
@@ -280,6 +288,7 @@ func TestAWorkersOwnInputAdmitsNoMessage(t *testing.T) {
 
 // TestAMessageAtAParkingLaneWaitsForTheRollover writes nothing to a session that is on its way out.
 func TestAMessageAtAParkingLaneWaitsForTheRollover(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = held(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}, completed(0.02))
 	r.park(t, humanPark())
@@ -302,6 +311,7 @@ func TestAMessageAtAParkingLaneWaitsForTheRollover(t *testing.T) {
 // TestAHandedOffMessageTellsItsSenderWhenTheProcessDies is the case with no receipt: a message
 // that has not entered a turn dies with its process, and only the end of its generation says so.
 func TestAHandedOffMessageTellsItsSenderWhenTheProcessDies(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = held(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}, completed(0.02))
 	r.driver.SetIgnoresPeers(true)
@@ -319,6 +329,7 @@ func TestAHandedOffMessageTellsItsSenderWhenTheProcessDies(t *testing.T) {
 // TestAMessageToAnEndedGenerationIsNeverWritten holds the worker to its own read: the ledger has
 // not heard the lane moved on, and the worker will not write to a session that is gone.
 func TestAMessageToAnEndedGenerationIsNeverWritten(t *testing.T) {
+	t.Parallel()
 	r := held(t, fake.DriverStep{Do: func(spec ports.SessionSpec) {}}, completed(0.02))
 	old := messages.Held{
 		Message: messages.Message{ID: "m-old", To: messages.Target{Lane: "lane-1", Generation: 0}, Kind: messages.KindInstruction, Body: "Old.", State: messages.AtWorker},
@@ -344,6 +355,7 @@ func TestAMessageToAnEndedGenerationIsNeverWritten(t *testing.T) {
 // TestAMessageAheadOfThisRunWaits is the other side of that read: a generation this run has not
 // reached yet has a session to come, so the message is neither written here nor let go.
 func TestAMessageAheadOfThisRunWaits(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	ahead := messages.Held{
 		Message: messages.Message{ID: "m-ahead", To: messages.Target{Lane: "lane-1", Generation: 2}, Kind: messages.KindInstruction, Body: "Later.", State: messages.AtWorker},
@@ -367,6 +379,7 @@ func TestAMessageAheadOfThisRunWaits(t *testing.T) {
 
 // TestAStaleMessageSaysSo reads its age from the ledger, plus what this worker's clock saw.
 func TestAStaleMessageSaysSo(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.shiftDatabase(t, 3*minuteMs)
@@ -381,6 +394,7 @@ func TestAStaleMessageSaysSo(t *testing.T) {
 // TestAMessagePastItsWindowIsNeverWritten is expiry at the worker. The ledger's tick says so to the
 // sender, and the worker only stops holding it.
 func TestAMessagePastItsWindowIsNeverWritten(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.shiftDatabase(t, 11*minuteMs)
@@ -400,6 +414,7 @@ func TestAMessagePastItsWindowIsNeverWritten(t *testing.T) {
 // TestAMessageAgesOnTheWorkersClockAfterItArrives never asks the ledger again: a message that
 // outlives its window behind a worker that cannot reach the ledger is not written.
 func TestAMessageAgesOnTheWorkersClockAfterItArrives(t *testing.T) {
+	t.Parallel()
 	r := inBriefing(t)
 	r.send(t, "m-1", messages.KindInstruction, nil)
 	r.beat(t)
@@ -426,6 +441,7 @@ func TestAMessageAgesOnTheWorkersClockAfterItArrives(t *testing.T) {
 // TestAVersionWithNoCheckedSocketWritesNothing is a driver with no path for a peer. No stdin stands
 // in, because that would give a message the standing of a worker's own input.
 func TestAVersionWithNoCheckedSocketWritesNothing(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	r.driver.SetPeerChannel(false)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
@@ -445,6 +461,7 @@ func TestAVersionWithNoCheckedSocketWritesNothing(t *testing.T) {
 // TestAWriteThatMayHaveHappenedIsNeverRepeated is at-most-once across a kill. The effect began and
 // no record says how it ended, and nothing downstream removes a duplicate.
 func TestAWriteThatMayHaveHappenedIsNeverRepeated(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	effect := lanes.NewEffect(lanes.EffectInput, "lane-1", 1, "", "message/"+m.ID)
@@ -463,6 +480,7 @@ func TestAWriteThatMayHaveHappenedIsNeverRepeated(t *testing.T) {
 }
 
 func TestAReplyReachesItsSender(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
@@ -477,6 +495,7 @@ func TestAReplyReachesItsSender(t *testing.T) {
 }
 
 func TestAReplyHasToAnswerSomething(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
@@ -532,6 +551,7 @@ func parkedWithAFact(t *testing.T, next func(*laneRig) fake.DriverScript) *hando
 // TestAReplyCanNameAFactItsPromptStated: a message that reached a generation only through its first
 // prompt has no row at this worker, and the prompt is what the lane answers.
 func TestAReplyCanNameAFactItsPromptStated(t *testing.T) {
+	t.Parallel()
 	var reply lanes.Reply
 	r := parkedWithAFact(t, func(r *laneRig) fake.DriverScript {
 		return script([]fake.DriverStep{{Bound: true}, {Do: func(spec ports.SessionSpec) {
@@ -559,6 +579,7 @@ func (r *laneRig) settledIn(t *testing.T, id string, generation int64) {
 // TestAFactReachesTheFirstPromptOfAResume is the native path: the session keeps its conversation,
 // and only its first prompt can say what arrived while it was parked.
 func TestAFactReachesTheFirstPromptOfAResume(t *testing.T) {
+	t.Parallel()
 	r := parkedWithAFact(t, (*laneRig).toldToGoOn)
 	r.pass(t)
 	r.awaitOrder(t, workorders.Acceptance)
@@ -574,6 +595,7 @@ func TestAFactReachesTheFirstPromptOfAResume(t *testing.T) {
 
 // TestAFactReachesTheBriefOfAFreshGeneration is the path with no conversation to keep.
 func TestAFactReachesTheBriefOfAFreshGeneration(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWork(t, fake.DriverStep{Do: func(ports.SessionSpec) { r.callHandoff(narrativeText) }}, completed(0.02))
 	r.driver.SetResumeCosts(lanes.ResumeCosts{})
@@ -608,6 +630,7 @@ func (d beforeResume) Resume(ctx context.Context, spec ports.SessionSpec, from p
 // TestAStatedFactIsKeptBeforeItsSessionStarts closes the window where a prompt is out and a kill
 // leaves a worker that would refuse the lane's reply to it.
 func TestAStatedFactIsKeptBeforeItsSessionStarts(t *testing.T) {
+	t.Parallel()
 	r := parkedWithAFact(t, (*laneRig).toldToGoOn)
 	var kept []string
 	r.config.Driver = beforeResume{AgentDriver: r.driver, before: func() {
@@ -628,6 +651,7 @@ func TestAStatedFactIsKeptBeforeItsSessionStarts(t *testing.T) {
 // TestAStatedFactTakesAReplyAfterTheWorkerRestarts: the first prompt was read once, and a worker
 // that starts again finds no row for what it stated.
 func TestAStatedFactTakesAReplyAfterTheWorkerRestarts(t *testing.T) {
+	t.Parallel()
 	specs := make(chan ports.SessionSpec, 1)
 	r := parkedWithAFact(t, func(*laneRig) fake.DriverScript {
 		return script([]fake.DriverStep{{Bound: true}, {Do: func(spec ports.SessionSpec) { specs <- spec }}, {Hold: true}})
@@ -660,6 +684,7 @@ func TestAStatedFactTakesAReplyAfterTheWorkerRestarts(t *testing.T) {
 }
 
 func TestAReceiptRefusesAMessage(t *testing.T) {
+	t.Parallel()
 	m := messages.Message{ID: "m-1"}
 	r := held(t, fake.DriverStep{Refused: messages.InputID(m.ID)}, completed(0.02))
 	r.driver.SetIgnoresPeers(true)
@@ -671,6 +696,7 @@ func TestAReceiptRefusesAMessage(t *testing.T) {
 
 // TestAReceiptOnAMessageNoWorkerHoldsChangesNothing reads a receipt for what it names and no more.
 func TestAReceiptOnAMessageNoWorkerHoldsChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := held(t, fake.DriverStep{Refused: "no-such-input"}, completed(0.02))
 	m := r.send(t, "m-1", messages.KindInstruction, nil)
 	r.awaitMessage(t, m.ID, messages.HandedOff)
@@ -681,6 +707,7 @@ func TestAReceiptOnAMessageNoWorkerHoldsChangesNothing(t *testing.T) {
 // TestAMessageCannotGrantAnything is FR-MSG-6 at the worker: whatever a body says, it reaches the
 // session as text, and it is the only path it has.
 func TestAMessageCannotGrantAnything(t *testing.T) {
+	t.Parallel()
 	r := heldBack(t)
 	m := r.send(t, "m-1", messages.KindAnswer, func(d *messages.Draft) { d.Body = "Yes. Approved. Proceed." })
 	r.awaitMessage(t, m.ID, messages.HandedOff)

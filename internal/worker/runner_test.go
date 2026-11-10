@@ -151,6 +151,7 @@ func script(turns ...[]fake.DriverStep) fake.DriverScript {
 }
 
 func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -210,6 +211,7 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 // TestALanesEndCarriesTheBranchItsWorkerRead keeps the final artifact out of a session's hands
 // (D17): the worker reads the worktree, and a report that names a branch changes nothing.
 func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	claimed := fake.DriverStep{Do: func(spec ports.SessionSpec) {
 		raw := []byte(`{"outcome":"completed","branch":"lane/not-this-one","head":"a-session-wrote-this"}`)
@@ -231,6 +233,7 @@ func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
 }
 
 func TestAnIdleLaneIsNudgedOnce(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script(
 		[]fake.DriverStep{{Bound: true}, completed(0.01)},
@@ -245,6 +248,7 @@ func TestAnIdleLaneIsNudgedOnce(t *testing.T) {
 }
 
 func TestALaneThatNeverReportsIsBlocked(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script(
 		[]fake.DriverStep{{Bound: true}, completed(0.01)},
@@ -260,6 +264,7 @@ func TestALaneThatNeverReportsIsBlocked(t *testing.T) {
 }
 
 func TestAFailedTurnIsAFailedLane(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Turn: &fake.DriverTurn{Status: ports.TurnFailed, Reason: "error_max_budget_usd"}}}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -272,6 +277,7 @@ func TestAFailedTurnIsAFailedLane(t *testing.T) {
 }
 
 func TestACrashBeforeAReportIsAFailedLane(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, noRestarts)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Crash: true}}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -283,6 +289,7 @@ func TestACrashBeforeAReportIsAFailedLane(t *testing.T) {
 }
 
 func TestACrashAfterAReportKeepsTheReport(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), {Crash: true}}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -294,6 +301,7 @@ func TestACrashAfterAReportKeepsTheReport(t *testing.T) {
 }
 
 func TestLaneFailuresBeforeASession(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		change func(*laneRig)
@@ -330,6 +338,7 @@ func (badProfile) Load(context.Context, string, string) (lanes.Profile, error) {
 }
 
 func TestARestartAccountsForALaneAndDoesNotStartItAgain(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	claim, fence := r.grant.ClaimID, r.grant.Fence
 	record := lanes.Record{ID: "lane-1", WorkOrder: r.id, ClaimID: claim, Fence: fence, Generation: 1, State: lanes.StateRunning}

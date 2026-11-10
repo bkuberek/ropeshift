@@ -18,6 +18,7 @@ import (
 // No agent may ask for an agent. The first passphrase needs no session, so an orchestrator that
 // could start without a member would be a process able to take the workspace.
 func TestOnlyAMemberStartsAnOrchestrator(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	worker := r.subject.Auth().WorkerID
 	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
@@ -32,6 +33,7 @@ func TestOnlyAMemberStartsAnOrchestrator(t *testing.T) {
 }
 
 func TestAnOrchestratorHasNoOtherState(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	_, err := r.plane.SetOrchestrator(t.Context(), r.subject.Auth().WorkerID, "Running", member)
 	if !errors.Is(err, workorders.ErrInvalid) {
@@ -40,6 +42,7 @@ func TestAnOrchestratorHasNoOtherState(t *testing.T) {
 }
 
 func TestANameThatIsNoWorkerStartsNothing(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	_, err := r.plane.SetOrchestrator(t.Context(), "nobody", ledger.OrchestratorRunning, member)
 	if !errors.Is(err, ports.ErrNotFound) {
@@ -49,6 +52,7 @@ func TestANameThatIsNoWorkerStartsNothing(t *testing.T) {
 
 // One per worker: a second start names the same one, and writes nothing.
 func TestOneOrchestratorPerWorker(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	worker := r.subject.Auth().WorkerID
 	first, err := r.plane.SetOrchestrator(t.Context(), worker, ledger.OrchestratorRunning, member)
@@ -70,6 +74,7 @@ func TestOneOrchestratorPerWorker(t *testing.T) {
 
 // A journal keeps a lane that ended, so a start after a stop has to be a lane of its own.
 func TestAStartAfterAStopIsANewRun(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	worker := r.subject.Auth().WorkerID
 	first, err := r.plane.SetOrchestrator(t.Context(), worker, ledger.OrchestratorRunning, member)
@@ -112,6 +117,7 @@ func status(t *testing.T, state string) []byte {
 // An orchestrator's name is reserved, or a member's lane could read as one, and a run no member
 // asked for could speak for the worker that holds it.
 func TestNoLaneTakesAnOrchestratorsName(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	r.claimFor("wo-2", r.subject.Auth().WorkerID)
 	_, err := control.NewLeases(r.store).Dispatch(t.Context(), scope, "wo-2", ledger.Orchestrator{Run: 1}.Lane(), member)
@@ -123,6 +129,7 @@ func TestNoLaneTakesAnOrchestratorsName(t *testing.T) {
 // A socket's path has a limit, and a lane's name is part of it, so a name with a worker's ID in it
 // passes a fake and stops a real session.
 func TestAnOrchestratorsLaneNameStaysShort(t *testing.T) {
+	t.Parallel()
 	row := ledger.Orchestrator{ID: ledger.OrchestratorOf("44f226018ebb89cc2fc7c5d1a70a82e3"), Run: 1_000_000}
 	if got := row.Lane(); len(got) > 24 {
 		t.Errorf("%q is %d bytes", got, len(got))
@@ -140,6 +147,7 @@ func TestAnOrchestratorsLaneNameStaysShort(t *testing.T) {
 // A worker speaks only for its own orchestrator, and a word about a start this one replaced is
 // kept and moves nothing.
 func TestAWorkerSpeaksForItsOwnOrchestrator(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	worker := r.subject.Auth().WorkerID
 	if _, err := r.plane.SetOrchestrator(t.Context(), worker, ledger.OrchestratorRunning, member); err != nil {
@@ -191,6 +199,7 @@ func (r *laneRig) orchestratorEvents(t *testing.T) []ledger.Event {
 
 // Every change has an event, so the projection is what its events say.
 func TestReplayHoldsAnOrchestrator(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	worker := r.subject.Auth().WorkerID
 	row, err := r.plane.SetOrchestrator(t.Context(), worker, ledger.OrchestratorRunning, member)
@@ -238,6 +247,7 @@ func kindsOf(items []ledger.WakeItem) []string {
 
 // A digest with nothing in it is what keeps an idle fleet from spending anything.
 func TestAnIdleWorkspaceHasAnEmptyDigest(t *testing.T) {
+	t.Parallel()
 	r := newLaneRig(t)
 	if got := r.digest(t); len(got) != 0 {
 		t.Errorf("digest %+v", got)
@@ -246,6 +256,7 @@ func TestAnIdleWorkspaceHasAnEmptyDigest(t *testing.T) {
 
 // What a person must answer and what another holds are nothing to judge here.
 func TestADigestHoldsOnlyWhatIsFree(t *testing.T) {
+	t.Parallel()
 	o := newOrchestratorRig(t, aSession())
 	o.asked(t, "free", "Which retry budget?")
 	o.asked(t, "held", "Which log level?")
@@ -261,6 +272,7 @@ func TestADigestHoldsOnlyWhatIsFree(t *testing.T) {
 // A request reaches an orchestrator only if a member delegated its class, and then with the digest a
 // decision binds to, which is how it reads one. Its own go to a member.
 func TestADigestHoldsOnlyWhatWasDelegated(t *testing.T) {
+	t.Parallel()
 	o := newOrchestratorRig(t, aSession())
 	policy := authority.DelegationPolicy{Version: 2, Classes: []authority.DelegationClass{{Tool: "Bash", CommandPrefix: "git tag"}}}
 	body := "[delegation_policy]\nversion = 2\n\n[[delegation_policy.classes]]\ntool = \"Bash\"\ncommand_prefix = \"git tag\"\n"

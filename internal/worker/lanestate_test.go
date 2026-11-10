@@ -108,6 +108,7 @@ func laneRigWith(t *testing.T, profile string) *laneRig {
 }
 
 func TestStateDerivesFromDriverEvents(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g := newGate()
 	r.finishLater(g)
@@ -120,6 +121,7 @@ func TestStateDerivesFromDriverEvents(t *testing.T) {
 }
 
 func TestAnEndedLaneReadsEnded(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
 	if err := r.subject.Converge(t.Context()); err != nil {
@@ -143,6 +145,7 @@ func TestAnEndedLaneReadsEnded(t *testing.T) {
 
 // An idle session has no fresh evidence, even right after a turn that went well.
 func TestAnIdleSessionReadsReachabilityUnknown(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	reached, release := make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() {
@@ -168,6 +171,7 @@ func TestAnIdleSessionReadsReachabilityUnknown(t *testing.T) {
 }
 
 func TestStalledNeedsTheProfilesLimit(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[lifecycle]\nstall_after = \"20m\"\n")
 	g := newGate()
 	r.finishLater(g)
@@ -182,6 +186,7 @@ func TestStalledNeedsTheProfilesLimit(t *testing.T) {
 }
 
 func TestAToolInFlightIsAWaitAndNotAStall(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[lifecycle]\nstall_after = \"20m\"\n")
 	g := newGate()
 	r.finishLater(g)
@@ -219,6 +224,7 @@ func (r *laneRig) hook(t *testing.T, event lanes.HookEvent) {
 }
 
 func TestCompactionComesFromHooksAndReturns(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g := newGate()
 	r.finishLater(g)
@@ -235,6 +241,7 @@ func TestCompactionComesFromHooksAndReturns(t *testing.T) {
 }
 
 func TestStopFailureSetsReachability(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g := newGate()
 	r.finishLater(g)
@@ -247,6 +254,7 @@ func TestStopFailureSetsReachability(t *testing.T) {
 }
 
 func TestContextCrossingTheWarningIsNearBudget(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[context.roles.writer]\nwarn_tokens = 100\n")
 	g := newGate()
 	r.finishLater(g)
@@ -258,6 +266,7 @@ func TestContextCrossingTheWarningIsNearBudget(t *testing.T) {
 }
 
 func TestABriefWithNoEvidenceGoesIdleAndIsFlagged(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "[lifecycle]\nbrief_grace = \"2m\"\n")
 	r.driver.Play(fake.DriverScript{SessionID: "session-1", Model: "resolved-model", Silent: true})
 	t.Cleanup(func() {
@@ -281,6 +290,7 @@ func TestABriefWithNoEvidenceGoesIdleAndIsFlagged(t *testing.T) {
 }
 
 func TestAnUnqualifiedVersionIsDegradedMode(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	r.driver.SetVersion("9.9.9", true)
 	g := newGate()
@@ -293,6 +303,7 @@ func TestAnUnqualifiedVersionIsDegradedMode(t *testing.T) {
 
 // A status travels on change, so a heartbeat alone adds nothing to the ledger.
 func TestAStatusIsPublishedOnlyOnChange(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	g := newGate()
 	r.finishLater(g)
@@ -318,6 +329,7 @@ func TestAStatusIsPublishedOnlyOnChange(t *testing.T) {
 
 // TestAdoptionKeepsTheLanesState holds what a restart must not lose.
 func TestAdoptionKeepsTheLanesState(t *testing.T) {
+	t.Parallel()
 	w := newWorldRig(t)
 	w.record("lane-1", lanes.StateRunning)
 	if err := w.journal.SaveActual(t.Context(), "lane-1", lanes.Idle, ""); err != nil {
@@ -337,6 +349,7 @@ func TestAdoptionKeepsTheLanesState(t *testing.T) {
 // TestPublishReadsWhileASessionStarts holds the read a heartbeat makes against the write
 // a start makes, with no order between them. It has meaning under the race detector.
 func TestPublishReadsWhileASessionStarts(t *testing.T) {
+	t.Parallel()
 	for range 40 {
 		r := laneRigWith(t, "")
 		r.driver.Play(script([]fake.DriverStep{{Bound: true}}))
@@ -369,6 +382,7 @@ func TestPublishReadsWhileASessionStarts(t *testing.T) {
 // A hook that missed its ack spools with the worker alive, and a pane has no stream to say
 // the same thing, so a live run must still hear it.
 func TestASpooledHookReachesALiveRun(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "")
 	path := filepath.Join(r.dir, "spool")
 	g := newGate()
@@ -392,6 +406,7 @@ func TestASpooledHookReachesALiveRun(t *testing.T) {
 
 // A profile names `tmux`, and a driver names `interactive`.
 func TestRunModeReachesTheDriver(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "run_mode = \"tmux\"\n[lifecycle]\nready_timeout = \"7s\"\n")
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
 	if _, err := r.subject.Reconcile(t.Context()); err != nil {
@@ -405,6 +420,7 @@ func TestRunModeReachesTheDriver(t *testing.T) {
 }
 
 func TestAnUnknownRunModeIsRefused(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, "run_mode = \"container\"\n")
 	if _, err := r.subject.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)

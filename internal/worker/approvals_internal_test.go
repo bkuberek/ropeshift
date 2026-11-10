@@ -9,6 +9,7 @@ import (
 // A delegated path is read where it lands. A link a lane made inside a covered directory must not
 // carry a decision outside it.
 func TestAPathIsReadWhereItLands(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

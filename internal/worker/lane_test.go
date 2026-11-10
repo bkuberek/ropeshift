@@ -25,6 +25,7 @@ func provisioner(parent map[string]string) (worker.Provisioner, *fake.ProfileSou
 }
 
 func TestPrepareOnFakes(t *testing.T) {
+	t.Parallel()
 	p, _, _ := provisioner(map[string]string{"PATH": "/usr/bin", "CLAUDECODE": "1"})
 	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"})
 	if err != nil {
@@ -39,6 +40,7 @@ func TestPrepareOnFakes(t *testing.T) {
 }
 
 func TestPrepareRepeats(t *testing.T) {
+	t.Parallel()
 	p, _, _ := provisioner(nil)
 	request := worker.LaneRequest{Lane: "l1", Repository: "/work/app"}
 	first, err := p.Prepare(t.Context(), request)
@@ -55,6 +57,7 @@ func TestPrepareRepeats(t *testing.T) {
 }
 
 func TestPrepareKeepsTheLedgersBranch(t *testing.T) {
+	t.Parallel()
 	p, _, _ := provisioner(nil)
 	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app", Branch: "lane/retry-t1"})
 	if err != nil {
@@ -67,6 +70,7 @@ func TestPrepareKeepsTheLedgersBranch(t *testing.T) {
 
 // TestPrepareLeavesNothingOnABadProfile holds the order: settings before disk.
 func TestPrepareLeavesNothingOnABadProfile(t *testing.T) {
+	t.Parallel()
 	p, source, worktrees := provisioner(nil)
 	source.Put("/work/app", "name = unquoted\n")
 	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"})
@@ -80,6 +84,7 @@ func TestPrepareLeavesNothingOnABadProfile(t *testing.T) {
 
 // A repository is code from somewhere else, so it cannot send this machine's work to a remote.
 func TestARepositoryCannotTurnPushOn(t *testing.T) {
+	t.Parallel()
 	p, source, worktrees := provisioner(nil)
 	source.Put("/work/app", "[worktree]\npush_on_stop = true\n")
 	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"})
@@ -92,6 +97,7 @@ func TestARepositoryCannotTurnPushOn(t *testing.T) {
 }
 
 func TestPreparePassesOnlyTheReferencedSecret(t *testing.T) {
+	t.Parallel()
 	p, source, _ := provisioner(map[string]string{"ANTHROPIC_API_KEY": "k", "OTHER_KEY": "o"})
 	source.Put("/work/app", "[agent.credentials]\nkind = \"api_key\"\nsecret_ref = \"env:ANTHROPIC_API_KEY\"\n")
 	lane, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"})
@@ -104,6 +110,7 @@ func TestPreparePassesOnlyTheReferencedSecret(t *testing.T) {
 }
 
 func TestPrepareRefusesASessionToken(t *testing.T) {
+	t.Parallel()
 	p, source, _ := provisioner(map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t"})
 	source.Put("/work/app", "[agent.credentials]\nsecret_ref = \"env:CLAUDE_CODE_OAUTH_TOKEN\"\n")
 	_, err := p.Prepare(t.Context(), worker.LaneRequest{Lane: "l1", Repository: "/work/app"})

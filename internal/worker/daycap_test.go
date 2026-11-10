@@ -50,6 +50,7 @@ func (r *laneRig) reset(t *testing.T) {
 // A handoff is a generation, and the day limits generations: a lane that keeps filling its context
 // stops where a person can look, with its handoff kept, and a reset goes on from that handoff.
 func TestAHandoffPastTheDayWaitsForAMember(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWorkOn(t, oneGenerationADay, (*laneRig).toldToGoOn, answersHandoff(&r)...)
 	r.handOff(t)
@@ -74,6 +75,7 @@ func TestAHandoffPastTheDayWaitsForAMember(t *testing.T) {
 
 // A handoff ignores the breaker's window, and a window full of crashes stops none.
 func TestAHandoffIgnoresACrashWindowItCouldFill(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWorkOn(t, spareDay, (*laneRig).toldToGoOn, answersHandoff(&r)...)
 	now := r.clock.Now().UnixMilli()
@@ -89,6 +91,7 @@ func TestAHandoffIgnoresACrashWindowItCouldFill(t *testing.T) {
 
 // Every autonomy bound reads the same day, so a worker held below unattended holds a handoff too.
 func TestAHandoffPastAWorkersBoundWaitsForAMember(t *testing.T) {
+	t.Parallel()
 	var r *handoffRig
 	r = atWorkOn(t, spareDay, (*laneRig).toldToGoOn, answersHandoff(&r)...)
 	worker := r.subject.Auth().WorkerID
@@ -113,6 +116,7 @@ func TestAHandoffPastAWorkersBoundWaitsForAMember(t *testing.T) {
 
 // A request for a new generation is one, whoever asked.
 func TestARespawnPastTheDayWaitsForAMember(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, oneGenerationADay)
 	g, after := newGate(), newGate()
 	r.finishLater(g)
@@ -159,6 +163,7 @@ func parkedAndWokenOn(t *testing.T, profile string) *handoffRig {
 // A wake brings a lane back with nobody there, outside a window, and it comes up to the bound on
 // generations and no further, because that is what stands in for a person who is not there.
 func TestAResumePastTheDayWaitsForAMember(t *testing.T) {
+	t.Parallel()
 	r := parkedAndWokenOn(t, oneGenerationADay)
 	r.pass(t)
 	r.laneState(lanes.Tripped)

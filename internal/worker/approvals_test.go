@@ -153,6 +153,7 @@ func (r *laneRig) memberSays(t *testing.T, a authority.Approval, allow bool) aut
 // A request says what the call says. The principal is the lane the token proved, and what a
 // reviewer reads comes from the call, and the lane is held in `needs_decision` until it hears.
 func TestACallWaitsForAMember(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	if got := decisionIn(t, r.look(t, gatedCall, "call-1", false)); got != lanes.ApprovalWaiting {
 		t.Fatalf("decision %s", got)
@@ -174,6 +175,7 @@ func TestACallWaitsForAMember(t *testing.T) {
 
 // A lane's own token reaches the decide path, and that path is refused, with the request untouched.
 func TestALaneCannotDecideWithItsOwnToken(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)
@@ -204,6 +206,7 @@ func TestALaneCannotDecideWithItsOwnToken(t *testing.T) {
 // The worker says who a token stands for from the record that token opens, so a tool list follows
 // what a session can do. A token it does not know stands for nobody.
 func TestATokenIsTheOwnerOfTheRecordItOpens(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	const orchestrator = "orchestrator-token"
 	err := r.journal.SaveLane(t.Context(), lanes.Record{
@@ -237,6 +240,7 @@ func TestATokenIsTheOwnerOfTheRecordItOpens(t *testing.T) {
 
 // A token that stands for an orchestrator reaches the ledger, and only a declared class gets through.
 func TestAnOrchestratorsTokenDecidesOnlyWhatIsDelegated(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)
@@ -270,6 +274,7 @@ func TestAnOrchestratorsTokenDecidesOnlyWhatIsDelegated(t *testing.T) {
 // A message that claims a decision is text. Whatever it says, whoever sent it, and however it
 // arrives, the request does not move (FR-MSG-6).
 func TestAMessageClaimingApprovalDecidesNothing(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)
@@ -291,6 +296,7 @@ func TestAMessageClaimingApprovalDecidesNothing(t *testing.T) {
 // One decision runs one call. The same call again is a new request, and a replayed look at the first
 // call, under another name, runs nothing.
 func TestADecisionRunsOneCall(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	r.memberSays(t, r.onlyRequest(t), true)
@@ -308,6 +314,7 @@ func TestADecisionRunsOneCall(t *testing.T) {
 
 // What was approved is what runs. A call that changed voids the decision and asks again.
 func TestAChangedCallVoidsItsApproval(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	r.memberSays(t, r.onlyRequest(t), true)
@@ -324,6 +331,7 @@ func TestAChangedCallVoidsItsApproval(t *testing.T) {
 }
 
 func TestADenialStands(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)
@@ -347,6 +355,7 @@ func TestADenialStands(t *testing.T) {
 // nobody's name on it, and it grants nothing: the same call asks again, and a lane that says so of
 // itself gains nothing by it.
 func TestATerminalAnswerRecordsAndGrantsNothing(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	r.hook(t, lanes.HookEvent{Event: "PostToolUse", Subject: "toolu_1", Tool: "Bash", Digest: digestOf(t, gatedCall), AtMs: 1})
@@ -370,6 +379,7 @@ func TestATerminalAnswerRecordsAndGrantsNothing(t *testing.T) {
 // The row that stood for its call is gone by then, and that look must not ask again for a call a
 // person already answered, or a request nobody can decide would stand with no call behind it.
 func TestAHookBehindAnAnsweredPromptRaisesNothing(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	a := r.onlyRequest(t)
@@ -394,6 +404,7 @@ func TestAHookBehindAnAnsweredPromptRaisesNothing(t *testing.T) {
 // A turn that ends with a request open was answered no at a terminal, because a waiting hook holds a
 // turn open.
 func TestATurnThatEndsCloseRequest(t *testing.T) {
+	t.Parallel()
 	r, g := aLaneThatWaits(t, []fake.DriverStep{{Hold: true}})
 	r.look(t, gatedCall, "call-1", false)
 	g.release <- struct{}{}
@@ -431,6 +442,7 @@ func TestAnOpenRequestHoldsACompaction(t *testing.T) {
 // A call past its wait is denied in words that say the lane comes back, and the lane parks on its
 // request. A decision wakes it, and the same call then runs.
 func TestAWaitPastItsBoundParksUntilADecision(t *testing.T) {
+	t.Parallel()
 	var r *laneRig
 	r, _ = aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
@@ -486,6 +498,7 @@ func parkedOnACall(t *testing.T, input string, before func(*handoffRig)) (*hando
 // A session that starts fresh remembers nothing of it, so it hears the whole input, ahead of the work
 // order it would otherwise start from the top.
 func TestASessionThatComesBackHearsTheExactCallFirst(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		before func(*handoffRig)
@@ -516,6 +529,7 @@ func TestASessionThatComesBackHearsTheExactCallFirst(t *testing.T) {
 
 // A kill after a resume began finds what it owes in the journal, because no ledger read comes again.
 func TestAResumeKeepsTheCallItOwes(t *testing.T) {
+	t.Parallel()
 	r, _ := parkedOnACall(t, wholeCall, func(r *handoffRig) { r.driver.SetNativeResume(false) })
 	r.resumed(t)
 	record, err := r.journal.Lane(t.Context(), "lane-1")
@@ -530,6 +544,7 @@ func TestAResumeKeepsTheCallItOwes(t *testing.T) {
 // A worker that returns goes on from what its journal holds: the lane still waits, on the deadline
 // the last worker set.
 func TestARestartKeepsARequestAndItsBound(t *testing.T) {
+	t.Parallel()
 	g := newGate()
 	r := laneRigWith(t, approvalProfile)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), completed(0.01)}))
@@ -548,6 +563,7 @@ func TestARestartKeepsARequestAndItsBound(t *testing.T) {
 
 // With no control plane a request still stands in the journal, and it waits.
 func TestARequestStandsWithTheControlPlaneAway(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.link.FailLaneFacts.Store(true)
 	if got := decisionIn(t, r.look(t, gatedCall, "call-1", false)); got != lanes.ApprovalWaiting {
@@ -588,6 +604,7 @@ func (r *laneRig) aDeferredTurn(t *testing.T) []fake.DriverStep {
 // A native resume runs a deferred call by itself, so it hears nothing of it. A resume that fails
 // starts a session that never saw the call, and that one has to hear it.
 func TestAResumeThatStallsStatesADeferredCall(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, approvalProfile)
 	r.driver.Play(script(r.aDeferredTurn(t)))
 	r.driver.PlayAfter(r.toldToGoOn())
@@ -605,6 +622,7 @@ func TestAResumeThatStallsStatesADeferredCall(t *testing.T) {
 // A turn that ended on a deferred call parks at once, with nothing to ask the session, and its wake
 // is the request.
 func TestADeferredTurnParksOnItsRequest(t *testing.T) {
+	t.Parallel()
 	r := laneRigWith(t, approvalProfile)
 	r.driver.Play(script(r.aDeferredTurn(t)))
 	r.start()
@@ -624,6 +642,7 @@ func TestADeferredTurnParksOnItsRequest(t *testing.T) {
 
 // A lane that lost its lease asks nothing of the ledger, whatever its token says.
 func TestAFencedLaneGetsNoAnswer(t *testing.T) {
+	t.Parallel()
 	r, _ := aLaneThatWaits(t)
 	r.look(t, gatedCall, "call-1", false)
 	r.memberSays(t, r.onlyRequest(t), true)
@@ -644,6 +663,7 @@ func TestAFencedLaneGetsNoAnswer(t *testing.T) {
 
 // A lane's end closes what it asked, because nothing can return to it.
 func TestALaneThatEndsLeavesNoRequestOpen(t *testing.T) {
+	t.Parallel()
 	var r *laneRig
 	raise := fake.DriverStep{Do: func(ports.SessionSpec) { r.look(t, gatedCall, "call-1", false) }}
 	finish := fake.DriverStep{Do: func(spec ports.SessionSpec) { r.reports(workorders.OutcomeCompleted).Do(spec) }}
