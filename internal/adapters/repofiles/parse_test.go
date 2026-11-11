@@ -457,3 +457,29 @@ func TestEveryAdoptionExampleIsAFile(t *testing.T) {
 		t.Errorf("met %v, existing milestone %v, existing contract %v, continues %v, left out %v", met, existingMilestone, existingContract, continues, leftOut)
 	}
 }
+
+// The document an adopt brief shows onboarded is a requirements file intake reads, under the IDs the document
+// already gave, with every line of the document as it was below the front matter.
+func TestTheOnboardedExampleKeepsTheDocument(t *testing.T) {
+	example := planning.OnboardedExample
+	if _, err := ParseFile([]byte(example.Before)); !errors.Is(err, planning.ErrNotOurs) {
+		t.Errorf("the document before onboarding reads as ours: %v", err)
+	}
+	doc, err := ParseFile([]byte(example.After))
+	if err != nil || doc.Requirements == nil {
+		t.Fatalf("the onboarded document: %+v: %v", doc, err)
+	}
+	var ids []string
+	for _, requirement := range doc.Requirements.Requirements {
+		ids = append(ids, requirement.ID)
+		if !strings.Contains(example.Before, requirement.ID) {
+			t.Errorf("requirement %s is not an ID the document gave", requirement.ID)
+		}
+	}
+	if !slices.Equal(ids, []string{"PAY-11", "PAY-12"}) || !doc.Requirements.Requirements[0].Met() {
+		t.Errorf("the onboarded requirements are %+v", doc.Requirements.Requirements)
+	}
+	if !strings.HasSuffix(example.After, "+++\n\n"+example.Before) || strings.TrimSpace(doc.Statement) != strings.TrimSpace(example.Before) {
+		t.Errorf("onboarding changed the document's prose:\n%s", doc.Statement)
+	}
+}

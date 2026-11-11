@@ -55,6 +55,9 @@ type BriefSpec struct {
 	Continues *Continuation
 	// Reads are the other repositories of the project the lane reads, read-only (ADR-0022).
 	Reads []ReadTree
+	// Adopt says this planning lane adopts an existing project (ADR-0023), so it is told how to onboard what
+	// the project holds and where the inventory of it is.
+	Adopt bool
 }
 
 // ReadTree is another repository of the project checked out for a lane to read, at the commit its claim
@@ -258,6 +261,9 @@ func Brief(spec BriefSpec) string {
 	}
 	if spec.Kind == workorders.KindPlan {
 		out.WriteString("\n" + planningNotice())
+		if spec.Adopt {
+			out.WriteString(adoptNotice())
+		}
 	}
 	if spec.Review != nil {
 		writeReview(&out, *spec.Review)
