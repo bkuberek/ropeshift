@@ -239,9 +239,10 @@ func TestExitE7ALinkSwappedAfterTheRequestRunsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := doubles.BinDir(in.path)
+	// The fake creates its log before it writes the line, so wait for the line, not the file.
 	in.waitFor("the hook's denial", func() bool {
-		_, err := os.Stat(filepath.Join(dir, "denied.log"))
-		return err == nil
+		raw, err := os.ReadFile(filepath.Join(dir, "denied.log"))
+		return err == nil && strings.Contains(string(raw), "\n")
 	})
 	if denied := logged(t, dir, "denied"); len(denied) != 1 || denied[0] != lanes.ReasonRequestClosed {
 		t.Errorf("denied %q", denied)
