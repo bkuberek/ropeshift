@@ -98,6 +98,7 @@ type handler struct {
 	effects      *control.Effects
 	notices      *control.Notices
 	repositories *control.Repositories
+	recoveries   *control.Recoveries
 	// lifecycle and router are the installation's, which only the first project's handler holds.
 	lifecycle *control.Projects
 	router    *router
@@ -192,6 +193,7 @@ func newHandler(config Config) *handler {
 		workOrders:   control.NewWorkOrders(config.Store),
 		leases:       control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
 		reviews:      control.NewReviews(config.Store),
+		recoveries:   control.NewRecoveries(config.Store),
 		accepting:    control.NewAcceptances(config.Store),
 		questions:    control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
 		fleet:        control.NewFleet(config.Store),
@@ -272,7 +274,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository), errors.Is(err, ledger.ErrInvalidProject):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadRecoveryPolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository), errors.Is(err, ledger.ErrInvalidProject):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, authority.ErrRiskNotAcknowledged):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeRiskNotAcknowledged, Message: err.Error()})
