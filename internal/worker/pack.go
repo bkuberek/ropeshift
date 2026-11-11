@@ -20,7 +20,7 @@ func (w *Worker) takeContext(ctx context.Context, lane lanes.Record, request lan
 	bounded, cancel := context.WithTimeout(ctx, askDeadline)
 	defer cancel()
 	found, err := w.link.LaneContext(bounded, ledger.LaneContextRequest{
-		Auth: w.Auth(), Epoch: w.epoch(), WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID,
+		Auth: w.Auth(), Epoch: w.epoch(), Project: lane.Project, WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID,
 		Tool: request.Tool, Kind: request.Kind, Ref: request.Ref, Query: request.Query, Limit: request.Limit,
 	})
 	var fenced *workorders.FencedError

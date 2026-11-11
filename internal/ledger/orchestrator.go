@@ -148,11 +148,13 @@ const (
 // WakeItem is one thing to judge. Stamp says how it stands, so an item that changed counts again and
 // one that did not counts once. Digest is what a decision on a request binds to.
 type WakeItem struct {
-	Kind   string `json:"kind"`
-	ID     string `json:"id"`
-	Stamp  int64  `json:"stamp"`
-	Text   string `json:"text"`
-	Digest string `json:"digest,omitempty"`
+	// Project names the project the item is in, on a plane that serves several.
+	Project string `json:"project,omitempty"`
+	Kind    string `json:"kind"`
+	ID      string `json:"id"`
+	Stamp   int64  `json:"stamp"`
+	Text    string `json:"text"`
+	Digest  string `json:"digest,omitempty"`
 }
 
 // Key names an item as it stands.
@@ -190,8 +192,10 @@ const (
 // OrchestratorCall is one such act. Lane names the run it speaks for, so a call from a start that was
 // replaced acts for nobody. Body carries what a verb reads that this package has no type for.
 type OrchestratorCall struct {
-	Auth      WorkerAuth      `json:"-"`
-	Epoch     int64           `json:"epoch"`
+	Auth  WorkerAuth `json:"-"`
+	Epoch int64      `json:"epoch"`
+	// Project is the project the act is in. A list names none and reads every active project.
+	Project   string          `json:"project,omitempty"`
 	Lane      string          `json:"lane"`
 	WorkOrder string          `json:"work_order,omitempty"`
 	Question  string          `json:"question,omitempty"`

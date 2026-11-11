@@ -237,7 +237,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	config := server.Config{
-		Scope: soloScope, Store: store, Projects: state, Unscoped: true, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
+		Scope: soloScope, Store: store, Projects: state, Installation: state.Installation, Unscoped: true, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),

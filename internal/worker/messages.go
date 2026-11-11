@@ -356,7 +356,7 @@ func (r *laneRun) readFacts(ctx context.Context) {
 	bounded, cancel := context.WithTimeout(ctx, laneFactsDeadline)
 	defer cancel()
 	held, err := r.w.link.LaneFacts(bounded, ledger.LaneFactsRequest{
-		Auth: r.w.Auth(), Epoch: r.w.epoch(), WorkOrder: r.lease.WorkOrder, Fence: r.lease.Fence, Lane: r.lease.Lane,
+		Auth: r.w.Auth(), Epoch: r.w.epoch(), Project: r.lease.Project, WorkOrder: r.lease.WorkOrder, Fence: r.lease.Fence, Lane: r.lease.Lane,
 	})
 	switch {
 	case err == nil:

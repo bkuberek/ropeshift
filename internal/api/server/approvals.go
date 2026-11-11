@@ -63,7 +63,7 @@ func (h *handler) workerUseApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	answer, err := h.workers.UseApproval(r.Context(), in)
+	answer, err := h.plane.UseApproval(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -79,7 +79,7 @@ func (h *handler) workerDecideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	record, err := h.workers.DecideApproval(r.Context(), in)
+	record, err := h.plane.DecideApproval(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return

@@ -20,8 +20,12 @@ const firstRun = 1
 
 // Orchestrator reads a worker's orchestrator. A worker no member started one on has none.
 func (w *Workers) Orchestrator(ctx context.Context, worker string) (ledger.Orchestrator, error) {
+	return orchestratorOf(ctx, w.store.Installation(w.scope), worker)
+}
+
+func orchestratorOf(ctx context.Context, installation ports.Installation, worker string) (ledger.Orchestrator, error) {
 	var row ledger.Orchestrator
-	err := w.store.Installation(w.scope).Read(ctx, func(tx ports.SharedReadTx) error {
+	err := installation.Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		row, err = tx.Workers().Orchestrator(worker)
 		return err
@@ -33,6 +37,10 @@ func (w *Workers) Orchestrator(ctx context.Context, worker string) (ledger.Orche
 // running asks for nothing new, unless its breaker tripped, which only a person may reset, or its
 // session stalled, which a new run replaces: a worker stops the run nobody asks for any more.
 func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, actor ledger.Actor) (ledger.Orchestrator, error) {
+	return setOrchestrator(ctx, w.store.Installation(w.scope), worker, desired, actor)
+}
+
+func setOrchestrator(ctx context.Context, installation ports.Installation, worker, desired string, actor ledger.Actor) (ledger.Orchestrator, error) {
 	if !authority.Allowed(actor, authority.ActionRunOrchestrator) {
 		return ledger.Orchestrator{}, workorders.ErrForbidden
 	}
@@ -40,7 +48,7 @@ func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, a
 		return ledger.Orchestrator{}, fmt.Errorf("%w: an orchestrator cannot be %q", workorders.ErrInvalid, desired)
 	}
 	var row ledger.Orchestrator
-	err := w.store.Installation(w.scope).Write(ctx, "orchestrator.set", func(tx ports.SharedTx) error {
+	err := installation.Write(ctx, "orchestrator.set", func(tx ports.SharedTx) error {
 		if _, err := tx.Workers().Find(worker); err != nil {
 			return err
 		}
@@ -86,8 +94,8 @@ func nextRun(current ledger.Orchestrator) ledger.Orchestrator {
 	return current
 }
 
-func desiredOrchestrator(tx ports.ReadTx, worker string) (*ledger.DesiredOrchestrator, error) {
-	row, err := tx.Workers().Orchestrator(worker)
+func desiredOrchestrator(workers ports.WorkerReader, worker string) (*ledger.DesiredOrchestrator, error) {
+	row, err := workers.Orchestrator(worker)
 	if errors.Is(err, ports.ErrNotFound) {
 		return nil, nil
 	}

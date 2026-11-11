@@ -278,6 +278,7 @@ func (a Approval) Outcome() string {
 type ApprovalUse struct {
 	Auth       ledger.WorkerAuth `json:"-"`
 	Epoch      int64             `json:"epoch"`
+	Project    string            `json:"project,omitempty"`
 	WorkOrder  string            `json:"work_order"`
 	Fence      int64             `json:"fence"`
 	Lane       string            `json:"lane"`
@@ -302,6 +303,7 @@ type ApprovalAnswer struct {
 type WorkerDecision struct {
 	Auth     ledger.WorkerAuth `json:"-"`
 	Epoch    int64             `json:"epoch"`
+	Project  string            `json:"project,omitempty"`
 	Decision Decision          `json:"decision"`
 }
 

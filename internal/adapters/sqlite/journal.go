@@ -131,9 +131,9 @@ type execer interface {
 
 func insertEvent(ctx context.Context, db execer, event ledger.UploadEvent) (ledger.UploadEvent, error) {
 	result, err := db.ExecContext(ctx, `INSERT INTO events
-  (epoch, type, work_order, claim_id, fence, lane, generation, payload, occurred_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-		event.Epoch, event.Type, event.WorkOrder, event.ClaimID, event.Fence, event.Lane, event.Generation, event.Payload, event.OccurredAt)
+  (epoch, type, work_order, claim_id, fence, lane, generation, payload, occurred_at, project)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+		event.Epoch, event.Type, event.WorkOrder, event.ClaimID, event.Fence, event.Lane, event.Generation, event.Payload, event.OccurredAt, event.Project)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}
@@ -157,7 +157,7 @@ func (j *Journal) Pending(ctx context.Context, limit int) ([]ledger.UploadEvent,
 	if err != nil {
 		return nil, err
 	}
-	rows, err := j.db.QueryContext(ctx, `SELECT seq, epoch, type, work_order, claim_id, fence, lane, generation, payload, occurred_at
+	rows, err := j.db.QueryContext(ctx, `SELECT seq, epoch, type, work_order, claim_id, fence, lane, generation, payload, occurred_at, project
   FROM events WHERE seq > ?1 ORDER BY seq LIMIT ?2`, through, limit)
 	if err != nil {
 		return nil, err
@@ -166,7 +166,7 @@ func (j *Journal) Pending(ctx context.Context, limit int) ([]ledger.UploadEvent,
 	var out []ledger.UploadEvent
 	for rows.Next() {
 		var e ledger.UploadEvent
-		if err := rows.Scan(&e.Seq, &e.Epoch, &e.Type, &e.WorkOrder, &e.ClaimID, &e.Fence, &e.Lane, &e.Generation, &e.Payload, &e.OccurredAt); err != nil {
+		if err := rows.Scan(&e.Seq, &e.Epoch, &e.Type, &e.WorkOrder, &e.ClaimID, &e.Fence, &e.Lane, &e.Generation, &e.Payload, &e.OccurredAt, &e.Project); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -218,7 +218,7 @@ func (j *Journal) Rejected(ctx context.Context) ([]ports.JournalResult, error) {
 
 // Leases lists what this worker holds.
 func (j *Journal) Leases(ctx context.Context) ([]ledger.HeldLease, error) {
-	rows, err := j.db.QueryContext(ctx, `SELECT work_order, claim, fence FROM leases ORDER BY work_order`)
+	rows, err := j.db.QueryContext(ctx, `SELECT project, work_order, claim, fence FROM leases ORDER BY project, work_order`)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (j *Journal) Leases(ctx context.Context) ([]ledger.HeldLease, error) {
 	var out []ledger.HeldLease
 	for rows.Next() {
 		var lease ledger.HeldLease
-		if err := rows.Scan(&lease.WorkOrder, &lease.Claim, &lease.Fence); err != nil {
+		if err := rows.Scan(&lease.Project, &lease.WorkOrder, &lease.Claim, &lease.Fence); err != nil {
 			return nil, err
 		}
 		out = append(out, lease)
@@ -245,8 +245,8 @@ func (j *Journal) SaveLeases(ctx context.Context, leases []ledger.HeldLease) err
 		return err
 	}
 	for _, lease := range leases {
-		_, err := tx.ExecContext(ctx, `INSERT INTO leases (work_order, claim, fence) VALUES (?1, ?2, ?3)`,
-			lease.WorkOrder, lease.Claim, lease.Fence)
+		_, err := tx.ExecContext(ctx, `INSERT INTO leases (project, work_order, claim, fence) VALUES (?1, ?2, ?3, ?4)`,
+			lease.Project, lease.WorkOrder, lease.Claim, lease.Fence)
 		if err != nil {
 			return err
 		}
@@ -280,7 +280,7 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen, owner`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen, owner, project`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
@@ -288,7 +288,7 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var progress, guard, handoff, parking, blocking []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen, &lane.Owner)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen, &lane.Owner, &lane.Project)
 	if err != nil {
 		return lane, err
 	}
@@ -333,15 +333,16 @@ func (j *Journal) SaveLane(ctx context.Context, lane lanes.Record) error {
 
 func saveLane(ctx context.Context, db execer, lane lanes.Record) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO lanes
-  (id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, run_mode, process_generation, owner)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+  (id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, run_mode, process_generation, owner, project)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6,
   token_digest = ?7, worktree = ?8, branch = ?9, report = coalesce(lanes.report, ?10),
   run_mode = coalesce(nullif(?11, ''), lanes.run_mode),
   process_generation = CASE WHEN ?12 = 0 THEN lanes.process_generation ELSE ?12 END,
-  owner = coalesce(nullif(?13, ''), lanes.owner)`,
+  owner = coalesce(nullif(?13, ''), lanes.owner),
+  project = coalesce(nullif(?14, ''), lanes.project)`,
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State,
-		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report, lane.RunMode, lane.Process, lane.Owner)
+		nullable(lane.TokenDigest), lane.Worktree, lane.Branch, lane.Report, lane.RunMode, lane.Process, lane.Owner, lane.Project)
 	return err
 }
 
@@ -516,13 +517,13 @@ func (j *Journal) BeginResume(ctx context.Context, lane lanes.Record, event ledg
 	}
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx, `INSERT INTO lanes
-  (id, work_order, claim, fence, generation, state, worktree, branch, resume_session, progress, handoff, parking, actual)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+  (id, work_order, claim, fence, generation, state, worktree, branch, resume_session, progress, handoff, parking, actual, project)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
 ON CONFLICT (id) DO UPDATE SET work_order = ?2, claim = ?3, fence = ?4, generation = ?5, state = ?6, token_digest = NULL,
   session_id = '', resume_session = ?9, progress = ?10, handoff = ?11, parking = ?12, blocking = NULL, actual = ?13,
-  process_generation = 0`,
+  process_generation = 0, project = coalesce(nullif(?14, ''), lanes.project)`,
 		lane.ID, lane.WorkOrder, lane.ClaimID, lane.Fence, lane.Generation, lane.State, lane.Worktree, lane.Branch,
-		lane.ResumeSession, progress, handoff, parking, lane.Actual)
+		lane.ResumeSession, progress, handoff, parking, lane.Actual, lane.Project)
 	if err != nil {
 		return ledger.UploadEvent{}, err
 	}

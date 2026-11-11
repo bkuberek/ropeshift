@@ -282,7 +282,7 @@ func (r *laneRun) askLedger(ctx context.Context, lane lanes.Record, call authori
 	bounded, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	return r.w.link.UseApproval(bounded, authority.ApprovalUse{
-		Auth: r.w.Auth(), Epoch: r.w.epoch(), WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID, Generation: lane.Generation,
+		Auth: r.w.Auth(), Epoch: r.w.epoch(), Project: lane.Project, WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID, Generation: lane.Generation,
 		Subject: call.Tool, Digest: call.Digest, Call: request.Call, Peek: request.Peek,
 	})
 }

@@ -112,7 +112,7 @@ func (r *laneRun) settled(ctx context.Context, report workorders.Report) workord
 // the next one finishes, and the crash still costs one restart. It reports false when
 // the lane has no next generation.
 func (r *laneRun) backOff(ctx context.Context) bool {
-	if !r.orchestrating() && !r.w.admitsRestart(ctx) {
+	if !r.orchestrating() && !r.w.admitsRestart(ctx, r.lease.Project) {
 		return false
 	}
 	next := r.currentGeneration() + 1

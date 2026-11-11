@@ -126,8 +126,9 @@ type ClaimRequest struct {
 	WorkerID string `json:"worker_id"`
 	TTLMs    int64  `json:"ttl_ms,omitempty"`
 	// WorkOrder names the work a worker claims on the plane protocol's route, which has no work order
-	// in its path.
+	// in its path, and Project the project it belongs to.
 	WorkOrder string `json:"work_order,omitempty"`
+	Project   string `json:"project,omitempty"`
 }
 
 // ContractPin names the contract version a work order pinned.

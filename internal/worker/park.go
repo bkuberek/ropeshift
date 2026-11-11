@@ -384,9 +384,9 @@ func (r *laneRun) parkOnScreen(ctx context.Context) workorders.Report {
 	return workorders.Report{Outcome: workorders.OutcomeBlocked, Reason: workorders.ReasonUnknownScreen}
 }
 
-// draining says the fleet stops new work, as desired state last said.
+// draining says the fleet of this lane's project stops new work, as desired state last said.
 func (r *laneRun) draining(ctx context.Context) bool {
-	return r.w.fleetMode(ctx) == lanes.FleetDrain
+	return r.w.fleetMode(ctx, r.lease.Project) == lanes.FleetDrain
 }
 
 // parkDrained parks a lane a draining fleet stops. Finishing the turn comes first, then the
@@ -411,14 +411,13 @@ func (r *laneRun) parkDrained(ctx context.Context) {
 	}
 }
 
-// drainLanes applies a draining fleet to the lanes this worker runs. Each lane decides alone,
-// so one stuck lane stops no other.
+// drainLanes applies a draining fleet to the lanes this worker runs, each by its own project's mode. Each
+// lane decides alone, so one stuck lane stops no other.
 func (w *Worker) drainLanes(ctx context.Context) {
-	if w.fleetMode(ctx) != lanes.FleetDrain {
-		return
-	}
 	for _, run := range w.runs() {
-		run.parkDrained(ctx)
+		if run.draining(ctx) {
+			run.parkDrained(ctx)
+		}
 	}
 }
 

@@ -128,6 +128,10 @@ func workerEvent(eventType, id string, actor ledger.Actor) ledger.EventDraft {
 // CreateJoinToken makes a single-use token for one worker. The ledger keeps only its
 // digest, so the answer is the one time anyone sees it.
 func (w *Workers) CreateJoinToken(ctx context.Context, actor ledger.Actor) (string, error) {
+	return createJoinToken(ctx, w.store.Installation(w.scope), actor)
+}
+
+func createJoinToken(ctx context.Context, installation ports.Installation, actor ledger.Actor) (string, error) {
 	if !authority.Allowed(actor, authority.ActionCreateJoinToken) {
 		return "", workorders.ErrForbidden
 	}
@@ -136,7 +140,7 @@ func (w *Workers) CreateJoinToken(ctx context.Context, actor ledger.Actor) (stri
 		return "", err
 	}
 	var token string
-	err = w.store.Installation(w.scope).Write(ctx, "worker.join_token", func(tx ports.SharedTx) error {
+	err = installation.Write(ctx, "worker.join_token", func(tx ports.SharedTx) error {
 		id, err := newID(tx.Now())
 		if err != nil {
 			return err
@@ -161,6 +165,10 @@ func (w *Workers) CreateJoinToken(ctx context.Context, actor ledger.Actor) (stri
 // a retry by that worker is the same registration, and it issues a new credential
 // because the first answer may never have arrived.
 func (w *Workers) Register(ctx context.Context, registration ledger.Registration) (ledger.WorkerCredential, error) {
+	return registerWorker(ctx, w.store.Installation(w.scope), registration)
+}
+
+func registerWorker(ctx context.Context, installation ports.Installation, registration ledger.Registration) (ledger.WorkerCredential, error) {
 	id, secret, ok := strings.Cut(registration.JoinToken, ".")
 	if !ok {
 		return ledger.WorkerCredential{}, ledger.ErrBadJoinToken
@@ -169,7 +177,7 @@ func (w *Workers) Register(ctx context.Context, registration ledger.Registration
 	if err != nil {
 		return ledger.WorkerCredential{}, err
 	}
-	err = w.store.Installation(w.scope).Write(ctx, "worker.register", func(tx ports.SharedTx) error {
+	err = installation.Write(ctx, "worker.register", func(tx ports.SharedTx) error {
 		grant, err := tx.Workers().JoinGrant(id)
 		if errors.Is(err, ports.ErrNotFound) {
 			return ledger.ErrBadJoinToken
@@ -224,14 +232,32 @@ func authenticate(workers ports.WorkerReader, auth ledger.WorkerAuth) (ledger.Wo
 // OpenSession opens a new epoch and negotiates the protocol. The epoch moves in one
 // transaction, so an older session is stale from this commit on.
 func (w *Workers) OpenSession(ctx context.Context, request ledger.SessionRequest) (ledger.Session, error) {
-	session := ledger.Session{HeartbeatMs: w.options.HeartbeatMs, LeaseTTLMs: w.options.LeaseTTLMs}
-	err := w.store.Installation(w.scope).Write(ctx, "worker.session", func(tx ports.SharedTx) error {
+	session, err := openSession(ctx, w.store.Installation(w.scope), w.options, request, nil)
+	if err != nil {
+		return ledger.Session{}, err
+	}
+	if session.DesiredRev, err = w.desiredRev(ctx); err != nil {
+		return ledger.Session{}, err
+	}
+	return session, nil
+}
+
+// openSession opens a new epoch on the installation's records. accept, when set, can refuse the protocol
+// the two sides agreed on, before anything changes.
+func openSession(ctx context.Context, installation ports.Installation, options WorkerOptions, request ledger.SessionRequest, accept func(int) error) (ledger.Session, error) {
+	session := ledger.Session{HeartbeatMs: options.HeartbeatMs, LeaseTTLMs: options.LeaseTTLMs}
+	err := installation.Write(ctx, "worker.session", func(tx ports.SharedTx) error {
 		record, err := authenticate(tx.Workers(), request.Auth)
 		if err != nil {
 			return err
 		}
-		if session.Protocol, err = ledger.NegotiateProtocol(w.options.Protocol, request.Protocol); err != nil {
+		if session.Protocol, err = ledger.NegotiateProtocol(options.Protocol, request.Protocol); err != nil {
 			return err
+		}
+		if accept != nil {
+			if err := accept(session.Protocol); err != nil {
+				return err
+			}
 		}
 		next := record.Worker
 		next.Protocol, next.Manifest = session.Protocol, request.Manifest
@@ -243,13 +269,7 @@ func (w *Workers) OpenSession(ctx context.Context, request ledger.SessionRequest
 		_, err = tx.Append(draft)
 		return err
 	})
-	if err != nil {
-		return ledger.Session{}, err
-	}
-	if session.DesiredRev, err = w.desiredRev(ctx); err != nil {
-		return ledger.Session{}, err
-	}
-	return session, nil
+	return session, err
 }
 
 // checkSession reads the worker and refuses a stale epoch.
@@ -373,21 +393,10 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			state.Unchanged = true
 			return nil
 		}
-		held, err := tx.WorkOrders().HeldBy(request.Auth.WorkerID)
-		if err != nil {
+		if err := desiredIn(tx, request.Auth.WorkerID, &state); err != nil {
 			return err
 		}
-		for _, row := range held {
-			lease, err := desiredLease(tx, row)
-			if err != nil {
-				return err
-			}
-			state.Leases = append(state.Leases, lease)
-		}
-		if state.Archives, err = tx.Lanes().Archiving(request.Auth.WorkerID); err != nil {
-			return err
-		}
-		if state.Orchestrator, err = desiredOrchestrator(tx, request.Auth.WorkerID); err != nil {
+		if state.Orchestrator, err = desiredOrchestrator(tx.Workers(), request.Auth.WorkerID); err != nil {
 			return err
 		}
 		facts, err := autonomyOf(tx, request.Auth.WorkerID)
@@ -395,16 +404,41 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 			return err
 		}
 		state.MaxRespawnsPerDay = facts.respawns()
-		if state.Effects, err = desiredEffects(tx, request.Auth.WorkerID); err != nil {
-			return err
-		}
-		state.Woken, err = wokenFor(tx, request.Auth.WorkerID)
-		return err
+		return nil
 	})
 	if err != nil {
 		return ledger.DesiredState{}, err
 	}
 	return state, nil
+}
+
+// desiredIn adds what one project asks of a worker: the leases it holds there, the worktrees to remove,
+// the effects a person decided, and the woken work it may claim.
+func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error {
+	held, err := tx.WorkOrders().HeldBy(worker)
+	if err != nil {
+		return err
+	}
+	for _, row := range held {
+		lease, err := desiredLease(tx, row)
+		if err != nil {
+			return err
+		}
+		state.Leases = append(state.Leases, lease)
+	}
+	archives, err := tx.Lanes().Archiving(worker)
+	if err != nil {
+		return err
+	}
+	state.Archives = append(state.Archives, archives...)
+	effects, err := desiredEffects(tx, worker)
+	if err != nil {
+		return err
+	}
+	state.Effects = append(state.Effects, effects...)
+	woken, err := wokenFor(tx, worker)
+	state.Woken = append(state.Woken, woken...)
+	return err
 }
 
 // wokenFor lists the woken work this worker may claim, the most urgent first.
@@ -667,14 +701,19 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 			return storeOrchestratorEvent(ctx, w.store.Installation(w.scope), worker, id, e)
 		}
 	}
-	err := write(ctx)
+	return uploadResult(e, write(ctx))
+}
+
+// uploadResult answers one stored event: nothing when it stood, a result the worker keeps when the ledger
+// refused it, and an error for a failure the worker sends the event again after.
+func uploadResult(e ledger.UploadEvent, err error) (*ledger.UploadResult, error) {
 	var fenced *workorders.FencedError
 	switch {
 	case err == nil:
 		return nil, nil
 	case errors.As(err, &fenced):
 		return &ledger.UploadResult{Seq: e.Seq, Status: ledger.UploadFenced, CurrentFence: fenced.Current, State: string(fenced.State)}, nil
-	case errors.Is(err, ports.ErrNotFound), errors.Is(err, workorders.ErrInvalid):
+	case errors.Is(err, ports.ErrNotFound), errors.Is(err, workorders.ErrInvalid), errors.Is(err, ledger.ErrProjectArchived):
 		return &ledger.UploadResult{Seq: e.Seq, Status: ledger.UploadInvalid, Detail: err.Error()}, nil
 	}
 	return nil, err
@@ -761,9 +800,35 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 	return err
 }
 
+// storeQualification stores a probe's result once, in the installation's log, because it is a fact about a
+// worker and no project's.
+func storeQualification(ctx context.Context, installation ports.Installation, worker, id string, e ledger.UploadEvent) error {
+	return installation.Write(ctx, opUpload, func(tx ports.SharedTx) error {
+		if _, err := tx.Event(id); err == nil {
+			return nil
+		} else if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		return qualifiedUpload(tx, worker, id, e)
+	})
+}
+
+// workspace reads this project's workspace record.
+func (w *Workers) workspace(ctx context.Context) (ledger.Workspace, error) {
+	var workspace ledger.Workspace
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		var err error
+		workspace, err = tx.Workspace()
+		return err
+	})
+	return workspace, err
+}
+
 // qualifiedUpload records what a worker's probe observed of its driver's version. It belongs to the
 // worker and no lane, so no fence guards it, and a document that is not a probe's result is refused.
-func qualifiedUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+func qualifiedUpload(tx interface {
+	Append(ledger.EventDraft) (ledger.Event, error)
+}, worker, id string, e ledger.UploadEvent) error {
 	var q lanes.Qualification
 	if err := json.Unmarshal(e.Payload, &q); err != nil {
 		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
@@ -1140,8 +1205,12 @@ func (w *Workers) Offered(ctx context.Context, worker string) ([]workorders.Work
 
 // List returns every registered worker.
 func (w *Workers) List(ctx context.Context) ([]ledger.Worker, error) {
+	return listWorkers(ctx, w.store.Installation(w.scope))
+}
+
+func listWorkers(ctx context.Context, installation ports.Installation) ([]ledger.Worker, error) {
 	var workers []ledger.Worker
-	err := w.store.Installation(w.scope).Read(ctx, func(tx ports.SharedReadTx) error {
+	err := installation.Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		workers, err = tx.Workers().List()
 		return err

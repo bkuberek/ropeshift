@@ -65,6 +65,9 @@ type ClaimRequest struct {
 	ClaimID   string
 	Worker    string
 	TTLMs     int64
+	// Project is the project the work order belongs to, on the plane protocol. Empty names the plane's
+	// only project.
+	Project string
 }
 
 // Grant is the claim response.

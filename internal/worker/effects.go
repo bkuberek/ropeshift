@@ -78,7 +78,7 @@ func (w *Worker) settleDecided(ctx context.Context) {
 			w.config.Report(fmt.Errorf("effect %s: %w", decided.Key, err))
 			continue
 		}
-		event := w.event(ledger.UploadEffectSettled, lanes.Record{}, payload)
+		event := w.event(ledger.UploadEffectSettled, lanes.Record{Project: decided.Project}, payload)
 		first, err := w.journal.SettleEffect(ctx, verdictOf(decided), heldEvent(event))
 		if err == nil && first {
 			err = w.afterSplit(ctx, event)

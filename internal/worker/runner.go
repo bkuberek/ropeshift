@@ -272,7 +272,7 @@ func (w *Worker) stopFenced(ctx context.Context, lost ledger.FencedLease) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, run := range w.running {
-		if run.lease.WorkOrder == lost.WorkOrder && run.lease.Fence == lost.Fence {
+		if run.lease.Project == lost.Project && run.lease.WorkOrder == lost.WorkOrder && run.lease.Fence == lost.Fence {
 			run.lost(ctx)
 		}
 	}
@@ -311,7 +311,7 @@ func (w *Worker) stopLost(ctx context.Context) {
 	}
 	named := map[string]bool{}
 	for _, lease := range state.Leases {
-		named[lease.ClaimID] = true
+		named[leaseKey(lease.Project, lease.ClaimID)] = true
 	}
 	w.mu.Lock()
 	runs := make([]*laneRun, 0, len(w.running))
@@ -320,7 +320,7 @@ func (w *Worker) stopLost(ctx context.Context) {
 	}
 	w.mu.Unlock()
 	for _, run := range runs {
-		if run.orchestrating() || named[run.lease.ClaimID] {
+		if run.orchestrating() || named[leaseKey(run.lease.Project, run.lease.ClaimID)] {
 			continue
 		}
 		record, err := w.journal.Lane(ctx, run.lease.Lane)
@@ -358,7 +358,7 @@ func (w *Worker) event(eventType string, record lanes.Record, payload []byte) le
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return ledger.UploadEvent{
-		Epoch: w.identity.Epoch, Type: eventType, WorkOrder: record.WorkOrder, ClaimID: record.ClaimID, Fence: record.Fence,
+		Epoch: w.identity.Epoch, Project: record.Project, Type: eventType, WorkOrder: record.WorkOrder, ClaimID: record.ClaimID, Fence: record.Fence,
 		Lane: record.ID, Generation: record.Generation, Payload: payload, OccurredAt: w.clock.Now().UnixMilli(),
 	}
 }
@@ -386,7 +386,7 @@ func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workor
 
 func (r *laneRun) record() lanes.Record {
 	record := lanes.Record{
-		ID: r.lease.Lane, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence,
+		ID: r.lease.Lane, Project: r.lease.Project, WorkOrder: r.lease.WorkOrder, ClaimID: r.lease.ClaimID, Fence: r.lease.Fence,
 		Generation: r.currentGeneration(), State: lanes.StateRunning, Process: r.processGeneration(),
 	}
 	if r.orchestrating() {

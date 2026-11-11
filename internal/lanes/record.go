@@ -20,7 +20,9 @@ const (
 // Record is what a worker keeps about one lane, so a restart works from its journal
 // alone. It holds the digest of the lane's token and never the token.
 type Record struct {
-	ID          string
+	ID string
+	// Project is the project the lane's work order belongs to. Empty names the plane's only project.
+	Project     string
 	WorkOrder   string
 	ClaimID     string
 	Fence       int64

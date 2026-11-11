@@ -55,7 +55,7 @@ func authOf(r *http.Request) ledger.WorkerAuth {
 }
 
 func (h *handler) createJoinToken(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
-	token, err := h.workers.CreateJoinToken(r.Context(), actor)
+	token, err := h.plane.CreateJoinToken(r.Context(), actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -72,7 +72,7 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "a registration needs a worker_id")
 		return
 	}
-	credential, err := h.workers.Register(r.Context(), in)
+	credential, err := h.plane.Register(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -104,7 +104,7 @@ func (h *handler) showLane(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) listWorkers(w http.ResponseWriter, r *http.Request) {
-	workers, err := h.workers.List(r.Context())
+	workers, err := h.plane.List(r.Context())
 	if err != nil {
 		fail(w, err)
 		return
@@ -121,7 +121,7 @@ func (h *handler) openSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	session, err := h.workers.OpenSession(r.Context(), in)
+	session, err := h.plane.OpenSession(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -139,7 +139,7 @@ func (h *handler) heartbeat(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "a heartbeat needs a nonce")
 		return
 	}
-	answer, err := h.workers.Heartbeat(r.Context(), in)
+	answer, err := h.plane.Heartbeat(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -153,7 +153,12 @@ func (h *handler) desired(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "since must be a revision")
 		return
 	}
-	state, err := h.workers.Desired(r.Context(), ledger.DesiredRequest{Auth: authOf(r), Since: since})
+	revisions, err := api.ParseRevisions(r.URL.Query()["revision"])
+	if err != nil {
+		invalid(w, "%v", err)
+		return
+	}
+	state, err := h.plane.Desired(r.Context(), ledger.DesiredRequest{Auth: authOf(r), Since: since, Revisions: revisions})
 	if err != nil {
 		fail(w, err)
 		return
@@ -168,7 +173,7 @@ func (h *handler) watch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		after = 0
 	}
-	hints, err := h.workers.Watch(r.Context(), ledger.WatchRequest{Auth: authOf(r), After: after})
+	hints, err := h.plane.Watch(r.Context(), ledger.WatchRequest{Auth: authOf(r), After: after})
 	if err != nil {
 		fail(w, err)
 		return
@@ -196,7 +201,7 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	answer, err := h.workers.Upload(r.Context(), in)
+	answer, err := h.plane.Upload(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -212,7 +217,7 @@ func (h *handler) workerAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	result, err := h.workers.Ask(r.Context(), in)
+	result, err := h.plane.Ask(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -227,7 +232,7 @@ func (h *handler) workerLaneFacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	result, err := h.workers.LaneFacts(r.Context(), in)
+	result, err := h.plane.LaneFacts(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -242,7 +247,7 @@ func (h *handler) workerLaneContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	result, err := h.workers.LaneContext(r.Context(), in)
+	result, err := h.plane.LaneContext(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -258,7 +263,7 @@ func (h *handler) workerRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	record, err := h.workers.Rule(r.Context(), in)
+	record, err := h.plane.Rule(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return

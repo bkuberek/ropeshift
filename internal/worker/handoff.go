@@ -277,7 +277,7 @@ func (r *laneRun) handoffFacts(ctx context.Context, record lanes.Record, guard l
 	bounded, cancel := context.WithTimeout(ctx, laneFactsDeadline)
 	defer cancel()
 	held, err := r.w.link.LaneFacts(bounded, ledger.LaneFactsRequest{
-		Auth: r.w.Auth(), Epoch: r.w.epoch(), WorkOrder: record.WorkOrder, Fence: record.Fence, Lane: record.ID,
+		Auth: r.w.Auth(), Epoch: r.w.epoch(), Project: record.Project, WorkOrder: record.WorkOrder, Fence: record.Fence, Lane: record.ID,
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: the handoff's ledger facts: %w", record.ID, err))
