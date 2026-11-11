@@ -52,6 +52,8 @@ const (
 	CodeStaleStatement = "stale_statement"
 	// CodeNoProject means a path names a project the installation does not hold.
 	CodeNoProject = "no_project"
+	// CodeRepositoryHeld means another project holds the repository, which the message names.
+	CodeRepositoryHeld = "repository_held"
 )
 
 // ErrorBody is every error response.

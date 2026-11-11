@@ -25,6 +25,8 @@ An installation holds one or more projects, and each project's records live in a
 
 With none of these, the command exits 2 and lists the projects. A name the installation does not hold exits 2 with the same list.
 
+A repository belongs to one project. Its identity is its remote, or its first commit when it has none, so every clone of one repository is the same repository. Registering a repository another project holds is refused with exit 4, and the message names that project.
+
 The commands on the installation's own records take no project: `project`, `worker`, `orchestrator`, `login`, `sign-out`, `passphrase`, `init`, `service`, `health`, `telemetry`, which reads the worker's own store, and `backup --installation`.
 
 ## Commands
@@ -148,7 +150,7 @@ These commands are for ropeshift or an agent CLI to run, and a person does not n
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--source <path>` | None | A repository to read work and documents from. Repeat it for each repository |
+| `--source <path>` | None | A repository to read work and documents from, into the installation's first project. Repeat it for each repository. A repository another project holds is refused: each read says which project holds it, and reads nothing from it |
 | `--ref <ref>` | The default branch | The ref intake reads in each source |
 | `--dir <dir>` | The whole repository | The directory intake reads in each source |
 | `--web <address>` | `127.0.0.1:7317`, or `ROPESHIFT_WEB` | The loopback address of the web UI, or `off` |

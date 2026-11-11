@@ -228,6 +228,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadPassphrase, Message: err.Error()})
 	case errors.Is(err, authority.ErrNotEnrolled):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeNotEnrolled, Message: err.Error()})
+	case errors.Is(err, ledger.ErrRepositoryHeld):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRepositoryHeld, Message: err.Error()})
 	case errors.Is(err, ledger.ErrStaleEpoch):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):

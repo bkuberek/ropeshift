@@ -36,6 +36,10 @@ var ErrInvalidProject = errors.New("invalid project")
 // ErrProjectExists means another project of the installation holds the ID, the name, or the database.
 var ErrProjectExists = errors.New("a project holds that ID, name, or database")
 
+// ErrRepositoryHeld means another project of the installation holds the repository (ADR-0021). The error
+// names that project.
+var ErrRepositoryHeld = errors.New("another project holds that repository")
+
 // projectNameLimit keeps a name usable as one segment of a URL path and a DNS label.
 const projectNameLimit = 63
 
