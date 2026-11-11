@@ -1,6 +1,8 @@
 package lanes
 
 import (
+	"errors"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
@@ -669,6 +671,25 @@ func (p DenyPolicy) throughLink(word shellWord, at string) bool {
 		return false
 	}
 	return false
+}
+
+// BypassMode is the agent's mode that asks nothing and lets every call through. No lane runs in it
+// (NFR-SEC-3): a lane in it would push and run every gated action with nobody asked (FR-LANE-19).
+const BypassMode = "bypassPermissions"
+
+// ErrBypassMode means a session was to start in BypassMode.
+var ErrBypassMode = errors.New("no lane runs in a permission-bypass mode")
+
+// CheckPermissionMode refuses a mode no lane may run in: the bypass mode, and a mode this does not know,
+// because an unknown mode could be one.
+func CheckPermissionMode(mode string) error {
+	if mode == BypassMode {
+		return fmt.Errorf("%w: %w", ErrBadProfile, ErrBypassMode)
+	}
+	if _, known := permissionRanks[mode]; !known {
+		return fmt.Errorf("%w: permission_mode %q is none of plan, default, acceptEdits, dontAsk, and auto", ErrBadProfile, mode)
+	}
+	return nil
 }
 
 // permissionRanks orders the modes by how much runs without asking. Anything else outranks

@@ -67,6 +67,7 @@ A session that comes back to an approved call hears that exact call first, with 
 | A push never shares a call with a stage or a commit | The hook, so a push reaches a person however the CLI reads a compound command |
 | A push reaches a person in every permission mode, and a force push or a push to a default branch reaches nobody | A generated ask rule on every push, which no allow rule outranks, and the hook and generated deny rules refuse the rest |
 | Every action a profile gates asks, in every permission mode | A generated ask rule for each gate, which outranks every allow rule |
+| No lane runs in a permission-bypass mode | The profile, which refuses `bypassPermissions` and any mode it does not know in every layer, the driver, which refuses to start or resume a session in it, and generated settings, which turn the mode off in the agent CLI |
 | A worker pushes a lane's work only when the user chose it | The profile, where `push_on_stop` is off by default, only the user's layer sets it, and a repository's layer or a lane's overrides that change it are refused. See [onboarding](onboarding.md#work-stays-on-this-machine) |
 
 ## The web listener

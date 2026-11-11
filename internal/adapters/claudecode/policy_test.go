@@ -597,3 +597,47 @@ func TestFileProgramsNeedAHookAndAWorktree(t *testing.T) {
 		})
 	}
 }
+
+// NFR-SEC-3 and FR-LANE-19: no session ropeshift generates runs in a mode that bypasses every check, in
+// any lane, any mode a profile may choose, or either run mode. Its settings name no bypass, its flags
+// skip no check, its policy holds a lane to its worktree, and its settings turn the bypass mode off, so
+// the CLI refuses to enter it even from a key a person presses in a pane.
+func TestNoGeneratedSettingUsesABypassMode(t *testing.T) {
+	sessions := map[string]func(*ports.SessionSpec){
+		"a change lane":   func(*ports.SessionSpec) {},
+		"a planning lane": func(spec *ports.SessionSpec) { spec.Planning = true },
+		"a review lane":   func(spec *ports.SessionSpec) { spec.ReadOnly = true },
+		"an orchestrator": func(spec *ports.SessionSpec) { spec.OnlyTools, spec.Tools = true, []string{"question_next"} },
+		"a lane that reads another repository": func(spec *ports.SessionSpec) {
+			spec.ReadOnlyDirs = []string{filepath.Join(filepath.Dir(spec.Dir), "lane-1.reads", "api")}
+		},
+		"a lane that continues a branch": func(spec *ports.SessionSpec) { spec.Kept = []string{"feature/retry"} },
+	}
+	for name, change := range sessions {
+		for _, mode := range []string{"plan", "default", "acceptEdits", "dontAsk", "auto"} {
+			for _, run := range []string{ports.RunModeHeadless, ports.RunModeInteractive} {
+				t.Run(name+"/"+mode+"/"+run, func(t *testing.T) {
+					spec := policySpec(t)
+					spec.PermissionMode, spec.RunMode, spec.Model = mode, run, "opus"
+					change(&spec)
+					settings := generateSettings(spec)
+					if settings.Permissions.DisableBypassPermissionsMode != "disable" {
+						t.Errorf("the bypass mode is not turned off: %+v", settings.Permissions)
+					}
+					raw, err := json.Marshal(map[string]any{"settings": settings, "policy": compilePolicy(spec), "mcp": generateMCP(spec)})
+					if err != nil {
+						t.Fatal(err)
+					}
+					command := slices.Concat(StartArgs(spec), paneArgs(spec))
+					for _, text := range append(command, string(raw)) {
+						for _, bypass := range []string{lanes.BypassMode, "dangerously", "defaultMode"} {
+							if strings.Contains(text, bypass) {
+								t.Errorf("%q names %s", text, bypass)
+							}
+						}
+					}
+				})
+			}
+		}
+	}
+}

@@ -315,6 +315,9 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	if spec.PermissionMode == "" {
 		problem("no permission mode")
 	}
+	if spec.PermissionMode == lanes.BypassMode {
+		problem("permission mode %s: %v", spec.PermissionMode, lanes.ErrBypassMode)
+	}
 	if spec.Model == "" {
 		problem("no model")
 	}
@@ -393,6 +396,9 @@ func ResumeArgs(spec ports.SessionSpec, from ports.ResumeRef) []string {
 
 // Start launches a session and hands it the brief.
 func (d *Driver) Start(ctx context.Context, spec ports.SessionSpec) (ports.SessionHandle, error) {
+	if spec.PermissionMode == lanes.BypassMode {
+		return ports.SessionHandle{}, lanes.ErrBypassMode
+	}
 	if spec.RunMode == ports.RunModeInteractive {
 		return d.launchPane(ctx, spec, paneArgs(spec), checkFresh, lanes.CostMeter{})
 	}
@@ -402,6 +408,9 @@ func (d *Driver) Start(ctx context.Context, spec ports.SessionSpec) (ports.Sessi
 // Resume continues an earlier session as a new generation, and its cost continues
 // from the last running total.
 func (d *Driver) Resume(ctx context.Context, spec ports.SessionSpec, from ports.ResumeRef) (ports.SessionHandle, error) {
+	if spec.PermissionMode == lanes.BypassMode {
+		return ports.SessionHandle{}, lanes.ErrBypassMode
+	}
 	meter := lanes.CostMeter{SessionTotalUSD: from.SessionTotalUSD}
 	if spec.RunMode == ports.RunModeInteractive {
 		return d.launchPane(ctx, spec, append(paneArgs(spec), "--resume", from.SessionID), checkResume, meter)

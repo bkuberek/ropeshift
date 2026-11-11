@@ -174,6 +174,27 @@ func drain(t *testing.T, driver ports.AgentDriver, handle ports.SessionHandle) [
 	}
 }
 
+// NFR-SEC-3: a start or a resume in a mode that bypasses every check is refused before any process
+// runs, in either run mode, whatever a caller skipped.
+func TestNoSessionStartsInABypassMode(t *testing.T) {
+	for _, run := range []string{ports.RunModeHeadless, ports.RunModeInteractive} {
+		t.Run(run, func(t *testing.T) {
+			driver, _, spec := session(t, "two-turns", func(spec *ports.SessionSpec) {
+				spec.PermissionMode, spec.RunMode = lanes.BypassMode, run
+			})
+			if _, err := driver.Start(t.Context(), spec); !errors.Is(err, lanes.ErrBypassMode) {
+				t.Errorf("start: %v", err)
+			}
+			if _, err := driver.Resume(t.Context(), spec, ports.ResumeRef{SessionID: "the-session"}); !errors.Is(err, lanes.ErrBypassMode) {
+				t.Errorf("resume: %v", err)
+			}
+			if _, err := os.Stat(spec.ConfigDir); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("the session's settings were written: %v", err)
+			}
+		})
+	}
+}
+
 func TestAnUnqualifiedVersionIsDegraded(t *testing.T) {
 	driver, path, spec := session(t, "unqualified-version", nil)
 	got, err := driver.Capabilities(t.Context())

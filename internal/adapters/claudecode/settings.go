@@ -52,7 +52,13 @@ type permissions struct {
 	// AdditionalDirectories are directories outside the worktree the session may read with no prompt: the
 	// worktrees of other repositories it reads, which its deny rules keep it from writing.
 	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+	// DisableBypassPermissionsMode is `disable`, so the CLI refuses the bypass mode in every session
+	// ropeshift starts, from a flag or a key a person presses in a pane (NFR-SEC-3).
+	DisableBypassPermissionsMode string `json:"disableBypassPermissionsMode"`
 }
+
+// bypassOff is the value that turns the bypass mode off.
+const bypassOff = "disable"
 
 // settingsFile is what a generation's `--settings` holds. It holds no secret, because
 // a hook failure returns the command line to the model.
@@ -149,6 +155,7 @@ func generateSettings(spec ports.SessionSpec) settingsFile {
 	out := settingsFile{
 		Permissions: permissions{
 			Allow: allowRules(spec), Deny: denyRules(spec), Ask: askRules(spec), AdditionalDirectories: slices.Clone(spec.ReadOnlyDirs),
+			DisableBypassPermissionsMode: bypassOff,
 		},
 		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
 	}

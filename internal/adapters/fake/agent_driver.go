@@ -465,6 +465,9 @@ func (d *AgentDriver) Preflight(_ context.Context, spec ports.SessionSpec) (port
 	if spec.PermissionMode == "" {
 		report.Problems = append(report.Problems, "no permission mode")
 	}
+	if spec.PermissionMode == lanes.BypassMode {
+		report.Problems = append(report.Problems, lanes.ErrBypassMode.Error())
+	}
 	if spec.Model == "" {
 		report.Problems = append(report.Problems, "no model")
 	}

@@ -38,7 +38,7 @@ func RunAgentDriver(t *testing.T, fresh func(*testing.T) DriverRig) {
 		run  func(*testing.T, context.Context, DriverRig)
 	}{
 		{"capabilities are declared", checkDriverCapabilities},
-		{"a spec with no permission mode does not pass", checkPreflight},
+		{"a spec with no permission mode, or a bypass mode, does not pass", checkPreflight},
 		{"session and model are read on every turn", checkBoundEveryTurn},
 		{"context is every token sent, on one call", checkContextFormula},
 		{"a child session's usage is not the lane's context", checkChildUsage},
@@ -212,6 +212,15 @@ func checkPreflight(t *testing.T, ctx context.Context, rig DriverRig) {
 	}
 	if len(report.Problems) == 0 {
 		t.Error("no permission mode passed")
+	}
+	// NFR-SEC-3 and FR-LANE-19: no driver starts a session in a mode that bypasses every check.
+	spec.PermissionMode = lanes.BypassMode
+	report, err = rig.Driver.Preflight(ctx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Problems) == 0 {
+		t.Error("a bypass mode passed")
 	}
 }
 
