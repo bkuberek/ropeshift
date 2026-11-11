@@ -15,6 +15,8 @@ A lane or orchestrator token works only on the worker's local socket. It ends wh
 
 Only a member can start an orchestrator, and no session starts until there is something to judge. The first passphrase needs no session, which is safe only because no agent runs before a member asks for one: a lane through a dispatch, or an orchestrator through `ropeshift orchestrator start`. `ropeshift init` sets it as its first step, so on a machine set up that way it exists before any agent can run.
 
+One orchestrator per machine serves every active project of the installation. Each of its tools that acts or reads names the project, and each list it reads labels every item with its project. A call reaches only the named project's ledger, so a record of another project does not resolve, and its ladder lookups find only the question's project's records. A lane's token reaches only its own project.
+
 An orchestrator reads a request in the wake that names it, which states the request's summary and the digest a decision binds to. Only a request a member's delegation covers reaches it, and none it made itself. It reaches the ledger through its worker, and the ledger holds each act to the run a member asked for: a worker's credential with no such run acts for nobody. Its session holds its own tools and none of the vendor's, because it has no repository to work in and nobody to answer a prompt.
 
 A worker's level says how far it goes with nobody there. At `manual`, members claim by hand and an orchestrator only works the question ladder. At `attended`, it claims and starts lanes only inside a run window a member opened. At `unattended`, it claims whenever capacity exists. A subscription starts at `attended`, and so does a sign-in nobody could read. A key starts at `unattended`. Below `unattended`, a worker is held to a bound on lanes and on generations a day, which an `[autonomy_policy]` states.
@@ -54,6 +56,7 @@ A session that comes back to an approved call hears that exact call first, with 
 | An orchestrator's token reaches no lane's tool | The worker socket, which refuses a report, a wait, an ask, and a reply from it |
 | Only a member starts an orchestrator | The route, which takes only a session, and the authorization function |
 | An orchestrator runs only what its worker holds | The control plane, which reads the lease before it starts or stops a lane |
+| An orchestrator cannot cite a record of another project | The plane, which runs each call in the ledger of the project it names, where an ID of another project does not resolve |
 | Only a member opens a window or acknowledges the risk | The route, which takes only a session, the authorization function, and a database check on the opener's and the acknowledger's kind |
 | A claim no member made follows the level and the window | The claim's transaction, which reads both as it grants |
 | `unattended` on a subscription needs a current acknowledgement | The route that sets a level, and the claim, which reads it again |

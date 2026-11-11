@@ -143,6 +143,20 @@ push_on_stop = true
 
 Only your layer sets it, because a push sends work off the machine. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot change it: a layer that sets another value is refused, and the lane does not start. A push never forces and runs no repository hook.
 
+### How many lanes run at once
+
+One worker runs the lanes of every project of the installation on this machine, so its caps count the lanes of every project together. Set them in your own profile layer:
+
+```toml
+[admission]
+max_lanes = 6
+max_lanes_per_sign_in = 3
+```
+
+`max_lanes` caps the lanes this machine runs, and `max_lanes_per_sign_in` the lanes on one agent sign-in, because every session on a subscription draws from the same usage limits. `0`, or no value, caps nothing. Only lanes count: a worker's orchestrator never does, and a cap never holds it back. A lane a cap holds keeps its claim, its work order says why in a note, and it starts once a lane ends.
+
+A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer can lower either cap for their own lanes, and cannot raise it: a layer that sets a higher value than yours, or no cap where you set one, is refused, and the lane does not start. Each project's own caps, which `ropeshift fleet caps` sets, still hold inside that project, so a cap per worker in one project keeps it from taking every lane on the machine.
+
 ### Where a lane starts
 
 A lane's worktree starts from the repository's base branch, and never from the commit your checkout has out. The base branch is the repository's default branch, which the daemon reads from git, until you name another:
