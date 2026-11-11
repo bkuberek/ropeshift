@@ -91,6 +91,13 @@ func (c *Client) Desired(ctx context.Context, worker string, since int64) (ledge
 	return out, err
 }
 
+// WorkerClaim claims a work order on the plane protocol, with the worker's credential.
+func (c *Client) WorkerClaim(ctx context.Context, worker string, in ClaimRequest) (Grant, error) {
+	var out Grant
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "claims"), in, &out)
+	return out, err
+}
+
 // Ask records a question for a lane this worker holds.
 func (c *Client) Ask(ctx context.Context, worker string, in questions.LaneAsk) (questions.AskResult, error) {
 	var out questions.AskResult
@@ -132,16 +139,16 @@ type LaneList struct {
 }
 
 // Lanes reads every lane, each with its freshness.
-func (c *Client) Lanes(ctx context.Context) ([]ledger.LaneView, error) {
+func (c *ProjectClient) Lanes(ctx context.Context) ([]ledger.LaneView, error) {
 	var out LaneList
-	err := c.Do(ctx, http.MethodGet, "/v1/lanes", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/lanes", nil, &out)
 	return out.Lanes, err
 }
 
 // Lane reads one lane, with its freshness.
-func (c *Client) Lane(ctx context.Context, id string) (ledger.LaneView, error) {
+func (c *ProjectClient) Lane(ctx context.Context, id string) (ledger.LaneView, error) {
 	var out ledger.LaneView
-	err := c.Do(ctx, http.MethodGet, "/v1/lanes/"+url.PathEscape(id), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/lanes/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
 
@@ -151,16 +158,16 @@ type LaneReset struct {
 }
 
 // ResetLane resets the breaker of a work order's lane.
-func (c *Client) ResetLane(ctx context.Context, workOrder string) (LaneReset, error) {
+func (c *ProjectClient) ResetLane(ctx context.Context, workOrder string) (LaneReset, error) {
 	var out LaneReset
-	err := c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-reset", nil, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-reset", nil, &out)
 	return out, err
 }
 
 // RespawnLane asks for the next generation of a work order's running lane.
-func (c *Client) RespawnLane(ctx context.Context, workOrder string) (LaneReset, error) {
+func (c *ProjectClient) RespawnLane(ctx context.Context, workOrder string) (LaneReset, error) {
 	var out LaneReset
-	err := c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-respawn", nil, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-respawn", nil, &out)
 	return out, err
 }
 
@@ -172,9 +179,9 @@ type LaneResumed struct {
 }
 
 // ResumeLane gives a work order's parked lane a member's word.
-func (c *Client) ResumeLane(ctx context.Context, workOrder string) (LaneResumed, error) {
+func (c *ProjectClient) ResumeLane(ctx context.Context, workOrder string) (LaneResumed, error) {
 	var out LaneResumed
-	err := c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-resume", nil, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(workOrder)+"/lane-resume", nil, &out)
 	return out, err
 }
 

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -147,7 +148,7 @@ type sizing struct {
 	exited  chan error
 	started time.Time
 	stopped time.Time
-	client  *api.Client
+	client  *api.ProjectClient
 	// lanesWork holds the IDs of the work orders the lanes run, and none of the write probes.
 	lanesWork map[string]bool
 
@@ -235,7 +236,7 @@ func (s *sizing) startDaemon() {
 			t.Logf("the daemon said:\n%s", tail(string(raw), 60))
 		}
 	})
-	s.client = api.NewUnixClient(api.Paths{StateDir: s.state, RunDir: s.run}.ControlSocket())
+	s.client = api.NewUnixClient(api.Paths{StateDir: s.state, RunDir: s.run}.ControlSocket()).Project(ledger.DefaultProjectName)
 	t.Cleanup(s.client.Close)
 	deadline := time.Now().Add(30 * time.Second)
 	for {

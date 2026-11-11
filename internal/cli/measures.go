@@ -26,7 +26,10 @@ func (c *invocation) measuresCommand(args []string) int {
 	if _, err := api.ParseWindow(*window); err != nil {
 		return c.usageError("%v", err)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	report, err := client.Measures(c.ctx, *window)
 	return c.finish(err, report, func() string { return measuresText(report) })

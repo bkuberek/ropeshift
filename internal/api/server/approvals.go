@@ -12,8 +12,6 @@ func (h *handler) approvalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/approvals", h.listApprovals)
 	mux.HandleFunc("GET /v1/approvals/{id}", h.showApproval)
 	mux.HandleFunc("POST /v1/approvals/{id}/decide", h.member(h.decideApproval))
-	mux.HandleFunc("POST /v1/workers/{id}/approvals/use", h.workerUseApproval)
-	mux.HandleFunc("POST /v1/workers/{id}/approvals/decide", h.workerDecideApproval)
 }
 
 func (h *handler) listApprovals(w http.ResponseWriter, r *http.Request) {

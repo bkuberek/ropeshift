@@ -38,7 +38,10 @@ func (c *invocation) planShow(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("takes one plan ID")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	view, err := client.Plan(c.ctx, positional[0])
 	return c.finish(err, view, func() string {
@@ -111,7 +114,10 @@ func (c *invocation) planApprove(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("takes one plan ID")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	view, err := client.Plan(c.ctx, positional[0])
 	if err != nil {
@@ -166,7 +172,10 @@ func (c *invocation) planReview(args []string) int {
 		}
 		review = generated
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.ReviewPlan(c.ctx, positional[0], api.ReviewPlan{ID: review})
 	return c.finish(err, row, func() string { return orderLine(row) })
@@ -200,7 +209,10 @@ func (c *invocation) requirementGet(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("takes one requirement key")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	requirement, err := client.Requirement(c.ctx, positional[0])
 	return c.finish(err, requirement, func() string {
@@ -209,14 +221,14 @@ func (c *invocation) requirementGet(args []string) int {
 }
 
 func (c *invocation) workResolve(args []string) int {
-	return c.unblock(args, (*api.Client).Resolve, "ready")
+	return c.unblock(args, (*api.ProjectClient).Resolve, "ready")
 }
 
 func (c *invocation) workReplan(args []string) int {
-	return c.unblock(args, (*api.Client).Replan, "planning")
+	return c.unblock(args, (*api.ProjectClient).Replan, "planning")
 }
 
-func (c *invocation) unblock(args []string, move func(*api.Client, context.Context, string, api.Unblock) error, to string) int {
+func (c *invocation) unblock(args []string, move func(*api.ProjectClient, context.Context, string, api.Unblock) error, to string) int {
 	set := c.flags()
 	var request api.Unblock
 	set.StringVar(&request.Reason, "reason", "", "what changed")
@@ -231,7 +243,10 @@ func (c *invocation) unblock(args []string, move func(*api.Client, context.Conte
 	if request.Reason == "" {
 		return c.usageError("--reason is required")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	err := move(client, c.ctx, id, request)
 	return c.finish(err, struct {
@@ -255,7 +270,10 @@ func (c *invocation) workSendBack(args []string) int {
 	if request.Reason == "" {
 		return c.usageError("--reason is required")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	err := client.SendBack(c.ctx, id, request)
 	return c.finish(err, struct {
@@ -305,7 +323,10 @@ func (c *invocation) documentShow(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	document, err := client.Document(c.ctx, ref)
 	return c.finish(err, document, func() string { return document.Body })
@@ -316,7 +337,10 @@ func (c *invocation) documentVersions(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	versions, err := client.DocumentVersions(c.ctx, ref)
 	return c.finish(err, api.DocumentVersions{Versions: versions}, func() string {
@@ -341,7 +365,10 @@ func (c *invocation) documentRecorded(args []string) int {
 		c.usageError("takes one document reference, <kind>:<id>")
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	read, err := client.RecordedDocument(c.ctx, positional[0], *version)
 	return c.finish(err, read, func() string { return read.Body })

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { openPage } from "../opening";
-import { serveViews } from "../testing";
+import { here, serveViews } from "../testing";
 
 const decision = (name: string) => screen.findByRole("article", { name });
 
@@ -54,8 +54,8 @@ describe("the decisions", () => {
     const card = await decision("Retry three times.");
     const chain = within(card).getByRole("list", { name: "Lineage" });
     expect([...chain.querySelectorAll("li")].map((item) => item.textContent)).toEqual(["decision-1", "decision-2", "decision-3"]);
-    expect(within(chain).getByRole("link", { name: "decision-1" }).getAttribute("href")).toBe("/decisions?id=decision-1");
-    expect(within(chain).getByRole("link", { name: "decision-3" }).getAttribute("href")).toBe("/decisions?id=decision-3");
+    expect(within(chain).getByRole("link", { name: "decision-1" }).getAttribute("href")).toBe(here("/decisions?id=decision-1"));
+    expect(within(chain).getByRole("link", { name: "decision-3" }).getAttribute("href")).toBe(here("/decisions?id=decision-3"));
     expect(within(chain).queryByRole("link", { name: "decision-2" })).toBeNull();
     expect(within(chain).getByText("decision-2").getAttribute("aria-current")).toBe("true");
   });
@@ -76,7 +76,7 @@ describe("the decisions", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "decision-3" })).toBeTruthy();
     expect(await decision("Retry until the budget runs out.")).toBeTruthy();
     expect(screen.queryByRole("article", { name: "Retry twice." })).toBeNull();
-    expect(screen.getByRole("link", { name: "All decisions" }).getAttribute("href")).toBe("/decisions");
+    expect(screen.getByRole("link", { name: "All decisions" }).getAttribute("href")).toBe(here("/decisions"));
   });
 
   it("follows a lineage link in place", async () => {

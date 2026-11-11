@@ -47,7 +47,10 @@ func (c *invocation) messageSend(args []string) int {
 		draft.ID = id
 	}
 	draft.To.Lane, draft.Kind = positional[0], messages.Kind(kind)
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	sent, err := client.SendMessage(c.ctx, draft)
 	return c.finish(err, sent, func() string { return messageLine(sent) })
@@ -64,7 +67,10 @@ func (c *invocation) messageShow(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	message, err := client.Message(c.ctx, id)
 	return c.finish(err, message, func() string { return messageLine(message) })
@@ -81,7 +87,10 @@ func (c *invocation) messageList(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	rows, err := client.LaneMessages(c.ctx, id)
 	return c.finish(err, rows, func() string {

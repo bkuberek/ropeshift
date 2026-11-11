@@ -19,7 +19,7 @@ const defaultDisplayName = "Default"
 // installation gets the same: its first project's ledger is the ledger file, with first as its
 // workspace. The steps each repeat safely after a crash, and a start after a finished upgrade changes
 // nothing but the repository index, which every start rebuilds. It returns the state and the first
-// project's Store, which the caller closes.
+// project's Store, which the caller closes, and which the state lends to every call to that project.
 func Upgrade(ctx context.Context, dir, ledgerName string, first ledger.Workspace, actor ledger.Actor) (*State, *sqlstore.Store, error) {
 	u := &upgrade{dir: dir, ledgerName: ledgerName, first: first, actor: actor}
 	if err := u.through(ctx, len(upgradeSteps)); err != nil {
@@ -113,6 +113,7 @@ func (u *upgrade) openLedger(ctx context.Context) error {
 	default:
 		return fmt.Errorf("the ledger holds %d workspaces, and a project is one", len(held))
 	}
+	u.state.Lend(u.scope, store)
 	crashpoint.Hit("installation.upgrade", "opened")
 	return nil
 }

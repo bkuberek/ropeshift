@@ -25,8 +25,20 @@ const maxBody = 1 << 20
 
 // Config is what the handlers run on.
 type Config struct {
+	// Scope and Store are the project the plane protocol serves: the installation's first project, whose
+	// worker this control plane runs. The installation's routes read the records every project shares
+	// through it.
 	Scope ledger.WorkspaceID
 	Store ports.Store
+	// Projects is the installation's registry, which every project-scoped route resolves its path
+	// through. Nil serves Store as the one project, named default.
+	Projects ports.Projects
+	// Matching makes the question ladder's matcher of a project's Store. Nil gives a project other than
+	// the first no candidates.
+	Matching func(ports.Store) ports.Matcher
+	// Unscoped serves each project-scoped route with no project in its path on the first project, as
+	// before projects, for one release. Every answer to one carries a Deprecation header.
+	Unscoped bool
 	// LeaseTTL is the policy's lease in milliseconds, for a claim that names none.
 	LeaseTTL int64
 	// Protocol is the plane protocol this control plane speaks. Zero means this
@@ -83,28 +95,53 @@ type handler struct {
 	repositories *control.Repositories
 }
 
-// New returns the versioned API.
+// New returns the versioned API. The installation's routes sit at the top, and each project's routes
+// under /v1/projects/{project}/, on that project's ledger (ADR-0021).
 func New(config Config) http.Handler {
-	h := newHandler(config)
+	if config.Projects == nil {
+		config.Projects = oneProject{project: ledger.Project{
+			ID: config.Scope, Name: ledger.DefaultProjectName, State: ledger.ProjectActive, Database: "ledger",
+		}, store: config.Store}
+	}
+	home := newHandler(config)
+	projects := newRouter(config, home)
 	mux := http.NewServeMux()
+	home.installationRoutes(mux)
+	projects.registryRoutes(mux)
+	mux.Handle(projectPrefix+"{project}/", projects)
+	if config.Unscoped {
+		mux.HandleFunc("/v1/", projects.unscoped)
+	}
+	return mux
+}
+
+// installationRoutes are the routes of the installation's own records: members and their sessions,
+// workers with their autonomy and orchestrators, the plane protocol, and the worker's telemetry.
+func (h *handler) installationRoutes(mux *http.ServeMux) {
+	h.sessionRoutes(mux)
 	h.workerRoutes(mux)
+	h.orchestratorRoutes(mux)
+	h.autonomyRoutes(mux)
+	h.telemetryRoutes(mux)
+	mux.HandleFunc("GET /v1/health", h.health)
+}
+
+// projectRoutes are one project's routes, as they read under /v1. The router serves them under
+// /v1/projects/{project}/.
+func (h *handler) projectRoutes(mux *http.ServeMux) {
+	h.laneRoutes(mux)
 	h.planningRoutes(mux)
 	h.questionRoutes(mux)
 	h.messageRoutes(mux)
-	h.sessionRoutes(mux)
 	h.approvalRoutes(mux)
-	h.orchestratorRoutes(mux)
-	h.autonomyRoutes(mux)
 	h.repositoryRoutes(mux)
 	h.effectRoutes(mux)
 	h.viewRoutes(mux)
 	h.eventRoutes(mux)
 	h.noticeRoutes(mux)
-	h.telemetryRoutes(mux)
 	h.measureRoutes(mux)
 	h.paneRoutes(mux)
 	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
-	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
 	mux.HandleFunc("GET /v1/work-orders", h.listWorkOrders)
@@ -119,7 +156,6 @@ func New(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/work-orders/{id}/cancel", h.member(h.cancel))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.member(h.startLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.member(h.write))
-	return mux
 }
 
 func newHandler(config Config) *handler {
@@ -429,6 +465,35 @@ func (h *handler) claim(w http.ResponseWriter, r *http.Request) {
 			grant, err = h.leases.Claim(r.Context(), h.Scope, request, actor)
 		}
 	}
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, grantBody(grant))
+}
+
+// workerClaim is a worker's claim on the plane protocol, which names the work in its body. The worker's
+// credential says who claims, so a member's session counts for nothing here.
+func (h *handler) workerClaim(w http.ResponseWriter, r *http.Request) {
+	var in api.ClaimRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ClaimID == "" || in.WorkOrder == "" {
+		invalid(w, "a claim needs a claim_id and a work_order")
+		return
+	}
+	worker := r.PathValue("id")
+	if in.WorkerID != "" && in.WorkerID != worker {
+		invalid(w, "the claim names worker %s on worker %s's route", in.WorkerID, worker)
+		return
+	}
+	ttl := in.TTLMs
+	if ttl == 0 {
+		ttl = h.LeaseTTL
+	}
+	request := workorders.ClaimRequest{WorkOrder: in.WorkOrder, ClaimID: in.ClaimID, Worker: worker, TTLMs: ttl}
+	grant, err := h.workers.Claim(r.Context(), ledger.WorkerAuth{WorkerID: worker, Credential: bearer(r)}, request)
 	if err != nil {
 		fail(w, err)
 		return

@@ -31,27 +31,27 @@ type DecideApproval struct {
 }
 
 // Approvals lists the requests in one state, oldest first. An empty state lists them all.
-func (c *Client) Approvals(ctx context.Context, state authority.ApprovalState) ([]authority.Approval, error) {
+func (c *ProjectClient) Approvals(ctx context.Context, state authority.ApprovalState) ([]authority.Approval, error) {
 	path := "/v1/approvals"
 	if state != "" {
 		path += "?state=" + url.QueryEscape(string(state))
 	}
 	var out ApprovalList
-	err := c.Do(ctx, http.MethodGet, path, nil, &out)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
 	return out.Approvals, err
 }
 
 // Approval reads one request.
-func (c *Client) Approval(ctx context.Context, id string) (authority.Approval, error) {
+func (c *ProjectClient) Approval(ctx context.Context, id string) (authority.Approval, error) {
 	var out authority.Approval
-	err := c.Do(ctx, http.MethodGet, "/v1/approvals/"+url.PathEscape(id), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/approvals/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
 
 // DecideApproval carries a member's word on a request.
-func (c *Client) DecideApproval(ctx context.Context, id string, in DecideApproval) (authority.Approval, error) {
+func (c *ProjectClient) DecideApproval(ctx context.Context, id string, in DecideApproval) (authority.Approval, error) {
 	var out authority.Approval
-	err := c.Do(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(id)+"/decide", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(id)+"/decide", in, &out)
 	return out, err
 }
 
@@ -70,15 +70,15 @@ func (c *Client) DecideDelegated(ctx context.Context, worker string, in authorit
 }
 
 // DelegationPolicies lists the versions of the delegation policy, newest first.
-func (c *Client) DelegationPolicies(ctx context.Context) ([]authority.PolicyVersion, error) {
+func (c *ProjectClient) DelegationPolicies(ctx context.Context) ([]authority.PolicyVersion, error) {
 	var out PolicyList
-	err := c.Do(ctx, http.MethodGet, "/v1/policies?kind="+string(authority.PolicyDelegation), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies?kind="+string(authority.PolicyDelegation), nil, &out)
 	return out.Versions, err
 }
 
 // DelegationPolicy reads one version of the delegation policy.
-func (c *Client) DelegationPolicy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
+func (c *ProjectClient) DelegationPolicy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
 	var out authority.PolicyVersion
-	err := c.Do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(authority.PolicyDelegation), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(authority.PolicyDelegation), nil, &out)
 	return out, err
 }

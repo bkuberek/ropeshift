@@ -23,6 +23,7 @@ var workerPlane = map[string]string{
 	"GET /v1/workers/{id}/desired":                   "a worker's credential",
 	"GET /v1/workers/{id}/watch":                     "a worker's credential",
 	"POST /v1/workers/{id}/events":                   "a worker's credential",
+	"POST /v1/workers/{id}/claims":                   "a worker's credential",
 	"POST /v1/workers/{id}/ask":                      "a worker's credential",
 	"POST /v1/workers/{id}/lane-facts":               "a worker's credential",
 	"POST /v1/workers/{id}/lane-context":             "a worker's credential",
@@ -36,6 +37,8 @@ var workerPlane = map[string]string{
 // operations names the command of every other route, so a new route fails here until it has one.
 var operations = map[string]string{
 	"GET /v1/health":                                   "health",
+	"GET /v1/projects":                                 "project list",
+	"GET /v1/projects/{project}":                       "project show",
 	"GET /v1/sources":                                  "source list",
 	"POST /v1/work-orders":                             "work create",
 	"GET /v1/work-orders":                              "work list",

@@ -11,10 +11,28 @@ import (
 	"ropeshift.com/ropeshift/internal/questions"
 )
 
+// workerRoutes are the installation's routes for workers, and the plane protocol a worker speaks with its
+// credential.
 func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workers/tokens", h.member(h.createJoinToken))
 	mux.HandleFunc("POST /v1/workers/register", h.register)
 	mux.HandleFunc("GET /v1/workers", h.listWorkers)
+	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
+	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
+	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
+	mux.HandleFunc("GET /v1/workers/{id}/watch", h.watch)
+	mux.HandleFunc("POST /v1/workers/{id}/events", h.events)
+	mux.HandleFunc("POST /v1/workers/{id}/claims", h.workerClaim)
+	mux.HandleFunc("POST /v1/workers/{id}/ask", h.workerAsk)
+	mux.HandleFunc("POST /v1/workers/{id}/lane-facts", h.workerLaneFacts)
+	mux.HandleFunc("POST /v1/workers/{id}/lane-context", h.workerLaneContext)
+	mux.HandleFunc("POST /v1/workers/{id}/rulings", h.workerRule)
+	mux.HandleFunc("POST /v1/workers/{id}/approvals/use", h.workerUseApproval)
+	mux.HandleFunc("POST /v1/workers/{id}/approvals/decide", h.workerDecideApproval)
+}
+
+// laneRoutes are a project's routes for its lanes and its fleet.
+func (h *handler) laneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/lanes", h.listLanes)
 	mux.HandleFunc("GET /v1/lanes/{id}", h.showLane)
 	mux.HandleFunc("POST /v1/work-orders/{id}/lane-resume", h.member(h.resumeLane))
@@ -24,15 +42,6 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/fleet", h.showFleet)
 	mux.HandleFunc("PUT /v1/fleet/mode", h.member(h.setFleetMode))
 	mux.HandleFunc("PUT /v1/fleet/caps", h.member(h.setFleetCaps))
-	mux.HandleFunc("POST /v1/workers/{id}/sessions", h.openSession)
-	mux.HandleFunc("POST /v1/workers/{id}/heartbeat", h.heartbeat)
-	mux.HandleFunc("GET /v1/workers/{id}/desired", h.desired)
-	mux.HandleFunc("GET /v1/workers/{id}/watch", h.watch)
-	mux.HandleFunc("POST /v1/workers/{id}/events", h.events)
-	mux.HandleFunc("POST /v1/workers/{id}/ask", h.workerAsk)
-	mux.HandleFunc("POST /v1/workers/{id}/lane-facts", h.workerLaneFacts)
-	mux.HandleFunc("POST /v1/workers/{id}/lane-context", h.workerLaneContext)
-	mux.HandleFunc("POST /v1/workers/{id}/rulings", h.workerRule)
 }
 
 func bearer(r *http.Request) string {

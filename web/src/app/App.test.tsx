@@ -138,7 +138,7 @@ describe("the stream", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Needs you" });
     await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
-    expect(FakeEvents.opened[0]?.url).toBe(`/v1/events?after=${goldenNeedsYou().revision}`);
+    expect(FakeEvents.opened[0]?.path).toBe(`/v1/events?after=${goldenNeedsYou().revision}`);
   });
 
   it("reads again when something happens, once for a burst", async () => {

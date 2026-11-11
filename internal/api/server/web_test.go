@@ -148,7 +148,7 @@ func (r *webRig) aChange(t *testing.T) (call, func() bool) {
 		}
 		return !effect.Waiting()
 	}
-	return call{method: http.MethodPost, path: "/v1/effects/" + url.PathEscape(id) + "/decide", body: api.DecideEffect{Outcome: ledger.EffectHappened}}, changed
+	return call{method: http.MethodPost, path: apitest.Route("/v1/effects/") + url.PathEscape(id) + "/decide", body: api.DecideEffect{Outcome: ledger.EffectHappened}}, changed
 }
 
 func TestAChangeThroughTheFrontDoorWorks(t *testing.T) {
@@ -171,7 +171,7 @@ func TestARebindingRequestIsRefused(t *testing.T) {
 	for _, host := range []string{
 		"attacker.example", "attacker.example:" + strconv.Itoa(r.web.Port), "127.0.0.1", "127.0.0.1:1", "localhost:1", "127.0.0.1.attacker.example:" + strconv.Itoa(r.web.Port), "",
 	} {
-		for _, path := range []string{"/", "/assets/app-abc123.js", api.ViewPath(api.ViewNeedsYou), api.SignInPath} {
+		for _, path := range []string{"/", "/assets/app-abc123.js", apitest.Route(api.ViewPath(api.ViewNeedsYou)), api.SignInPath} {
 			t.Run(host+path, func(t *testing.T) {
 				request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, r.web.URL(path), nil)
 				if err != nil {
@@ -283,7 +283,7 @@ func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
 			if changed() {
 				t.Fatal("a foreign origin changed the ledger")
 			}
-			read, raw := r.send(t, call{path: api.ViewPath(api.ViewNeedsYou), cookies: cookies, headers: map[string]string{"Origin": origin}})
+			read, raw := r.send(t, call{path: apitest.Route(api.ViewPath(api.ViewNeedsYou)), cookies: cookies, headers: map[string]string{"Origin": origin}})
 			wantStatus(t, read, raw, http.StatusForbidden, api.CodeForeignOrigin)
 		})
 	}
@@ -347,7 +347,7 @@ func TestAWorkersRoutesStayOnTheSocket(t *testing.T) {
 		{path: "/v1/workers/w/watch"},
 		{method: http.MethodPut, path: "/v1/passphrase", body: api.SetPassphrase{Passphrase: "a new passphrase"}},
 		{method: http.MethodPost, path: "/v1/workers/tokens", body: struct{}{}},
-		{method: http.MethodPost, path: "/v1/policies", body: struct{}{}},
+		{method: http.MethodPost, path: apitest.Route("/v1/policies"), body: struct{}{}},
 	} {
 		t.Run(attempt.method+attempt.path, func(t *testing.T) {
 			attempt.cookies, attempt.headers = cookies, map[string]string{api.HeaderCSRF: token}
@@ -431,7 +431,7 @@ func TestASignInFromAnotherOriginIsRefused(t *testing.T) {
 func TestSigningOutEndsTheSession(t *testing.T) {
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
-	read := call{path: api.ViewPath(api.ViewNeedsYou), cookies: cookies}
+	read := call{path: apitest.Route(api.ViewPath(api.ViewNeedsYou)), cookies: cookies}
 	response, raw := r.send(t, read)
 	wantStatus(t, response, raw, http.StatusOK, "")
 	response, raw = r.send(t, call{method: http.MethodPost, path: api.SignOutPath, body: struct{}{}, cookies: cookies, headers: map[string]string{api.HeaderCSRF: token}})
@@ -455,7 +455,7 @@ func TestAPageReadsAViewAsUnrenderedJSON(t *testing.T) {
 	cookies, _ := r.signedIn(t)
 	w := apitest.NewWorld(t, d)
 	apitest.Populate(w, clock)
-	response, raw := r.send(t, call{path: api.ViewPath(api.ViewNeedsYou), cookies: cookies})
+	response, raw := r.send(t, call{path: apitest.Route(api.ViewPath(api.ViewNeedsYou)), cookies: cookies})
 	wantStatus(t, response, raw, http.StatusOK, "")
 	if got := response.Header.Get("Content-Type"); got != "application/json" {
 		t.Errorf("type %q", got)
@@ -482,7 +482,7 @@ func TestAPageReadsAViewAsUnrenderedJSON(t *testing.T) {
 func TestEveryResponseStatesItsLimits(t *testing.T) {
 	r := webOn(t, apitest.Start(t))
 	cookies, _ := r.signedIn(t)
-	for _, path := range []string{"/", "/assets/app-abc123.js", api.ViewPath(api.ViewNeedsYou)} {
+	for _, path := range []string{"/", "/assets/app-abc123.js", apitest.Route(api.ViewPath(api.ViewNeedsYou))} {
 		t.Run(path, func(t *testing.T) {
 			response, _ := r.send(t, call{path: path, cookies: cookies})
 			policy := response.Header.Get("Content-Security-Policy")
@@ -511,7 +511,7 @@ func TestEveryResponseStatesItsLimits(t *testing.T) {
 func TestAViewIsNeverCached(t *testing.T) {
 	r := webOn(t, apitest.Start(t))
 	cookies, _ := r.signedIn(t)
-	response, _ := r.send(t, call{path: api.ViewPath(api.ViewNeedsYou), cookies: cookies})
+	response, _ := r.send(t, call{path: apitest.Route(api.ViewPath(api.ViewNeedsYou)), cookies: cookies})
 	if got := response.Header.Get("Cache-Control"); got != "no-store" {
 		t.Errorf("cache %q", got)
 	}
@@ -604,7 +604,7 @@ func TestAStreamEndsWithItsSession(t *testing.T) {
 	cookies, token := r.signedIn(t)
 	ctx, cancel := context.WithTimeout(t.Context(), streamWait)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL(api.EventsPath+"?after=0"), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL(apitest.Route(api.EventsPath)+"?after=0"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,7 +676,7 @@ func documentsOn(t *testing.T) *webRig {
 func TestADocumentOpensThroughTheWebListener(t *testing.T) {
 	r := documentsOn(t)
 	cookies, _ := r.signedIn(t)
-	response, raw := r.send(t, call{path: "/v1/documents/read?path=design.md", cookies: cookies})
+	response, raw := r.send(t, call{path: apitest.Route("/v1/documents/read?path=design.md"), cookies: cookies})
 	wantStatus(t, response, raw, http.StatusOK, "")
 	var document api.Document
 	if err := json.Unmarshal(raw, &document); err != nil {
@@ -685,7 +685,7 @@ func TestADocumentOpensThroughTheWebListener(t *testing.T) {
 	if document.Body != "# Two\n" {
 		t.Errorf("document %+v", document)
 	}
-	response, raw = r.send(t, call{path: "/v1/documents/versions?path=design.md", cookies: cookies})
+	response, raw = r.send(t, call{path: apitest.Route("/v1/documents/versions?path=design.md"), cookies: cookies})
 	wantStatus(t, response, raw, http.StatusOK, "")
 	var versions api.DocumentVersions
 	if err := json.Unmarshal(raw, &versions); err != nil {
@@ -694,7 +694,7 @@ func TestADocumentOpensThroughTheWebListener(t *testing.T) {
 	if len(versions.Versions) != 2 {
 		t.Errorf("versions %+v", versions)
 	}
-	response, raw = r.send(t, call{path: "/v1/documents/read?path=design.md&version=" + versions.Versions[1].Version, cookies: cookies})
+	response, raw = r.send(t, call{path: apitest.Route("/v1/documents/read?path=design.md&version=") + versions.Versions[1].Version, cookies: cookies})
 	wantStatus(t, response, raw, http.StatusOK, "")
 	if !bytes.Contains(raw, []byte(`# One`)) {
 		t.Errorf("the earlier version reads %s", raw)
@@ -705,7 +705,7 @@ func TestADocumentOpensThroughTheWebListener(t *testing.T) {
 // page on this machine.
 func TestADocumentStaysBehindASession(t *testing.T) {
 	r := documentsOn(t)
-	for _, path := range []string{"/v1/documents/read?path=design.md", "/v1/documents/versions?path=design.md"} {
+	for _, path := range []string{apitest.Route("/v1/documents/read?path=design.md"), apitest.Route("/v1/documents/versions?path=design.md")} {
 		response, raw := r.send(t, call{path: path})
 		wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
 		if bytes.Contains(raw, []byte("# Two")) {
@@ -719,7 +719,7 @@ func TestADocumentPathNamesOnlyWhatTheSourceLists(t *testing.T) {
 	r := documentsOn(t)
 	cookies, _ := r.signedIn(t)
 	for _, path := range []string{"../../etc/passwd", "/etc/passwd", "design.md/../../secret.md", "", "design.md\x00.txt"} {
-		response, raw := r.send(t, call{path: "/v1/documents/read?path=" + url.QueryEscape(path), cookies: cookies})
+		response, raw := r.send(t, call{path: apitest.Route("/v1/documents/read?path=") + url.QueryEscape(path), cookies: cookies})
 		wantStatus(t, response, raw, http.StatusNotFound, api.CodeNotFound)
 	}
 }
@@ -732,11 +732,11 @@ func TestEveryWebRouteExistsInTheAPI(t *testing.T) {
 	cookies, token := r.signedIn(t)
 	ids := regexp.MustCompile(`\{id\}`)
 	for _, route := range api.WebRoutes() {
-		if route.Pattern == api.SignOutPath || route.Pattern == api.EventsPath {
+		if route.Pattern == api.SignOutPath || route.Pattern == api.ProjectRoute(api.EventsPath) {
 			continue
 		}
 		t.Run(fmt.Sprintf("%s %s", route.Method, route.Pattern), func(t *testing.T) {
-			attempt := call{method: route.Method, path: ids.ReplaceAllString(route.Pattern, "no-such-record"), cookies: cookies, headers: map[string]string{api.HeaderCSRF: token}}
+			attempt := call{method: route.Method, path: ids.ReplaceAllString(strings.ReplaceAll(route.Pattern, "{project}", apitest.ProjectName), "no-such-record"), cookies: cookies, headers: map[string]string{api.HeaderCSRF: token}}
 			if route.Method != http.MethodGet {
 				attempt.body = struct{}{}
 			}

@@ -117,7 +117,7 @@ func httpLink(t *testing.T, protocol int) *LinkRig {
 	})
 	plane := control.NewWorkers(daemon.Store, apitest.Scope, control.WorkerOptions{Protocol: protocol, HeartbeatMs: linkHeartbeat, LeaseTTLMs: linkTTL})
 	return &LinkRig{
-		Store: daemon.Store, Scope: apitest.Scope, Plane: plane, Link: workerlink.New(daemon.Client),
+		Store: daemon.Store, Scope: apitest.Scope, Plane: plane, Link: workerlink.New(daemon.Client.Client),
 		CorruptNonce: func() { wire.corruptNonce.Store(true) },
 		DropHints:    func() { wire.dropHints.Store(true) },
 		ShiftClock:   func(delta int64) { offset.Add(delta) },

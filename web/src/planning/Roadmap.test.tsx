@@ -25,7 +25,7 @@ describe("the roadmap", () => {
     openPage("/roadmap");
     const goal = await screen.findByRole("region", { name: "Ship solo mode" });
     const plan = within(goal).getByRole("link", { name: "Write the docs" });
-    expect(plan.getAttribute("href")).toMatch(/^\/plans\?plan=/);
+    expect(plan.getAttribute("href")).toMatch(/^\/projects\/default\/plans\?plan=/);
     const progress = within(goal).getByRole("progressbar", { name: "Write the docs: 0 of 1 done" });
     expect(progress.getAttribute("aria-valuemax")).toBe("1");
     expect(within(goal).getByText("0 of 1 done")).toBeTruthy();

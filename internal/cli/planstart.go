@@ -61,7 +61,10 @@ func (c *invocation) planStart(args []string) int {
 	if err != nil {
 		return c.usageError("%v", err)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	chosenRepository, code := c.chooseRepository(client, *repository)
 	if code != ExitOK {
@@ -124,7 +127,7 @@ func planTitle(goal string) string {
 
 // chooseRepository finds the repository the session plans in: the one the person names, or the only
 // one the daemon reads. A name matches a source's instance or its ID, as `source list` prints it.
-func (c *invocation) chooseRepository(client *api.Client, named string) (string, int) {
+func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (string, int) {
 	list, err := client.Sources(c.ctx)
 	if err != nil {
 		return "", c.failure(err)
@@ -152,7 +155,7 @@ func (c *invocation) chooseRepository(client *api.Client, named string) (string,
 // because a heartbeat writes nothing about it and an idle worker reads as last reported once its
 // session is old, so freshness only tells apart workers that are already several. A guess between
 // them is the person's to make.
-func (c *invocation) chooseWorker(client *api.Client, named string) (string, int) {
+func (c *invocation) chooseWorker(client *api.ProjectClient, named string) (string, int) {
 	if named != "" {
 		return named, ExitOK
 	}
@@ -189,7 +192,7 @@ func (c *invocation) chooseWorker(client *api.Client, named string) (string, int
 }
 
 // openSession makes the member calls in order. A step that fails says which work order it left behind.
-func (c *invocation) openSession(client *api.Client, goal, repository, worker string) (planStarted, int) {
+func (c *invocation) openSession(client *api.ProjectClient, goal, repository, worker string) (planStarted, int) {
 	id, err := newID()
 	if err != nil {
 		return planStarted{}, c.failure(err)
@@ -243,7 +246,7 @@ func (c *invocation) openSession(client *api.Client, goal, repository, worker st
 // lanePage is a lane's page in the web UI, where its pane shows, at the address the daemon says its web
 // UI bound. Only the daemon knows a port the kernel picked, so a daemon whose web UI is off, or that
 // cannot say, has no page named, rather than one at an address that may be wrong.
-func (c *invocation) lanePage(client *api.Client, lane string) string {
+func (c *invocation) lanePage(client *api.ProjectClient, lane string) string {
 	health, err := client.Health(c.ctx)
 	if err != nil || health.Web == "" {
 		return ""
@@ -254,7 +257,7 @@ func (c *invocation) lanePage(client *api.Client, lane string) string {
 // awaitPane waits until the new lane has a pane on this machine. The worker takes the lane, makes its
 // worktree, and opens the pane, and a work order that stops on the way says so in its state, which
 // ends the wait at once.
-func (c *invocation) awaitPane(client *api.Client, started planStarted) int {
+func (c *invocation) awaitPane(client *api.ProjectClient, started planStarted) int {
 	c.say("Waiting for the worker to open the lane's pane.\n")
 	deadline := time.Now().Add(paneWait)
 	for {

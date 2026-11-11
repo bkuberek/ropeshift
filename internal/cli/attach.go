@@ -62,14 +62,17 @@ func (c *invocation) laneAttach(args []string) int {
 	if c.panes == nil {
 		return c.refuse(ExitError, "this machine has no tmux, so it holds no pane to attach to")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	return c.attach(client, positional[0])
 }
 
 // attach is the loop of one attached session: attach to the lane's current pane, and when that pane
 // goes, look for where the lane went.
-func (c *invocation) attach(client *api.Client, id string) int {
+func (c *invocation) attach(client *api.ProjectClient, id string) int {
 	lane, err := client.Lane(c.ctx, id)
 	if err != nil {
 		return c.failure(err)
@@ -122,7 +125,7 @@ func (c *invocation) noPane(lane ledger.LaneView) int {
 
 // follow waits for a lane that lost its pane to end, to stop, or to open a pane under a newer
 // generation. It returns that lane, or done with the exit code of the command.
-func (c *invocation) follow(client *api.Client, id string, generation int64) (ledger.LaneView, int, bool) {
+func (c *invocation) follow(client *api.ProjectClient, id string, generation int64) (ledger.LaneView, int, bool) {
 	deadline := time.Now().Add(followWait)
 	announced := false
 	for {

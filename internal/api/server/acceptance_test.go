@@ -62,24 +62,27 @@ func TestAcceptanceRefusals(t *testing.T) {
 	tests := []struct {
 		name   string
 		end    workorders.LaneResult
-		call   func(*testing.T, *api.Client) error
+		call   func(*testing.T, *api.ProjectClient) error
 		status int
 		code   string
 	}{
 		{
 			name: "a failed check", end: laneEnd(failed), status: http.StatusConflict, code: api.CodeNotAcceptable,
-			call: func(t *testing.T, c *api.Client) error { _, err := c.Accept(t.Context(), "wo"); return err },
+			call: func(t *testing.T, c *api.ProjectClient) error { _, err := c.Accept(t.Context(), "wo"); return err },
 		},
 		{
 			name: "a rework with no reason", end: laneEnd(), status: http.StatusBadRequest, code: api.CodeInvalid,
-			call: func(t *testing.T, c *api.Client) error {
+			call: func(t *testing.T, c *api.ProjectClient) error {
 				_, err := c.Rework(t.Context(), "wo", api.ReworkRequest{})
 				return err
 			},
 		},
 		{
 			name: "an absent work order", end: laneEnd(), status: http.StatusNotFound, code: api.CodeNotFound,
-			call: func(t *testing.T, c *api.Client) error { _, err := c.Acceptance(t.Context(), "absent"); return err },
+			call: func(t *testing.T, c *api.ProjectClient) error {
+				_, err := c.Acceptance(t.Context(), "absent")
+				return err
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -108,7 +111,7 @@ func TestAReworkLeavesAcceptanceOnce(t *testing.T) {
 func TestAcceptanceTakesAMembersSession(t *testing.T) {
 	d := apitest.Start(t)
 	d.Completed(t, "wo", laneEnd())
-	bare := api.NewUnixClient(d.Socket)
+	bare := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer bare.Close()
 	_, err := bare.Accept(t.Context(), "wo")
 	wantRefused(t, err, http.StatusUnauthorized, api.CodeSessionRequired)

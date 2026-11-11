@@ -32,7 +32,7 @@ describe.each(pages)("the view at %s", (path) => {
     await waitFor(() => expect(screen.getByRole("main").querySelector("[aria-busy]") ?? screen.queryByRole("heading", { name: "Needs you" })).not.toBeNull());
     expect(screen.getByRole("main").querySelectorAll(built)).toHaveLength(0);
     for (const href of links()) {
-      expect(href, href).toMatch(/^(\/[a-z-]*(\?[^#]*)?|#main)$/);
+      expect(href, href).toMatch(/^(\/projects\/[a-z0-9-]+\/[a-z-]*(\?[^#]*)?|#main)$/);
     }
   });
 });

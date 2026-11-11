@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { golden } from "../testing";
+import { golden, here } from "../testing";
 import { readWake, WakeWords } from "./WakeWords";
 
 // The table internal/parking holds its own words to, which `ropeshift top` says in its short form.
@@ -31,7 +31,7 @@ describe("a wake in words", () => {
 
   it("links a question to where it stands", () => {
     sentence(`{"any_of":[{"all_of":[{"question_answered":"q-signing-key"}]},{"human_resume":true}]}`);
-    expect(screen.getByRole("link", { name: "q-signing-key" }).getAttribute("href")).toBe("/questions?id=q-signing-key");
+    expect(screen.getByRole("link", { name: "q-signing-key" }).getAttribute("href")).toBe(here("/questions?id=q-signing-key"));
   });
 
   it("waits until, inside a sentence of its own", () => {

@@ -36,6 +36,12 @@ type Options struct {
 	Doctor func(context.Context) (ledger.Manifest, error)
 	// Session is the member's session this shell holds, if any.
 	Session string
+	// Project is the project a command on project records acts on when it names none, from
+	// ROPESHIFT_PROJECT.
+	Project string
+	// RepositoryHere is the identity of the repository that holds the working directory, or empty when
+	// none does. Nil never finds one.
+	RepositoryHere func(context.Context) (string, error)
 	// ReadPassphrase asks a person on their terminal. Nil means there is no terminal.
 	ReadPassphrase func(prompt string) (string, error)
 	// Terminal is the keyboard, when both ends of this process are a terminal. A live view needs one.
@@ -72,6 +78,12 @@ type invocation struct {
 	socket         string
 	session        string
 	asJSON         bool
+	// inProject says the command acts on one project's records, so it takes --project.
+	inProject bool
+	// project is what --project names, and envProject what ROPESHIFT_PROJECT does.
+	project        string
+	envProject     string
+	repositoryHere func(context.Context) (string, error)
 	// command is what help says about the running command.
 	command Command
 	// helped says the command printed its help instead of running.
@@ -85,12 +97,13 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
 		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
+		envProject: opts.Project, repositoryHere: opts.RepositoryHere,
 	}
 	found, rest, ok := find(args)
 	if !ok {
 		return base.notFound(args)
 	}
-	base.name, base.command = found.Name, found.Command
+	base.name, base.command, base.inProject = found.Name, found.Command, !found.installation
 	code := found.run(base, rest)
 	if base.helped {
 		return ExitOK
@@ -130,6 +143,9 @@ func (c *invocation) flags() *flag.FlagSet {
 	set.Usage = func() {}
 	set.BoolVar(&c.asJSON, "json", false, "print as JSON")
 	set.StringVar(&c.socket, "socket", c.socket, "the control plane's socket")
+	if c.inProject {
+		set.StringVar(&c.project, "project", c.project, "the project this acts on, by name")
+	}
 	return set
 }
 
@@ -196,6 +212,9 @@ func (c *invocation) finish(err error, result any, text func() string) int {
 
 func (c *invocation) failure(err error) int {
 	var refused *api.Error
+	if errors.As(err, &refused) && refused.Detail.Code == api.CodeNoProject {
+		return c.noProject(refused.Detail)
+	}
 	if errors.As(err, &refused) {
 		c.printError(refused.Detail)
 		return exitOf(refused)
@@ -231,7 +250,7 @@ func exitOf(refused *api.Error) int {
 		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement,
 		api.CodeEffectDecided, api.CodeCannotRepeat:
 		return ExitConflict
-	case api.CodeInvalid:
+	case api.CodeInvalid, api.CodeNoProject:
 		return ExitUsage
 	}
 	return ExitError

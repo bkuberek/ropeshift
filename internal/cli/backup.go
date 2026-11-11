@@ -22,7 +22,10 @@ func (c *invocation) backup(args []string) int {
 	if err != nil {
 		return c.usageError("%v", err)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	result, err := client.Backup(c.ctx, api.BackupRequest{Path: path})
 	return c.finish(err, result, func() string {

@@ -367,7 +367,7 @@ func TestSourcesList(t *testing.T) {
 func TestMalformedBodyIsRefused(t *testing.T) {
 	d := apitest.Start(t)
 	var raw json.RawMessage = []byte(`{"unknown_field": 1}`)
-	err := d.Client.Do(t.Context(), http.MethodPost, "/v1/work-orders", raw, nil)
+	err := d.Client.Do(t.Context(), http.MethodPost, apitest.Route("/v1/work-orders"), raw, nil)
 	wantRefused(t, err, http.StatusBadRequest, api.CodeInvalid)
 }
 

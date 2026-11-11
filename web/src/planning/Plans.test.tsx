@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PlanDetail, Plans } from "../api/types";
 import { openPage } from "../opening";
-import { golden, serveViews } from "../testing";
+import { golden, here, serveViews } from "../testing";
 
 function planned(): PlanDetail {
   const plan = golden<Plans>("plans").plans.find((row) => row.goal?.title === "Ship solo mode");
@@ -46,7 +46,7 @@ describe("the plan list", () => {
     openPage("/plans");
     const plan = planned();
     const link = await screen.findByRole("link", { name: plan.plan.title });
-    expect(link.getAttribute("href")).toBe(`/plans?plan=${encodeURIComponent(plan.plan.id)}`);
+    expect(link.getAttribute("href")).toBe(here(`/plans?plan=${encodeURIComponent(plan.plan.id)}`));
   });
 
   it("states what each plan holds", async () => {
@@ -110,8 +110,8 @@ describe("one plan", () => {
     serveViews();
     await openPlan();
     const section = screen.getByRole("region", { name: "Version 3" });
-    expect(within(section).getByRole("link", { name: "FR-RETRY-1" }).getAttribute("href")).toBe("/requirements?key=FR-RETRY-1");
-    expect(within(section).getByRole("link", { name: "decision-2" }).getAttribute("href")).toBe("/decisions?id=decision-2");
+    expect(within(section).getByRole("link", { name: "FR-RETRY-1" }).getAttribute("href")).toBe(here("/requirements?key=FR-RETRY-1"));
+    expect(within(section).getByRole("link", { name: "decision-2" }).getAttribute("href")).toBe(here("/decisions?id=decision-2"));
   });
 
   it("shows a review's result: where it stands, what it read, and what it left open", async () => {
@@ -120,7 +120,7 @@ describe("one plan", () => {
     const review = screen.getByRole("article", { name: "Review Write the docs" });
     expect(within(review).getByText("Ready")).toBeTruthy();
     expect(within(review).getByText(/@3$/)).toBeTruthy();
-    expect(within(review).getByRole("link", { name: "Does the plan cover a restart?" }).getAttribute("href")).toBe("/questions?id=question-review");
+    expect(within(review).getByRole("link", { name: "Does the plan cover a restart?" }).getAttribute("href")).toBe(here("/questions?id=question-review"));
   });
 
   it("says when a review left nothing open", async () => {
@@ -159,7 +159,7 @@ describe("one plan", () => {
     serveViews();
     await openPlan();
     expect(screen.getByText("Ship solo mode")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "All plans" }).getAttribute("href")).toBe("/plans");
+    expect(screen.getByRole("link", { name: "All plans" }).getAttribute("href")).toBe(here("/plans"));
   });
 
   it("says so when no version of the plan waits for approval", async () => {
@@ -192,7 +192,7 @@ describe("a plan with milestones", () => {
     const page = screen.getByRole("article", { name: "The approval page" });
     const criteria = within(within(page).getByRole("region", { name: "Version 2" })).getByRole("list", { name: "Acceptance criteria" });
     const second = within(criteria).getByText(/The roadmap shows parallel work/).closest("li");
-    expect(within(second as HTMLElement).getByRole("link", { name: "FAC-3" }).getAttribute("href")).toBe("/requirements?key=FAC-3");
+    expect(within(second as HTMLElement).getByRole("link", { name: "FAC-3" }).getAttribute("href")).toBe(here("/requirements?key=FAC-3"));
     expect(within(second as HTMLElement).queryByRole("link", { name: "FAC-1" })).toBeNull();
   });
 
@@ -219,6 +219,6 @@ describe("a plan with milestones", () => {
     await openFactory();
     const waiting = screen.getByText(/^Version 6 waits for approval/);
     expect(waiting.textContent).toBe("Version 6 waits for approval in Needs you.");
-    expect(within(waiting).getByRole("link", { name: "Needs you" }).getAttribute("href")).toBe("/");
+    expect(within(waiting).getByRole("link", { name: "Needs you" }).getAttribute("href")).toBe(here("/"));
   });
 });

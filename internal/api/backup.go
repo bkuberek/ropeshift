@@ -18,8 +18,8 @@ type BackupResult struct {
 }
 
 // Backup copies the ledger to a new file while the daemon runs.
-func (c *Client) Backup(ctx context.Context, in BackupRequest) (BackupResult, error) {
+func (c *ProjectClient) Backup(ctx context.Context, in BackupRequest) (BackupResult, error) {
 	var out BackupResult
-	err := c.Do(ctx, http.MethodPost, "/v1/backup", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/backup", in, &out)
 	return out, err
 }

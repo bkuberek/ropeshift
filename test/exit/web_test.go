@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -89,7 +90,7 @@ func TestTheBinaryServesItsOwnWebUI(t *testing.T) {
 	if !strings.HasPrefix(page.Header.Get("Content-Type"), "text/html") || page.Header.Get("Content-Security-Policy") == "" {
 		t.Errorf("headers %v", page.Header)
 	}
-	view := base + api.ViewPath(api.ViewNeedsYou)
+	view := base + api.InProject(ledger.DefaultProjectName, api.ViewPath(api.ViewNeedsYou))
 	anonymous, _ := webCall(t, http.MethodGet, view, nil, nil, nil)
 	if anonymous.StatusCode != http.StatusUnauthorized {
 		t.Errorf("a read with no session: %d", anonymous.StatusCode)

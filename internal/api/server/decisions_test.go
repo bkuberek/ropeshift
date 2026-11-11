@@ -21,7 +21,7 @@ const testWorker = "worker-1"
 type rulingRig struct {
 	daemon *apitest.Daemon
 	use    *control.Questions
-	worker *api.Client
+	worker *api.ProjectClient
 	epoch  int64
 }
 
@@ -406,7 +406,7 @@ func TestOverturnNeedsASession(t *testing.T) {
 	if _, err := r.rule(t, "q1", draftRuling("d1", questions.DecisionAssumed)); err != nil {
 		t.Fatal(err)
 	}
-	anonymous := api.NewUnixClient(r.daemon.Socket)
+	anonymous := api.NewUnixClient(r.daemon.Socket).Project(apitest.ProjectName)
 	t.Cleanup(anonymous.Close)
 	_, err := anonymous.OverturnDecision(t.Context(), "d1", api.OverturnDecision{ID: "d2", Statement: "No."})
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)

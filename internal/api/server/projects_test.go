@@ -1,0 +1,206 @@
+package server_test
+
+import (
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/apitest"
+)
+
+func createWork(t *testing.T, client *api.ProjectClient, id, title string) {
+	t.Helper()
+	_, err := client.CreateWorkOrder(t.Context(), api.CreateWorkOrder{ID: id, Title: title, Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func workIDs(t *testing.T, client *api.ProjectClient) []string {
+	t.Helper()
+	rows, err := client.WorkOrders(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// TestTwoProjectsKeepTheirRecordsApart holds FR-PROJ-1 and FR-PROJ-5 through the API: each project's
+// routes read and write its own database, an ID in one project names nothing in the other, and a
+// ladder lookup in one project finds none of the other's decisions.
+func TestTwoProjectsKeepTheirRecordsApart(t *testing.T) {
+	in := apitest.StartInstallation(t, "acme")
+	_, _, home := in.In(t, apitest.ProjectName)
+	_, _, acme := in.In(t, "acme")
+	createWork(t, home, "wo-home", "Add the retry budget")
+	createWork(t, acme, "wo-acme", "Ship the invoice export")
+	createWork(t, home, "wo-same", "One title")
+	createWork(t, acme, "wo-same", "Another title")
+
+	if got := workIDs(t, home); !slices.Equal(got, []string{"wo-home", "wo-same"}) {
+		t.Errorf("the first project lists %v", got)
+	}
+	if got := workIDs(t, acme); !slices.Equal(got, []string{"wo-acme", "wo-same"}) {
+		t.Errorf("acme lists %v", got)
+	}
+	_, err := acme.WorkOrder(t.Context(), "wo-home")
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+	same, err := acme.WorkOrder(t.Context(), "wo-same")
+	if err != nil || same.Title != "Another title" {
+		t.Errorf("acme's wo-same reads %+v, %v", same, err)
+	}
+
+	_, err = home.RecordDecision(t.Context(), api.RecordDecision{
+		ID: "decision-retry", Status: questions.DecisionDecided, Statement: "Retry the invoice upload twice.",
+		Rationale: "It covers the outage.", Scope: "retries", Categories: []string{questions.CategoryProduct}, Reversibility: questions.Reversible,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, err := home.Candidates(t.Context(), "retry invoice upload", []string{"decision"}, 10); err != nil || len(found) == 0 {
+		t.Fatalf("the first project's own lookup found %v, %v", found, err)
+	}
+	if found, err := acme.Candidates(t.Context(), "retry invoice upload", []string{"decision"}, 10); err != nil || len(found) != 0 {
+		t.Errorf("acme's lookup found %v, %v", found, err)
+	}
+	if decisions, err := acme.Decisions(t.Context(), api.RecordFilter{}); err != nil || len(decisions) != 0 {
+		t.Errorf("acme lists decisions %v, %v", decisions, err)
+	}
+	_, err = acme.Decision(t.Context(), "decision-retry")
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+}
+
+// TestEachProjectHasADatabaseOfItsOwn holds FR-PROJ-1 on the disk: the registry names a file for each
+// project, and the files are different.
+func TestEachProjectHasADatabaseOfItsOwn(t *testing.T) {
+	in := apitest.StartInstallation(t, "acme", "beta")
+	projects, err := in.State.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, p := range projects {
+		if seen[p.Database] {
+			t.Errorf("two projects share %s", p.Database)
+		}
+		seen[p.Database] = true
+		if _, err := os.Stat(filepath.Join(in.State.Dir, filepath.FromSlash(p.Database))); err != nil {
+			t.Errorf("project %s: %v", p.Name, err)
+		}
+	}
+	if len(seen) != 3 {
+		t.Errorf("databases %v", seen)
+	}
+}
+
+// TestTheRegistryListsEveryProject is what a client reads to choose a project: each one with its state and
+// the repositories it holds, and one project's record with its database.
+func TestTheRegistryListsEveryProject(t *testing.T) {
+	in := apitest.StartInstallation(t, "acme")
+	_, err := in.State.Installation.IndexRepositories(t.Context(), []ledger.IndexedRepository{
+		{Identity: "example.com/acme/invoices", Project: "acme-id", Repository: "r1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, err := in.Client.Projects(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 || projects[0].Name != ledger.DefaultProjectName || projects[1].Name != "acme" {
+		t.Fatalf("projects %+v", projects)
+	}
+	if acme := projects[1]; acme.ID != "acme-id" || acme.State != ledger.ProjectActive || !slices.Equal(acme.Repositories, []string{"example.com/acme/invoices"}) {
+		t.Errorf("acme reads %+v", acme)
+	}
+	detail, err := in.Client.ProjectRecord(t.Context(), "acme")
+	if err != nil || detail.Database != "projects/acme-id.db" || detail.Name != "acme" {
+		t.Errorf("acme's record %+v, %v", detail, err)
+	}
+	_, err = in.Client.ProjectRecord(t.Context(), "nowhere")
+	refusedWith(t, err, http.StatusNotFound, api.CodeNoProject)
+}
+
+// TestAPathThatNamesNoProjectIsRefused says which name it did not find, apart from a record that is not
+// there.
+func TestAPathThatNamesNoProjectIsRefused(t *testing.T) {
+	in := apitest.StartInstallation(t)
+	_, err := in.Client.Project("nowhere").WorkOrders(t.Context(), "")
+	refusedWith(t, err, http.StatusNotFound, api.CodeNoProject)
+	_, err = in.Client.WorkOrder(t.Context(), "no such/work order")
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+}
+
+// TestARouteWithNoProjectIsGone holds that every surface names a project: a control plane that does not
+// serve the deprecated routes answers one with no project as a route it does not have.
+func TestARouteWithNoProjectIsGone(t *testing.T) {
+	d := apitest.Start(t)
+	err := d.Client.Do(t.Context(), http.MethodGet, "/v1/work-orders", nil, nil)
+	var refused *api.Error
+	if !errors.As(err, &refused) || refused.Status != http.StatusNotFound {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// TestTheDeprecatedRoutesServeTheFirstProject holds the routes kept for one release: a route with no
+// project reaches the plane protocol's project and says it is deprecated, and a worker one protocol
+// version behind still claims through it.
+func TestTheDeprecatedRoutesServeTheFirstProject(t *testing.T) {
+	d := apitest.StartWith(t, apitest.Options{Unscoped: true})
+	createWork(t, d.Client, "wo-1", "Add the retry budget")
+	response, err := apitest.RawClient(d.Socket).Get("http://ropeshift/v1/work-orders/wo-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.Header.Get("Deprecation") != "true" {
+		t.Errorf("status %d, Deprecation %q", response.StatusCode, response.Header.Get("Deprecation"))
+	}
+	scoped, err := apitest.RawClient(d.Socket).Get("http://ropeshift" + apitest.Route("/v1/work-orders/wo-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scoped.Body.Close()
+	if scoped.StatusCode != http.StatusOK || scoped.Header.Get("Deprecation") != "" {
+		t.Errorf("the project's own route: status %d, Deprecation %q", scoped.StatusCode, scoped.Header.Get("Deprecation"))
+	}
+	if _, err := d.Client.Review(t.Context(), "wo-1"); err != nil {
+		t.Fatal(err)
+	}
+	token, err := d.Client.CreateJoinToken(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := d.Client.Register(t.Context(), ledger.Registration{JoinToken: token, WorkerID: "worker-old", Name: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := d.Client.WithCredential(credential.Credential).Client
+	if _, err := old.OpenSession(t.Context(), "worker-old", ledger.SessionRequest{Protocol: ledger.ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Client.OpenWindow(t.Context(), "worker-old", api.OpenWindow{ID: "window-1"}); err != nil {
+		t.Fatal(err)
+	}
+	var grant api.Grant
+	err = old.Do(t.Context(), http.MethodPost, "/v1/work-orders/wo-1/claims", api.ClaimRequest{ClaimID: "claim-1", WorkerID: "worker-old"}, &grant)
+	if err != nil || grant.WorkOrder != "wo-1" {
+		t.Errorf("an older worker's claim: %+v, %v", grant, err)
+	}
+	if row, err := d.Client.WorkOrder(t.Context(), "wo-1"); err != nil || row.State != workorders.Claimed {
+		t.Errorf("wo-1 reads %+v, %v", row, err)
+	}
+}

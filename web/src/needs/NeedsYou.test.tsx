@@ -5,7 +5,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { goldenNeedsYou, refusal, serveApi } from "../testing";
+import { goldenNeedsYou, here, refusal, serveApi } from "../testing";
 import type { NeedItem, NeedsYou as View, QuestionItem } from "../api/types";
 import { NeedsYou } from "./NeedsYou";
 import { waitLabel, waitWords } from "./wait";
@@ -431,7 +431,7 @@ describe("waiting work", () => {
     const card = cardNamed(/Wait for the check/);
     const lead = within(card).getByText(/^Its lane is parked/);
     expect(lead.textContent).toBe("Its lane is parked until question question-1 is answered, or until a person resumes it.");
-    expect(within(lead).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe("/questions?id=question-1");
+    expect(within(lead).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe(here("/questions?id=question-1"));
     expect(within(card).getByText("Resume lets it go on now, without waiting.")).toBeTruthy();
     await userEvent.click(within(card).getByRole("button", { name: "Resume" }));
     await waitFor(() => expect(sent).toHaveLength(1));
@@ -593,7 +593,7 @@ describe("a plan approval", () => {
     expect(holds.textContent).toContain("1 requirements document");
     expect(holds.textContent).toContain("1 architecture document");
     expect(within(shown).getByRole("link", { name: "Read the plan" }).getAttribute("href")).toBe(
-      `/plans?plan=${encodeURIComponent(item.plan_approval.approval.plan_id ?? "")}`,
+      here(`/plans?plan=${encodeURIComponent(item.plan_approval.approval.plan_id ?? "")}`),
     );
   });
 
@@ -682,7 +682,7 @@ describe("a contract review", () => {
     expect(within(shown).getByText(/no plan approval covers it/)).toBeTruthy();
     expect(within(shown).getByText("Document the retry budget, version 1")).toBeTruthy();
     expect(within(shown).getAllByText("wo-review")[0]?.classList.contains("id")).toBe(true);
-    expect(within(shown).getByRole("link", { name: "Read the contract" }).getAttribute("href")).toBe(`/plans?plan=${encodeURIComponent(review.plan)}`);
+    expect(within(shown).getByRole("link", { name: "Read the contract" }).getAttribute("href")).toBe(here(`/plans?plan=${encodeURIComponent(review.plan)}`));
   });
 
   it("passes the review in one press", async () => {

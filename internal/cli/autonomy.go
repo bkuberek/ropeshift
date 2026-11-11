@@ -57,7 +57,7 @@ func (c *invocation) workerLevel(args []string) int {
 // workerRisk prints the statement and the digest an acknowledgement names. A read needs no session,
 // and this is how a person comes to hold the digest at all.
 func (c *invocation) workerRisk(args []string) int {
-	client, ok, code := c.noArguments(args)
+	client, ok, code := c.noArgumentsAtInstallation(args)
 	if !ok {
 		return code
 	}

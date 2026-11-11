@@ -50,6 +50,8 @@ const (
 	CodeWindowOpen = "window_open"
 	// CodeStaleStatement means an acknowledgement names text other than the current statement.
 	CodeStaleStatement = "stale_statement"
+	// CodeNoProject means a path names a project the installation does not hold.
+	CodeNoProject = "no_project"
 )
 
 // ErrorBody is every error response.
@@ -115,6 +117,9 @@ type ClaimRequest struct {
 	ClaimID  string `json:"claim_id"`
 	WorkerID string `json:"worker_id"`
 	TTLMs    int64  `json:"ttl_ms,omitempty"`
+	// WorkOrder names the work a worker claims on the plane protocol's route, which has no work order
+	// in its path.
+	WorkOrder string `json:"work_order,omitempty"`
 }
 
 // ContractPin names the contract version a work order pinned.

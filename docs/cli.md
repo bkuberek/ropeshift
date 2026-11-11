@@ -14,12 +14,27 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 
 `ropeshiftd` answers the same forms for its own commands: `solo`, `help`, and `version`.
 
+## Projects
+
+An installation holds one or more projects, and each project's records live in a ledger of their own. A command on a project's records acts on one project, which it takes from the first of these that names one:
+
+1. `--project <name>`.
+2. `ROPESHIFT_PROJECT`.
+3. The project that holds the repository the command runs in: its remote, with no credential and no `.git` suffix, or its first commit when it has no remote.
+4. The only active project.
+
+With none of these, the command exits 2 and lists the projects. A name the installation does not hold exits 2 with the same list.
+
+The commands on the installation's own records take no project: `project`, `worker`, `orchestrator`, `login`, `sign-out`, `passphrase`, `init`, `service`, `health`, and `telemetry`, which reads the worker's own store.
+
 ## Commands
 
 | Command | Does |
 |---------|------|
 | `ropeshift top [--once] [--width N]` | Watches the fleet: what needs a person first, in the order the Needs you view holds, then each lane in that order with its state, reachability, and whether its value is `observed` or `last_reported`, then the workers. A parked lane says what it waits for, such as `waits for question q-1 or a person`. It follows the ledger's events and reads again at least every 5 seconds, and it changes nothing: it names the command for what the cursor stands on. Text from agents and repositories prints with control characters replaced. With no terminal, or with `--once`, it prints one frame, and `--json` prints one document. A printed frame is as wide as the terminal on stdout, and 120 columns when stdout is not a terminal, such as a pipe or a file. `--width N` sets its width in columns, and clips each line to it |
-| `ropeshift health` | Says the control plane answered and read its ledger, and the revision it stands at. It exits 9 when nothing answers |
+| `ropeshift health` | Says the control plane answered and read its ledger, and the revision the first project stands at. It exits 9 when nothing answers |
+| `ropeshift project list` | Lists the installation's projects, oldest first, each with its state, its display name, and how many repositories it holds. `--json` lists the identity of each repository |
+| `ropeshift project show <name>` | Shows one project: its ID, which every record of its ledger carries, its display name, its state, its database, and the record of each repository it holds |
 | `ropeshift version [--json]` | Prints the version, the commit, the build date, the Go version, and the platform. It needs no daemon, and `ropeshiftd version` prints the same under the daemon's name. `--version` is the same command. See [versioning](versioning.md#what-a-binary-reports) |
 | `ropeshift help [<command>]` | Lists every command by group, or prints one command's usage, what it does, and its flags. See [help](#help) |
 | `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review`. With `--kind plan --repository R`, its lane writes repository files on its branch, and intake reads them at the commit a member accepts. The files are goals, plans, requirements, specs, architecture documents, experience designs, milestones, and contracts, and intake keeps a numbered version of each document for every committed change. A contract pins each document it cites to the version at its commit, and a criterion that serves no requirement of its plan keeps the work from `ready`. A contract names the milestone of its plan it belongs to, which every contract of a plan with milestones must do, and the shared contracts of its plan it uses, and a milestone names the milestones it depends on. Intake makes every work order of a milestone wait for every work order of the milestones it depends on, and every work order of a contract wait for the work orders of each shared contract it uses. A reference to a milestone or shared contract the plan does not hold is a problem, and intake records nothing from that file. A plan whose milestones, shared contracts, or work orders depend on each other in a loop is refused whole, and the problem names the loop. `source list` names R, and reports a file intake could not read |

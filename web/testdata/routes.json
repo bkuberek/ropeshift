@@ -11,93 +11,8 @@
   },
   {
     "method": "GET",
-    "pattern": "/v1/events",
-    "command": "events"
-  },
-  {
-    "method": "GET",
-    "pattern": "/v1/documents/read",
-    "command": "document show"
-  },
-  {
-    "method": "GET",
-    "pattern": "/v1/documents/versions",
-    "command": "document versions"
-  },
-  {
-    "method": "GET",
-    "pattern": "/v1/documents/recorded",
-    "command": "document recorded"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/questions/{id}/answer",
-    "command": "question answer"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/approvals/{id}/decide",
-    "command": "approval approve"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/effects/{id}/decide",
-    "command": "effect decide"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/review",
-    "command": "work review"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/send-back",
-    "command": "work send-back"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/accept",
-    "command": "work accept"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/rework",
-    "command": "work rework"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/reassign",
-    "command": "work reassign"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/resolve",
-    "command": "work resolve"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/replan",
-    "command": "work replan"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/cancel",
-    "command": "work cancel"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/lane-reset",
-    "command": "lane reset"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/lane-respawn",
-    "command": "lane respawn"
-  },
-  {
-    "method": "POST",
-    "pattern": "/v1/work-orders/{id}/lane-resume",
-    "command": "lane resume"
+    "pattern": "/v1/projects",
+    "command": "project list"
   },
   {
     "method": "PUT",
@@ -106,72 +21,162 @@
   },
   {
     "method": "GET",
-    "pattern": "/v1/panes/{id}",
+    "pattern": "/v1/projects/{project}/events",
+    "command": "events"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/documents/read",
+    "command": "document show"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/documents/versions",
+    "command": "document versions"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/documents/recorded",
+    "command": "document recorded"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/questions/{id}/answer",
+    "command": "question answer"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/approvals/{id}/decide",
+    "command": "approval approve"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/effects/{id}/decide",
+    "command": "effect decide"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/review",
+    "command": "work review"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/send-back",
+    "command": "work send-back"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/accept",
+    "command": "work accept"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/rework",
+    "command": "work rework"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/reassign",
+    "command": "work reassign"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/resolve",
+    "command": "work resolve"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/replan",
+    "command": "work replan"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/cancel",
+    "command": "work cancel"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/lane-reset",
+    "command": "lane reset"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/lane-respawn",
+    "command": "lane respawn"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/lane-resume",
+    "command": "lane resume"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/panes/{id}",
     "command": "lane attach"
   },
   {
     "method": "POST",
-    "pattern": "/v1/panes/{id}/input",
+    "pattern": "/v1/projects/{project}/panes/{id}/input",
     "command": "lane attach"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/needs-you",
+    "pattern": "/v1/projects/{project}/views/needs-you",
     "command": "view needs-you"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/roadmap",
+    "pattern": "/v1/projects/{project}/views/roadmap",
     "command": "view roadmap"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/plans",
+    "pattern": "/v1/projects/{project}/views/plans",
     "command": "view plans"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/documents",
+    "pattern": "/v1/projects/{project}/views/documents",
     "command": "view documents"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/decisions",
+    "pattern": "/v1/projects/{project}/views/decisions",
     "command": "view decisions"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/questions",
+    "pattern": "/v1/projects/{project}/views/questions",
     "command": "view questions"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/in-progress",
+    "pattern": "/v1/projects/{project}/views/in-progress",
     "command": "view in-progress"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/on-hold",
+    "pattern": "/v1/projects/{project}/views/on-hold",
     "command": "view on-hold"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/stuck",
+    "pattern": "/v1/projects/{project}/views/stuck",
     "command": "view stuck"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/completed",
+    "pattern": "/v1/projects/{project}/views/completed",
     "command": "view completed"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/shop-floor",
+    "pattern": "/v1/projects/{project}/views/shop-floor",
     "command": "view shop-floor"
   },
   {
     "method": "GET",
-    "pattern": "/v1/views/operations",
+    "pattern": "/v1/projects/{project}/views/operations",
     "command": "view operations"
   }
 ]

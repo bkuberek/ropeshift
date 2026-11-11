@@ -3,8 +3,31 @@ import type { AnchorHTMLAttributes, MouseEvent, ReactNode, RefObject } from "rea
 
 // The application's own addresses. A path with no file is a view, which the listener serves as the
 // application, so a link is an ordinary address and a person can send one. What a view selects stays
-// in the query, because a value with a dot in a path would read as a file.
-export type Route = { path: string; params: URLSearchParams; moves: number };
+// in the query, because a value with a dot in a path would read as a file. Every view belongs to one
+// project, whose name leads its address: /projects/{project}/{view}. Path is the view's part of it.
+export type Route = { project: string; path: string; params: URLSearchParams; moves: number };
+
+const projectAddress = /^\/projects\/([^/]+)(\/.*)?$/;
+
+// splitProject reads the project an address names, and the view's part of the address after it. An
+// address that names no project has an empty one.
+export function splitProject(pathname: string): { project: string; path: string } {
+  const found = projectAddress.exec(pathname);
+  if (!found) {
+    return { project: "", path: pathname };
+  }
+  return { project: decodeURIComponent(found[1] ?? ""), path: found[2] ?? "/" };
+}
+
+// inProject is the address of a view of one project. A view's address is the same in every project.
+export function inProject(project: string, to: string): string {
+  return project ? `/projects/${encodeURIComponent(project)}${to}` : to;
+}
+
+// placed is where a link to a view goes: into the project the page shows, unless it names a project.
+function placed(to: string, project = splitProject(window.location.pathname).project): string {
+  return projectAddress.test(to.split("?")[0] ?? "") ? to : inProject(project, to);
+}
 
 type Place = { address: string; moves: number };
 
@@ -45,8 +68,14 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-export function go(to: string, { stay = false } = {}): void {
-  window.history.pushState(null, "", to);
+// go moves to a view of the project the page shows, or to an address that names a project. replace takes
+// the place of the address the page is at, for a move no person asked for.
+export function go(to: string, { stay = false, replace = false } = {}): void {
+  if (replace) {
+    window.history.replaceState(null, "", placed(to));
+  } else {
+    window.history.pushState(null, "", placed(to));
+  }
   if (!stay) {
     window.scrollTo(0, 0);
   }
@@ -56,7 +85,7 @@ export function go(to: string, { stay = false } = {}): void {
 export function useRoute(): Route {
   const { address, moves } = useSyncExternalStore(subscribe, here);
   const url = new URL(address, window.location.origin);
-  return { path: url.pathname, params: url.searchParams, moves };
+  return { ...splitProject(url.pathname), params: url.searchParams, moves };
 }
 
 const Arrivals = createContext(0);
@@ -86,7 +115,9 @@ type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
 // Link is an ordinary link the application follows itself. Anything but a plain press is the browser's,
 // so a new tab still opens one. Every address here is the application's own, and no address is ever
 // taken from a record's text.
-export function Link({ to, stay = false, onClick, children, ...rest }: LinkProps) {
+export function Link({ to: view, stay = false, onClick, children, ...rest }: LinkProps) {
+  const { project } = useRoute();
+  const to = placed(view, project);
   const follow = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {

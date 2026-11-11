@@ -26,22 +26,22 @@ type DecideEffect struct {
 }
 
 // Effects lists every effect a person heard of, oldest first.
-func (c *Client) Effects(ctx context.Context) ([]ledger.UnknownEffect, error) {
+func (c *ProjectClient) Effects(ctx context.Context) ([]ledger.UnknownEffect, error) {
 	var out EffectList
-	err := c.Do(ctx, http.MethodGet, "/v1/effects", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/effects", nil, &out)
 	return out.Effects, err
 }
 
 // Effect reads one.
-func (c *Client) Effect(ctx context.Context, id string) (ledger.UnknownEffect, error) {
+func (c *ProjectClient) Effect(ctx context.Context, id string) (ledger.UnknownEffect, error) {
 	var out ledger.UnknownEffect
-	err := c.Do(ctx, http.MethodGet, "/v1/effects/"+url.PathEscape(id), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/effects/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
 
 // DecideEffect carries a person's word.
-func (c *Client) DecideEffect(ctx context.Context, id string, in DecideEffect) (ledger.UnknownEffect, error) {
+func (c *ProjectClient) DecideEffect(ctx context.Context, id string, in DecideEffect) (ledger.UnknownEffect, error) {
 	var out ledger.UnknownEffect
-	err := c.Do(ctx, http.MethodPost, "/v1/effects/"+url.PathEscape(id)+"/decide", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/effects/"+url.PathEscape(id)+"/decide", in, &out)
 	return out, err
 }

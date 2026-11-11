@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 
 import type { DocumentKind, DocumentRow, Documents, RecordedRead } from "../api/types";
 import { openPage } from "../opening";
-import { golden, refusal, serveViews } from "../testing";
+import { golden, here, refusal, serveViews } from "../testing";
 
-const specLink = "/document?path=docs%2Fspecs%2Fretry.md&instance=memory";
+const specLink = here("/document?path=docs%2Fspecs%2Fretry.md&instance=memory");
 
 function serve(change: (view: Documents) => void) {
   const view = golden<Documents>("documents");
@@ -81,7 +81,7 @@ describe("requirements", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "FR-RETRY-1" })).toBeTruthy();
     expect(await screen.findByText("A lane must stop retrying at its budget.")).toBeTruthy();
     expect(screen.queryByText("FR-RETRY-2")).toBeNull();
-    expect(screen.getByRole("link", { name: "All requirements" }).getAttribute("href")).toBe("/requirements");
+    expect(screen.getByRole("link", { name: "All requirements" }).getAttribute("href")).toBe(here("/requirements"));
   });
 
   it("says so when a contract names a requirement nobody recorded", async () => {
@@ -168,7 +168,7 @@ describe("reading a document", () => {
   });
 });
 
-const recordedLink = "/document?id=spec%3Afactory-api";
+const recordedLink = here("/document?id=spec%3Afactory-api");
 
 describe("the documents a plan recorded", () => {
   it("lists a plan's specs from the ledger, each with its version and where it stands in review", async () => {
@@ -268,7 +268,7 @@ describe("the documents a plan recorded", () => {
     openPage("/requirements");
     const holding = await screen.findByRole("region", { name: "Documents that hold them" });
     expect(within(holding).getByRole("link", { name: "What the factory must do" }).getAttribute("href")).toBe(
-      "/document?id=requirements%3Afactory",
+      here("/document?id=requirements%3Afactory"),
     );
     expect(within(holding).getByRole("link", { name: "What retries must do" })).toBeTruthy();
   });
@@ -297,7 +297,7 @@ describe("tracing requirements to work", () => {
     const trace = traceOf(list, "FAC-2");
     expect(trace.textContent).toContain("Shared work is built before the work that uses it.");
     const contracts = within(trace).getByRole("list", { name: "Contracts that serve FAC-2" });
-    expect(within(contracts).getByRole("link", { name: "The API client, version 1" }).getAttribute("href")).toMatch(/^\/plans\?plan=/);
+    expect(within(contracts).getByRole("link", { name: "The API client, version 1" }).getAttribute("href")).toMatch(/^\/projects\/default\/plans\?plan=/);
     const criteria = within(contracts).getByRole("list", { name: "Criteria of The API client that serve FAC-2" });
     expect(criteria.textContent).toContain("Every call retries once");
     const work = within(contracts).getByRole("list", { name: "Work orders of The API client" });
@@ -366,7 +366,7 @@ describe("reading a version the ledger stored", () => {
   it("states its plan, version, source, and where it stands in review", async () => {
     await open();
     const read = golden<RecordedRead>("recorded-document");
-    expect(screen.getByRole("link", { name: "The factory floor" }).getAttribute("href")).toBe(`/plans?plan=${encodeURIComponent(read.plan?.id ?? "")}`);
+    expect(screen.getByRole("link", { name: "The factory floor" }).getAttribute("href")).toBe(here(`/plans?plan=${encodeURIComponent(read.plan?.id ?? "")}`));
     const facts = screen.getAllByRole("term").map((term) => term.closest("div")?.textContent);
     expect(facts).toContain("Version2");
     expect(facts).toContain("ReviewWaits for approval in plan version 6");

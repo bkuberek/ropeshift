@@ -1,6 +1,9 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // The web listener's two cookies. The session cannot be read by a page, and the token that proves a
 // request came from one can.
@@ -36,6 +39,10 @@ func WebRoutes() []WebRoute {
 	routes := []WebRoute{
 		{http.MethodPost, SignInPath, "login"},
 		{http.MethodPost, SignOutPath, "sign-out"},
+		{http.MethodGet, ProjectsPath, "project list"},
+		{http.MethodPut, "/v1/workers/{id}/orchestrator", "orchestrator start"},
+	}
+	inProject := []WebRoute{
 		{http.MethodGet, EventsPath, "events"},
 		{http.MethodGet, "/v1/documents/read", "document show"},
 		{http.MethodGet, "/v1/documents/versions", "document versions"},
@@ -54,12 +61,20 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/work-orders/{id}/lane-reset", "lane reset"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-respawn", "lane respawn"},
 		{http.MethodPost, "/v1/work-orders/{id}/lane-resume", "lane resume"},
-		{http.MethodPut, "/v1/workers/{id}/orchestrator", "orchestrator start"},
 		{http.MethodGet, PanePath, "lane attach"},
 		{http.MethodPost, PaneInputPath, "lane attach"},
 	}
 	for _, name := range Views {
-		routes = append(routes, WebRoute{http.MethodGet, ViewPath(name), "view " + name})
+		inProject = append(inProject, WebRoute{http.MethodGet, ViewPath(name), "view " + name})
+	}
+	for _, route := range inProject {
+		route.Pattern = ProjectRoute(route.Pattern)
+		routes = append(routes, route)
 	}
 	return routes
+}
+
+// ProjectRoute is the pattern a project route, as it reads under /v1, has under /v1/projects/{project}/.
+func ProjectRoute(path string) string {
+	return ProjectsPath + "/{project}" + strings.TrimPrefix(path, "/v1")
 }

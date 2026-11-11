@@ -108,8 +108,8 @@ func (l *HTTP) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.Upl
 
 // Claim requests a work order for this worker.
 func (l *HTTP) Claim(ctx context.Context, auth ledger.WorkerAuth, request workorders.ClaimRequest) (workorders.Grant, error) {
-	grant, err := l.as(auth).Claim(ctx, request.WorkOrder, api.ClaimRequest{
-		ClaimID: request.ClaimID, WorkerID: auth.WorkerID, TTLMs: request.TTLMs,
+	grant, err := l.as(auth).WorkerClaim(ctx, auth.WorkerID, api.ClaimRequest{
+		ClaimID: request.ClaimID, WorkerID: auth.WorkerID, TTLMs: request.TTLMs, WorkOrder: request.WorkOrder,
 	})
 	if err != nil {
 		return workorders.Grant{}, domainError(err)

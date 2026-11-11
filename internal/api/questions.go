@@ -124,146 +124,146 @@ type CandidateList struct {
 }
 
 // Questions lists the questions a filter selects.
-func (c *Client) Questions(ctx context.Context, filter RecordFilter) ([]questions.Question, error) {
+func (c *ProjectClient) Questions(ctx context.Context, filter RecordFilter) ([]questions.Question, error) {
 	var out QuestionList
-	err := c.Do(ctx, http.MethodGet, "/v1/questions"+filter.query(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/questions"+filter.query(), nil, &out)
 	return out.Questions, err
 }
 
 // Question reads one question.
-func (c *Client) Question(ctx context.Context, id string) (questions.Question, error) {
+func (c *ProjectClient) Question(ctx context.Context, id string) (questions.Question, error) {
 	var out questions.Question
-	err := c.Do(ctx, http.MethodGet, "/v1/questions/"+url.PathEscape(id), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/questions/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
 
 // RecordQuestion records a question as it is.
-func (c *Client) RecordQuestion(ctx context.Context, in RecordQuestion) (questions.Question, error) {
+func (c *ProjectClient) RecordQuestion(ctx context.Context, in RecordQuestion) (questions.Question, error) {
 	var out questions.Question
-	err := c.Do(ctx, http.MethodPost, "/v1/questions", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/questions", in, &out)
 	return out, err
 }
 
 // DismissQuestion closes a question with no answer.
-func (c *Client) DismissQuestion(ctx context.Context, id string) error {
-	return c.Do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/dismiss", struct{}{}, nil)
+func (c *ProjectClient) DismissQuestion(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/dismiss", struct{}{}, nil)
 }
 
 // AnswerQuestion closes a question with a member's answer.
-func (c *Client) AnswerQuestion(ctx context.Context, id string, in AnswerQuestion) (questions.Decision, error) {
+func (c *ProjectClient) AnswerQuestion(ctx context.Context, id string, in AnswerQuestion) (questions.Decision, error) {
 	var out questions.Decision
-	err := c.Do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/answer", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/questions/"+url.PathEscape(id)+"/answer", in, &out)
 	return out, err
 }
 
 // Batches lists the delivered batches that still wait for a member, within one category.
 // An empty category lists them all.
-func (c *Client) Batches(ctx context.Context, category string) ([]questions.Presented, error) {
+func (c *ProjectClient) Batches(ctx context.Context, category string) ([]questions.Presented, error) {
 	path := "/v1/question-batches"
 	if category != "" {
 		path += "?category=" + url.QueryEscape(category)
 	}
 	var out BatchList
-	err := c.Do(ctx, http.MethodGet, path, nil, &out)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
 	return out.Batches, err
 }
 
 // Decisions lists the decisions a filter selects.
-func (c *Client) Decisions(ctx context.Context, filter RecordFilter) ([]questions.Decision, error) {
+func (c *ProjectClient) Decisions(ctx context.Context, filter RecordFilter) ([]questions.Decision, error) {
 	var out DecisionList
-	err := c.Do(ctx, http.MethodGet, "/v1/decisions"+filter.query(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/decisions"+filter.query(), nil, &out)
 	return out.Decisions, err
 }
 
 // Decision reads one decision.
-func (c *Client) Decision(ctx context.Context, id string) (questions.Decision, error) {
+func (c *ProjectClient) Decision(ctx context.Context, id string) (questions.Decision, error) {
 	var out questions.Decision
-	err := c.Do(ctx, http.MethodGet, "/v1/decisions/"+url.PathEscape(id), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/decisions/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
 
 // RecordDecision records a decision.
-func (c *Client) RecordDecision(ctx context.Context, in RecordDecision) (questions.Decision, error) {
+func (c *ProjectClient) RecordDecision(ctx context.Context, in RecordDecision) (questions.Decision, error) {
 	var out questions.Decision
-	err := c.Do(ctx, http.MethodPost, "/v1/decisions", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/decisions", in, &out)
 	return out, err
 }
 
 // OverturnDecision reverses a decision, with what takes its place.
-func (c *Client) OverturnDecision(ctx context.Context, id string, in OverturnDecision) (questions.Overturned, error) {
+func (c *ProjectClient) OverturnDecision(ctx context.Context, id string, in OverturnDecision) (questions.Overturned, error) {
 	var out questions.Overturned
-	err := c.Do(ctx, http.MethodPost, "/v1/decisions/"+url.PathEscape(id)+"/overturn", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/decisions/"+url.PathEscape(id)+"/overturn", in, &out)
 	return out, err
 }
 
 // Policies lists the versions of the decision policy.
-func (c *Client) Policies(ctx context.Context) ([]authority.PolicyVersion, error) {
+func (c *ProjectClient) Policies(ctx context.Context) ([]authority.PolicyVersion, error) {
 	var out PolicyList
-	err := c.Do(ctx, http.MethodGet, "/v1/policies", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies", nil, &out)
 	return out.Versions, err
 }
 
 // Policy reads one version of the decision policy.
-func (c *Client) Policy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
+func (c *ProjectClient) Policy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
 	var out authority.PolicyVersion
-	err := c.Do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10), nil, &out)
 	return out, err
 }
 
 // LanePolicies lists the versions of the lane policy, newest first.
-func (c *Client) LanePolicies(ctx context.Context) ([]authority.PolicyVersion, error) {
+func (c *ProjectClient) LanePolicies(ctx context.Context) ([]authority.PolicyVersion, error) {
 	var out PolicyList
-	err := c.Do(ctx, http.MethodGet, "/v1/policies?kind="+string(authority.PolicyLane), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies?kind="+string(authority.PolicyLane), nil, &out)
 	return out.Versions, err
 }
 
 // LanePolicy reads one version of the lane policy.
-func (c *Client) LanePolicy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
+func (c *ProjectClient) LanePolicy(ctx context.Context, version int64) (authority.PolicyVersion, error) {
 	var out authority.PolicyVersion
-	err := c.Do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(authority.PolicyLane), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(authority.PolicyLane), nil, &out)
 	return out, err
 }
 
 // PoliciesOf lists the versions of one kind of policy, newest first.
-func (c *Client) PoliciesOf(ctx context.Context, kind authority.PolicyKind) ([]authority.PolicyVersion, error) {
+func (c *ProjectClient) PoliciesOf(ctx context.Context, kind authority.PolicyKind) ([]authority.PolicyVersion, error) {
 	var out PolicyList
-	err := c.Do(ctx, http.MethodGet, "/v1/policies?kind="+string(kind), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies?kind="+string(kind), nil, &out)
 	return out.Versions, err
 }
 
 // PolicyOf reads one version of one kind of policy.
-func (c *Client) PolicyOf(ctx context.Context, kind authority.PolicyKind, version int64) (authority.PolicyVersion, error) {
+func (c *ProjectClient) PolicyOf(ctx context.Context, kind authority.PolicyKind, version int64) (authority.PolicyVersion, error) {
 	var out authority.PolicyVersion
-	err := c.Do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(kind), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/policies/"+strconv.FormatInt(version, 10)+"?kind="+string(kind), nil, &out)
 	return out, err
 }
 
 // PublishPolicy records a new version of the policy its body's table names.
-func (c *Client) PublishPolicy(ctx context.Context, body string) (authority.PolicyVersion, error) {
+func (c *ProjectClient) PublishPolicy(ctx context.Context, body string) (authority.PolicyVersion, error) {
 	var out authority.PolicyVersion
-	err := c.Do(ctx, http.MethodPost, "/v1/policies", PublishPolicy{Body: body}, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/policies", PublishPolicy{Body: body}, &out)
 	return out, err
 }
 
 // Categories lists every category of the workspace.
-func (c *Client) Categories(ctx context.Context) ([]string, error) {
+func (c *ProjectClient) Categories(ctx context.Context) ([]string, error) {
 	var out CategoryList
-	err := c.Do(ctx, http.MethodGet, "/v1/categories", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/categories", nil, &out)
 	return out.Categories, err
 }
 
 // AddCategory extends the workspace's categories.
-func (c *Client) AddCategory(ctx context.Context, name string) error {
-	return c.Do(ctx, http.MethodPost, "/v1/categories", AddCategory{Name: name}, nil)
+func (c *ProjectClient) AddCategory(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodPost, "/v1/categories", AddCategory{Name: name}, nil)
 }
 
 // Candidates reads ranked candidates of some kinds of record.
-func (c *Client) Candidates(ctx context.Context, text string, kinds []string, limit int) ([]Candidate, error) {
+func (c *ProjectClient) Candidates(ctx context.Context, text string, kinds []string, limit int) ([]Candidate, error) {
 	values := url.Values{"text": {text}, "kinds": {strings.Join(kinds, ",")}}
 	if limit > 0 {
 		values.Set("limit", strconv.Itoa(limit))
 	}
 	var out CandidateList
-	err := c.Do(ctx, http.MethodGet, "/v1/candidates?"+values.Encode(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/candidates?"+values.Encode(), nil, &out)
 	return out.Candidates, err
 }
