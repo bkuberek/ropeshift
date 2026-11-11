@@ -192,8 +192,12 @@ func TestALaneLayerNarrowsAndCannotWiden(t *testing.T) {
 		{name: "a lane cannot raise", lane: "[agent]\npermission_mode = \"auto\"\n", refused: true},
 		{name: "a lane cannot reach bypass", lane: "[agent]\npermission_mode = \"bypassPermissions\"\n", refused: true},
 		{name: "a repository cannot raise for a lane", repository: "[agent]\npermission_mode = \"auto\"\n", refused: true},
-		{name: "a lane cannot admit more", lane: "[admission]\nmax_lanes = 99\n", refused: true},
-		{name: "a repository cannot admit more", repository: "[admission]\nmax_lanes_per_sign_in = 99\n", refused: true},
+		{name: "a lane cannot admit more", user: "[admission]\nmax_lanes = 4\n", lane: "[admission]\nmax_lanes = 99\n", refused: true},
+		{name: "a repository cannot admit more", user: "[admission]\nmax_lanes_per_sign_in = 2\n", repository: "[admission]\nmax_lanes_per_sign_in = 99\n", refused: true},
+		{name: "a repository cannot lift a cap", user: "[admission]\nmax_lanes_per_sign_in = 2\n", repository: "[admission]\nmax_lanes_per_sign_in = 0\n", refused: true},
+		{name: "a repository can lower a cap", user: "[admission]\nmax_lanes_per_sign_in = 3\nmax_lanes = 8\n", repository: "[admission]\nmax_lanes_per_sign_in = 1\nmax_lanes = 2\n"},
+		{name: "a repository can cap what the user left open", repository: "[admission]\nmax_lanes_per_sign_in = 2\n"},
+		{name: "a lane can lower a cap", user: "[admission]\nmax_lanes = 4\n", lane: "[admission]\nmax_lanes = 1\n"},
 		{name: "a repository cannot lower the floor", user: "[admission]\nmin_free_memory_mb = 512\n", repository: "[admission]\nmin_free_memory_mb = 0\n", refused: true},
 		{name: "a user sets what a machine admits", user: "[admission]\nmax_lanes = 9\n"},
 		{name: "a user turns content capture on", user: "[telemetry]\ncontent = true\n"},
@@ -211,5 +215,21 @@ func TestALaneLayerNarrowsAndCannotWiden(t *testing.T) {
 				t.Errorf("error %v, want refused=%v", err, tt.refused)
 			}
 		})
+	}
+}
+
+// TestALayerLowersTheLaneCapsTheUserSet holds ADR-0021's rule for a repository's layer: it can lower
+// either lane cap for its own lanes, and what it lowers is what the lane is admitted by.
+func TestALayerLowersTheLaneCapsTheUserSet(t *testing.T) {
+	profile, err := ResolveLayers("[admission]\nmax_lanes_per_sign_in = 3\n", "[admission]\nmax_lanes_per_sign_in = 1\nmax_lanes = 2\n", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Admission.MaxLanesPerSignIn != 1 || profile.Admission.MaxLanes != 2 {
+		t.Errorf("admission %+v", profile.Admission)
+	}
+	_, err = ResolveLayers("[admission]\nmax_lanes_per_sign_in = 1\n", "[admission]\nmax_lanes_per_sign_in = 2\n", "")
+	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "max_lanes_per_sign_in") {
+		t.Errorf("a repository that raises the sign-in cap: %v", err)
 	}
 }

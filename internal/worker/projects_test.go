@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -184,5 +186,105 @@ func TestOneWorkerRunsLanesOfTwoProjectsAtOnce(t *testing.T) {
 	}
 	if len(state.Projects) != 2 || state.Revisions["pa"] == 0 || state.Revisions["pb"] == 0 {
 		t.Errorf("desired state names %+v at %v", state.Projects, state.Revisions)
+	}
+}
+
+// TestTheSignInCapHoldsAcrossProjects sets `max_lanes_per_sign_in = 1` and dispatches a lane in each of
+// two projects on one worker: one runs, and the other waits with a note in its own project until the
+// first ends, because the cap counts the lanes of every project on the machine (ADR-0021). A repository
+// layer that would raise the cap is refused, so its lane does not start either.
+func TestTheSignInCapHoldsAcrossProjects(t *testing.T) {
+	t.Parallel()
+	r := newInstallationRig(t)
+	r.profile.PutUser("[admission]\nmax_lanes = 0\nmax_lanes_per_sign_in = 1\n")
+	r.dispatch("pa", "lane-a")
+	r.dispatch("pb", "lane-b")
+	ended := func() fake.DriverScript {
+		return script([]fake.DriverStep{
+			{Bound: true},
+			{Do: func(spec ports.SessionSpec) {
+				raw, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeCompleted})
+				if err == nil {
+					_, err = r.journal.SaveReport(context.Background(), spec.Lane, raw)
+				}
+				if err != nil {
+					r.t.Error(err)
+				}
+			}},
+			completed(0.1),
+		})
+	}
+	r.driver.Play(ended())
+	r.driver.PlayAfter(ended())
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if specs := r.driver.Specs(); len(specs) != 1 {
+		t.Fatalf("%d lanes started under a cap of one", len(specs))
+	}
+	first := r.driver.Specs()[0].Lane
+	waiting := ledger.WorkspaceID("pb")
+	if first == "lane-b" {
+		waiting = "pa"
+	}
+	if row := r.row(waiting); row.State != workorders.Claimed {
+		t.Errorf("the held lane's work order %+v", row)
+	}
+	if !r.held(waiting, lanes.HeldSignInFull) {
+		t.Errorf("project %s has no note that the sign-in is full", waiting)
+	}
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if specs := r.driver.Specs(); len(specs) != 2 {
+		t.Fatalf("%d lanes after the first ended", len(specs))
+	}
+	for _, project := range []ledger.WorkspaceID{"pa", "pb"} {
+		if row := r.row(project); row.State != workorders.Acceptance {
+			t.Errorf("project %s: %+v", project, row)
+		}
+	}
+}
+
+// held reads whether a project's log holds a worker's note that a cap held a lane back.
+func (r *installationRig) held(project ledger.WorkspaceID, reason string) bool {
+	r.t.Helper()
+	found := false
+	err := r.stores[project].Read(r.t.Context(), project, func(tx ports.ReadTx) error {
+		events, err := control.ReadAllEvents(tx.Events)
+		for _, e := range events {
+			if e.Type != "work_order."+ledger.UploadAdmissionHeld {
+				continue
+			}
+			var change workorders.Change
+			if err := json.Unmarshal(e.Data, &change); err != nil {
+				return err
+			}
+			found = found || strings.Contains(string(change.Payload), reason)
+		}
+		return err
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return found
+}
+
+// TestARepositoryLayerCannotRaiseTheSignInCap gives the repository a layer that raises the user's cap:
+// the lane is refused at its start and runs nothing.
+func TestARepositoryLayerCannotRaiseTheSignInCap(t *testing.T) {
+	t.Parallel()
+	r := newInstallationRig(t)
+	r.profile.PutUser("[admission]\nmax_lanes_per_sign_in = 1\n")
+	r.profile.Put("/repository", "[admission]\nmax_lanes_per_sign_in = 4\n")
+	r.dispatch("pa", "lane-a")
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if specs := r.driver.Specs(); len(specs) != 0 {
+		t.Errorf("a lane started under a repository layer that raised the cap: %d sessions", len(specs))
+	}
+	if row := r.row("pa"); row.State == workorders.Acceptance {
+		t.Errorf("the work order %+v", row)
 	}
 }
