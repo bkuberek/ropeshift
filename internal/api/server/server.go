@@ -38,9 +38,6 @@ type Config struct {
 	// Matching makes the question ladder's matcher of a project's Store. Nil gives a project other than
 	// the first no candidates.
 	Matching func(ports.Store) ports.Matcher
-	// Unscoped serves each project-scoped route with no project in its path on the first project, as
-	// before projects, for one release. Every answer to one carries a Deprecation header.
-	Unscoped bool
 	// LeaseTTL is the policy's lease in milliseconds, for a claim that names none.
 	LeaseTTL int64
 	// Protocol is the plane protocol this control plane speaks. Zero means this
@@ -128,9 +125,6 @@ func New(config Config) http.Handler {
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
 	mux.Handle(projectPrefix+"{project}/", projects)
-	if config.Unscoped {
-		mux.HandleFunc("/v1/", projects.unscoped)
-	}
 	return mux
 }
 

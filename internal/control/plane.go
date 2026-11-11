@@ -21,12 +21,11 @@ import (
 // every project's ledger, names the project on every item, and routes each call to the project it names.
 // The worker's own records, its session, its autonomy, and its orchestrator, are the installation's.
 //
-// A worker one protocol version behind names no project, and serves only the default project, the one the
-// plane's routes with no project serve (NFR-COMPAT-2). It has the shape of ports.WorkerLink, as Workers does.
+// It has the shape of ports.WorkerLink, as Workers does.
 type Plane struct {
 	registry     ports.Projects
 	installation ports.Installation
-	// home is the default project, which a worker one version behind serves.
+	// home is the project a call that names none acts in.
 	home     ledger.WorkspaceID
 	options  WorkerOptions
 	matching func(ports.Store) ports.Matcher
@@ -59,12 +58,6 @@ func withPlaneDefaults(options WorkerOptions) WorkerOptions {
 	return options
 }
 
-// errNoDefaultProject refuses a worker one version behind on an installation that no longer holds the
-// default project, which is all such a worker can serve.
-func errNoDefaultProject(worker int, newest int) error {
-	return &ledger.ProtocolError{Worker: worker, Oldest: newest, Newest: newest}
-}
-
 // project reads one project of the registry by its ID.
 func (p *Plane) project(ctx context.Context, id ledger.WorkspaceID) (ledger.Project, error) {
 	projects, err := p.registry.List(ctx)
@@ -79,17 +72,16 @@ func (p *Plane) project(ctx context.Context, id ledger.WorkspaceID) (ledger.Proj
 	return ledger.Project{}, fmt.Errorf("project %s: %w", id, ports.ErrNotFound)
 }
 
-// serving lists the projects a worker that speaks a protocol serves: every active project, or the default
-// project alone for a worker one version behind. An archived project takes no claims and is offered
-// nothing.
-func (p *Plane) serving(ctx context.Context, protocol int) ([]ledger.Project, error) {
+// serving lists the projects a worker serves, which are the active ones. An archived project takes no
+// claims and is offered nothing.
+func (p *Plane) serving(ctx context.Context) ([]ledger.Project, error) {
 	projects, err := p.registry.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []ledger.Project
 	for _, project := range projects {
-		if project.State != ledger.ProjectActive || (protocol < ledger.ProtocolProjects && project.ID != p.home) {
+		if project.State != ledger.ProjectActive {
 			continue
 		}
 		out = append(out, project)
@@ -124,13 +116,18 @@ func (p *Plane) Forget(id ledger.WorkspaceID) {
 	delete(p.served, id)
 }
 
-// worker reads a worker by its credential, and its epoch when a session must be current.
+// worker reads a worker by its credential, and its epoch when a session must be current. A session a
+// worker opened on a protocol this plane no longer serves is refused on every call, so a worker that
+// outlives an upgrade learns it must be upgraded too.
 func (p *Plane) worker(ctx context.Context, auth ledger.WorkerAuth, epoch *int64) (ledger.WorkerRecord, error) {
 	var record ledger.WorkerRecord
 	err := p.installation.Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		if record, err = authenticate(tx.Workers(), auth); err != nil {
 			return err
+		}
+		if record.Protocol != 0 && record.Protocol < ledger.ProtocolOldest {
+			return &ledger.ProtocolError{Worker: record.Protocol, Oldest: ledger.ProtocolOldest, Newest: p.options.Protocol}
 		}
 		if epoch != nil && record.Epoch != *epoch {
 			return fmt.Errorf("%w: %d, and this session is %d", ledger.ErrStaleEpoch, record.Epoch, *epoch)
@@ -140,20 +137,19 @@ func (p *Plane) worker(ctx context.Context, auth ledger.WorkerAuth, epoch *int64
 	return record, err
 }
 
-// route resolves the project a call names to its plane. A worker one version behind, or a call that names
-// none, acts in the default project. A change to an archived project is refused, because it is read-only
+// route resolves the project a call names to its plane. A call that names none acts in the default
+// project. A change to an archived project is refused, because it is read-only
 // until a member restores it.
 func (p *Plane) route(ctx context.Context, auth ledger.WorkerAuth, id string, change bool) (*Workers, ledger.Project, error) {
-	record, err := p.worker(ctx, auth, nil)
-	if err != nil {
+	if _, err := p.worker(ctx, auth, nil); err != nil {
 		return nil, ledger.Project{}, err
 	}
-	return p.routeFor(ctx, record.Protocol, id, change)
+	return p.routeFor(ctx, id, change)
 }
 
-func (p *Plane) routeFor(ctx context.Context, protocol int, id string, change bool) (*Workers, ledger.Project, error) {
+func (p *Plane) routeFor(ctx context.Context, id string, change bool) (*Workers, ledger.Project, error) {
 	target := ledger.WorkspaceID(id)
-	if protocol < ledger.ProtocolProjects || id == "" {
+	if id == "" {
 		target = p.home
 	}
 	project, err := p.project(ctx, target)
@@ -167,17 +163,9 @@ func (p *Plane) routeFor(ctx context.Context, protocol int, id string, change bo
 	return w, project, err
 }
 
-// named is the project an item names to a worker that reads names, and none to one that does not.
-func named(protocol int, project ledger.Project) string {
-	if protocol < ledger.ProtocolProjects {
-		return ""
-	}
-	return string(project.ID)
-}
-
 // revisions reads where the installation's records and each served project stand. The installation comes
 // first: a change after it moves a revision again, and the worker reads once more.
-func (p *Plane) revisions(ctx context.Context, protocol int) (map[string]int64, []ledger.DesiredProject, int64, error) {
+func (p *Plane) revisions(ctx context.Context) (map[string]int64, []ledger.DesiredProject, int64, error) {
 	var shared int64
 	err := p.installation.Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
@@ -187,7 +175,7 @@ func (p *Plane) revisions(ctx context.Context, protocol int) (map[string]int64, 
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	projects, err := p.serving(ctx, protocol)
+	projects, err := p.serving(ctx)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -210,7 +198,8 @@ func (p *Plane) revisions(ctx context.Context, protocol int) (map[string]int64, 
 	return revisions, described, sum, nil
 }
 
-// homeMode is the fleet mode a worker one version behind reads, which is the default project's.
+// homeMode is the one fleet mode the link's contract has a reply carry beside the mode of each project:
+// the only project's, and running when the worker serves several.
 func homeMode(projects []ledger.DesiredProject) ledger.FleetMode {
 	if len(projects) == 1 {
 		return projects[0].FleetMode
@@ -228,24 +217,13 @@ func (p *Plane) Register(ctx context.Context, registration ledger.Registration) 
 	return registerWorker(ctx, p.installation, registration)
 }
 
-// OpenSession opens a new epoch. A worker one version behind is refused once the installation no longer
-// holds the default project, because it could serve nothing.
+// OpenSession opens a new epoch. A worker on a protocol this plane no longer serves is refused.
 func (p *Plane) OpenSession(ctx context.Context, request ledger.SessionRequest) (ledger.Session, error) {
-	session, err := openSession(ctx, p.installation, p.options, request, func(protocol int) error {
-		if protocol >= ledger.ProtocolProjects {
-			return nil
-		}
-		if _, err := p.project(ctx, p.home); errors.Is(err, ports.ErrNotFound) {
-			return errNoDefaultProject(protocol, p.options.Protocol)
-		} else if err != nil {
-			return err
-		}
-		return nil
-	})
+	session, err := openSession(ctx, p.installation, p.options, request)
 	if err != nil {
 		return ledger.Session{}, err
 	}
-	_, _, session.DesiredRev, err = p.revisions(ctx, session.Protocol)
+	_, _, session.DesiredRev, err = p.revisions(ctx)
 	return session, err
 }
 
@@ -255,14 +233,14 @@ func (p *Plane) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.He
 	if beat.Nonce == "" {
 		return ledger.HeartbeatReply{}, fmt.Errorf("%w: a heartbeat needs a nonce", workorders.ErrInvalid)
 	}
-	record, err := p.worker(ctx, beat.Auth, &beat.Epoch)
+	_, err := p.worker(ctx, beat.Auth, &beat.Epoch)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
 	}
 	reply := ledger.HeartbeatReply{Nonce: beat.Nonce, Leases: []ledger.RenewedLease{}, Fenced: []ledger.FencedLease{}}
 	actor := ledger.Actor{Kind: ledger.ActorWorker, ID: beat.Auth.WorkerID}
 	for _, held := range beat.Leases {
-		w, project, err := p.routeFor(ctx, record.Protocol, held.Project, false)
+		w, project, err := p.routeFor(ctx, held.Project, false)
 		if errors.Is(err, ports.ErrNotFound) {
 			reply.Fenced = append(reply.Fenced, ledger.FencedLease{Project: held.Project, WorkOrder: held.WorkOrder, Fence: held.Fence})
 			continue
@@ -273,7 +251,7 @@ func (p *Plane) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.He
 		lease := workorders.Lease{WorkOrder: held.WorkOrder, ClaimID: held.Claim, Fence: held.Fence}
 		err = w.renewOrReturn(ctx, lease, actor)
 		var fenced *workorders.FencedError
-		name := named(record.Protocol, project)
+		name := string(project.ID)
 		switch {
 		case err == nil:
 			reply.Leases = append(reply.Leases, ledger.RenewedLease{Project: name, WorkOrder: held.WorkOrder, Fence: held.Fence, TTLMs: p.options.LeaseTTLMs})
@@ -286,14 +264,11 @@ func (p *Plane) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.He
 			return ledger.HeartbeatReply{}, err
 		}
 	}
-	revisions, projects, sum, err := p.revisions(ctx, record.Protocol)
+	revisions, projects, sum, err := p.revisions(ctx)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
 	}
-	reply.DesiredRev, reply.FleetMode = sum, homeMode(projects)
-	if record.Protocol >= ledger.ProtocolProjects {
-		reply.Revisions = revisions
-	}
+	reply.DesiredRev, reply.FleetMode, reply.Revisions = sum, homeMode(projects), revisions
 	err = p.installation.Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		reply.ServerTimeMs, err = tx.Now()
@@ -312,17 +287,14 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 	if err != nil {
 		return ledger.DesiredState{}, err
 	}
-	revisions, projects, sum, err := p.revisions(ctx, record.Protocol)
+	revisions, projects, sum, err := p.revisions(ctx)
 	if err != nil {
 		return ledger.DesiredState{}, err
 	}
-	state := ledger.DesiredState{Rev: sum, FleetMode: homeMode(projects), Leases: []ledger.DesiredLease{}}
+	state := ledger.DesiredState{Rev: sum, FleetMode: homeMode(projects), Revisions: revisions, Projects: projects, Leases: []ledger.DesiredLease{}}
 	state.Unchanged = request.Since == sum
-	if record.Protocol >= ledger.ProtocolProjects {
-		state.Revisions, state.Projects = revisions, projects
-		if request.Revisions != nil {
-			state.Unchanged = maps.Equal(request.Revisions, revisions)
-		}
+	if request.Revisions != nil {
+		state.Unchanged = maps.Equal(request.Revisions, revisions)
 	}
 	if state.Unchanged {
 		return state, nil
@@ -343,7 +315,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 	if err != nil {
 		return ledger.DesiredState{}, err
 	}
-	served, err := p.serving(ctx, record.Protocol)
+	served, err := p.serving(ctx)
 	if err != nil {
 		return ledger.DesiredState{}, err
 	}
@@ -357,7 +329,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 		if err != nil {
 			return ledger.DesiredState{}, err
 		}
-		name := named(record.Protocol, project)
+		name := string(project.ID)
 		for _, lease := range part.Leases {
 			lease.Project = name
 			state.Leases = append(state.Leases, lease)
@@ -381,7 +353,7 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 // Watch hints that a revision of a project this worker serves, or the installation's, moved. A hint
 // carries no state: the worker reads desired state, and a hint it drops the next heartbeat makes up for.
 func (p *Plane) Watch(ctx context.Context, request ledger.WatchRequest) (<-chan int64, error) {
-	record, err := p.worker(ctx, request.Auth, nil)
+	_, err := p.worker(ctx, request.Auth, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +364,7 @@ func (p *Plane) Watch(ctx context.Context, request ledger.WatchRequest) (<-chan 
 		ticker := time.NewTicker(watchEvery)
 		defer ticker.Stop()
 		for {
-			revisions, _, sum, err := p.revisions(ctx, record.Protocol)
+			revisions, _, sum, err := p.revisions(ctx)
 			moved := err == nil && ((last == nil && sum != request.After) || (last != nil && !maps.Equal(last, revisions)))
 			if err == nil {
 				last = revisions
@@ -445,12 +417,12 @@ func (p *Plane) storeEvent(ctx context.Context, record ledger.WorkerRecord, e le
 	switch {
 	case orchestratorReport(e):
 		return uploadResult(e, storeOrchestratorEvent(ctx, p.installation, worker, id, e))
-	case e.WorkOrder == "" && e.Lane == "" && e.Type == ledger.UploadDriverQualified && record.Protocol >= ledger.ProtocolProjects:
+	case e.WorkOrder == "" && e.Lane == "" && e.Type == ledger.UploadDriverQualified:
 		return uploadResult(e, storeQualification(ctx, p.installation, worker, id, e))
-	case e.WorkOrder == "" && e.Lane == "" && e.Type == ledger.UploadWakeSignal && record.Protocol >= ledger.ProtocolProjects:
+	case e.WorkOrder == "" && e.Lane == "" && e.Type == ledger.UploadWakeSignal:
 		return p.storeEverywhere(ctx, record, e)
 	}
-	w, _, err := p.routeFor(ctx, record.Protocol, e.Project, true)
+	w, _, err := p.routeFor(ctx, e.Project, true)
 	if err != nil {
 		return uploadResult(e, err)
 	}
@@ -459,7 +431,7 @@ func (p *Plane) storeEvent(ctx context.Context, record ledger.WorkerRecord, e le
 
 // storeEverywhere stores one event in every project the worker serves, once in each.
 func (p *Plane) storeEverywhere(ctx context.Context, record ledger.WorkerRecord, e ledger.UploadEvent) (*ledger.UploadResult, error) {
-	projects, err := p.serving(ctx, record.Protocol)
+	projects, err := p.serving(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -547,11 +519,11 @@ func (p *Plane) Rule(ctx context.Context, ruling questions.WorkerRuling) (questi
 // WakeDigest reads what this worker's orchestrator could judge now in every project it serves, each item
 // labeled with its project.
 func (p *Plane) WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error) {
-	record, err := p.worker(ctx, request.Auth, &request.Epoch)
+	_, err := p.worker(ctx, request.Auth, &request.Epoch)
 	if err != nil {
 		return ledger.WakeDigest{}, err
 	}
-	projects, err := p.serving(ctx, record.Protocol)
+	projects, err := p.serving(ctx)
 	if err != nil {
 		return ledger.WakeDigest{}, err
 	}
@@ -566,7 +538,7 @@ func (p *Plane) WakeDigest(ctx context.Context, request ledger.WakeRequest) (led
 			return ledger.WakeDigest{}, err
 		}
 		for _, item := range part.Items {
-			item.Project = named(record.Protocol, project)
+			item.Project = string(project.ID)
 			digest.Items = append(digest.Items, item)
 		}
 	}
@@ -591,11 +563,11 @@ func (p *Plane) Orchestrate(ctx context.Context, verb string, call ledger.Orches
 		}
 		return p.labeled(verb, project, reply)
 	}
-	record, err := p.worker(ctx, call.Auth, &call.Epoch)
+	_, err := p.worker(ctx, call.Auth, &call.Epoch)
 	if err != nil {
 		return ledger.OrchestratorReply{}, err
 	}
-	projects, err := p.serving(ctx, record.Protocol)
+	projects, err := p.serving(ctx)
 	if err != nil {
 		return ledger.OrchestratorReply{}, err
 	}
@@ -688,7 +660,7 @@ func (p *Plane) SetOrchestrator(ctx context.Context, worker, desired string, act
 
 // Projects lists the projects a worker serves, in the registry's order, for a surface that names them.
 func (p *Plane) Projects(ctx context.Context) ([]ledger.Project, error) {
-	return p.serving(ctx, p.options.Protocol)
+	return p.serving(ctx)
 }
 
 var _ ports.WorkerLink = (*Plane)(nil)

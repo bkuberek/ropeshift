@@ -23,8 +23,7 @@ const projectPrefix = "/v1/projects/"
 // a call reaches only the database its path names.
 type router struct {
 	config Config
-	// home is the project the plane protocol serves, whose handler the installation's routes and the
-	// deprecated routes with no project use too.
+	// home is the project the plane protocol serves, whose handler the installation's routes use too.
 	home *served
 	mu   sync.Mutex
 	// served holds the handler of each project that a call has reached, by the project's ID, which a
@@ -139,27 +138,6 @@ func withinProject(r *http.Request) (*http.Request, bool) {
 		inner.URL.RawPath = escaped
 	}
 	return inner, true
-}
-
-// unscoped serves the routes that name no project on the plane protocol's project, for one release, so
-// a worker one protocol version behind and a client written before projects keep working. Each answer
-// says the route is deprecated.
-func (rt *router) unscoped(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Deprecation", "true")
-	project, err := rt.home.handler.self(r.Context())
-	if errors.Is(err, ports.ErrNotFound) {
-		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNoProject,
-			Message: "this installation no longer holds the default project these routes serve: name a project under /v1/projects/{project}/"})
-		return
-	}
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	if changes(r.Method) && refuseArchived(w, r, project) {
-		return
-	}
-	rt.home.routes.ServeHTTP(w, r)
 }
 
 // failProject answers a call whose path names a project the installation does not hold, or whose ledger

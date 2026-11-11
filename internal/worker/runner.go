@@ -32,7 +32,7 @@ type LaneRuntime struct {
 	Provisioner Provisioner
 	Secrets     ports.SecretResolver
 	// Repository finds this machine's checkout of a project's repository. An empty project names the
-	// plane's only project, as a plane one protocol version behind sends it.
+	// plane's only project, as a plane of one project sends it.
 	Repository func(ctx context.Context, project, id string) (string, error)
 	// Socket and Spool are what a lane's hooks and MCP server reach.
 	Socket string

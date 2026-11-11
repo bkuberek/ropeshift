@@ -16,10 +16,11 @@ func TestNegotiateProtocol(t *testing.T) {
 	}{
 		{"the same version", 3, 3, 3, ""},
 		{"one version behind", 3, 2, 2, ""},
-		{"two versions behind", 3, 1, 0, "upgrade the worker"},
+		{"two versions behind", 3, 1, 0, "no longer served"},
 		{"ahead of the control plane", 3, 4, 0, "upgrade the control plane"},
-		{"the first version has nothing behind it", 1, 0, 0, "upgrade the worker"},
-		{"the first version", 1, 1, 1, ""},
+		{"the oldest version still served is one behind", 3, 2, 2, ""},
+		{"a version no longer served", 2, 1, 0, "no longer served"},
+		{"a version before any", 2, 0, 0, "no longer served"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

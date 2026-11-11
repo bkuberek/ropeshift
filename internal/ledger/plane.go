@@ -6,11 +6,12 @@ import (
 )
 
 // ProtocolVersion is the plane protocol this build speaks. Version 2 names the project on every item
-// (ADR-0021). A worker that speaks version 1 serves only the installation's default project.
+// (ADR-0021).
 const ProtocolVersion = 2
 
-// ProtocolProjects is the first version that names the project on every item.
-const ProtocolProjects = 2
+// ProtocolOldest is the oldest plane protocol any build serves. Version 1 named no project and served
+// only the installation's default project; a worker that speaks it is refused and must be upgraded.
+const ProtocolOldest = 2
 
 // RevisionInstallation keys the installation's own revision among a desired state's revisions. No
 // project takes this ID.
@@ -40,16 +41,17 @@ type ProtocolError struct {
 
 func (e *ProtocolError) Error() string {
 	if e.Worker < e.Oldest {
-		return fmt.Sprintf("worker protocol %d is older than this control plane accepts (%d to %d): upgrade the worker", e.Worker, e.Oldest, e.Newest)
+		return fmt.Sprintf("worker protocol %d is no longer served (this control plane accepts %d to %d): upgrade the worker", e.Worker, e.Oldest, e.Newest)
 	}
 	return fmt.Sprintf("worker protocol %d is newer than this control plane accepts (%d to %d): upgrade the control plane", e.Worker, e.Oldest, e.Newest)
 }
 
 // NegotiateProtocol accepts a worker one version behind the control plane and
-// refuses an older one (NFR-COMPAT-2). A worker ahead of the control plane is
-// refused too, because a control plane cannot promise what it has not seen.
+// refuses an older one (NFR-COMPAT-2), and any version before ProtocolOldest. A
+// worker ahead of the control plane is refused too, because a control plane
+// cannot promise what it has not seen.
 func NegotiateProtocol(server, worker int) (int, error) {
-	oldest := max(server-1, 1)
+	oldest := max(server-1, ProtocolOldest)
 	if worker < oldest || worker > server {
 		return 0, &ProtocolError{Worker: worker, Oldest: oldest, Newest: server}
 	}

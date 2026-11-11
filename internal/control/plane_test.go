@@ -152,34 +152,60 @@ func TestAnArchivedProjectTakesNoClaim(t *testing.T) {
 	}
 }
 
-// TestAWorkerOneVersionBehindServesOnlyTheDefaultProject opens a session at the protocol before projects:
-// its claim names no project and lands in the default project, its desired state names no project, and
-// once the installation removes the default project it is refused with a protocol error.
-func TestAWorkerOneVersionBehindServesOnlyTheDefaultProject(t *testing.T) {
-	r := newPlaneRig(t, ledger.ProtocolProjects-1)
-	r.ready("pa", "wo")
-	r.ready("pb", "other")
-	if err := r.claim("", "wo"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.claim("pb", "other"); !errors.Is(err, ports.ErrNotFound) {
-		t.Errorf("a claim in another project reached it: %v", err)
-	}
-	state := r.desired()
-	if len(state.Leases) != 1 || state.Leases[0].Project != "" || state.Projects != nil || state.Revisions != nil {
-		t.Errorf("an old worker's desired state %+v", state)
-	}
-	if _, err := r.state.SetState(t.Context(), "pa", ledger.ProjectArchived, projectMember); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.state.Remove(t.Context(), ledger.Project{ID: "pa", Name: "alpha", Database: "projects/pa.db"}, projectMember); err != nil {
-		t.Fatal(err)
-	}
-	r.plane.Forget("pa")
-	_, err := r.plane.OpenSession(t.Context(), ledger.SessionRequest{Auth: r.auth, Protocol: ledger.ProtocolProjects - 1, Manifest: apiKeyManifest})
+// TestAWorkerOnProtocolOneIsRefused opens a session at the protocol before projects: the plane refuses it
+// with a protocol error that names both sides, and leaves the worker's current session as it was.
+func TestAWorkerOnProtocolOneIsRefused(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	_, err := r.plane.OpenSession(t.Context(), ledger.SessionRequest{Auth: r.auth, Protocol: 1, Manifest: apiKeyManifest})
 	var refused *ledger.ProtocolError
 	if !errors.As(err, &refused) {
-		t.Errorf("an old worker with no default project: %v", err)
+		t.Fatalf("a worker on protocol 1: %v", err)
+	}
+	if refused.Worker != 1 || refused.Oldest != ledger.ProtocolVersion || refused.Newest != ledger.ProtocolVersion {
+		t.Errorf("refusal %+v", refused)
+	}
+	r.ready("pa", "wo")
+	if err := r.claim("pa", "wo"); err != nil {
+		t.Errorf("the session the refusal left open: %v", err)
+	}
+}
+
+// TestASessionOpenedOnProtocolOneBeforeAnUpgradeIsRefused holds a worker that outlives an upgrade: its
+// session record names the protocol before projects, and every call it makes is refused with a protocol
+// error until it opens a session on the current one.
+func TestASessionOpenedOnProtocolOneBeforeAnUpgradeIsRefused(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	err := r.state.Installation.Write(t.Context(), "worker.session", func(tx ports.SharedTx) error {
+		record, err := tx.Workers().Find("worker-1")
+		if err != nil {
+			return err
+		}
+		next := record.Worker
+		next.Protocol = 1
+		epoch, err := tx.Workers().OpenEpoch(next)
+		r.epoch = epoch
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: "worker.session_opened", Actor: ledger.Actor{Kind: ledger.ActorWorker, ID: "worker-1"},
+			Subject: ledger.Subject{Kind: "worker", ID: "worker-1"},
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.plane.Desired(t.Context(), ledger.DesiredRequest{Auth: r.auth})
+	var refused *ledger.ProtocolError
+	if !errors.As(err, &refused) || refused.Worker != 1 {
+		t.Fatalf("a stale session on protocol 1: %v", err)
+	}
+	if _, err := r.plane.OpenSession(t.Context(), ledger.SessionRequest{Auth: r.auth, Protocol: ledger.ProtocolVersion, Manifest: apiKeyManifest}); err != nil {
+		t.Fatal(err)
+	}
+	if state := r.desired(); state.Projects == nil {
+		t.Errorf("a worker on the current protocol reads %+v", state)
 	}
 }
 
