@@ -60,6 +60,8 @@ type install struct {
 	member bool
 	// daemonEnv is what the daemon's own shell holds on top.
 	daemonEnv []string
+	// daemons are the ones this install started, so a failed wait can print what they said.
+	daemons []*daemon
 }
 
 func newInstall(t *testing.T) *install {
@@ -120,6 +122,18 @@ func (b *lockedBuffer) String() string {
 	return b.raw.String()
 }
 
+// tail is the last n lines, which is where a failure is when a process has said much.
+func (b *lockedBuffer) tail(n int) string {
+	lines := strings.SplitAfter(b.String(), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "")
+}
+
 func (in *install) start(args ...string) *daemon {
 	in.t.Helper()
 	cmd := exec.Command(binaries.daemon, append([]string{"solo"}, args...)...)
@@ -131,6 +145,7 @@ func (in *install) start(args ...string) *daemon {
 	}
 	go func() { d.exited <- cmd.Wait() }()
 	in.t.Cleanup(func() { d.kill() })
+	in.daemons = append(in.daemons, d)
 	return d
 }
 
@@ -241,7 +256,22 @@ func (in *install) waitFor(what string, done func() bool) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	in.t.Fatalf("%s did not happen\n%s", what, in.productState())
+	in.t.Fatalf("%s did not happen\n%s%s", what, in.productState(), in.daemonOutput())
+}
+
+// stderrTailLines bounds what a failed wait prints of each daemon's stderr.
+const stderrTailLines = 200
+
+// daemonOutput is the tail of what each daemon said on stderr, where the worker inside it reports
+// its errors. It is empty when no daemon said anything.
+func (in *install) daemonOutput() string {
+	var out strings.Builder
+	for i, d := range in.daemons {
+		if tail := d.stderr.tail(stderrTailLines); tail != "" {
+			fmt.Fprintf(&out, "daemon %d stderr, last %d lines at most:\n%s", i+1, stderrTailLines, tail)
+		}
+	}
+	return out.String()
 }
 
 // productState reads what the product holds, for a failure that would otherwise say only that a

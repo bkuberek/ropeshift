@@ -16,9 +16,12 @@ import (
 )
 
 // contextProfile puts a lane's thresholds where a fixture reaches them.
+//
+// The handoff timeout sits inside the exit tests' wait. A handoff the agent's reply never reaches
+// then ends as a degraded handoff the test reports, where an equal timeout ran the wait out first.
 const contextProfile = `[lifecycle]
 max_restarts = 0
-handoff_timeout = "30s"
+handoff_timeout = "5s"
 
 [context]
 min_headroom_tokens = 40
@@ -73,9 +76,13 @@ func TestAContextPolicyRunsAcrossALane(t *testing.T) {
 		t.Errorf("the tool after the instruction: %v", err)
 	}
 	var generations []ledger.Generation
+	var handoff ledger.HandoffRecord
 	err := in.ledgerOf().Read(t.Context(), "default", func(tx ports.ReadTx) error {
 		var err error
-		generations, err = tx.Lanes().Generations("lane-1")
+		if generations, err = tx.Lanes().Generations("lane-1"); err != nil {
+			return err
+		}
+		handoff, err = tx.Lanes().Handoff("lane-1", 1)
 		return err
 	})
 	if err != nil {
@@ -83,6 +90,9 @@ func TestAContextPolicyRunsAcrossALane(t *testing.T) {
 	}
 	if len(generations) != 2 || generations[1].StartReason != ledger.StartHandoff {
 		t.Errorf("generations %+v", generations)
+	}
+	if handoff.Degraded {
+		t.Errorf("the agent's part of the handoff did not arrive in time: %+v", handoff)
 	}
 }
 
