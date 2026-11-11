@@ -125,8 +125,8 @@ func registry() []section {
 		}},
 		{"Repositories", []registered{
 			command("repository list", "", "list each repository, the branch its lanes start from, and how it merges", (*invocation).repositoryList),
-			command("repository show", "<id>", "show a repository's record: remote, default branch, base, merge method, and start", (*invocation).repositoryShow),
-			command("repository set", "<id> [--base B] [--merge-method M] [--start-from S] [--review-target T] [--merge-authority A]", "change a repository's settings, which only a member can do", (*invocation).repositorySet),
+			command("repository show", "<name>", "show a repository's record: remote, default branch, base, merge method, and start", (*invocation).repositoryShow),
+			command("repository set", "<name> [--name N] [--base B] [--merge-method M] [--start-from S] [--review-target T] [--merge-authority A]", "change a repository's settings, which only a member can do", (*invocation).repositorySet),
 		}},
 		{"Approvals, effects, and notices", []registered{
 			command("approval list", "[--state S]", "list what lanes have asked to do", (*invocation).approvalList),

@@ -3,7 +3,11 @@ package ledger
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // SubjectRepository is what a repository's events are about.
@@ -75,6 +79,10 @@ func (a MergeAuthority) PersonDecides() bool { return a != ReviewApproves }
 // ErrInvalidRepository marks a record, or a change to one, that the ledger must not accept.
 var ErrInvalidRepository = errors.New("invalid repository")
 
+// ErrRepositoryState means the record as it stands refuses a change: a name another repository of the
+// project holds, for one. The error says which.
+var ErrRepositoryState = errors.New("the repository's record refuses that")
+
 // ErrRewritesCommits means a record would start dependent work from accepted commits in a repository
 // whose merge method rewrites them (FR-BASE-3).
 var ErrRewritesCommits = fmt.Errorf("%w: accepted work cannot be built on when the merge method rewrites its commits", ErrInvalidRepository)
@@ -83,6 +91,9 @@ var ErrRewritesCommits = fmt.Errorf("%w: accepted work cannot be built on when t
 // the remote and the default branch, and a member gives the rest (FR-REPO-1).
 type Repository struct {
 	ID string `json:"id"`
+	// Name is what commands and a work order's `repo` call the repository, unique in its project
+	// (ADR-0022). A record made before names existed has none until a source reads it again.
+	Name string `json:"name,omitempty"`
 	// Remote is the URL of the remote work lands on, with no credential in it. Empty means the
 	// repository has none.
 	Remote        string `json:"remote,omitempty"`
@@ -131,6 +142,11 @@ func (r Repository) Base() string {
 
 // Validate refuses a record that holds a setting nobody offers, or settings that cannot hold together.
 func (r Repository) Validate() error {
+	if r.Name != "" {
+		if err := CheckRepositoryName(r.Name); err != nil {
+			return err
+		}
+	}
 	switch r.MergeMethod {
 	case MergeCommit, MergeSquash, MergeRebase:
 	default:
@@ -194,4 +210,79 @@ func CheckBranch(name string) error {
 		}
 	}
 	return nil
+}
+
+// maxRepositoryName bounds a repository's name, which a person types and a contract file holds.
+const maxRepositoryName = 100
+
+// CheckRepositoryName refuses a name a command or a contract file could not name the repository by: an
+// empty one, "." and "..", which name directories and "." the contract file's own repository, one that
+// starts with a dash, which reads as a flag, and one with a space, a slash, or a control character.
+func CheckRepositoryName(name string) error {
+	bad := func(why string) error { return fmt.Errorf("%w: name %q %s", ErrInvalidRepository, name, why) }
+	switch {
+	case name == "":
+		return bad("is empty")
+	case name == "." || name == "..":
+		return bad("names a directory")
+	case strings.HasPrefix(name, "-"):
+		return bad("starts with a dash")
+	case utf8.RuneCountInString(name) > maxRepositoryName:
+		return bad(fmt.Sprintf("is longer than %d characters", maxRepositoryName))
+	}
+	for _, r := range name {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || r == '/' || r == '\\' {
+			return bad("holds a space, a slash, or a control character")
+		}
+	}
+	return nil
+}
+
+// shortIdentity is how much of an identity names a repository nothing else names.
+const shortIdentity = 12
+
+// NameRepository gives a new record its name (ADR-0022): the clone's directory name, or else the last
+// part of its remote's path, and then the first of those with the lowest number after it that no record
+// of the project holds. A repository with neither is named by the start of its identity.
+func NameRepository(directory, remote, id string, taken func(string) bool) string {
+	var candidates []string
+	for _, name := range []string{directory, remoteName(remote)} {
+		if CheckRepositoryName(name) == nil && !slices.Contains(candidates, name) {
+			candidates = append(candidates, name)
+		}
+	}
+	for _, name := range candidates {
+		if !taken(name) {
+			return name
+		}
+	}
+	if len(candidates) == 0 {
+		short := id
+		if len(short) > shortIdentity {
+			short = short[:shortIdentity]
+		}
+		if CheckRepositoryName(short) != nil {
+			short = "repository"
+		}
+		candidates = append(candidates, short)
+	}
+	if !taken(candidates[0]) {
+		return candidates[0]
+	}
+	for n := 2; ; n++ {
+		if name := candidates[0] + "-" + strconv.Itoa(n); !taken(name) {
+			return name
+		}
+	}
+}
+
+// remoteName is the last part of a remote's path, with no `.git` suffix.
+func remoteName(remote string) string {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return ""
+	}
+	_, path := splitRemote(remote)
+	path = strings.TrimSuffix(strings.TrimRight(path, "/"), ".git")
+	return path[strings.LastIndex(path, "/")+1:]
 }

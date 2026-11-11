@@ -27,13 +27,14 @@ func dashIfEmpty(text string) string {
 }
 
 func repositoryLine(view api.RepositoryView) string {
-	return fmt.Sprintf("%s\tbase %s\tmerge %s\tstart %s\treview %s\tauthority %s\t%s\n",
-		shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
+	return fmt.Sprintf("%s\t%s\tbase %s\tmerge %s\tstart %s\treview %s\tauthority %s\t%s\n",
+		dashIfEmpty(view.Name), shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
 }
 
 func repositoryText(view api.RepositoryView) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "repository\t%s\n", view.ID)
+	fmt.Fprintf(&out, "name\t%s\n", dashIfEmpty(view.Name))
 	fmt.Fprintf(&out, "remote\t%s\n", dashIfEmpty(view.Remote))
 	fmt.Fprintf(&out, "default branch\t%s\n", dashIfEmpty(view.DefaultBranch))
 	if view.BaseBranch == "" {
@@ -106,6 +107,7 @@ func (c *invocation) repositoryShow(args []string) int {
 // a change too: an empty --base follows the default branch again.
 func (c *invocation) repositorySet(args []string) int {
 	set := c.flags()
+	name := set.String("name", "", "what commands and a work order's repo call the repository, unique in its project")
 	base := set.String("base", "", "the branch lanes start from, or empty to follow the default branch")
 	method := set.String("merge-method", "", "how a pull request lands: merge, squash, or rebase")
 	start := set.String("start-from", "", "what dependent work starts from: merged or accepted")
@@ -121,6 +123,9 @@ func (c *invocation) repositorySet(args []string) int {
 	var change api.RepositoryChange
 	given := map[string]bool{}
 	set.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	if given["name"] {
+		change.Name = name
+	}
 	if given["base"] {
 		change.Base = base
 	}
@@ -141,7 +146,7 @@ func (c *invocation) repositorySet(args []string) int {
 		change.MergeAuthority = &value
 	}
 	if len(given) == 0 {
-		return c.usageError("name a setting to change: --base, --merge-method, --start-from, --review-target, or --merge-authority")
+		return c.usageError("name a setting to change: --name, --base, --merge-method, --start-from, --review-target, or --merge-authority")
 	}
 	client, exit := c.projectClient()
 	if client == nil {

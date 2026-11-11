@@ -3,12 +3,14 @@ package contract
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -27,6 +29,8 @@ var RepositoryChecks = []Check{
 	{"RB9", "intake makes a repository's record from the facts its source gives, and a source with none makes none", checkIntakeRecordsTheRepository},
 	{"RB10", "a merge authority starts at person_merges, is a member's setting, and is one audited event", checkMergeAuthorityIsAMembersSetting},
 	{"RB8", "intake carries a work order's base to the work order, and a rebuild from events keeps it", checkIntakeCarriesAWorkOrdersBase},
+	{"RB11", "a repository is named by its clone's directory, or by its remote when that name is taken, and a member renames it with one audited event to a name no other repository holds", checkRepositoryNames},
+	{"RB12", "a work order's repo names a repository by its name, and an unknown name keeps the work from ready until a repository takes it", checkWorkNamesItsRepository},
 }
 
 func (r *Rig) repositories(s ports.Store) *control.Repositories { return control.NewRepositories(s) }
@@ -68,7 +72,7 @@ func checkRepositoryIsMadeOnce(r *Rig) error {
 		return err
 	}
 	want := ledger.NewRepository("repo-1")
-	want.Remote, want.DefaultBranch = "https://example.invalid/acme/app.git", "main"
+	want.Name, want.Remote, want.DefaultBranch = "app", "https://example.invalid/acme/app.git", "main"
 	if made != want {
 		return Violatedf("a new record reads %+v, not %+v", made, want)
 	}
@@ -421,6 +425,121 @@ func checkMergeAuthorityIsAMembersSetting(r *Rig) error {
 	refreshed, err := r.detect(s, "repo-1", "", "trunk")
 	if err != nil || refreshed.MergeAuthority != ledger.ReviewApproves {
 		return Violatedf("a later read left the merge authority at %q: %v", refreshed.MergeAuthority, err)
+	}
+	return nil
+}
+
+func checkRepositoryNames(r *Rig) error {
+	s := r.Store()
+	intake := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	detect := func(id, remote, directory string) (ledger.Repository, error) {
+		return r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: id, Remote: remote, DefaultBranch: "main", Directory: directory}, intake)
+	}
+	first, err := detect("repo-1", "https://example.invalid/acme/api.git", "api")
+	if err != nil || first.Name != "api" {
+		return Violatedf("the first clone is named %q: %v", first.Name, err)
+	}
+	second, err := detect("repo-2", "git@example.invalid:acme/payments-api.git", "api")
+	if err != nil || second.Name != "payments-api" {
+		return Violatedf("a clone whose directory name is taken is named %q: %v", second.Name, err)
+	}
+	events, err := r.repositoryEvents(s, "repo-2")
+	if err != nil || len(events) != 1 || !strings.Contains(string(events[0].Data), `"name":"payments-api"`) {
+		return Violatedf("the record's first event: %+v: %v", events, err)
+	}
+	if again, err := detect("repo-1", "https://example.invalid/acme/api.git", "elsewhere"); err != nil || again.Name != "api" {
+		return Violatedf("a later read renamed the record to %q: %v", again.Name, err)
+	}
+	payments := "payments"
+	renamed, err := r.change(s, "repo-2", control.RepositoryChange{Name: &payments}, r.Actor)
+	if err != nil || renamed.Name != "payments" {
+		return Violatedf("a member's rename left %q: %v", renamed.Name, err)
+	}
+	events, err = r.repositoryEvents(s, "repo-2")
+	if err != nil || len(events) != 2 || events[1].Type != ledger.EventRepositoryChanged || events[1].Actor != r.Actor {
+		return Violatedf("the rename's events: %+v: %v", events, err)
+	}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	taken, empty, dash := "api", "", "-x"
+	if _, err := r.change(s, "repo-2", control.RepositoryChange{Name: &taken}, r.Actor); !errors.Is(err, ledger.ErrRepositoryState) {
+		return Violatedf("a name another repository holds: %v", err)
+	}
+	for _, name := range []*string{&empty, &dash} {
+		if _, err := r.change(s, "repo-2", control.RepositoryChange{Name: name}, r.Actor); !errors.Is(err, ledger.ErrInvalidRepository) {
+			return Violatedf("the name %q: %v", *name, err)
+		}
+	}
+	if _, err := r.change(s, "repo-2", control.RepositoryChange{Name: &taken}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "worker-1"}); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("an orchestrator renaming a repository: %v", err)
+	}
+	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
+		return Violatedf("a refused rename moved the ledger from %d to %d: %v", before, after, err)
+	}
+	for name, want := range map[string]string{"payments": "repo-2", "api": "repo-1", "repo-2": "repo-2"} {
+		if found, err := r.repositories(s).Resolve(r.Ctx, r.Scope, name); err != nil || found.ID != want {
+			return Violatedf("%q resolves to %q: %v", name, found.ID, err)
+		}
+	}
+	return nil
+}
+
+func checkWorkNamesItsRepository(r *Rig) error {
+	s := r.Store()
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-api", DefaultBranch: "main", Directory: "api"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		return err
+	}
+	files := fake.NewWorkSource()
+	named := func(id, repo string) string {
+		return strings.Replace(ContractText(id, id, "Change it."), `size = "small"`, "size = \"small\"\nrepo = \""+repo+"\"", 1)
+	}
+	files.Write("here.md", []byte(named("here", ".")))
+	files.Write("api.md", []byte(named("api", "api")))
+	files.Write("web.md", []byte(named("web", "web")))
+	report, err := r.intake(s, files)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(report.Problems, func(p planning.SourceProblem) bool { return p.Path == "web.md" && strings.Contains(p.Detail, `"web"`) }) {
+		return Violatedf("an unknown name is no intake problem: %+v", report.Problems)
+	}
+	// The fake names the repository holding its files "memory".
+	for title, want := range map[string]string{"The work order of here": "memory", "The work order of api": "repo-api", "The work order of web": ""} {
+		if order, err := r.orderByTitle(s, title); err != nil || order.RepositoryID != want {
+			return Violatedf("%s targets %q, want %q: %v", title, order.RepositoryID, want, err)
+		}
+	}
+	web, err := r.orderByTitle(s, "The work order of web")
+	if err != nil {
+		return err
+	}
+	result, err := r.NewOps(s).Pass(r.Ctx, r.Scope, web.ID, r.member())
+	if err != nil {
+		return err
+	}
+	if result.State == workorders.Ready || !slices.ContainsFunc(result.Failures, func(f workorders.ReadyFailure) bool { return f.Check == workorders.CheckRepository }) {
+		return Violatedf("work naming a repository the project does not hold reads %+v", result)
+	}
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-web", DefaultBranch: "main", Directory: "web"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Promote(r.Ctx, r.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); err != nil {
+		return err
+	}
+	web, err = r.orderByTitle(s, "The work order of web")
+	if err != nil || web.State != workorders.Ready || web.RepositoryID != "repo-web" || web.UnknownRepository != "" {
+		return Violatedf("once a repository took the name the work reads %+v: %v", web, err)
+	}
+	if err := r.CheckProjection(s); err != nil {
+		return err
+	}
+	if err := r.NewOps(s).Rebuild(r.Ctx, r.Scope, r.Actor); err != nil {
+		return err
+	}
+	if rebuilt, err := r.orderByTitle(s, "The work order of web"); err != nil || rebuilt.RepositoryID != "repo-web" {
+		return Violatedf("a rebuild left the work targeting %q: %v", rebuilt.RepositoryID, err)
 	}
 	return nil
 }

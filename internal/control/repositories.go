@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -28,11 +29,15 @@ type DetectedRepository struct {
 	ID            string
 	Remote        string
 	DefaultBranch string
+	// Directory is the base name of the clone's directory, which names a new record (ADR-0022).
+	Directory string
 }
 
 // RepositoryChange is what a member changes. A nil field stays, and an empty Base follows the default
 // branch again.
 type RepositoryChange struct {
+	// Name is what commands and a work order's `repo` call the repository, unique in its project.
+	Name        *string
 	Base        *string
 	MergeMethod *ledger.MergeMethod
 	StartFrom   *ledger.StartFrom
@@ -42,8 +47,9 @@ type RepositoryChange struct {
 	MergeAuthority *ledger.MergeAuthority
 }
 
-// detectedEvent is the data of EventRepositoryDetected.
+// detectedEvent is the data of EventRepositoryDetected. Name is there when the read named the record.
 type detectedEvent struct {
+	Name          string `json:"name,omitempty"`
 	Remote        string `json:"remote,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
 }
@@ -66,30 +72,22 @@ func repositoryEvent(eventType, id string, data any, actor ledger.Actor) (ledger
 }
 
 // Detect keeps what git said of a repository. The first look makes the record with the settings of a
-// person who chose nothing, a later look refreshes the remote and the default branch, and a look that
-// finds the same facts changes nothing. A member's settings are never touched here.
+// person who chose nothing and a name (ADR-0022), a later look refreshes the remote and the default
+// branch and names a record made before names, and a look that finds the same facts changes nothing. A
+// member's settings are never touched here.
 func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, found DetectedRepository, actor ledger.Actor) (ledger.Repository, error) {
 	if found.ID == "" {
 		return ledger.Repository{}, fmt.Errorf("%w: no id", ledger.ErrInvalidRepository)
 	}
 	var record ledger.Repository
 	err := r.store.Write(ctx, scope, "repository.detect", func(tx ports.WriteTx) error {
-		record = ledger.NewRepository(found.ID)
-		record.Remote, record.DefaultBranch = found.Remote, found.DefaultBranch
-		made, err := tx.Repositories().Insert(record)
-		if err != nil {
+		var named string
+		var moved bool
+		var err error
+		if record, named, moved, err = detectIn(tx.Repositories(), found); err != nil || !moved {
 			return err
 		}
-		if !made {
-			moved, err := tx.Repositories().Detected(found.ID, found.Remote, found.DefaultBranch)
-			if err != nil {
-				return err
-			}
-			if record, err = tx.Repositories().Repository(found.ID); err != nil || !moved {
-				return err
-			}
-		}
-		event, err := repositoryEvent(ledger.EventRepositoryDetected, found.ID, detectedEvent{Remote: found.Remote, DefaultBranch: found.DefaultBranch}, actor)
+		event, err := repositoryEvent(ledger.EventRepositoryDetected, found.ID, detectedEvent{Name: named, Remote: found.Remote, DefaultBranch: found.DefaultBranch}, actor)
 		if err != nil {
 			return err
 		}
@@ -100,6 +98,62 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 		return ledger.Repository{}, err
 	}
 	return record, nil
+}
+
+// detectIn makes or refreshes a record in a transaction, and says the name it gave the record, if it gave
+// one, and whether anything moved, because a look that finds the same facts appends nothing.
+func detectIn(repositories ports.RepositoryWriter, found DetectedRepository) (ledger.Repository, string, bool, error) {
+	record, err := repositories.Repository(found.ID)
+	if errors.Is(err, ports.ErrNotFound) {
+		record = ledger.NewRepository(found.ID)
+		record.Remote, record.DefaultBranch = found.Remote, found.DefaultBranch
+		if record.Name, err = freeName(repositories, found); err != nil {
+			return ledger.Repository{}, "", false, err
+		}
+		if _, err := repositories.Insert(record); err != nil {
+			return ledger.Repository{}, "", false, err
+		}
+		return record, record.Name, true, nil
+	}
+	if err != nil {
+		return ledger.Repository{}, "", false, err
+	}
+	moved, err := repositories.Detected(found.ID, found.Remote, found.DefaultBranch)
+	if err != nil {
+		return ledger.Repository{}, "", false, err
+	}
+	var named string
+	if record.Name == "" {
+		if named, err = freeName(repositories, found); err != nil {
+			return ledger.Repository{}, "", false, err
+		}
+	}
+	if !moved && named == "" {
+		return record, "", false, nil
+	}
+	if record, err = repositories.Repository(found.ID); err != nil {
+		return ledger.Repository{}, "", false, err
+	}
+	if named != "" {
+		record.Name = named
+		if err := repositories.Settings(record); err != nil {
+			return ledger.Repository{}, "", false, err
+		}
+	}
+	return record, named, true, nil
+}
+
+// freeName names a repository as ADR-0022 does, among the names the project's records hold.
+func freeName(repositories ports.RepositoryReader, found DetectedRepository) (string, error) {
+	all, err := repositories.Repositories()
+	if err != nil {
+		return "", err
+	}
+	taken := map[string]bool{}
+	for _, record := range all {
+		taken[record.Name] = true
+	}
+	return ledger.NameRepository(found.Directory, found.Remote, found.ID, func(name string) bool { return taken[name] }), nil
 }
 
 // Change applies a member's settings to a repository. The record that results must hold together, and a
@@ -121,6 +175,11 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 		if after == before {
 			return nil
 		}
+		if change.Name != nil {
+			if err := nameIsFree(tx.Repositories(), after); err != nil {
+				return err
+			}
+		}
 		if err := tx.Repositories().Settings(after); err != nil {
 			return err
 		}
@@ -137,7 +196,28 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 	return after, nil
 }
 
+// nameIsFree refuses a name another record of the project holds, because a name names one repository,
+// and an empty one, which names none.
+func nameIsFree(repositories ports.RepositoryReader, record ledger.Repository) error {
+	if err := ledger.CheckRepositoryName(record.Name); err != nil {
+		return err
+	}
+	holder, err := repositories.Named(record.Name)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return nil
+	case err != nil:
+		return err
+	case holder.ID != record.ID:
+		return fmt.Errorf("%w: repository %s is named %s", ledger.ErrRepositoryState, holder.ID, record.Name)
+	}
+	return nil
+}
+
 func apply(record ledger.Repository, change RepositoryChange) ledger.Repository {
+	if change.Name != nil {
+		record.Name = *change.Name
+	}
 	if change.Base != nil {
 		record.BaseBranch = *change.Base
 	}
@@ -178,12 +258,17 @@ func (r *Repositories) List(ctx context.Context, scope ledger.WorkspaceID) ([]le
 	return records, err
 }
 
-// Resolve finds the record an ID or a unique prefix of one names, because an identity is a commit hash
-// and nobody types forty characters.
+// Resolve finds the record a name, an ID, or a unique prefix of an ID names, because an identity is a
+// commit hash and nobody types forty characters. A name comes first, because a person chose it.
 func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, name string) (ledger.Repository, error) {
 	all, err := r.List(ctx, scope)
 	if err != nil {
 		return ledger.Repository{}, err
+	}
+	for _, record := range all {
+		if record.Name != "" && record.Name == name {
+			return record, nil
+		}
 	}
 	var found []ledger.Repository
 	for _, record := range all {

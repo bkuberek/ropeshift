@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -83,7 +84,21 @@ func (s *Source) Describe(ctx context.Context) (ports.SourceDescription, error) 
 		BudgetModel:   "none",
 		Remote:        remote,
 		DefaultBranch: defaultBranch,
+		Directory:     s.directory(ctx),
 	}, nil
+}
+
+// directory is the base name of the clone's top directory: the working tree's, or a bare repository's
+// with no `.git` suffix.
+func (s *Source) directory(ctx context.Context) string {
+	top, err := s.git.Text(ctx, "rev-parse", "--show-toplevel")
+	if err != nil || top == "" {
+		top = s.config.Repository
+	}
+	if absolute, err := filepath.Abs(top); err == nil {
+		top = absolute
+	}
+	return strings.TrimSuffix(filepath.Base(top), ".git")
 }
 
 // repositoryFacts reads what git says of the repository: the URL of its remote with no credential in

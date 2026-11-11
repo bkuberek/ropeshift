@@ -41,6 +41,9 @@ type SourceDescription struct {
 	// no repository leaves both empty.
 	Remote        string
 	DefaultBranch string
+	// Directory is the base name of the clone's directory, which names the repository's record when a
+	// read makes one (ADR-0022). A source with no clone leaves it empty.
+	Directory string
 }
 
 // FieldSchema is one field a source holds.

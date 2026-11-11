@@ -14,7 +14,8 @@ import (
 const workOrderColumns = `id, kind, state, title, repository_id, priority, size, requirements, needs,
        contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
        takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts,
-       deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence`
+       deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
+       unknown_repository`
 
 var (
 	stmtReadWorkOrder = define("work_order.read",
@@ -66,11 +67,13 @@ var (
 		`INSERT INTO work_orders
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
    contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
-   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence)
+   takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
+   unknown_repository)
 VALUES
   (:workspace_id, :id, :kind, :state, :title, :repository_id, :priority, :size, :requirements, :needs,
    :contract_id, :contract_version, :fence, :claim_id, :lease_worker, :lease_until,
-   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base, :start_held, :reviews, :reviews_fence)`)
+   :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base, :start_held, :reviews, :reviews_fence,
+   :unknown_repository)`)
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
@@ -96,6 +99,11 @@ VALUES
 
 	stmtHoldWorkOrder = define("work_order.hold",
 		`UPDATE work_orders SET start_held = :hold
+ WHERE workspace_id = :workspace_id AND id = :id`)
+
+	// stmtResolveRepository targets work at the repository that took the name its contract gave.
+	stmtResolveRepository = define("work_order.resolve_repository",
+		`UPDATE work_orders SET repository_id = :repository_id, unknown_repository = NULL
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtPinWorkOrder = define("work_order.pin",
@@ -211,6 +219,13 @@ func (t workOrderTx) Pin(id string, version int64) error {
 	return err
 }
 
+func (t workOrderTx) ResolveRepository(id, repository string) error {
+	_, err := t.exec(stmtResolveRepository, params{
+		"workspace_id": string(t.scope), "id": id, "repository_id": repository,
+	})
+	return err
+}
+
 func (t workOrderTx) Insert(w workorders.WorkOrder) error {
 	p, err := workOrderParams(t.scope, w)
 	if err != nil {
@@ -250,38 +265,39 @@ func workOrderParams(scope ledger.WorkspaceID, w workorders.WorkOrder) (params, 
 		return nil, err
 	}
 	return params{
-		"start_held":       hold,
-		"reviews":          nullText(w.Reviews),
-		"reviews_fence":    nullInt(w.ReviewsFence),
-		"reviews_plan":     nullText(w.ReviewsPlan),
-		"review_pins":      pins,
-		"plan_commit":      nullText(w.PlanCommit),
-		"base":             nullText(w.Base),
-		"workspace_id":     string(scope),
-		"id":               w.ID,
-		"kind":             string(w.Kind),
-		"state":            string(w.State),
-		"title":            nullText(w.Title),
-		"repository_id":    nullText(w.RepositoryID),
-		"priority":         w.Priority,
-		"size":             nullText(w.Size),
-		"requirements":     requirements,
-		"needs":            needs,
-		"contract_id":      nullText(w.ContractID),
-		"contract_version": nullInt(w.ContractVersion),
-		"fence":            w.Fence,
-		"claim_id":         nullText(w.ClaimID),
-		"lease_worker":     nullText(w.LeaseWorker),
-		"lease_until":      nullInt(w.LeaseUntil),
-		"takeover_after":   nullInt(w.TakeoverAfter),
-		"branch":           nullText(w.Branch),
-		"resume_lane_id":   nullText(w.ResumeLaneID),
-		"rework_of":        nullText(w.ReworkOf),
-		"attempts":         w.Attempts,
-		"max_attempts":     w.MaxAttempts,
-		"deadline":         nullInt(w.Deadline),
-		"reviewed_by":      nullText(w.ReviewedBy),
-		"rev":              w.Rev,
+		"start_held":         hold,
+		"reviews":            nullText(w.Reviews),
+		"reviews_fence":      nullInt(w.ReviewsFence),
+		"reviews_plan":       nullText(w.ReviewsPlan),
+		"review_pins":        pins,
+		"plan_commit":        nullText(w.PlanCommit),
+		"base":               nullText(w.Base),
+		"workspace_id":       string(scope),
+		"id":                 w.ID,
+		"kind":               string(w.Kind),
+		"state":              string(w.State),
+		"title":              nullText(w.Title),
+		"repository_id":      nullText(w.RepositoryID),
+		"unknown_repository": nullText(w.UnknownRepository),
+		"priority":           w.Priority,
+		"size":               nullText(w.Size),
+		"requirements":       requirements,
+		"needs":              needs,
+		"contract_id":        nullText(w.ContractID),
+		"contract_version":   nullInt(w.ContractVersion),
+		"fence":              w.Fence,
+		"claim_id":           nullText(w.ClaimID),
+		"lease_worker":       nullText(w.LeaseWorker),
+		"lease_until":        nullInt(w.LeaseUntil),
+		"takeover_after":     nullInt(w.TakeoverAfter),
+		"branch":             nullText(w.Branch),
+		"resume_lane_id":     nullText(w.ResumeLaneID),
+		"rework_of":          nullText(w.ReworkOf),
+		"attempts":           w.Attempts,
+		"max_attempts":       w.MaxAttempts,
+		"deadline":           nullInt(w.Deadline),
+		"reviewed_by":        nullText(w.ReviewedBy),
+		"rev":                w.Rev,
 	}, nil
 }
 
@@ -305,12 +321,13 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	var kind, state string
 	var title, repository, size, requirements, needs, contractID, claimID, leaseWorker sql.NullString
 	var branch, resumeLane, reworkOf, reviewedBy, reviewsPlan, reviewPins, planCommit, base, startHeld sql.NullString
-	var reviews sql.NullString
+	var reviews, unknownRepository sql.NullString
 	var contractVersion, leaseUntil, takeoverAfter, deadline, reviewsFence sql.NullInt64
 	err := row.Scan(&w.ID, &kind, &state, &title, &repository, &w.Priority, &size, &requirements, &needs,
 		&contractID, &contractVersion, &w.Fence, &claimID, &leaseWorker, &leaseUntil,
 		&takeoverAfter, &branch, &resumeLane, &reworkOf, &w.Attempts, &w.MaxAttempts,
-		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base, &startHeld, &reviews, &reviewsFence)
+		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base, &startHeld, &reviews, &reviewsFence,
+		&unknownRepository)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
@@ -329,6 +346,7 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	}
 	w.Kind, w.State = workorders.Kind(kind), workorders.State(state)
 	w.Title, w.RepositoryID, w.Size = title.String, repository.String, size.String
+	w.UnknownRepository = unknownRepository.String
 	w.ContractID, w.ContractVersion = contractID.String, contractVersion.Int64
 	w.ClaimID, w.LeaseWorker, w.LeaseUntil = claimID.String, leaseWorker.String, leaseUntil.Int64
 	w.TakeoverAfter, w.Branch, w.ResumeLaneID = takeoverAfter.Int64, branch.String, resumeLane.String

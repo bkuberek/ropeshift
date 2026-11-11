@@ -27,6 +27,8 @@ type RepositoryList struct {
 // RepositoryChange is what a member changes. A field left out stays, and an empty Base follows the
 // default branch again.
 type RepositoryChange struct {
+	// Name is what commands and a work order's `repo` call the repository, unique in its project.
+	Name        *string             `json:"name,omitempty"`
 	Base        *string             `json:"base,omitempty"`
 	MergeMethod *ledger.MergeMethod `json:"merge_method,omitempty"`
 	StartFrom   *ledger.StartFrom   `json:"start_from,omitempty"`
@@ -55,7 +57,7 @@ func (c *ProjectClient) Repositories(ctx context.Context) (RepositoryList, error
 	return out, err
 }
 
-// Repository reads one record, by its identity or a unique prefix of it.
+// Repository reads one record, by its name, its identity, or a unique prefix of the identity.
 func (c *ProjectClient) Repository(ctx context.Context, id string) (RepositoryView, error) {
 	var out RepositoryView
 	err := c.do(ctx, http.MethodGet, repositoryPath(id), nil, &out)

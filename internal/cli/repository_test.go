@@ -30,7 +30,7 @@ func TestRepositoryListSaysWhatEachOneStartsFrom(t *testing.T) {
 	s := newSession(t)
 	s.detect(aRepositoryID, "main")
 	text := s.must("repository", "list")
-	for _, want := range []string{aRepositoryID[:12], "base main", "merge merge", "start merged", "review branch"} {
+	for _, want := range []string{"app\t" + aRepositoryID[:12], "base main", "merge merge", "start merged", "review branch"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("list lacks %q:\n%s", want, text)
 		}
@@ -49,7 +49,7 @@ func TestRepositoryShowNamesEverySetting(t *testing.T) {
 	s.detect(aRepositoryID, "main")
 	text := s.must("repository", "show", aRepositoryID[:8])
 	for _, want := range []string{
-		"repository\t" + aRepositoryID, "remote\thttps://example.invalid/acme/app.git", "default branch\tmain", "base\tmain\t(the default branch)",
+		"repository\t" + aRepositoryID, "name\tapp", "remote\thttps://example.invalid/acme/app.git", "default branch\tmain", "base\tmain\t(the default branch)",
 		"forge binding\t-", "merge method\tmerge", "review target\tbranch", "start from\tmerged", "merge authority\tperson_merges",
 	} {
 		if !strings.Contains(text, want) {
@@ -220,5 +220,32 @@ func TestMeasuresPrintsReviewAgreementPerRepository(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("measures lack %q:\n%s", want, text)
 		}
+	}
+}
+
+// A repository is named in its project, and every repository command takes the name as well as the
+// identity (ADR-0022).
+func TestRepositoryCommandsTakeAName(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	if text := s.must("repository", "show", "app"); !strings.Contains(text, "repository\t"+aRepositoryID) {
+		t.Errorf("show by name:\n%s", text)
+	}
+	if text := s.must("repository", "set", "app", "--name", "payments"); !strings.Contains(text, "name\tpayments") {
+		t.Errorf("a rename printed:\n%s", text)
+	}
+	if code, _, _ := s.run("repository", "show", "app"); code != cli.ExitNotFound {
+		t.Errorf("the old name: exit %d", code)
+	}
+	if text := s.must("repository", "set", "payments", "--merge-method", "squash"); !strings.Contains(text, "merge method\tsquash") {
+		t.Errorf("a change by the new name:\n%s", text)
+	}
+	const other = "0a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4"
+	s.detect(other, "main")
+	if code, _, stderr := s.run("repository", "set", other, "--name", "payments"); code != cli.ExitConflict || !strings.Contains(stderr, "payments") {
+		t.Errorf("a name another repository holds: exit %d, %q", code, stderr)
+	}
+	if code, _, _ := s.run("repository", "set", "payments", "--name", "a b"); code != cli.ExitUsage {
+		t.Errorf("a name no command can type: exit %d", code)
 	}
 }

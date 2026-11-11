@@ -201,6 +201,8 @@ type WorkOrderWriter interface {
 	TakenIn(id, commit string) error
 	// Pin moves unstarted work to a contract version, and voids its review.
 	Pin(id string, version int64) error
+	// ResolveRepository targets work at the repository that took the name its contract gave.
+	ResolveRepository(id, repository string) error
 	// Hold records why ready work is not claimed, and nil takes the reason back.
 	Hold(id string, hold *workorders.StartHold) error
 }
@@ -501,6 +503,8 @@ type EffectWriter interface {
 type RepositoryReader interface {
 	// Repository returns one record, or ErrNotFound.
 	Repository(id string) (ledger.Repository, error)
+	// Named returns the record with a name in the workspace, or ErrNotFound.
+	Named(name string) (ledger.Repository, error)
 	// Repositories lists every record, by ID.
 	Repositories() ([]ledger.Repository, error)
 }
@@ -513,8 +517,8 @@ type RepositoryWriter interface {
 	// Detected replaces the remote and the default branch git gave, and reports whether either moved.
 	// A member's settings stay.
 	Detected(id, remote, defaultBranch string) (bool, error)
-	// Settings replaces the settings a member gives. The store itself refuses a combination that
-	// cannot hold.
+	// Settings replaces the name and the settings a member gives. The store itself refuses a combination
+	// that cannot hold, and a name another record of the workspace holds.
 	Settings(ledger.Repository) error
 }
 

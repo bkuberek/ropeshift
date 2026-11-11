@@ -9,18 +9,21 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const repositoryColumns = `id, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority`
+const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority`
 
 var (
 	stmtInsertRepository = define("repository.insert",
 		`INSERT INTO repositories
-  (workspace_id, id, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority)
+  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority)
 VALUES
-  (:workspace_id, :id, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority)
+  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority)
 ON CONFLICT DO NOTHING`)
 
 	stmtRepository = define("repository.get",
 		`SELECT `+repositoryColumns+` FROM repositories WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtRepositoryNamed = define("repository.named",
+		`SELECT `+repositoryColumns+` FROM repositories WHERE workspace_id = :workspace_id AND name = :name`)
 
 	stmtRepositories = define("repository.all",
 		`SELECT `+repositoryColumns+` FROM repositories WHERE workspace_id = :workspace_id ORDER BY id`)
@@ -43,7 +46,7 @@ ON CONFLICT DO NOTHING`)
 
 	stmtRepositorySettings = define("repository.settings",
 		`UPDATE repositories
-   SET base_branch = :base_branch, forge_binding = :forge_binding, merge_method = :merge_method,
+   SET name = :name, base_branch = :base_branch, forge_binding = :forge_binding, merge_method = :merge_method,
        review_target = :review_target, start_from = :start_from, merge_authority = :merge_authority
  WHERE workspace_id = :workspace_id AND id = :id`)
 )
@@ -65,7 +68,7 @@ func (t repositoryTx) scoped(p params) params {
 func scanRepository(row scanner) (ledger.Repository, error) {
 	var r ledger.Repository
 	var method, target, start, authority string
-	err := row.Scan(&r.ID, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority)
+	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority)
 	r.MergeMethod, r.ReviewTarget, r.StartFrom = ledger.MergeMethod(method), ledger.ReviewTarget(target), ledger.StartFrom(start)
 	r.MergeAuthority = ledger.MergeAuthority(authority)
 	return r, err
@@ -79,6 +82,21 @@ func (t repositoryTx) Repository(id string) (ledger.Repository, error) {
 	record, err := scanRepository(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ledger.Repository{}, fmt.Errorf("repository %s: %w", id, ports.ErrNotFound)
+	}
+	return record, err
+}
+
+func (t repositoryTx) Named(name string) (ledger.Repository, error) {
+	if name == "" {
+		return ledger.Repository{}, fmt.Errorf("repository with no name: %w", ports.ErrNotFound)
+	}
+	row, err := t.row(stmtRepositoryNamed, t.scoped(params{"name": name}))
+	if err != nil {
+		return ledger.Repository{}, err
+	}
+	record, err := scanRepository(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ledger.Repository{}, fmt.Errorf("repository named %s: %w", name, ports.ErrNotFound)
 	}
 	return record, err
 }
@@ -102,7 +120,7 @@ func (t repositoryTx) Repositories() ([]ledger.Repository, error) {
 
 func repositoryParams(r ledger.Repository) params {
 	return params{
-		"id": r.ID, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
+		"id": r.ID, "name": r.Name, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
 		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "review_target": string(r.Target()), "start_from": string(r.StartFrom),
 		"merge_authority": string(r.Level()),
 	}
