@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.1.0-alpha.9](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.8...v0.1.0-alpha.9) (2026-11-11)
+
+
+### Features
+
+* add projects and repository identities to the ledger domain ([c9f5692](https://github.com/bkuberek/ropeshift/commit/c9f569278f833b32c9e858c4411f9b470537b0e2))
+* add the installation database with the project registry ([6a45c77](https://github.com/bkuberek/ropeshift/commit/6a45c77fb7b58f94d830003c87e6c8d24cbe1b69))
+* back up one project, or the installation's records ([4100d7d](https://github.com/bkuberek/ropeshift/commit/4100d7d7987fc175585b7516cfef101afbf8293b))
+* change several repositories with one repository set ([f36732b](https://github.com/bkuberek/ropeshift/commit/f36732bef536ac9c2e02e59bebf492f808c84542))
+* change the records every project shares in installation transactions ([1e7ba71](https://github.com/bkuberek/ropeshift/commit/1e7ba71699e2729db94ec1b5cc854e32889ce7d0))
+* count every project's lanes against the machine's caps, which a layer can only lower ([1642df1](https://github.com/bkuberek/ropeshift/commit/1642df1395934fd24de3c26f941569f062791c9d))
+* create, rename, archive, restore, remove, and import projects ([fdef95b](https://github.com/bkuberek/ropeshift/commit/fdef95b898d037d4916d1af0e991b984b14dc47e))
+* keep a worker's checkouts by project and read each project's ([7d57a1a](https://github.com/bkuberek/ropeshift/commit/7d57a1a82a7af2fa6ee321d1e27a07d0f00b646e))
+* keep the records every project shares in the installation database ([34101d5](https://github.com/bkuberek/ropeshift/commit/34101d5c4706db15ed1acb6b6a6b24b532d5ad1a))
+* list what waits in every active project in one Needs you ([ed594e9](https://github.com/bkuberek/ropeshift/commit/ed594e9d56655501d8173ee54bd068e5706e745c))
+* name each repository in its project ([4ea3664](https://github.com/bkuberek/ropeshift/commit/4ea366452157459d3c7d8a846e4c6efd922c1c24))
+* refuse a repository another project holds ([3ebb72e](https://github.com/bkuberek/ropeshift/commit/3ebb72ed10cf04fac52f473eba1442a60e3f155b))
+* register repositories from a worker's clones with repository add ([419bd13](https://github.com/bkuberek/ropeshift/commit/419bd136d90a83d70b50fa3b9ce3bc7b9f7b3404))
+* remove a repository from its project, keeping its record ([f5b73b6](https://github.com/bkuberek/ropeshift/commit/f5b73b655b9f232b4571637b4454c19b1bc9ab1e))
+* replace a repository's integration switch with its review target ([0eead67](https://github.com/bkuberek/ropeshift/commit/0eead677faadb6abccddb56042ca8a8c9d66ae09))
+* route each project's records under /v1/projects/{project} ([4fbc4b4](https://github.com/bkuberek/ropeshift/commit/4fbc4b4a5d54ed937339ba876d873d0611b05e61))
+* run every active project's ticks, and let remove take the first project ([586b10c](https://github.com/bkuberek/ropeshift/commit/586b10cd67f042a12e7d9eac081aabdfe75d74fc))
+* scope each project to its own schema on Postgres ([df4a547](https://github.com/bkuberek/ropeshift/commit/df4a5472ca91116839c683873076c8b0d1496087))
+* serve every active project on one worker with plane protocol 2 ([d25ec65](https://github.com/bkuberek/ropeshift/commit/d25ec65d23b762b0c26c62443f2f5aad858249a8))
+* serve every active project with one orchestrator per machine ([8271f8c](https://github.com/bkuberek/ropeshift/commit/8271f8c651d8f48e6edf03163d5459ee4de21e37))
+* upgrade an installation with one ledger into its default project ([22f2b5c](https://github.com/bkuberek/ropeshift/commit/22f2b5c17ddf82150403e047507f7e091ee7d938))
+
+
+### Bug Fixes
+
+* keep an effect of an orchestrator's lane in the project's effects ([c6f61a7](https://github.com/bkuberek/ropeshift/commit/c6f61a751f55845f761c1939c79c4fd765f48d5c))
+
+### Notes
+
+* One installation now holds many projects, each with a ledger database of its own. An existing installation becomes the `default` project on its first start: it keeps its ledger file, its workspace ID, and every record, and its members, workers, run windows, autonomy, and orchestrators move into a new `installation.db` beside it. The upgrade is safe to interrupt and repeats from where it stopped.
+* `ropeshift project create|list|show|rename|archive|restore|remove|import` manage projects. The CLI picks the project from `--project`, then `ROPESHIFT_PROJECT`, then the repository you are in, then the only project, and exits 2 with the list when it cannot. The web UI has a project switcher.
+* One worker and one orchestrator serve every active project. The lane caps count the lanes of every project on the machine, and a repository profile can lower them but never raise them. `ropeshift needs` and the web UI's Needs you list what waits in every project, each item labeled with its project.
+* `ropeshift repository add <path>... [--depth N] [--dry-run]` registers a clone, or every clone in a folder. A repository another project holds is refused, naming that project, and the rest are still registered. Repositories have names, `repository set` changes several at once, and `repository remove` keeps the record as history.
+* A repository's `integration` setting is replaced by `review_target`, `branch` or `pull_request`, and existing values are converted. Ropeshift does not push or open pull requests yet.
+* `ropeshift backup` now copies one project, and `ropeshift backup --installation` copies the members, workers, and other installation records. Back up both.
+* Every project-scoped API route moved under `/v1/projects/{project}/`. The old routes still answer for the first project, marked `Deprecation: true`, and are removed in the next release. Workers use plane protocol 2; a worker on protocol 1 serves only the first project.
+* This release adds database migrations `0039` to `0042`, and the installation database's migration `0001`. They run on the first start.
+
 ## [0.1.0-alpha.8](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.7...v0.1.0-alpha.8) (2026-11-10)
 
 
