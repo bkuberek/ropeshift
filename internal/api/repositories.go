@@ -30,7 +30,8 @@ type RepositoryChange struct {
 	Base        *string             `json:"base,omitempty"`
 	MergeMethod *ledger.MergeMethod `json:"merge_method,omitempty"`
 	StartFrom   *ledger.StartFrom   `json:"start_from,omitempty"`
-	Integration *bool               `json:"integration,omitempty"`
+	// ReviewTarget is where accepted work is reviewed and lands: branch or pull_request.
+	ReviewTarget *ledger.ReviewTarget `json:"review_target,omitempty"`
 	// MergeAuthority is how much of each change the person decides after the review.
 	MergeAuthority *ledger.MergeAuthority `json:"merge_authority,omitempty"`
 }

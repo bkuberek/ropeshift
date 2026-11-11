@@ -98,8 +98,8 @@ func checkDetectionKeepsMemberSettings(r *Rig) error {
 		return err
 	}
 	squash := ledger.MergeSquash
-	on := true
-	if _, err := r.change(s, "repo-1", control.RepositoryChange{Base: text("release/1.2"), MergeMethod: &squash, Integration: &on}, r.Actor); err != nil {
+	pullRequest := ledger.ReviewOnPullRequest
+	if _, err := r.change(s, "repo-1", control.RepositoryChange{Base: text("release/1.2"), MergeMethod: &squash, ReviewTarget: &pullRequest}, r.Actor); err != nil {
 		return err
 	}
 	refreshed, err := r.detect(s, "repo-1", "git@example.invalid:acme/app.git", "trunk")
@@ -109,7 +109,7 @@ func checkDetectionKeepsMemberSettings(r *Rig) error {
 	if refreshed.Remote != "git@example.invalid:acme/app.git" || refreshed.DefaultBranch != "trunk" {
 		return Violatedf("a later read left the facts at %+v", refreshed)
 	}
-	if refreshed.BaseBranch != "release/1.2" || refreshed.MergeMethod != ledger.MergeSquash || !refreshed.Integration || refreshed.Base() != "release/1.2" {
+	if refreshed.BaseBranch != "release/1.2" || refreshed.MergeMethod != ledger.MergeSquash || refreshed.Target() != ledger.ReviewOnPullRequest || refreshed.Base() != "release/1.2" {
 		return Violatedf("a later read changed what a member set: %+v", refreshed)
 	}
 	// A source that lost its remote says so, and the record follows it.
@@ -176,19 +176,19 @@ func checkOnlyAMemberChangesARepository(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	on := true
+	pullRequest := ledger.ReviewOnPullRequest
 	for _, actor := range []ledger.Actor{
 		{Kind: ledger.ActorOrchestrator, ID: "worker-1"}, {Kind: ledger.ActorLane, ID: "lane-1"},
 		{Kind: ledger.ActorWorker, ID: "worker-1"}, {Kind: ledger.ActorSystem, ID: "intake"},
 	} {
-		if _, err := r.change(s, "repo-1", control.RepositoryChange{Integration: &on}, actor); !errors.Is(err, workorders.ErrForbidden) {
+		if _, err := r.change(s, "repo-1", control.RepositoryChange{ReviewTarget: &pullRequest}, actor); !errors.Is(err, workorders.ErrForbidden) {
 			return Violatedf("%s changing a repository: %v", actor.Kind, err)
 		}
 	}
 	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
 		return Violatedf("a refused caller moved the ledger from %d to %d: %v", before, after, err)
 	}
-	if record, err := r.theRepository(s, "repo-1"); err != nil || record.Integration {
+	if record, err := r.theRepository(s, "repo-1"); err != nil || record.Target() != ledger.ReviewOnBranch {
 		return Violatedf("a refused caller changed the record: %+v: %v", record, err)
 	}
 	return nil
@@ -237,8 +237,10 @@ func checkRepositoryRefusesBadSettings(r *Rig) error {
 		return err
 	}
 	method, start, level := ledger.MergeMethod("fast-forward"), ledger.StartFrom("whenever"), ledger.MergeAuthority("whenever")
+	target := ledger.ReviewTarget("merge_queue")
 	for name, change := range map[string]control.RepositoryChange{
 		"a merge method": {MergeMethod: &method}, "a start": {StartFrom: &start}, "a merge authority": {MergeAuthority: &level},
+		"a review target":    {ReviewTarget: &target},
 		"a base with a dash": {Base: text("-rf")}, "a base with a space": {Base: text("a b")},
 	} {
 		if _, err := r.change(s, "repo-1", change, r.Actor); !errors.Is(err, ledger.ErrInvalidRepository) {
@@ -338,11 +340,11 @@ func checkIntakeRecordsTheRepository(r *Rig) error {
 	if err != nil {
 		return Violatedf("a source with facts made no record: %v", err)
 	}
-	if record.Remote != "https://example.invalid/acme/app.git" || record.DefaultBranch != "main" || record.MergeMethod != ledger.MergeCommit || record.Integration {
+	if record.Remote != "https://example.invalid/acme/app.git" || record.DefaultBranch != "main" || record.MergeMethod != ledger.MergeCommit || record.ReviewTarget != ledger.ReviewOnBranch {
 		return Violatedf("the record reads %+v", record)
 	}
-	on := true
-	if _, err := r.change(s, "memory", control.RepositoryChange{Integration: &on}, r.Actor); err != nil {
+	pullRequest := ledger.ReviewOnPullRequest
+	if _, err := r.change(s, "memory", control.RepositoryChange{ReviewTarget: &pullRequest}, r.Actor); err != nil {
 		return err
 	}
 	before, err := r.Revision(s, r.Scope)
@@ -360,7 +362,7 @@ func checkIntakeRecordsTheRepository(r *Rig) error {
 		return err
 	}
 	moved, err := r.theRepository(s, "memory")
-	if err != nil || moved.DefaultBranch != "trunk" || moved.Remote != "https://example.invalid/acme/renamed.git" || !moved.Integration {
+	if err != nil || moved.DefaultBranch != "trunk" || moved.Remote != "https://example.invalid/acme/renamed.git" || moved.Target() != ledger.ReviewOnPullRequest {
 		return Violatedf("after the facts moved the record reads %+v: %v", moved, err)
 	}
 	return nil

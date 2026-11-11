@@ -36,7 +36,8 @@ type RepositoryChange struct {
 	Base        *string
 	MergeMethod *ledger.MergeMethod
 	StartFrom   *ledger.StartFrom
-	Integration *bool
+	// ReviewTarget is where accepted work is reviewed and lands.
+	ReviewTarget *ledger.ReviewTarget
 	// MergeAuthority is how much of each change the person decides after the review.
 	MergeAuthority *ledger.MergeAuthority
 }
@@ -146,8 +147,8 @@ func apply(record ledger.Repository, change RepositoryChange) ledger.Repository 
 	if change.StartFrom != nil {
 		record.StartFrom = *change.StartFrom
 	}
-	if change.Integration != nil {
-		record.Integration = *change.Integration
+	if change.ReviewTarget != nil {
+		record.ReviewTarget = *change.ReviewTarget
 	}
 	if change.MergeAuthority != nil {
 		record.MergeAuthority = *change.MergeAuthority

@@ -9,14 +9,14 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const repositoryColumns = `id, remote, default_branch, base_branch, forge_binding, merge_method, integration, start_from, merge_authority`
+const repositoryColumns = `id, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority`
 
 var (
 	stmtInsertRepository = define("repository.insert",
 		`INSERT INTO repositories
-  (workspace_id, id, remote, default_branch, base_branch, forge_binding, merge_method, integration, start_from, merge_authority)
+  (workspace_id, id, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority)
 VALUES
-  (:workspace_id, :id, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :integration, :start_from, :merge_authority)
+  (:workspace_id, :id, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority)
 ON CONFLICT DO NOTHING`)
 
 	stmtRepository = define("repository.get",
@@ -44,7 +44,7 @@ ON CONFLICT DO NOTHING`)
 	stmtRepositorySettings = define("repository.settings",
 		`UPDATE repositories
    SET base_branch = :base_branch, forge_binding = :forge_binding, merge_method = :merge_method,
-       integration = :integration, start_from = :start_from, merge_authority = :merge_authority
+       review_target = :review_target, start_from = :start_from, merge_authority = :merge_authority
  WHERE workspace_id = :workspace_id AND id = :id`)
 )
 
@@ -64,10 +64,9 @@ func (t repositoryTx) scoped(p params) params {
 
 func scanRepository(row scanner) (ledger.Repository, error) {
 	var r ledger.Repository
-	var method, start, authority string
-	var integration int64
-	err := row.Scan(&r.ID, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &integration, &start, &authority)
-	r.MergeMethod, r.StartFrom, r.Integration = ledger.MergeMethod(method), ledger.StartFrom(start), integration != 0
+	var method, target, start, authority string
+	err := row.Scan(&r.ID, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority)
+	r.MergeMethod, r.ReviewTarget, r.StartFrom = ledger.MergeMethod(method), ledger.ReviewTarget(target), ledger.StartFrom(start)
 	r.MergeAuthority = ledger.MergeAuthority(authority)
 	return r, err
 }
@@ -102,13 +101,9 @@ func (t repositoryTx) Repositories() ([]ledger.Repository, error) {
 }
 
 func repositoryParams(r ledger.Repository) params {
-	integration := int64(0)
-	if r.Integration {
-		integration = 1
-	}
 	return params{
 		"id": r.ID, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
-		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "integration": integration, "start_from": string(r.StartFrom),
+		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "review_target": string(r.Target()), "start_from": string(r.StartFrom),
 		"merge_authority": string(r.Level()),
 	}
 }

@@ -18,7 +18,7 @@ func TestARepositoryFollowsItsDefaultBranchUntilAMemberNamesABase(t *testing.T) 
 
 func TestANewRepositoryHoldsTheSafestDefaults(t *testing.T) {
 	r := NewRepository("r")
-	if r.MergeMethod != MergeCommit || r.StartFrom != StartFromMerged || r.Integration {
+	if r.MergeMethod != MergeCommit || r.StartFrom != StartFromMerged || r.ReviewTarget != ReviewOnBranch || r.MergeAuthority != PersonMerges {
 		t.Errorf("defaults: %+v", r)
 	}
 }

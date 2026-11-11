@@ -72,7 +72,7 @@ const (
 	ActionOpenWindow      Action = "autonomy.window"
 	ActionAcknowledgeRisk Action = "autonomy.acknowledge"
 	// ActionSetRepository changes the settings of a repository's record: the base branch lanes start
-	// from, the merge method, what dependent work starts from, and whether integration is on. How much
+	// from, the merge method, what dependent work starts from, and where its work is reviewed. How much
 	// ropeshift may merge is the person's choice, so no agent has this, and no row below may ever grant it.
 	ActionSetRepository Action = "repository.set"
 	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the

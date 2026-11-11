@@ -30,7 +30,7 @@ func TestRepositoryListSaysWhatEachOneStartsFrom(t *testing.T) {
 	s := newSession(t)
 	s.detect(aRepositoryID, "main")
 	text := s.must("repository", "list")
-	for _, want := range []string{aRepositoryID[:12], "base main", "merge merge", "start merged", "integration off"} {
+	for _, want := range []string{aRepositoryID[:12], "base main", "merge merge", "start merged", "review branch"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("list lacks %q:\n%s", want, text)
 		}
@@ -50,7 +50,7 @@ func TestRepositoryShowNamesEverySetting(t *testing.T) {
 	text := s.must("repository", "show", aRepositoryID[:8])
 	for _, want := range []string{
 		"repository\t" + aRepositoryID, "remote\thttps://example.invalid/acme/app.git", "default branch\tmain", "base\tmain\t(the default branch)",
-		"forge binding\t-", "merge method\tmerge", "integration\toff", "start from\tmerged", "merge authority\tperson_merges",
+		"forge binding\t-", "merge method\tmerge", "review target\tbranch", "start from\tmerged", "merge authority\tperson_merges",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("show lacks %q:\n%s", want, text)
@@ -64,13 +64,13 @@ func TestRepositoryShowNamesEverySetting(t *testing.T) {
 func TestRepositorySetChangesWhatAMemberNames(t *testing.T) {
 	s := newSession(t)
 	s.detect(aRepositoryID, "main")
-	text := s.must("repository", "set", aRepositoryID[:8], "--base", "release/1.2", "--merge-method", "squash", "--integration", "on")
-	for _, want := range []string{"base\trelease/1.2", "merge method\tsquash", "integration\ton", "start from\tmerged"} {
+	text := s.must("repository", "set", aRepositoryID[:8], "--base", "release/1.2", "--merge-method", "squash", "--review-target", "pull_request")
+	for _, want := range []string{"base\trelease/1.2", "merge method\tsquash", "review target\tpull_request", "start from\tmerged"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("set printed no %q:\n%s", want, text)
 		}
 	}
-	if text := s.must("repository", "set", aRepositoryID, "--base", "", "--integration", "off"); !strings.Contains(text, "base\tmain\t(the default branch)") || !strings.Contains(text, "integration\toff") {
+	if text := s.must("repository", "set", aRepositoryID, "--base", "", "--review-target", "branch"); !strings.Contains(text, "base\tmain\t(the default branch)") || !strings.Contains(text, "review target\tbranch") {
 		t.Errorf("clearing the base:\n%s", text)
 	}
 }
@@ -100,7 +100,8 @@ func TestRepositorySetRefusesWhatCannotHold(t *testing.T) {
 		"accepted work on a rebase repository": {"--start-from", "accepted"},
 		"a method nobody offers":               {"--merge-method", "fast-forward"},
 		"a start nobody offers":                {"--start-from", "whenever"},
-		"a switch that is neither":             {"--integration", "maybe"},
+		"a target nobody offers":               {"--review-target", "merge_queue"},
+		"the switch the target replaced":       {"--integration", "on"},
 		"a base git would read as an option":   {"--base", "-rf"},
 	} {
 		code, _, stderr := s.run(append([]string{"repository", "set", aRepositoryID}, args...)...)

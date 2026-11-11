@@ -59,7 +59,7 @@ func (h *handler) changeRepository(w http.ResponseWriter, r *http.Request, actor
 		return
 	}
 	changed, err := h.repositories.Change(r.Context(), h.Scope, record.ID, control.RepositoryChange{
-		Base: in.Base, MergeMethod: in.MergeMethod, StartFrom: in.StartFrom, Integration: in.Integration, MergeAuthority: in.MergeAuthority,
+		Base: in.Base, MergeMethod: in.MergeMethod, StartFrom: in.StartFrom, ReviewTarget: in.ReviewTarget, MergeAuthority: in.MergeAuthority,
 	}, actor)
 	if err != nil {
 		fail(w, err)

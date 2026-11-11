@@ -31,16 +31,16 @@ func TestAMemberReadsAndChangesARepository(t *testing.T) {
 	if err != nil || len(list.Repositories) != 1 {
 		t.Fatalf("list %+v: %v", list, err)
 	}
-	if got := list.Repositories[0]; got.ID != aRepository || got.Base != "main" || got.MergeMethod != ledger.MergeCommit || got.StartFrom != ledger.StartFromMerged || got.Integration {
+	if got := list.Repositories[0]; got.ID != aRepository || got.Base != "main" || got.MergeMethod != ledger.MergeCommit || got.StartFrom != ledger.StartFromMerged || got.Target() != ledger.ReviewOnBranch {
 		t.Errorf("the record reads %+v", got)
 	}
-	base, squash, on := "release/1.2", ledger.MergeSquash, true
+	base, squash, pullRequest := "release/1.2", ledger.MergeSquash, ledger.ReviewOnPullRequest
 	// A name that is a prefix of the identity is enough.
-	changed, err := d.Client.SetRepository(t.Context(), aRepository[:8], api.RepositoryChange{Base: &base, MergeMethod: &squash, Integration: &on})
+	changed, err := d.Client.SetRepository(t.Context(), aRepository[:8], api.RepositoryChange{Base: &base, MergeMethod: &squash, ReviewTarget: &pullRequest})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed.ID != aRepository || changed.Base != "release/1.2" || changed.BaseBranch != "release/1.2" || changed.MergeMethod != ledger.MergeSquash || !changed.Integration {
+	if changed.ID != aRepository || changed.Base != "release/1.2" || changed.BaseBranch != "release/1.2" || changed.MergeMethod != ledger.MergeSquash || changed.Target() != ledger.ReviewOnPullRequest {
 		t.Errorf("the change left %+v", changed)
 	}
 	shown, err := d.Client.Repository(t.Context(), aRepository)
@@ -100,7 +100,7 @@ func TestOnlyAMemberChangesARepository(t *testing.T) {
 	d := apitest.Start(t)
 	detected(t, d, aRepository, "main")
 	credential, _ := joinWorker(t, d)
-	on := true
+	pullRequest := ledger.ReviewOnPullRequest
 	cases := []struct {
 		name  string
 		setup func(*api.ProjectClient) *api.ProjectClient
@@ -113,13 +113,13 @@ func TestOnlyAMemberChangesARepository(t *testing.T) {
 		plain := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 		t.Cleanup(plain.Close)
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.setup(plain).SetRepository(t.Context(), aRepository, api.RepositoryChange{Integration: &on})
+			_, err := tt.setup(plain).SetRepository(t.Context(), aRepository, api.RepositoryChange{ReviewTarget: &pullRequest})
 			refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
 		})
 	}
 	err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
 		record, err := tx.Repositories().Repository(aRepository)
-		if err == nil && record.Integration {
+		if err == nil && record.Target() != ledger.ReviewOnBranch {
 			t.Errorf("a refused caller changed the record: %+v", record)
 		}
 		return err

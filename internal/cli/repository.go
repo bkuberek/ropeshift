@@ -26,16 +26,9 @@ func dashIfEmpty(text string) string {
 	return text
 }
 
-func onOff(on bool) string {
-	if on {
-		return "on"
-	}
-	return "off"
-}
-
 func repositoryLine(view api.RepositoryView) string {
-	return fmt.Sprintf("%s\tbase %s\tmerge %s\tstart %s\tintegration %s\tauthority %s\t%s\n",
-		shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, onOff(view.Integration), view.Level(), dashIfEmpty(view.Remote))
+	return fmt.Sprintf("%s\tbase %s\tmerge %s\tstart %s\treview %s\tauthority %s\t%s\n",
+		shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
 }
 
 func repositoryText(view api.RepositoryView) string {
@@ -50,7 +43,7 @@ func repositoryText(view api.RepositoryView) string {
 	}
 	fmt.Fprintf(&out, "forge binding\t%s\n", dashIfEmpty(view.ForgeBinding))
 	fmt.Fprintf(&out, "merge method\t%s\n", view.MergeMethod)
-	fmt.Fprintf(&out, "integration\t%s\n", onOff(view.Integration))
+	fmt.Fprintf(&out, "review target\t%s\n", view.Target())
 	fmt.Fprintf(&out, "start from\t%s\n", view.StartFrom)
 	fmt.Fprintf(&out, "merge authority\t%s\n", view.Level())
 	fmt.Fprintf(&out, "review agreement, last 30 days\t%s\n", agreementText(view.ReviewAgreement.Last30Days))
@@ -116,7 +109,7 @@ func (c *invocation) repositorySet(args []string) int {
 	base := set.String("base", "", "the branch lanes start from, or empty to follow the default branch")
 	method := set.String("merge-method", "", "how a pull request lands: merge, squash, or rebase")
 	start := set.String("start-from", "", "what dependent work starts from: merged or accepted")
-	integration := set.String("integration", "", "on or off: whether ropeshift pushes accepted work and opens its pull request")
+	target := set.String("review-target", "", "where accepted work is reviewed and lands: branch or pull_request")
 	authority := set.String("merge-authority", "", "how much of each change you decide after the review: person_merges, person_approves, or review_approves")
 	positional, ok := c.parse(set, args)
 	if !ok {
@@ -139,21 +132,16 @@ func (c *invocation) repositorySet(args []string) int {
 		value := ledger.StartFrom(*start)
 		change.StartFrom = &value
 	}
-	if given["integration"] {
-		switch *integration {
-		case "on", "off":
-			value := *integration == "on"
-			change.Integration = &value
-		default:
-			return c.usageError("--integration takes on or off, not %q", *integration)
-		}
+	if given["review-target"] {
+		value := ledger.ReviewTarget(*target)
+		change.ReviewTarget = &value
 	}
 	if given["merge-authority"] {
 		value := ledger.MergeAuthority(*authority)
 		change.MergeAuthority = &value
 	}
 	if len(given) == 0 {
-		return c.usageError("name a setting to change: --base, --merge-method, --start-from, --integration, or --merge-authority")
+		return c.usageError("name a setting to change: --base, --merge-method, --start-from, --review-target, or --merge-authority")
 	}
 	client, exit := c.projectClient()
 	if client == nil {

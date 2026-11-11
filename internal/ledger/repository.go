@@ -43,6 +43,17 @@ const (
 	StartFromAccepted StartFrom = "accepted"
 )
 
+// ReviewTarget is where a repository's accepted work is reviewed and lands (ADR-0020).
+type ReviewTarget string
+
+// The review targets. Only a member chooses one: a plan, a manifest, an orchestrator, and a lane cannot.
+const (
+	// ReviewOnBranch keeps accepted work on its branch, which ends the work order; the default.
+	ReviewOnBranch ReviewTarget = "branch"
+	// ReviewOnPullRequest opens a pull request through the repository's forge.
+	ReviewOnPullRequest ReviewTarget = "pull_request"
+)
+
 // MergeAuthority is how much of the loop stays with the person: who accepts finished work, and later who
 // merges it. Only a member chooses it, and nothing learned widens it.
 type MergeAuthority string
@@ -84,14 +95,22 @@ type Repository struct {
 	// MergeAuthority is how much of each change the person decides after the review (FR-MERGE-3). Empty
 	// reads as PersonMerges, which a record made before the level existed holds.
 	MergeAuthority MergeAuthority `json:"merge_authority,omitempty"`
-	// Integration says whether ropeshift pushes accepted work and opens its pull request.
-	Integration bool      `json:"integration"`
-	StartFrom   StartFrom `json:"start_from"`
+	// ReviewTarget is where accepted work is reviewed and lands. Empty reads as ReviewOnBranch.
+	ReviewTarget ReviewTarget `json:"review_target"`
+	StartFrom    StartFrom    `json:"start_from"`
 }
 
 // NewRepository returns a record with the settings a person who chose nothing gets.
 func NewRepository(id string) Repository {
-	return Repository{ID: id, MergeMethod: MergeCommit, StartFrom: StartFromMerged, MergeAuthority: PersonMerges}
+	return Repository{ID: id, MergeMethod: MergeCommit, StartFrom: StartFromMerged, MergeAuthority: PersonMerges, ReviewTarget: ReviewOnBranch}
+}
+
+// Target is the review target in force: the one a member chose, or else a branch.
+func (r Repository) Target() ReviewTarget {
+	if r.ReviewTarget == "" {
+		return ReviewOnBranch
+	}
+	return r.ReviewTarget
 }
 
 // Level is the merge authority in force: the one a member chose, or else the default.
@@ -126,6 +145,11 @@ func (r Repository) Validate() error {
 	case PersonMerges, PersonApproves, ReviewApproves:
 	default:
 		return fmt.Errorf("%w: merge authority %q", ErrInvalidRepository, r.MergeAuthority)
+	}
+	switch r.Target() {
+	case ReviewOnBranch, ReviewOnPullRequest:
+	default:
+		return fmt.Errorf("%w: review target %q", ErrInvalidRepository, r.ReviewTarget)
 	}
 	if r.BaseBranch != "" {
 		if err := CheckBranch(r.BaseBranch); err != nil {
