@@ -260,7 +260,8 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
-	ticks := append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(store))
+	ticks := append(whileActive(state, soloScope, append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick))),
+		spans, telemetry.measuresTick(store))
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)
@@ -288,6 +289,27 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	return nil
+}
+
+// whileActive runs each tick only while the project it serves is active: an archived project runs no
+// intake or tick and sends no notice (ADR-0021). The telemetry ticks only read.
+func whileActive(projects ports.Projects, scope ledger.WorkspaceID, ticks []control.Tick) []control.Tick {
+	for i := range ticks {
+		run := ticks[i].Run
+		ticks[i].Run = func(ctx context.Context) error {
+			listed, err := projects.List(ctx)
+			if err != nil {
+				return err
+			}
+			for _, p := range listed {
+				if p.ID == scope && p.State == ledger.ProjectArchived {
+					return nil
+				}
+			}
+			return run(ctx)
+		}
+	}
+	return ticks
 }
 
 // listenWeb binds the web UI's listener on loopback, before the daemon serves anything, so the address

@@ -93,6 +93,9 @@ type handler struct {
 	effects      *control.Effects
 	notices      *control.Notices
 	repositories *control.Repositories
+	// lifecycle and router are the installation's, which only the first project's handler holds.
+	lifecycle *control.Projects
+	router    *router
 }
 
 // New returns the versioned API. The installation's routes sit at the top, and each project's routes
@@ -105,6 +108,7 @@ func New(config Config) http.Handler {
 	}
 	home := newHandler(config)
 	projects := newRouter(config, home)
+	home.lifecycle, home.router = control.NewProjects(config.Projects, config.Scope), projects
 	mux := http.NewServeMux()
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
@@ -118,6 +122,7 @@ func New(config Config) http.Handler {
 // installationRoutes are the routes of the installation's own records: members and their sessions,
 // workers with their autonomy and orchestrators, the plane protocol, and the worker's telemetry.
 func (h *handler) installationRoutes(mux *http.ServeMux) {
+	h.lifecycleRoutes(mux)
 	h.sessionRoutes(mux)
 	h.workerRoutes(mux)
 	h.orchestratorRoutes(mux)
@@ -228,13 +233,19 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadPassphrase, Message: err.Error()})
 	case errors.Is(err, authority.ErrNotEnrolled):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeNotEnrolled, Message: err.Error()})
+	case errors.Is(err, ledger.ErrProjectExists):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectExists, Message: err.Error()})
+	case errors.Is(err, ledger.ErrProjectState):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectState, Message: err.Error()})
+	case errors.Is(err, ledger.ErrProjectArchived):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectArchived, Message: err.Error()})
 	case errors.Is(err, ledger.ErrRepositoryHeld):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRepositoryHeld, Message: err.Error()})
 	case errors.Is(err, ledger.ErrStaleEpoch):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository), errors.Is(err, ledger.ErrInvalidProject):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, authority.ErrRiskNotAcknowledged):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeRiskNotAcknowledged, Message: err.Error()})
@@ -488,6 +499,14 @@ func (h *handler) workerClaim(w http.ResponseWriter, r *http.Request) {
 	worker := r.PathValue("id")
 	if in.WorkerID != "" && in.WorkerID != worker {
 		invalid(w, "the claim names worker %s on worker %s's route", in.WorkerID, worker)
+		return
+	}
+	project, err := h.self(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if refuseArchived(w, r, project) {
 		return
 	}
 	ttl := in.TTLMs

@@ -13,7 +13,18 @@ An installation holds one or more projects, and the API names the project in the
 
 `{project}` is the project's name, as `ropeshift project list` prints it. A name the installation does not hold answers 404 with the code `no_project`, and a record of another project answers 404 with `not_found`, because a project's routes read only that project's ledger. A repository another project holds answers 409 with `repository_held`, and the message names that project.
 
-`GET /v1/projects` lists the projects, each with its state and the identity of each repository it holds, and `GET /v1/projects/{project}` shows one with its database and its repository records.
+`GET /v1/projects` lists the projects, each with its state and the identity of each repository it holds, and `GET /v1/projects/{project}` shows one with its database and its repository records. A member's session takes a project through its lifecycle, and each step records an event in the installation's log:
+
+| Route | Body | Step |
+|-------|------|------|
+| `POST /v1/projects` | `{"name": "...", "display_name": "..."}` | Create |
+| `POST /v1/projects/{project}/rename` | `{"name": "..."}` | Rename |
+| `POST /v1/projects/{project}/archive` | `{}` | Archive, once every lane ended |
+| `POST /v1/projects/{project}/restore` | `{}` | Restore |
+| `POST /v1/projects/{project}/remove` | `{"confirm": "...", "backup": "..."}` or `{"confirm": "...", "no_backup": true}` | Remove an archived project |
+| `POST /v1/projects/import` | `{"path": "...", "name": "..."}` | Import a project's backup, keeping its ID |
+
+An archived project answers every change with 409 `project_archived`, a backup excepted, and a step its state refuses answers 409 `project_state`.
 
 A worker claims work on its own route, `POST /v1/workers/{id}/claims`, with the work order in the body.
 

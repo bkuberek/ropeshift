@@ -82,7 +82,7 @@ func (rt *router) project(ctx context.Context, name string) (ledger.Project, *se
 // part of the path taken out.
 func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("project")
-	_, s, err := rt.project(r.Context(), name)
+	project, s, err := rt.project(r.Context(), name)
 	if err != nil {
 		failProject(w, name, err)
 		return
@@ -92,7 +92,32 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if refuseArchived(w, inner, project) {
+		return
+	}
 	s.routes.ServeHTTP(w, inner)
+}
+
+// backupRoute is the one change an archived project takes, because a backup changes nothing in it.
+const backupRoute = "/v1/backup"
+
+// refuseArchived refuses a change to an archived project, which is read-only in every surface until it
+// is restored, and reports whether it did.
+func refuseArchived(w http.ResponseWriter, r *http.Request, p ledger.Project) bool {
+	if p.State != ledger.ProjectArchived || !changes(r.Method) || r.URL.Path == backupRoute {
+		return false
+	}
+	fail(w, fmt.Errorf("%w: restore project %s to change it", ledger.ErrProjectArchived, p.Name))
+	return true
+}
+
+// forget drops the handler of a project the installation removed.
+func (rt *router) forget(id ledger.WorkspaceID) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if id != rt.config.Scope {
+		delete(rt.served, id)
+	}
 }
 
 // withinProject is a call as a project's routes read it: its path under /v1, with the project's two
@@ -120,6 +145,16 @@ func withinProject(r *http.Request) (*http.Request, bool) {
 // says the route is deprecated.
 func (rt *router) unscoped(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Deprecation", "true")
+	if changes(r.Method) {
+		project, err := rt.home.handler.self(r.Context())
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if refuseArchived(w, r, project) {
+			return
+		}
+	}
 	rt.home.routes.ServeHTTP(w, r)
 }
 
@@ -221,6 +256,27 @@ func (o oneProject) Backup(ctx context.Context, _ ledger.Project, path string) (
 
 func (o oneProject) BackupInstallation(context.Context, string) (int64, error) {
 	return 0, ports.ErrNoBackup
+}
+
+// errOneLedger refuses a lifecycle step on a control plane that serves one ledger.
+var errOneLedger = fmt.Errorf("%w: this control plane serves one ledger, with no registry of projects", ledger.ErrProjectState)
+
+func (oneProject) Create(context.Context, ledger.Project, ledger.Actor) (ledger.Project, error) {
+	return ledger.Project{}, errOneLedger
+}
+
+func (oneProject) Rename(context.Context, ledger.WorkspaceID, string, ledger.Actor) (ledger.Project, error) {
+	return ledger.Project{}, errOneLedger
+}
+
+func (oneProject) SetState(context.Context, ledger.WorkspaceID, ledger.ProjectState, ledger.Actor) (ledger.Project, error) {
+	return ledger.Project{}, errOneLedger
+}
+
+func (oneProject) Remove(context.Context, ledger.Project, ledger.Actor) error { return errOneLedger }
+
+func (oneProject) Import(context.Context, string, string, ledger.Actor) (ledger.Project, error) {
+	return ledger.Project{}, errOneLedger
 }
 
 func (o oneProject) List(context.Context) ([]ledger.Project, error) {

@@ -90,3 +90,70 @@ func (p *ProjectClient) do(ctx context.Context, method, path string, in, out any
 func (p *ProjectClient) WithCredential(credential string) *ProjectClient {
 	return p.Client.WithCredential(credential).Project(p.name)
 }
+
+// CreateProject names a new project: a lowercase, hyphenated slug no other project holds, and an optional
+// name to show.
+type CreateProject struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
+// RenameProject gives a project a new name.
+type RenameProject struct {
+	Name string `json:"name"`
+}
+
+// RemoveProject confirms a removal with the project's name, and names a file for its backup or chooses
+// none.
+type RemoveProject struct {
+	Confirm  string `json:"confirm"`
+	Backup   string `json:"backup,omitempty"`
+	NoBackup bool   `json:"no_backup,omitempty"`
+}
+
+// ImportProject names a project's backup, an absolute path on the daemon's machine, and the name to
+// register it under, which defaults to the backup's own.
+type ImportProject struct {
+	Path string `json:"path"`
+	Name string `json:"name,omitempty"`
+}
+
+// CreateProject creates a project and registers it.
+func (c *Client) CreateProject(ctx context.Context, in CreateProject) (Project, error) {
+	var out Project
+	err := c.Do(ctx, http.MethodPost, ProjectsPath, in, &out)
+	return out, err
+}
+
+// ImportProject registers a project from its backup, keeping its ID.
+func (c *Client) ImportProject(ctx context.Context, in ImportProject) (Project, error) {
+	var out Project
+	err := c.Do(ctx, http.MethodPost, ProjectsPath+"/import", in, &out)
+	return out, err
+}
+
+// RenameProject gives a project a new name, which its ID and its records keep.
+func (c *Client) RenameProject(ctx context.Context, name string, in RenameProject) (Project, error) {
+	var out Project
+	err := c.Do(ctx, http.MethodPost, projectPath(name, "rename"), in, &out)
+	return out, err
+}
+
+// ArchiveProject makes a project read-only, once its lanes ended.
+func (c *Client) ArchiveProject(ctx context.Context, name string) (Project, error) {
+	var out Project
+	err := c.Do(ctx, http.MethodPost, projectPath(name, "archive"), struct{}{}, &out)
+	return out, err
+}
+
+// RestoreProject returns an archived project to active.
+func (c *Client) RestoreProject(ctx context.Context, name string) (Project, error) {
+	var out Project
+	err := c.Do(ctx, http.MethodPost, projectPath(name, "restore"), struct{}{}, &out)
+	return out, err
+}
+
+// RemoveProject deletes an archived project's database, after its backup when one is named.
+func (c *Client) RemoveProject(ctx context.Context, name string, in RemoveProject) error {
+	return c.Do(ctx, http.MethodPost, projectPath(name, "remove"), in, nil)
+}

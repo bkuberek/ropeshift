@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -143,4 +145,109 @@ func (c *invocation) projectShow(args []string) int {
 		}
 		return out.String()
 	})
+}
+
+// positionals reads a command that takes exactly n arguments.
+func (c *invocation) positionals(set *flag.FlagSet, args []string, n int, what string) ([]string, int) {
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return nil, ExitUsage
+	}
+	if len(positional) != n {
+		return nil, c.usageError("this takes %s", what)
+	}
+	return positional, ExitOK
+}
+
+func (c *invocation) projectCreate(args []string) int {
+	set := c.flags()
+	display := set.String("display-name", "", "the name to show, which may hold spaces and capitals")
+	positional, code := c.positionals(set, args, 1, "one name")
+	if positional == nil {
+		return code
+	}
+	client := c.client()
+	defer client.Close()
+	created, err := client.CreateProject(c.ctx, api.CreateProject{Name: positional[0], DisplayName: *display})
+	return c.finish(err, created, func() string { return fmt.Sprintf("created project %s, %s\n", created.Name, created.ID) })
+}
+
+func (c *invocation) projectRename(args []string) int {
+	positional, code := c.positionals(c.flags(), args, 2, "the project's name and its new name")
+	if positional == nil {
+		return code
+	}
+	client := c.client()
+	defer client.Close()
+	renamed, err := client.RenameProject(c.ctx, positional[0], api.RenameProject{Name: positional[1]})
+	return c.finish(err, renamed, func() string { return fmt.Sprintf("renamed project %s to %s\n", positional[0], renamed.Name) })
+}
+
+// setsProject runs a step that moves a project to a state: archive or restore.
+func setsProject(step func(*api.Client, context.Context, string) (api.Project, error), done string) func(*invocation, []string) int {
+	return func(c *invocation, args []string) int {
+		positional, code := c.positionals(c.flags(), args, 1, "one project")
+		if positional == nil {
+			return code
+		}
+		client := c.client()
+		defer client.Close()
+		project, err := step(client, c.ctx, positional[0])
+		return c.finish(err, project, func() string { return fmt.Sprintf("%s project %s\n", done, project.Name) })
+	}
+}
+
+// projectRemove deletes an archived project, which asks for its name again and for a choice about a
+// backup, because nothing brings a removed project back but its backup.
+func (c *invocation) projectRemove(args []string) int {
+	set := c.flags()
+	confirm := set.String("confirm", "", "the project's name again")
+	backup := set.String("backup", "", "a new file for the project's backup, written first")
+	noBackup := set.Bool("no-backup", false, "remove the project with no backup")
+	positional, code := c.positionals(set, args, 1, "one project")
+	if positional == nil {
+		return code
+	}
+	if *confirm != positional[0] {
+		return c.usageError("confirm the removal with --confirm %s", positional[0])
+	}
+	if (*backup == "") == !*noBackup {
+		return c.usageError("name a file with --backup, or choose --no-backup")
+	}
+	removal := api.RemoveProject{Confirm: *confirm, NoBackup: *noBackup}
+	if *backup != "" {
+		path, err := filepath.Abs(*backup)
+		if err != nil {
+			return c.usageError("%v", err)
+		}
+		removal.Backup = path
+	}
+	client := c.client()
+	defer client.Close()
+	err := client.RemoveProject(c.ctx, positional[0], removal)
+	return c.finish(err, removal, func() string {
+		if removal.Backup != "" {
+			return fmt.Sprintf("removed project %s, with its backup at %s\n", positional[0], removal.Backup)
+		}
+		return fmt.Sprintf("removed project %s\n", positional[0])
+	})
+}
+
+// projectImport registers a project from its backup. A relative path is read from where the command
+// runs, because the daemon runs somewhere else.
+func (c *invocation) projectImport(args []string) int {
+	set := c.flags()
+	name := set.String("name", "", "the name to register it under, by default the backup's own")
+	positional, code := c.positionals(set, args, 1, "one backup file")
+	if positional == nil {
+		return code
+	}
+	path, err := filepath.Abs(positional[0])
+	if err != nil {
+		return c.usageError("%v", err)
+	}
+	client := c.client()
+	defer client.Close()
+	imported, err := client.ImportProject(c.ctx, api.ImportProject{Path: path, Name: *name})
+	return c.finish(err, imported, func() string { return fmt.Sprintf("imported project %s, %s\n", imported.Name, imported.ID) })
 }

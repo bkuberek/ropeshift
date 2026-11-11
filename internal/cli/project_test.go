@@ -3,6 +3,8 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -175,5 +177,84 @@ func TestProjectListAndShow(t *testing.T) {
 	}
 	if code, _, _ := p.run(cli.Options{}, "project", "show", "nowhere"); code != cli.ExitUsage {
 		t.Errorf("an unknown project: exit %d", code)
+	}
+}
+
+// TestTheProjectCommandsWalkTheLifecycle holds the lifecycle from the command line: create, rename,
+// archive, which makes the project read-only, restore, and remove with its guards.
+func TestTheProjectCommandsWalkTheLifecycle(t *testing.T) {
+	p := newProjects(t)
+	none := cli.Options{}
+	if out := p.must(none, "project", "create", "beta", "--display-name", "Beta"); !strings.Contains(out, "created project beta") {
+		t.Errorf("create: %q", out)
+	}
+	if code, _, _ := p.run(none, "project", "create", "beta"); code != cli.ExitConflict {
+		t.Errorf("a name another project holds: exit %d", code)
+	}
+	if code, _, _ := p.run(none, "project", "create", "Not A Slug"); code != cli.ExitUsage {
+		t.Errorf("a name that is no slug: exit %d", code)
+	}
+	p.must(none, "work", "create", "--project", "beta", "--id", "wo-beta", "--title", "Plan the beta", "--criterion", "It plans")
+	p.must(none, "project", "rename", "beta", "gamma")
+	if out := p.must(none, "work", "list", "--project", "gamma"); !strings.Contains(out, "wo-beta") {
+		t.Errorf("gamma lists %q", out)
+	}
+	p.must(none, "project", "archive", "gamma")
+	if code, _, stderr := p.run(none, "work", "create", "--project", "gamma", "--id", "wo-2", "--title", "More", "--criterion", "C"); code != cli.ExitConflict || !strings.Contains(stderr, "archived") {
+		t.Errorf("a change to an archived project: exit %d, %s", code, stderr)
+	}
+	if out := p.must(none, "project", "list"); !strings.Contains(out, "gamma\tarchived") {
+		t.Errorf("project list %q", out)
+	}
+	p.must(none, "project", "restore", "gamma")
+	p.must(none, "project", "archive", "gamma")
+	for name, args := range map[string][]string{
+		"no confirmation":    {"project", "remove", "gamma", "--no-backup"},
+		"the wrong name":     {"project", "remove", "gamma", "--confirm", "gama", "--no-backup"},
+		"no backup choice":   {"project", "remove", "gamma", "--confirm", "gamma"},
+		"two backup choices": {"project", "remove", "gamma", "--confirm", "gamma", "--no-backup", "--backup", "x.db"},
+	} {
+		if code, _, _ := p.run(none, args...); code != cli.ExitUsage {
+			t.Errorf("%s: exit %d", name, code)
+		}
+	}
+	if code, _, _ := p.run(none, "project", "remove", "acme", "--confirm", "acme", "--no-backup"); code != cli.ExitConflict {
+		t.Errorf("an active project: exit %d", code)
+	}
+	backup := filepath.Join(t.TempDir(), "gamma.db")
+	if out := p.must(none, "project", "remove", "gamma", "--confirm", "gamma", "--backup", backup); !strings.Contains(out, backup) {
+		t.Errorf("remove: %q", out)
+	}
+	if code, _, _ := p.run(none, "project", "show", "gamma"); code != cli.ExitUsage {
+		t.Errorf("a removed project: exit %d", code)
+	}
+	if _, err := os.Stat(backup); err != nil {
+		t.Errorf("the backup: %v", err)
+	}
+}
+
+// TestABackupImportsIntoAFreshInstallationWithItsID holds FR-PROJ-9 end to end: a project's backup from one
+// installation registers in a fresh one with its ID, its name, and its records, and only once.
+func TestABackupImportsIntoAFreshInstallationWithItsID(t *testing.T) {
+	from := newProjects(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	from.must(cli.Options{}, "backup", "--project", "acme", "acme.db")
+
+	to := &projects{t: t, in: apitest.StartInstallation(t)}
+	if out := to.must(cli.Options{}, "project", "import", "acme.db"); !strings.Contains(out, "imported project acme, acme-id") {
+		t.Errorf("import: %q", out)
+	}
+	if out := to.must(cli.Options{}, "project", "show", "acme"); !strings.Contains(out, "id\tacme-id") {
+		t.Errorf("show: %q", out)
+	}
+	if out := to.must(cli.Options{}, "work", "show", "wo-acme", "--project", "acme"); !strings.Contains(out, "Ship the invoice export") {
+		t.Errorf("work show: %q", out)
+	}
+	if code, _, stderr := to.run(cli.Options{}, "project", "import", "acme.db", "--name", "acme-again"); code != cli.ExitConflict || !strings.Contains(stderr, "acme-id") {
+		t.Errorf("the same ID again: exit %d, %s", code, stderr)
+	}
+	if out := to.must(cli.Options{}, "project", "list"); !strings.Contains(out, "acme\tactive") || !strings.Contains(out, "default\tactive") {
+		t.Errorf("project list %q", out)
 	}
 }

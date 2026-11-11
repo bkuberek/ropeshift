@@ -49,6 +49,12 @@ func registry() []section {
 		{"Projects", installation(
 			command("project list", "", "list the installation's projects, each with its state and repositories", (*invocation).projectList),
 			command("project show", "<name>", "show a project's record, its database, and its repositories", (*invocation).projectShow),
+			command("project create", "<name> [--display-name T]", "create a project with a ledger of its own", (*invocation).projectCreate),
+			command("project rename", "<name> <new-name>", "change a project's name, which its ID and records keep", (*invocation).projectRename),
+			command("project archive", "<name>", "make a project read-only, once its lanes ended", setsProject((*api.Client).ArchiveProject, "archived")),
+			command("project restore", "<name>", "return an archived project to active", setsProject((*api.Client).RestoreProject, "restored")),
+			command("project remove", "<name> --confirm <name> (--backup F | --no-backup)", "delete an archived project's database, after its backup", (*invocation).projectRemove),
+			command("project import", "<file> [--name N]", "register a project from its backup, keeping its ID", (*invocation).projectImport),
 		)},
 		{"Work orders", []registered{
 			command("work create", "--title T [--criterion C]... [flags]", "record a work order, or planning work with --kind plan", (*invocation).workCreate),

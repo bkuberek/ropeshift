@@ -54,6 +54,12 @@ const (
 	CodeNoProject = "no_project"
 	// CodeRepositoryHeld means another project holds the repository, which the message names.
 	CodeRepositoryHeld = "repository_held"
+	// CodeProjectExists means another project holds the ID or the name.
+	CodeProjectExists = "project_exists"
+	// CodeProjectState means a project's state refuses a lifecycle step, which the message names.
+	CodeProjectState = "project_state"
+	// CodeProjectArchived means a change to an archived project, which is read-only until restored.
+	CodeProjectArchived = "project_archived"
 )
 
 // ErrorBody is every error response.
