@@ -53,15 +53,18 @@ const EventCreated = "work_order.created"
 // WorkOrder is the projection of one work order's events. Zero values stand for
 // absent fields.
 type WorkOrder struct {
-	ID           string            `json:"id"`
-	Kind         Kind              `json:"kind"`
-	State        State             `json:"state"`
-	Title        string            `json:"title,omitempty"`
-	RepositoryID string            `json:"repository_id,omitempty"`
-	Priority     int64             `json:"priority,omitempty"`
-	Size         string            `json:"size,omitempty"`
-	Requirements []string          `json:"requirements,omitempty"`
-	Needs        map[string]string `json:"needs,omitempty"`
+	ID           string `json:"id"`
+	Kind         Kind   `json:"kind"`
+	State        State  `json:"state"`
+	Title        string `json:"title,omitempty"`
+	RepositoryID string `json:"repository_id,omitempty"`
+	// UnknownRepository is the name its contract's `repo` gave while the project holds no repository by
+	// it. The work fails the definition of ready until one takes the name, and then targets that one.
+	UnknownRepository string            `json:"unknown_repository,omitempty"`
+	Priority          int64             `json:"priority,omitempty"`
+	Size              string            `json:"size,omitempty"`
+	Requirements      []string          `json:"requirements,omitempty"`
+	Needs             map[string]string `json:"needs,omitempty"`
 	// Base is the branch this work starts from, which overrides its repository's base branch (FR-BASE-2).
 	Base            string `json:"base,omitempty"`
 	ContractID      string `json:"contract_id,omitempty"`
@@ -184,6 +187,8 @@ type Change struct {
 	PlanCommit string `json:"plan_commit,omitempty"`
 	// Hold is the reason a start is held, on EventStartHeld.
 	Hold *StartHold `json:"hold,omitempty"`
+	// RepositoryID is the repository a name its contract gave came to name, on EventRepositoryResolved.
+	RepositoryID string `json:"repository_id,omitempty"`
 }
 
 // EventType names the event of a transition.
@@ -200,6 +205,10 @@ const EventReviewPassed = "work_order.review_passed"
 // EventContractPinned records that unstarted work pinned a new contract version, which
 // changes no state by itself and voids any review of the last version.
 const EventContractPinned = "work_order.contract_pinned"
+
+// EventRepositoryResolved records that a repository took the name an unstarted work order's contract gave,
+// so the work targets it. It changes no state.
+const EventRepositoryResolved = "work_order.repository_resolved"
 
 // EventPlanTakenIn records that intake read an accepted plan's commit, which changes no state.
 const EventPlanTakenIn = "work_order.plan_taken_in"
@@ -328,6 +337,10 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 		current.PlanCommit = change.PlanCommit
 		return current, nil
 	}
+	if e.Type == EventRepositoryResolved {
+		current.RepositoryID, current.UnknownRepository = change.RepositoryID, ""
+		return current, nil
+	}
 	if e.Type == EventStartHeld {
 		current.StartHeld = change.Hold
 		return current, nil
@@ -430,6 +443,7 @@ func Diff(a, b WorkOrder) []string {
 	note("state", a.State == b.State)
 	note("title", a.Title == b.Title)
 	note("repository_id", a.RepositoryID == b.RepositoryID)
+	note("unknown_repository", a.UnknownRepository == b.UnknownRepository)
 	note("priority", a.Priority == b.Priority)
 	note("size", a.Size == b.Size)
 	note("requirements", slices.Equal(a.Requirements, b.Requirements))

@@ -199,7 +199,7 @@ func roleWorkerStop(c *child) error {
 				Profiles: profiles, Worktrees: gitcli.Worktrees{Env: c.spec.GitEnv}, Hooks: witnessHooks{log: c.log},
 			},
 			Secrets:    fake.SecretResolver{},
-			Repository: func(context.Context, string) (string, error) { return c.spec.Repository, nil },
+			Repository: func(context.Context, string, string) (string, error) { return c.spec.Repository, nil },
 		},
 	})
 	if err := subject.Start(c.ctx); err != nil {

@@ -201,7 +201,9 @@ func (u *upgrade) repositories(ctx context.Context, p ledger.Project) ([]ledger.
 	err := store.Read(ctx, p.ID, func(tx ports.ReadTx) error {
 		records, err := tx.Repositories().Repositories()
 		for _, r := range records {
-			out = append(out, ledger.IndexedRepository{Identity: ledger.RepositoryIdentity(r.Remote, r.ID), Project: p.ID, Repository: r.ID})
+			if !r.Removed() {
+				out = append(out, ledger.IndexedRepository{Identity: ledger.RepositoryIdentity(r.Remote, r.ID), Project: p.ID, Repository: r.ID})
+			}
 		}
 		return err
 	})

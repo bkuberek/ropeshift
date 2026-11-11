@@ -2,6 +2,8 @@ package ledger
 
 import (
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -18,7 +20,7 @@ func TestARepositoryFollowsItsDefaultBranchUntilAMemberNamesABase(t *testing.T) 
 
 func TestANewRepositoryHoldsTheSafestDefaults(t *testing.T) {
 	r := NewRepository("r")
-	if r.MergeMethod != MergeCommit || r.StartFrom != StartFromMerged || r.Integration {
+	if r.MergeMethod != MergeCommit || r.StartFrom != StartFromMerged || r.ReviewTarget != ReviewOnBranch || r.MergeAuthority != PersonMerges {
 		t.Errorf("defaults: %+v", r)
 	}
 }
@@ -107,5 +109,50 @@ func TestARecordWithNoLevelReadsAsTheDefault(t *testing.T) {
 	r := Repository{ID: "r", MergeMethod: MergeCommit, StartFrom: StartFromMerged}
 	if r.Level() != PersonMerges {
 		t.Errorf("an empty level reads %q", r.Level())
+	}
+}
+
+// A repository is named by its clone's directory, then by the last part of its remote's path when the
+// directory's name is taken (ADR-0022), and a name both give that is taken gets a number after it.
+func TestARepositoryIsNamedByItsDirectoryThenItsRemote(t *testing.T) {
+	taken := func(names ...string) func(string) bool {
+		return func(name string) bool { return slices.Contains(names, name) }
+	}
+	for _, tt := range []struct {
+		name, directory, remote, id string
+		taken                       func(string) bool
+		want                        string
+	}{
+		{"the directory", "api", "git@github.com:acme/payments-api.git", "abc", taken(), "api"},
+		{"the remote when the directory's name is taken", "api", "git@github.com:acme/payments-api.git", "abc", taken("api"), "payments-api"},
+		{"the remote with no directory", "", "https://example.invalid/acme/web/", "abc", taken(), "web"},
+		{"a number when both are taken", "api", "https://example.invalid/acme/api.git", "abc", taken("api"), "api-2"},
+		{"the next number", "api", "", "abc", taken("api", "api-2"), "api-3"},
+		{"a directory no command could name", "my api", "https://example.invalid/acme/app.git", "abc", taken(), "app"},
+		{"the identity when nothing else names it", "", "", "0123456789abcdef0123", taken(), "0123456789ab"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NameRepository(tt.directory, tt.remote, tt.id, tt.taken); got != tt.want {
+				t.Errorf("named %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestARepositoryNameIsOneACommandCanType(t *testing.T) {
+	for _, name := range []string{"api", "payments-api", "web.v2", "API_2"} {
+		if err := CheckRepositoryName(name); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", ".", "..", "-rf", "a b", "a/b", "a\\b", "tab\there", strings.Repeat("a", 101)} {
+		if err := CheckRepositoryName(name); !errors.Is(err, ErrInvalidRepository) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	r := NewRepository("r")
+	r.Name = "a b"
+	if err := r.Validate(); !errors.Is(err, ErrInvalidRepository) {
+		t.Errorf("a record with a name no command can type: %v", err)
 	}
 }

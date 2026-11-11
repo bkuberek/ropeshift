@@ -59,7 +59,7 @@ func roleWorkerEffect(c *child) error {
 			Driver:      fake.NewAgentDriver(),
 			Provisioner: worker.Provisioner{Profiles: profiles, Worktrees: fake.NewWorktrees()},
 			Secrets:     fake.SecretResolver{},
-			Repository:  func(context.Context, string) (string, error) { return filepath.Dir(c.spec.Journal), nil },
+			Repository:  func(context.Context, string, string) (string, error) { return filepath.Dir(c.spec.Journal), nil },
 		},
 	})
 	if err := subject.Start(c.ctx); err != nil {

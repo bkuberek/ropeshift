@@ -154,8 +154,13 @@ func recordReview(tx ports.WriteTx, id string, actor ledger.Actor) error {
 	return err
 }
 
-// settleReview runs the definition of ready on a reviewed work order.
+// settleReview runs the definition of ready on a reviewed work order, once it targets the repository that
+// took the name its contract gave, if one has.
 func settleReview(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.Actor) (ReviewResult, error) {
+	current, err := resolveRepository(tx, current, actor)
+	if err != nil {
+		return ReviewResult{}, err
+	}
 	failures, err := readyFailures(tx.Planning(), tx.WorkOrders(), tx.Questions(), current)
 	if err != nil {
 		return ReviewResult{}, err
@@ -167,6 +172,33 @@ func settleReview(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.A
 		return ReviewResult{}, err
 	}
 	return ReviewResult{State: workorders.Ready}, nil
+}
+
+// resolveRepository targets work at the repository of its project that now holds the name its contract
+// gave (FR-REPO-6). Work whose name no repository holds yet stays as it was.
+func resolveRepository(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.Actor) (workorders.WorkOrder, error) {
+	if current.UnknownRepository == "" {
+		return current, nil
+	}
+	record, err := tx.Repositories().Named(current.UnknownRepository)
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && record.Removed()) {
+		return current, nil
+	}
+	if err != nil {
+		return current, err
+	}
+	if err := tx.WorkOrders().ResolveRepository(current.ID, record.ID); err != nil {
+		return current, err
+	}
+	event, err := workorders.ChangeEvent(workorders.EventRepositoryResolved, current.ID, workorders.Change{RepositoryID: record.ID}, actor)
+	if err != nil {
+		return current, err
+	}
+	if _, err := tx.Append(event); err != nil {
+		return current, err
+	}
+	current.RepositoryID, current.UnknownRepository = record.ID, ""
+	return current, nil
 }
 
 // readyFailures gathers the facts and runs the pure function.
@@ -195,6 +227,7 @@ func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, a
 		return nil, err
 	}
 	facts.OpenBlockingQuestions = int(open)
+	facts.UnknownRepository = w.UnknownRepository
 	dependencies, err := planned.Dependencies(w.ID)
 	if err != nil {
 		return nil, err

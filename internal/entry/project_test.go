@@ -4,13 +4,20 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/checkouts"
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/workorders"
+	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
@@ -86,5 +93,71 @@ func TestEveryActiveProjectRunsItsTicks(t *testing.T) {
 	}
 	if runs[soloScope] != 3 || runs["beta-id"] != 2 {
 		t.Errorf("the tick ran %v, want 3 in the default project and 2 in beta, which was archived once", runs)
+	}
+}
+
+// TestIntakeReadsEachProjectsOwnCheckouts holds ADR-0022 on the daemon's side: intake reads, in each
+// project, the repositories this worker keeps a checkout of there, and a lane finds a project's checkout
+// only in that project.
+func TestIntakeReadsEachProjectsOwnCheckouts(t *testing.T) {
+	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
+	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	defer store.Close()
+	if _, _, err := state.CreateProject(t.Context(), ledger.Project{ID: "beta-id", Name: "beta"}, member); err != nil {
+		t.Fatal(err)
+	}
+	repo := gittest.New(t)
+	for _, entry := range repo.Env() {
+		name, value, _ := strings.Cut(entry, "=")
+		t.Setenv(name, value)
+	}
+	id := repo.Commit("contract.md", contract.ContractText("beta-work", "Beta work", "Ship it."))
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}
+	if err := kept.Keep(t.Context(), "beta-id", id, repo.Dir); err != nil {
+		t.Fatal(err)
+	}
+	ticks := soloTicks(state, soloScope, soloOptions{intakeTick: time.Second}, kept, questions.BatchPolicy{}, nil)
+	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "intake" })
+	if err := ticks[at].Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	orders := func(p ledger.Project) []workorders.WorkOrder {
+		opened, err := state.Open(t.Context(), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rows []workorders.WorkOrder
+		if err := opened.Read(t.Context(), p.ID, func(tx ports.ReadTx) error {
+			rows, err = tx.WorkOrders().List()
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	beta, err := state.Named(t.Context(), "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := state.Named(t.Context(), ledger.DefaultProjectName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := orders(beta); len(rows) != 1 || rows[0].RepositoryID != id {
+		t.Errorf("beta holds %+v", rows)
+	}
+	if rows := orders(home); len(rows) != 0 {
+		t.Errorf("the first project read beta's checkout: %+v", rows)
+	}
+	find := checkoutOf(soloOptions{}, kept)
+	if path, err := find(t.Context(), "beta-id", id); err != nil || path != repo.Dir {
+		t.Errorf("beta's checkout: %q, %v", path, err)
+	}
+	if _, err := find(t.Context(), soloScope, id); err == nil {
+		t.Error("the first project found beta's checkout")
 	}
 }

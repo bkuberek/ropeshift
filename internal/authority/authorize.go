@@ -72,9 +72,12 @@ const (
 	ActionOpenWindow      Action = "autonomy.window"
 	ActionAcknowledgeRisk Action = "autonomy.acknowledge"
 	// ActionSetRepository changes the settings of a repository's record: the base branch lanes start
-	// from, the merge method, what dependent work starts from, and whether integration is on. How much
+	// from, the merge method, what dependent work starts from, and where its work is reviewed. How much
 	// ropeshift may merge is the person's choice, so no agent has this, and no row below may ever grant it.
 	ActionSetRepository Action = "repository.set"
+	// ActionRegisterRepository registers a repository in its project, or takes one out of it. A project's
+	// repositories bound where its lanes work, so no agent has this, and no row below may ever grant it.
+	ActionRegisterRepository Action = "repository.register"
 	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the
 	// first passphrase needs no session, which is safe only while no agent runs unasked.
 	ActionRunOrchestrator Action = "orchestrator.run"
@@ -93,7 +96,7 @@ func Actions() []Action {
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
-		ActionSetRepository, ActionManageProject,
+		ActionSetRepository, ActionRegisterRepository, ActionManageProject,
 	}
 }
 

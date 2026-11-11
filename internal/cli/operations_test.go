@@ -127,6 +127,8 @@ var operations = map[string]string{
 	"GET /v1/repositories":                             "repository list",
 	"GET /v1/repositories/{id}":                        "repository show",
 	"PATCH /v1/repositories/{id}":                      "repository set",
+	"POST /v1/repositories":                            "repository add",
+	"POST /v1/repositories/{id}/remove":                "repository remove",
 }
 
 // namedRoutes are the routes the source spells through a constant.

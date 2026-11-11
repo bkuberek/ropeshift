@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -112,13 +113,18 @@ func (i *Intake) keepRepository(ctx context.Context, scope ledger.WorkspaceID, d
 		return nil
 	}
 	repositories := NewRepositories(i.store)
-	// A poll finds the same facts nearly every time, and a read costs the workspace lock nothing.
-	if known, err := repositories.Get(ctx, scope, description.Instance); err == nil &&
-		known.Remote == description.Remote && known.DefaultBranch == description.DefaultBranch {
-		return nil
+	// A poll finds the same facts nearly every time, and a read costs the workspace lock nothing. A
+	// repository the project removed is read no more, which each poll says.
+	if known, err := repositories.Get(ctx, scope, description.Instance); err == nil {
+		if known.Removed() {
+			return errRemoved(known)
+		}
+		if known.Remote == description.Remote && known.DefaultBranch == description.DefaultBranch && known.Name != "" {
+			return nil
+		}
 	}
 	_, err := repositories.Detect(ctx, scope, DetectedRepository{
-		ID: description.Instance, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
+		ID: description.Instance, Remote: description.Remote, DefaultBranch: description.DefaultBranch, Directory: description.Directory,
 	}, intakeActor)
 	return err
 }
@@ -498,7 +504,7 @@ func (r *itemRecorder) record() (itemOutcome, error) {
 		}
 	}
 	crashpoint.Hit("intake.item", "ordered")
-	problem, err := r.untraced(contract)
+	problem, err := r.problemsOf(contract)
 	return itemOutcome{versions: 1, workOrders: created, problem: problem}, err
 }
 
@@ -676,8 +682,41 @@ func (r *itemRecorder) standingProblems() (itemOutcome, error) {
 	if r.latest == nil {
 		return itemOutcome{}, nil
 	}
-	problem, err := r.untraced(*r.latest)
+	problem, err := r.problemsOf(*r.latest)
 	return itemOutcome{problem: problem}, err
+}
+
+// problemsOf names what keeps a recorded contract's work back while it stands: criteria that serve no
+// requirement, and repositories the project does not hold.
+func (r *itemRecorder) problemsOf(contract planning.Contract) (string, error) {
+	untraced, err := r.untraced(contract)
+	if err != nil {
+		return "", err
+	}
+	unknown, err := r.unknownRepositories()
+	if err != nil || untraced == "" || unknown == "" {
+		return untraced + unknown, err
+	}
+	return untraced + "; " + unknown, nil
+}
+
+// unknownRepositories names each repository the file's work orders name that the project does not hold
+// (FR-REPO-6). The work is recorded either way, and the definition of ready holds it back.
+func (r *itemRecorder) unknownRepositories() (string, error) {
+	var unknown []string
+	for _, spec := range r.item.Contract.WorkOrders {
+		_, name, err := r.repository(spec)
+		if err != nil {
+			return "", err
+		}
+		if name != "" && !slices.Contains(unknown, strconv.Quote(name)) {
+			unknown = append(unknown, strconv.Quote(name))
+		}
+	}
+	if len(unknown) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("%v: contract %s names repository %s, which the project does not hold", planning.ErrBadFile, r.item.Contract.ID, strings.Join(unknown, ", ")), nil
 }
 
 // untraced names each criterion of a contract version that serves no requirement its plan has, when
@@ -854,18 +893,23 @@ func (r *itemRecorder) recordOrder(contract planning.Contract, spec planning.Wor
 	if err != nil {
 		return false, err
 	}
+	repository, unknown, err := r.repository(spec)
+	if err != nil {
+		return false, err
+	}
 	record, err := workorders.New(workorders.WorkOrder{
-		ID:              id,
-		Kind:            workorders.KindChange,
-		Title:           spec.Title,
-		RepositoryID:    r.repository(spec),
-		Priority:        spec.Priority,
-		Size:            spec.Size,
-		Requirements:    contract.Requirements,
-		Needs:           spec.Needs,
-		Base:            spec.Base,
-		ContractID:      contract.ID,
-		ContractVersion: contract.Version,
+		ID:                id,
+		Kind:              workorders.KindChange,
+		Title:             spec.Title,
+		RepositoryID:      repository,
+		UnknownRepository: unknown,
+		Priority:          spec.Priority,
+		Size:              spec.Size,
+		Requirements:      contract.Requirements,
+		Needs:             spec.Needs,
+		Base:              spec.Base,
+		ContractID:        contract.ID,
+		ContractVersion:   contract.Version,
 	})
 	if err != nil {
 		return false, err
@@ -896,13 +940,21 @@ func (r *itemRecorder) recordOrder(contract planning.Contract, spec planning.Wor
 	return true, nil
 }
 
-// repository names the repository a work order targets. The current repository is
-// the source itself, whose instance identifies its history.
-func (r *itemRecorder) repository(spec planning.WorkOrderSpec) string {
+// repository finds the repository a work order targets (FR-REPO-6). The current repository is the source
+// itself, whose instance identifies its history, and any other is the one the project holds by that name.
+// A name the project does not hold targets nothing yet, and comes back as unknown.
+func (r *itemRecorder) repository(spec planning.WorkOrderSpec) (id, unknown string, err error) {
 	if spec.Repo == planning.CurrentRepository {
-		return r.item.Key.Instance
+		return r.item.Key.Instance, "", nil
 	}
-	return spec.Repo
+	record, err := r.tx.Repositories().Named(spec.Repo)
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && record.Removed()) {
+		return "", spec.Repo, nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return record.ID, "", nil
 }
 
 func (r *itemRecorder) dependency(workOrder, dependsOn string) error {

@@ -76,6 +76,10 @@ type Config struct {
 	// WebAddress is the address the web listener bound, which health reports so a command can name a
 	// page of the web UI. Empty means the daemon serves no web UI.
 	WebAddress string
+	// Checkouts is the machine of the worker this daemon runs: the clones on it and the checkouts it keeps,
+	// which registering repositories reads and records (ADR-0022). Nil has no worker's machine, and a
+	// registration refuses.
+	Checkouts ports.Checkouts
 }
 
 type handler struct {
@@ -266,6 +270,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectArchived, Message: err.Error()})
 	case errors.Is(err, ledger.ErrRepositoryHeld):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRepositoryHeld, Message: err.Error()})
+	case errors.Is(err, ledger.ErrRepositoryState):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRepositoryState, Message: err.Error()})
 	case errors.Is(err, ledger.ErrStaleEpoch):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):

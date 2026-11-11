@@ -175,15 +175,15 @@ func TestARepositoryRecordIsReadAndChangedByAMember(t *testing.T) {
 		return len(list.Repositories) == 1
 	})
 	record := list.Repositories[0]
-	if record.DefaultBranch != "main" || record.Base != "main" || record.MergeMethod != ledger.MergeCommit || record.StartFrom != ledger.StartFromMerged || record.Integration {
+	if record.DefaultBranch != "main" || record.Base != "main" || record.MergeMethod != ledger.MergeCommit || record.StartFrom != ledger.StartFromMerged || record.Target() != ledger.ReviewOnBranch {
 		t.Fatalf("the record reads %+v", record)
 	}
-	in.must("repository", "set", record.ID[:8], "--base", "release/1.2", "--integration", "on")
+	in.must("repository", "set", record.ID[:8], "--base", "release/1.2", "--review-target", "pull_request")
 	var shown api.RepositoryView
 	if err := json.Unmarshal([]byte(in.must("repository", "show", record.ID, "--json")), &shown); err != nil {
 		t.Fatal(err)
 	}
-	if shown.Base != "release/1.2" || !shown.Integration || shown.DefaultBranch != "main" {
+	if shown.Base != "release/1.2" || shown.Target() != ledger.ReviewOnPullRequest || shown.DefaultBranch != "main" {
 		t.Errorf("after the change the record reads %+v", shown)
 	}
 	if code, _, stderr := in.run("repository", "set", record.ID, "--merge-method", "squash", "--start-from", "accepted"); code != cli.ExitUsage || !strings.Contains(stderr, "rewrites") {
@@ -195,7 +195,7 @@ func TestARepositoryRecordIsReadAndChangedByAMember(t *testing.T) {
 	if err := json.Unmarshal([]byte(in.must("repository", "show", record.ID, "--json")), &shown); err != nil || shown.Base != "release/1.2" {
 		t.Errorf("a later read changed what a member set: %+v: %v", shown, err)
 	}
-	code, _, _ := in.runWith(nil, "", []string{authority.EnvMemberToken + "=a-lane-token"}, "repository", "set", record.ID, "--integration", "off")
+	code, _, _ := in.runWith(nil, "", []string{authority.EnvMemberToken + "=a-lane-token"}, "repository", "set", record.ID, "--review-target", "branch")
 	if code != cli.ExitForbidden {
 		t.Errorf("a lane's token changing a repository: exit %d", code)
 	}

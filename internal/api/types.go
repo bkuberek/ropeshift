@@ -54,6 +54,8 @@ const (
 	CodeNoProject = "no_project"
 	// CodeRepositoryHeld means another project holds the repository, which the message names.
 	CodeRepositoryHeld = "repository_held"
+	// CodeRepositoryState means a repository's record refuses the change as it stands, which the message says.
+	CodeRepositoryState = "repository_state"
 	// CodeProjectExists means another project holds the ID or the name.
 	CodeProjectExists = "project_exists"
 	// CodeProjectState means a project's state refuses a lifecycle step, which the message names.

@@ -57,7 +57,7 @@ func (w *Worker) runningLanes(ctx context.Context) (int64, error) {
 // where a lane's other settings are read, and that failure names the lane.
 func (w *Worker) limits(ctx context.Context, lease ledger.DesiredLease) lanes.Admission {
 	rt := w.config.Lanes
-	repository, err := rt.Repository(ctx, lease.Repository)
+	repository, err := rt.Repository(ctx, lease.Project, lease.Repository)
 	if err != nil {
 		return lanes.Admission{}
 	}

@@ -16,6 +16,8 @@ const (
 	CheckDependencies    ReadyCheck = "dependencies"
 	CheckContractVersion ReadyCheck = "contract_version"
 	CheckQuestions       ReadyCheck = "questions"
+	// CheckRepository fails while the work names a repository its project does not hold (FR-REPO-6).
+	CheckRepository ReadyCheck = "repository"
 )
 
 // DependencyFact is what the definition of ready knows about one dependency.
@@ -37,6 +39,8 @@ type ReadyFacts struct {
 	ContractDigest        string
 	Dependencies          []DependencyFact
 	OpenBlockingQuestions int
+	// UnknownRepository is the repository name the work's contract gave that its project does not hold.
+	UnknownRepository string
 }
 
 // ReadyFailure is one check that did not pass.
@@ -63,6 +67,9 @@ func DefinitionOfReady(f ReadyFacts) []ReadyFailure {
 	}
 	if f.OpenBlockingQuestions > 0 {
 		failed = append(failed, ReadyFailure{CheckQuestions, fmt.Sprintf("%d blocking questions are open", f.OpenBlockingQuestions)})
+	}
+	if f.UnknownRepository != "" {
+		failed = append(failed, ReadyFailure{CheckRepository, fmt.Sprintf("the contract names repository %q, which the project does not hold", f.UnknownRepository)})
 	}
 	return failed
 }

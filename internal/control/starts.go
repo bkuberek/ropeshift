@@ -20,8 +20,9 @@ import (
 type Starts struct {
 	// Bases answers what git says of a repository.
 	Bases ports.Bases
-	// Checkout names the directory a repository's lanes branch from, by the repository's identity.
-	Checkout func(ctx context.Context, repository string) (string, error)
+	// Checkout names the directory a repository's lanes branch from, by its project and the repository's
+	// identity: the checkout the worker on this machine keeps.
+	Checkout func(ctx context.Context, project ledger.WorkspaceID, repository string) (string, error)
 }
 
 // dependencyWork is the accepted work of one dependency in the same repository.
@@ -89,6 +90,8 @@ func startFacts(tx ports.ReadTx, order workorders.WorkOrder) (startInput, error)
 // pass remembers what git said in one pass, so a pass over many ready work orders fetches a branch once
 // and finds a repository's checkout once.
 type pass struct {
+	// project is the project whose work the pass places, which names its checkouts.
+	project   ledger.WorkspaceID
 	tips      map[string]tipRead
 	checkouts map[string]checkoutRead
 }
@@ -103,8 +106,8 @@ type checkoutRead struct {
 	err  error
 }
 
-func newPass() *pass {
-	return &pass{tips: map[string]tipRead{}, checkouts: map[string]checkoutRead{}}
+func newPass(project ledger.WorkspaceID) *pass {
+	return &pass{project: project, tips: map[string]tipRead{}, checkouts: map[string]checkoutRead{}}
 }
 
 func (p *pass) tip(ctx context.Context, bases ports.Bases, path, branch string) (ports.BaseTip, error) {
@@ -117,11 +120,11 @@ func (p *pass) tip(ctx context.Context, bases ports.Bases, path, branch string) 
 	return tip, err
 }
 
-func (p *pass) checkout(ctx context.Context, find func(context.Context, string) (string, error), repository string) (string, error) {
+func (p *pass) checkout(ctx context.Context, find func(context.Context, ledger.WorkspaceID, string) (string, error), repository string) (string, error) {
 	if known, ok := p.checkouts[repository]; ok {
 		return known.path, known.err
 	}
-	path, err := find(ctx, repository)
+	path, err := find(ctx, p.project, repository)
 	p.checkouts[repository] = checkoutRead{path: path, err: err}
 	return path, err
 }
@@ -257,7 +260,7 @@ func (l *Leases) startOf(ctx context.Context, scope ledger.WorkspaceID, request 
 		return workorders.Start{}, err
 	}
 	if needed {
-		start, hold = l.starts.decide(ctx, in, newPass())
+		start, hold = l.starts.decide(ctx, in, newPass(scope))
 	} else if !fromLedger {
 		return workorders.Start{}, nil
 	}
@@ -343,7 +346,7 @@ func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, ac
 	if err != nil {
 		return nil, err
 	}
-	seen := newPass()
+	seen := newPass(scope)
 	var changed []string
 	for _, in := range inputs {
 		_, hold := l.starts.decide(ctx, in, seen)

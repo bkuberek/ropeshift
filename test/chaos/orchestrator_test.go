@@ -105,7 +105,7 @@ func roleWorkerWake(c *child) error {
 			Driver:      driver,
 			Provisioner: worker.Provisioner{Profiles: profiles, Worktrees: lastingWorktrees{dir: dir, log: c.log}},
 			Secrets:     fake.SecretResolver{},
-			Repository:  func(context.Context, string) (string, error) { return "/repository", nil },
+			Repository:  func(context.Context, string, string) (string, error) { return "/repository", nil },
 			StateDir:    dir,
 		},
 	})

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/control"
@@ -30,7 +31,7 @@ func TestRepositoryListSaysWhatEachOneStartsFrom(t *testing.T) {
 	s := newSession(t)
 	s.detect(aRepositoryID, "main")
 	text := s.must("repository", "list")
-	for _, want := range []string{aRepositoryID[:12], "base main", "merge merge", "start merged", "integration off"} {
+	for _, want := range []string{"app\t" + aRepositoryID[:12], "base main", "merge merge", "start merged", "review branch"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("list lacks %q:\n%s", want, text)
 		}
@@ -49,8 +50,8 @@ func TestRepositoryShowNamesEverySetting(t *testing.T) {
 	s.detect(aRepositoryID, "main")
 	text := s.must("repository", "show", aRepositoryID[:8])
 	for _, want := range []string{
-		"repository\t" + aRepositoryID, "remote\thttps://example.invalid/acme/app.git", "default branch\tmain", "base\tmain\t(the default branch)",
-		"forge binding\t-", "merge method\tmerge", "integration\toff", "start from\tmerged", "merge authority\tperson_merges",
+		"repository\t" + aRepositoryID, "name\tapp", "remote\thttps://example.invalid/acme/app.git", "default branch\tmain", "base\tmain\t(the default branch)",
+		"forge binding\t-", "merge method\tmerge", "review target\tbranch", "start from\tmerged", "merge authority\tperson_merges",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("show lacks %q:\n%s", want, text)
@@ -64,13 +65,13 @@ func TestRepositoryShowNamesEverySetting(t *testing.T) {
 func TestRepositorySetChangesWhatAMemberNames(t *testing.T) {
 	s := newSession(t)
 	s.detect(aRepositoryID, "main")
-	text := s.must("repository", "set", aRepositoryID[:8], "--base", "release/1.2", "--merge-method", "squash", "--integration", "on")
-	for _, want := range []string{"base\trelease/1.2", "merge method\tsquash", "integration\ton", "start from\tmerged"} {
+	text := s.must("repository", "set", aRepositoryID[:8], "--base", "release/1.2", "--merge-method", "squash", "--review-target", "pull_request")
+	for _, want := range []string{"base\trelease/1.2", "merge method\tsquash", "review target\tpull_request", "start from\tmerged"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("set printed no %q:\n%s", want, text)
 		}
 	}
-	if text := s.must("repository", "set", aRepositoryID, "--base", "", "--integration", "off"); !strings.Contains(text, "base\tmain\t(the default branch)") || !strings.Contains(text, "integration\toff") {
+	if text := s.must("repository", "set", aRepositoryID, "--base", "", "--review-target", "branch"); !strings.Contains(text, "base\tmain\t(the default branch)") || !strings.Contains(text, "review target\tbranch") {
 		t.Errorf("clearing the base:\n%s", text)
 	}
 }
@@ -100,7 +101,8 @@ func TestRepositorySetRefusesWhatCannotHold(t *testing.T) {
 		"accepted work on a rebase repository": {"--start-from", "accepted"},
 		"a method nobody offers":               {"--merge-method", "fast-forward"},
 		"a start nobody offers":                {"--start-from", "whenever"},
-		"a switch that is neither":             {"--integration", "maybe"},
+		"a target nobody offers":               {"--review-target", "merge_queue"},
+		"the switch the target replaced":       {"--integration", "on"},
 		"a base git would read as an option":   {"--base", "-rf"},
 	} {
 		code, _, stderr := s.run(append([]string{"repository", "set", aRepositoryID}, args...)...)
@@ -219,5 +221,143 @@ func TestMeasuresPrintsReviewAgreementPerRepository(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("measures lack %q:\n%s", want, text)
 		}
+	}
+}
+
+// A repository is named in its project, and every repository command takes the name as well as the
+// identity (ADR-0022).
+func TestRepositoryCommandsTakeAName(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	if text := s.must("repository", "show", "app"); !strings.Contains(text, "repository\t"+aRepositoryID) {
+		t.Errorf("show by name:\n%s", text)
+	}
+	if text := s.must("repository", "set", "app", "--name", "payments"); !strings.Contains(text, "name\tpayments") {
+		t.Errorf("a rename printed:\n%s", text)
+	}
+	if code, _, _ := s.run("repository", "show", "app"); code != cli.ExitNotFound {
+		t.Errorf("the old name: exit %d", code)
+	}
+	if text := s.must("repository", "set", "payments", "--merge-method", "squash"); !strings.Contains(text, "merge method\tsquash") {
+		t.Errorf("a change by the new name:\n%s", text)
+	}
+	const other = "0a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4"
+	s.detect(other, "main")
+	if code, _, stderr := s.run("repository", "set", other, "--name", "payments"); code != cli.ExitConflict || !strings.Contains(stderr, "payments") {
+		t.Errorf("a name another repository holds: exit %d, %q", code, stderr)
+	}
+	if code, _, _ := s.run("repository", "set", "payments", "--name", "a b"); code != cli.ExitUsage {
+		t.Errorf("a name no command can type: exit %d", code)
+	}
+}
+
+// TestRepositoryAddRegistersClonesAndSaysWhatItRefused is ADR-0022's bulk registration on the command line:
+// a dry run says what would happen and records nothing, a run registers each clone with its name, and a
+// path that holds no clone is refused with the reason and exit 4 while the others are still registered.
+func TestRepositoryAddRegistersClonesAndSaysWhatItRefused(t *testing.T) {
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/work/api", ID: aRepositoryID, Remote: "https://example.invalid/acme/api.git", DefaultBranch: "main"})
+	machine.Place(ports.Clone{Path: "/work/group/web", ID: "0a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4", DefaultBranch: "main"})
+	s := &session{t: t, daemon: apitest.StartWith(t, apitest.Options{Checkouts: machine})}
+
+	code, stdout, _ := s.run("repository", "add", "/work", "--dry-run")
+	if code != cli.ExitOK || !strings.Contains(stdout, "would register\tapi\t"+aRepositoryID[:12]+"\t/work/api") || strings.Contains(stdout, "web") {
+		t.Errorf("a dry run one level down: exit %d\n%s", code, stdout)
+	}
+	if list := s.must("repository", "list"); list != "" {
+		t.Errorf("a dry run registered:\n%s", list)
+	}
+	code, stdout, _ = s.run("repository", "add", "/work", "--depth", "2", "/nowhere")
+	for _, want := range []string{"registered\tapi\t", "registered\tweb\t", "refused\t/nowhere\t"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("the run lacks %q:\n%s", want, stdout)
+		}
+	}
+	if code != cli.ExitConflict {
+		t.Errorf("a run with a refusal: exit %d", code)
+	}
+	if text := s.must("repository", "show", "web"); !strings.Contains(text, "review target\tbranch") || !strings.Contains(text, "merge authority\tperson_merges") {
+		t.Errorf("a registered repository:\n%s", text)
+	}
+	if code, stdout, _ := s.run("repository", "add", "/work/api"); code != cli.ExitOK || !strings.Contains(stdout, "already registered\tapi\t") {
+		t.Errorf("a repository the project holds: exit %d\n%s", code, stdout)
+	}
+	var report api.RepositoryAddReport
+	if err := json.Unmarshal([]byte(s.must("repository", "add", "/work/api", "--json")), &report); err != nil || len(report.Repositories) != 1 {
+		t.Errorf("json %+v: %v", report, err)
+	}
+	for name, args := range map[string][]string{
+		"no path":           {"repository", "add"},
+		"a depth below one": {"repository", "add", "/work", "--depth", "0"},
+	} {
+		if code, _, _ := s.run(args...); code != cli.ExitUsage {
+			t.Errorf("%s: exit %d", name, code)
+		}
+	}
+}
+
+// FR-REPO-12: `repository set` takes several repositories and applies the same change to each, one event
+// per repository. A name the project does not hold changes none of them.
+func TestRepositorySetChangesSeveralRepositories(t *testing.T) {
+	s := newSession(t)
+	const other = "0a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4"
+	s.detect(aRepositoryID, "main")
+	s.detect(other, "main")
+	s.must("repository", "set", other, "--name", "web")
+	if code, _, _ := s.run("repository", "set", "app", "nowhere", "--merge-method", "squash"); code != cli.ExitNotFound {
+		t.Errorf("a name the project does not hold: exit %d", code)
+	}
+	if text := s.must("repository", "show", "app"); !strings.Contains(text, "merge method\tmerge") {
+		t.Errorf("a refused set changed a repository:\n%s", text)
+	}
+	text := s.must("repository", "set", "app", "web", "--review-target", "pull_request")
+	if strings.Count(text, "review target\tpull_request") != 2 || !strings.Contains(text, "name\tapp") || !strings.Contains(text, "name\tweb") {
+		t.Errorf("a set of two printed:\n%s", text)
+	}
+	var list api.RepositoryList
+	if err := json.Unmarshal([]byte(s.must("repository", "set", "app", "web", "--merge-method", "squash", "--json")), &list); err != nil || len(list.Repositories) != 2 {
+		t.Errorf("json %+v: %v", list, err)
+	}
+	for _, id := range []string{aRepositoryID, other} {
+		var changes int
+		err := s.daemon.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+			events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectRepository, ID: id})
+			for _, event := range events {
+				if event.Type == ledger.EventRepositoryChanged {
+					changes++
+				}
+			}
+			return err
+		})
+		if err != nil || (id == aRepositoryID && changes != 2) || (id == other && changes != 3) {
+			t.Errorf("%s changed %d times: %v", id[:7], changes, err)
+		}
+	}
+	if code, _, _ := s.run("repository", "set", "app", "web", "--name", "one"); code != cli.ExitUsage {
+		t.Errorf("one name for two repositories: exit %d", code)
+	}
+}
+
+// ADR-0021: `repository remove` takes a repository out of its project once no open work targets it, and
+// the record stays as history.
+func TestRepositoryRemoveKeepsTheRecordAsHistory(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	s.must("work", "create", "--id", "wo-1", "--title", "Change the app", "--criterion", "It changes", "--repository", aRepositoryID)
+	if code, _, stderr := s.run("repository", "remove", "app"); code != cli.ExitConflict || !strings.Contains(stderr, "wo-1") {
+		t.Errorf("open work targets it: exit %d, %q", code, stderr)
+	}
+	s.must("work", "cancel", "wo-1", "--reason", "not needed")
+	if text := s.must("repository", "remove", "app"); !strings.Contains(text, "state\tremoved") {
+		t.Errorf("remove printed:\n%s", text)
+	}
+	if text := s.must("repository", "list"); !strings.Contains(text, "app (removed)\t") {
+		t.Errorf("list:\n%s", text)
+	}
+	if code, _, _ := s.run("repository", "remove", "app"); code != cli.ExitConflict {
+		t.Errorf("removing it again: exit %d", code)
+	}
+	if code, _, _ := s.run("repository", "remove"); code != cli.ExitUsage {
+		t.Errorf("no repository: exit %d", code)
 	}
 }

@@ -52,6 +52,7 @@ func TestDefinitionOfReady(t *testing.T) {
 		{"no version pinned", func(f *ReadyFacts) { f.ContractVersion = 0 }, []ReadyCheck{CheckContractVersion}},
 		{"a pin with no digest", func(f *ReadyFacts) { f.ContractDigest = "" }, []ReadyCheck{CheckContractVersion}},
 		{"an open blocking question", func(f *ReadyFacts) { f.OpenBlockingQuestions = 1 }, []ReadyCheck{CheckQuestions}},
+		{"a repository the project does not hold", func(f *ReadyFacts) { f.UnknownRepository = "api" }, []ReadyCheck{CheckRepository}},
 		{
 			"every failure is named",
 			func(f *ReadyFacts) {

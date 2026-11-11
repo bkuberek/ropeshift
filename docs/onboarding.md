@@ -74,7 +74,7 @@ The doctor runs `claude --version` before anything else. A CLI on `PATH` that ex
 ropeshiftd solo --source /path/to/repository
 ```
 
-The daemon reads work from the repositories it names, at the default branch, and serves the web UI at `http://127.0.0.1:7317` on loopback only. `ropeshift top` watches the same fleet from a terminal. [The command line](cli.md#the-daemon) lists the daemon's flags and where an installation keeps its files.
+The daemon reads work from the repositories it names, at the default branch, and serves the web UI at `http://127.0.0.1:7317` on loopback only. To add repositories, register their clones with `ropeshift repository add <path>`, which takes a clone or a folder of clones, says what it would do with `--dry-run`, and refuses a repository another project holds. A second product goes in a project of its own: `ropeshift project create <name>`, then `ropeshift repository add <path> --project <name>`. The daemon reads each repository in its project. `ropeshift top` watches the same fleet from a terminal. [The command line](cli.md#the-daemon) lists the daemon's flags and where an installation keeps its files.
 
 To run the sample, copy `sample-contract.md` into the repository, change it to your own work, and commit it. Intake reads it, and its work order waits for a review: `ropeshift work list` names it, and `ropeshift work review <id>` passes the review. A member can then claim it and start its lane, or start the orchestrator and open a run window for it. [The command line](cli.md) lists every step.
 

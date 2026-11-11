@@ -173,7 +173,9 @@ func (s *State) register(ctx context.Context, store *sqlstore.Store, p ledger.Pr
 	err = store.Read(ctx, p.ID, func(tx ports.ReadTx) error {
 		records, err := tx.Repositories().Repositories()
 		for _, r := range records {
-			repositories = append(repositories, ledger.IndexedRepository{Identity: ledger.RepositoryIdentity(r.Remote, r.ID), Project: p.ID, Repository: r.ID})
+			if !r.Removed() {
+				repositories = append(repositories, ledger.IndexedRepository{Identity: ledger.RepositoryIdentity(r.Remote, r.ID), Project: p.ID, Repository: r.ID})
+			}
 		}
 		return err
 	})

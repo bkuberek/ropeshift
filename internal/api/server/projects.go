@@ -298,7 +298,9 @@ func (rt *router) showProject(w http.ResponseWriter, r *http.Request) {
 	err = s.handler.Store.Read(r.Context(), project.ID, func(tx ports.ReadTx) error {
 		records, err := tx.Repositories().Repositories()
 		for _, record := range records {
-			identities = append(identities, ledger.RepositoryIdentity(record.Remote, record.ID))
+			if !record.Removed() {
+				identities = append(identities, ledger.RepositoryIdentity(record.Remote, record.ID))
+			}
 			detail.Records = append(detail.Records, record)
 		}
 		return err
@@ -369,7 +371,9 @@ func (o oneProject) Index(ctx context.Context) ([]ledger.IndexedRepository, erro
 	err := o.store.Read(ctx, o.project.ID, func(tx ports.ReadTx) error {
 		records, err := tx.Repositories().Repositories()
 		for _, record := range records {
-			out = append(out, ledger.IndexedRepository{Identity: ledger.RepositoryIdentity(record.Remote, record.ID), Project: o.project.ID, Repository: record.ID})
+			if !record.Removed() {
+				out = append(out, ledger.IndexedRepository{Identity: ledger.RepositoryIdentity(record.Remote, record.ID), Project: o.project.ID, Repository: record.ID})
+			}
 		}
 		return err
 	})
