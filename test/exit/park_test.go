@@ -169,6 +169,7 @@ func (in *install) startBinary(path string, args ...string) *daemon {
 	}
 	go func() { d.exited <- cmd.Wait() }()
 	in.t.Cleanup(func() { d.kill() })
+	in.daemons = append(in.daemons, d)
 	return d
 }
 
