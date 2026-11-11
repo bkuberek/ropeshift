@@ -69,6 +69,41 @@ var migratedFile = sync.OnceValues(func() ([]byte, error) {
 	return os.ReadFile(file)
 })
 
+// migratedInstallation is the content of an installation database every installation migration has
+// run on.
+var migratedInstallation = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "contract-installation-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	file := filepath.Join(dir, sqlite.InstallationFileName)
+	installation, err := sqlite.OpenInstallation(file, sqlstore.Options{})
+	if err != nil {
+		return nil, err
+	}
+	if err := installation.Migrate(context.Background()); err != nil {
+		_ = installation.Close()
+		return nil, err
+	}
+	if err := installation.Close(); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(file + "-wal"); !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("the migrated installation kept a write-ahead log: %v", err)
+	}
+	return os.ReadFile(file)
+})
+
+// writeMigratedInstallation writes a migrated installation database at a path that holds no file yet.
+func writeMigratedInstallation(file string) error {
+	image, err := migratedInstallation()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, image, 0o644)
+}
+
 // restoreMigrated fills a new in-memory database with the migrated image.
 func restoreMigrated(db *sql.DB) error {
 	image, err := migratedMemory()

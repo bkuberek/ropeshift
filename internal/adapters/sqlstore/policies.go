@@ -63,11 +63,20 @@ VALUES
 type policyTx struct {
 	*session
 	scope ledger.WorkspaceID
+	// autonomy runs the autonomy policy, which governs workers and so lives where they do: the
+	// installation's records, or the project's own session on a store with no installation.
+	autonomy      *session
+	autonomyScope ledger.WorkspaceID
 }
 
-func (t policyTx) scoped(p params) params {
+// on returns where a kind of policy lives, with its scope bound.
+func (t policyTx) on(kind authority.PolicyKind, p params) (*session, params) {
+	if kind == authority.PolicyAutonomy && t.autonomy != nil {
+		p["workspace_id"] = string(t.autonomyScope)
+		return t.autonomy, p
+	}
 	p["workspace_id"] = string(t.scope)
-	return p
+	return t.session, p
 }
 
 func scanPolicy(row scanner) (authority.PolicyVersion, error) {
@@ -78,8 +87,9 @@ func scanPolicy(row scanner) (authority.PolicyVersion, error) {
 	return p, err
 }
 
-func (t policyTx) one(st *statement, p params, what string) (authority.PolicyVersion, error) {
-	row, err := t.row(st, t.scoped(p))
+func (t policyTx) one(st *statement, kind authority.PolicyKind, p params, what string) (authority.PolicyVersion, error) {
+	se, p := t.on(kind, p)
+	row, err := se.row(st, p)
 	if err != nil {
 		return authority.PolicyVersion{}, err
 	}
@@ -91,15 +101,16 @@ func (t policyTx) one(st *statement, p params, what string) (authority.PolicyVer
 }
 
 func (t policyTx) InForce(kind authority.PolicyKind) (authority.PolicyVersion, error) {
-	return t.one(stmtPolicyInForce, params{"kind": string(kind)}, string(kind)+" policy")
+	return t.one(stmtPolicyInForce, kind, params{"kind": string(kind)}, string(kind)+" policy")
 }
 
 func (t policyTx) Version(kind authority.PolicyKind, version int64) (authority.PolicyVersion, error) {
-	return t.one(stmtPolicyVersion, params{"kind": string(kind), "version": version}, fmt.Sprintf("%s policy version %d", kind, version))
+	return t.one(stmtPolicyVersion, kind, params{"kind": string(kind), "version": version}, fmt.Sprintf("%s policy version %d", kind, version))
 }
 
 func (t policyTx) Versions(kind authority.PolicyKind) ([]authority.PolicyVersion, error) {
-	rows, err := t.rows(stmtPolicyVersions, t.scoped(params{"kind": string(kind)}))
+	se, p := t.on(kind, params{"kind": string(kind)})
+	rows, err := se.rows(stmtPolicyVersions, p)
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +127,11 @@ func (t policyTx) Versions(kind authority.PolicyKind) ([]authority.PolicyVersion
 }
 
 func (t policyTx) Insert(p authority.PolicyVersion) (bool, error) {
-	n, err := t.exec(stmtInsertPolicy, t.scoped(params{
+	se, bound := t.on(p.Kind, params{
 		"id": p.ID, "kind": string(p.Kind), "version": p.Version, "digest": p.Digest, "body": p.Body,
 		"settings": p.Settings, "authored_by": p.AuthoredBy, "created_at": p.CreatedAt,
-	}))
+	})
+	n, err := se.exec(stmtInsertPolicy, bound)
 	return n > 0, err
 }
 

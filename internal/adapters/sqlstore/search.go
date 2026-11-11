@@ -97,11 +97,13 @@ func (t *writeTx) Questions() ports.QuestionWriter {
 }
 
 func (t *readTx) Members() ports.MemberReader {
-	return memberTx{session: t.session, scope: t.scope}
+	se, scope := t.side.session(t.session, t.scope)
+	return memberTx{session: se, scope: scope}
 }
 
 func (t *writeTx) Members() ports.MemberWriter {
-	return memberTx{session: t.session, scope: t.scope}
+	se, scope := t.side.session(t.session, t.scope)
+	return memberTx{session: se, scope: scope}
 }
 
 func (t *readTx) Approvals() ports.ApprovalReader {
@@ -113,11 +115,13 @@ func (t *writeTx) Approvals() ports.ApprovalWriter {
 }
 
 func (t *readTx) Policies() ports.PolicyReader {
-	return policyTx{session: t.session, scope: t.scope}
+	se, scope := t.side.session(t.session, t.scope)
+	return policyTx{session: t.session, scope: t.scope, autonomy: se, autonomyScope: scope}
 }
 
 func (t *writeTx) Policies() ports.PolicyWriter {
-	return policyTx{session: t.session, scope: t.scope}
+	se, scope := t.side.session(t.session, t.scope)
+	return policyTx{session: t.session, scope: t.scope, autonomy: se, autonomyScope: scope}
 }
 
 func (t *readTx) Evidence() ports.EvidenceReader {

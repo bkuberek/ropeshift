@@ -20,6 +20,7 @@ type Installation struct {
 
 // NewInstallation returns the installation database on an open database. It owns db from here on.
 func NewInstallation(db *sql.DB, dialect Dialect, opts Options) *Installation {
+	opts.Installation = nil
 	return &Installation{core: New(db, dialect, opts)}
 }
 

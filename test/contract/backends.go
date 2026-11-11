@@ -84,3 +84,46 @@ var SQLiteMemory = Backend{Name: "memory", Fresh: func(t testing.TB) Database {
 		},
 	}
 }}
+
+// SQLiteProject is a project of an installation (ADR-0021): a ledger file like SQLiteFile, whose
+// members, workers, orchestrators, and autonomy live in an installation database beside it. Every
+// check holds on it as it does on a single ledger.
+var SQLiteProject = Backend{Name: "project", Fresh: func(t testing.TB) Database {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "ledger.db")
+	if err := writeMigrated(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMigratedInstallation(filepath.Join(dir, sqlite.InstallationFileName)); err != nil {
+		t.Fatal(err)
+	}
+	offset := &atomic.Int64{}
+	return Database{
+		Restartable: true,
+		ShiftClock:  func(delta int64) { offset.Add(delta) },
+		Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
+			installation, err := sqlite.OpenInstallation(filepath.Join(dir, sqlite.InstallationFileName), sqlstore.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = installation.Close() })
+			db, err := sqlite.OpenDB(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			opts.Installation = installation
+			store := sqlstore.New(db, ShiftedDialect{sqlite.Dialect{}, offset}, opts)
+			t.Cleanup(func() { _ = store.Close() })
+			return store
+		},
+		Damage: func(t testing.TB, statement string) error {
+			db, err := sqlite.OpenDB(file)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			_, err = db.Exec(statement)
+			return err
+		},
+	}
+}}

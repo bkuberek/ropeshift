@@ -23,11 +23,13 @@ type Store struct {
 	trace    func(TraceEntry)
 	compiled sync.Map
 	nextTx   atomic.Uint64
+	// installation holds the records every project shares, or is nil for a store that keeps them.
+	installation *Installation
 }
 
-// New returns a Store on an open database. It owns db from here on.
+// New returns a Store on an open database. It owns db from here on, and never the installation's.
 func New(db *sql.DB, dialect Dialect, opts Options) *Store {
-	return &Store{db: db, dialect: dialect, trace: opts.Trace}
+	return &Store{db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation}
 }
 
 // Close closes the database.
@@ -51,6 +53,16 @@ type session struct {
 	// changed records that a statement touched a row, so a commit can refuse a
 	// change with no event.
 	changed bool
+	// begin, when set, starts the transaction the session runs on before its first statement.
+	begin func() error
+}
+
+// ready starts the session's transaction when it begins at its first statement.
+func (se *session) ready() error {
+	if se.begin == nil {
+		return nil
+	}
+	return se.begin()
 }
 
 func (s *Store) session(ctx context.Context, on runner, mode Mode, op string) *session {
@@ -73,6 +85,9 @@ func (s *Store) prepared(text string) compiled {
 }
 
 func (se *session) bound(st *statement, p params) (string, []any, error) {
+	if err := se.ready(); err != nil {
+		return "", nil, fmt.Errorf("%s: %w", st.name, err)
+	}
 	c := se.store.prepared(rewritten(st.name, st.text))
 	args, err := c.bind(p)
 	if err != nil {
@@ -125,6 +140,9 @@ func (se *session) rows(st *statement, p params) (*sql.Rows, error) {
 // readClock reads database time. The dialect supplies the text, and a trace sees
 // it as one statement.
 func (se *session) readClock() (int64, error) {
+	if err := se.ready(); err != nil {
+		return 0, fmt.Errorf("%s: %w", StatementReadClock, err)
+	}
 	se.note(StatementReadClock)
 	var now int64
 	if err := se.on.QueryRowContext(se.ctx, se.store.dialect.ClockSQL()).Scan(&now); err != nil {
@@ -275,7 +293,8 @@ func (s *Store) Read(ctx context.Context, scope ledger.WorkspaceID, fn func(port
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	t := &readTx{session: s.session(ctx, tx, ModeRead, "read"), scope: scope}
+	t := &readTx{session: s.session(ctx, tx, ModeRead, "read"), scope: scope, side: s.shared(true)}
+	defer t.side.rollback()
 	if _, err := t.Workspace(); err != nil {
 		return err
 	}
@@ -293,7 +312,8 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 	}
 	defer func() { _ = tx.Rollback() }()
 	crashpoint.Hit(op, "begun")
-	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope}
+	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared(false)}
+	defer t.side.rollback()
 	if err := t.open(); err != nil {
 		return err
 	}
@@ -302,12 +322,17 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 		return err
 	}
 	if t.events == 0 && !commitsWithoutEvents() {
-		if t.changed {
+		if t.changed || t.side.changed() {
 			return fmt.Errorf("%s: %w", op, ports.ErrNoEvent)
 		}
 		return nil
 	}
 	crashpoint.Hit(op, "before-commit")
+	// The shared records commit first: a crash between the two commits keeps a shared change whose
+	// event the project's log lacks, and never an event whose change is missing.
+	if err := t.side.commit(); err != nil {
+		return fmt.Errorf("%s: commit the installation's records: %w", op, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("%s: commit: %w", op, err)
 	}
@@ -319,6 +344,8 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 type readTx struct {
 	*session
 	scope ledger.WorkspaceID
+	// side reads the records every project shares, on a store that has an installation.
+	side *shared
 }
 
 func (t *readTx) Workspace() (ledger.Workspace, error) {
@@ -365,7 +392,8 @@ func (t *readTx) Planning() ports.PlanningReader {
 }
 
 func (t *readTx) Workers() ports.WorkerReader {
-	return workerTx{session: t.session, scope: t.scope}
+	se, scope := t.side.session(t.session, t.scope)
+	return workerTx{session: se, scope: scope}
 }
 
 func (t *readTx) Wakes() ports.WakeReader {
@@ -380,6 +408,8 @@ type writeTx struct {
 	rev     int64
 	revHeld bool
 	events  int
+	// side writes the records every project shares, on a store that has an installation.
+	side *shared
 }
 
 // openRevisionFirst takes the revision and then reads the clock. On Postgres at
@@ -461,7 +491,8 @@ func (t *writeTx) Planning() ports.PlanningWriter {
 }
 
 func (t *writeTx) Workers() ports.WorkerWriter {
-	return workerTx{session: t.session, scope: t.scope, now: t.now}
+	se, scope := t.side.session(t.session, t.scope)
+	return workerTx{session: se, scope: scope, now: t.now}
 }
 
 func (t *writeTx) Wakes() ports.WakeWriter {

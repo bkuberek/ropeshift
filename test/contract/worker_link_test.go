@@ -51,6 +51,30 @@ func memoryLink(t *testing.T, protocol int) *LinkRig {
 	}
 }
 
+// projectLink is memoryLink on a project of an installation, whose workers live in the installation
+// database (ADR-0021).
+func projectLink(t *testing.T, protocol int) *LinkRig {
+	t.Helper()
+	database := SQLiteProject.Fresh(t)
+	store := database.Open(t, sqlstore.Options{})
+	ctx := t.Context()
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	scope := ledger.WorkspaceID("w")
+	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: scope}, ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	plane := control.NewWorkers(store, scope, control.WorkerOptions{Protocol: protocol, HeartbeatMs: linkHeartbeat, LeaseTTLMs: linkTTL})
+	link := &fake.WorkerLink{Plane: plane}
+	return &LinkRig{
+		Store: store, Scope: scope, Plane: plane, Link: link,
+		CorruptNonce: func() { link.CorruptNonce.Store(true) },
+		DropHints:    func() { link.DropHints.Store(true) },
+		ShiftClock:   database.ShiftClock,
+	}
+}
+
 // faultyWire stands between the socket and the handler, so a fault lands on the
 // bytes a real client reads.
 type faultyWire struct {
@@ -108,6 +132,9 @@ func TestWorkerLinkContract(t *testing.T) {
 	})
 	t.Run("http", func(t *testing.T) {
 		RunWorkerLink(t, LinkBackend{Name: "http", Fresh: httpLink})
+	})
+	t.Run("project", func(t *testing.T) {
+		RunWorkerLink(t, LinkBackend{Name: "project", Fresh: projectLink})
 	})
 }
 

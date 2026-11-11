@@ -16,7 +16,7 @@ import (
 
 func TestStoreContract(t *testing.T) {
 	t.Parallel()
-	for _, backend := range []Backend{SQLiteFile, SQLiteMemory} {
+	for _, backend := range []Backend{SQLiteFile, SQLiteMemory, SQLiteProject} {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			Run(t, backend, AllChecks())
