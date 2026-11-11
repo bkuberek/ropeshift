@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.1.0-alpha.10](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.9...v0.1.0-alpha.10) (2026-11-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* The API routes with no project in their path, such as /v1/work-orders, are removed; use /v1/projects/{project}/. Plane protocol 1 is no longer served, so a worker older than the previous release must be upgraded.
+
+### Features
+
+* adopt an existing project with ropeshift adopt ([c2916e0](https://github.com/bkuberek/ropeshift/commit/c2916e06ee9694846ad81748874c47b3f72857bb))
+* brief an adopt lane to onboard what the project holds and plan what remains ([e49f422](https://github.com/bkuberek/ropeshift/commit/e49f4226f79c303b5137facead85a8079b74ca84))
+* continue an in-flight branch on a lane branch of its own ([252dc3e](https://github.com/bkuberek/ropeshift/commit/252dc3e20e09b2a6dfb5732aebb02972435fd2bf))
+* give a planning lane read-only worktrees of its project's repositories ([866cc68](https://github.com/bkuberek/ropeshift/commit/866cc68660439785a3725f2ca4412e3b1c820da4))
+* group an adopted plan's approval into what exists, continues, is new, and is left out, with its branch's changes ([4d51d9e](https://github.com/bkuberek/ropeshift/commit/4d51d9e7dab0d48f051deb6590a8aa38f2647e87))
+* name a project's planning repository ([73823c9](https://github.com/bkuberek/ropeshift/commit/73823c9fd997a16e2b10dd95f9b25268c08e55ca))
+* plan start defaults to the project's planning repository ([3814582](https://github.com/bkuberek/ropeshift/commit/3814582d1b47709cea6faa32820acf65ad76a6fd))
+* read what already exists, in-flight branches, and what a plan leaves out ([0b788a9](https://github.com/bkuberek/ropeshift/commit/0b788a96930c5f0f36b6c45af69715412763d1ef))
+* record planning work that adopts a project, and refuse it once a plan is approved ([3d009b3](https://github.com/bkuberek/ropeshift/commit/3d009b385b5670400acfb98910b3d3df1ab06c73))
+* remove the deprecated unscoped routes and plane protocol 1 ([6a4bd46](https://github.com/bkuberek/ropeshift/commit/6a4bd46586082cbe822cfca5f9ce024e9e1bde7c))
+* take a deterministic inventory of a project's repositories ([66dce86](https://github.com/bkuberek/ropeshift/commit/66dce86ce6479bc24ef9075952309896b3c998b3))
+* **web:** show an adopted plan's groups and branch changes in its approval card ([d19fd0b](https://github.com/bkuberek/ropeshift/commit/d19fd0b8ca49e40e2a01696f6a76b1578c7f6e59))
+
+### Notes
+
+* `ropeshift adopt [<path>...] [--project P] [--planning NAME]`, run in an existing repository, adopts it: it creates the project when none holds the repository, registers the repository and any clones under the paths, starts an adopt session, and attaches your terminal. The session onboards your existing documents into ropeshift's format on a branch of its own, keeping their prose and IDs, asks you about anything that belongs to another tool, marks what the code already does as `met` or `existing` with evidence, plans what remains, and lets you continue or leave out each unmerged branch. Adoption is refused for a project that already has an approved plan; use `plan start` there.
+* The plan approval for an adoption groups what exists, what continues, what is new, and what is left out, with the adoption branch's diff summary, in `approval show` and the web UI. Approving accepts the plan; you merge the adoption branch yourself, as with any planning branch until ropeshift merges.
+* A project can name its planning repository with `repository set <name> --planning`; plans are read only from it, and `plan start` uses it by default. A planning session reads every repository of its project through read-only worktrees.
+* The repository format adds `existing = true` for contracts and milestones the code already delivers, `status = "met"` with `evidence` for requirements it already meets, `continues = "<branch>"` for work that finishes an in-flight branch, and `[[left_out]]` on a plan. A continued branch is never moved, rewritten, or deleted.
+* **Breaking:** the unscoped API routes deprecated in `0.1.0-alpha.9` are removed; use `/v1/projects/{project}/`. Plane protocol 1 is no longer served, and a worker on it is refused with HTTP 426 and asked to upgrade.
+* This release adds database migrations `0043` to `0047`. They run on the first start.
+
 ## [0.1.0-alpha.9](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.8...v0.1.0-alpha.9) (2026-11-11)
 
 
