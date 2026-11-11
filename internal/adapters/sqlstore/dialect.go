@@ -15,8 +15,11 @@ type Dialect interface {
 	Placeholder(position int) string
 	// ClockSQL reads database time in epoch milliseconds.
 	ClockSQL() string
-	// Migrations lists the schema changes, in order.
+	// Migrations lists the schema changes of a project's ledger, in order.
 	Migrations() ([]Migration, error)
+	// InstallationMigrations lists the schema changes of the installation database, in order. They
+	// keep versions of their own, because the two schemas live apart (ADR-0021).
+	InstallationMigrations() ([]Migration, error)
 	// MatchSQL selects workspace_id, kind, record_id, and score from search_documents for
 	// the rows that match :query, where a higher score is a better match.
 	MatchSQL() string

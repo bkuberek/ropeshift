@@ -3,6 +3,7 @@ package contract
 import (
 	"database/sql"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -119,4 +120,96 @@ func checkSchemaShape(t *testing.T, db *sql.DB) {
 			t.Errorf("table %s has no workspace_id in its primary key", table)
 		}
 	}
+}
+
+// installationOnlyTables are the installation database's own: the registry, its log, and the
+// repository index (ADR-0021). Every other table there is one a ledger has too.
+var installationOnlyTables = []string{"installation", "projects", "installation_events", "repository_index", "schema_migrations"}
+
+// TestInstallationSchemaShape reads the migrated installation database: no column can hold a secret
+// value (NFR-SEC-4), and each table it shares with a ledger keeps the ledger's columns and its
+// workspace scope, so the Store's statements serve both.
+func TestInstallationSchemaShape(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	installation, err := sqlite.OpenInstallation(dir+"/"+sqlite.InstallationFileName, sqlstore.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installation.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := installation.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := sqlite.Open(dir+"/ledger.db", sqlstore.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	shared := tableColumns(t, dir+"/"+sqlite.InstallationFileName)
+	ledgerTables := tableColumns(t, dir+"/ledger.db")
+	if len(shared) <= len(installationOnlyTables) {
+		t.Fatalf("the installation holds %v", shared)
+	}
+	for table, columns := range shared {
+		for _, column := range columns {
+			if secretColumn.MatchString(column) && !strings.HasSuffix(column, "_ref") {
+				t.Errorf("%s.%s looks like a secret value", table, column)
+			}
+		}
+		if slices.Contains(installationOnlyTables, table) {
+			if _, found := ledgerTables[table]; found && table != "schema_migrations" {
+				t.Errorf("the ledger holds the installation's own table %s", table)
+			}
+			continue
+		}
+		want, found := ledgerTables[table]
+		if !found {
+			t.Errorf("table %s is neither the installation's own nor a ledger's", table)
+			continue
+		}
+		if !slices.Equal(columns, want) {
+			t.Errorf("%s has columns %v in the installation and %v in a ledger", table, columns, want)
+		}
+		if !slices.Contains(columns, "workspace_id") {
+			t.Errorf("shared table %s has no workspace_id", table)
+		}
+	}
+}
+
+// tableColumns reads each table of a SQLite file and its columns, sorted.
+func tableColumns(t *testing.T, file string) map[string][]string {
+	t.Helper()
+	db, err := sqlite.OpenDB(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT m.name, p.name FROM sqlite_master m, pragma_table_info(m.name) p
+ WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND m.name NOT LIKE ?1`, searchIndexTables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var table, column string
+		if err := rows.Scan(&table, &column); err != nil {
+			t.Fatal(err)
+		}
+		out[table] = append(out[table], column)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, columns := range out {
+		slices.Sort(columns)
+	}
+	return out
 }

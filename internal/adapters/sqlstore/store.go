@@ -133,12 +133,22 @@ func (se *session) readClock() (int64, error) {
 	return now, nil
 }
 
+// begin starts a transaction.
+func (s *Store) begin(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return s.db.BeginTx(ctx, opts)
+}
+
 // Migrate applies each schema change once, in its own transaction.
 func (s *Store) Migrate(ctx context.Context) error {
+	return s.migrate(ctx, s.dialect.Migrations)
+}
+
+// migrate applies the schema changes a dialect lists, each once.
+func (s *Store) migrate(ctx context.Context, list func() ([]Migration, error)) error {
 	if _, err := s.db.ExecContext(ctx, createMigrations); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	migrations, err := s.dialect.Migrations()
+	migrations, err := list()
 	if err != nil {
 		return err
 	}
@@ -152,7 +162,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func (s *Store) apply(ctx context.Context, m Migration) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -217,7 +227,7 @@ func (s *Store) CreateWorkspace(ctx context.Context, w ledger.Workspace, actor l
 		return false, err
 	}
 	const op = "workspace.create"
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return false, err
 	}
@@ -260,7 +270,7 @@ func (s *Store) Read(ctx context.Context, scope ledger.WorkspaceID, fn func(port
 	if err := scope.Validate(); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.begin(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return err
 	}
@@ -277,7 +287,7 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 	if err := scope.Validate(); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}

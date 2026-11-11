@@ -41,6 +41,12 @@ func (Dialect) Migrations() ([]sqlstore.Migration, error) {
 	return sqlstore.MergeMigrations(neutral, own)
 }
 
+// InstallationMigrations reads the installation database's neutral schema, which needs nothing of
+// Postgres's own.
+func (Dialect) InstallationMigrations() ([]sqlstore.Migration, error) {
+	return sqlite.NeutralInstallationMigrations()
+}
+
 // MatchSQL ranks with tsvector and tsquery, as the design's storage table says.
 func (Dialect) MatchSQL() string {
 	return `SELECT d.workspace_id, d.kind, d.record_id,

@@ -27,6 +27,11 @@ var migrationFiles embed.FS
 //go:embed dialect_migrations/*.sql
 var dialectFiles embed.FS
 
+// installationFiles are the installation database's schema (ADR-0021), neutral like migrationFiles.
+//
+//go:embed installation_migrations/*.sql
+var installationFiles embed.FS
+
 // busyMillis is how long a writer queues for the write lock. A transaction stays
 // short (R17), so a wait this long means something stopped inside one.
 const busyMillis = 30000
@@ -79,6 +84,17 @@ func (Dialect) Migrations() ([]sqlstore.Migration, error) {
 // NeutralMigrations lists the schema every database runs, in version order.
 func NeutralMigrations() ([]sqlstore.Migration, error) {
 	return ReadMigrations(migrationFiles, "migrations/*.sql")
+}
+
+// InstallationMigrations reads the installation database's schema, which SQLite runs as it stands.
+func (Dialect) InstallationMigrations() ([]sqlstore.Migration, error) {
+	return NeutralInstallationMigrations()
+}
+
+// NeutralInstallationMigrations lists the installation database's schema every database runs, in
+// version order.
+func NeutralInstallationMigrations() ([]sqlstore.Migration, error) {
+	return ReadMigrations(installationFiles, "installation_migrations/*.sql")
 }
 
 // ReadMigrations lists the schema files a pattern names.
