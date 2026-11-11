@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
-	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
@@ -41,9 +41,16 @@ func TestTheRepositoryHereIsNamedAsTheIndexNamesIt(t *testing.T) {
 	}
 }
 
-// TestAnArchivedProjectRunsNoTick holds ADR-0021's archive for the project the daemon serves: its ticks,
-// intake among them, wait while it is archived and run again once it is restored.
-func TestAnArchivedProjectRunsNoTick(t *testing.T) {
+// registryOf is an installation of one project on a Store, as a test of one tick holds it.
+func registryOf(store ports.Store, scope ledger.WorkspaceID) ports.Projects {
+	registry := fake.NewProjects()
+	registry.Add(ledger.Project{ID: scope, Name: ledger.DefaultProjectName, Database: "ledger.db"}, store)
+	return registry
+}
+
+// TestEveryActiveProjectRunsItsTicks holds ADR-0021's ticks: each runs in every active project, in that
+// project's own database, and an archived project runs none until it is restored.
+func TestEveryActiveProjectRunsItsTicks(t *testing.T) {
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: "member-1"}
 	state, store, err := sqlite.Upgrade(t.Context(), t.TempDir(), "ledger.db", ledger.Workspace{ID: soloScope, Name: "Solo"}, member)
 	if err != nil {
@@ -51,26 +58,33 @@ func TestAnArchivedProjectRunsNoTick(t *testing.T) {
 	}
 	defer state.Close()
 	defer store.Close()
-	runs := 0
-	ticks := whileActive(state, soloScope, []control.Tick{{Name: "intake", Every: time.Second, Run: func(context.Context) error {
-		runs++
-		return nil
-	}}})
-	run := func() {
-		if err := ticks[0].Run(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run()
-	if _, err := state.SetState(t.Context(), soloScope, ledger.ProjectArchived, member); err != nil {
+	if _, _, err := state.CreateProject(t.Context(), ledger.Project{ID: "beta-id", Name: "beta"}, member); err != nil {
 		t.Fatal(err)
 	}
-	run()
-	if _, err := state.SetState(t.Context(), soloScope, ledger.ProjectActive, member); err != nil {
+	runs := map[ledger.WorkspaceID]int{}
+	tick := eachProject(state, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+		return store.Read(ctx, p.ID, func(tx ports.ReadTx) error {
+			workspace, err := tx.Workspace()
+			runs[workspace.ID]++
+			return err
+		})
+	})
+	if err := tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	run()
-	if runs != 2 {
-		t.Errorf("the tick ran %d times, want 2", runs)
+	if _, err := state.SetState(t.Context(), "beta-id", ledger.ProjectArchived, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.SetState(t.Context(), "beta-id", ledger.ProjectActive, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if runs[soloScope] != 3 || runs["beta-id"] != 2 {
+		t.Errorf("the tick ran %v, want 3 in the default project and 2 in beta, which was archived once", runs)
 	}
 }

@@ -65,7 +65,7 @@ func somethingWaits(t *testing.T) *apitest.Daemon {
 func TestNoConfigurationOpensNoConnection(t *testing.T) {
 	d := somethingWaits(t)
 	deps := watching(t, nil)
-	tick := noticeTick(d.Config, deps.notifyDeps, time.Minute)
+	tick := noticeTick(d.Config, registryOf(d.Config.Store, d.Config.Scope), deps.notifyDeps, time.Minute)
 	if err := tick.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestTheDesktopChannelNeedsAPolicyToo(t *testing.T) {
 	if _, err := d.Client.PublishPolicy(t.Context(), "[notify_policy]\nversion = 2\ndesktop = true\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := noticeTick(d.Config, deps.notifyDeps, time.Minute).Run(t.Context()); err != nil {
+	if err := noticeTick(d.Config, registryOf(d.Config.Store, d.Config.Scope), deps.notifyDeps, time.Minute).Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	spawned := runner.Spawned()
@@ -156,7 +156,7 @@ func TestANoticeCarriesNothingFromTheLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	deps := watching(t, (&net.Dialer{}).DialContext)
-	if err := noticeTick(d.Config, deps.notifyDeps, time.Minute).Run(t.Context()); err != nil {
+	if err := noticeTick(d.Config, registryOf(d.Config.Store, d.Config.Scope), deps.notifyDeps, time.Minute).Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -226,7 +226,7 @@ func TestAFailureReportsNoAddressAndNoKey(t *testing.T) {
 	if _, err := d.Client.PublishPolicy(t.Context(), body); err != nil {
 		t.Fatal(err)
 	}
-	err := noticeTick(d.Config, deps.notifyDeps, time.Minute).Run(t.Context())
+	err := noticeTick(d.Config, registryOf(d.Config.Store, d.Config.Scope), deps.notifyDeps, time.Minute).Run(t.Context())
 	if err == nil {
 		t.Fatal("no failure")
 	}

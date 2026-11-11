@@ -14,14 +14,11 @@ import (
 // remove, and import. Each is a member's step, and the registry records each as an installation event.
 type Projects struct {
 	registry ports.Projects
-	// served is the project this control plane's worker and ticks serve, which stays until they serve
-	// every project.
-	served ledger.WorkspaceID
 }
 
-// NewProjects returns the use cases over a registry, with the project its worker serves.
-func NewProjects(registry ports.Projects, served ledger.WorkspaceID) *Projects {
-	return &Projects{registry: registry, served: served}
+// NewProjects returns the use cases over a registry.
+func NewProjects(registry ports.Projects) *Projects {
+	return &Projects{registry: registry}
 }
 
 // Removal is what a member gives to remove a project: its name again, and either a file for its backup
@@ -118,8 +115,9 @@ func (p *Projects) Restore(ctx context.Context, name string, actor ledger.Actor)
 }
 
 // Remove deletes an archived project's database and drops it from the registry and the repository
-// index, after writing its backup when the member named a file. The project this control plane's worker
-// serves stays.
+// index, after writing its backup when the member named a file. The first project is no different: the
+// worker and the ticks serve whichever projects are active, and the records every project shares live in
+// the installation's database.
 func (p *Projects) Remove(ctx context.Context, name string, removal Removal, actor ledger.Actor) error {
 	if err := p.allowed(actor); err != nil {
 		return err
@@ -136,9 +134,6 @@ func (p *Projects) Remove(ctx context.Context, name string, removal Removal, act
 	}
 	if project.State != ledger.ProjectArchived {
 		return fmt.Errorf("%w: project %s is %s: archive it before removing it", ledger.ErrProjectState, name, project.State)
-	}
-	if project.ID == p.served {
-		return fmt.Errorf("%w: this daemon's worker serves project %s until it serves every project, so it stays", ledger.ErrProjectState, name)
 	}
 	if removal.Backup != "" {
 		if _, err := p.registry.Backup(ctx, project, removal.Backup); err != nil {

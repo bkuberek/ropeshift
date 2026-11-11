@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -65,18 +66,18 @@ func channelsFor(deps notifyDeps) func(authority.NotifyPolicy) []ports.Notifier 
 
 // noticeTick tells members what waits. It reads the policy each pass, so a publish takes effect with no
 // restart, and what it reports of a failure is what a channel said, which holds no address.
-func noticeTick(config server.Config, deps notifyDeps, every time.Duration) control.Tick {
-	notices := control.NewNotices(config.Store, channelsFor(deps))
-	waiting := server.Waiting(config)
+func noticeTick(config server.Config, projects ports.Projects, deps notifyDeps, every time.Duration) control.Tick {
 	return control.Tick{
 		Name:  "notices",
 		Every: every,
-		Run: func(ctx context.Context) error {
-			items, err := waiting(ctx)
+		Run: eachProject(projects, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			inProject := config
+			inProject.Scope, inProject.Store = p.ID, store
+			items, err := server.Waiting(inProject)(ctx)
 			if err != nil {
 				return err
 			}
-			return notices.Deliver(ctx, config.Scope, items, tickActor("notify-tick"))
-		},
+			return control.NewNotices(store, channelsFor(deps)).Deliver(ctx, p.ID, items, tickActor("notify-tick"))
+		}),
 	}
 }

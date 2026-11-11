@@ -240,7 +240,8 @@ func serve(t testing.TB, config server.Config, wrap func(http.Handler) http.Hand
 }
 
 // Installation is an installation on a state directory: its first project `default` on the ledger file,
-// and every other project in a database of its own, served by one API with one member.
+// and every other project in a database of its own, served by one API with one member, with the routes
+// with no project kept for one release, as the daemon serves them.
 type Installation struct {
 	*Daemon
 	State *sqlite.State
@@ -267,7 +268,7 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 	}
 	identity := fake.NewIdentityProvider()
 	config := server.Config{
-		Scope: Scope, Store: store, Projects: state, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
+		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, Unscoped: true, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
 		Matcher:  lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 	}

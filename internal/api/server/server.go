@@ -119,7 +119,7 @@ func New(config Config) http.Handler {
 		PackTokens: config.PackTokens, Starts: config.Starts,
 	}, matching(config))
 	projects := newRouter(config, home)
-	home.lifecycle, home.router = control.NewProjects(config.Projects, config.Scope), projects
+	home.lifecycle, home.router = control.NewProjects(config.Projects), projects
 	mux := http.NewServeMux()
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
@@ -335,11 +335,17 @@ func invalid(w http.ResponseWriter, format string, args ...any) {
 	refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: fmt.Sprintf(format, args...)})
 }
 
+// health reads the default project's revision, which the routes with no project serve. An installation
+// that removed that project still answers, at revision zero.
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	var health api.Health
+	health := api.Health{Status: "ok", Web: h.WebAddress}
+	if _, err := h.self(r.Context()); errors.Is(err, ports.ErrNotFound) {
+		reply(w, http.StatusOK, health)
+		return
+	}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		workspace, err := tx.Workspace()
-		health = api.Health{Status: "ok", Revision: workspace.Rev, Web: h.WebAddress}
+		health.Revision = workspace.Rev
 		return err
 	})
 	if err != nil {

@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -202,10 +203,25 @@ func TestRemovingAProjectNeedsAllItAsks(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(in.State.Dir, filepath.FromSlash(project.Database))); !os.IsNotExist(err) {
 		t.Errorf("the database stayed: %v", err)
 	}
-	// The project the daemon's worker serves stays until the worker serves every project.
+	// The first project is removed like any other. The installation's routes go on, and the routes with no
+	// project, which served it, say it is gone.
 	if _, err := in.Client.ArchiveProject(t.Context(), apitest.ProjectName); err != nil {
 		t.Fatal(err)
 	}
-	err = in.Client.RemoveProject(t.Context(), apitest.ProjectName, api.RemoveProject{Confirm: apitest.ProjectName, NoBackup: true})
-	refusedWith(t, err, http.StatusConflict, api.CodeProjectState)
+	if err := in.Client.RemoveProject(t.Context(), apitest.ProjectName, api.RemoveProject{Confirm: apitest.ProjectName, NoBackup: true}); err != nil {
+		t.Fatalf("removing the first project: %v", err)
+	}
+	if _, err := in.Client.Projects(t.Context()); err != nil {
+		t.Errorf("the registry with no first project: %v", err)
+	}
+	if _, err := in.Client.Workers(t.Context()); err != nil {
+		t.Errorf("the workers with no first project: %v", err)
+	}
+	if _, err := in.Client.Health(t.Context()); err != nil {
+		t.Errorf("health with no first project: %v", err)
+	}
+	var refused *api.Error
+	if err := in.Client.Do(t.Context(), http.MethodGet, "/v1/work-orders", nil, nil); !errors.As(err, &refused) || refused.Detail.Code != api.CodeNoProject {
+		t.Errorf("a route with no project after the first project went: %v", err)
+	}
 }

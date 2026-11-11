@@ -111,13 +111,13 @@ func refuseArchived(w http.ResponseWriter, r *http.Request, p ledger.Project) bo
 	return true
 }
 
-// forget drops the handler of a project the installation removed.
+// forget drops the handler of a project the installation removed. The first project's handler still
+// serves the installation's routes, whose records live in the installation's database.
 func (rt *router) forget(id ledger.WorkspaceID) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if id != rt.config.Scope {
-		delete(rt.served, id)
-	}
+	delete(rt.served, id)
+	rt.home.handler.plane.Forget(id)
 }
 
 // withinProject is a call as a project's routes read it: its path under /v1, with the project's two
@@ -145,15 +145,18 @@ func withinProject(r *http.Request) (*http.Request, bool) {
 // says the route is deprecated.
 func (rt *router) unscoped(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Deprecation", "true")
-	if changes(r.Method) {
-		project, err := rt.home.handler.self(r.Context())
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		if refuseArchived(w, r, project) {
-			return
-		}
+	project, err := rt.home.handler.self(r.Context())
+	if errors.Is(err, ports.ErrNotFound) {
+		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNoProject,
+			Message: "this installation no longer holds the default project these routes serve: name a project under /v1/projects/{project}/"})
+		return
+	}
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if changes(r.Method) && refuseArchived(w, r, project) {
+		return
 	}
 	rt.home.routes.ServeHTTP(w, r)
 }
