@@ -233,3 +233,40 @@ func TestALayerLowersTheLaneCapsTheUserSet(t *testing.T) {
 		t.Errorf("a repository that raises the sign-in cap: %v", err)
 	}
 }
+
+// NFR-SEC-3 and FR-LANE-19: no layer names a mode that bypasses every check, not even the user's, because
+// a lane in it would push and run every gated action with nobody asked. A mode this does not know is
+// refused too, because it could be one. Every other mode is the user's to choose.
+func TestNoLayerChoosesABypassMode(t *testing.T) {
+	const layer = "[agent]\npermission_mode = \"%s\"\n"
+	mode := func(name string) string { return strings.Replace(layer, "%s", name, 1) }
+	tests := []struct {
+		name, user, repository, lane string
+		refused                      bool
+	}{
+		{name: "a user chooses bypass", user: mode(bypassMode), refused: true},
+		{name: "a repository chooses bypass over a user's bypass", user: mode(bypassMode), repository: mode(bypassMode), refused: true},
+		{name: "a lane chooses bypass", lane: mode(bypassMode), refused: true},
+		{name: "a user names a mode nobody knows", user: mode("everything"), refused: true},
+		{name: "a user names no mode", user: mode(""), refused: true},
+		{name: "a user chooses plan", user: mode("plan")},
+		{name: "a user chooses default", user: mode("default")},
+		{name: "a user chooses acceptEdits", user: mode("acceptEdits")},
+		{name: "a user chooses dontAsk", user: mode("dontAsk")},
+		{name: "a user chooses auto", user: mode("auto")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+			if refused := errors.Is(err, lanes.ErrBadProfile); refused != tt.refused {
+				t.Errorf("error %v, want refused=%v", err, tt.refused)
+			}
+			if err == nil && profile.Agent.PermissionMode == bypassMode {
+				t.Error("a lane would bypass every check")
+			}
+		})
+	}
+	if _, err := Resolve(mode(bypassMode)); !errors.Is(err, lanes.ErrBadProfile) {
+		t.Errorf("a layer resolved on its own chose bypass: %v", err)
+	}
+}

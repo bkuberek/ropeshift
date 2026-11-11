@@ -150,3 +150,29 @@ func TestAFailedCallTellsTheWorkerOnlyWhichCallEnded(t *testing.T) {
 		})
 	}
 }
+
+// FR-LANE-19: a file program runs with no prompt, so the hook reads the disk for a link on its way, which
+// the text of a path cannot show, and denies the call before the CLI's allow rule runs it.
+func TestTheHookDeniesAFileProgramThroughALink(t *testing.T) {
+	root := t.TempDir()
+	worktree, outside := filepath.Join(root, "lane-1"), filepath.Join(root, "kept")
+	for _, dir := range []string{worktree, outside} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(worktree, "out")); err != nil {
+		t.Fatal(err)
+	}
+	policy := policyFile(t, lanes.CompilePolicy(lanes.PolicySpec{Worktree: worktree}))
+	for command, want := range map[string]string{"rm -r out/": lanes.ReasonLink, "rm -f notes.md": ""} {
+		input, err := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": worktree, "tool_input": map[string]string{"command": command}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, answer := decide(config{event: eventPreToolUse, policy: policy}, input)
+		if !strings.Contains(string(answer), want) || (want == "") != (len(answer) == 0) {
+			t.Errorf("%q: the hook answered %s", command, answer)
+		}
+	}
+}

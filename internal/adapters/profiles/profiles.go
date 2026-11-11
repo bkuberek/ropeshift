@@ -51,6 +51,10 @@ func Resolve(layers ...string) (lanes.Profile, error) {
 	if unknown := meta.Undecoded(); len(unknown) > 0 {
 		return lanes.Profile{}, fmt.Errorf("%w: unknown setting %s", lanes.ErrBadProfile, unknown[0])
 	}
+	// No layer, the user's included, names a mode that bypasses every check (NFR-SEC-3).
+	if err := lanes.CheckPermissionMode(profile.Agent.PermissionMode); err != nil {
+		return lanes.Profile{}, err
+	}
 	return profile, nil
 }
 

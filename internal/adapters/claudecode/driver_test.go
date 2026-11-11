@@ -174,6 +174,27 @@ func drain(t *testing.T, driver ports.AgentDriver, handle ports.SessionHandle) [
 	}
 }
 
+// NFR-SEC-3: a start or a resume in a mode that bypasses every check is refused before any process
+// runs, in either run mode, whatever a caller skipped.
+func TestNoSessionStartsInABypassMode(t *testing.T) {
+	for _, run := range []string{ports.RunModeHeadless, ports.RunModeInteractive} {
+		t.Run(run, func(t *testing.T) {
+			driver, _, spec := session(t, "two-turns", func(spec *ports.SessionSpec) {
+				spec.PermissionMode, spec.RunMode = lanes.BypassMode, run
+			})
+			if _, err := driver.Start(t.Context(), spec); !errors.Is(err, lanes.ErrBypassMode) {
+				t.Errorf("start: %v", err)
+			}
+			if _, err := driver.Resume(t.Context(), spec, ports.ResumeRef{SessionID: "the-session"}); !errors.Is(err, lanes.ErrBypassMode) {
+				t.Errorf("resume: %v", err)
+			}
+			if _, err := os.Stat(spec.ConfigDir); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("the session's settings were written: %v", err)
+			}
+		})
+	}
+}
+
 func TestAnUnqualifiedVersionIsDegraded(t *testing.T) {
 	driver, path, spec := session(t, "unqualified-version", nil)
 	got, err := driver.Capabilities(t.Context())
@@ -398,6 +419,7 @@ type generatedSettings struct {
 	} `json:"hooks"`
 	Permissions struct {
 		Allow []string `json:"allow"`
+		Ask   []string `json:"ask"`
 	} `json:"permissions"`
 	APIKeyHelper string `json:"apiKeyHelper"`
 }
@@ -787,8 +809,16 @@ func TestGeneratedSettings(t *testing.T) {
 	})
 	play(t, driver, spec)
 	settings, raw := readSettings(t, spec)
-	if !slices.Equal(settings.Permissions.Allow, []string{"mcp__ropeshift__lane_report", "Bash(git add *)", "Bash(git commit *)"}) {
-		t.Errorf("allow %v", settings.Permissions.Allow)
+	want := []string{"mcp__ropeshift__lane_report", "Bash(git add *)", "Bash(git commit *)", "Bash(git rm *)", "Bash(git mv *)", "Edit(/" + spec.Dir + "/**)"}
+	if real, err := filepath.EvalSymlinks(spec.Dir); err == nil && real != spec.Dir {
+		want = append(want, "Edit(/"+real+"/**)")
+	}
+	want = append(want, "Bash(mkdir *)", "Bash(rm *)", "Bash(rmdir *)", "Bash(mv *)")
+	if !slices.Equal(settings.Permissions.Allow, want) {
+		t.Errorf("allow %v, want %v", settings.Permissions.Allow, want)
+	}
+	if !slices.Equal(settings.Permissions.Ask, []string{"Bash(git push *)"}) {
+		t.Errorf("ask %v", settings.Permissions.Ask)
 	}
 	for event, groups := range settings.Hooks {
 		want := "'" + stable + "' hook " + event

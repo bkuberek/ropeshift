@@ -61,10 +61,13 @@ A session that comes back to an approved call hears that exact call first, with 
 | A claim no member made follows the level and the window | The claim's transaction, which reads both as it grants |
 | `unattended` on a subscription needs a current acknowledgement | The route that sets a level, and the claim, which reads it again |
 | A message is never a decision | Nothing in the decision path reads a message |
-| A lane stages and commits with no prompt, and runs nothing else that way | Generated settings, which allow `git add` and `git commit` and no other git command, and a profile's gate on either still asks |
-| That stage or commit stays in the lane's worktree | The hook, which refuses one after a `cd`, `-C`, `--git-dir`, `--work-tree`, or a `GIT_DIR` that leaves it, and one whose place it cannot read |
+| A lane that writes creates, edits, and deletes files in its worktree, and stages and commits, with no prompt, and runs nothing else that way | Generated settings: an `Edit` allow rule on the worktree for the file tools, one allow rule each for `mkdir`, `rm`, `rmdir`, and `mv`, and one each for `git add`, `git commit`, `git rm`, and `git mv`. No other git command or program has one, and a review lane holds none |
+| An edit through a link that leads out of the worktree asks, or is refused | The agent CLI, which allows a path through a link only when the file it resolves to matches the rule too, and the generated deny rules, which name what lies beside the worktree at each level above it |
+| Those programs, and that stage or commit, stay in the lane's worktree | The hook, which refuses an operand outside it or one whose place it cannot read, a file program whose path passes through a link, and a git command after a `cd`, `-C`, `--git-dir`, `--work-tree`, or a `GIT_DIR` that leaves it |
 | A push never shares a call with a stage or a commit | The hook, so a push reaches a person however the CLI reads a compound command |
-| A push reaches a person, and a force push or a push to a default branch reaches nobody | No allow rule covers a push, and the hook and generated deny rules refuse the rest |
+| A push reaches a person in every permission mode, and a force push or a push to a default branch reaches nobody | A generated ask rule on every push, which no allow rule outranks, and the hook and generated deny rules refuse the rest |
+| Every action a profile gates asks, in every permission mode | A generated ask rule for each gate, which outranks every allow rule |
+| No lane runs in a permission-bypass mode | The profile, which refuses `bypassPermissions` and any mode it does not know in every layer, the driver, which refuses to start or resume a session in it, and generated settings, which turn the mode off in the agent CLI |
 | A worker pushes a lane's work only when the user chose it | The profile, where `push_on_stop` is off by default, only the user's layer sets it, and a repository's layer or a lane's overrides that change it are refused. See [onboarding](onboarding.md#work-stays-on-this-machine) |
 
 ## The web listener
@@ -110,6 +113,6 @@ A lane with a shell can, as that user:
 - Read and write the ledger and journal files directly. A database check stops a statement that breaks it, and it does not stop one that names a member as the decider. A window or an acknowledgement written that way passes for a member's. The event log would then disagree with the row, which a replay shows. The journal holds each token's digest, which is what a spool line's seal is keyed from.
 - Read the stored passphrase hash, and guess at it offline.
 - Change the generated settings and hook commands, past the guardrails that deny that write. A hook is a guardrail and not a sandbox.
-- Run what it wrote through a repository's own hooks. A commit runs with no prompt, and a commit runs those hooks, so where `core.hooksPath` names a directory in the worktree, a lane that may edit that directory runs its own code at its next commit.
+- Run what it wrote through a repository's own hooks. An edit in the worktree and a commit both run with no prompt, and a commit runs those hooks, so where they run a file in the worktree, or `core.hooksPath` names a directory in it, a lane runs its own code at its next commit.
 
 Strong separation needs a boundary an agent cannot cross: another operating system user, a container, a virtual machine, or a worker on another machine. Run a lane on untrusted work only behind one of these.

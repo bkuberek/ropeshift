@@ -178,21 +178,28 @@ func TestEditRulesHoldEverythingBesideTheWorktree(t *testing.T) {
 	}
 }
 
-func TestGatesBecomeAskRulesOnlyWhereACallWouldNotPrompt(t *testing.T) {
-	tests := []struct {
-		mode string
-		want []string
-	}{
-		{"default", nil},
-		{"acceptEdits", nil},
-		{"auto", []string{"Bash(git tag *)"}},
-		{"bypassPermissions", []string{"Bash(git tag *)"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.mode, func(t *testing.T) {
+// FR-LANE-19: every action a profile gates asks, whatever the mode, because an ask rule beats an allow
+// rule and holds in a mode that asks nothing, and a push asks on every lane that writes. A rule that asks
+// for a call that would ask anyway changes nothing, so no mode is left to reason about.
+func TestEveryGateAndEveryPushAsksInEveryMode(t *testing.T) {
+	for _, mode := range []string{"plan", "default", "acceptEdits", "dontAsk", "auto"} {
+		t.Run(mode, func(t *testing.T) {
 			spec := policySpec(t)
-			spec.PermissionMode, spec.Gates = tt.mode, []string{"Bash(git tag *)"}
-			if got := generateSettings(spec).Permissions.Ask; !slices.Equal(got, tt.want) {
+			spec.PermissionMode, spec.Gates = mode, []string{"Bash(git tag *)", "Bash(git push *)"}
+			if got := generateSettings(spec).Permissions.Ask; !slices.Equal(got, []string{"Bash(git push *)", "Bash(git tag *)"}) {
+				t.Errorf("ask %v", got)
+			}
+		})
+	}
+	for name, spec := range map[string]func(*ports.SessionSpec){
+		"a review lane":   func(spec *ports.SessionSpec) { spec.ReadOnly = true },
+		"an orchestrator": func(spec *ports.SessionSpec) { spec.OnlyTools = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			session := policySpec(t)
+			spec(&session)
+			session.Gates = []string{"mcp__ropeshift__lane_report"}
+			if got := generateSettings(session).Permissions.Ask; !slices.Equal(got, session.Gates) {
 				t.Errorf("ask %v", got)
 			}
 		})
@@ -260,7 +267,7 @@ func TestAllowRulesReachNoPushAndNoOtherGitCommand(t *testing.T) {
 	}
 	for _, command := range []string{
 		"git push", "git push origin lane/one", "git push --force origin lane/one", "git commit -m plan && git push",
-		"git add . ; git push", "git add . && rm -rf ..", "git checkout main", "git switch main", "git branch -f main HEAD",
+		"git add . ; git push", "git checkout main", "git switch main", "git branch -f main HEAD",
 		"git reset --hard main", "git update-ref refs/heads/main HEAD", "git rebase main", "git merge main",
 		"git -C ../lane-2 commit -m plan", "git -c core.hooksPath=/tmp/hooks commit -m plan", "git config core.hooksPath /tmp/hooks",
 		"GIT_DIR=/work/app/.git git commit -m plan", "cd .. && git commit -m plan",
@@ -296,6 +303,16 @@ func TestAnAllowedCommitCarriesNoPushAndWritesNothingOutside(t *testing.T) {
 		{"a stage in another lane", "git -C " + sibling + " add .", lanes.ReasonOutside},
 		{"a commit in the repository itself", "git --git-dir=" + filepath.Join(filepath.Dir(filepath.Dir(spec.Dir)), "repository", ".git") + " commit -m plan", lanes.ReasonOutside},
 		{"a commit that writes beside the worktree", "git commit -m plan > " + filepath.Join(sibling, "file"), lanes.ReasonOutside},
+		{"a stage and a delete above the worktree", "git add . && rm -rf ..", lanes.ReasonOutside},
+		{"a delete in another lane", "rm -rf " + sibling, lanes.ReasonOutside},
+		{"a directory beside the worktree", "mkdir -p ../lane-3", lanes.ReasonOutside},
+		{"a directory deleted beside the worktree", "rmdir " + sibling, lanes.ReasonOutside},
+		{"a move out of the worktree", "mv notes.md ../notes.md", lanes.ReasonOutside},
+		{"a move into the worktree from beside it", "mv " + filepath.Join(sibling, "a") + " a", lanes.ReasonOutside},
+		{"a delete of the home directory", "rm -rf ~", lanes.ReasonOutside},
+		{"a delete of what a variable names", "rm -rf \"$TARGET\"", lanes.ReasonOutside},
+		{"a staged deletion in another lane", "git -C " + sibling + " rm -q a", lanes.ReasonOutside},
+		{"a staged rename and a push", "git mv a b && git push", lanes.ReasonPushApart},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -320,8 +337,11 @@ func TestAGateOnACommitStillAsks(t *testing.T) {
 		{"a gate on a stage", "Bash(git add *)", true},
 		{"a gate on all of git", "Bash(git *)", true},
 		{"a gate on every command", "Bash", true},
-		{"a gate on something else", "Bash(git tag *)", false},
-		{"a gate on another tool", "Write", false},
+		{"a gate on a delete", "Bash(rm *)", true},
+		{"a gate on a forced delete", "Bash(rm -rf *)", true},
+		{"a gate on a file tool", "Write", true},
+		{"a gate on every edit", "Edit", true},
+		{"a gate on something else", "Bash(git tag *)", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -443,5 +463,181 @@ func TestTheRepositoriesALaneReadsAreReadOnly(t *testing.T) {
 	}
 	if plain := generateSettings(policySpec(t)); len(plain.Permissions.AdditionalDirectories) != 0 {
 		t.Errorf("a lane that reads nothing may read %v", plain.Permissions.AdditionalDirectories)
+	}
+}
+
+// editAllowed reads `Edit` allow rules as the CLI documents them: `//` starts an absolute path, `/**`
+// takes everything under it, and a path through a link is allowed only when the path asked for and
+// the file it resolves to both match.
+func editAllowed(rules []string, asked, resolved string) bool {
+	covers := func(path string) bool {
+		return slices.ContainsFunc(rules, func(rule string) bool {
+			pattern, ok := strings.CutPrefix(rule, "Edit(//")
+			if !ok {
+				return false
+			}
+			pattern = "/" + strings.TrimSuffix(pattern, ")")
+			if dir, all := strings.CutSuffix(pattern, "/**"); all {
+				return strings.HasPrefix(path, dir+"/")
+			}
+			return path == pattern
+		})
+	}
+	return covers(asked) && covers(resolved)
+}
+
+// FR-LANE-19: a lane that writes creates, edits, and deletes files in its own worktree, and stages and
+// commits that work, with no prompt. Every file tool is covered by an `Edit` rule on the worktree, and
+// the shell programs that make, move, and delete files by a rule of their own.
+func TestALaneThatWritesWorksInItsWorktreeWithNoPrompt(t *testing.T) {
+	spec := policySpec(t)
+	rules := generateSettings(spec).Permissions.Allow
+	for _, path := range []string{"a.go", "docs/notes.md", "deep/er/still/x.txt"} {
+		file := filepath.Join(spec.Dir, path)
+		if !editAllowed(rules, file, file) {
+			t.Errorf("an edit of %s would wait on a member: %v", path, rules)
+		}
+	}
+	for _, command := range []string{
+		"mkdir -p docs/notes", "rm -f old.txt", "rm -rf build", "rmdir docs/notes", "mv notes.md docs/notes.md",
+		"git rm -q old.txt", "git mv a.go b.go", "git add -A && git commit -q -m work", "mkdir -p docs && mv a docs/a && git add docs",
+	} {
+		if !runsWithNoPrompt(rules, command) {
+			t.Errorf("%q would wait on a member: %v", command, rules)
+		}
+	}
+}
+
+// FR-LANE-19: what runs with no prompt stops at the worktree. A write beside it, above it, in another lane,
+// in the repository, in the home directory, or through a link that leads out of it, is no rule's to allow.
+func TestNoAllowRuleReachesOutsideTheWorktree(t *testing.T) {
+	spec := policySpec(t)
+	rules := generateSettings(spec).Permissions.Allow
+	lanesDir := filepath.Dir(spec.Dir)
+	for _, path := range []string{
+		filepath.Join(lanesDir, "lane-2", "a.go"), filepath.Join(lanesDir, "lane-1.reads", "a.go"), filepath.Join(lanesDir, "a.go"),
+		filepath.Join(filepath.Dir(lanesDir), "repository", "a.go"), spec.Dir + "-other/a.go", "/home/person/.ssh/config", "/etc/hosts",
+	} {
+		if editAllowed(rules, path, path) {
+			t.Errorf("an edit of %s runs with no prompt: %v", path, rules)
+		}
+	}
+	inside := filepath.Join(spec.Dir, "out", "a.go")
+	if editAllowed(rules, inside, filepath.Join(lanesDir, "lane-2", "a.go")) {
+		t.Errorf("an edit through a link runs with no prompt: %v", rules)
+	}
+	for _, rule := range rules {
+		if strings.HasPrefix(rule, "Edit(") && !strings.HasSuffix(rule, filepath.Base(spec.Dir)+"/**)") {
+			t.Errorf("an edit rule names more than the worktree: %s", rule)
+		}
+	}
+	for _, command := range []string{"cp a ../a", "ln -s /etc/hosts hosts", "touch ../a", "sed -i s/a/b/ a.go", "install a ../a", "chmod 777 ..", "find . -delete"} {
+		if runsWithNoPrompt(rules, command) {
+			t.Errorf("%q runs with no prompt: %v", command, rules)
+		}
+	}
+}
+
+// A worktree named through a link gets a rule for each name, because the CLI resolves a path before it
+// matches it, and `/tmp` is a link on macOS.
+func TestAWorktreeNamedThroughALinkIsAllowedByEachName(t *testing.T) {
+	spec := policySpec(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(spec.Dir, link); err != nil {
+		t.Fatal(err)
+	}
+	real, err := filepath.EvalSymlinks(spec.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Dir = link
+	rules := generateSettings(spec).Permissions.Allow
+	if !editAllowed(rules, filepath.Join(link, "a.go"), filepath.Join(real, "a.go")) {
+		t.Errorf("an edit in the worktree would wait on a member: %v", rules)
+	}
+}
+
+// A worktree whose path holds a character a rule reads as a pattern would widen the rule, so it gets no
+// edit rule, and an edit there asks as it did before.
+func TestAWorktreePathThatReadsAsAPatternGetsNoEditRule(t *testing.T) {
+	spec := policySpec(t)
+	spec.Dir = filepath.Join(t.TempDir(), "lanes", "lane-[1]")
+	if err := os.MkdirAll(spec.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range generateSettings(spec).Permissions.Allow {
+		if strings.HasPrefix(rule, "Edit(") {
+			t.Errorf("a rule %s", rule)
+		}
+	}
+}
+
+// The shell programs run with no prompt only where a hook holds them to the worktree: a session with no
+// hook, or no worktree, gets none, and nor does a session that reads or holds only its own tools.
+func TestFileProgramsNeedAHookAndAWorktree(t *testing.T) {
+	for name, change := range map[string]func(*ports.SessionSpec){
+		"no hook":         func(spec *ports.SessionSpec) { spec.Binary = "" },
+		"no worktree":     func(spec *ports.SessionSpec) { spec.Dir = "" },
+		"a review lane":   func(spec *ports.SessionSpec) { spec.ReadOnly = true },
+		"an orchestrator": func(spec *ports.SessionSpec) { spec.OnlyTools = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := policySpec(t)
+			change(&spec)
+			for _, rule := range generateSettings(spec).Permissions.Allow {
+				for _, program := range lanes.FilePrograms() {
+					if rule == "Bash("+program+" *)" {
+						t.Errorf("a rule %s", rule)
+					}
+				}
+				if (spec.ReadOnly || spec.OnlyTools || spec.Dir == "") && strings.HasPrefix(rule, "Edit(") {
+					t.Errorf("a rule %s", rule)
+				}
+			}
+		})
+	}
+}
+
+// NFR-SEC-3 and FR-LANE-19: no session ropeshift generates runs in a mode that bypasses every check, in
+// any lane, any mode a profile may choose, or either run mode. Its settings name no bypass, its flags
+// skip no check, its policy holds a lane to its worktree, and its settings turn the bypass mode off, so
+// the CLI refuses to enter it even from a key a person presses in a pane.
+func TestNoGeneratedSettingUsesABypassMode(t *testing.T) {
+	sessions := map[string]func(*ports.SessionSpec){
+		"a change lane":   func(*ports.SessionSpec) {},
+		"a planning lane": func(spec *ports.SessionSpec) { spec.Planning = true },
+		"a review lane":   func(spec *ports.SessionSpec) { spec.ReadOnly = true },
+		"an orchestrator": func(spec *ports.SessionSpec) { spec.OnlyTools, spec.Tools = true, []string{"question_next"} },
+		"a lane that reads another repository": func(spec *ports.SessionSpec) {
+			spec.ReadOnlyDirs = []string{filepath.Join(filepath.Dir(spec.Dir), "lane-1.reads", "api")}
+		},
+		"a lane that continues a branch": func(spec *ports.SessionSpec) { spec.Kept = []string{"feature/retry"} },
+	}
+	for name, change := range sessions {
+		for _, mode := range []string{"plan", "default", "acceptEdits", "dontAsk", "auto"} {
+			for _, run := range []string{ports.RunModeHeadless, ports.RunModeInteractive} {
+				t.Run(name+"/"+mode+"/"+run, func(t *testing.T) {
+					spec := policySpec(t)
+					spec.PermissionMode, spec.RunMode, spec.Model = mode, run, "opus"
+					change(&spec)
+					settings := generateSettings(spec)
+					if settings.Permissions.DisableBypassPermissionsMode != "disable" {
+						t.Errorf("the bypass mode is not turned off: %+v", settings.Permissions)
+					}
+					raw, err := json.Marshal(map[string]any{"settings": settings, "policy": compilePolicy(spec), "mcp": generateMCP(spec)})
+					if err != nil {
+						t.Fatal(err)
+					}
+					command := slices.Concat(StartArgs(spec), paneArgs(spec))
+					for _, text := range append(command, string(raw)) {
+						for _, bypass := range []string{lanes.BypassMode, "dangerously", "defaultMode"} {
+							if strings.Contains(text, bypass) {
+								t.Errorf("%q names %s", text, bypass)
+							}
+						}
+					}
+				})
+			}
+		}
 	}
 }

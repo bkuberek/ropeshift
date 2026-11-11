@@ -279,6 +279,8 @@ type DenyPolicy struct {
 	OwnTools string `json:"own_tools,omitempty"`
 	// Ground is what a session that lost its place is told of its work.
 	Ground Grounding `json:"ground,omitzero"`
+	// links reads the disk for a file program's links (WithLinks). It is the reader's, not the file's.
+	links LinkReader
 }
 
 // ToolQuestion is the vendor's tool that asks the terminal. A lane must not ask there,

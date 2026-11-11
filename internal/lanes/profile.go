@@ -33,9 +33,10 @@ type AgentSettings struct {
 	PermissionMode   string      `toml:"permission_mode" json:"permission_mode"`
 	InstructionsFile string      `toml:"instructions_file" json:"instructions_file"`
 	Credentials      Credentials `toml:"credentials" json:"credentials"`
-	// Gates are permission rules for actions a person must approve. On a lane that would
-	// not prompt, the driver writes each as an `ask` rule, because `PermissionRequest`
-	// fires only for a call that would.
+	// Gates are permission rules for actions a person must approve. The driver writes each as an
+	// `ask` rule in every mode, because `PermissionRequest` fires only for a call that would prompt,
+	// and an ask rule outranks the allow rules a lane that writes holds (FR-LANE-19). A gate only
+	// adds requests.
 	Gates []string `toml:"gates" json:"gates"`
 }
 
