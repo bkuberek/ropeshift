@@ -271,9 +271,10 @@ func TestDenialWithWorkerDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	denied := filepath.Join(bin, "denied.log")
+	// The fake creates its log before it writes the line, so wait for the line, not the file.
 	in.waitFor("the session's last call", func() bool {
-		_, err := os.Stat(filepath.Join(bin, "ran.log"))
-		return err == nil
+		ran, err := os.ReadFile(filepath.Join(bin, "ran.log"))
+		return err == nil && strings.Count(string(ran), "\n") == 1
 	})
 	raw, err := os.ReadFile(denied)
 	if err != nil {
