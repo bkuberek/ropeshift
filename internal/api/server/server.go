@@ -62,8 +62,8 @@ type Config struct {
 	LongParkedMs int64
 	// Telemetry reads the local worker's telemetry store. Nil has none, and its reads answer empty.
 	Telemetry ports.TelemetryReader
-	// Backup copies the ledger while it runs. Nil has none, as on Postgres, which a team backs up
-	// with its own tooling.
+	// Backup copies the ledger of a control plane with no registry while it runs. Nil has none, as on
+	// Postgres, which a team backs up with its own tooling. A registry backs up each of its projects.
 	Backup ports.LedgerBackup
 	// Starts places the lane of every claim: the base it begins from, fetched, and the wait for the merge
 	// of the work it depends on. Nil places none, and a worker begins a branch where its checkout is.
@@ -101,7 +101,7 @@ func New(config Config) http.Handler {
 	if config.Projects == nil {
 		config.Projects = oneProject{project: ledger.Project{
 			ID: config.Scope, Name: ledger.DefaultProjectName, State: ledger.ProjectActive, Database: "ledger",
-		}, store: config.Store}
+		}, store: config.Store, backup: config.Backup}
 	}
 	home := newHandler(config)
 	projects := newRouter(config, home)

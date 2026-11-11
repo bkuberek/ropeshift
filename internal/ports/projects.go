@@ -18,4 +18,9 @@ type Projects interface {
 	Open(ctx context.Context, p ledger.Project) (Store, error)
 	// Index lists which project holds each repository, by its identity.
 	Index(ctx context.Context) ([]ledger.IndexedRepository, error)
+	// Backup copies a project's ledger to a new file while it runs, as LedgerBackup does, and
+	// BackupInstallation copies the installation's own records. Each returns ErrNoBackup on a control
+	// plane with no online backup.
+	Backup(ctx context.Context, p ledger.Project, path string) (int64, error)
+	BackupInstallation(ctx context.Context, path string) (int64, error)
 }

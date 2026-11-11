@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -203,4 +204,61 @@ func TestTheDeprecatedRoutesServeTheFirstProject(t *testing.T) {
 	if row, err := d.Client.WorkOrder(t.Context(), "wo-1"); err != nil || row.State != workorders.Claimed {
 		t.Errorf("wo-1 reads %+v, %v", row, err)
 	}
+}
+
+// TestEachProjectBacksUpOnItsOwn holds FR-PROJ-9 through the API: a project's backup holds that project's
+// records, the installation's holds the member, and each needs a member's session.
+func TestEachProjectBacksUpOnItsOwn(t *testing.T) {
+	in := apitest.StartInstallation(t, "acme")
+	_, _, home := in.In(t, apitest.ProjectName)
+	_, _, acme := in.In(t, "acme")
+	createWork(t, home, "wo-home", "Add the retry budget")
+	createWork(t, acme, "wo-acme", "Ship the invoice export")
+	dir := t.TempDir()
+
+	copied, err := acme.Backup(t.Context(), api.BackupRequest{Path: filepath.Join(dir, "acme.db")})
+	if err != nil || copied.Bytes == 0 {
+		t.Fatalf("acme's backup: %+v, %v", copied, err)
+	}
+	if rows := rowsIn(t, copied.Path, "work_orders"); !slices.Equal(rows, []string{"wo-acme"}) {
+		t.Errorf("acme's backup holds work orders %v", rows)
+	}
+	installation, err := in.Client.BackupInstallation(t.Context(), api.BackupRequest{Path: filepath.Join(dir, "installation.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := rowsIn(t, installation.Path, "projects"); !slices.Equal(rows, []string{"acme-id", string(apitest.Scope)}) {
+		t.Errorf("the installation's backup holds projects %v", rows)
+	}
+
+	anonymous := api.NewUnixClient(in.Socket)
+	defer anonymous.Close()
+	_, err = anonymous.Project("acme").Backup(t.Context(), api.BackupRequest{Path: filepath.Join(dir, "again.db")})
+	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
+	_, err = anonymous.BackupInstallation(t.Context(), api.BackupRequest{Path: filepath.Join(dir, "again.db")})
+	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
+}
+
+// rowsIn lists the IDs a table of a SQLite file holds.
+func rowsIn(t *testing.T, file, table string) []string {
+	t.Helper()
+	db, err := sqlite.OpenDB(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query("SELECT id FROM " + table + " ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
 }

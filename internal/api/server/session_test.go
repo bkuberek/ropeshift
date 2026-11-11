@@ -195,7 +195,7 @@ var routeLine = regexp.MustCompile(`mux\.HandleFunc\("((POST|PUT|PATCH|DELETE) (
 // reached is where a route a handler registers is served: an installation route where it reads, and a
 // project route under the harness's project.
 func reached(path string) string {
-	for _, prefix := range []string{"/v1/sessions", "/v1/passphrase", "/v1/workers", "/v1/autonomy", "/v1/telemetry", "/v1/health", "/v1/projects"} {
+	for _, prefix := range []string{"/v1/sessions", "/v1/passphrase", "/v1/workers", "/v1/autonomy", "/v1/telemetry", "/v1/health", "/v1/projects", "/v1/installation"} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return path
 		}

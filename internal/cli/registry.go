@@ -165,7 +165,7 @@ func registry() []section {
 		)},
 		{"This machine", []registered{
 			installation(command("init", "", "set up this machine: passphrase, worker, doctor, sample", (*invocation).initMachine))[0],
-			command("backup", "<file>", "copy the project's ledger to a new file while the daemon runs", (*invocation).backup),
+			command("backup", "<file> [--installation]", "copy the project's ledger, or the installation's records, to a new file while the daemon runs", (*invocation).backup),
 			installation(command("service install", "[--name N] [-- daemon flags]", "run the daemon as this machine's service, from now on", (*invocation).serviceInstall))[0],
 			installation(command("service uninstall", "[--name N]", "stop the daemon's service and remove it, which stops no lane", (*invocation).serviceUninstall))[0],
 		}},

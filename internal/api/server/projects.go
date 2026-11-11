@@ -70,8 +70,6 @@ func (rt *router) project(ctx context.Context, name string) (ledger.Project, *se
 	// Knowledge sources are the repositories the daemon reads, which its first project holds until a
 	// project registers its own.
 	config.Knowledge = nil
-	// The first project's backup copies the first project's file, and no other's.
-	config.Backup = nil
 	if rt.config.Matching != nil {
 		config.Matcher = rt.config.Matching(store)
 	}
@@ -139,6 +137,11 @@ func failProject(w http.ResponseWriter, name string, err error) {
 func (rt *router) registryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/projects", rt.listProjects)
 	mux.HandleFunc("GET /v1/projects/{project}", rt.showProject)
+	rt.home.handler.installationBackupRoutes(mux)
+}
+
+func (h *handler) installationBackupRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/installation/backup", h.member(h.backupInstallation))
 }
 
 // listProjects lists every project with the repositories it holds, which a client reads to find the
@@ -201,10 +204,23 @@ func (rt *router) showProject(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, detail)
 }
 
-// oneProject is the registry of a control plane that serves one ledger, named default.
+// oneProject is the registry of a control plane that serves one ledger, named default, with no
+// installation database of its own.
 type oneProject struct {
 	project ledger.Project
 	store   ports.Store
+	backup  ports.LedgerBackup
+}
+
+func (o oneProject) Backup(ctx context.Context, _ ledger.Project, path string) (int64, error) {
+	if o.backup == nil {
+		return 0, ports.ErrNoBackup
+	}
+	return o.backup.Backup(ctx, path)
+}
+
+func (o oneProject) BackupInstallation(context.Context, string) (int64, error) {
+	return 0, ports.ErrNoBackup
 }
 
 func (o oneProject) List(context.Context) ([]ledger.Project, error) {

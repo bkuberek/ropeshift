@@ -212,4 +212,19 @@ func (s *State) keep(id ledger.WorkspaceID, store *sqlstore.Store) {
 	s.stores[id], s.owned[id] = store, true
 }
 
+// Backup copies a project's ledger through the online backup, while the daemon goes on writing.
+func (s *State) Backup(ctx context.Context, p ledger.Project, path string) (int64, error) {
+	file, err := s.file(p.Database)
+	if err != nil {
+		return 0, err
+	}
+	return LedgerBackup{File: file}.Backup(ctx, path)
+}
+
+// BackupInstallation copies the installation database: the registry, the members and the passphrase's
+// hash, and the workers.
+func (s *State) BackupInstallation(ctx context.Context, path string) (int64, error) {
+	return LedgerBackup{File: filepath.Join(s.Dir, InstallationFileName)}.Backup(ctx, path)
+}
+
 var _ ports.Projects = (*State)(nil)

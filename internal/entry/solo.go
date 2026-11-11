@@ -241,8 +241,8 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
-		Telemetry: telemetry.store, Backup: sqlite.LedgerBackup{File: filepath.Join(paths.StateDir, api.LedgerFileName)},
-		Panes: soloPanes(terminal), Starts: soloStarts(opts), WebAddress: webAddressOf(webListener),
+		Telemetry: telemetry.store,
+		Panes:     soloPanes(terminal), Starts: soloStarts(opts), WebAddress: webAddressOf(webListener),
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)

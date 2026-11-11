@@ -8,7 +8,7 @@ An installation holds one or more projects, and the API names the project in the
 
 | Routes | Under | What they reach |
 |--------|-------|-----------------|
-| The installation's | `/v1/` | The registry of projects, members and their sessions, the passphrase, workers with their autonomy, run windows, and orchestrators, the worker's telemetry, the health of the control plane, and the protocol a worker speaks with its credential |
+| The installation's | `/v1/` | The registry of projects, members and their sessions, the passphrase, workers with their autonomy, run windows, and orchestrators, the worker's telemetry, the health of the control plane, the installation's backup, and the protocol a worker speaks with its credential |
 | A project's | `/v1/projects/{project}/` | Everything else: work orders, lanes, plans, requirements, documents, questions, decisions, policies, approvals, effects, notices, repositories, the fleet's mode and caps, the read models, the event stream, measures, and backups |
 
 `{project}` is the project's name, as `ropeshift project list` prints it. A name the installation does not hold answers 404 with the code `no_project`, and a record of another project answers 404 with `not_found`, because a project's routes read only that project's ledger.
@@ -16,6 +16,8 @@ An installation holds one or more projects, and the API names the project in the
 `GET /v1/projects` lists the projects, each with its state and the identity of each repository it holds, and `GET /v1/projects/{project}` shows one with its database and its repository records.
 
 A worker claims work on its own route, `POST /v1/workers/{id}/claims`, with the work order in the body.
+
+`POST /v1/projects/{project}/backup` copies one project's ledger, and `POST /v1/installation/backup` copies the installation database. Each takes `{"path": "..."}`, an absolute path on the daemon's machine where no file exists, and needs a member's session.
 
 ## Routes with no project
 
