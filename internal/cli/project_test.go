@@ -258,3 +258,30 @@ func TestABackupImportsIntoAFreshInstallationWithItsID(t *testing.T) {
 		t.Errorf("project list %q", out)
 	}
 }
+
+// TestTwoProjectsKeepTheirRecordsApartOnTheCommandLine holds FR-PROJ-1 through the CLI: a record of one
+// project does not exist in the other, and the same ID names a different record in each.
+func TestTwoProjectsKeepTheirRecordsApartOnTheCommandLine(t *testing.T) {
+	p := newProjects(t)
+	none := cli.Options{}
+	if code, _, _ := p.run(none, "work", "show", "wo-home", "--project", "acme"); code != cli.ExitNotFound {
+		t.Errorf("the first project's work in acme: exit %d", code)
+	}
+	p.must(none, "work", "create", "--project", "acme", "--id", "wo-home", "--title", "Acme's own", "--criterion", "C")
+	if out := p.must(none, "work", "show", "wo-home", "--project", "acme"); !strings.Contains(out, "Acme's own") {
+		t.Errorf("acme's wo-home: %q", out)
+	}
+	if out := p.must(none, "work", "show", "wo-home", "--project", ledger.DefaultProjectName); !strings.Contains(out, "Add the retry budget") {
+		t.Errorf("the first project's wo-home: %q", out)
+	}
+	p.must(none, "decision", "record", "--project", ledger.DefaultProjectName, "--statement", "Retry the invoice upload twice.", "--scope", "retries")
+	if out := p.must(none, "decision", "list", "--project", "acme"); strings.Contains(out, "invoice upload") {
+		t.Errorf("acme lists the first project's decision: %q", out)
+	}
+	if out := p.must(none, "search", "invoice upload", "--project", ledger.DefaultProjectName); !strings.HasPrefix(out, "decision\t") {
+		t.Errorf("the first project's own lookup: %q", out)
+	}
+	if out := p.must(none, "search", "invoice upload", "--project", "acme"); strings.Contains(out, "decision") {
+		t.Errorf("acme's lookup finds the first project's decision: %q", out)
+	}
+}
