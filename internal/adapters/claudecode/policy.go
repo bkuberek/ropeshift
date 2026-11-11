@@ -17,10 +17,6 @@ import (
 // default branch must not open it.
 var usualDefaults = []string{"main", "master"}
 
-// promptlessModes are the modes in which a call does not prompt, so a gate needs its own
-// `ask` rule for `PermissionRequest` to fire at all.
-var promptlessModes = []string{"auto", "bypassPermissions"}
-
 // maxEditRules bounds what a generation's settings hold. The nearest levels come first,
 // because other lanes and the repository sit there, and the hook covers what this drops.
 const maxEditRules = 2000
@@ -179,7 +175,7 @@ func editRules(worktree string) []string {
 		if err == nil {
 			for _, entry := range entries {
 				name := entry.Name()
-				if name == filepath.Base(dir) || strings.ContainsAny(name, "()[]{}*?!\\") || leadsToWorktree(filepath.Join(parent, name), real) {
+				if name == filepath.Base(dir) || strings.ContainsAny(name, patternCharacters) || leadsToWorktree(filepath.Join(parent, name), real) {
 					continue
 				}
 				rules = append(rules, "Edit(/"+filepath.Join(parent, name)+")", "Edit(/"+filepath.Join(parent, name)+"/**)")
@@ -213,37 +209,20 @@ func within(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
 }
 
-// askRules gates what a profile names, on a lane that would otherwise not ask: in a mode that asks
-// nothing, and on what commitRules would let through. An ask rule beats an allow rule.
+// askRules make every push on a lane that writes, and every action a profile gates, ask, in every mode
+// (FR-LANE-19). An ask rule beats an allow rule and holds in a mode that asks nothing, and one on a call
+// that would ask anyway changes nothing, so no mode needs its own reading.
 func askRules(spec ports.SessionSpec) []string {
-	if slices.Contains(promptlessModes, spec.PermissionMode) {
-		return slices.Clone(spec.Gates)
+	var rules []string
+	if !spec.OnlyTools && !spec.ReadOnly {
+		rules = append(rules, pushRules...)
 	}
-	if spec.OnlyTools {
-		return nil
-	}
-	var gated []string
 	for _, rule := range spec.Gates {
-		if gatesCommit(rule) {
-			gated = append(gated, rule)
+		if !slices.Contains(rules, rule) {
+			rules = append(rules, rule)
 		}
 	}
-	return gated
-}
-
-// gatesCommit says a gate reaches a command commitRules allow.
-func gatesCommit(rule string) bool {
-	gate := lanes.ReadGate(rule)
-	if gate.Tool != lanes.ToolBash {
-		return false
-	}
-	for _, allowed := range commitRules {
-		prefix := strings.TrimSuffix(strings.TrimPrefix(allowed, lanes.ToolBash+"("), " *)")
-		if strings.HasPrefix(prefix, gate.CommandPrefix) || strings.HasPrefix(gate.CommandPrefix, prefix) {
-			return true
-		}
-	}
-	return false
+	return rules
 }
 
 // deferredGates are the calls a hook defers. Only `-p` honors `defer`, and a pane has a screen for

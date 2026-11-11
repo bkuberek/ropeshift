@@ -154,7 +154,7 @@ In solo mode, lanes run as the same operating system user as you, so the operati
 
 ### Repository content can execute
 
-A repository's own configuration can run code. In a headless session, [Claude Code treats the folder as trusted](https://code.claude.com/docs/en/hooks), so hooks committed to a repository run, and an interactive lane accepts the same trust at its start. Where a repository's `core.hooksPath` names a directory in the worktree, a lane that may edit that directory runs its own code at its next commit. Run lanes on work from outside your team only behind one of the boundaries above.
+A repository's own configuration can run code. In a headless session, [Claude Code treats the folder as trusted](https://code.claude.com/docs/en/hooks), so hooks committed to a repository run, and an interactive lane accepts the same trust at its start. A lane edits its worktree and commits with no approval request, and a commit runs the repository's commit hooks, so where those hooks run a file in the worktree, or `core.hooksPath` names a directory in it, a lane runs code it wrote at its next commit, with nobody asked. Run lanes on work from outside your team only behind one of the boundaries above.
 
 ### Work stays on this machine
 
@@ -168,6 +168,29 @@ push_on_stop = true
 ```
 
 Only your layer sets it, because a push sends work off the machine. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot change it: a layer that sets another value is refused, and the lane does not start. A push never forces and runs no repository hook.
+
+### What a lane does without asking
+
+A lane that writes, which is a change, rework, planning, or adopt lane, works in its own worktree with no approval request. It creates, edits, and deletes files there with the agent's file tools, runs `mkdir`, `rm`, `rmdir`, and `mv` there, and stages and commits on its own branch with `git add`, `git rm`, `git mv`, and `git commit`. Nobody has to be watching for that work to go on.
+
+Everything else still asks, and the request waits for a member:
+
+- A write outside the worktree. Where the lane's hook can read the path, it refuses the call outright, and that includes a path that climbs out with `..` and a file program whose path passes through a link. A file tool that writes through a link that leads out of the worktree asks.
+- A push of any kind. A force push, and a push to the default branch or to a branch the lane continues, are refused.
+- A move of any other branch, and any command not listed above.
+- Every action your profile gates.
+
+A review lane only reads: it cannot edit a file with a tool, commit, push, or move a branch.
+
+Two keys in the `[agent]` table of a profile control this:
+
+```toml
+[agent]
+permission_mode = "default"
+gates = ["Bash(git commit *)", "Edit"]
+```
+
+`permission_mode` is the agent's permission mode, `default` unless you set another. A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer cannot raise it. `gates` lists permission rules, in the agent CLI's own syntax, for actions a member must approve. Each becomes a rule that asks in every permission mode, and it overrides what a lane would otherwise do without asking, so the example above makes every commit and every file edit ask. A gate on a file tool takes the `Edit` rule form, because the agent CLI matches file paths only against `Edit` and `Read` rules. A gate can only add requests: no key lets a lane do more without asking than the list above.
 
 ### How many lanes run at once
 

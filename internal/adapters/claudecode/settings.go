@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -72,21 +73,70 @@ type settingsFile struct {
 // toolRule is the permission rule of one ropeshift MCP tool.
 func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 
-// commitRules let a lane stage and commit with no prompt, because nobody may be there to answer one,
-// and a lane would wait out `approval_wait` on its own work. Each names one subcommand, so the CLI
-// holds a compound command to every part of it, and a push, a move to another branch, and a `git -C`
-// are none of these. A session's hook holds what is left to the worktree (lanes.DenyPolicy).
-var commitRules = []string{"Bash(git add *)", "Bash(git commit *)"}
+// commitRules let a lane stage, stage a deletion or a rename, and commit with no prompt, because nobody
+// may be there to answer one, and a lane would wait out `approval_wait` on its own work (FR-LANE-19).
+// Each names one subcommand, so the CLI holds a compound command to every part of it, and a push, a
+// move to another branch, and a `git -C` are none of these. A session's hook holds what is left to the
+// worktree (lanes.DenyPolicy).
+var commitRules = []string{"Bash(git add *)", "Bash(git commit *)", "Bash(git rm *)", "Bash(git mv *)"}
 
-// allowRules are what a session runs with no prompt: its own tools, and a stage and a commit for a
-// session that has a worktree and writes in it.
+// pushRules ask before every push on a lane that writes, in every mode, because an ask rule beats an allow
+// rule and holds where nothing else would ask (FR-LANE-19). A push the rule does not match, such as
+// `git -C . push`, is allowed by no rule either, so it asks in any mode that asks.
+var pushRules = []string{"Bash(git push *)"}
+
+// patternCharacters make a path in a rule a pattern, which could reach past the path it names.
+const patternCharacters = "()[]{}*?!\\"
+
+// allowRules are what a session runs with no prompt: its own tools, and, for a session that writes in
+// its worktree, every edit there, the programs that make, move, and delete files there, and a stage
+// and a commit (FR-LANE-19).
 func allowRules(spec ports.SessionSpec) []string {
-	rules := make([]string, 0, len(spec.Tools)+len(commitRules))
+	rules := make([]string, 0, len(spec.Tools)+len(commitRules)+4)
 	for _, tool := range spec.Tools {
 		rules = append(rules, toolRule(tool))
 	}
-	if !spec.OnlyTools && !spec.ReadOnly {
-		rules = append(rules, commitRules...)
+	if spec.OnlyTools || spec.ReadOnly {
+		return rules
+	}
+	rules = append(rules, commitRules...)
+	if spec.Dir == "" {
+		return rules
+	}
+	rules = append(rules, worktreeRules(spec.Dir)...)
+	if spec.Binary != "" {
+		rules = append(rules, fileRules()...)
+	}
+	return rules
+}
+
+// worktreeRules let every tool that edits a file write in the worktree with no prompt. The CLI allows a
+// path through a link only when the path asked for and the file it resolves to both match, so a link
+// that leads out of the worktree still asks. The worktree goes by each of its names, because `/tmp` is
+// a link on macOS. A name a rule would read as a pattern gets none, and an edit there asks.
+func worktreeRules(worktree string) []string {
+	names := []string{filepath.Clean(worktree)}
+	if real, err := filepath.EvalSymlinks(worktree); err == nil && real != names[0] {
+		names = append(names, real)
+	}
+	var rules []string
+	for _, name := range names {
+		if strings.ContainsAny(name, patternCharacters) {
+			return nil
+		}
+		rules = append(rules, "Edit(/"+name+"/**)")
+	}
+	return rules
+}
+
+// fileRules let the programs that make, move, and delete files run with no prompt. A rule names a
+// program and not a path, so each needs the hook, which holds every operand to the worktree and reads
+// the disk for a link on the way (lanes.FilePrograms).
+func fileRules() []string {
+	programs := lanes.FilePrograms()
+	rules := make([]string, 0, len(programs))
+	for _, program := range programs {
+		rules = append(rules, lanes.ToolBash+"("+program+" *)")
 	}
 	return rules
 }

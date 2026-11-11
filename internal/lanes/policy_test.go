@@ -2,6 +2,10 @@ package lanes
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -462,4 +466,119 @@ func TestAPolicyKeepsTheReadOnlyWorktreesReadOnly(t *testing.T) {
 	if reason, denied := policy.Decide(ToolCall{Tool: toolEdit, Path: api + "/main.go", Cwd: cwd}); !denied || reason != ReasonOutside {
 		t.Errorf("an edit there: denied %v with %q", denied, reason)
 	}
+}
+
+// FR-LANE-19: a stage of a deletion or a rename runs with no prompt, as a stage does, so the hook holds it
+// where it holds a stage: to this lane's worktree, apart from a push, and out of the worktrees it reads.
+func TestAPolicyHoldsAStagedDeletionOrRenameToTheWorktree(t *testing.T) {
+	const cwd = "/work/app-lanes/lane-1"
+	const api = "/work/app-lanes/lane-1.reads/api"
+	policy := CompilePolicy(PolicySpec{Worktree: cwd, Home: "/home/person", DefaultBranches: []string{"main"}, ReadOnlyRoots: []string{api}})
+	tests := []struct {
+		name    string
+		command string
+		denied  string
+	}{
+		{name: "a staged deletion", command: "git rm -q old.txt"},
+		{name: "a staged rename", command: "git mv notes.md docs/notes.md"},
+		{name: "a deletion and a commit", command: "git rm -q old.txt && git commit -m tidy"},
+
+		{name: "a deletion in another lane", command: "git -C /work/app-lanes/lane-2 rm -q old.txt", denied: ReasonOutside},
+		{name: "a rename after a climb", command: "cd .. && git mv a b", denied: ReasonOutside},
+		{name: "a deletion and a push", command: "git rm -q old.txt && git push", denied: ReasonPushApart},
+		{name: "a rename and a push", command: "git mv a b; git push origin lane/one", denied: ReasonPushApart},
+		{name: "a deletion in a worktree it reads", command: "git -C " + api + " rm -q README.md", denied: ReasonReadOnlyTree},
+		{name: "a rename in a worktree it reads", command: "cd " + api + " && git mv a b", denied: ReasonReadOnlyTree},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: tt.command, Cwd: cwd})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("%q: denied %v with %q, want %q", tt.command, denied, reason, tt.denied)
+			}
+		})
+	}
+}
+
+// FR-LANE-19: the programs generated settings let make, move, and delete files with no prompt are the ones
+// whose every operand a hook reads, and nothing that runs another program or makes a link.
+func TestTheFileProgramsAreThoseAHookReadsWhole(t *testing.T) {
+	for _, program := range FilePrograms() {
+		if rule, listed := writers[program]; !listed || rule != writesEvery {
+			t.Errorf("%s: a hook does not read every operand it changes", program)
+		}
+	}
+	for _, program := range []string{"ln", "cp", "install", "sed", "touch", "tee", "dd", "chmod", "find", "xargs", "sh"} {
+		if slices.Contains(FilePrograms(), program) {
+			t.Errorf("%s runs with no prompt", program)
+		}
+	}
+}
+
+// FR-LANE-19: a program that runs with no prompt changes nothing through a link, because a link in the
+// worktree can lead out of it, and a hook reads a path's text. Its target is denied where any part of it
+// inside the worktree is a link, and its last part too, because `rm -r link/` empties what the link names.
+// What is not a link works as before.
+func TestAFileProgramChangesNothingThroughALink(t *testing.T) {
+	root := t.TempDir()
+	worktree := filepath.Join(root, "app-lanes", "lane-1")
+	outside := filepath.Join(root, "kept")
+	for _, dir := range []string{filepath.Join(worktree, "docs"), outside} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(worktree, "out")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("docs", filepath.Join(worktree, "docs-link")); err != nil {
+		t.Fatal(err)
+	}
+	policy := CompilePolicy(PolicySpec{Worktree: worktree, Home: "/home/person", DefaultBranches: []string{"main"}}).WithLinks(diskLinks)
+	tests := []struct {
+		name    string
+		command string
+		denied  string
+	}{
+		{name: "a directory made", command: "mkdir -p docs/notes"},
+		{name: "a file deleted", command: "rm -f docs/old.txt"},
+		{name: "a directory deleted", command: "rm -rf docs/notes && rmdir docs"},
+		{name: "a file moved", command: "mv notes.md docs/notes.md"},
+		{name: "a file deleted at its full path", command: "rm " + filepath.Join(worktree, "docs", "a.txt")},
+
+		{name: "a delete through a link", command: "rm -rf out/data", denied: ReasonLink},
+		{name: "a link emptied", command: "rm -r out/", denied: ReasonLink},
+		{name: "a link removed", command: "rm out", denied: ReasonLink},
+		{name: "a directory made through a link", command: "mkdir -p out/x", denied: ReasonLink},
+		{name: "a move into a link", command: "mv notes.md out", denied: ReasonLink},
+		{name: "a move out of a link", command: "mv out/secret notes.md", denied: ReasonLink},
+		{name: "a link inside the worktree", command: "rm docs-link/a.txt", denied: ReasonLink},
+		{name: "a delete after cd into a link", command: "cd out && rm -rf data", denied: ReasonLink},
+		{name: "a delete outside", command: "rm -rf " + outside, denied: ReasonOutside},
+		{name: "a delete after a climb", command: "rm -rf ../lane-2", denied: ReasonOutside},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: tt.command, Cwd: worktree})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("%q: denied %v with %q, want %q", tt.command, denied, reason, tt.denied)
+			}
+		})
+	}
+	unread := CompilePolicy(PolicySpec{Worktree: worktree}).WithLinks(func(string) (bool, error) { return false, os.ErrPermission })
+	if reason, denied := unread.Decide(ToolCall{Tool: ToolBash, Command: "rm notes.md", Cwd: worktree}); !denied || reason != ReasonLink {
+		t.Errorf("a disk that cannot say: denied %v with %q", denied, reason)
+	}
+	if _, denied := CompilePolicy(PolicySpec{Worktree: worktree}).Decide(ToolCall{Tool: ToolBash, Command: "rm out/data", Cwd: worktree}); denied {
+		t.Error("a policy with no disk read one")
+	}
+}
+
+// diskLinks reads links as a hook does.
+func diskLinks(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil && info.Mode()&os.ModeSymlink != 0, err
 }

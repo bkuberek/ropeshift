@@ -8,7 +8,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"strconv"
 	"sync"
@@ -375,7 +377,7 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 		target = call.Input.Notebook
 	}
 	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd}
-	reason, denied := policy.Decide(tool)
+	reason, denied := policy.WithLinks(diskLink).Decide(tool)
 	if denied {
 		return callDenied, denial(reason)
 	}
@@ -383,6 +385,18 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 		return deferGated(cfg, input)
 	}
 	return callPassed, nil
+}
+
+// diskLink is what a policy reads of the disk: whether a path is a link, with no link to nothing yet.
+func diskLink(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return info.Mode()&os.ModeSymlink != 0, nil
 }
 
 // attached reads the marker the worker touches while a person is attached to the lane's pane. It is

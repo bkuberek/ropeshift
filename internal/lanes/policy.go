@@ -34,7 +34,24 @@ const (
 	// would reach the work it judges.
 	ReasonReadOnly = "ropeshift policy: this lane reads and does not change anything. It may not edit a file with a tool, commit, push, or " +
 		"move a branch or a tag. Read the work with git log, git diff, and git show, and say what you found through the " + ToolLaneReport + " tool."
+	// ReasonLink is what a lane is told when a file program that runs with no prompt names a path through a
+	// link (FR-LANE-19), because a link can lead out of the worktree.
+	ReasonLink = "ropeshift policy: mkdir, rm, rmdir, and mv run on this lane only on paths with no link in them, because a link can lead " +
+		"out of the worktree. Name the path inside the worktree that the link leads to."
 )
+
+// filePrograms make, move, and delete files and directories, and generated settings let a lane that writes
+// run them with no prompt (FR-LANE-19). Each changes every operand it names and runs no other program, so
+// a hook that reads its operands holds it to the worktree. A program that copies from anywhere, edits in
+// place, makes a link, or runs another is none of these, and asks as any other command does.
+var filePrograms = []string{"mkdir", "rm", "rmdir", "mv"}
+
+// FilePrograms are the programs a lane that writes runs with no prompt, on paths in its worktree.
+func FilePrograms() []string { return slices.Clone(filePrograms) }
+
+// LinkReader says whether a path names a link on the disk a policy guards. A missing path is no link, and
+// an error is read as one, because a hook fails closed.
+type LinkReader func(path string) (bool, error)
 
 // DenyToolGit, as the tool of a DenyRule, names a git subcommand and not a vendor's tool: the rule denies
 // that subcommand wherever a shell command runs it, whatever stands before it and however the command is
@@ -142,9 +159,17 @@ type ToolCall struct {
 	Cwd string
 }
 
+// WithLinks gives a policy the disk it guards, which it reads only for a file program that runs with no
+// prompt. A policy with none reads what a call says and nothing else.
+func (p DenyPolicy) WithLinks(links LinkReader) DenyPolicy {
+	p.links = links
+	return p
+}
+
 // Decide returns the reason of the first thing that denies a call. It reads what a call
-// says and touches nothing, because a hook does no work: a link inside a worktree is the
-// generated `Edit` rules' to catch, and a hook is a guardrail, not a sandbox.
+// says, because a hook does no work: a link inside a worktree is the generated `Edit` rules'
+// to catch, and a hook is a guardrail, not a sandbox. The one exception is a file program that
+// runs with no prompt, whose targets it walks for a link when it has the disk (WithLinks).
 func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 	for _, rule := range p.Deny {
 		if rule.Tool == call.Tool && strings.HasPrefix(call.Command, rule.CommandPrefix) {
@@ -232,6 +257,9 @@ func (p DenyPolicy) decideShell(text, cwd string, depth int, seen *gitSeen) (str
 				for _, target := range writeTargets(name, words[1:]) {
 					if !p.inside(target, at) {
 						return ReasonOutside, true
+					}
+					if slices.Contains(filePrograms, name) && p.throughLink(target, at) {
+						return ReasonLink, true
 					}
 				}
 			}
@@ -372,15 +400,15 @@ func (p DenyPolicy) decideGit(leaders, args []shellWord, at string, seen *gitSee
 	case "push":
 		seen.pushes = true
 		return p.decidePush(args[1:])
-	case "add", "commit":
+	case "add", "commit", "rm", "mv":
 		seen.commits = true
 		return p.decideStage(places, at)
 	}
 	return "", false
 }
 
-// decideStage holds a stage or a commit to this lane's worktree, which is what lets either run with
-// no prompt. A place it cannot read reads as outside.
+// decideStage holds a stage, a staged deletion or rename, or a commit to this lane's worktree, which is
+// what lets each run with no prompt. A place it cannot read reads as outside.
 func (p DenyPolicy) decideStage(places []shellWord, at string) (string, bool) {
 	if len(p.Roots) == 0 {
 		return "", false
@@ -396,8 +424,9 @@ func (p DenyPolicy) decideStage(places []shellWord, at string) (string, bool) {
 	return "", false
 }
 
-// writesInTree are the subcommands that write in the worktree they run in: readOnlyGit's, and a stage.
-var writesInTree = append(slices.Clone(readOnlyGit), "add")
+// writesInTree are the subcommands that write in the worktree they run in: readOnlyGit's, a stage, and a
+// staged deletion or rename.
+var writesInTree = append(slices.Clone(readOnlyGit), "add", "rm", "mv")
 
 // inReadOnlyTree says a git command that writes runs in a read-only worktree, where it stands or where its
 // options point.
@@ -608,6 +637,36 @@ func (p DenyPolicy) inside(word shellWord, at string) bool {
 		if resolved == root || strings.HasPrefix(resolved, root+"/") {
 			return true
 		}
+	}
+	return false
+}
+
+// throughLink says a path a file program would change passes through a link below the root that holds
+// it, or is one. The last part counts, because `rm -r link/` empties what the link names and `mv a link`
+// moves into it. A path the policy cannot read reads as through one, and so does a part the disk cannot
+// say of. Parts past what exists hold no link yet. With no disk to read, it reads none.
+func (p DenyPolicy) throughLink(word shellWord, at string) bool {
+	if p.links == nil {
+		return false
+	}
+	resolved, ok := p.resolve(word, at)
+	if !ok {
+		return true
+	}
+	for _, root := range p.Roots {
+		rest, below := strings.CutPrefix(resolved, root+"/")
+		if !below {
+			continue
+		}
+		walked := root
+		for _, part := range strings.Split(rest, "/") {
+			walked = path.Join(walked, part)
+			link, err := p.links(walked)
+			if err != nil || link {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }
