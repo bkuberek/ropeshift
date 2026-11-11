@@ -15,7 +15,7 @@ const workOrderColumns = `id, kind, state, title, repository_id, priority, size,
        contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
        takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts,
        deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
-       unknown_repository, continues`
+       unknown_repository, continues, adopt`
 
 var (
 	stmtReadWorkOrder = define("work_order.read",
@@ -68,12 +68,12 @@ var (
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
    contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
    takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
-   unknown_repository, continues)
+   unknown_repository, continues, adopt)
 VALUES
   (:workspace_id, :id, :kind, :state, :title, :repository_id, :priority, :size, :requirements, :needs,
    :contract_id, :contract_version, :fence, :claim_id, :lease_worker, :lease_until,
    :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base, :start_held, :reviews, :reviews_fence,
-   :unknown_repository, :continues)`)
+   :unknown_repository, :continues, :adopt)`)
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
@@ -273,6 +273,7 @@ func workOrderParams(scope ledger.WorkspaceID, w workorders.WorkOrder) (params, 
 		"plan_commit":        nullText(w.PlanCommit),
 		"base":               nullText(w.Base),
 		"continues":          nullText(w.Continues),
+		"adopt":              flag(w.Adopt),
 		"workspace_id":       string(scope),
 		"id":                 w.ID,
 		"kind":               string(w.Kind),
@@ -324,15 +325,16 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 	var branch, resumeLane, reworkOf, reviewedBy, reviewsPlan, reviewPins, planCommit, base, startHeld sql.NullString
 	var reviews, unknownRepository, continues sql.NullString
 	var contractVersion, leaseUntil, takeoverAfter, deadline, reviewsFence sql.NullInt64
+	var adopt int64
 	err := row.Scan(&w.ID, &kind, &state, &title, &repository, &w.Priority, &size, &requirements, &needs,
 		&contractID, &contractVersion, &w.Fence, &claimID, &leaseWorker, &leaseUntil,
 		&takeoverAfter, &branch, &resumeLane, &reworkOf, &w.Attempts, &w.MaxAttempts,
 		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base, &startHeld, &reviews, &reviewsFence,
-		&unknownRepository, &continues)
+		&unknownRepository, &continues, &adopt)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
-	w.Continues = continues.String
+	w.Continues, w.Adopt = continues.String, adopt != 0
 	w.ReviewsPlan, w.PlanCommit, w.Base = reviewsPlan.String, planCommit.String, base.String
 	w.Reviews, w.ReviewsFence = reviews.String, reviewsFence.Int64
 	if startHeld.Valid {

@@ -543,6 +543,8 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	lease.Deadline, lease.Overrides = row.Deadline, claim.Overrides
 	lease.Contract, lease.ContractVersion = row.ContractID, row.ContractVersion
 	lease.Kind = string(row.Kind)
+	// An adopt lane reads what the project already holds before it plans, so the worker takes the inventory.
+	lease.Adopt, lease.Inventory = row.Adopt, row.Adopt
 	if lease.Review, err = desiredReview(tx.Planning(), row); err != nil {
 		return lease, err
 	}

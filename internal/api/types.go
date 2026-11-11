@@ -62,6 +62,8 @@ const (
 	CodeProjectState = "project_state"
 	// CodeProjectArchived means a change to an archived project, which is read-only until restored.
 	CodeProjectArchived = "project_archived"
+	// CodeAlreadyPlanned refuses to adopt a project that already has an approved plan (ADR-0023).
+	CodeAlreadyPlanned = "already_planned"
 )
 
 // ErrorBody is every error response.
@@ -107,6 +109,9 @@ type CreateWorkOrder struct {
 	Needs        map[string]string    `json:"needs,omitempty"`
 	DependsOn    []string             `json:"depends_on,omitempty"`
 	RepositoryID string               `json:"repository_id,omitempty"`
+	// Adopt makes planning work adopt an existing project (ADR-0023). A project with an approved plan
+	// refuses it.
+	Adopt bool `json:"adopt,omitempty"`
 }
 
 // WorkOrderList is the answer to a list.

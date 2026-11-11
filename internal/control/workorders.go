@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -41,6 +42,9 @@ func (w *WorkOrders) Create(ctx context.Context, scope ledger.WorkspaceID, draft
 		if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
+		if err := refusePlannedAdoption(tx.Approvals(), record); err != nil {
+			return err
+		}
 		if err := tx.WorkOrders().Insert(record); err != nil {
 			return err
 		}
@@ -55,6 +59,25 @@ func (w *WorkOrders) Create(ctx context.Context, scope ledger.WorkspaceID, draft
 		return workorders.WorkOrder{}, err
 	}
 	return record, nil
+}
+
+// refusePlannedAdoption refuses work that adopts a project once a member approved a plan of it: the project
+// then plans its next work with a planning session, which starts from the plan it has (ADR-0023). A plan
+// that only waits for approval is not one the project has yet.
+func refusePlannedAdoption(approvals ports.ApprovalReader, record workorders.WorkOrder) error {
+	if !record.Adopt {
+		return nil
+	}
+	rows, err := approvals.All()
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Kind == authority.KindPlan && row.State == authority.ApprovalApproved {
+			return fmt.Errorf("%w (%s), so it plans its next work with a planning session: run 'ropeshift plan start'", workorders.ErrAlreadyPlanned, row.Summary)
+		}
+	}
+	return nil
 }
 
 // LedgerWork is a work order that lives only in the ledger, with the contract it
@@ -91,6 +114,9 @@ func (w *WorkOrders) Record(ctx context.Context, scope ledger.WorkspaceID, work 
 			return nil
 		}
 		if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		if err := refusePlannedAdoption(tx.Approvals(), record); err != nil {
 			return err
 		}
 		pinned, err := recordLedgerWork(tx, record, work, actor)

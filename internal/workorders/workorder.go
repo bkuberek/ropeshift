@@ -69,7 +69,11 @@ type WorkOrder struct {
 	Base string `json:"base,omitempty"`
 	// Continues names the in-flight branch this work finishes (ADR-0023). Its lane starts from that branch's
 	// tip on a branch of its own, and the branch itself never moves.
-	Continues       string `json:"continues,omitempty"`
+	Continues string `json:"continues,omitempty"`
+	// Adopt says this planning work adopts an existing project (ADR-0023): its lane is told to onboard the
+	// project's documents and plan what remains, and the worker gives it the inventory of the project's
+	// repositories before it starts.
+	Adopt           bool   `json:"adopt,omitempty"`
 	ContractID      string `json:"contract_id,omitempty"`
 	ContractVersion int64  `json:"contract_version,omitempty"`
 	Fence           int64  `json:"fence,omitempty"`
@@ -110,6 +114,10 @@ func (w WorkOrder) OpenReview() bool { return w.Kind == KindReview && !Terminal(
 // ErrInvalid marks a work order the ledger must not accept.
 var ErrInvalid = errors.New("invalid work order")
 
+// ErrAlreadyPlanned refuses to adopt a project that already has an approved plan: it plans its next work
+// with a planning session (ADR-0023).
+var ErrAlreadyPlanned = errors.New("the project already has an approved plan")
+
 // New validates a client's draft and returns the record in its first state. The
 // client generates the ID, which makes a retry idempotent.
 func New(draft WorkOrder) (WorkOrder, error) {
@@ -122,6 +130,9 @@ func New(draft WorkOrder) (WorkOrder, error) {
 		return WorkOrder{}, fmt.Errorf("%w: a review is made by the control plane when a lane completes", ErrInvalid)
 	default:
 		return WorkOrder{}, fmt.Errorf("%w: kind %q", ErrInvalid, draft.Kind)
+	}
+	if draft.Adopt && draft.Kind != KindPlan {
+		return WorkOrder{}, fmt.Errorf("%w: only planning work adopts a project, and this is a %s", ErrInvalid, draft.Kind)
 	}
 	draft.State = Intake
 	return draft, nil
