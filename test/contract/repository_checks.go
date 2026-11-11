@@ -31,6 +31,7 @@ var RepositoryChecks = []Check{
 	{"RB8", "intake carries a work order's base to the work order, and a rebuild from events keeps it", checkIntakeCarriesAWorkOrdersBase},
 	{"RB11", "a repository is named by its clone's directory, or by its remote when that name is taken, and a member renames it with one audited event to a name no other repository holds", checkRepositoryNames},
 	{"RB12", "a work order's repo names a repository by its name, and an unknown name keeps the work from ready until a repository takes it", checkWorkNamesItsRepository},
+	{"RB13", "a repository leaves its project only once no open work targets it, and its record stays as history with its name, which no work can take", checkRepositoryRemoval},
 }
 
 func (r *Rig) repositories(s ports.Store) *control.Repositories { return control.NewRepositories(s) }
@@ -540,6 +541,57 @@ func checkWorkNamesItsRepository(r *Rig) error {
 	}
 	if rebuilt, err := r.orderByTitle(s, "The work order of web"); err != nil || rebuilt.RepositoryID != "repo-web" {
 		return Violatedf("a rebuild left the work targeting %q: %v", rebuilt.RepositoryID, err)
+	}
+	return nil
+}
+
+func checkRepositoryRemoval(r *Rig) error {
+	s := r.Store()
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-api", DefaultBranch: "main", Directory: "api"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		return err
+	}
+	work, err := r.NewOps(s).Create(r.Ctx, r.Scope, workorders.WorkOrder{ID: r.ID("wo"), Kind: workorders.KindChange, Title: "Change the api", RepositoryID: "repo-api", MaxAttempts: 1}, r.Actor)
+	if err != nil {
+		return err
+	}
+	remove := func(actor ledger.Actor) (ledger.Repository, error) {
+		return r.repositories(s).Remove(r.Ctx, r.Scope, "repo-api", nil, actor)
+	}
+	if _, err := remove(ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "worker-1"}); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("an orchestrator removing a repository: %v", err)
+	}
+	if _, err := remove(r.Actor); !errors.Is(err, ledger.ErrRepositoryState) || !strings.Contains(err.Error(), work.ID) {
+		return Violatedf("removing a repository open work targets: %v", err)
+	}
+	if err := r.NewOps(s).Cancel(r.Ctx, r.Scope, work.ID, "not needed", r.Actor); err != nil {
+		return err
+	}
+	removed, err := remove(r.Actor)
+	if err != nil || removed.State != ledger.RepositoryRemoved || removed.Name != "api" {
+		return Violatedf("the removal left %+v: %v", removed, err)
+	}
+	if record, err := r.theRepository(s, "repo-api"); err != nil || record.State != ledger.RepositoryRemoved {
+		return Violatedf("the record as history reads %+v: %v", record, err)
+	}
+	events, err := r.repositoryEvents(s, "repo-api")
+	if err != nil || events[len(events)-1].Type != ledger.EventRepositoryRemoved || events[len(events)-1].Actor != r.Actor {
+		return Violatedf("the removal's event: %+v: %v", events, err)
+	}
+	if _, err := remove(r.Actor); !errors.Is(err, ledger.ErrRepositoryState) {
+		return Violatedf("removing a removed repository: %v", err)
+	}
+	// A contract that names the removed repository names none the project holds.
+	files := fake.NewWorkSource()
+	files.Write("api.md", []byte(strings.Replace(ContractText("api", "api", "Change it."), `size = "small"`, "size = \"small\"\nrepo = \"api\"", 1)))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	if order, err := r.orderByTitle(s, "The work order of api"); err != nil || order.RepositoryID != "" || order.UnknownRepository != "api" {
+		return Violatedf("work naming a removed repository reads %+v: %v", order, err)
+	}
+	// A source still reading it is told, and records nothing about it.
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-api", Remote: "https://example.invalid/acme/api.git", DefaultBranch: "main"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); !errors.Is(err, ledger.ErrRepositoryState) {
+		return Violatedf("reading a removed repository: %v", err)
 	}
 	return nil
 }

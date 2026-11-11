@@ -29,14 +29,19 @@ func dashIfEmpty(text string) string {
 }
 
 func repositoryLine(view api.RepositoryView) string {
+	name := dashIfEmpty(view.Name)
+	if view.Removed() {
+		name += " (removed)"
+	}
 	return fmt.Sprintf("%s\t%s\tbase %s\tmerge %s\tstart %s\treview %s\tauthority %s\t%s\n",
-		dashIfEmpty(view.Name), shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
+		name, shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
 }
 
 func repositoryText(view api.RepositoryView) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "repository\t%s\n", view.ID)
 	fmt.Fprintf(&out, "name\t%s\n", dashIfEmpty(view.Name))
+	fmt.Fprintf(&out, "state\t%s\n", cmp.Or(view.State, ledger.RepositoryActive))
 	fmt.Fprintf(&out, "remote\t%s\n", dashIfEmpty(view.Remote))
 	fmt.Fprintf(&out, "default branch\t%s\n", dashIfEmpty(view.DefaultBranch))
 	if view.BaseBranch == "" {
@@ -267,4 +272,24 @@ func addedText(report api.RepositoryAddReport) string {
 		out.WriteString("\n")
 	}
 	return out.String()
+}
+
+// repositoryRemove takes a repository out of its project once no open work targets it (ADR-0021). Its
+// record stays as history, and another project may then register it.
+func (c *invocation) repositoryRemove(args []string) int {
+	set := c.flags()
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) != 1 {
+		return c.usageError("this takes one repository")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	view, err := client.RemoveRepository(c.ctx, positional[0])
+	return c.finish(err, view, func() string { return repositoryText(view) })
 }

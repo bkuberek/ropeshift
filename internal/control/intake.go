@@ -113,10 +113,15 @@ func (i *Intake) keepRepository(ctx context.Context, scope ledger.WorkspaceID, d
 		return nil
 	}
 	repositories := NewRepositories(i.store)
-	// A poll finds the same facts nearly every time, and a read costs the workspace lock nothing.
-	if known, err := repositories.Get(ctx, scope, description.Instance); err == nil &&
-		known.Remote == description.Remote && known.DefaultBranch == description.DefaultBranch && known.Name != "" {
-		return nil
+	// A poll finds the same facts nearly every time, and a read costs the workspace lock nothing. A
+	// repository the project removed is read no more, which each poll says.
+	if known, err := repositories.Get(ctx, scope, description.Instance); err == nil {
+		if known.Removed() {
+			return errRemoved(known)
+		}
+		if known.Remote == description.Remote && known.DefaultBranch == description.DefaultBranch && known.Name != "" {
+			return nil
+		}
 	}
 	_, err := repositories.Detect(ctx, scope, DetectedRepository{
 		ID: description.Instance, Remote: description.Remote, DefaultBranch: description.DefaultBranch, Directory: description.Directory,
@@ -943,7 +948,7 @@ func (r *itemRecorder) repository(spec planning.WorkOrderSpec) (id, unknown stri
 		return r.item.Key.Instance, "", nil
 	}
 	record, err := r.tx.Repositories().Named(spec.Repo)
-	if errors.Is(err, ports.ErrNotFound) {
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && record.Removed()) {
 		return "", spec.Repo, nil
 	}
 	if err != nil {

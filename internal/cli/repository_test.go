@@ -337,3 +337,27 @@ func TestRepositorySetChangesSeveralRepositories(t *testing.T) {
 		t.Errorf("one name for two repositories: exit %d", code)
 	}
 }
+
+// ADR-0021: `repository remove` takes a repository out of its project once no open work targets it, and
+// the record stays as history.
+func TestRepositoryRemoveKeepsTheRecordAsHistory(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	s.must("work", "create", "--id", "wo-1", "--title", "Change the app", "--criterion", "It changes", "--repository", aRepositoryID)
+	if code, _, stderr := s.run("repository", "remove", "app"); code != cli.ExitConflict || !strings.Contains(stderr, "wo-1") {
+		t.Errorf("open work targets it: exit %d, %q", code, stderr)
+	}
+	s.must("work", "cancel", "wo-1", "--reason", "not needed")
+	if text := s.must("repository", "remove", "app"); !strings.Contains(text, "state\tremoved") {
+		t.Errorf("remove printed:\n%s", text)
+	}
+	if text := s.must("repository", "list"); !strings.Contains(text, "app (removed)\t") {
+		t.Errorf("list:\n%s", text)
+	}
+	if code, _, _ := s.run("repository", "remove", "app"); code != cli.ExitConflict {
+		t.Errorf("removing it again: exit %d", code)
+	}
+	if code, _, _ := s.run("repository", "remove"); code != cli.ExitUsage {
+		t.Errorf("no repository: exit %d", code)
+	}
+}

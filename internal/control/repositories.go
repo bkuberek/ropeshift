@@ -1,6 +1,7 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -109,6 +110,12 @@ type detection struct {
 	made, moved bool
 }
 
+// errRemoved refuses to read a repository its project removed, until a member registers it again.
+func errRemoved(record ledger.Repository) error {
+	return fmt.Errorf("%w: repository %s was removed from this project; register it again with repository add",
+		ledger.ErrRepositoryState, cmp.Or(record.Name, record.ID))
+}
+
 // detectIn makes or refreshes a record in a transaction. A new name avoids the names the project's
 // records hold and the ones claimed, which a run that registers several clones claims as it goes.
 func detectIn(repositories ports.RepositoryWriter, found DetectedRepository, claimed map[string]bool) (detection, error) {
@@ -126,6 +133,9 @@ func detectIn(repositories ports.RepositoryWriter, found DetectedRepository, cla
 	}
 	if err != nil {
 		return detection{}, err
+	}
+	if record.Removed() {
+		return detection{record: record}, errRemoved(record)
 	}
 	moved, err := repositories.Detected(found.ID, found.Remote, found.DefaultBranch)
 	if err != nil {
@@ -207,6 +217,54 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 		return ledger.Repository{}, err
 	}
 	return after, nil
+}
+
+// removedEvent is the data of EventRepositoryRemoved.
+type removedEvent struct {
+	Name     string `json:"name,omitempty"`
+	Identity string `json:"identity"`
+}
+
+// Remove takes a repository out of its project once no open work order targets it (ADR-0021). The record
+// stays as history with state removed and keeps its name, its identity leaves the repository index so
+// another project may register it, and this worker forgets its checkout, when it keeps checkouts.
+func (r *Repositories) Remove(ctx context.Context, scope ledger.WorkspaceID, id string, kept ports.Checkouts, actor ledger.Actor) (ledger.Repository, error) {
+	if !authority.Allowed(actor, authority.ActionRegisterRepository) {
+		return ledger.Repository{}, workorders.ErrForbidden
+	}
+	var record ledger.Repository
+	err := r.store.Write(ctx, scope, "repository.remove", func(tx ports.WriteTx) error {
+		var err error
+		if record, err = tx.Repositories().Repository(id); err != nil {
+			return err
+		}
+		if record.Removed() {
+			return fmt.Errorf("%w: repository %s is removed already", ledger.ErrRepositoryState, cmp.Or(record.Name, id))
+		}
+		orders, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		for _, order := range orders {
+			if order.RepositoryID == id && !workorders.Terminal(order.State) {
+				return fmt.Errorf("%w: work order %s targets repository %s and is %s", ledger.ErrRepositoryState, order.ID, cmp.Or(record.Name, id), order.State)
+			}
+		}
+		if err := tx.Repositories().Remove(id); err != nil {
+			return err
+		}
+		record.State = ledger.RepositoryRemoved
+		event, err := repositoryEvent(ledger.EventRepositoryRemoved, id, removedEvent{Name: record.Name, Identity: ledger.RepositoryIdentity(record.Remote, id)}, actor)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil || kept == nil {
+		return record, err
+	}
+	return record, kept.Forget(ctx, scope, id)
 }
 
 // nameIsFree refuses a name another record of the project holds, because a name names one repository,

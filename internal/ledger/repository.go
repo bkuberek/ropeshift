@@ -23,6 +23,19 @@ const (
 	// EventRepositoryRegistered records a member registering a repository from a clone on a worker's
 	// machine (ADR-0022): its name and what git said of it.
 	EventRepositoryRegistered = "repository.registered"
+	// EventRepositoryRemoved records a member taking a repository out of its project (ADR-0021).
+	EventRepositoryRemoved = "repository.removed"
+)
+
+// RepositoryState says whether a repository is in its project.
+type RepositoryState string
+
+// The states of a repository's record.
+const (
+	// RepositoryActive is a repository of its project.
+	RepositoryActive RepositoryState = "active"
+	// RepositoryRemoved is a record kept as history, whose repository left the project and its index.
+	RepositoryRemoved RepositoryState = "removed"
 )
 
 // RepositoryOutcome is what became of one clone a member registered in a project (ADR-0022).
@@ -126,11 +139,18 @@ type Repository struct {
 	// ReviewTarget is where accepted work is reviewed and lands. Empty reads as ReviewOnBranch.
 	ReviewTarget ReviewTarget `json:"review_target"`
 	StartFrom    StartFrom    `json:"start_from"`
+	// State says whether the repository is in its project. Empty reads as RepositoryActive.
+	State RepositoryState `json:"state,omitempty"`
 }
+
+// Removed reports a record kept as history after its repository left the project.
+func (r Repository) Removed() bool { return r.State == RepositoryRemoved }
 
 // NewRepository returns a record with the settings a person who chose nothing gets.
 func NewRepository(id string) Repository {
-	return Repository{ID: id, MergeMethod: MergeCommit, StartFrom: StartFromMerged, MergeAuthority: PersonMerges, ReviewTarget: ReviewOnBranch}
+	return Repository{
+		ID: id, MergeMethod: MergeCommit, StartFrom: StartFromMerged, MergeAuthority: PersonMerges, ReviewTarget: ReviewOnBranch, State: RepositoryActive,
+	}
 }
 
 // Target is the review target in force: the one a member chose, or else a branch.
@@ -183,6 +203,11 @@ func (r Repository) Validate() error {
 	case ReviewOnBranch, ReviewOnPullRequest:
 	default:
 		return fmt.Errorf("%w: review target %q", ErrInvalidRepository, r.ReviewTarget)
+	}
+	switch r.State {
+	case "", RepositoryActive, RepositoryRemoved:
+	default:
+		return fmt.Errorf("%w: state %q", ErrInvalidRepository, r.State)
 	}
 	if r.BaseBranch != "" {
 		if err := CheckBranch(r.BaseBranch); err != nil {

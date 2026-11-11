@@ -517,6 +517,12 @@ type RepositoryWriter interface {
 	// Detected replaces the remote and the default branch git gave, and reports whether either moved.
 	// A member's settings stay.
 	Detected(id, remote, defaultBranch string) (bool, error)
+	// Remove keeps a record as history, out of its project, and drops its identity from the installation's
+	// repository index.
+	Remove(id string) error
+	// Restore brings a removed record back into its project and holds its identity in the repository
+	// index again, which is refused when another project holds it.
+	Restore(id string) error
 	// Settings replaces the name and the settings a member gives. The store itself refuses a combination
 	// that cannot hold, and a name another record of the workspace holds.
 	Settings(ledger.Repository) error

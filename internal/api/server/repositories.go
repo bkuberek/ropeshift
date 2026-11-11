@@ -15,6 +15,28 @@ func (h *handler) repositoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/repositories/{id}", h.showRepository)
 	mux.HandleFunc("PATCH /v1/repositories/{id}", h.member(h.changeRepository))
 	mux.HandleFunc("POST /v1/repositories", h.member(h.addRepositories))
+	mux.HandleFunc("POST /v1/repositories/{id}/remove", h.member(h.removeRepository))
+}
+
+// removeRepository takes a repository out of its project once no open work targets it (ADR-0021). The
+// worker this daemon runs forgets its checkout.
+func (h *handler) removeRepository(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	record, err := h.repositories.Resolve(r.Context(), h.Scope, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	removed, err := h.repositories.Remove(r.Context(), h.Scope, record.ID, h.Checkouts, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	agreement, err := h.repositories.ReviewAgreement(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.ViewOf(removed, agreement))
 }
 
 // addRepositories registers the repositories of clones on the machine of the worker this daemon runs

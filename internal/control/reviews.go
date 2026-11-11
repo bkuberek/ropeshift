@@ -181,7 +181,7 @@ func resolveRepository(tx ports.WriteTx, current workorders.WorkOrder, actor led
 		return current, nil
 	}
 	record, err := tx.Repositories().Named(current.UnknownRepository)
-	if errors.Is(err, ports.ErrNotFound) {
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && record.Removed()) {
 		return current, nil
 	}
 	if err != nil {

@@ -1,6 +1,7 @@
 package sqlstore
 
 import (
+	"cmp"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -9,14 +10,14 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority`
+const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state`
 
 var (
 	stmtInsertRepository = define("repository.insert",
 		`INSERT INTO repositories
-  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority)
+  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state)
 VALUES
-  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority)
+  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority, :state)
 ON CONFLICT DO NOTHING`)
 
 	stmtRepository = define("repository.get",
@@ -44,6 +45,9 @@ ON CONFLICT DO NOTHING`)
 	stmtReleaseRepository = defineInstallation("repository_index.release",
 		`DELETE FROM repository_index WHERE identity = :identity AND project_id = :project_id AND repository_id = :repository_id`)
 
+	stmtRepositoryState = define("repository.state",
+		`UPDATE repositories SET state = :state WHERE workspace_id = :workspace_id AND id = :id`)
+
 	stmtRepositorySettings = define("repository.settings",
 		`UPDATE repositories
    SET name = :name, base_branch = :base_branch, forge_binding = :forge_binding, merge_method = :merge_method,
@@ -67,8 +71,9 @@ func (t repositoryTx) scoped(p params) params {
 
 func scanRepository(row scanner) (ledger.Repository, error) {
 	var r ledger.Repository
-	var method, target, start, authority string
-	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority)
+	var method, target, start, authority, state string
+	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority, &state)
+	r.State = ledger.RepositoryState(state)
 	r.MergeMethod, r.ReviewTarget, r.StartFrom = ledger.MergeMethod(method), ledger.ReviewTarget(target), ledger.StartFrom(start)
 	r.MergeAuthority = ledger.MergeAuthority(authority)
 	return r, err
@@ -122,7 +127,7 @@ func repositoryParams(r ledger.Repository) params {
 	return params{
 		"id": r.ID, "name": r.Name, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
 		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "review_target": string(r.Target()), "start_from": string(r.StartFrom),
-		"merge_authority": string(r.Level()),
+		"merge_authority": string(r.Level()), "state": string(cmp.Or(r.State, ledger.RepositoryActive)),
 	}
 }
 
@@ -147,7 +152,7 @@ func (t repositoryTx) Detected(id, remote, defaultBranch string) (bool, error) {
 		}
 	}
 	n, err := t.exec(stmtDetectedRepository, t.scoped(params{"id": id, "remote": remote, "default_branch": defaultBranch}))
-	if err != nil || n == 0 || t.index == nil {
+	if err != nil || n == 0 || t.index == nil || before.Removed() {
 		return n > 0, err
 	}
 	was, now := ledger.RepositoryIdentity(before.Remote, id), ledger.RepositoryIdentity(remote, id)
@@ -192,6 +197,33 @@ func (t repositoryTx) heldElsewhere(identity string) error {
 		return fmt.Errorf("%w: project %s holds %s", ledger.ErrRepositoryHeld, name, identity)
 	}
 	return nil
+}
+
+// Remove keeps a record as history, out of its project, and gives up its identity in the repository index
+// (ADR-0021), so another project may register the repository.
+func (t repositoryTx) Remove(id string) error {
+	record, err := t.Repository(id)
+	if err != nil {
+		return err
+	}
+	if _, err := t.exec(stmtRepositoryState, t.scoped(params{"id": id, "state": string(ledger.RepositoryRemoved)})); err != nil || t.index == nil {
+		return err
+	}
+	_, err = t.index.exec(stmtReleaseRepository, params{"identity": ledger.RepositoryIdentity(record.Remote, id), "project_id": string(t.scope), "repository_id": id})
+	return err
+}
+
+// Restore brings a removed record back into its project, and holds its identity in the repository index
+// again, unless another project holds it, which the refusal names.
+func (t repositoryTx) Restore(id string) error {
+	record, err := t.Repository(id)
+	if err != nil {
+		return err
+	}
+	if _, err := t.exec(stmtRepositoryState, t.scoped(params{"id": id, "state": string(ledger.RepositoryActive)})); err != nil {
+		return err
+	}
+	return t.hold(ledger.RepositoryIdentity(record.Remote, id), id)
 }
 
 func (t repositoryTx) Settings(r ledger.Repository) error {

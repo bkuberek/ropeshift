@@ -119,4 +119,12 @@ func (c *ProjectClient) AddRepositories(ctx context.Context, in RepositoryAdd) (
 	return out, err
 }
 
+// RemoveRepository takes a repository out of its project, which only a member can do. Its record stays as
+// history.
+func (c *ProjectClient) RemoveRepository(ctx context.Context, id string) (RepositoryView, error) {
+	var out RepositoryView
+	err := c.do(ctx, http.MethodPost, repositoryPath(id)+"/remove", struct{}{}, &out)
+	return out, err
+}
+
 func repositoryPath(id string) string { return "/v1/repositories/" + url.PathEscape(id) }

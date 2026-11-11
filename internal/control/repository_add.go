@@ -104,6 +104,12 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 	found := DetectedRepository{ID: clone.ID, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, Directory: clone.Directory}
 	err := r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
 		look, err := detectIn(tx.Repositories(), found, claimed)
+		if look.record.Removed() {
+			// The project removed it, and a member registering it again brings it back.
+			if look, err = restoreIn(tx.Repositories(), found); err != nil {
+				return err
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -138,6 +144,19 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		}, nil
 	}
 	return added, err
+}
+
+// restoreIn brings a removed record back into its project, refreshed with what git says of it now, as a
+// registration that made it.
+func restoreIn(repositories ports.RepositoryWriter, found DetectedRepository) (detection, error) {
+	if err := repositories.Restore(found.ID); err != nil {
+		return detection{}, err
+	}
+	if _, err := repositories.Detected(found.ID, found.Remote, found.DefaultBranch); err != nil {
+		return detection{}, err
+	}
+	record, err := repositories.Repository(found.ID)
+	return detection{record: record, named: record.Name, made: true, moved: true}, err
 }
 
 // keepCheckout records a clone as this worker's checkout of its repository, unless the worker keeps
