@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -572,13 +573,102 @@ func (p *Plane) WakeDigest(ctx context.Context, request ledger.WakeRequest) (led
 	return digest, nil
 }
 
-// Orchestrate carries one act of this worker's orchestrator to the project the act names.
+// Orchestrate carries one act of this worker's orchestrator to the project the act names, through that
+// project's own ledger, so a record of another project does not resolve. Its two lists name no project to
+// read every one the worker serves, and each item they give names its project: the work it may claim, and
+// the next question, which comes from the first project that has one free. A turn's end lets go of what
+// it held in every project.
 func (p *Plane) Orchestrate(ctx context.Context, verb string, call ledger.OrchestratorCall) (ledger.OrchestratorReply, error) {
-	w, _, err := p.route(ctx, call.Auth, call.Project, verb != ledger.VerbLetGo && verb != ledger.VerbCandidates)
+	spans := verb == ledger.VerbCandidates || verb == ledger.VerbNext || verb == ledger.VerbLetGo
+	if !spans || call.Project != "" {
+		w, project, err := p.route(ctx, call.Auth, call.Project, verb != ledger.VerbLetGo && verb != ledger.VerbCandidates)
+		if err != nil {
+			return ledger.OrchestratorReply{}, err
+		}
+		reply, err := w.Orchestrate(ctx, verb, call)
+		if err != nil || !spans {
+			return reply, err
+		}
+		return p.labeled(verb, project, reply)
+	}
+	record, err := p.worker(ctx, call.Auth, &call.Epoch)
 	if err != nil {
 		return ledger.OrchestratorReply{}, err
 	}
-	return w.Orchestrate(ctx, verb, call)
+	projects, err := p.serving(ctx, record.Protocol)
+	if err != nil {
+		return ledger.OrchestratorReply{}, err
+	}
+	candidates := []json.RawMessage{}
+	for _, project := range projects {
+		w, err := p.workers(ctx, project)
+		if err != nil {
+			return ledger.OrchestratorReply{}, err
+		}
+		reply, err := w.Orchestrate(ctx, verb, call)
+		if err != nil {
+			return ledger.OrchestratorReply{}, err
+		}
+		labeled, err := p.labeled(verb, project, reply)
+		if err != nil {
+			return ledger.OrchestratorReply{}, err
+		}
+		switch verb {
+		case ledger.VerbNext:
+			if len(reply.Result) != 0 && string(reply.Result) != "null" {
+				return labeled, nil
+			}
+		case ledger.VerbCandidates:
+			var items []json.RawMessage
+			if err := json.Unmarshal(labeled.Result, &items); err != nil {
+				return ledger.OrchestratorReply{}, err
+			}
+			candidates = append(candidates, items...)
+		}
+	}
+	if verb != ledger.VerbCandidates {
+		return ledger.OrchestratorReply{}, nil
+	}
+	raw, err := json.Marshal(candidates)
+	return ledger.OrchestratorReply{Result: raw}, err
+}
+
+// labeled names the project of each item a list gave: each work order a worker may claim, or the question
+// it took next, by the project's ID, which every act after it names, and its name, which a person reads.
+func (p *Plane) labeled(verb string, project ledger.Project, reply ledger.OrchestratorReply) (ledger.OrchestratorReply, error) {
+	if len(reply.Result) == 0 || string(reply.Result) == "null" {
+		return reply, nil
+	}
+	label := func(raw json.RawMessage) (json.RawMessage, error) {
+		var item map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return nil, err
+		}
+		id, _ := json.Marshal(string(project.ID))
+		name, _ := json.Marshal(project.Name)
+		item["project"], item["project_name"] = id, name
+		return json.Marshal(item)
+	}
+	switch verb {
+	case ledger.VerbCandidates:
+		var items []json.RawMessage
+		if err := json.Unmarshal(reply.Result, &items); err != nil {
+			return ledger.OrchestratorReply{}, err
+		}
+		for i, item := range items {
+			labeled, err := label(item)
+			if err != nil {
+				return ledger.OrchestratorReply{}, err
+			}
+			items[i] = labeled
+		}
+		raw, err := json.Marshal(items)
+		return ledger.OrchestratorReply{Result: raw}, err
+	case ledger.VerbNext:
+		raw, err := label(reply.Result)
+		return ledger.OrchestratorReply{Result: raw}, err
+	}
+	return reply, nil
 }
 
 // List returns every registered worker of the installation.

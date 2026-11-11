@@ -396,3 +396,25 @@ func TestNoCallerHasAnAcceptanceTool(t *testing.T) {
 		}
 	}
 }
+
+// One orchestrator serves every active project (ADR-0021): each tool that acts or reads names the
+// project, and each list may name one or none, and labels its items with theirs.
+func TestAnOrchestratorsToolsNameTheProject(t *testing.T) {
+	lists := map[string]bool{lanes.ToolWorkCandidates: true, lanes.ToolQuestionNext: true}
+	w := &worker{owner: lanes.OwnerOrchestrator}
+	for _, tool := range ask(t, w, "tools/list", map[string]any{}).Result.Tools {
+		properties, _ := tool.InputSchema["properties"].(map[string]any)
+		if _, ok := properties["project"]; !ok {
+			t.Errorf("%s takes no project: %+v", tool.Name, tool.InputSchema)
+		}
+		required, _ := tool.InputSchema["required"].([]any)
+		if names := slices.Contains(required, any("project")); names == lists[tool.Name] {
+			t.Errorf("%s requires the project %v, and it is a list %v", tool.Name, names, lists[tool.Name])
+		}
+	}
+	for _, tool := range ask(t, &worker{}, "tools/list", map[string]any{}).Result.Tools {
+		if properties, _ := tool.InputSchema["properties"].(map[string]any); properties["project"] != nil {
+			t.Errorf("a lane's %s names a project, and a lane reaches only its own", tool.Name)
+		}
+	}
+}

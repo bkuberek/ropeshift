@@ -1,15 +1,19 @@
 package control_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -44,7 +48,9 @@ func newPlaneRig(t *testing.T, protocol int) *planeRig {
 		}
 		r.stores[p.ID] = store
 	}
-	r.plane = control.NewPlane(state, state.Installation, "pa", control.WorkerOptions{}, nil)
+	r.plane = control.NewPlane(state, state.Installation, "pa", control.WorkerOptions{}, func(store ports.Store) ports.Matcher {
+		return lexical.Matcher{Store: store}
+	})
 	token, err := r.plane.CreateJoinToken(ctx, projectMember)
 	if err != nil {
 		t.Fatal(err)
@@ -174,5 +180,123 @@ func TestAWorkerOneVersionBehindServesOnlyTheDefaultProject(t *testing.T) {
 	var refused *ledger.ProtocolError
 	if !errors.As(err, &refused) {
 		t.Errorf("an old worker with no default project: %v", err)
+	}
+}
+
+// orchestrating starts the worker's orchestrator, as a member does, and returns the call its session makes.
+func (r *planeRig) orchestrating() ledger.OrchestratorCall {
+	r.t.Helper()
+	row, err := r.plane.SetOrchestrator(r.t.Context(), "worker-1", ledger.OrchestratorRunning, projectMember)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return ledger.OrchestratorCall{Auth: r.auth, Epoch: r.epoch, Lane: row.Lane()}
+}
+
+// TestOneOrchestratorServesEveryProject runs one orchestrator over two projects: its candidate list holds
+// both projects' work, each item named with its project, and the next question names its project too.
+func TestOneOrchestratorServesEveryProject(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	r.ready("pa", "wo-a")
+	r.ready("pb", "wo-b")
+	if _, err := control.NewQuestions(r.stores["pb"], questions.BatchPolicy{}).RecordQuestion(ctx, "pb", questions.Question{ID: "q-b", Text: "Which queue carries retries?"}, projectMember); err != nil {
+		t.Fatal(err)
+	}
+	call := r.orchestrating()
+	reply, err := r.plane.Orchestrate(ctx, ledger.VerbCandidates, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offered []struct {
+		ID      string `json:"id"`
+		Project string `json:"project"`
+		Name    string `json:"project_name"`
+	}
+	if err := json.Unmarshal(reply.Result, &offered); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{}
+	for _, item := range offered {
+		labels[item.ID] = item.Project + " " + item.Name
+	}
+	if len(offered) != 2 || labels["wo-a"] != "pa alpha" || labels["wo-b"] != "pb beta" {
+		t.Errorf("candidates %s", reply.Result)
+	}
+	reply, err = r.plane.Orchestrate(ctx, ledger.VerbNext, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var next struct {
+		Question questions.Question `json:"question"`
+		Project  string             `json:"project"`
+	}
+	if err := json.Unmarshal(reply.Result, &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Question.ID != "q-b" || next.Project != "pb" {
+		t.Errorf("the next question %s", reply.Result)
+	}
+	if _, err := r.plane.Orchestrate(ctx, ledger.VerbClaim, ledger.OrchestratorCall{
+		Auth: r.auth, Epoch: r.epoch, Lane: call.Lane, Project: "pb", WorkOrder: "wo-a", Target: "claim-1",
+	}); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a claim of one project's work in another: %v", err)
+	}
+}
+
+// TestAnOrchestratorCannotCiteAnotherProjectsRecord holds ADR-0021's citation rule: a question of one
+// project is answered from that project's records only. Its ladder lookup finds no decision of another
+// project, a decision of another project neither answers it nor reads, and the same decision answers in
+// its own project.
+func TestAnOrchestratorCannotCiteAnotherProjectsRecord(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	member := projectMember
+	if _, err := control.NewQuestions(r.stores["pa"], questions.BatchPolicy{}).RecordQuestion(ctx, "pa", questions.Question{ID: "q-a", Text: "What is the retry budget?"}, member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.NewQuestions(r.stores["pb"], questions.BatchPolicy{}).RecordDecision(ctx, "pb", questions.Decision{
+		ID: "d-b", Status: questions.DecisionDecided, Statement: "The retry budget is two retries.", Rationale: "It follows.",
+		Scope: "retries", Reversibility: questions.Reversible, DecidedBy: member.ID, Citations: []string{"PAY-12"},
+	}, member); err != nil {
+		t.Fatal(err)
+	}
+	call := r.orchestrating()
+	call.Project = "pa"
+	reply, err := r.plane.Orchestrate(ctx, ledger.VerbNext, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read control.LadderRead
+	if err := json.Unmarshal(reply.Result, &read); err != nil {
+		t.Fatal(err)
+	}
+	if read.Question.ID != "q-a" {
+		t.Fatalf("the next question %s", reply.Result)
+	}
+	for _, candidate := range read.Lookup {
+		if candidate.Ref == "d-b" {
+			t.Errorf("the ladder's lookup in alpha found beta's decision: %+v", read.Lookup)
+		}
+	}
+	resolve := call
+	resolve.Question, resolve.Target = "q-a", "d-b"
+	if _, err := r.plane.Orchestrate(ctx, ledger.VerbResolve, resolve); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("alpha's question answered by beta's decision: %v", err)
+	}
+	read2 := func(project string) []ledger.ContextRecord {
+		found, err := r.plane.LaneContext(ctx, ledger.LaneContextRequest{
+			Auth: r.auth, Epoch: r.epoch, Project: project, Lane: call.Lane, Tool: lanes.ToolContextGet, Kind: "decision", Ref: "d-b",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return found.Records
+	}
+	if records := read2("pa"); len(records) != 0 {
+		t.Errorf("alpha reads beta's decision: %+v", records)
+	}
+	if records := read2("pb"); len(records) != 1 {
+		t.Errorf("beta does not read its own decision: %+v", records)
 	}
 }

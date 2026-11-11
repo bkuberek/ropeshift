@@ -157,8 +157,10 @@ type WakeItem struct {
 	Digest  string `json:"digest,omitempty"`
 }
 
-// Key names an item as it stands.
-func (i WakeItem) Key() string { return i.Kind + "/" + i.ID + "/" + strconv.FormatInt(i.Stamp, 10) }
+// Key names an item as it stands, in its project.
+func (i WakeItem) Key() string {
+	return i.Project + "/" + i.Kind + "/" + i.ID + "/" + strconv.FormatInt(i.Stamp, 10)
+}
 
 // WakeDigest is what a worker's orchestrator could judge now.
 type WakeDigest struct {

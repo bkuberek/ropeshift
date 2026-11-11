@@ -17,10 +17,18 @@ import (
 // takeContext carries one read of the Context group to the control plane. The bound is the rule
 // that no call stays open: with the control plane away, a lane learns that and goes on.
 func (w *Worker) takeContext(ctx context.Context, lane lanes.Record, request lanes.ContextRequest) lanes.Reply {
+	// A lane reads only its own project. An orchestrator serves every project, and names the one it reads.
+	project := lane.Project
+	if lane.Owner == lanes.OwnerOrchestrator {
+		if err := w.namesProject(ctx, request.Project); err != nil {
+			return refused(lanes.CodeInvalid, err.Error())
+		}
+		project = request.Project
+	}
 	bounded, cancel := context.WithTimeout(ctx, askDeadline)
 	defer cancel()
 	found, err := w.link.LaneContext(bounded, ledger.LaneContextRequest{
-		Auth: w.Auth(), Epoch: w.epoch(), Project: lane.Project, WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID,
+		Auth: w.Auth(), Epoch: w.epoch(), Project: project, WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID,
 		Tool: request.Tool, Kind: request.Kind, Ref: request.Ref, Query: request.Query, Limit: request.Limit,
 	})
 	var fenced *workorders.FencedError

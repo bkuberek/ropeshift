@@ -572,10 +572,13 @@ func (w *Worker) takeDecision(ctx context.Context, lane lanes.Record, request la
 	if lane.Owner != lanes.OwnerOrchestrator {
 		return refused(lanes.CodeForbidden, "this token cannot decide a request")
 	}
+	if err := w.namesProject(ctx, request.Project); err != nil {
+		return refused(lanes.CodeInvalid, err.Error())
+	}
 	bounded, cancel := context.WithTimeout(ctx, askDeadline)
 	defer cancel()
 	_, err := w.link.DecideApproval(bounded, authority.WorkerDecision{
-		Auth: w.Auth(), Epoch: w.epoch(),
+		Auth: w.Auth(), Epoch: w.epoch(), Project: request.Project,
 		Decision: authority.Decision{ID: request.ID, Digest: request.Digest, Allow: request.Allow, Reason: request.Reason},
 	})
 	switch {
