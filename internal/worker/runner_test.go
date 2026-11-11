@@ -67,7 +67,7 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 			Lookup: func(string) (string, bool) { return "", false },
 		},
 		Secrets:    fake.SecretResolver{},
-		Repository: func(context.Context, string) (string, error) { return "/repository", nil },
+		Repository: func(context.Context, string, string) (string, error) { return "/repository", nil },
 		Socket:     "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
 		StateDir: dir, RunDir: dir,
 	}
@@ -244,7 +244,7 @@ func TestALanesWorktreeStartsAtTheBaseItsClaimNamed(t *testing.T) {
 	worktrees := fake.NewWorktrees()
 	tip := worktrees.Grow("/repository", "main")
 	base.worktrees, base.repository = worktrees, "repo-1"
-	base.starts = &control.Starts{Bases: worktrees, Checkout: func(context.Context, string) (string, error) { return "/repository", nil }}
+	base.starts = &control.Starts{Bases: worktrees, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return "/repository", nil }}
 	r := newLaneRigFor(t, base)
 	// The base moves while the lane is not yet running.
 	worktrees.Grow("/repository", "main")
@@ -341,7 +341,7 @@ func TestLaneFailuresBeforeASession(t *testing.T) {
 		reason string
 	}{
 		{"no checkout of the repository", func(r *laneRig) {
-			r.config.Repository = func(context.Context, string) (string, error) { return "", errors.New("no source") }
+			r.config.Repository = func(context.Context, string, string) (string, error) { return "", errors.New("no source") }
 		}, workorders.ReasonNoRepository},
 		{"a bad secret reference", func(r *laneRig) {
 			r.config.Provisioner.Profiles = badProfile{}

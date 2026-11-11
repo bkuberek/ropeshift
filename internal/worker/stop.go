@@ -278,7 +278,7 @@ func (w *Worker) archive(ctx context.Context, record lanes.Record, request ledge
 			return w.reportGuard(ctx, record, result)
 		}
 	}
-	repository, err := w.config.Lanes.Repository(ctx, request.Repository)
+	repository, err := w.config.Lanes.Repository(ctx, request.Project, request.Repository)
 	if err != nil {
 		return err
 	}

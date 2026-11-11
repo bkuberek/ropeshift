@@ -67,7 +67,7 @@ func newInstallationRig(t *testing.T) *installationRig {
 			Lookup: func(string) (string, bool) { return "", false },
 		},
 		Secrets:    fake.SecretResolver{},
-		Repository: func(context.Context, string) (string, error) { return "/repository", nil },
+		Repository: func(context.Context, string, string) (string, error) { return "/repository", nil },
 		Socket:     "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
 		StateDir: dir, RunDir: dir,
 		Telemetry: worker.LaneTelemetry{Endpoint: "http://127.0.0.1:7318", Header: "x-ropeshift-telemetry=t", Workspace: "pa"},

@@ -31,8 +31,9 @@ type LaneRuntime struct {
 	Driver      ports.AgentDriver
 	Provisioner Provisioner
 	Secrets     ports.SecretResolver
-	// Repository finds a repository's checkout on this machine.
-	Repository func(ctx context.Context, id string) (string, error)
+	// Repository finds this machine's checkout of a project's repository. An empty project names the
+	// plane's only project, as a plane one protocol version behind sends it.
+	Repository func(ctx context.Context, project, id string) (string, error)
 	// Socket and Spool are what a lane's hooks and MCP server reach.
 	Socket string
 	Spool  string

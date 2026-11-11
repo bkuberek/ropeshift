@@ -213,7 +213,7 @@ func TestTheDaemonRunsTheWakeTick(t *testing.T) {
 	if _, err := store.CreateWorkspace(t.Context(), ledger.Workspace{ID: soloScope}, tickActor("solo")); err != nil {
 		t.Fatal(err)
 	}
-	ticks := soloTicks(registryOf(store, soloScope), soloScope, opts, questions.BatchPolicy{}, nil)
+	ticks := soloTicks(registryOf(store, soloScope), soloScope, opts, fake.NewCheckouts(), questions.BatchPolicy{}, nil)
 	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "wakes" })
 	if at < 0 {
 		t.Fatalf("ticks %+v", ticks)
@@ -240,7 +240,7 @@ func TestTheDaemonExpiresMessages(t *testing.T) {
 	if _, err := store.CreateWorkspace(t.Context(), ledger.Workspace{ID: soloScope}, tickActor("solo")); err != nil {
 		t.Fatal(err)
 	}
-	ticks := soloTicks(registryOf(store, soloScope), soloScope, soloOptions{wakeTick: time.Second}, questions.BatchPolicy{}, nil)
+	ticks := soloTicks(registryOf(store, soloScope), soloScope, soloOptions{wakeTick: time.Second}, fake.NewCheckouts(), questions.BatchPolicy{}, nil)
 	at := slices.IndexFunc(ticks, func(tick control.Tick) bool { return tick.Name == "messages" })
 	if at < 0 {
 		t.Fatalf("ticks %+v", ticks)

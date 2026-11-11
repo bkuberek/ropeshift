@@ -10,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
@@ -71,7 +72,7 @@ func TestAReviewLaneReadsTheDiffAtTheReviewedCommitAndLeavesNoBranch(t *testing.
 	worktrees := fake.NewWorktrees()
 	start := worktrees.Grow("/repository", "main")
 	base.worktrees, base.repository = worktrees, "repo-1"
-	base.starts = &control.Starts{Bases: worktrees, Checkout: func(context.Context, string) (string, error) { return "/repository", nil }}
+	base.starts = &control.Starts{Bases: worktrees, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return "/repository", nil }}
 	r := newLaneRigFor(t, base)
 
 	var head string

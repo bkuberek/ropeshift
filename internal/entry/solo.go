@@ -7,16 +7,19 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/adapters/checkouts"
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/adapters/clock"
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
@@ -227,7 +230,8 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	defer telemetry.close()
 	// The worker's lanes and the web pane share one terminal server, so a member's browser reaches the
 	// same pane a terminal attaches to.
-	laneRuntime, terminal, err := soloLanes(paths, opts, stderr)
+	kept := soloCheckouts(paths)
+	laneRuntime, terminal, err := soloLanes(paths, opts, kept, stderr)
 	if err != nil {
 		return err
 	}
@@ -242,7 +246,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store,
-		Panes:     soloPanes(terminal), Starts: soloStarts(opts), WebAddress: webAddressOf(webListener),
+		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
@@ -260,7 +264,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 	if err != nil {
 		return err
 	}
-	ticks := append(soloTicks(state, soloScope, opts, batches, windows),
+	ticks := append(soloTicks(state, soloScope, opts, kept, batches, windows),
 		noticeTick(config, state, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(state))
 	ticksDone := make(chan struct{})
 	go func() {
@@ -449,7 +453,7 @@ func runDoctor(ctx context.Context, paths api.Paths) (ledger.Manifest, error) {
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this
 // daemon reads work from, and the worker's own paths. It returns the worker's terminal server
 // too, which is nil on a machine with no tmux.
-func soloLanes(paths api.Paths, opts soloOptions, stderr io.Writer) (*worker.LaneRuntime, ports.Terminal, error) {
+func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr io.Writer) (*worker.LaneRuntime, ports.Terminal, error) {
 	override, err := lanes.ParseOverride(os.Getenv(envSessionOverride))
 	if err != nil {
 		return nil, nil, err
@@ -472,7 +476,7 @@ func soloLanes(paths api.Paths, opts soloOptions, stderr io.Writer) (*worker.Lan
 		},
 		Secrets:    secrets.Resolver{},
 		Machine:    machine.Reader{Processes: osexec.Runner{}},
-		Repository: checkouts(opts),
+		Repository: laneCheckout(checkoutOf(opts, kept)),
 		Socket:     paths.WorkerSocket(),
 		Spool:      paths.Spool(),
 		Binary:     paths.StableBinary(),
@@ -505,35 +509,88 @@ func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (po
 	return terminal, nil
 }
 
-// checkouts finds a work order's repository among the daemon's sources. A repository
-// is known by its history, so a moved checkout still matches.
-func checkouts(opts soloOptions) func(context.Context, string) (string, error) {
-	return func(ctx context.Context, id string) (string, error) {
-		for _, path := range opts.sources {
-			instance, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}).Instance(ctx)
-			if err != nil {
-				return "", err
-			}
-			if instance == id {
-				return filepath.Abs(path)
+// soloCheckouts is the checkouts this machine's worker keeps, in its state directory.
+func soloCheckouts(paths api.Paths) *checkouts.File {
+	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName)}
+}
+
+// checkoutOf finds this machine's checkout of a project's repository: the one the worker keeps for the
+// project, or else, in the first project, the daemon's source with that history. A repository is known
+// by its history, so a moved source still matches. An empty project is the first.
+func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, ledger.WorkspaceID, string) (string, error) {
+	return func(ctx context.Context, project ledger.WorkspaceID, id string) (string, error) {
+		project = cmp.Or(project, soloScope)
+		held, err := kept.Of(ctx, project)
+		if err != nil {
+			return "", err
+		}
+		if path, ok := held[id]; ok {
+			return path, nil
+		}
+		if project == soloScope {
+			for _, path := range opts.sources {
+				instance, err := repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}).Instance(ctx)
+				if err != nil {
+					return "", err
+				}
+				if instance == id {
+					return filepath.Abs(path)
+				}
 			}
 		}
-		return "", fmt.Errorf("no source holds repository %q", id)
+		return "", fmt.Errorf("this worker keeps no checkout of repository %q in project %s", id, project)
 	}
 }
 
-// soloStarts places the lane of every claim from the daemon's checkouts: where the base branch stands, and
-// whether the work a lane depends on is in it.
-func soloStarts(opts soloOptions) *control.Starts {
-	return &control.Starts{Bases: gitcli.Worktrees{}, Checkout: checkouts(opts)}
+// laneCheckout is a checkout lookup as a lane's runtime calls it, with the project the plane protocol names.
+func laneCheckout(find func(context.Context, ledger.WorkspaceID, string) (string, error)) func(context.Context, string, string) (string, error) {
+	return func(ctx context.Context, project, id string) (string, error) {
+		return find(ctx, ledger.WorkspaceID(project), id)
+	}
 }
 
-// acceptedCommits reads a repository at the commit a person accepted, under the same directory the
-// daemon reads it in. A lane's branch lives in the repository its worktree came from.
-func acceptedCommits(opts soloOptions) control.PlanSource {
-	repository := checkouts(opts)
+// projectSources are the repositories intake reads in a project: the daemon's sources in the first
+// project, and every repository of the project this worker keeps a checkout of. A path both name is read
+// once.
+func projectSources(ctx context.Context, opts soloOptions, kept ports.Checkouts, home, project ledger.WorkspaceID) ([]ports.WorkSource, error) {
+	var paths []string
+	if project == home {
+		for _, path := range opts.sources {
+			absolute, err := filepath.Abs(path)
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, absolute)
+		}
+	}
+	held, err := kept.Of(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range slices.Sorted(maps.Values(held)) {
+		if !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
+	}
+	sources := make([]ports.WorkSource, 0, len(paths))
+	for _, path := range paths {
+		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
+	}
+	return sources, nil
+}
+
+// soloStarts places the lane of every claim from this machine's checkouts: where the base branch stands,
+// and whether the work a lane depends on is in it.
+func soloStarts(opts soloOptions, kept ports.Checkouts) *control.Starts {
+	return &control.Starts{Bases: gitcli.Worktrees{}, Checkout: checkoutOf(opts, kept)}
+}
+
+// acceptedCommits reads a project's repository at the commit a person accepted, under the same directory
+// the daemon reads it in. A lane's branch lives in the repository its worktree came from.
+func acceptedCommits(opts soloOptions, kept ports.Checkouts, project ledger.WorkspaceID) control.PlanSource {
+	repository := checkoutOf(opts, kept)
 	return func(ctx context.Context, id, commit string) (ports.WorkSource, error) {
-		path, err := repository(ctx, id)
+		path, err := repository(ctx, project, id)
 		if err != nil {
 			return nil, err
 		}
@@ -655,13 +712,9 @@ func eachProject(projects ports.Projects, work func(context.Context, ledger.Proj
 	}
 }
 
-// soloTicks are the control plane's ticks, each run in every active project. The daemon's sources are
-// the default project's repositories, so only that project polls them.
-func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOptions, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
-	sources := make([]ports.WorkSource, 0, len(opts.sources))
-	for _, path := range opts.sources {
-		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
-	}
+// soloTicks are the control plane's ticks, each run in every active project. Intake reads the repositories
+// of each project this worker keeps a checkout of, and the daemon's sources in the first project.
+func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOptions, kept ports.Checkouts, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
 	tick := func(name string, every time.Duration, work func(context.Context, ledger.Project, ports.Store) error) control.Tick {
 		return control.Tick{Name: name, Every: every, Run: eachProject(projects, work)}
 	}
@@ -671,7 +724,7 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			return err
 		}),
 		tick("lease", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
-			_, err := control.NewLeases(store).Starting(soloStarts(opts)).Sweep(ctx, p.ID, tickActor("lease-tick"))
+			_, err := control.NewLeases(store).Starting(soloStarts(opts, kept)).Sweep(ctx, p.ID, tickActor("lease-tick"))
 			return err
 		}),
 		tick("wakes", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
@@ -695,20 +748,22 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		tick("intake", opts.intakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			var failed []error
 			intake := control.NewIntake(store).Telling(windows)
-			if p.ID == home {
-				for _, source := range sources {
-					if _, err := intake.Poll(ctx, p.ID, source); err != nil {
-						failed = append(failed, err)
-					}
+			sources, err := projectSources(ctx, opts, kept, home, p.ID)
+			if err != nil {
+				failed = append(failed, err)
+			}
+			for _, source := range sources {
+				if _, err := intake.Poll(ctx, p.ID, source); err != nil {
+					failed = append(failed, err)
 				}
 			}
-			if _, err := intake.TakeInPlans(ctx, p.ID, acceptedCommits(opts)); err != nil {
+			if _, err := intake.TakeInPlans(ctx, p.ID, acceptedCommits(opts, kept, p.ID)); err != nil {
 				failed = append(failed, err)
 			}
 			if _, err := control.NewReviews(store).Promote(ctx, p.ID, tickActor("intake-tick")); err != nil {
 				failed = append(failed, err)
 			}
-			if _, err := control.NewLeases(store).Starting(soloStarts(opts)).RefreshStarts(ctx, p.ID, tickActor("intake-tick")); err != nil {
+			if _, err := control.NewLeases(store).Starting(soloStarts(opts, kept)).RefreshStarts(ctx, p.ID, tickActor("intake-tick")); err != nil {
 				failed = append(failed, err)
 			}
 			return errors.Join(failed...)

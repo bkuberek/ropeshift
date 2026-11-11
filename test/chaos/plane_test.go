@@ -186,7 +186,7 @@ func roleWorkerLane(c *child) error {
 			Driver:      driver,
 			Provisioner: worker.Provisioner{Profiles: fake.NewProfileSource(), Worktrees: worktrees},
 			Secrets:     fake.SecretResolver{},
-			Repository:  func(context.Context, string) (string, error) { return "/repository", nil },
+			Repository:  func(context.Context, string, string) (string, error) { return "/repository", nil },
 		},
 	})
 	if err := subject.Start(c.ctx); err != nil {
