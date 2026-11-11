@@ -83,6 +83,9 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	for _, draft := range view.Drafts {
 		fmt.Fprintf(out, "  draft decision %s: %s -> %s\n", draft.ID, draft.Question, draft.Answer)
 	}
+	if view.Detail.Adoption != nil {
+		writeAdoption(out, *view.Detail.Adoption, "  ")
+	}
 	fmt.Fprintf(out, "  digest %s\n", approval.SubjectDigest)
 }
 

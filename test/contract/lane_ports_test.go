@@ -15,6 +15,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
 	"ropeshift.com/ropeshift/internal/adapters/profiles"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/test/gittest"
@@ -300,6 +301,31 @@ func TestBaseTipNeverFallsBackToTheCheckout(t *testing.T) {
 	}
 	if tip, err := worktrees.BaseTip(t.Context(), clone.Dir, "main"); !errors.Is(err, ports.ErrBaseUnavailable) {
 		t.Errorf("a remote that does not answer: %+v, %v", tip, err)
+	}
+}
+
+// ADR-0023: a plan approval shows an adoption branch as one change, so git's own listing reads each file the
+// branch added, changed, moved with its history, or deleted.
+func TestTheChangesOfABranchFollowAMove(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	repo.Commit("docs/requirements.md", "# Requirements\n\nEvery payment call goes through one client.\n")
+	repo.Commit("notes.md", "Notes nobody keeps.\n")
+	base := repo.Commit("README.md", "# Shop\n")
+	repo.Git("mv", "docs/requirements.md", "docs/payments.md")
+	repo.Commit("docs/payments.md", "+++\nkind = \"requirements\"\n+++\n\n# Requirements\n\nEvery payment call goes through one client.\n")
+	repo.Git("rm", "-q", "notes.md")
+	repo.Commit("README.md", "# Shop\n\nAdopted.\n")
+	head := repo.Commit("plans/plan.md", "+++\nkind = \"plan\"\n+++\n")
+	changes, err := gitcli.Worktrees{Env: repo.Env()}.Changes(t.Context(), repo.Dir, base, head)
+	want := []planning.FileChange{
+		{Status: planning.ChangeChanged, Path: "README.md"},
+		{Status: planning.ChangeMoved, Path: "docs/payments.md", From: "docs/requirements.md"},
+		{Status: planning.ChangeDeleted, Path: "notes.md"},
+		{Status: planning.ChangeAdded, Path: "plans/plan.md"},
+	}
+	if err != nil || !slices.Equal(changes, want) {
+		t.Errorf("the changes read %+v: %v\nwant %+v", changes, err, want)
 	}
 }
 

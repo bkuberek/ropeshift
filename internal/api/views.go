@@ -128,6 +128,8 @@ type PlanApprovalNeed struct {
 	Drafts      []planning.DraftDecision `json:"drafts"`
 	Difference  planning.Difference      `json:"difference"`
 	Summary     string                   `json:"summary"`
+	// Adoption groups a plan that adopts an existing project, with every file its branch changed (ADR-0023).
+	Adoption *planning.Adoption `json:"adoption,omitempty"`
 }
 
 // ContractReviewNeed is work in `contract_review` that no plan approval covers, so a member passes its

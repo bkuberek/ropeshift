@@ -208,6 +208,8 @@ type PlanSource func(ctx context.Context, repository, commit string) (ports.Work
 type acceptedPlan struct {
 	order  workorders.WorkOrder
 	commit string
+	// lane is the lane whose branch holds the commit.
+	lane string
 }
 
 func (i *Intake) acceptedPlans(ctx context.Context, scope ledger.WorkspaceID) ([]acceptedPlan, error) {

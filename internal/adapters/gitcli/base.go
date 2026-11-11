@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -124,6 +125,50 @@ func (w Worktrees) MergeBase(ctx context.Context, repository, a, b string) (stri
 		return "", fmt.Errorf("%w: %s and %s share no history", ports.ErrNotFound, a, b)
 	}
 	return "", err
+}
+
+// Changes reads what head changed since base, with renames followed, from git's own listing. A copy is an
+// added file, and a change of type is a changed one.
+func (w Worktrees) Changes(ctx context.Context, repository, base, head string) ([]planning.FileChange, error) {
+	git := w.git(repository)
+	for _, name := range []string{base, head} {
+		if strings.HasPrefix(name, "-") {
+			return nil, fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+		if _, err := git.Commit(ctx, name); err != nil {
+			return nil, fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+	}
+	listing, err := git.Output(ctx, "diff", "--name-status", "-z", "--no-ext-diff", "-M", base, head, "--")
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Split(strings.TrimSuffix(string(listing), "\x00"), "\x00")
+	changes := []planning.FileChange{}
+	for i := 0; i < len(fields) && fields[i] != ""; {
+		status := fields[i]
+		paths := 1
+		if strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C") {
+			paths = 2
+		}
+		if i+paths >= len(fields) {
+			return nil, fmt.Errorf("git diff --name-status ended part way through %q", status)
+		}
+		change := planning.FileChange{Path: fields[i+paths]}
+		switch status[0] {
+		case 'A', 'C':
+			change.Status = planning.ChangeAdded
+		case 'D':
+			change.Status = planning.ChangeDeleted
+		case 'R':
+			change.Status, change.From = planning.ChangeMoved, fields[i+1]
+		default:
+			change.Status = planning.ChangeChanged
+		}
+		changes = append(changes, change)
+		i += paths + 1
+	}
+	return changes, nil
 }
 
 var _ ports.Bases = Worktrees{}

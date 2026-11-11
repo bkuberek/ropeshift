@@ -431,7 +431,7 @@ func planApprovalNeed(planned ports.PlanningReader, a authority.Approval) (*api.
 	}
 	return &api.PlanApprovalNeed{
 		Approval: a, Title: detail.Title, Version: a.PlanVersion, RequestedBy: a.RequestedBy, Counts: counts, Decisions: detail.Decisions,
-		Drafts: drafts, Difference: detail.Difference, Summary: detail.Difference.Summary(),
+		Drafts: drafts, Difference: detail.Difference, Summary: detail.Difference.Summary(), Adoption: detail.Adoption,
 	}, nil
 }
 

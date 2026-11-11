@@ -3,6 +3,8 @@ package ports
 import (
 	"context"
 	"errors"
+
+	"ropeshift.com/ropeshift/internal/planning"
 )
 
 // ErrBaseUnavailable means the branch a lane starts from could not be read: the remote did not answer,
@@ -42,4 +44,9 @@ type Bases interface {
 	// MergeBase finds the commit two commits last shared. Two commits with no common history, or a commit
 	// the repository does not hold, is ErrNotFound.
 	MergeBase(ctx context.Context, repository, a, b string) (string, error)
+	// Changes lists each file head changed since base, from the repository's own history: added, changed,
+	// deleted, or moved, which git follows as a rename, so a plan approval can show a branch as one change
+	// (ADR-0023). The files are in the order of their paths, and a commit the repository does not hold is
+	// ErrNotFound.
+	Changes(ctx context.Context, repository, base, head string) ([]planning.FileChange, error)
 }

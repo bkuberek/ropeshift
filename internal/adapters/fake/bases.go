@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -218,6 +219,42 @@ func (w *Worktrees) MergeBase(_ context.Context, _, a, b string) (string, error)
 		}
 	}
 	return "", fmt.Errorf("%w: %s and %s share no history", ports.ErrNotFound, a, b)
+}
+
+// Changes walks the commits head grew from since base, as Diff does. A fake commit holds no text, so a file
+// that a commit base holds already touched is changed, and one it never touched is added; nothing here is
+// ever moved or deleted.
+func (w *Worktrees) Changes(ctx context.Context, repository, base, head string) ([]planning.FileChange, error) {
+	diff, err := w.Diff(ctx, repository, base, head)
+	if err != nil {
+		return nil, err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	before := map[string]bool{}
+	seen := map[string]bool{}
+	for stack := []string{base}; len(stack) > 0; {
+		at := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[at] {
+			continue
+		}
+		seen[at] = true
+		for _, file := range w.touched[at] {
+			before[file] = true
+		}
+		stack = append(stack, w.history[at]...)
+	}
+	changes := []planning.FileChange{}
+	for _, file := range diff.Files {
+		status := planning.ChangeAdded
+		if before[file] {
+			status = planning.ChangeChanged
+		}
+		changes = append(changes, planning.FileChange{Status: status, Path: file})
+	}
+	slices.SortFunc(changes, func(a, b planning.FileChange) int { return strings.Compare(a.Path, b.Path) })
+	return changes, nil
 }
 
 var _ ports.Bases = (*Worktrees)(nil)

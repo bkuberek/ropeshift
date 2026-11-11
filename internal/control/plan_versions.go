@@ -295,6 +295,8 @@ type planAsk struct {
 	decisions int
 	source    string
 	workOrder string
+	// adoption groups a plan that adopts a project, for a branch of an adopt lane.
+	adoption *planning.Adoption
 }
 
 // planDetailOf reads what a plan approval says of its version.
@@ -341,6 +343,7 @@ func askForPlanApproval(tx ports.WriteTx, ask planAsk) error {
 	}
 	detail, err := json.Marshal(planning.PlanDetail{
 		Title: ask.title, Ref: ask.ref, Counts: planning.CountEntries(ask.entries), Decisions: ask.decisions, Difference: difference, Source: ask.source,
+		Adoption: ask.adoption,
 	})
 	if err != nil {
 		return err
