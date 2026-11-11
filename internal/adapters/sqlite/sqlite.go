@@ -51,6 +51,9 @@ func (Dialect) ClockSQL() string {
 	return "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)"
 }
 
+// SchemaSQL is empty: each project and the installation are SQLite files of their own.
+func (Dialect) SchemaSQL(string) string { return "" }
+
 // MatchSQL ranks with bm25, which returns lower for a better match.
 func (Dialect) MatchSQL() string {
 	return `SELECT d.workspace_id, d.kind, d.record_id, -bm25(search_fts) AS score

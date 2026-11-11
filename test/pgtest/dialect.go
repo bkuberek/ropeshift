@@ -47,6 +47,12 @@ func (Dialect) InstallationMigrations() ([]sqlstore.Migration, error) {
 	return sqlite.NeutralInstallationMigrations()
 }
 
+// SchemaSQL sets the search path for the rest of a transaction, so the neutral statements read and
+// write one project's schema, or the installation's (ADR-0021). SET LOCAL ends with the transaction.
+func (Dialect) SchemaSQL(schema string) string {
+	return `SET LOCAL search_path TO "` + strings.ReplaceAll(schema, `"`, `""`) + `"`
+}
+
 // MatchSQL ranks with tsvector and tsquery, as the design's storage table says.
 func (Dialect) MatchSQL() string {
 	return `SELECT d.workspace_id, d.kind, d.record_id,

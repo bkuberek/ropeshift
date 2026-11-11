@@ -20,6 +20,10 @@ type Dialect interface {
 	// InstallationMigrations lists the schema changes of the installation database, in order. They
 	// keep versions of their own, because the two schemas live apart (ADR-0021).
 	InstallationMigrations() ([]Migration, error)
+	// SchemaSQL scopes a transaction's unqualified names to a schema, so the same statements serve
+	// each project of an installation and the installation itself on one server (ADR-0021). It is
+	// empty for a database that keeps each of them in a file of its own.
+	SchemaSQL(schema string) string
 	// MatchSQL selects workspace_id, kind, record_id, and score from search_documents for
 	// the rows that match :query, where a higher score is a better match.
 	MatchSQL() string

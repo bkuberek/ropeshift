@@ -25,11 +25,17 @@ type Store struct {
 	nextTx   atomic.Uint64
 	// installation holds the records every project shares, or is nil for a store that keeps them.
 	installation *Installation
+	// scope is the statement that puts each transaction in the store's schema, or empty.
+	scope string
 }
 
 // New returns a Store on an open database. It owns db from here on, and never the installation's.
 func New(db *sql.DB, dialect Dialect, opts Options) *Store {
-	return &Store{db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation}
+	s := &Store{db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation}
+	if opts.Schema != "" {
+		s.scope = dialect.SchemaSQL(opts.Schema)
+	}
+	return s
 }
 
 // Close closes the database.
@@ -151,9 +157,18 @@ func (se *session) readClock() (int64, error) {
 	return now, nil
 }
 
-// begin starts a transaction.
+// begin starts a transaction, in the store's schema when it has one. The schema is set on the
+// transaction, so a connection that goes back to a pool shared with other projects keeps nothing.
 func (s *Store) begin(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
-	return s.db.BeginTx(ctx, opts)
+	tx, err := s.db.BeginTx(ctx, opts)
+	if err != nil || s.scope == "" {
+		return tx, err
+	}
+	if _, err := tx.ExecContext(ctx, s.scope); err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("schema: %w", err)
+	}
+	return tx, nil
 }
 
 // Migrate applies each schema change once, in its own transaction.
@@ -163,7 +178,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 
 // migrate applies the schema changes a dialect lists, each once.
 func (s *Store) migrate(ctx context.Context, list func() ([]Migration, error)) error {
-	if _, err := s.db.ExecContext(ctx, createMigrations); err != nil {
+	if err := s.createMigrations(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	migrations, err := list()
@@ -177,6 +192,23 @@ func (s *Store) migrate(ctx context.Context, list func() ([]Migration, error)) e
 		}
 	}
 	return nil
+}
+
+// createMigrations makes the table of applied migrations, in the store's schema.
+func (s *Store) createMigrations(ctx context.Context) error {
+	if s.scope == "" {
+		_, err := s.db.ExecContext(ctx, createMigrations)
+		return err
+	}
+	tx, err := s.begin(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, createMigrations); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) apply(ctx context.Context, m Migration) error {

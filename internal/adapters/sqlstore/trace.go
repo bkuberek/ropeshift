@@ -28,6 +28,9 @@ type Options struct {
 	// A project's transaction reaches them there, under the installation's own scope. With none, the
 	// store keeps them in its own database under each transaction's scope, as a single ledger does.
 	Installation *Installation
+	// Schema is the schema every transaction of the store runs in, on a server that holds several
+	// projects and the installation as schemas of one database. Empty uses the connection's own.
+	Schema string
 }
 
 // Names a trace check needs.
