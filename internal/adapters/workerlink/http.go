@@ -90,7 +90,7 @@ func (l *HTTP) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.Hea
 
 // Desired reads desired state.
 func (l *HTTP) Desired(ctx context.Context, request ledger.DesiredRequest) (ledger.DesiredState, error) {
-	state, err := l.as(request.Auth).Desired(ctx, request.Auth.WorkerID, request.Since)
+	state, err := l.as(request.Auth).Desired(ctx, request.Auth.WorkerID, request.Since, request.Revisions)
 	return state, domainError(err)
 }
 
@@ -109,7 +109,7 @@ func (l *HTTP) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.Upl
 // Claim requests a work order for this worker.
 func (l *HTTP) Claim(ctx context.Context, auth ledger.WorkerAuth, request workorders.ClaimRequest) (workorders.Grant, error) {
 	grant, err := l.as(auth).WorkerClaim(ctx, auth.WorkerID, api.ClaimRequest{
-		ClaimID: request.ClaimID, WorkerID: auth.WorkerID, TTLMs: request.TTLMs, WorkOrder: request.WorkOrder,
+		ClaimID: request.ClaimID, WorkerID: auth.WorkerID, TTLMs: request.TTLMs, WorkOrder: request.WorkOrder, Project: request.Project,
 	})
 	if err != nil {
 		return workorders.Grant{}, domainError(err)

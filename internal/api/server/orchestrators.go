@@ -22,7 +22,7 @@ func (h *handler) workerOrchestrate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	result, err := h.workers.Orchestrate(r.Context(), r.PathValue("verb"), in)
+	result, err := h.plane.Orchestrate(r.Context(), r.PathValue("verb"), in)
 	if err != nil {
 		fail(w, err)
 		return
@@ -31,7 +31,7 @@ func (h *handler) workerOrchestrate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showOrchestrator(w http.ResponseWriter, r *http.Request) {
-	row, err := h.workers.Orchestrator(r.Context(), r.PathValue("id"))
+	row, err := h.plane.Orchestrator(r.Context(), r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
 		return
@@ -44,7 +44,7 @@ func (h *handler) setOrchestrator(w http.ResponseWriter, r *http.Request, actor 
 	if !decode(w, r, &in) {
 		return
 	}
-	row, err := h.workers.SetOrchestrator(r.Context(), r.PathValue("id"), in.Desired, actor)
+	row, err := h.plane.SetOrchestrator(r.Context(), r.PathValue("id"), in.Desired, actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -59,7 +59,7 @@ func (h *handler) workerDigest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Auth = authOf(r)
-	digest, err := h.workers.WakeDigest(r.Context(), in)
+	digest, err := h.plane.WakeDigest(r.Context(), in)
 	if err != nil {
 		fail(w, err)
 		return

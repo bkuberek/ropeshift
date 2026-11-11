@@ -196,7 +196,7 @@ func (w *Worker) takeAsk(ctx context.Context, lane lanes.Record, request lanes.A
 	bounded, cancel := context.WithTimeout(ctx, askDeadline)
 	defer cancel()
 	result, err := w.link.Ask(bounded, questions.LaneAsk{
-		Auth: w.Auth(), Epoch: w.epoch(), WorkOrder: lane.WorkOrder, Fence: lane.Fence,
+		Auth: w.Auth(), Epoch: w.epoch(), Project: lane.Project, WorkOrder: lane.WorkOrder, Fence: lane.Fence,
 		Ask: questions.Ask{
 			ID: id, Text: request.Text, Categories: request.Categories, Blocking: request.Blocking,
 			Options: request.Options, Lane: lane.ID, Generation: lane.Generation,

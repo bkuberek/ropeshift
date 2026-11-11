@@ -390,7 +390,7 @@ func (w *Worker) perform(ctx context.Context, action lanes.Action, seen observed
 		return err
 	case lanes.ActionContinue:
 		lease, ok := seen.leases[action.Lane]
-		if !ok || !w.admitsRestart(ctx) {
+		if !ok || !w.admitsRestart(ctx, lease.Project) {
 			return w.endUnattended(ctx, seen.records[action.Lane])
 		}
 		w.startRun(ctx, w.resumedRun(lease, seen.records[action.Lane]), (*laneRun).proceed)

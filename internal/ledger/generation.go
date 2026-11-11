@@ -107,6 +107,7 @@ type ParkedCommit struct {
 type LaneFactsRequest struct {
 	Auth      WorkerAuth `json:"-"`
 	Epoch     int64      `json:"epoch"`
+	Project   string     `json:"project,omitempty"`
 	WorkOrder string     `json:"work_order"`
 	Fence     int64      `json:"fence"`
 	Lane      string     `json:"lane"`
@@ -135,6 +136,7 @@ type LaneFacts struct {
 type LaneContextRequest struct {
 	Auth      WorkerAuth `json:"-"`
 	Epoch     int64      `json:"epoch"`
+	Project   string     `json:"project,omitempty"`
 	WorkOrder string     `json:"work_order"`
 	Fence     int64      `json:"fence"`
 	Lane      string     `json:"lane"`

@@ -152,19 +152,25 @@ func (t *installationTx) takeRevision() error {
 
 // append adds one event to the installation's log, under the revision the transaction holds or the next.
 func (t *installationTx) append(draft ledger.EventDraft) error {
+	_, err := t.appendEvent(draft)
+	return err
+}
+
+// appendEvent adds one event and returns it as the log keeps it.
+func (t *installationTx) appendEvent(draft ledger.EventDraft) (ledger.Event, error) {
 	if err := draft.Validate(); err != nil {
-		return err
+		return ledger.Event{}, err
 	}
 	if !t.revHeld {
 		if err := t.takeRevision(); err != nil {
-			return err
+			return ledger.Event{}, err
 		}
 	}
 	t.revHeld = false
 	if draft.ID == "" {
 		var err error
 		if draft.ID, err = newEventID(t.now); err != nil {
-			return err
+			return ledger.Event{}, err
 		}
 	}
 	data := string(draft.Data)
@@ -178,10 +184,13 @@ func (t *installationTx) append(draft ledger.EventDraft) error {
 		"data": data, "occurred_at": nullInt(draft.OccurredAt), "recorded_at": t.now, "traceparent": nullText(draft.Traceparent),
 	})
 	if err != nil {
-		return err
+		return ledger.Event{}, err
 	}
 	t.events++
-	return nil
+	return ledger.Event{
+		Rev: t.rev, ID: draft.ID, Type: draft.Type, Actor: draft.Actor, Subject: draft.Subject, Data: []byte(data),
+		OccurredAt: draft.OccurredAt, RecordedAt: t.now, Traceparent: draft.Traceparent,
+	}, nil
 }
 
 // read runs fn on one read transaction of the installation database.
@@ -482,19 +491,9 @@ func (in *Installation) Projects(ctx context.Context) ([]ledger.Project, error) 
 func (in *Installation) Events(ctx context.Context, after int64, limit int) ([]ledger.Event, error) {
 	var out []ledger.Event
 	err := in.read(ctx, "installation_event.list", func(se *session) error {
-		rows, err := se.rows(stmtListInstallationEvents, params{"after": after, "limit": int64(limit)})
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			e, err := scanEvent(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, e)
-		}
-		return rows.Err()
+		var err error
+		out, err = listInstallationEvents(se, after, limit)
+		return err
 	})
 	return out, err
 }

@@ -43,11 +43,12 @@ func registry() []section {
 	return []section{
 		{"Watch", append([]registered{
 			command("top", "[--once] [--width N]", "watch the fleet, by who needs a person", (*invocation).runTop),
+			installation(command("needs", "", "list what waits on a member in every active project", (*invocation).needs))[0],
 			installation(command("health", "", "say the control plane answers, and at what revision", (*invocation).health))[0],
 			command("events", "[--after N] [--limit N]", "follow the ledger's events from a revision", (*invocation).events),
 		}, views()...)},
 		{"Projects", installation(
-			command("project list", "", "list the installation's projects, each with its state and repositories", (*invocation).projectList),
+			command("project list", "", "list the installation's projects, each with its state, repositories, and what waits", (*invocation).projectList),
 			command("project show", "<name>", "show a project's record, its database, and its repositories", (*invocation).projectShow),
 			command("project create", "<name> [--display-name T]", "create a project with a ledger of its own", (*invocation).projectCreate),
 			command("project rename", "<name> <new-name>", "change a project's name, which its ID and records keep", (*invocation).projectRename),

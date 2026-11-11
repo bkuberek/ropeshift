@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -61,6 +62,9 @@ type Worker struct {
 	identity   ledger.WorkerIdentity
 	session    ledger.Session
 	desiredRev int64
+	// desiredRevs is where each project's desired state stood at the last read, on a plane that serves
+	// several projects.
+	desiredRevs map[string]int64
 	// advertised is the manifest this epoch opened with.
 	advertised ledger.Manifest
 	deadlines  map[string]time.Time
@@ -170,7 +174,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.identity, w.session, w.desiredRev, w.advertised = identity, session, cached.Rev, manifest
+	w.identity, w.session, w.desiredRev, w.desiredRevs, w.advertised = identity, session, cached.Rev, cached.Revisions, manifest
 	return nil
 }
 
@@ -255,7 +259,7 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 	}
 	w.mu.Lock()
 	auth := ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
-	epoch, desired := w.identity.Epoch, w.desiredRev
+	epoch, desired, revisions := w.identity.Epoch, w.desiredRev, w.desiredRevs
 	w.mu.Unlock()
 	sent := w.clock.Now()
 	reply, err := w.link.Heartbeat(ctx, ledger.Heartbeat{
@@ -271,7 +275,7 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 	if err := w.applyBeat(ctx, leases, reply, sent); err != nil {
 		return reply, err
 	}
-	if reply.DesiredRev != desired {
+	if reply.DesiredRev != desired || (reply.Revisions != nil && !maps.Equal(reply.Revisions, revisions)) {
 		return reply, w.Sync(ctx)
 	}
 	return reply, nil
@@ -283,27 +287,28 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 func (w *Worker) applyBeat(ctx context.Context, held []ledger.HeldLease, reply ledger.HeartbeatReply, sent time.Time) error {
 	w.mu.Lock()
 	for _, fenced := range reply.Fenced {
-		delete(w.deadlines, fenced.WorkOrder)
+		delete(w.deadlines, leaseKey(fenced.Project, fenced.WorkOrder))
 	}
 	for _, renewed := range reply.Leases {
-		w.deadlines[renewed.WorkOrder] = sent.Add(time.Duration(renewed.TTLMs) * time.Millisecond)
+		w.deadlines[leaseKey(renewed.Project, renewed.WorkOrder)] = sent.Add(time.Duration(renewed.TTLMs) * time.Millisecond)
 	}
 	w.mu.Unlock()
 	if len(reply.Fenced) == 0 {
 		return nil
 	}
 	type lostLease struct {
+		project   string
 		workOrder string
 		fence     int64
 	}
 	lost := map[lostLease]bool{}
 	for _, fenced := range reply.Fenced {
-		lost[lostLease{fenced.WorkOrder, fenced.Fence}] = true
+		lost[lostLease{fenced.Project, fenced.WorkOrder, fenced.Fence}] = true
 		w.stopFenced(ctx, fenced)
 	}
 	kept := make([]ledger.HeldLease, 0, len(held))
 	for _, lease := range held {
-		if !lost[lostLease{lease.WorkOrder, lease.Fence}] {
+		if !lost[lostLease{lease.Project, lease.WorkOrder, lease.Fence}] {
 			kept = append(kept, lease)
 		}
 	}
@@ -316,11 +321,20 @@ func (w *Worker) Wait() {
 	w.probes.Wait()
 }
 
-// Deadline returns when a lease may have ended, by this worker's own count.
+// leaseKey names a lease by its project and work order, because two projects can hold a work order with
+// the same ID.
+func leaseKey(project, workOrder string) string { return project + "\x00" + workOrder }
+
+// Deadline returns when a lease of the plane's only project may have ended, by this worker's own count.
 func (w *Worker) Deadline(workOrder string) (time.Time, bool) {
+	return w.DeadlineIn("", workOrder)
+}
+
+// DeadlineIn returns when a lease of a project may have ended, by this worker's own count.
+func (w *Worker) DeadlineIn(project, workOrder string) (time.Time, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	deadline, ok := w.deadlines[workOrder]
+	deadline, ok := w.deadlines[leaseKey(project, workOrder)]
 	return deadline, ok
 }
 
@@ -329,9 +343,9 @@ func (w *Worker) Deadline(workOrder string) (time.Time, bool) {
 func (w *Worker) Sync(ctx context.Context) error {
 	w.mu.Lock()
 	auth := ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
-	since := w.desiredRev
+	since, revisions := w.desiredRev, w.desiredRevs
 	w.mu.Unlock()
-	state, err := w.link.Desired(ctx, ledger.DesiredRequest{Auth: auth, Since: since})
+	state, err := w.link.Desired(ctx, ledger.DesiredRequest{Auth: auth, Since: since, Revisions: revisions})
 	if err != nil {
 		return err
 	}
@@ -343,14 +357,14 @@ func (w *Worker) Sync(ctx context.Context) error {
 	}
 	leases := make([]ledger.HeldLease, 0, len(state.Leases))
 	for _, lease := range state.Leases {
-		leases = append(leases, ledger.HeldLease{WorkOrder: lease.WorkOrder, Claim: lease.ClaimID, Fence: lease.Fence})
+		leases = append(leases, ledger.HeldLease{Project: lease.Project, WorkOrder: lease.WorkOrder, Claim: lease.ClaimID, Fence: lease.Fence})
 	}
 	if err := w.journal.SaveLeases(ctx, leases); err != nil {
 		return err
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.desiredRev = state.Rev
+	w.desiredRev, w.desiredRevs = state.Rev, state.Revisions
 	return nil
 }
 

@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -83,12 +85,34 @@ func (c *Client) Heartbeat(ctx context.Context, worker string, in ledger.Heartbe
 	return out, err
 }
 
-// Desired reads desired state.
-func (c *Client) Desired(ctx context.Context, worker string, since int64) (ledger.DesiredState, error) {
+// Desired reads desired state. Revisions are what the worker holds of each project, which a plane that
+// serves several compares.
+func (c *Client) Desired(ctx context.Context, worker string, since int64, revisions map[string]int64) (ledger.DesiredState, error) {
 	var out ledger.DesiredState
-	path := workerPath(worker, "desired") + "?since=" + strconv.FormatInt(since, 10)
-	err := c.Do(ctx, http.MethodGet, path, nil, &out)
+	query := url.Values{"since": {strconv.FormatInt(since, 10)}}
+	for _, id := range slices.Sorted(maps.Keys(revisions)) {
+		query.Add("revision", id+":"+strconv.FormatInt(revisions[id], 10))
+	}
+	err := c.Do(ctx, http.MethodGet, workerPath(worker, "desired")+"?"+query.Encode(), nil, &out)
 	return out, err
+}
+
+// ParseRevisions reads the revisions a desired-state read names, each as a project's ID, a colon, and a
+// revision.
+func ParseRevisions(values []string) (map[string]int64, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]int64, len(values))
+	for _, value := range values {
+		id, number, ok := strings.Cut(value, ":")
+		rev, err := strconv.ParseInt(number, 10, 64)
+		if !ok || id == "" || err != nil {
+			return nil, fmt.Errorf("revision %q is not a project's ID and a revision", value)
+		}
+		out[id] = rev
+	}
+	return out, nil
 }
 
 // WorkerClaim claims a work order on the plane protocol, with the worker's credential.

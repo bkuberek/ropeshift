@@ -9,42 +9,42 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
-	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
+	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
-	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
 	"ropeshift.com/ropeshift/test/gittest"
 )
 
-// qualified lists what the ledger recorded of the worker's probes, in order.
+// qualified lists what the installation's log recorded of the worker's probes, in order. A probe is a
+// fact about the worker, which every project shares.
 func (in *install) qualified() []lanes.Qualification {
 	in.t.Helper()
-	var out []lanes.Qualification
-	err := in.ledgerOf().Read(in.t.Context(), "default", func(tx ports.ReadTx) error {
-		events, err := control.ReadAllEvents(tx.Events)
-		if err != nil {
-			return err
-		}
-		replayed, err := lanes.ReplayQualifications(events)
-		if err != nil || len(replayed) > 1 {
-			in.t.Errorf("the log replays to %+v, %v", replayed, err)
-		}
-		for _, event := range events {
-			if event.Type == ledger.EventDriverQualified {
-				var q lanes.Qualification
-				if err := json.Unmarshal(event.Data, &q); err != nil {
-					return err
-				}
-				out = append(out, q)
-			}
-		}
-		return nil
-	})
+	installation, err := sqlite.OpenInstallation(filepath.Join(in.paths().StateDir, sqlite.InstallationFileName), sqlstore.Options{})
 	if err != nil {
 		in.t.Fatal(err)
+	}
+	defer installation.Close()
+	events, err := installation.Events(in.t.Context(), 0, 100_000)
+	if err != nil {
+		in.t.Fatal(err)
+	}
+	replayed, err := lanes.ReplayQualifications(events)
+	if err != nil || len(replayed) > 1 {
+		in.t.Errorf("the log replays to %+v, %v", replayed, err)
+	}
+	var out []lanes.Qualification
+	for _, event := range events {
+		if event.Type == ledger.EventDriverQualified {
+			var q lanes.Qualification
+			if err := json.Unmarshal(event.Data, &q); err != nil {
+				in.t.Fatal(err)
+			}
+			out = append(out, q)
+		}
 	}
 	return out
 }

@@ -126,7 +126,7 @@ describe("what waits, from anywhere", () => {
   });
 
   it("drops the count when nothing waits", async () => {
-    serveViews((call) => (call.path === "/v1/views/needs-you" ? { status: 200, body: { ...golden<object>("needs-you"), items: [] } } : undefined));
+    serveViews((call) => (call.path === "/v1/needs-you" ? { status: 200, body: { ...golden<object>("needs-you"), items: [] } } : undefined));
     openPage("/roadmap");
     await screen.findByRole("heading", { level: 1, name: "Roadmap" });
     expect(within(await views()).getByRole("link", { name: "Needs you" })).toBeTruthy();
@@ -220,7 +220,7 @@ describe("a view on the stream", () => {
     openPage("/roadmap");
     await screen.findByRole("region", { name: "Ship solo mode" });
     await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
-    const reads = () => sent.filter((call) => call.path === "/v1/views/needs-you").length;
+    const reads = () => sent.filter((call) => call.path === "/v1/needs-you").length;
     const first = reads();
     vi.useFakeTimers();
     for (let event = 0; event < 45; event += 1) {

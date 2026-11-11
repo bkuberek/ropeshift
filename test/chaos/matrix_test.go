@@ -177,6 +177,9 @@ func crashMatrix() []crashCase {
 		uploadCase("journal.append", []string{"appended"}),
 		worktreeCase(),
 		upgradeCase(),
+		installationDetectCase("repository.detect", withSteps()),
+		installationDetectCase("repository_index", []string{"committed"}),
+		installationWindowCase(),
 	}, slices.Concat(reconcileCases(), stopCases(), handoffCases(), wakeCases(), parkCases(), resumeCases(), messageCases(), effectCases(), limitCases(), orchestratorCases(), autonomyCases(), planLaneCases(), cancelCases(), noticeCases())...)
 }
 

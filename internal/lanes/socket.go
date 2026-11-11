@@ -157,11 +157,13 @@ func (r Request) LaneOnly() bool {
 // ContextRequest is one read of the Context group. A search reads Query, and a lookup reads Kind
 // and Ref.
 type ContextRequest struct {
-	Tool  string `json:"tool"`
-	Kind  string `json:"kind,omitempty"`
-	Ref   string `json:"ref,omitempty"`
-	Query string `json:"query,omitempty"`
-	Limit int    `json:"limit,omitempty"`
+	// Project is the project an orchestrator reads in. A lane reads only its own, and names none.
+	Project string `json:"project,omitempty"`
+	Tool    string `json:"tool"`
+	Kind    string `json:"kind,omitempty"`
+	Ref     string `json:"ref,omitempty"`
+	Query   string `json:"query,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 // Reply is the one line that answers it.
@@ -230,10 +232,12 @@ type ApprovalReply struct {
 
 // DecideRequest is what an orchestrator decides, with the digest it read.
 type DecideRequest struct {
-	ID     string `json:"id"`
-	Digest string `json:"digest"`
-	Allow  bool   `json:"allow"`
-	Reason string `json:"reason,omitempty"`
+	// Project is the project the request is in.
+	Project string `json:"project,omitempty"`
+	ID      string `json:"id"`
+	Digest  string `json:"digest"`
+	Allow   bool   `json:"allow"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // CodeForbidden refuses what this caller's kind of token cannot do.

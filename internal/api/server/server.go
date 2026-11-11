@@ -33,6 +33,8 @@ type Config struct {
 	// Projects is the installation's registry, which every project-scoped route resolves its path
 	// through. Nil serves Store as the one project, named default.
 	Projects ports.Projects
+	// Installation holds the records every project shares. Nil reaches them through Store.
+	Installation ports.Installation
 	// Matching makes the question ladder's matcher of a project's Store. Nil gives a project other than
 	// the first no candidates.
 	Matching func(ports.Store) ports.Matcher
@@ -78,12 +80,14 @@ type Config struct {
 
 type handler struct {
 	Config
-	workOrders   *control.WorkOrders
-	leases       *control.Leases
-	reviews      *control.Reviews
-	accepting    *control.Acceptances
-	questions    *control.Questions
-	workers      *control.Workers
+	workOrders *control.WorkOrders
+	leases     *control.Leases
+	reviews    *control.Reviews
+	accepting  *control.Acceptances
+	questions  *control.Questions
+	workers    *control.Workers
+	// plane serves the plane protocol across every project, which only the first project's handler holds.
+	plane        *control.Plane
 	fleet        *control.Fleet
 	wakes        *control.Wakes
 	messages     *control.Messages
@@ -106,9 +110,16 @@ func New(config Config) http.Handler {
 			ID: config.Scope, Name: ledger.DefaultProjectName, State: ledger.ProjectActive, Database: "ledger",
 		}, store: config.Store, backup: config.Backup}
 	}
+	if config.Installation == nil {
+		config.Installation = config.Store.Installation(config.Scope)
+	}
 	home := newHandler(config)
+	home.plane = control.NewPlane(config.Projects, config.Installation, config.Scope, control.WorkerOptions{
+		Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
+		PackTokens: config.PackTokens, Starts: config.Starts,
+	}, matching(config))
 	projects := newRouter(config, home)
-	home.lifecycle, home.router = control.NewProjects(config.Projects, config.Scope), projects
+	home.lifecycle, home.router = control.NewProjects(config.Projects), projects
 	mux := http.NewServeMux()
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
@@ -161,6 +172,20 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/work-orders/{id}/cancel", h.member(h.cancel))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.member(h.startLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.member(h.write))
+}
+
+// matching makes the question ladder's matcher of a project's Store: the registry's, or the one Matcher a
+// control plane of one ledger was given.
+func matching(config Config) func(ports.Store) ports.Matcher {
+	if config.Matching != nil {
+		return config.Matching
+	}
+	return func(store ports.Store) ports.Matcher {
+		if store == config.Store {
+			return config.Matcher
+		}
+		return nil
+	}
 }
 
 func newHandler(config Config) *handler {
@@ -310,11 +335,17 @@ func invalid(w http.ResponseWriter, format string, args ...any) {
 	refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: fmt.Sprintf(format, args...)})
 }
 
+// health reads the default project's revision, which the routes with no project serve. An installation
+// that removed that project still answers, at revision zero.
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	var health api.Health
+	health := api.Health{Status: "ok", Web: h.WebAddress}
+	if _, err := h.self(r.Context()); errors.Is(err, ports.ErrNotFound) {
+		reply(w, http.StatusOK, health)
+		return
+	}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		workspace, err := tx.Workspace()
-		health = api.Health{Status: "ok", Revision: workspace.Rev, Web: h.WebAddress}
+		health.Revision = workspace.Rev
 		return err
 	})
 	if err != nil {
@@ -501,20 +532,12 @@ func (h *handler) workerClaim(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "the claim names worker %s on worker %s's route", in.WorkerID, worker)
 		return
 	}
-	project, err := h.self(r.Context())
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	if refuseArchived(w, r, project) {
-		return
-	}
 	ttl := in.TTLMs
 	if ttl == 0 {
 		ttl = h.LeaseTTL
 	}
-	request := workorders.ClaimRequest{WorkOrder: in.WorkOrder, ClaimID: in.ClaimID, Worker: worker, TTLMs: ttl}
-	grant, err := h.workers.Claim(r.Context(), ledger.WorkerAuth{WorkerID: worker, Credential: bearer(r)}, request)
+	request := workorders.ClaimRequest{WorkOrder: in.WorkOrder, ClaimID: in.ClaimID, Worker: worker, TTLMs: ttl, Project: in.Project}
+	grant, err := h.plane.Claim(r.Context(), ledger.WorkerAuth{WorkerID: worker, Credential: bearer(r)}, request)
 	if err != nil {
 		fail(w, err)
 		return

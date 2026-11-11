@@ -419,7 +419,7 @@ type splitSignIn struct {
 }
 
 func (s splitSignIn) SignIn(ctx context.Context, scope ledger.WorkspaceID, _ ports.Proof, _ int64) (control.SessionGrant, error) {
-	err := s.store.Write(ctx, scope, "member.sign_in", func(tx ports.WriteTx) error {
+	err := s.store.Installation(scope).Write(ctx, "member.sign_in", func(tx ports.SharedTx) error {
 		if err := tx.Members().InsertSession(authority.Session{Digest: "split", Member: "member-1", ExpiresAt: tx.Now() + longTTL}); err != nil {
 			return err
 		}

@@ -12,8 +12,9 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-// What sign-in leaves in the ledger. Each names a member and holds no secret, so a guess on
-// the socket stays visible even though the operating system cannot stop one (FR-AUTH-5).
+// What sign-in leaves in the installation's log, because members are every project's. Each names a
+// member and holds no secret, so a guess on the socket stays visible even though the operating system
+// cannot stop one (FR-AUTH-5).
 const (
 	// EventSignedIn records one session.
 	EventSignedIn      = "member.signed_in"
@@ -63,7 +64,7 @@ func (s *Sessions) SignIn(ctx context.Context, scope ledger.WorkspaceID, proof p
 		return SessionGrant{}, err
 	}
 	grant := SessionGrant{Token: token, Member: member}
-	err = s.store.Write(ctx, scope, "member.sign_in", func(tx ports.WriteTx) error {
+	err = s.store.Installation(scope).Write(ctx, "member.sign_in", func(tx ports.SharedTx) error {
 		now := tx.Now()
 		grant.ExpiresAt = now + authority.BoundTTL(ttlMs)
 		if err := tx.Members().DropSessions(now); err != nil {
@@ -83,12 +84,12 @@ func (s *Sessions) SignIn(ctx context.Context, scope ledger.WorkspaceID, proof p
 }
 
 func (s *Sessions) recordRefusal(ctx context.Context, scope ledger.WorkspaceID) error {
-	return s.store.Write(ctx, scope, "member.sign_in_refused", func(tx ports.WriteTx) error {
+	return s.store.Installation(scope).Write(ctx, "member.sign_in_refused", func(tx ports.SharedTx) error {
 		return appendSignIn(tx, eventSignInRefused, signInAttempt, 0)
 	})
 }
 
-func appendSignIn(tx ports.WriteTx, eventType string, actor ledger.Actor, expiresAt int64) error {
+func appendSignIn(tx ports.SharedTx, eventType string, actor ledger.Actor, expiresAt int64) error {
 	data, err := json.Marshal(struct {
 		ExpiresAt int64 `json:"expires_at,omitempty"`
 	}{expiresAt})
@@ -106,7 +107,7 @@ func (s *Sessions) Member(ctx context.Context, scope ledger.WorkspaceID, token s
 		return ledger.Actor{}, authority.ErrNoSession
 	}
 	var actor ledger.Actor
-	err := s.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+	err := s.store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		session, err := tx.Members().Session(digestOf(token))
 		if errors.Is(err, ports.ErrNotFound) {
 			return fmt.Errorf("%w: this session is not known", authority.ErrNoSession)
@@ -132,7 +133,7 @@ func (s *Sessions) Member(ctx context.Context, scope ledger.WorkspaceID, token s
 
 // End closes a session for good, so its token opens nothing, even in a browser that keeps it.
 func (s *Sessions) End(ctx context.Context, scope ledger.WorkspaceID, token string, actor ledger.Actor) error {
-	return s.store.Write(ctx, scope, "member.sign_out", func(tx ports.WriteTx) error {
+	return s.store.Installation(scope).Write(ctx, "member.sign_out", func(tx ports.SharedTx) error {
 		if err := tx.Members().DropSession(digestOf(token)); err != nil {
 			return err
 		}

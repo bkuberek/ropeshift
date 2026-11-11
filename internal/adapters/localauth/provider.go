@@ -40,7 +40,7 @@ type Params struct {
 // DefaultParams is one of the two sets RFC 9106 recommends.
 var DefaultParams = Params{Time: 3, MemoryKiB: 64 * 1024, Threads: 4}
 
-// Provider checks a passphrase against the ledger. It hashes one at a time, so calls on a
+// Provider checks a passphrase against the installation's records, which every project shares. It hashes one at a time, so calls on a
 // socket cannot take the machine's memory, and each guess costs its full price.
 type Provider struct {
 	store   ports.Store
@@ -56,7 +56,7 @@ func New(store ports.Store, params Params) *Provider {
 // Enrolled reports whether a passphrase is set.
 func (p *Provider) Enrolled(ctx context.Context, scope ledger.WorkspaceID) (bool, error) {
 	var count int64
-	err := p.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+	err := p.store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		count, err = tx.Members().CountMembers()
 		return err
@@ -74,7 +74,7 @@ func (p *Provider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof p
 	if err != nil {
 		return err
 	}
-	return p.store.Write(ctx, scope, "member.enroll", func(tx ports.WriteTx) error {
+	return p.store.Installation(scope).Write(ctx, "member.enroll", func(tx ports.SharedTx) error {
 		_, err := tx.Members().Member(Member)
 		if err == nil && !authority.Allowed(actor, authority.ActionSetPassphrase) {
 			return authority.ErrNoSession
@@ -98,7 +98,7 @@ func (p *Provider) Enroll(ctx context.Context, scope ledger.WorkspaceID, proof p
 // hashes.
 func (p *Provider) Authenticate(ctx context.Context, scope ledger.WorkspaceID, proof ports.Proof) (string, error) {
 	var record authority.MemberRecord
-	err := p.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+	err := p.store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		record, err = tx.Members().Member(Member)
 		return err

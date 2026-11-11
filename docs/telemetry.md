@@ -16,7 +16,7 @@ At spawn, the driver points each lane's agent at the worker's receiver through i
 | `OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_LOGS_EXPORT_INTERVAL` | `10000` and `5000` milliseconds |
 | `OTEL_RESOURCE_ATTRIBUTES` | The lane's tags, below |
 
-The tags are `ropeshift.workspace`, `ropeshift.work_order.id`, `ropeshift.lane.id`, `ropeshift.lane.role`, `ropeshift.generation`, `ropeshift.profile`, `ropeshift.repo`, `ropeshift.branch`, `ropeshift.worker`, and `ropeshift.driver`. A value holds no space or comma: any byte the variable's grammar refuses is percent-encoded. After a `/clear` the agent keeps the generation it started with, because a running process cannot change its environment. Ropeshift's own metrics carry the current generation.
+The tags are `ropeshift.project`, the ID of the lane's project, `ropeshift.workspace`, which holds the same ID, `ropeshift.work_order.id`, `ropeshift.lane.id`, `ropeshift.lane.role`, `ropeshift.generation`, `ropeshift.profile`, `ropeshift.repo`, `ropeshift.branch`, `ropeshift.worker`, and `ropeshift.driver`. A value holds no space or comma: any byte the variable's grammar refuses is percent-encoded. After a `/clear` the agent keeps the generation it started with, because a running process cannot change its environment. Ropeshift's own metrics carry the current generation.
 
 Any `OTEL_*` variable a profile passes through by name is dropped, so only the driver says where telemetry goes and whether content is in it.
 

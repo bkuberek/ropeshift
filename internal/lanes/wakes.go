@@ -48,6 +48,9 @@ func WakeText(items []ledger.WakeItem) string {
 	out.WriteString("There is something to judge:\n")
 	for _, item := range items {
 		fmt.Fprintf(&out, "- %s %s", item.Kind, item.ID)
+		if item.Project != "" {
+			fmt.Fprintf(&out, " in project %s", item.Project)
+		}
 		if item.Digest != "" {
 			fmt.Fprintf(&out, " digest %s", item.Digest)
 		}

@@ -9,13 +9,14 @@ A notice carries these fields and nothing else:
 | Field | Holds |
 |-------|-------|
 | `delivery` | A digest that names the thing that waits. A repeat of the same notice keeps it, so a receiver can drop a second copy. It cannot be turned back into an ID |
+| `project` | The name of the project it waits in, which a member chose |
 | `attempt` | Which attempt this is, from 1 |
 | `kind` | `questions`, `approval`, `effect`, or `work` |
 | `reason` | For work, why it waits: `lapsed`, `blocked`, `tripped`, `stalled`, `long_parked`, `acceptance`, or `human_resume` |
 | `since` | When it began to wait, in milliseconds since the epoch |
-| `text` | One fixed sentence for that kind and reason, such as "A lane stopped, and it needs you." |
+| `text` | The project's name, then one fixed sentence for that kind and reason, such as "beta: A lane stopped, and it needs you." |
 
-A notice carries no title, no question, no lane output, no name, no ID, no path, and no repository. Those come from agents, repositories, and trackers, and a notice leaves the machine, so none of that text reaches a notice. To see what waits, a member opens the web UI or runs `ropeshift top`.
+Apart from its project's name, a notice carries no title, no question, no lane output, no name, no ID, no path, and no repository. Those come from agents, repositories, and trackers, and a notice leaves the machine, so none of that text reaches a notice. To see what waits, a member opens the web UI or runs `ropeshift top`.
 
 ## Channels
 

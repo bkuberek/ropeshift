@@ -8,11 +8,17 @@ import (
 )
 
 // shared is the installation's side of one project transaction (ADR-0021). A project's ledger holds
-// none of the records every project shares, so a transaction that reads or writes one runs a second
-// transaction on the installation database. That one begins at its first statement, so a transaction
-// that touches no shared record never waits on the installation's writer lock, and it commits just
-// before the project's own. The two files have no commit in common: a crash between the two commits
-// keeps the shared change without the project's event that names it.
+// none of the records every project shares, so a transaction that reads one runs a read transaction on
+// the installation database beside its own. It only reads: a change to a shared record commits through
+// the Installation, in a transaction of its own. The read begins at its first statement and takes no
+// writer lock, so a project transaction never waits on the installation's writer, nor holds it.
+//
+// The one exception is the repository index, which a project's write keeps current as it registers a
+// repository, so the refusal of a repository another project holds is decided under the index's lock.
+// That side is a write transaction of its own, which begins only when a write touches the index, and
+// commits just before the project's: a crash between the two leaves an entry whose record is missing,
+// which a retry in the same project completes and the daemon's next start drops when it rebuilds the
+// index from the records. A crash never leaves a record that holds no entry.
 type shared struct {
 	installation *Installation
 	readOnly     bool
@@ -20,12 +26,21 @@ type shared struct {
 	se           *session
 }
 
-// shared returns the installation's side of a transaction, or nil for a store with no installation.
-func (s *Store) shared(readOnly bool) *shared {
+// shared returns the installation's read side of a transaction, or nil for a store with no installation.
+func (s *Store) shared() *shared {
 	if s.installation == nil {
 		return nil
 	}
-	return &shared{installation: s.installation, readOnly: readOnly}
+	return &shared{installation: s.installation, readOnly: true}
+}
+
+// indexSide returns the installation's write side of a transaction, for the repository index alone, or
+// nil for a store with no installation.
+func (s *Store) indexSide() *shared {
+	if s.installation == nil {
+		return nil
+	}
+	return &shared{installation: s.installation}
 }
 
 // session returns where the shared records of a transaction run, and the scope they carry. With no
@@ -41,7 +56,7 @@ func (sh *shared) session(own *session, scope ledger.WorkspaceID) (*session, led
 	return sh.se, ledger.InstallationScope
 }
 
-// begin starts the transaction on the installation database, once.
+// begin starts the side's transaction on the installation database, once.
 func (sh *shared) begin() error {
 	if sh.tx != nil {
 		return nil
@@ -54,12 +69,7 @@ func (sh *shared) begin() error {
 	return nil
 }
 
-// changed reports that a statement touched a shared record.
-func (sh *shared) changed() bool {
-	return sh != nil && sh.se != nil && sh.se.changed
-}
-
-// commit commits the installation's side, if it began.
+// commit commits the side, if it began.
 func (sh *shared) commit() error {
 	if sh == nil || sh.tx == nil {
 		return nil

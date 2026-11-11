@@ -1,5 +1,10 @@
 package lanes
 
+import (
+	"fmt"
+	"strconv"
+)
+
 // The values of a workspace's fleet mode, as a worker reads them from desired state.
 const (
 	FleetRun   = "run"
@@ -24,13 +29,42 @@ const (
 )
 
 // Admission holds what only a machine can see (FR-LANE-16). Zero leaves a cap off. These
-// protect the machine and the sign-in, so they come from its owner: a repository or a lane
-// cannot set them.
+// protect the machine and the sign-in, so they come from its owner: a repository or a lane can
+// lower a lane cap for its own lanes, and can raise none and change nothing else (ADR-0021).
 type Admission struct {
 	MaxLanes          int64 `toml:"max_lanes" json:"max_lanes"`
 	MaxLanesPerSignIn int64 `toml:"max_lanes_per_sign_in" json:"max_lanes_per_sign_in"`
 	MinFreeMemoryMB   int64 `toml:"min_free_memory_mb" json:"min_free_memory_mb"`
 	MinFreeCPUPercent int64 `toml:"min_free_cpu_percent" json:"min_free_cpu_percent"`
+}
+
+// CheckAdmission refuses a layer past the user's that raises a lane cap or changes anything else this
+// machine admits. A cap is lower when it is set where the user's is not, or smaller than the user's; no
+// cap where the user set one is higher.
+func CheckAdmission(user, layered Admission) error {
+	for _, c := range []struct {
+		name          string
+		user, layered int64
+	}{
+		{"max_lanes", user.MaxLanes, layered.MaxLanes},
+		{"max_lanes_per_sign_in", user.MaxLanesPerSignIn, layered.MaxLanesPerSignIn},
+	} {
+		if c.layered < 0 || (c.user > 0 && (c.layered == 0 || c.layered > c.user)) {
+			return fmt.Errorf("%w: a layer past the user's can lower %s and cannot raise it from %s to %s", ErrBadProfile, c.name, capWords(c.user), capWords(c.layered))
+		}
+	}
+	if user.MinFreeMemoryMB != layered.MinFreeMemoryMB || user.MinFreeCPUPercent != layered.MinFreeCPUPercent {
+		return fmt.Errorf("%w: a layer past the user's cannot change what this machine admits", ErrBadProfile)
+	}
+	return nil
+}
+
+// capWords says a cap as a person reads it.
+func capWords(value int64) string {
+	if value == 0 {
+		return "no cap"
+	}
+	return strconv.FormatInt(value, 10)
 }
 
 // MachineReading is what a machine has free. Known is false when it could not be read,

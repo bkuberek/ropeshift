@@ -82,6 +82,10 @@ export function serveViews(answer?: (sent: Sent) => Answer | undefined, options:
     if (view) {
       return { status: 200, body: golden(view) };
     }
+    // The page reads the combined Needs you, of every active project, which the golden view stands for.
+    if (call.path === "/v1/needs-you") {
+      return { status: 200, body: golden("needs-you") };
+    }
     if (call.path.startsWith("/v1/documents/read")) {
       return { status: 200, body: golden("document") };
     }

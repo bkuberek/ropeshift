@@ -5,8 +5,16 @@ import (
 	"fmt"
 )
 
-// ProtocolVersion is the plane protocol this build speaks.
-const ProtocolVersion = 1
+// ProtocolVersion is the plane protocol this build speaks. Version 2 names the project on every item
+// (ADR-0021). A worker that speaks version 1 serves only the installation's default project.
+const ProtocolVersion = 2
+
+// ProtocolProjects is the first version that names the project on every item.
+const ProtocolProjects = 2
+
+// RevisionInstallation keys the installation's own revision among a desired state's revisions. No
+// project takes this ID.
+const RevisionInstallation = string(InstallationScope)
 
 // The plane's refusals. Each is a different instruction to a worker.
 var (
@@ -95,6 +103,8 @@ type Session struct {
 
 // HeldLease is a lease a worker believes it holds.
 type HeldLease struct {
+	// Project is the project whose work order this is. Empty names the plane's only project.
+	Project   string `json:"project,omitempty"`
 	WorkOrder string `json:"work_order"`
 	Claim     string `json:"claim"`
 	Fence     int64  `json:"fence"`
@@ -115,6 +125,7 @@ type Heartbeat struct {
 
 // RenewedLease is a lease that holds, with what a worker counts from its send.
 type RenewedLease struct {
+	Project   string `json:"project,omitempty"`
 	WorkOrder string `json:"work_order"`
 	Fence     int64  `json:"fence"`
 	TTLMs     int64  `json:"ttl_ms"`
@@ -122,6 +133,7 @@ type RenewedLease struct {
 
 // FencedLease is a lease the worker no longer holds.
 type FencedLease struct {
+	Project      string `json:"project,omitempty"`
 	WorkOrder    string `json:"work_order"`
 	Fence        int64  `json:"fence"`
 	CurrentFence int64  `json:"current_fence"`
@@ -135,16 +147,30 @@ type HeartbeatReply struct {
 	FleetMode    FleetMode      `json:"fleet_mode"`
 	Leases       []RenewedLease `json:"leases"`
 	Fenced       []FencedLease  `json:"fenced"`
+	// Revisions is where each project's desired state and the installation's stand, on a plane that
+	// serves several projects. A worker whose cached revisions differ reads desired state again.
+	Revisions map[string]int64 `json:"revisions,omitempty"`
 }
 
-// DesiredRequest reads desired state. Since is the revision the worker has.
+// DesiredRequest reads desired state. Since is the revision the worker has, and Revisions what it has
+// of each project, on a plane that serves several.
 type DesiredRequest struct {
-	Auth  WorkerAuth
-	Since int64
+	Auth      WorkerAuth
+	Since     int64
+	Revisions map[string]int64
+}
+
+// DesiredProject is one project a worker serves: its name, and the fleet mode it gives its lanes.
+type DesiredProject struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	FleetMode FleetMode `json:"fleet_mode"`
 }
 
 // DesiredLease is one lease this worker should act on.
 type DesiredLease struct {
+	// Project is the project the work order belongs to. Empty names the plane's only project.
+	Project   string `json:"project,omitempty"`
 	WorkOrder string `json:"work_order"`
 	ClaimID   string `json:"claim_id"`
 	Fence     int64  `json:"fence"`
@@ -318,6 +344,7 @@ type DesiredResume struct {
 
 // DesiredWoken is a woken lane this worker may claim.
 type DesiredWoken struct {
+	Project    string `json:"project,omitempty"`
 	WorkOrder  string `json:"work_order"`
 	Lane       string `json:"lane"`
 	Repository string `json:"repository,omitempty"`
@@ -328,6 +355,7 @@ type DesiredWoken struct {
 
 // DesiredArchive is a lane whose worktree should go.
 type DesiredArchive struct {
+	Project    string `json:"project,omitempty"`
 	Lane       string `json:"lane"`
 	Repository string `json:"repository,omitempty"`
 	// Forced says a member accepts losing what no remote holds.
@@ -337,9 +365,13 @@ type DesiredArchive struct {
 // DesiredState is what the control plane wants of one worker. Unchanged says the
 // worker already holds this revision.
 type DesiredState struct {
-	Rev       int64            `json:"rev"`
-	FleetMode FleetMode        `json:"fleet_mode"`
-	Unchanged bool             `json:"unchanged,omitempty"`
+	Rev       int64     `json:"rev"`
+	FleetMode FleetMode `json:"fleet_mode"`
+	Unchanged bool      `json:"unchanged,omitempty"`
+	// Revisions and Projects are each project this worker serves, on a plane that serves several, and
+	// every item below names its project. Revisions holds the installation's own revision too.
+	Revisions map[string]int64 `json:"revisions,omitempty"`
+	Projects  []DesiredProject `json:"projects,omitempty"`
 	Leases    []DesiredLease   `json:"leases"`
 	Archives  []DesiredArchive `json:"archives,omitempty"`
 	// Woken lists the woken lanes offered to this worker, which claims them, because a wake
@@ -364,8 +396,11 @@ type WatchRequest struct {
 // so a retried upload stores it once. Epoch is the epoch it was journaled under,
 // which may be older than the session that uploads it.
 type UploadEvent struct {
-	Epoch      int64  `json:"epoch"`
-	Seq        int64  `json:"seq"`
+	Epoch int64 `json:"epoch"`
+	Seq   int64 `json:"seq"`
+	// Project is the project of the lane or work order it is about. Empty names the plane's only project,
+	// or, for what belongs to no lane, the worker itself.
+	Project    string `json:"project,omitempty"`
 	Type       string `json:"type"`
 	WorkOrder  string `json:"work_order,omitempty"`
 	ClaimID    string `json:"claim_id,omitempty"`

@@ -325,7 +325,7 @@ func (s *Store) Read(ctx context.Context, scope ledger.WorkspaceID, fn func(port
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	t := &readTx{session: s.session(ctx, tx, ModeRead, "read"), scope: scope, side: s.shared(true)}
+	t := &readTx{session: s.session(ctx, tx, ModeRead, "read"), scope: scope, side: s.shared()}
 	defer t.side.rollback()
 	if _, err := t.Workspace(); err != nil {
 		return err
@@ -344,8 +344,9 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 	}
 	defer func() { _ = tx.Rollback() }()
 	crashpoint.Hit(op, "begun")
-	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared(false)}
+	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared(), index: s.indexSide()}
 	defer t.side.rollback()
+	defer t.index.rollback()
 	if err := t.open(); err != nil {
 		return err
 	}
@@ -354,16 +355,17 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 		return err
 	}
 	if t.events == 0 && !commitsWithoutEvents() {
-		if t.changed || t.side.changed() {
+		if t.changed {
 			return fmt.Errorf("%s: %w", op, ports.ErrNoEvent)
 		}
 		return nil
 	}
 	crashpoint.Hit(op, "before-commit")
-	// The shared records commit first: a crash between the two commits keeps a shared change whose
-	// event the project's log lacks, and never an event whose change is missing.
-	if err := t.side.commit(); err != nil {
-		return fmt.Errorf("%s: commit the installation's records: %w", op, err)
+	if err := t.index.commit(); err != nil {
+		return fmt.Errorf("%s: commit the repository index: %w", op, err)
+	}
+	if t.index != nil && t.index.tx != nil {
+		crashpoint.Hit("repository_index", "committed")
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("%s: commit: %w", op, err)
@@ -428,6 +430,16 @@ func (t *readTx) Workers() ports.WorkerReader {
 	return workerTx{session: se, scope: scope}
 }
 
+// InstallationEvents reads the installation's log. A store with no installation keeps the events of its
+// shared records in its own log, which Events reads.
+func (t *readTx) InstallationEvents(after int64, limit int) ([]ledger.Event, error) {
+	if t.side == nil {
+		return nil, nil
+	}
+	se, _ := t.side.session(t.session, t.scope)
+	return listInstallationEvents(se, after, limit)
+}
+
 func (t *readTx) Wakes() ports.WakeReader {
 	return wakeTx{session: t.session, scope: t.scope}
 }
@@ -440,8 +452,10 @@ type writeTx struct {
 	rev     int64
 	revHeld bool
 	events  int
-	// side writes the records every project shares, on a store that has an installation.
-	side *shared
+	// side reads the records every project shares, on a store that has an installation, and index keeps
+	// the installation's repository index.
+	side  *shared
+	index *shared
 }
 
 // openRevisionFirst takes the revision and then reads the clock. On Postgres at
@@ -522,7 +536,7 @@ func (t *writeTx) Planning() ports.PlanningWriter {
 	return planningTx{session: t.session, scope: t.scope}
 }
 
-func (t *writeTx) Workers() ports.WorkerWriter {
+func (t *writeTx) Workers() ports.WorkerReader {
 	se, scope := t.side.session(t.session, t.scope)
 	return workerTx{session: se, scope: scope, now: t.now}
 }

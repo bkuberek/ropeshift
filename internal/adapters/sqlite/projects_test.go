@@ -3,8 +3,10 @@ package sqlite_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -158,11 +160,11 @@ func TestACreatedProjectIsRefusedWhereAnotherProjectStands(t *testing.T) {
 // sharedTables are the records every project shares, which no project's file holds (ADR-0021).
 var sharedTables = []string{"members", "member_sessions", "workers", "join_grants", "worker_autonomy", "run_windows", "orchestrators"}
 
-// writeShared writes one record of each kind the installation holds, through a project's Store, with an
-// event in that project's log.
+// writeShared writes one record of each kind the installation holds, in one installation transaction
+// reached through a project's Store, and a decision policy in that project's own transaction.
 func writeShared(t *testing.T, store ports.Store, scope ledger.WorkspaceID) {
 	t.Helper()
-	err := store.Write(t.Context(), scope, "test.shared", func(tx ports.WriteTx) error {
+	err := store.Installation(scope).Write(t.Context(), "test.shared", func(tx ports.SharedTx) error {
 		if err := tx.Members().SaveMember(authority.MemberRecord{ID: "member-1", IdentitySubject: "local", DisplayName: "M", Status: "active", ProofDigest: "hash"}); err != nil {
 			return err
 		}
@@ -187,10 +189,17 @@ func writeShared(t *testing.T, store ports.Store, scope ledger.WorkspaceID) {
 		if _, err := tx.Policies().Insert(authority.PolicyVersion{ID: "autonomy-1", Kind: authority.PolicyAutonomy, Version: 1, Digest: "d", Body: "b", Settings: "{}", AuthoredBy: "member-1", CreatedAt: tx.Now()}); err != nil {
 			return err
 		}
+		_, err := tx.Append(ledger.EventDraft{Type: "test.shared", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "shared"}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.Write(t.Context(), scope, "test.policy", func(tx ports.WriteTx) error {
 		if _, err := tx.Policies().Insert(authority.PolicyVersion{ID: "decision-1", Kind: authority.PolicyDecision, Version: 1, Digest: "d", Body: "b", Settings: "{}", AuthoredBy: "member-1", CreatedAt: tx.Now()}); err != nil {
 			return err
 		}
-		_, err := tx.Append(ledger.EventDraft{Type: "test.shared", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "shared"}})
+		_, err := tx.Append(ledger.EventDraft{Type: "test.policy", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "policy"}})
 		return err
 	})
 	if err != nil {
@@ -223,7 +232,8 @@ func TestMembersAndWorkersLiveInTheInstallationDatabase(t *testing.T) {
 		t.Errorf("alpha's ledger holds %d decision policies", n)
 	}
 
-	// One sign-in and one worker serve every project, and the event stays in the project that wrote it.
+	// One sign-in and one worker serve every project, and the installation's log holds their event, which
+	// no project's log does.
 	err := betaStore.Read(t.Context(), beta.ID, func(tx ports.ReadTx) error {
 		if _, err := tx.Members().Member("member-1"); err != nil {
 			t.Errorf("beta does not see the member: %v", err)
@@ -240,7 +250,26 @@ func TestMembersAndWorkersLiveInTheInstallationDatabase(t *testing.T) {
 		events, err := tx.Events(0, 100)
 		for _, e := range events {
 			if e.Type == "test.shared" {
-				t.Errorf("beta's log holds alpha's event %+v", e)
+				t.Errorf("beta's log holds the installation's event %+v", e)
+			}
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := state.Installation.Events(t.Context(), 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events, func(e ledger.Event) bool { return e.Type == "test.shared" }) {
+		t.Errorf("the installation's log lacks the shared change's event: %+v", events)
+	}
+	err = alphaStore.Read(t.Context(), alpha.ID, func(tx ports.ReadTx) error {
+		events, err := tx.Events(0, 100)
+		for _, e := range events {
+			if e.Type == "test.shared" {
+				t.Errorf("alpha's log holds the installation's event %+v", e)
 			}
 		}
 		return err
@@ -250,13 +279,30 @@ func TestMembersAndWorkersLiveInTheInstallationDatabase(t *testing.T) {
 	}
 }
 
-func TestASharedChangeCommitsOnlyWithItsProjectsTransaction(t *testing.T) {
+// TestAProjectTransactionNeverWritesASharedRecord holds the one side every change takes: a project
+// transaction refuses the autonomy policy, the installation refuses a project's policy, and a shared
+// change that rolls back or records no event leaves nothing.
+func TestAProjectTransactionNeverWritesASharedRecord(t *testing.T) {
 	dir := t.TempDir()
 	state := openState(t, dir)
 	alpha, store := createProject(t, state, "pa", "alpha")
 	ctx := t.Context()
+	err := store.Write(ctx, alpha.ID, "test.autonomy", func(tx ports.WriteTx) error {
+		_, err := tx.Policies().Insert(authority.PolicyVersion{ID: "a", Kind: authority.PolicyAutonomy, Version: 1, Digest: "d", Body: "b", Settings: "{}", AuthoredBy: "m", CreatedAt: tx.Now()})
+		return err
+	})
+	if !errors.Is(err, ports.ErrNotShared) {
+		t.Errorf("a project transaction wrote the autonomy policy: %v", err)
+	}
+	err = store.Installation(alpha.ID).Write(ctx, "test.decision", func(tx ports.SharedTx) error {
+		_, err := tx.Policies().Insert(authority.PolicyVersion{ID: "d", Kind: authority.PolicyDecision, Version: 1, Digest: "d", Body: "b", Settings: "{}", AuthoredBy: "m", CreatedAt: tx.Now()})
+		return err
+	})
+	if !errors.Is(err, ports.ErrNotShared) {
+		t.Errorf("the installation wrote a project's policy: %v", err)
+	}
 	refused := errors.New("refused")
-	err := store.Write(ctx, alpha.ID, "test.refused", func(tx ports.WriteTx) error {
+	err = store.Installation(alpha.ID).Write(ctx, "test.refused", func(tx ports.SharedTx) error {
 		if err := tx.Workers().Insert(ledger.WorkerRecord{Worker: ledger.Worker{ID: "worker-1"}, ProofDigest: "p"}); err != nil {
 			return err
 		}
@@ -265,7 +311,7 @@ func TestASharedChangeCommitsOnlyWithItsProjectsTransaction(t *testing.T) {
 	if !errors.Is(err, refused) {
 		t.Fatalf("a refused write: %v", err)
 	}
-	err = store.Write(ctx, alpha.ID, "test.silent", func(tx ports.WriteTx) error {
+	err = store.Installation(alpha.ID).Write(ctx, "test.silent", func(tx ports.SharedTx) error {
 		return tx.Workers().Insert(ledger.WorkerRecord{Worker: ledger.Worker{ID: "worker-2"}, ProofDigest: "p"})
 	})
 	if !errors.Is(err, ports.ErrNoEvent) {
@@ -273,6 +319,35 @@ func TestASharedChangeCommitsOnlyWithItsProjectsTransaction(t *testing.T) {
 	}
 	if n := countRows(t, filepath.Join(dir, sqlite.InstallationFileName), "workers"); n != 0 {
 		t.Errorf("the installation kept %d workers from writes that did not commit", n)
+	}
+}
+
+// TestAProjectWriteThatReadsASharedRecordHoldsNoInstallationLock reads a worker inside a project's write
+// while another writer holds the installation's lock: the read waits on nothing, and the writer can
+// commit while the project's transaction is still open.
+func TestAProjectWriteThatReadsASharedRecordHoldsNoInstallationLock(t *testing.T) {
+	dir := t.TempDir()
+	state := openState(t, dir)
+	alpha, store := createProject(t, state, "pa", "alpha")
+	writeShared(t, store, alpha.ID)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err := store.Write(ctx, alpha.ID, "test.reads", func(tx ports.WriteTx) error {
+		if _, err := tx.Workers().Find("worker-1"); err != nil {
+			return err
+		}
+		err := store.Installation(alpha.ID).Write(ctx, "test.beside", func(shared ports.SharedTx) error {
+			_, err := shared.Append(ledger.EventDraft{Type: "test.beside", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "beside"}})
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("the installation's writer waited on a project's read: %w", err)
+		}
+		_, err = tx.Append(ledger.EventDraft{Type: "test.reads", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "reads"}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

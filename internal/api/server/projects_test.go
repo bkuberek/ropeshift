@@ -262,3 +262,43 @@ func rowsIn(t *testing.T, file, table string) []string {
 	}
 	return ids
 }
+
+// TestTheCombinedNeedsYouListsEveryActiveProject holds FR-PROJ-8 on the API: one read lists what waits in
+// every active project, the longest wait first, each item labeled with its project, and an archived project
+// lists nothing.
+func TestTheCombinedNeedsYouListsEveryActiveProject(t *testing.T) {
+	in := apitest.StartInstallation(t, "beta")
+	_, _, beta := in.In(t, "beta")
+	createWork(t, in.Client, "wo-home", "Add the retry budget")
+	createWork(t, beta, "wo-beta", "Ship the export")
+	view, err := in.Client.NeedsYou(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{}
+	for _, item := range view.Items {
+		if item.Project == nil {
+			t.Fatalf("an item with no project: %+v", item)
+		}
+		labels[item.ID] = item.Project.Name
+	}
+	if len(view.Items) != 2 || labels["wo-home"] != apitest.ProjectName || labels["wo-beta"] != "beta" {
+		t.Errorf("items %v", labels)
+	}
+	if view.Items[0].Since > view.Items[1].Since {
+		t.Errorf("the longest wait is not first: %+v", view.Items)
+	}
+	waiting := map[string]int{}
+	for _, project := range view.Projects {
+		waiting[project.Name] = project.Waiting
+	}
+	if waiting[apitest.ProjectName] != 1 || waiting["beta"] != 1 {
+		t.Errorf("projects %+v", view.Projects)
+	}
+	if _, err := in.Client.ArchiveProject(t.Context(), "beta"); err != nil {
+		t.Fatal(err)
+	}
+	if view, err = in.Client.NeedsYou(t.Context()); err != nil || len(view.Items) != 1 || view.Items[0].ID != "wo-home" {
+		t.Errorf("with beta archived: %+v, %v", view.Items, err)
+	}
+}

@@ -62,8 +62,9 @@ func ResolveRepository(user, repository string) (lanes.Profile, error) {
 // ResolveLayers folds every layer over the built-in defaults, later over earlier. Only the
 // user's layer can widen what a lane may do. A repository is code from somewhere else, and a
 // lane's overrides can come from an orchestrator, so either can narrow it and neither can
-// raise the permission mode, change what this machine admits, or change whether its work is
-// pushed. Any file a repository names is the user's to trust.
+// raise the permission mode, raise a lane cap, change any other part of what this machine
+// admits, or change whether its work is pushed. Any file a repository names is the user's to
+// trust.
 func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	below, err := Resolve(user)
 	if err != nil {
@@ -77,8 +78,8 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot raise the permission mode from %s to %s",
 			lanes.ErrBadProfile, below.Agent.PermissionMode, profile.Agent.PermissionMode)
 	}
-	if profile.Admission != below.Admission {
-		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change what this machine admits", lanes.ErrBadProfile)
+	if err := lanes.CheckAdmission(below.Admission, profile.Admission); err != nil {
+		return lanes.Profile{}, err
 	}
 	// Content in telemetry is a person's choice, and the worker's store and export are the machine's.
 	if profile.Telemetry.Content && !below.Telemetry.Content {

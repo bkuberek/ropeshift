@@ -237,7 +237,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	config := server.Config{
-		Scope: soloScope, Store: store, Projects: state, Unscoped: true, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
+		Scope: soloScope, Store: store, Projects: state, Installation: state.Installation, Unscoped: true, LeaseTTL: opts.leaseTTL.Milliseconds(), HeartbeatMs: opts.heartbeat.Milliseconds(),
 		Knowledge: soloKnowledge(opts), Matcher: lexical.Matcher{Store: store},
 		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
@@ -256,12 +256,12 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		defer webServer.Close()
 	}
 
-	spans, err := telemetry.spansTick(ctx, store)
+	spans, err := telemetry.spansTick(ctx, state)
 	if err != nil {
 		return err
 	}
-	ticks := append(whileActive(state, soloScope, append(soloTicks(store, opts, batches, windows), noticeTick(config, liveNotifyDeps(), opts.notifyTick))),
-		spans, telemetry.measuresTick(store))
+	ticks := append(soloTicks(state, soloScope, opts, batches, windows),
+		noticeTick(config, state, liveNotifyDeps(), opts.notifyTick), spans, telemetry.measuresTick(state))
 	ticksDone := make(chan struct{})
 	go func() {
 		defer close(ticksDone)
@@ -289,27 +289,6 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	return nil
-}
-
-// whileActive runs each tick only while the project it serves is active: an archived project runs no
-// intake or tick and sends no notice (ADR-0021). The telemetry ticks only read.
-func whileActive(projects ports.Projects, scope ledger.WorkspaceID, ticks []control.Tick) []control.Tick {
-	for i := range ticks {
-		run := ticks[i].Run
-		ticks[i].Run = func(ctx context.Context) error {
-			listed, err := projects.List(ctx)
-			if err != nil {
-				return err
-			}
-			for _, p := range listed {
-				if p.ID == scope && p.State == ledger.ProjectArchived {
-					return nil
-				}
-			}
-			return run(ctx)
-		}
-	}
-	return ticks
 }
 
 // listenWeb binds the web UI's listener on loopback, before the daemon serves anything, so the address
@@ -651,90 +630,88 @@ func soloWindows(paths api.Paths) messages.Windows {
 	return profile.MessageWindows()
 }
 
-func soloTicks(store ports.Store, opts soloOptions, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
-	leases := control.NewLeases(store).Starting(soloStarts(opts))
-	delivering := control.NewMessages(store, windows)
-	asked := control.NewQuestions(store, batches)
-	intake := control.NewIntake(store).Telling(windows)
-	reviews := control.NewReviews(store)
-	accepting := control.NewAcceptances(store)
-	wakes := control.NewWakes(store)
+// eachProject runs one tick's work in every active project, each in its own database (ADR-0021). An
+// archived project runs no tick, and one project's failure stops no other.
+func eachProject(projects ports.Projects, work func(context.Context, ledger.Project, ports.Store) error) func(context.Context) error {
+	return func(ctx context.Context) error {
+		listed, err := projects.List(ctx)
+		if err != nil {
+			return err
+		}
+		var failed []error
+		for _, project := range listed {
+			if project.State != ledger.ProjectActive {
+				continue
+			}
+			store, err := projects.Open(ctx, project)
+			if err == nil {
+				err = work(ctx, project, store)
+			}
+			if err != nil {
+				failed = append(failed, fmt.Errorf("project %s: %w", project.Name, err))
+			}
+		}
+		return errors.Join(failed...)
+	}
+}
+
+// soloTicks are the control plane's ticks, each run in every active project. The daemon's sources are
+// the default project's repositories, so only that project polls them.
+func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOptions, batches questions.BatchPolicy, windows messages.Windows) []control.Tick {
 	sources := make([]ports.WorkSource, 0, len(opts.sources))
 	for _, path := range opts.sources {
 		sources = append(sources, repofiles.New(repofiles.Config{Repository: path, Ref: opts.ref, Directory: opts.directory}))
 	}
+	tick := func(name string, every time.Duration, work func(context.Context, ledger.Project, ports.Store) error) control.Tick {
+		return control.Tick{Name: name, Every: every, Run: eachProject(projects, work)}
+	}
 	return []control.Tick{
-		{
-			Name:  "batches",
-			Every: opts.batchTick,
-			Run: func(ctx context.Context) error {
-				_, err := asked.DeliverBatches(ctx, soloScope, tickActor("batch-tick"))
-				return err
-			},
-		},
-		{
-			Name:  "lease",
-			Every: opts.leaseTick,
-			Run: func(ctx context.Context) error {
-				_, err := leases.Sweep(ctx, soloScope, tickActor("lease-tick"))
-				return err
-			},
-		},
-		{
-			Name:  "wakes",
-			Every: opts.wakeTick,
-			Run: func(ctx context.Context) error {
-				_, err := wakes.WakeTick(ctx, soloScope, tickActor("wake-tick"))
-				return err
-			},
-		},
-		{
-			Name:  "approvals",
-			Every: opts.wakeTick,
-			Run: func(ctx context.Context) error {
-				_, err := control.NewApprovals(store).ExpireDue(ctx, soloScope)
-				return err
-			},
-		},
-		{
-			Name:  "messages",
-			Every: opts.wakeTick,
-			Run: func(ctx context.Context) error {
-				_, err := delivering.ExpireMessages(ctx, soloScope, tickActor("message-tick"))
-				return err
-			},
-		},
-		{
-			// No release in phase 1 ships a Forge adapter, so a lane's checks wait for a second
-			// principal (D16). The tick still sends back work with a failed check.
-			Name:  "acceptance",
-			Every: opts.leaseTick,
-			Run: func(ctx context.Context) error {
-				_, err := accepting.Settle(ctx, soloScope, nil, tickActor("acceptance-tick"))
-				return err
-			},
-		},
-		{
-			Name:  "intake",
-			Every: opts.intakeTick,
-			Run: func(ctx context.Context) error {
-				var failed []error
+		tick("batches", opts.batchTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewQuestions(store, batches).DeliverBatches(ctx, p.ID, tickActor("batch-tick"))
+			return err
+		}),
+		tick("lease", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewLeases(store).Starting(soloStarts(opts)).Sweep(ctx, p.ID, tickActor("lease-tick"))
+			return err
+		}),
+		tick("wakes", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewWakes(store).WakeTick(ctx, p.ID, tickActor("wake-tick"))
+			return err
+		}),
+		tick("approvals", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewApprovals(store).ExpireDue(ctx, p.ID)
+			return err
+		}),
+		tick("messages", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
+			return err
+		}),
+		// No release in phase 1 ships a Forge adapter, so a lane's checks wait for a second principal (D16).
+		// The tick still sends back work with a failed check.
+		tick("acceptance", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewAcceptances(store).Settle(ctx, p.ID, nil, tickActor("acceptance-tick"))
+			return err
+		}),
+		tick("intake", opts.intakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			var failed []error
+			intake := control.NewIntake(store).Telling(windows)
+			if p.ID == home {
 				for _, source := range sources {
-					if _, err := intake.Poll(ctx, soloScope, source); err != nil {
+					if _, err := intake.Poll(ctx, p.ID, source); err != nil {
 						failed = append(failed, err)
 					}
 				}
-				if _, err := intake.TakeInPlans(ctx, soloScope, acceptedCommits(opts)); err != nil {
-					failed = append(failed, err)
-				}
-				if _, err := reviews.Promote(ctx, soloScope, tickActor("intake-tick")); err != nil {
-					failed = append(failed, err)
-				}
-				if _, err := leases.RefreshStarts(ctx, soloScope, tickActor("intake-tick")); err != nil {
-					failed = append(failed, err)
-				}
-				return errors.Join(failed...)
-			},
-		},
+			}
+			if _, err := intake.TakeInPlans(ctx, p.ID, acceptedCommits(opts)); err != nil {
+				failed = append(failed, err)
+			}
+			if _, err := control.NewReviews(store).Promote(ctx, p.ID, tickActor("intake-tick")); err != nil {
+				failed = append(failed, err)
+			}
+			if _, err := control.NewLeases(store).Starting(soloStarts(opts)).RefreshStarts(ctx, p.ID, tickActor("intake-tick")); err != nil {
+				failed = append(failed, err)
+			}
+			return errors.Join(failed...)
+		}),
 	}
 }

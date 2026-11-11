@@ -282,7 +282,7 @@ func (r *laneRun) askLedger(ctx context.Context, lane lanes.Record, call authori
 	bounded, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	return r.w.link.UseApproval(bounded, authority.ApprovalUse{
-		Auth: r.w.Auth(), Epoch: r.w.epoch(), WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID, Generation: lane.Generation,
+		Auth: r.w.Auth(), Epoch: r.w.epoch(), Project: lane.Project, WorkOrder: lane.WorkOrder, Fence: lane.Fence, Lane: lane.ID, Generation: lane.Generation,
 		Subject: call.Tool, Digest: call.Digest, Call: request.Call, Peek: request.Peek,
 	})
 }
@@ -572,10 +572,13 @@ func (w *Worker) takeDecision(ctx context.Context, lane lanes.Record, request la
 	if lane.Owner != lanes.OwnerOrchestrator {
 		return refused(lanes.CodeForbidden, "this token cannot decide a request")
 	}
+	if err := w.namesProject(ctx, request.Project); err != nil {
+		return refused(lanes.CodeInvalid, err.Error())
+	}
 	bounded, cancel := context.WithTimeout(ctx, askDeadline)
 	defer cancel()
 	_, err := w.link.DecideApproval(bounded, authority.WorkerDecision{
-		Auth: w.Auth(), Epoch: w.epoch(),
+		Auth: w.Auth(), Epoch: w.epoch(), Project: request.Project,
 		Decision: authority.Decision{ID: request.ID, Digest: request.Digest, Allow: request.Allow, Reason: request.Reason},
 	})
 	switch {

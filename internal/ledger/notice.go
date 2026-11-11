@@ -53,11 +53,13 @@ const noticeFallback = "Something needs you."
 // that a repeat keeps, so a receiver can drop one.
 type Notice struct {
 	Delivery string `json:"delivery"`
-	Attempt  int64  `json:"attempt"`
-	Kind     string `json:"kind"`
-	Reason   string `json:"reason,omitempty"`
-	Since    int64  `json:"since"`
-	Text     string `json:"text"`
+	// Project is the name of the project the thing waits in, which a member chose.
+	Project string `json:"project,omitempty"`
+	Attempt int64  `json:"attempt"`
+	Kind    string `json:"kind"`
+	Reason  string `json:"reason,omitempty"`
+	Since   int64  `json:"since"`
+	Text    string `json:"text"`
 }
 
 // NewNotice says that something waits, in words of this table only. A reason this table does not hold
@@ -73,6 +75,16 @@ func NewNotice(scope WorkspaceID, kind, reason, id string, since int64) Notice {
 		notice.Reason, notice.Text = reason, text
 	}
 	return notice
+}
+
+// In names the project a notice's thing waits in, in its fields and at the head of its text, because one
+// member hears of every project of an installation (FR-PROJ-8).
+func (n Notice) In(project string) Notice {
+	if project == "" {
+		return n
+	}
+	n.Project, n.Text = project, project+": "+n.Text
+	return n
 }
 
 // NoticeReport is the data of a notice's events.

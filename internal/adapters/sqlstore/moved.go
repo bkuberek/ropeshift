@@ -58,7 +58,7 @@ var sharedTables = []*sharedTable{
 	newSharedTable("workers", "", []string{"id"}, "id", "name", "epoch", "protocol", "capabilities", "proof_digest", "last_handshake_at"),
 	newSharedTable("worker_autonomy", "", []string{"worker_id"}, "worker_id", "level", "acknowledged_by", "acknowledged_kind", "acknowledged_digest", "acknowledged_at"),
 	newSharedTable("run_windows", "", []string{"id"}, "id", "worker_id", "opened_by", "opened_kind", "opened_at", "closes_at", "closed_by", "closed_at"),
-	newSharedTable("orchestrators", "", []string{"id"}, "id", "worker_id", "desired_state", "run", "resets", "actual_state", "generation", "conditions", "reported_at"),
+	newSharedTable("orchestrators", "", []string{"id"}, "id", "worker_id", "desired_state", "run", "resets", "actual_state", "generation", "conditions", "reported_at", "settings"),
 	newSharedTable("policy_versions", "kind = 'autonomy'", []string{"kind", "version"}, "kind", "version", "id", "digest", "body", "settings", "authored_by", "created_at"),
 }
 

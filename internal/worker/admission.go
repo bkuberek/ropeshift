@@ -9,19 +9,24 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
-// fleetMode reads the mode desired state last gave this worker, which holds through an
-// outage of the control plane.
-func (w *Worker) fleetMode(ctx context.Context) string {
+// fleetMode reads the mode desired state last gave a project's lanes, which holds through an
+// outage of the control plane. A plane of one project gives one mode.
+func (w *Worker) fleetMode(ctx context.Context, project string) string {
 	state, err := w.desired(ctx)
 	if err != nil {
 		w.config.Report(err)
 		return ""
 	}
+	for _, served := range state.Projects {
+		if served.ID == project {
+			return string(served.FleetMode)
+		}
+	}
 	return string(state.FleetMode)
 }
 
-func (w *Worker) admitsRestart(ctx context.Context) bool {
-	return lanes.AdmitsRestart(w.fleetMode(ctx))
+func (w *Worker) admitsRestart(ctx context.Context, project string) bool {
+	return lanes.AdmitsRestart(w.fleetMode(ctx, project))
 }
 
 // runningLanes counts what holds this worker, which is every lane with a run and every lane
@@ -87,7 +92,7 @@ func (w *Worker) admission(ctx context.Context, lease ledger.DesiredLease, woken
 		return ""
 	}
 	facts := w.usageFacts(lease.Lane, woken)
-	facts.Mode, facts.Running, facts.Limits, facts.Machine = w.fleetMode(ctx), running, w.limits(ctx, lease), w.reading(ctx)
+	facts.Mode, facts.Running, facts.Limits, facts.Machine = w.fleetMode(ctx, lease.Project), running, w.limits(ctx, lease), w.reading(ctx)
 	return lanes.Admit(facts)
 }
 
@@ -106,7 +111,7 @@ func (w *Worker) hold(ctx context.Context, lease ledger.DesiredLease, reason str
 		return err
 	}
 	event := ledger.UploadEvent{
-		Type: ledger.UploadAdmissionHeld, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence, Payload: payload,
+		Project: lease.Project, Type: ledger.UploadAdmissionHeld, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence, Payload: payload,
 	}
 	_, err = w.Record(ctx, event)
 	return err

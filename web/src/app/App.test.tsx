@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeEvents, goldenNeedsYou, refusal, serveApi, stubEvents } from "../testing";
 import { App } from "./App";
 
-const needsYou = "/v1/views/needs-you";
+const needsYou = "/v1/needs-you";
 
 beforeEach(() => {
   stubEvents();

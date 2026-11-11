@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { splitProject } from "../app/route";
 import { ApiError, followEvents, readNeedsYou } from "./client";
 import type { NeedsYou } from "./types";
 
@@ -21,6 +22,15 @@ type Read = {
 const settleMs = 80;
 const settleBoundMs = 2000;
 const reopenMs = 2000;
+// The page follows its own project's stream. The combined view holds every active project's items, so it
+// reads again this often for what another project's ledger holds.
+const otherProjectsMs = 5000;
+
+// revisionOf is where the page's own project stood in a read, which its stream follows on from.
+function revisionOf(view: NeedsYou): number {
+  const shown = splitProject(window.location.pathname).project;
+  return view.projects?.find((project) => project.name === shown)?.revision ?? view.revision;
+}
 
 export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSession: () => Promise<void>; forget: () => void } {
   const [read, setRead] = useState<Read>({ view: null, readAt: 0, failure: "", needsSession: false, connection: "connecting", heard: 0 });
@@ -30,7 +40,7 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSessio
   const checkSession = useCallback(async () => {
     try {
       const view = await readNeedsYou();
-      revision.current = view.revision;
+      revision.current = revisionOf(view);
       setRead((was) => ({ ...was, view, readAt: Date.now(), failure: "", needsSession: false }));
     } catch (error) {
       const refused = error instanceof ApiError ? error : new ApiError(0, "unavailable", String(error));
@@ -59,6 +69,13 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSessio
   }, [checkSession]);
 
   const ready = read.view !== null && !read.needsSession;
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    const timer = setInterval(() => void checkSession(), otherProjectsMs);
+    return () => clearInterval(timer);
+  }, [ready, checkSession]);
   useEffect(() => {
     if (!ready) {
       return;

@@ -24,6 +24,8 @@ type Project struct {
 	State        ledger.ProjectState `json:"state"`
 	CreatedAt    int64               `json:"created_at"`
 	Repositories []string            `json:"repositories"`
+	// Waiting counts what waits on a member in an active project, as the combined Needs you lists it.
+	Waiting int `json:"waiting"`
 }
 
 // ProjectList is every project of the installation, oldest first.

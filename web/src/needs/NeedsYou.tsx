@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import type { NeedItem, NeedsYou as View } from "../api/types";
-import { useArrivalFocus } from "../app/route";
+import { ItemProject, useArrivalFocus } from "../app/route";
 import { Line, useClock, ViewTime } from "../parts/parts";
 import { ApprovalCard } from "./ApprovalCard";
 import { ContractReviewCard } from "./ContractReviewCard";
@@ -71,11 +71,14 @@ function Waiting({ item, waitedMs, after }: { item: NeedItem; waitedMs: number; 
         {waitLabel(waitedMs)}
       </span>
       <span className="visually-hidden">{waitWords(waitedMs)}</span>
+      {item.project ? <span className="wait-project">{item.project.display_name || item.project.name}</span> : null}
     </>
   );
   return (
     <Line side={side} kind={kindOf(item)} title={headingOf(item)}>
-      <Card item={item} after={after} />
+      <ItemProject.Provider value={item.project?.name ?? ""}>
+        <Card item={item} after={after} />
+      </ItemProject.Provider>
     </Line>
   );
 }

@@ -112,12 +112,7 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 			laneReportTool, laneWaitTool, askTool, laneHandoffTool, replyTool, contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
 		}
 		if orchestrating(call) {
-			tools = []any{
-				contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
-				workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
-				questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
-				workDeclineTool, approvalDecideTool,
-			}
+			tools = orchestratorTools()
 		}
 		out.Result = map[string]any{"tools": tools}
 	case "tools/call":
@@ -330,6 +325,59 @@ func listField(description string) map[string]any {
 }
 
 var workOrderField = textField("The work order's ID.")
+
+// projectField names the project a call acts in, by the ID a list gave each item. One orchestrator
+// serves every active project, and a record of one project means nothing in another.
+var projectField = textField("The project this acts in, by the ID the candidate or question list gave it.")
+
+// listProjectField narrows a list to one project. With none, the list reads every active project, and
+// names each item's project.
+var listProjectField = textField("Only this project, by its ID. With none, every active project, each item named with its project.")
+
+// orchestratorTools are an orchestrator's tools. It serves every active project, so each one that reads or
+// acts names the project, and each list labels its items with theirs.
+func orchestratorTools() []any {
+	all := []map[string]any{
+		contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
+		workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
+		questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
+		workDeclineTool, approvalDecideTool,
+	}
+	tools := make([]any, 0, len(all))
+	for _, tool := range all {
+		if name := tool["name"]; name == lanes.ToolWorkCandidates || name == lanes.ToolQuestionNext {
+			tools = append(tools, withProject(tool, listProjectField, false))
+			continue
+		}
+		tools = append(tools, withProject(tool, projectField, true))
+	}
+	return tools
+}
+
+// withProject is a tool with a project in its input, which a call must name when required says so.
+func withProject(tool map[string]any, field map[string]any, required bool) map[string]any {
+	schema, _ := tool["inputSchema"].(map[string]any)
+	properties := map[string]any{"project": field}
+	if listed, ok := schema["properties"].(map[string]any); ok {
+		for name, property := range listed {
+			properties[name] = property
+		}
+	}
+	out := map[string]any{"type": "object", "properties": properties}
+	names, _ := schema["required"].([]string)
+	if required {
+		names = append([]string{"project"}, names...)
+	}
+	if len(names) != 0 {
+		out["required"] = names
+	}
+	copied := map[string]any{}
+	for key, value := range tool {
+		copied[key] = value
+	}
+	copied["inputSchema"] = out
+	return copied
+}
 
 var questionField = textField("The question's ID.")
 
@@ -548,16 +596,17 @@ func callDecide(arguments json.RawMessage, call Caller) map[string]any {
 // nothing, which is not the same as nothing being there.
 func callContext(tool string, arguments json.RawMessage, call Caller) map[string]any {
 	var read struct {
-		Kind  string `json:"kind"`
-		Ref   string `json:"ref"`
-		Key   string `json:"key"`
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
+		Project string `json:"project"`
+		Kind    string `json:"kind"`
+		Ref     string `json:"ref"`
+		Key     string `json:"key"`
+		Query   string `json:"query"`
+		Limit   int    `json:"limit"`
 	}
 	if err := json.Unmarshal(arguments, &read); err != nil {
 		return toolText("these arguments are not a read: "+err.Error(), true)
 	}
-	request := lanes.ContextRequest{Tool: tool, Kind: read.Kind, Ref: read.Ref, Query: read.Query, Limit: read.Limit}
+	request := lanes.ContextRequest{Project: read.Project, Tool: tool, Kind: read.Kind, Ref: read.Ref, Query: read.Query, Limit: read.Limit}
 	if tool == lanes.ToolRequirementGet {
 		request.Ref = read.Key
 	}

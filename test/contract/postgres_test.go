@@ -206,7 +206,7 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 		t.Errorf("beta's schema opens alpha's workspace: %v", err)
 	}
 
-	err = alpha.Write(ctx, "pa", "test.member", func(tx ports.WriteTx) error {
+	err = alpha.Installation("pa").Write(ctx, "test.member", func(tx ports.SharedTx) error {
 		if err := tx.Members().SaveMember(authority.MemberRecord{ID: "member-1", IdentitySubject: "local", DisplayName: "M", Status: "active", ProofDigest: "hash"}); err != nil {
 			return err
 		}
@@ -236,7 +236,7 @@ func TestProjectsAreSchemasOfOneDatabase(t *testing.T) {
 	if _, err := legacy.CreateWorkspace(ctx, ledger.Workspace{ID: "pc"}, actor); err != nil {
 		t.Fatal(err)
 	}
-	err = legacy.Write(ctx, "pc", "test.legacy", func(tx ports.WriteTx) error {
+	err = legacy.Installation("pc").Write(ctx, "test.legacy", func(tx ports.SharedTx) error {
 		if err := tx.Workers().Insert(ledger.WorkerRecord{Worker: ledger.Worker{ID: "worker-1", Name: "w"}, ProofDigest: "proof"}); err != nil {
 			return err
 		}

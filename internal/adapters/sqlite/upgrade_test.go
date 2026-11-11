@@ -142,7 +142,7 @@ func fillLegacy(ctx context.Context, store *sqlstore.Store) (legacy, error) {
 	}, upgradeActor); err != nil {
 		return legacy{}, err
 	}
-	err = store.Write(ctx, legacyScope, "test.legacy", func(tx ports.WriteTx) error {
+	err = store.Installation(legacyScope).Write(ctx, "test.legacy", func(tx ports.SharedTx) error {
 		if err := tx.Members().SaveMember(authority.MemberRecord{ID: "member-1", IdentitySubject: "local", DisplayName: "M", Status: "active", ProofDigest: "passphrase-hash"}); err != nil {
 			return err
 		}
@@ -164,13 +164,21 @@ func fillLegacy(ctx context.Context, store *sqlstore.Store) (legacy, error) {
 		if err != nil {
 			return err
 		}
-		decision := authority.PolicyVersion{ID: "decision-1", Kind: authority.PolicyDecision, Version: 1, Digest: authority.PolicyDigest("b"), Body: "b", Settings: "{}", AuthoredBy: "member-1", CreatedAt: tx.Now()}
-		for _, version := range []authority.PolicyVersion{autonomy, decision} {
-			if _, err := tx.Policies().Insert(version); err != nil {
-				return err
-			}
+		if _, err := tx.Policies().Insert(autonomy); err != nil {
+			return err
 		}
 		_, err = tx.Append(ledger.EventDraft{Type: "test.legacy", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "legacy"}})
+		return err
+	})
+	if err != nil {
+		return out, err
+	}
+	err = store.Write(ctx, legacyScope, "test.legacy_policy", func(tx ports.WriteTx) error {
+		decision := authority.PolicyVersion{ID: "decision-1", Kind: authority.PolicyDecision, Version: 1, Digest: authority.PolicyDigest("b"), Body: "b", Settings: "{}", AuthoredBy: "member-1", CreatedAt: tx.Now()}
+		if _, err := tx.Policies().Insert(decision); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: "test.legacy", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "legacy-policy"}})
 		return err
 	})
 	return out, err

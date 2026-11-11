@@ -771,3 +771,35 @@ describe("text from outside", () => {
     }
   });
 });
+
+describe("the combined view", () => {
+  // twoProjects labels the golden view's items with two projects, as the installation's Needs you does.
+  function twoProjects(): View {
+    const view = goldenNeedsYou();
+    view.items = view.items.map((item, i) => ({
+      ...item,
+      project: i % 2 === 0 ? { id: "default", name: "default" } : { id: "beta-id", name: "beta", display_name: "Beta product" },
+    }));
+    return view;
+  }
+
+  it("labels each item with its project", () => {
+    const view = twoProjects();
+    show(view);
+    const articles = screen.getAllByRole("article");
+    expect(articles).toHaveLength(view.items.length);
+    expect(within(articles[0] as HTMLElement).getByText("default")).toBeTruthy();
+    expect(within(articles[1] as HTMLElement).getByText("Beta product")).toBeTruthy();
+  });
+
+  it("acts on an item in its own project, whichever project the page shows", async () => {
+    const view = twoProjects();
+    const { approval } = itemOf(view, "approval");
+    const project = view.items.find((item) => item.kind === "approval")?.project?.name;
+    const sent = serveApi(() => ({ status: 200 }));
+    show(view);
+    await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ method: "POST", project, path: `/v1/approvals/${approval.id}/decide` });
+  });
+});

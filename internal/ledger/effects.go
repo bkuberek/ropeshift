@@ -123,6 +123,7 @@ type EffectSettlement struct {
 // DesiredEffect is a person's word on its way to the worker that holds the effect. The control plane
 // offers it until the worker says it acted.
 type DesiredEffect struct {
+	Project string        `json:"project,omitempty"`
 	ID      string        `json:"id"`
 	Key     string        `json:"key"`
 	Attempt int64         `json:"attempt"`

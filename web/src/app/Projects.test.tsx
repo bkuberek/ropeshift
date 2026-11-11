@@ -23,7 +23,8 @@ describe("projects", () => {
     const sent = serveViews(undefined, { projects: twoProjects });
     openPage("/projects/acme/roadmap");
     await screen.findByRole("heading", { level: 1, name: "Roadmap" });
-    const scoped = sent.filter((call) => call.url !== "/v1/projects");
+    // The registry and the combined Needs you are the installation's, and read every project.
+    const scoped = sent.filter((call) => call.url !== "/v1/projects" && call.url !== "/v1/needs-you");
     expect(scoped.length).toBeGreaterThan(0);
     for (const call of scoped) {
       expect(call.project, call.url).toBe("acme");

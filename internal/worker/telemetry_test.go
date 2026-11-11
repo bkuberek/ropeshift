@@ -42,7 +42,7 @@ func TestALaneIsTaggedAtSpawn(t *testing.T) {
 	}
 	got := specs[0].Telemetry
 	want := lanes.TelemetryTags{
-		Workspace: "default", WorkOrder: r.id, Lane: "lane-1", Role: lanes.RoleWriter, Generation: 1, Profile: "default",
+		Project: "default", Workspace: "default", WorkOrder: r.id, Lane: "lane-1", Role: lanes.RoleWriter, Generation: 1, Profile: "default",
 		Repo: "repository", Branch: got.Tags.Branch, Worker: "test", Driver: "claude-code",
 	}
 	if got.Endpoint != "http://127.0.0.1:7318" || got.Header != "x-ropeshift-telemetry=t" || got.Tags != want || got.Tags.Branch == "" {

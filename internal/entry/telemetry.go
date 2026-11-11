@@ -23,6 +23,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/worker"
 )
@@ -262,12 +263,13 @@ const measuresEvery = 5 * time.Minute
 
 // measuresTick exports each window's measures through the emitter, to the local store and to an
 // exporter when one is configured.
-func (t *soloTelemetry) measuresTick(store ports.Store) control.Tick {
-	measures := control.NewMeasures(store, t.emitter)
+func (t *soloTelemetry) measuresTick(projects ports.Projects) control.Tick {
 	return control.Tick{
 		Name:  "measures",
 		Every: measuresEvery,
-		Run:   func(ctx context.Context) error { return measures.Export(ctx, soloScope) },
+		Run: eachProject(projects, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			return control.NewMeasures(store, t.emitter).Export(ctx, p.ID)
+		}),
 	}
 }
 
@@ -282,19 +284,43 @@ func (t *soloTelemetry) lastRead(spans control.Tick, stderr io.Writer) {
 	}
 }
 
-// spansTick follows the ledger into spans and metrics, from where the log stood when the daemon
-// started.
-func (t *soloTelemetry) spansTick(ctx context.Context, store ports.Store) (control.Tick, error) {
-	spans := control.NewSpans(store, t.emitter)
-	if err := spans.StartAtHead(ctx, soloScope); err != nil {
+// spansTick follows every active project's ledger into spans and metrics, from where each log stood when
+// the daemon started. A project created after the start is followed from its first event.
+func (t *soloTelemetry) spansTick(ctx context.Context, projects ports.Projects) (control.Tick, error) {
+	var mu sync.Mutex
+	following := map[ledger.WorkspaceID]*control.Spans{}
+	follow := func(ctx context.Context, p ledger.Project, store ports.Store, atHead bool) (*control.Spans, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if spans, ok := following[p.ID]; ok {
+			return spans, nil
+		}
+		spans := control.NewSpans(store, t.emitter)
+		if atHead {
+			if err := spans.StartAtHead(ctx, p.ID); err != nil {
+				return nil, err
+			}
+		}
+		following[p.ID] = spans
+		return spans, nil
+	}
+	err := eachProject(projects, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+		_, err := follow(ctx, p, store, true)
+		return err
+	})(ctx)
+	if err != nil {
 		return control.Tick{}, err
 	}
 	return control.Tick{
 		Name:  "telemetry",
 		Every: t.every,
-		Run: func(ctx context.Context) error {
-			_, err := spans.Project(ctx, soloScope)
+		Run: eachProject(projects, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			spans, err := follow(ctx, p, store, false)
+			if err != nil {
+				return err
+			}
+			_, err = spans.Project(ctx, p.ID)
 			return err
-		},
+		}),
 	}, nil
 }

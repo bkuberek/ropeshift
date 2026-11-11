@@ -44,6 +44,9 @@ type Orchestrator struct {
 	// Conditions are what its worker last said beside its state, and ReportedAt when.
 	Conditions []string `json:"conditions,omitempty"`
 	ReportedAt int64    `json:"reported_at,omitempty"`
+	// Settings are what its current run bound with, as a lane's experience record holds a lane's. It
+	// serves every project, so they stay here, where a decision in any project reads them.
+	Settings json.RawMessage `json:"settings,omitempty"`
 }
 
 // Tripped says its breaker stopped it, and only a person may reset that.
@@ -85,6 +88,8 @@ type OrchestratorReport struct {
 	// Conditions and At travel with a status, and At is database time.
 	Conditions []string `json:"conditions,omitempty"`
 	At         int64    `json:"at,omitempty"`
+	// Settings travel with a binding.
+	Settings json.RawMessage `json:"settings,omitempty"`
 }
 
 // Apply moves the projection. A report of a start this one replaced says nothing of it.
@@ -97,6 +102,9 @@ func (o Orchestrator) Apply(report OrchestratorReport) Orchestrator {
 	}
 	if report.At != 0 {
 		o.ReportedAt = report.At
+	}
+	if len(report.Settings) != 0 {
+		o.Settings = report.Settings
 	}
 	o.Generation = max(o.Generation, report.Generation)
 	return o
@@ -140,15 +148,19 @@ const (
 // WakeItem is one thing to judge. Stamp says how it stands, so an item that changed counts again and
 // one that did not counts once. Digest is what a decision on a request binds to.
 type WakeItem struct {
-	Kind   string `json:"kind"`
-	ID     string `json:"id"`
-	Stamp  int64  `json:"stamp"`
-	Text   string `json:"text"`
-	Digest string `json:"digest,omitempty"`
+	// Project names the project the item is in, on a plane that serves several.
+	Project string `json:"project,omitempty"`
+	Kind    string `json:"kind"`
+	ID      string `json:"id"`
+	Stamp   int64  `json:"stamp"`
+	Text    string `json:"text"`
+	Digest  string `json:"digest,omitempty"`
 }
 
-// Key names an item as it stands.
-func (i WakeItem) Key() string { return i.Kind + "/" + i.ID + "/" + strconv.FormatInt(i.Stamp, 10) }
+// Key names an item as it stands, in its project.
+func (i WakeItem) Key() string {
+	return i.Project + "/" + i.Kind + "/" + i.ID + "/" + strconv.FormatInt(i.Stamp, 10)
+}
 
 // WakeDigest is what a worker's orchestrator could judge now.
 type WakeDigest struct {
@@ -182,8 +194,10 @@ const (
 // OrchestratorCall is one such act. Lane names the run it speaks for, so a call from a start that was
 // replaced acts for nobody. Body carries what a verb reads that this package has no type for.
 type OrchestratorCall struct {
-	Auth      WorkerAuth      `json:"-"`
-	Epoch     int64           `json:"epoch"`
+	Auth  WorkerAuth `json:"-"`
+	Epoch int64      `json:"epoch"`
+	// Project is the project the act is in. A list names none and reads every active project.
+	Project   string          `json:"project,omitempty"`
 	Lane      string          `json:"lane"`
 	WorkOrder string          `json:"work_order,omitempty"`
 	Question  string          `json:"question,omitempty"`

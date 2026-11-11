@@ -76,7 +76,13 @@ func (w *Worker) takeWork(ctx context.Context, lane lanes.Record, request lanes.
 
 func (w *Worker) workTool(ctx context.Context, lane lanes.Record, tool string, args toolArgs) (json.RawMessage, error) {
 	call := ledger.OrchestratorCall{
-		Auth: w.Auth(), Epoch: w.epoch(), Lane: lane.ID, WorkOrder: args.text("work_order"), Question: args.text("question"), Reason: args.text("reason"),
+		Auth: w.Auth(), Epoch: w.epoch(), Lane: lane.ID, Project: args.text("project"),
+		WorkOrder: args.text("work_order"), Question: args.text("question"), Reason: args.text("reason"),
+	}
+	if tool != lanes.ToolWorkCandidates && tool != lanes.ToolQuestionNext {
+		if err := w.namesProject(ctx, call.Project); err != nil {
+			return nil, err
+		}
 	}
 	act := func(verb string) (json.RawMessage, error) {
 		reply, err := w.link.Orchestrate(ctx, verb, call)
@@ -116,6 +122,23 @@ func (w *Worker) workTool(ctx context.Context, lane lanes.Record, tool string, a
 		return w.escalate(ctx, call, args, act)
 	}
 	return nil, fmt.Errorf("%w: no such tool: %q", workorders.ErrInvalid, tool)
+}
+
+// namesProject refuses an act of an orchestrator that names no project, on a plane that serves several:
+// one orchestrator serves every active project, and an act means something in one of them only. A list
+// names none and reads every one.
+func (w *Worker) namesProject(ctx context.Context, project string) error {
+	if project != "" {
+		return nil
+	}
+	state, err := w.desired(ctx)
+	if err != nil {
+		return err
+	}
+	if len(state.Projects) > 1 {
+		return fmt.Errorf("%w: this worker serves %d projects: name the project this acts in", workorders.ErrInvalid, len(state.Projects))
+	}
+	return nil
 }
 
 // claimHeldBy says what a sign-in holds new work back for. An orchestrator claims on what the ledger

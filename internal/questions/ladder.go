@@ -220,6 +220,7 @@ type Ruling struct {
 type WorkerRuling struct {
 	Auth     ledger.WorkerAuth `json:"-"`
 	Epoch    int64             `json:"epoch"`
+	Project  string            `json:"project,omitempty"`
 	Question string            `json:"question"`
 	Ruling   Ruling            `json:"ruling"`
 }
@@ -239,6 +240,7 @@ type Escalation struct {
 type LaneAsk struct {
 	Auth      ledger.WorkerAuth `json:"-"`
 	Epoch     int64             `json:"epoch"`
+	Project   string            `json:"project,omitempty"`
 	WorkOrder string            `json:"work_order"`
 	Fence     int64             `json:"fence"`
 	Ask       Ask               `json:"ask"`

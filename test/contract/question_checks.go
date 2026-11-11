@@ -161,7 +161,7 @@ func (r *Rig) questionBook(s ports.Store) (questions.Book, error) {
 // CheckSessions proves a session and its record commit together: no token can sign a
 // member in without the ledger saying so.
 func (r *Rig) CheckSessions(s ports.Store) error {
-	events, err := r.Events(s, r.Scope)
+	events, err := r.SharedEvents(s)
 	if err != nil {
 		return err
 	}

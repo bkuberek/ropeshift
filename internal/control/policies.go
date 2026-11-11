@@ -51,7 +51,14 @@ func policyInForce(tx ports.WriteTx) (questions.Policy, error) {
 	return questions.ReadPolicy(version)
 }
 
-func insertPolicy(tx ports.WriteTx, version authority.PolicyVersion, actor ledger.Actor) error {
+// policyWriter is a transaction that keeps policy versions and their events: a project's for its own
+// kinds, and the installation's for the autonomy policy.
+type policyWriter interface {
+	Policies() ports.PolicyWriter
+	Append(ledger.EventDraft) (ledger.Event, error)
+}
+
+func insertPolicy(tx policyWriter, version authority.PolicyVersion, actor ledger.Actor) error {
 	added, err := tx.Policies().Insert(version)
 	if err != nil {
 		return err
