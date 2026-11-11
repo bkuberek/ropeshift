@@ -194,7 +194,7 @@ func (c *invocation) requirementList(args []string) int {
 	return c.finish(err, api.RequirementList{Requirements: requirements}, func() string {
 		var out strings.Builder
 		for _, requirement := range requirements {
-			fmt.Fprintf(&out, "%s\tv%d\t%s\n", requirement.Key, requirement.Version, requirement.Text)
+			out.WriteString(requirementLine(requirement))
 		}
 		return out.String()
 	})
@@ -215,9 +215,17 @@ func (c *invocation) requirementGet(args []string) int {
 	}
 	defer client.Close()
 	requirement, err := client.Requirement(c.ctx, positional[0])
-	return c.finish(err, requirement, func() string {
-		return fmt.Sprintf("%s\tv%d\t%s\n", requirement.Key, requirement.Version, requirement.Text)
-	})
+	return c.finish(err, requirement, func() string { return requirementLine(requirement) })
+}
+
+// requirementLine says what one requirement version asks, and, for one the code already meets, the
+// evidence that shows it.
+func requirementLine(requirement planning.Requirement) string {
+	line := fmt.Sprintf("%s\tv%d\t%s", requirement.Key, requirement.Version, requirement.Text)
+	if requirement.Met() {
+		line += "\tmet by existing code: " + strings.Join(requirement.Evidence, ", ")
+	}
+	return line + "\n"
 }
 
 func (c *invocation) workResolve(args []string) int {

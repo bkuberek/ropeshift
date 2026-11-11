@@ -21,7 +21,9 @@ import (
 // and then against the ledger.
 type batchRefs struct {
 	milestones map[string]string
-	contracts  map[string]batchContract
+	// existing are the milestones of the batch the code already delivers.
+	existing  map[string]bool
+	contracts map[string]batchContract
 	// plans are the plan files this batch changed, by the plan's ID in the ledger, which the end of the
 	// batch gives a plan version.
 	plans map[string]planFileRead
@@ -33,10 +35,11 @@ type batchContract struct {
 }
 
 func refsOf(batch ports.ChangeBatch) *batchRefs {
-	refs := &batchRefs{milestones: map[string]string{}, contracts: map[string]batchContract{}, plans: map[string]planFileRead{}}
+	refs := &batchRefs{milestones: map[string]string{}, existing: map[string]bool{}, contracts: map[string]batchContract{}, plans: map[string]planFileRead{}}
 	for _, item := range batch.Records {
 		if file := item.File.Milestone; file != nil {
 			refs.milestones[file.ID] = file.Plan
+			refs.existing[file.ID] = file.Existing
 		}
 	}
 	for _, item := range batch.Items {
@@ -59,6 +62,26 @@ func (b *batchRefs) milestoneHeld(planned ports.PlanningReader, id, planKey, pla
 		return false, err
 	}
 	return document.PlanID == planID, nil
+}
+
+// milestoneExisting says the code already delivers a milestone the plan holds: the batch's file says so
+// when the batch has one, and otherwise the ledger's newest version does.
+func (b *batchRefs) milestoneExisting(planned ports.PlanningReader, id string) (bool, error) {
+	if _, inBatch := b.milestones[id]; inBatch {
+		return b.existing[id], nil
+	}
+	latest, err := planned.LatestDocumentVersion(planning.DocumentRef(planning.FileMilestone, id))
+	if errors.Is(err, ports.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var file planning.MilestoneFile
+	if err := latest.Decode(&file); err != nil {
+		return false, err
+	}
+	return file.Existing, nil
 }
 
 // planHasMilestones says a plan holds at least one milestone, in the batch or in the ledger. A plan
@@ -130,6 +153,14 @@ func (r *itemRecorder) placement(planID string) (string, error) {
 		}
 		if !held {
 			problems = append(problems, fmt.Sprintf("contract %s is in milestone %s, which is not a milestone of %s", file.ID, file.Milestone, planNamed(file.Plan)))
+		}
+		existing, err := r.refs.milestoneExisting(r.tx.Planning(), file.Milestone)
+		if err != nil {
+			return "", err
+		}
+		if held && existing && len(file.WorkOrders) > 0 {
+			problems = append(problems, fmt.Sprintf("contract %s has work orders and is in milestone %s, which exists already; "+
+				"nothing waits for an existing milestone, so new work belongs in a milestone of its own", file.ID, file.Milestone))
 		}
 	}
 	for _, use := range file.Uses {
@@ -210,7 +241,7 @@ func refuseCycles(batch ports.ChangeBatch) (ports.ChangeBatch, []refusal) {
 				what = "the milestones that name no plan"
 			}
 			plan := of(planKey(milestone.Plan), what)
-			plan.shape.Milestones = append(plan.shape.Milestones, planning.ShapeMilestone{ID: milestone.ID, DependsOn: milestone.DependsOn})
+			plan.shape.Milestones = append(plan.shape.Milestones, planning.ShapeMilestone{ID: milestone.ID, DependsOn: milestone.DependsOn, Existing: milestone.Existing})
 		}
 	}
 	for _, item := range batch.Items {
@@ -220,7 +251,7 @@ func refuseCycles(batch ports.ChangeBatch) (ports.ChangeBatch, []refusal) {
 			what = "contract " + file.ID
 		}
 		plan := of(itemPlanKey(item), what)
-		contract := planning.ShapeContract{ID: file.ID, Milestone: file.Milestone, Uses: file.Uses}
+		contract := planning.ShapeContract{ID: file.ID, Milestone: file.Milestone, Uses: file.Uses, Existing: file.Existing}
 		for _, order := range file.WorkOrders {
 			contract.Orders = append(contract.Orders, planning.ShapeOrder{ID: order.ID, DependsOn: order.DependsOn})
 		}
@@ -473,7 +504,7 @@ func (v workspaceView) planShape(planned ports.PlanningReader, orders ports.Work
 		if err := latest.Decode(&file); err != nil {
 			return shape, nil, fmt.Errorf("milestone %s: %w", document.ID, err)
 		}
-		shape.Milestones = append(shape.Milestones, planning.ShapeMilestone{ID: file.ID, DependsOn: file.DependsOn})
+		shape.Milestones = append(shape.Milestones, planning.ShapeMilestone{ID: file.ID, DependsOn: file.DependsOn, Existing: file.Existing})
 	}
 	contractKeys := map[string]ledger.ExternalKey{}
 	contractIDs := map[ledger.ExternalKey]string{}
@@ -495,7 +526,7 @@ func (v workspaceView) planShape(planned ports.PlanningReader, orders ports.Work
 	}
 	for _, id := range slices.Sorted(maps.Keys(newest)) {
 		contract := newest[id]
-		held := planning.ShapeContract{ID: id, Milestone: contract.Milestone}
+		held := planning.ShapeContract{ID: id, Milestone: contract.Milestone, Existing: contract.Existing}
 		for _, use := range contract.Uses {
 			key := contractKeys[id]
 			key.NativeID = use

@@ -697,6 +697,15 @@ fieldset {
   font-style: italic;
 }
 
+/* The evidence a plan cites for a requirement the code already meets. */
+.trace-evidence {
+  display: grid;
+  gap: 0.125rem;
+  padding-left: 0.75rem;
+  border-left: 0.125rem solid var(--muted);
+  font-size: 0.9375rem;
+}
+
 /* A plan's map: its milestones in priority order, the work that can run at once, and the critical path. */
 .plan-map {
   display: grid;

@@ -321,6 +321,23 @@ describe("tracing requirements to work", () => {
     expect(childrenOf(within(trace).getByRole("list", { name: "Work orders of The approval page" }))).toHaveLength(2);
   });
 
+  it("says a requirement the code already meets is met by existing code, with its evidence", async () => {
+    serve((view) => {
+      const trace = view.plans[0]?.requirements.find((row) => row.key === "FAC-4");
+      if (trace) {
+        trace.status = "met";
+        trace.evidence = ["api:internal/client.go", "api:internal/client_test.go"];
+      }
+    });
+    openPage("/requirements");
+    const list = await screen.findByRole("list", { name: "Requirements of The factory floor, traced to work" });
+    const trace = traceOf(list, "FAC-4");
+    expect(within(trace).getByText("Met by existing code")).toBeTruthy();
+    const evidence = within(trace).getByRole("list", { name: "Evidence that the code meets FAC-4" });
+    expect(childrenOf(evidence).map((item) => item.textContent)).toEqual(["api:internal/client.go", "api:internal/client_test.go"]);
+    expect(within(trace).queryByText("No criterion serves it yet.")).toBeNull();
+  });
+
   it("says when no criterion serves a requirement", async () => {
     const list = await traces();
     expect(within(traceOf(list, "FAC-4")).getByText("No criterion serves it yet.")).toBeTruthy();

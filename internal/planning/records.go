@@ -72,7 +72,14 @@ type Requirement struct {
 	Text    string `json:"text"`
 	Source  string `json:"source,omitempty"`
 	Digest  string `json:"digest"`
+	// Status is met when the code already meets the requirement, which Evidence shows as
+	// `<repository>:<path>` references, and empty or open otherwise (ADR-0023).
+	Status   string   `json:"status,omitempty"`
+	Evidence []string `json:"evidence,omitempty"`
 }
+
+// Met says the code already meets the requirement.
+func (r Requirement) Met() bool { return r.Status == RequirementMet }
 
 // RequirementDigest identifies one requirement's content. A file holds many requirements,
 // so its blob hash would call all of them changed when one changed.
@@ -112,6 +119,8 @@ type PlanVersion struct {
 	// nothing until a member approves the plan.
 	Documents []string        `json:"documents,omitempty"`
 	Decisions []DraftDecision `json:"decisions,omitempty"`
+	// LeftOut is what the plan's file records an adoption did not carry, each with its reason (ADR-0023).
+	LeftOut []LeftOut `json:"left_out,omitempty"`
 	// Records are the records the digest covers, and WorkOrder is the `plan` work order whose accepted
 	// branch held the plan file, when the version came from a planning lane.
 	Records   []Entry `json:"records,omitempty"`
@@ -175,6 +184,9 @@ type Contract struct {
 	Shared       bool          `json:"shared,omitempty"`
 	Uses         []string      `json:"uses,omitempty"`
 	Documents    []DocumentPin `json:"documents,omitempty"`
+	// Existing says the code already delivers the contract, so it has no work orders of its own and every
+	// dependency on it is resolved from the start (ADR-0023).
+	Existing bool `json:"existing,omitempty"`
 	// Orders are the work orders the file lists, each with a digest of what it says. The ledger makes
 	// a work order once, so these keep what the version asked for, which a plan's difference reads.
 	Orders []Part `json:"work_orders,omitempty"`

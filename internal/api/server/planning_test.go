@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"net/http"
+	"reflect"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -69,7 +70,7 @@ func TestARequirementReadsByItsKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 1 || all[0] != requirement {
+	if len(all) != 1 || !reflect.DeepEqual(all[0], requirement) {
 		t.Errorf("list %+v", all)
 	}
 	_, err = daemon.Client.Requirement(t.Context(), "ABSENT")

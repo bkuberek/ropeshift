@@ -172,7 +172,7 @@ export type Plan = { id: string; goal_id?: string; title: string; status: string
 export type ExitCriterion = { id: string; text: string };
 
 // A milestone's state comes from its work and the milestones it depends on.
-export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done";
+export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done" | "existing";
 
 export type MilestoneProgress = {
   id: string;
@@ -183,6 +183,8 @@ export type MilestoneProgress = {
   total: number;
   done: number;
   state: MilestoneState;
+  // existing says the code already delivers the milestone, so nothing waits for it.
+  existing?: boolean;
 };
 
 export type CriticalPath = { work_orders: string[]; weight: number };
@@ -280,7 +282,17 @@ export type DocumentRow = {
   record?: string;
 };
 
-export type Requirement = { id: string; version: number; key: string; text: string; source?: string; digest: string };
+export type Requirement = {
+  id: string;
+  version: number;
+  key: string;
+  text: string;
+  source?: string;
+  digest: string;
+  // status is "met" for a requirement the code already meets, which evidence shows as repository:path.
+  status?: string;
+  evidence?: string[];
+};
 
 // Where a version of a planning document stands in review: covered by a plan version a member approved,
 // listed by one whose approval waits, or neither.
@@ -309,7 +321,15 @@ export type TracedCriterion = {
   work_orders: TracedWork[];
 };
 
-export type RequirementTrace = { key: string; text: string; document: string; criteria: TracedCriterion[] };
+export type RequirementTrace = {
+  key: string;
+  text: string;
+  document: string;
+  criteria: TracedCriterion[];
+  // status is "met" for a requirement existing code meets, with the evidence that shows it, and no verdict.
+  status?: string;
+  evidence?: string[];
+};
 
 export type PlanDocuments = { plan: Plan; documents: RecordedDocument[]; requirements: RequirementTrace[] };
 

@@ -93,12 +93,16 @@ type WorkOrderSpec struct {
 	Needs     map[string]string `toml:"needs" json:"needs,omitempty"`
 	// Base is the branch this work starts from. It overrides the repository's base branch (FR-BASE-2).
 	Base string `toml:"base" json:"base,omitempty"`
+	// Continues names an in-flight branch this work finishes (ADR-0023). Its lane starts from that branch's
+	// tip on a branch of its own, and the branch itself never moves.
+	Continues string `toml:"continues" json:"continues,omitempty"`
 }
 
 // ContractFile is the front matter of a contract file. Requirements at this level is the key list of
 // the files written before a criterion could name its own; a pack reads it together with the
 // criteria's. Milestone, Shared, and Uses are kept as written, and Documents cites the documents the
-// contract depends on, each as `<kind>:<id>`.
+// contract depends on, each as `<kind>:<id>`. Existing says the code already delivers the contract, so it
+// has no work orders and every dependency on it is resolved from the start (ADR-0023).
 type ContractFile struct {
 	Kind         FileKind        `toml:"kind" json:"kind"`
 	ID           string          `toml:"id" json:"id"`
@@ -110,6 +114,7 @@ type ContractFile struct {
 	Documents    []string        `toml:"documents" json:"documents,omitempty"`
 	Requirements []string        `toml:"requirements" json:"requirements,omitempty"`
 	Decisions    []string        `toml:"decisions" json:"decisions,omitempty"`
+	Existing     bool            `toml:"existing" json:"existing,omitempty"`
 	Criteria     []Criterion     `toml:"criteria" json:"criteria,omitempty"`
 	WorkOrders   []WorkOrderSpec `toml:"work_orders" json:"work_orders,omitempty"`
 }
@@ -132,6 +137,13 @@ type DraftDecision struct {
 	Blocking  bool   `toml:"blocking" json:"blocking,omitempty"`
 }
 
+// LeftOut is one `[[left_out]]` table of a plan: a branch or an issue an adoption chose not to carry, and
+// why (ADR-0023). Plan approval shows each one.
+type LeftOut struct {
+	Ref    string `toml:"ref" json:"ref"`
+	Reason string `toml:"reason" json:"reason"`
+}
+
 // PlanFile is the front matter of a plan file. Goal is the ID of a goal file, and Documents lists every
 // document the plan holds, each as `<kind>:<id>`.
 type PlanFile struct {
@@ -141,12 +153,60 @@ type PlanFile struct {
 	Goal      string          `toml:"goal" json:"goal,omitempty"`
 	Documents []string        `toml:"documents" json:"documents,omitempty"`
 	Decisions []DraftDecision `toml:"decision" json:"decision,omitempty"`
+	LeftOut   []LeftOut       `toml:"left_out" json:"left_out,omitempty"`
 }
 
-// RequirementSpec is one `[[requirement]]` table. Its ID is the key a contract names.
+// The statuses of a requirement. An empty status is open.
+const (
+	RequirementOpen = "open"
+	// RequirementMet says the code already meets the requirement, which its evidence shows (ADR-0023).
+	RequirementMet = "met"
+)
+
+// RequirementSpec is one `[[requirement]]` table. Its ID is the key a contract names. A met requirement
+// lists its Evidence as `<repository>:<path>` references, and needs no criterion.
 type RequirementSpec struct {
-	ID   string `toml:"id" json:"id"`
-	Text string `toml:"text" json:"text"`
+	ID       string   `toml:"id" json:"id"`
+	Text     string   `toml:"text" json:"text"`
+	Status   string   `toml:"status" json:"status,omitempty"`
+	Evidence []string `toml:"evidence" json:"evidence,omitempty"`
+}
+
+// Met says the code already meets the requirement.
+func (s RequirementSpec) Met() bool { return s.Status == RequirementMet }
+
+// Digest identifies the requirement's content. An open one keeps the digest it had before the format could
+// say met, and a met one's covers its evidence too.
+func (s RequirementSpec) Digest() string {
+	if !s.Met() {
+		return RequirementDigest(s.ID, s.Text)
+	}
+	return ContentDigest(append([]string{"requirement", s.ID, s.Text, RequirementMet}, s.Evidence...)...)
+}
+
+// check refuses a status nobody offers, a met requirement with no evidence, and evidence that names no
+// repository and a path inside it.
+func (s RequirementSpec) check() error {
+	switch s.Status {
+	case "", RequirementOpen:
+		if len(s.Evidence) != 0 {
+			return fmt.Errorf("%w: requirement %s is not met, so it cites no evidence", ErrBadFile, s.ID)
+		}
+		return nil
+	case RequirementMet:
+	default:
+		return fmt.Errorf("%w: requirement %s has status %q, and a status is open or met", ErrBadFile, s.ID, s.Status)
+	}
+	if len(s.Evidence) == 0 {
+		return fmt.Errorf("%w: requirement %s is met and cites no evidence", ErrBadFile, s.ID)
+	}
+	for _, cited := range s.Evidence {
+		repository, file, found := strings.Cut(cited, ":")
+		if !found || repository == "" || !insideRepository(file) {
+			return fmt.Errorf("%w: requirement %s cites %q, and evidence is written <repository>:<path> with a path inside the repository", ErrBadFile, s.ID, cited)
+		}
+	}
+	return nil
 }
 
 // RequirementsFile is the front matter of a requirements file. Requirements live in
@@ -195,7 +255,8 @@ type ExitCriterion struct {
 }
 
 // MilestoneFile is the front matter of a milestone. A lower Priority comes first, and DependsOn lists
-// milestone IDs.
+// milestone IDs. Existing says the code already delivers the milestone, so every dependency on it is
+// resolved from the start (ADR-0023).
 type MilestoneFile struct {
 	Kind         FileKind        `toml:"kind" json:"kind"`
 	ID           string          `toml:"id" json:"id"`
@@ -203,6 +264,7 @@ type MilestoneFile struct {
 	Plan         string          `toml:"plan" json:"plan,omitempty"`
 	Priority     int64           `toml:"priority" json:"priority"`
 	DependsOn    []string        `toml:"depends_on" json:"depends_on,omitempty"`
+	Existing     bool            `toml:"existing" json:"existing,omitempty"`
 	ExitCriteria []ExitCriterion `toml:"exit_criteria" json:"exit_criteria,omitempty"`
 }
 
@@ -340,6 +402,13 @@ func (f PlanFile) Normalize() (PlanFile, error) {
 		}
 		seen[d.ID] = true
 	}
+	left := map[string]bool{}
+	for _, out := range f.LeftOut {
+		if out.Ref == "" || out.Reason == "" || left[out.Ref] {
+			return f, fmt.Errorf("%w: what the plan left out, %q, needs a unique ref and a reason", ErrBadFile, out.Ref)
+		}
+		left[out.Ref] = true
+	}
 	return f, nil
 }
 
@@ -464,6 +533,9 @@ func (f RequirementsFile) Normalize() (RequirementsFile, error) {
 			return f, fmt.Errorf("%w: requirement %q needs a unique id and text", ErrBadFile, requirement.ID)
 		}
 		seen[requirement.ID] = true
+		if err := requirement.check(); err != nil {
+			return f, err
+		}
 	}
 	return f, nil
 }
@@ -515,6 +587,9 @@ func (f ContractFile) Normalize() (ContractFile, error) {
 		return f, fmt.Errorf("%w: contract %s uses itself", ErrBadFile, f.ID)
 	}
 	f.Uses = uses
+	if f.Existing && len(f.WorkOrders) > 0 {
+		return f, fmt.Errorf("%w: contract %s exists already and lists work orders; an existing contract records work the code delivers, and has none", ErrBadFile, f.ID)
+	}
 	orders := slices.Clone(f.WorkOrders)
 	for i, order := range orders {
 		if order.ID == "" || order.Title == "" {
@@ -535,6 +610,14 @@ func (f ContractFile) Normalize() (ContractFile, error) {
 		if order.Base != "" {
 			if err := ledger.CheckBranch(order.Base); err != nil {
 				return f, fmt.Errorf("%w: work order %q: %v", ErrBadFile, order.ID, err)
+			}
+		}
+		if order.Continues != "" {
+			if err := ledger.CheckBranch(order.Continues); err != nil {
+				return f, fmt.Errorf("%w: work order %q continues: %v", ErrBadFile, order.ID, err)
+			}
+			if order.Continues == order.Base {
+				return f, fmt.Errorf("%w: work order %q continues %s, which is its own base; it continues a branch that merges into its base", ErrBadFile, order.ID, order.Base)
 			}
 		}
 		if order.Repo == "" {

@@ -156,7 +156,10 @@ func planTraces(tx ports.ReadTx, plan string, documents []planning.DocumentRecor
 			return nil, err
 		}
 		for _, spec := range file.Requirements {
-			trace := api.RequirementTrace{Key: spec.ID, Text: spec.Text, Document: document.ID, Criteria: []api.TracedCriterion{}}
+			trace := api.RequirementTrace{Key: spec.ID, Text: spec.Text, Document: document.ID, Criteria: []api.TracedCriterion{}, Evidence: spec.Evidence}
+			if spec.Met() {
+				trace.Status = planning.RequirementMet
+			}
 			for _, contract := range newest {
 				for _, criterion := range contract.Criteria {
 					if !slices.Contains(criterion.Requirements, spec.ID) {

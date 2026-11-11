@@ -714,6 +714,7 @@ func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.W
 		}
 		row := api.MilestoneProgress{
 			ID: file.ID, Title: document.Title, Priority: file.Priority, DependsOn: nonNil(file.DependsOn), ExitCriteria: nonNil(file.ExitCriteria),
+			Existing: file.Existing,
 		}
 		started := false
 		for _, order := range held {
@@ -727,6 +728,8 @@ func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.W
 			started = started || beyondReady(order.State)
 		}
 		switch {
+		case file.Existing:
+			row.State = api.MilestoneExisting
 		case row.Total > 0 && row.Done == row.Total:
 			row.State = api.MilestoneDone
 		case started:
@@ -741,7 +744,7 @@ func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.W
 	})
 	finished := map[string]bool{}
 	for _, row := range out {
-		finished[row.ID] = row.State == api.MilestoneDone
+		finished[row.ID] = row.State == api.MilestoneDone || row.State == api.MilestoneExisting
 	}
 	for i := range out {
 		if out[i].State != api.MilestoneNotStarted {

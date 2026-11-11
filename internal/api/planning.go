@@ -173,6 +173,10 @@ type RequirementTrace struct {
 	Text     string            `json:"text"`
 	Document string            `json:"document"`
 	Criteria []TracedCriterion `json:"criteria"`
+	// Status is met for a requirement the code already meets, and Evidence the files and tests that show it
+	// as `<repository>:<path>` (ADR-0023). It is met by existing code, and needs no criterion or verdict.
+	Status   string   `json:"status,omitempty"`
+	Evidence []string `json:"evidence,omitempty"`
 }
 
 // PlanDocuments is what a plan's files recorded: each document with its versions, and how each

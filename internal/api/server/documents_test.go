@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"errors"
+	"ropeshift.com/ropeshift/internal/planning"
 	"slices"
 	"strings"
 	"testing"
@@ -191,6 +192,26 @@ func TestTheDocumentsViewTracesEachRequirementToItsCriteriaAndWork(t *testing.T)
 	}
 	if got := plan.Requirements[2].Criteria; len(got) != 0 {
 		t.Errorf("R-3 is served by %+v", got)
+	}
+}
+
+// ADR-0023: a requirement the code already meets shows as met by existing code with its evidence, rather
+// than by criteria and verdicts.
+func TestTheDocumentsViewShowsARequirementTheCodeMeetsWithItsEvidence(t *testing.T) {
+	d, w, _ := documentsWorld(t)
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(tracedPlan))
+	source.Write("requirements.md", []byte(strings.Replace(tracedRequirements, `text = "It reports."`,
+		"text = \"It reports.\"\nstatus = \"met\"\nevidence = [\"api:report.go\", \"api:report_test.go\"]", 1)))
+	source.Write("budget.md", []byte(tracedContract))
+	w.Planned(source)
+	plan := planDocuments(t, d, "Traced")
+	met := plan.Requirements[2]
+	if met.Key != "R-3" || met.Status != planning.RequirementMet || !slices.Equal(met.Evidence, []string{"api:report.go", "api:report_test.go"}) || len(met.Criteria) != 0 {
+		t.Errorf("a met requirement traces as %+v", met)
+	}
+	if open := plan.Requirements[0]; open.Status != "" || len(open.Evidence) != 0 {
+		t.Errorf("an open requirement traces as %+v", open)
 	}
 }
 
