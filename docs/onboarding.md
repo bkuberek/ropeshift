@@ -100,6 +100,30 @@ A planning lane's questions are yours. While you are attached, the agent asks in
 
 When the planning lane has finished, the plan waits for you. `ropeshift plan show <plan>` prints the plan, and under it the request to approve it: what the version holds, how it differs from the last version you approved, and each answer you gave in the conversation that the plan drafts. `ropeshift plan approve <plan>` approves that version in one step. It records each drafted answer as your decision, passes the contract review of the work the plan's contracts cover, and accepts the planning work order, so there is no review to pass for each work order and no acceptance to give for the plan. A work order whose contract has a question still open waits for the question, and the definition of ready still applies. A change to any document or contract of an approved plan is a new version with its own request, which shows what changed; work under a contract that did not change goes on. `ropeshift top` and the Needs you view list each plan that waits, and each work order whose contract waits for a review that no plan stands behind. In the web UI, a plan's card in Needs you shows the same request, with the difference and each drafted answer, and approves or denies it; a contract review's card leads to the contract, and passes the review or sends the work back to planning with a reason. The planning lane cannot approve the plan it wrote, and neither can an orchestrator: only you can, with a session.
 
+## Adopt an existing project
+
+To bring a project that already exists into ropeshift, run one command in its repository with the daemon running:
+
+```sh
+cd /path/to/your/repository
+ropeshift adopt
+```
+
+It makes the calls a member makes by hand, and the ledger records each as yours. When no project holds the repository, it creates one named after the repository's directory, or the one `--project` names. It registers the repository, and every clone under paths you give it, such as `ropeshift adopt ../services` for a folder of clones, as `ropeshift repository add` does. A project of one repository plans in it. A project of several plans in the repository `--planning` names, or the one it already plans in, or else the command asks which one holds the plan. It then starts the adopt session and attaches your terminal, as `ropeshift plan start` does, with the same `--worker` and `--no-attach`. A project that already has an approved plan is refused: plan its next work with `ropeshift plan start`.
+
+The adopt session is a planning session, so everything above holds for it: it runs in a pane, its questions are yours, your answers become draft decisions in the plan, and it survives a detach, a park, and a restart of the daemon. Before its lane starts, the worker writes an inventory of every repository of the project into `.ropeshift/context/inventory.json` beside the lane's context pack: each repository's remote, default branch and tip, every Markdown file with its front matter format and headings, the files already in ropeshift's format and whether intake reads them cleanly, and every branch the base does not hold, with where it left the base and how far ahead and behind it is. No model writes it, so the same commits give the same file. Open pull requests and issues are not read yet, and the inventory says so.
+
+The session's brief asks the agent to:
+
+- Onboard, do not rewrite: add front matter to your existing requirements, specs, architecture notes, and decision records, keep their prose and their IDs, add a `[[requirement]]` table for each requirement a document states under the ID it already has, and move a file only when the format needs it elsewhere, with `git mv`.
+- Ask you about anything that belongs to someone else: a file whose front matter belongs to another tool, a document whose meaning is unclear, and two documents that contradict each other.
+- Mark what is done: a requirement the code already meets gets `status = "met"` with `evidence` citing files and tests, and a milestone or contract the code already delivers gets `existing = true` and no work orders.
+- Plan what remains, with shared contracts first, as any plan does.
+- Ask you which in-flight branches to keep: each kept branch becomes a work order with `continues`, whose lane starts from the branch's tip on a branch of its own and never moves the branch, and each branch left out is recorded in the plan's `[[left_out]]` with your reason.
+- Write nothing else: the lane commits only on its own branch of the planning repository, and reads every other repository of the project through read-only worktrees.
+
+When the session ends, the plan waits for you, and your default branch is unchanged. `ropeshift approval list` names the request, and `ropeshift approval show <id>` prints it grouped: what exists, each claim with its evidence, which approving it makes your word; what continues; what is new; what is left out, with each reason; and every file the adoption branch added, changed, moved, or deleted. The plan's card in the web UI's Needs you shows the same groups. `ropeshift approval approve <id> --digest <digest>` approves it in one step, with the digest `approval show` printed: it decides the plan's draft decisions as yours, accepts the session's work order, and intake records the plan at the approved commit, so its work orders exist before any merge. Merge the adoption branch yourself once you have approved it, because ropeshift does not merge it; `ropeshift work acceptance <work-order>` names the branch and its commit among the work's artifacts. A work order that continues a branch then starts from that branch's tip.
+
 ## Run the daemon as a service
 
 `ropeshift service install` runs the daemon under this machine's service manager from now on, with the flags that follow `--`. It runs the `ropeshiftd` beside the `ropeshift` that installs it, and a source needs its absolute path.

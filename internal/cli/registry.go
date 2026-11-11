@@ -75,6 +75,7 @@ func registry() []section {
 			command("work replan", "<id> --reason R", "return blocked work to planning", (*invocation).workReplan),
 		}},
 		{"Plans and requirements", []registered{
+			command("adopt", "[<path>...] [--planning NAME] [--worker ID] [--no-attach]", "adopt the project in this repository: register it and the clones under paths, and start a session that onboards what it holds", (*invocation).adopt),
 			command("plan start", "[--goal TEXT | --goal-file PATH] [--worker ID] [--repository R] [--no-attach]", "open a planning session and attach your terminal to it", (*invocation).planStart),
 			command("plan list", "", "list plans", (*invocation).planList),
 			command("plan show", "<id>", "show a plan, its goal, contracts, and work, and the approval that waits with what it changes", (*invocation).planShow),

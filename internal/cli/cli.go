@@ -42,6 +42,9 @@ type Options struct {
 	// RepositoryHere is the identity of the repository that holds the working directory, or empty when
 	// none does. Nil never finds one.
 	RepositoryHere func(context.Context) (string, error)
+	// RepositoryRoot is the top of the git working tree that holds the working directory, or empty when
+	// none does. Nil never finds one.
+	RepositoryRoot func(context.Context) (string, error)
 	// ReadPassphrase asks a person on their terminal. Nil means there is no terminal.
 	ReadPassphrase func(prompt string) (string, error)
 	// Terminal is the keyboard, when both ends of this process are a terminal. A live view needs one.
@@ -84,6 +87,7 @@ type invocation struct {
 	project        string
 	envProject     string
 	repositoryHere func(context.Context) (string, error)
+	repositoryRoot func(context.Context) (string, error)
 	// command is what help says about the running command.
 	command Command
 	// helped says the command printed its help instead of running.
@@ -97,7 +101,7 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
 		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
-		envProject: opts.Project, repositoryHere: opts.RepositoryHere,
+		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,
 	}
 	found, rest, ok := find(args)
 	if !ok {
