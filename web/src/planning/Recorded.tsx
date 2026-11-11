@@ -165,18 +165,39 @@ function Contract({ row, requirement, plan }: { row: TracedContract; requirement
   );
 }
 
+// Met says a requirement the code already meets is met by that code rather than by a verdict, and lists
+// the evidence the plan cites for it, which approving the plan affirms.
+function Met({ trace }: { trace: RequirementTrace }) {
+  return (
+    <>
+      <p className="tag-strong">Met by existing code</p>
+      {trace.evidence?.length ? (
+        <ul className="trace-evidence" aria-label={`Evidence that the code meets ${trace.key}`}>
+          {trace.evidence.map((cited) => (
+            <li key={cited} className="mono">
+              {cited}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
 function Trace({ trace, plan }: { trace: RequirementTrace; plan: string }) {
+  const met = trace.status === "met";
   return (
     <li className="trace">
       <p className="trace-key mono">{trace.key}</p>
       <p>{trace.text}</p>
+      {met ? <Met trace={trace} /> : null}
       {trace.criteria.length ? (
         <ul className="trace-contracts" aria-label={`Contracts that serve ${trace.key}`}>
           {byContract(trace.criteria).map((row) => (
             <Contract key={row.contract} row={row} requirement={trace.key} plan={plan} />
           ))}
         </ul>
-      ) : (
+      ) : met ? null : (
         <p className="quiet">No criterion serves it yet.</p>
       )}
     </li>

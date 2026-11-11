@@ -17,6 +17,9 @@ type RepositoryView struct {
 	// ReviewAgreement is how this member's decisions stood against the review agent's verdicts here, over
 	// the last 30 days and over all time. The level above is the one in force, and nothing here changes it.
 	ReviewAgreement measures.AgreementPeriods `json:"review_agreement"`
+	// PlanOfRecord says the project plans in this repository: a member named it with Planning, or it is the
+	// project's only repository (ADR-0022).
+	PlanOfRecord bool `json:"plan_of_record,omitempty"`
 }
 
 // RepositoryList is every repository the workspace keeps a record of.
@@ -36,6 +39,9 @@ type RepositoryChange struct {
 	ReviewTarget *ledger.ReviewTarget `json:"review_target,omitempty"`
 	// MergeAuthority is how much of each change the person decides after the review.
 	MergeAuthority *ledger.MergeAuthority `json:"merge_authority,omitempty"`
+	// Planning names the repository the project's planning repository, and takes that from any other. False
+	// takes it from this repository.
+	Planning *bool `json:"planning,omitempty"`
 }
 
 // RepositoryAdd registers, in a project, the repositories of clones on the worker of the daemon's machine

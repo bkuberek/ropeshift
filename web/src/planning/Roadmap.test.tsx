@@ -144,6 +144,25 @@ describe("a plan's milestones and work", () => {
     expect(within(build as HTMLElement).getByRole("list", { name: "Exit criteria" }).textContent).toContain("The client and the core run");
   });
 
+  it("says a milestone the code already delivers exists, and counts no work for it", async () => {
+    serve((view) => {
+      const plan = view.goals.find((group) => group.goal?.title === "Run the factory")?.plans[0];
+      const milestone = plan?.milestones[2];
+      if (milestone) {
+        milestone.state = "existing";
+        milestone.existing = true;
+        milestone.total = 0;
+        milestone.done = 0;
+      }
+    });
+    openPage("/roadmap");
+    const goal = await screen.findByRole("region", { name: "Run the factory" });
+    const milestones = itemsOf(within(goal).getByRole("list", { name: "Milestones" }));
+    expect(milestones[2]?.textContent).toContain("Exists");
+    expect(milestones[2]?.textContent).toContain("Delivered by existing code");
+    expect(within(milestones[2] as HTMLElement).queryByRole("progressbar")).toBeNull();
+  });
+
   it("names a milestone it does not hold by its ID", async () => {
     serve((view) => {
       const plan = view.goals.find((group) => group.goal?.title === "Run the factory")?.plans[0];

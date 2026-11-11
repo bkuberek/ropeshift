@@ -51,6 +51,9 @@ type LaneRuntime struct {
 	Override lanes.SessionOverride
 	// Telemetry is where each session's telemetry goes. Empty sends none.
 	Telemetry LaneTelemetry
+	// Inventory reads what each repository holds for a lane whose lease asks for an inventory before it
+	// starts (ADR-0023). Nil takes none, and such a lane does not start.
+	Inventory ports.Inventory
 }
 
 // laneRun is one lane this process is running.
@@ -71,6 +74,10 @@ type laneRun struct {
 	degraded      bool
 	// settings are what this lane runs on, which its experience record holds (FR-EXP-2).
 	settings measures.Settings
+	// worktree is where the lane works, and reads are the read-only worktrees of the other repositories it
+	// reads beside it (ADR-0022). The handle's lock guards both.
+	worktree string
+	reads    []lanes.ReadTree
 	// maxReviewRounds is the bound on review rounds this lane's profile set, and zero when it set none.
 	maxReviewRounds int64
 
@@ -176,6 +183,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 		run.state = laneStateOf(record, w.clock.Now())
 	}
 	run.left, run.parking = record.Handoff, record.Parking
+	run.worktree = record.Worktree
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
 	run.packRead, run.process = record.Progress.Pack, record.Process
 	run.owesBrief.Store(record.Progress.OwesBrief)
@@ -439,6 +447,7 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 	if dir := r.rt.tempDir(r.lease.Lane); dir != "" {
 		_ = os.RemoveAll(dir)
 	}
+	r.discardReads(context.WithoutCancel(ctx))
 	return r.w.endLane(context.WithoutCancel(ctx), r.record(), workorders.LaneResult{
 		Report: report, CostUSD: r.priorUSD + r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
 		UnknownCostTurns: r.priorUnknown + r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
@@ -559,7 +568,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.lease.BaseCommit, Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
+		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
 		Detached: r.reviewing(),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
@@ -584,6 +593,11 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	r.signal(ctx, lanes.OnResourcesReady)
+	r.setWorktreePath(prepared.Worktree.Path)
+	r.setReads(r.prepareReads(ctx, prepared.Worktree.Path))
+	if err := r.writeInventory(ctx, repository, prepared.Worktree.Path); err != nil {
+		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
 	r.state.thresholds(prepared.Profile, r.role())
 	r.readFacts(ctx)
 	packFile, err := r.writePrompt(ctx, prepared.Worktree.Path)
@@ -729,6 +743,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 		RunMode: mode, Planning: r.planning(), ReadOnly: r.reviewing(), ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
+		Kept: r.kept(), ReadOnlyDirs: readDirs(r.readTrees()),
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
 		Telemetry: r.sessionTelemetry(prepared, repository),
 	}

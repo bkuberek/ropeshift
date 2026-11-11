@@ -74,4 +74,56 @@ func (w Worktrees) Contains(ctx context.Context, repository, ancestor, commit st
 	return false, err
 }
 
+// Branch reads an in-flight branch a lane continues. The remote's copy comes first, because that is where
+// a person's work is shared, and the local branch stands in for a remote that does not hold it, or for a
+// repository with none. Neither is moved: a fetch only brings the remote-tracking ref up to date.
+func (w Worktrees) Branch(ctx context.Context, repository, branch string) (ports.BaseTip, error) {
+	if err := ledger.CheckBranch(branch); err != nil {
+		return ports.BaseTip{}, fmt.Errorf("%w: %v", ports.ErrNotFound, err)
+	}
+	git := w.git(repository)
+	remote, err := remoteOf(ctx, git, "")
+	if err != nil {
+		return ports.BaseTip{}, err
+	}
+	if remote != "" {
+		tracking := "refs/remotes/" + remote + "/" + branch
+		fetching, cancel := context.WithTimeout(ctx, fetchTimeout)
+		_, fetched := git.Output(fetching, "fetch", "--quiet", "--no-tags", remote, "+refs/heads/"+branch+":"+tracking)
+		cancel()
+		if fetched == nil {
+			if commit, err := git.Commit(ctx, tracking); err == nil {
+				return ports.BaseTip{Ref: remote + "/" + branch, Commit: commit}, nil
+			}
+		}
+	}
+	commit, err := git.Commit(ctx, "refs/heads/"+branch)
+	if err != nil {
+		return ports.BaseTip{}, fmt.Errorf("%w: the repository holds no branch %s, on its remote or here", ports.ErrNotFound, branch)
+	}
+	return ports.BaseTip{Ref: branch, Commit: commit}, nil
+}
+
+// MergeBase finds the commit two commits last shared. Git exits 1 for two that share none.
+func (w Worktrees) MergeBase(ctx context.Context, repository, a, b string) (string, error) {
+	git := w.git(repository)
+	for _, name := range []string{a, b} {
+		if strings.HasPrefix(name, "-") {
+			return "", fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+		if _, err := git.Commit(ctx, name); err != nil {
+			return "", fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+	}
+	base, err := git.Text(ctx, "merge-base", a, b)
+	var exit *exec.ExitError
+	switch {
+	case err == nil && base != "":
+		return base, nil
+	case err == nil, errors.As(err, &exit) && exit.ExitCode() == 1:
+		return "", fmt.Errorf("%w: %s and %s share no history", ports.ErrNotFound, a, b)
+	}
+	return "", err
+}
+
 var _ ports.Bases = Worktrees{}

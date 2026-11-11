@@ -211,3 +211,119 @@ The statement of what this work must deliver, in prose.
 `,
 	},
 }
+
+// AdoptionExamples are the fields a plan for an existing project adds to the format (ADR-0023): what the
+// code already meets and delivers, the in-flight branches the plan finishes, and what it leaves out. They
+// describe the same project as FormatExamples, for a brief that onboards existing code to show beside them.
+// Tests parse each one.
+var AdoptionExamples = []FormatExample{
+	{
+		Kind: FileRequirements,
+		Intro: "A requirement the code already meets says status = \"met\" and cites its evidence as repository:path, the files " +
+			"and tests that show it. It needs no criterion. Every other requirement is open, which is the default.",
+		Text: `+++
+kind = "requirements"
+id = "payments"
+title = "Payments requirements"
+plan = "payments-v2"
+
+[[requirement]]
+id = "PAY-11"
+text = "Every payment call goes through one client"
+status = "met"
+evidence = ["api:internal/payments/client.go", "api:internal/payments/client_test.go"]
+
+[[requirement]]
+id = "PAY-12"
+text = "A failed call retries with the same idempotency key"
++++
+
+Context for the requirements, in prose.
+`,
+	},
+	{
+		Kind:  FileMilestone,
+		Intro: "A milestone the code already delivers says existing = true, and every milestone that depends on it can start at once.",
+		Text: `+++
+kind = "milestone"
+id = "m0-payments-today"
+title = "Payments as they are"
+plan = "payments-v2"
+priority = 0
+existing = true
++++
+
+What the code delivers today, in prose.
+`,
+	},
+	{
+		Kind: FileContract,
+		Intro: "A contract the code already delivers says existing = true and has no work orders. Mark it shared when new work " +
+			"builds on it: every contract that lists it in uses waits for nothing on its account.",
+		Text: `+++
+kind = "contract"
+id = "payments-client"
+title = "Payments client"
+plan = "payments-v2"
+milestone = "m0-payments-today"
+shared = true
+existing = true
+
+[[criteria]]
+id = "c1"
+text = "Every payment call goes through one client"
+requirements = ["PAY-11"]
++++
+
+What the client offers the contracts that use it, in prose.
+`,
+	},
+	{
+		Kind: FileContract,
+		Intro: "A work order that finishes an in-flight branch names it in continues. Its lane starts from the branch's tip on a " +
+			"branch of its own, its review reads the whole change since the branch left its base, and the branch itself never moves.",
+		Text: `+++
+kind = "contract"
+id = "checkout-retry"
+title = "Retry failed checkout calls"
+plan = "payments-v2"
+milestone = "m1-reliable-checkout"
+uses = ["payments-client"]
+
+[[criteria]]
+id = "c1"
+text = "A failed call retries twice with the same idempotency key"
+requirements = ["PAY-12"]
+
+[[work_orders]]
+id = "retry-finish"
+title = "Finish the retry branch"
+repo = "api"
+priority = 1
+size = "medium"
+continues = "feature/checkout-retry"
+needs = { driver = "claude-code" }
++++
+
+The statement of what this work must deliver, in prose.
+`,
+	},
+	{
+		Kind:  FilePlan,
+		Intro: "The plan records each branch or issue it does not carry in a [[left_out]] table, with ref naming it and the reason.",
+		Text: `+++
+kind = "plan"
+id = "payments-v2"
+title = "Make checkout survive a failed call"
+goal = "reliable-checkout"
+documents = ["requirements:payments", "milestone:m0-payments-today", "milestone:m1-reliable-checkout"]
+
+[[left_out]]
+ref = "branch:spike/old-checkout"
+reason = "An experiment the person abandoned"
++++
+
+How the work is planned, in prose.
+`,
+	},
+}

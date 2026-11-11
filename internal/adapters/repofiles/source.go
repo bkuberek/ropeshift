@@ -176,6 +176,11 @@ func (s *Source) Fields(context.Context, ports.ScopeRef) ([]ports.FieldSchema, e
 		{Name: "priority", Type: "integer"},
 		{Name: "depends_on", Type: "array"},
 		{Name: "exit_criteria", Type: "array"},
+		{Name: "existing", Type: "boolean"},
+		{Name: "status", Type: "string"},
+		{Name: "evidence", Type: "array"},
+		{Name: "continues", Type: "string"},
+		{Name: "left_out", Type: "array"},
 	}, nil
 }
 

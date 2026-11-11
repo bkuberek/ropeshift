@@ -196,6 +196,8 @@ const (
 	MilestoneWaiting    = "waiting"
 	MilestoneInProgress = "in_progress"
 	MilestoneDone       = "done"
+	// MilestoneExisting is a milestone the code already delivers (ADR-0023), which nothing waits for.
+	MilestoneExisting = "existing"
 )
 
 // MilestoneProgress is one milestone of a plan and how far its work got. DependsOn lists the IDs of the
@@ -209,6 +211,8 @@ type MilestoneProgress struct {
 	Total        int                      `json:"total"`
 	Done         int                      `json:"done"`
 	State        string                   `json:"state"`
+	// Existing says the code already delivers the milestone.
+	Existing bool `json:"existing,omitempty"`
 }
 
 // CriticalPath is the heaviest chain of work that is left, in the order it runs. Work that is done or

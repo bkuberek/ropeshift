@@ -220,10 +220,12 @@ func SizeWeight(size string) int {
 	return 1
 }
 
-// ShapeMilestone is a milestone as the plan's graph sees it.
+// ShapeMilestone is a milestone as the plan's graph sees it. An existing one is delivered already, so
+// nothing waits for it.
 type ShapeMilestone struct {
 	ID        string
 	DependsOn []string
+	Existing  bool
 }
 
 // ShapeOrder is a work order and the work orders its `depends_on` names.
@@ -233,12 +235,13 @@ type ShapeOrder struct {
 }
 
 // ShapeContract is a contract with the milestone it is in, the shared contracts it uses, and its
-// work orders.
+// work orders. An existing one is delivered already, so nothing waits for its work orders.
 type ShapeContract struct {
 	ID        string
 	Milestone string
 	Uses      []string
 	Orders    []ShapeOrder
+	Existing  bool
 }
 
 // Shape is how one plan places its work: its milestones, and its contracts with their work orders. It
@@ -259,8 +262,9 @@ type ShapeEdge struct {
 
 // Expand works out the dependencies a plan's structure implies (FR-MILE-2, FR-MILE-3). Every work order of
 // a contract in milestone M waits for every work order of each contract in each milestone M depends on,
-// and every work order of a contract waits for every work order of each shared contract it uses. Edges
-// come out once each, ordered by work order, target, and kind.
+// and every work order of a contract waits for every work order of each shared contract it uses. An
+// existing milestone or contract resolves every dependency on it at once, so no edge leads to the work
+// it holds (ADR-0023). Edges come out once each, ordered by work order, target, and kind.
 func (s Shape) Expand() []ShapeEdge {
 	milestones := map[string]ShapeMilestone{}
 	for _, m := range s.Milestones {
@@ -270,7 +274,7 @@ func (s Shape) Expand() []ShapeEdge {
 	inMilestone := map[string][]ShapeOrder{}
 	for _, c := range s.Contracts {
 		contracts[c.ID] = c
-		if c.Milestone != "" {
+		if c.Milestone != "" && !c.Existing {
 			inMilestone[c.Milestone] = append(inMilestone[c.Milestone], c.Orders...)
 		}
 	}
@@ -285,6 +289,9 @@ func (s Shape) Expand() []ShapeEdge {
 	}
 	for _, c := range s.Contracts {
 		for _, dependency := range milestones[c.Milestone].DependsOn {
+			if milestones[dependency].Existing {
+				continue
+			}
 			for _, order := range c.Orders {
 				for _, target := range inMilestone[dependency] {
 					add(order, target, DependencyMilestone)
@@ -293,7 +300,7 @@ func (s Shape) Expand() []ShapeEdge {
 		}
 		for _, use := range c.Uses {
 			shared, held := contracts[use]
-			if !held {
+			if !held || shared.Existing {
 				continue
 			}
 			for _, order := range c.Orders {

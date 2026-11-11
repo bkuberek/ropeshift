@@ -18,6 +18,10 @@ const Nudge = "You ended your turn with no outcome. Call the " + ToolLaneReport 
 // PackFile is where a pack sits in a worktree, in a directory git does not see.
 const PackFile = ".ropeshift/context/pack.md"
 
+// InventoryFile sits beside the pack of a lane that adopts a project: the inventory of each repository it
+// works in and reads, which the worker took with no model before the lane started (ADR-0023).
+const InventoryFile = ".ropeshift/context/inventory.json"
+
 // ReviewDiffFile and ReviewFilesFile sit beside the pack in a review lane's worktree: what the reviewed
 // lane changed, as a patch, and the paths it touches, one to a line.
 const (
@@ -47,6 +51,52 @@ type BriefSpec struct {
 	Attempt *ledger.DesiredAttempt
 	// Rework is why the work came back for this attempt, when it did.
 	Rework *ledger.DesiredRework
+	// Continues is the in-flight branch this work finishes, when it finishes one (ADR-0023).
+	Continues *Continuation
+	// Reads are the other repositories of the project the lane reads, read-only (ADR-0022).
+	Reads []ReadTree
+}
+
+// ReadTree is another repository of the project checked out for a lane to read, at the commit its claim
+// recorded, with no branch. One the worker could not give the lane has no path, and Detail says why.
+type ReadTree struct {
+	Name   string
+	Path   string
+	Ref    string
+	Commit string
+	Detail string
+}
+
+// writeReads names where each other repository of the project stands for the lane to read, and that it is
+// read-only: a lane changes only its own worktree.
+func writeReads(out *strings.Builder, reads []ReadTree) {
+	out.WriteString("\nThe other repositories of this project are checked out for you to read, read-only, each at the commit recorded " +
+		"when this lane started and on no branch. Read them to work against the code as it is. Do not edit, commit, push, or change " +
+		"branches in them: your work goes only in your own worktree, and they are removed when this lane ends.\n")
+	for _, read := range reads {
+		if read.Path == "" {
+			fmt.Fprintf(out, "- %s: not available, because %s\n", read.Name, read.Detail)
+			continue
+		}
+		fmt.Fprintf(out, "- %s: %s, at commit %s (%s)\n", read.Name, read.Path, read.Commit, read.Ref)
+	}
+}
+
+// Continuation is an in-flight branch a lane finishes: its name, the tip the lane's own branch began at,
+// and the commit where the branch left its base, which the work is measured from.
+type Continuation struct {
+	Branch string
+	Tip    string
+	Base   string
+}
+
+// writeContinuation tells a lane whose branch began on someone's in-flight branch what it holds, and that
+// the branch itself stays as its author left it.
+func writeContinuation(out *strings.Builder, c Continuation) {
+	fmt.Fprintf(out, "\nThis work finishes branch %s, which someone started. Your branch began at its tip, commit %s, so it already holds "+
+		"that work; read it with git log %s..HEAD and git diff %s before you change anything. The change is measured from commit %s, "+
+		"where %s left its base, and review reads all of it. Commit on your own branch. Never push to %s, move it, or switch to it: "+
+		"it stays as its author left it.\n", c.Branch, c.Tip, c.Base, c.Base, c.Base, c.Branch, c.Branch)
 }
 
 // planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
@@ -196,6 +246,12 @@ func Brief(spec BriefSpec) string {
 		for _, criterion := range spec.Criteria {
 			out.WriteString("- " + criterion + "\n")
 		}
+	}
+	if spec.Continues != nil {
+		writeContinuation(&out, *spec.Continues)
+	}
+	if len(spec.Reads) != 0 {
+		writeReads(&out, spec.Reads)
 	}
 	if spec.Rework != nil {
 		writeRework(&out, *spec.Rework)

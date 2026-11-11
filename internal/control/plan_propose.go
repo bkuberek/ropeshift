@@ -80,6 +80,9 @@ func (i *Intake) ProposePlans(ctx context.Context, scope ledger.WorkspaceID, ope
 			continue
 		}
 		batch, err := source.Poll(ctx, "")
+		if err == nil {
+			batch, err = i.offPlanOf(ctx, scope, source, batch)
+		}
 		if err != nil {
 			failed = append(failed, fmt.Errorf("plan %s: %w", plan.order.ID, err))
 			continue

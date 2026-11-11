@@ -298,3 +298,27 @@ func TestRoadmapNamesEachWorkOrderItPlaces(t *testing.T) {
 		t.Errorf("d1 reads %+v", docs)
 	}
 }
+
+// ADR-0023: a milestone the code already delivers reads as existing, and the milestone after it does not
+// wait for it.
+func TestRoadmapShowsAMilestoneTheCodeDelivers(t *testing.T) {
+	daemon := apitest.Start(t)
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"launch\"\ntitle = \"Launch\"\n+++\n\nHow.\n"))
+	source.Write("m-today.md", []byte(strings.Replace(milestoneFile("today", "0"), "priority = 0\n", "priority = 0\nexisting = true\n", 1)))
+	source.Write("m-build.md", []byte(milestoneFile("build", "1", "today")))
+	source.Write("core.md", []byte(roadmapContract("core", "build", false, nil, "k1:small")))
+	if report, err := control.NewIntake(daemon.Store).Poll(t.Context(), apitest.Scope, source); err != nil || len(report.Problems) != 0 {
+		t.Fatalf("report %+v: %v", report, err)
+	}
+	plan := launchPlan(t, daemon)
+	if len(plan.Milestones) != 2 {
+		t.Fatalf("milestones %+v", plan.Milestones)
+	}
+	if today := plan.Milestones[0]; today.ID != "today" || today.State != api.MilestoneExisting || !today.Existing || today.Total != 0 {
+		t.Errorf("the milestone the code delivers reads %+v", today)
+	}
+	if build := plan.Milestones[1]; build.ID != "build" || build.State != api.MilestoneNotStarted {
+		t.Errorf("the milestone after it reads %+v", build)
+	}
+}

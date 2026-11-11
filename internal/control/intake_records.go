@@ -162,7 +162,7 @@ func (r *fileRecorder) plan() (itemOutcome, error) {
 	if err != nil {
 		return itemOutcome{}, err
 	}
-	read := planFileRead{digest: r.digest(string(fields)), source: r.item.Source, documents: file.Documents, decisions: file.Decisions}
+	read := planFileRead{digest: r.digest(string(fields)), source: r.item.Source, documents: file.Documents, decisions: file.Decisions, leftOut: file.LeftOut}
 	id, known, err := r.recordID(planning.SubjectPlan, r.item.Key)
 	if err != nil {
 		return itemOutcome{}, err
@@ -300,7 +300,7 @@ func (r *fileRecorder) requirements() (itemOutcome, error) {
 		key := r.item.Key
 		key.NativeID = spec.ID
 		next := planning.Requirement{
-			Version: 1, Key: spec.ID, Text: spec.Text, Source: r.item.Source, Digest: planning.RequirementDigest(spec.ID, spec.Text),
+			Version: 1, Key: spec.ID, Text: spec.Text, Source: r.item.Source, Digest: spec.Digest(), Status: spec.Status, Evidence: spec.Evidence,
 		}
 		id, known, err := r.recordID(planning.SubjectRequirement, key)
 		if err != nil {

@@ -13,7 +13,7 @@ import (
 const (
 	documentColumns        = `id, kind, plan_id, title`
 	documentVersionColumns = `document_id, version, title, digest, source, body, fields`
-	planVersionColumns     = `plan_id, version, digest, source, documents, decisions, file_digest, records, work_order`
+	planVersionColumns     = `plan_id, version, digest, source, documents, decisions, file_digest, records, work_order, left_out`
 )
 
 var (
@@ -51,8 +51,8 @@ VALUES (:workspace_id, :document_id, :version, :title, :digest, :source, :body, 
  ORDER BY document_id, version`)
 
 	stmtInsertPlanVersion = define("plan_version.insert",
-		`INSERT INTO plan_versions (workspace_id, plan_id, version, digest, source, documents, decisions, file_digest, records, work_order)
-VALUES (:workspace_id, :plan_id, :version, :digest, :source, :documents, :decisions, :file_digest, :records, :work_order)`)
+		`INSERT INTO plan_versions (workspace_id, plan_id, version, digest, source, documents, decisions, file_digest, records, work_order, left_out)
+VALUES (:workspace_id, :plan_id, :version, :digest, :source, :documents, :decisions, :file_digest, :records, :work_order, :left_out)`)
 
 	stmtPlanVersion = define("plan_version.get",
 		`SELECT `+planVersionColumns+` FROM plan_versions
@@ -208,10 +208,14 @@ func (t planningTx) InsertPlanVersion(v planning.PlanVersion) error {
 	if err != nil {
 		return err
 	}
+	leftOut, err := json.Marshal(nonNil(v.LeftOut))
+	if err != nil {
+		return err
+	}
 	_, err = t.exec(stmtInsertPlanVersion, t.scoped(params{
 		"plan_id": v.PlanID, "version": v.Version, "digest": v.Digest, "source": nullText(v.Source),
 		"documents": string(documents), "decisions": string(decisions), "file_digest": v.FileDigest, "records": string(records),
-		"work_order": v.WorkOrder,
+		"work_order": v.WorkOrder, "left_out": string(leftOut),
 	}))
 	return err
 }
@@ -219,15 +223,15 @@ func (t planningTx) InsertPlanVersion(v planning.PlanVersion) error {
 func scanPlanVersion(row scanner) (planning.PlanVersion, error) {
 	var v planning.PlanVersion
 	var source sql.NullString
-	var documents, decisions, records string
-	if err := row.Scan(&v.PlanID, &v.Version, &v.Digest, &source, &documents, &decisions, &v.FileDigest, &records, &v.WorkOrder); err != nil {
+	var documents, decisions, records, leftOut string
+	if err := row.Scan(&v.PlanID, &v.Version, &v.Digest, &source, &documents, &decisions, &v.FileDigest, &records, &v.WorkOrder, &leftOut); err != nil {
 		return planning.PlanVersion{}, err
 	}
 	v.Source = source.String
 	for _, field := range []struct {
 		raw  string
 		into any
-	}{{documents, &v.Documents}, {decisions, &v.Decisions}, {records, &v.Records}} {
+	}{{documents, &v.Documents}, {decisions, &v.Decisions}, {records, &v.Records}, {leftOut, &v.LeftOut}} {
 		if err := json.Unmarshal([]byte(field.raw), field.into); err != nil {
 			return planning.PlanVersion{}, fmt.Errorf("plan %s version %d: %w", v.PlanID, v.Version, err)
 		}

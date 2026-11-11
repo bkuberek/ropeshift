@@ -32,6 +32,8 @@ var RepositoryChecks = []Check{
 	{"RB11", "a repository is named by its clone's directory, or by its remote when that name is taken, and a member renames it with one audited event to a name no other repository holds", checkRepositoryNames},
 	{"RB12", "a work order's repo names a repository by its name, and an unknown name keeps the work from ready until a repository takes it", checkWorkNamesItsRepository},
 	{"RB13", "a repository leaves its project only once no open work targets it, and its record stays as history with its name, which no work can take", checkRepositoryRemoval},
+	{"RB14", "a project of one repository plans in it, and a member names at most one planning repository, each change one audited event", checkPlanningRepository},
+	{"RB15", "with a planning repository named, intake reads plan files only from it and reports each one another repository holds", checkPlanFilesOnlyFromThePlanningRepository},
 }
 
 func (r *Rig) repositories(s ports.Store) *control.Repositories { return control.NewRepositories(s) }
@@ -592,6 +594,143 @@ func checkRepositoryRemoval(r *Rig) error {
 	// A source still reading it is told, and records nothing about it.
 	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-api", Remote: "https://example.invalid/acme/api.git", DefaultBranch: "main"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); !errors.Is(err, ledger.ErrRepositoryState) {
 		return Violatedf("reading a removed repository: %v", err)
+	}
+	return nil
+}
+
+func (r *Rig) planningRepository(s ports.Store) (ledger.Repository, error) {
+	return r.repositories(s).Planning(r.Ctx, r.Scope)
+}
+
+func checkPlanningRepository(r *Rig) error {
+	s := r.Store()
+	system := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-plan", DefaultBranch: "main", Directory: "plan"}, system); err != nil {
+		return err
+	}
+	only, err := r.planningRepository(s)
+	if err != nil || only.ID != "repo-plan" || only.Planning {
+		return Violatedf("a project of one repository plans in %+v: %v", only, err)
+	}
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-api", DefaultBranch: "main", Directory: "api"}, system); err != nil {
+		return err
+	}
+	if found, err := r.planningRepository(s); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("a project of two repositories with none named plans in %+v: %v", found, err)
+	}
+	yes, no := true, false
+	if _, err := r.change(s, "repo-api", control.RepositoryChange{Planning: &yes}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "worker-1"}); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("an orchestrator naming the planning repository: %v", err)
+	}
+	named, err := r.change(s, "repo-api", control.RepositoryChange{Planning: &yes}, r.Actor)
+	if err != nil || !named.Planning {
+		return Violatedf("naming the planning repository left %+v: %v", named, err)
+	}
+	if found, err := r.planningRepository(s); err != nil || found.ID != "repo-api" {
+		return Violatedf("the named planning repository reads %+v: %v", found, err)
+	}
+	// Naming another moves it: the first loses it in an event of its own.
+	if _, err := r.change(s, "repo-plan", control.RepositoryChange{Planning: &yes}, r.Actor); err != nil {
+		return err
+	}
+	if found, err := r.planningRepository(s); err != nil || found.ID != "repo-plan" {
+		return Violatedf("the planning repository after naming another reads %+v: %v", found, err)
+	}
+	api, err := r.theRepository(s, "repo-api")
+	if err != nil || api.Planning {
+		return Violatedf("the repository that lost the plan reads %+v: %v", api, err)
+	}
+	events, err := r.repositoryEvents(s, "repo-api")
+	if err != nil {
+		return err
+	}
+	last := events[len(events)-1]
+	var moved struct {
+		Before ledger.Repository `json:"before"`
+		After  ledger.Repository `json:"after"`
+	}
+	if last.Type != ledger.EventRepositoryChanged || last.Actor != r.Actor || json.Unmarshal(last.Data, &moved) != nil || !moved.Before.Planning || moved.After.Planning {
+		return Violatedf("moving the planning repository away recorded %+v", last)
+	}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if _, err := r.change(s, "repo-plan", control.RepositoryChange{Planning: &yes}, r.Actor); err != nil {
+		return err
+	}
+	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
+		return Violatedf("naming the planning repository again moved the ledger from %d to %d: %v", before, after, err)
+	}
+	if cleared, err := r.change(s, "repo-plan", control.RepositoryChange{Planning: &no}, r.Actor); err != nil || cleared.Planning {
+		return Violatedf("clearing the planning repository left %+v: %v", cleared, err)
+	}
+	if found, err := r.planningRepository(s); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("a project that named none plans in %+v: %v", found, err)
+	}
+	// A repository leaves its project without the plan of record.
+	if _, err := r.change(s, "repo-plan", control.RepositoryChange{Planning: &yes}, r.Actor); err != nil {
+		return err
+	}
+	if _, err := r.repositories(s).Remove(r.Ctx, r.Scope, "repo-plan", nil, r.Actor); err != nil {
+		return err
+	}
+	if removed, err := r.theRepository(s, "repo-plan"); err != nil || removed.Planning {
+		return Violatedf("a removed repository reads %+v: %v", removed, err)
+	}
+	if found, err := r.planningRepository(s); err != nil || found.ID != "repo-api" {
+		return Violatedf("after the planning repository left, the only one left plans: %+v: %v", found, err)
+	}
+	return nil
+}
+
+func checkPlanFilesOnlyFromThePlanningRepository(r *Rig) error {
+	s := r.Store()
+	system := ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-plan", DefaultBranch: "main", Directory: "plan"}, system); err != nil {
+		return err
+	}
+	yes := true
+	if _, err := r.change(s, "repo-plan", control.RepositoryChange{Planning: &yes}, r.Actor); err != nil {
+		return err
+	}
+	// The fake names the repository holding its files "memory", which is not the planning repository.
+	files := fake.NewWorkSource()
+	files.SetRepository("", "main")
+	files.Write("goal.md", []byte(GoalText("g1", "A goal")))
+	files.Write("plan.md", []byte(PlanText("p1", "A plan", "g1")))
+	files.Write("contract.md", []byte(ContractText("c1", "A contract", "Change it.")))
+	files.Write("notes.md", []byte("# Notes\n\nNo front matter, so this is prose.\n"))
+	report, err := r.intake(s, files)
+	if err != nil {
+		return err
+	}
+	if report.Versions+report.Records+report.WorkOrders != 0 {
+		return Violatedf("intake recorded plan files from a repository that does not plan: %+v", report)
+	}
+	for _, path := range []string{"goal.md", "plan.md", "contract.md"} {
+		if !slices.ContainsFunc(report.Problems, func(p planning.SourceProblem) bool {
+			return p.Path == path && strings.Contains(p.Detail, "planning repository") && strings.Contains(p.Detail, "plan")
+		}) {
+			return Violatedf("%s from a repository that does not plan is no problem: %+v", path, report.Problems)
+		}
+	}
+	if slices.ContainsFunc(report.Problems, func(p planning.SourceProblem) bool { return p.Path == "notes.md" }) {
+		return Violatedf("a file with no front matter is a problem: %+v", report.Problems)
+	}
+	if _, err := r.orderByTitle(s, "The work order of c1"); err == nil {
+		return Violatedf("a contract from a repository that does not plan made work")
+	}
+	// Once the repository holding the files plans, intake reads them.
+	if _, err := r.change(s, "memory", control.RepositoryChange{Planning: &yes}, r.Actor); err != nil {
+		return err
+	}
+	files.Write("contract.md", []byte(ContractText("c1", "A contract", "Change it, now.")))
+	if report, err = r.intake(s, files); err != nil {
+		return err
+	}
+	if report.Versions != 1 || slices.ContainsFunc(report.Problems, func(p planning.SourceProblem) bool { return strings.Contains(p.Detail, "planning repository") }) {
+		return Violatedf("the planning repository's files read %+v", report)
 	}
 	return nil
 }

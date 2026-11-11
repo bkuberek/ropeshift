@@ -24,6 +24,7 @@ const milestoneWords: Record<string, string> = {
   waiting: "Waiting",
   in_progress: "In progress",
   done: "Done",
+  existing: "Exists",
 };
 
 // Part is one labelled list of a plan's map. Its heading names the list, so a screen reader finds each
@@ -50,7 +51,7 @@ function Milestone({ milestone, titleOf }: { milestone: MilestoneProgress; title
       <p className="milestone-title">{title}</p>
       <ul className="tags">
         <li className="tag-strong">{milestoneWords[milestone.state] ?? words(milestone.state)}</li>
-        <li>{milestone.total === 0 ? "No work yet" : said}</li>
+        <li>{milestone.total === 0 ? (milestone.existing ? "Delivered by existing code" : "No work yet") : said}</li>
       </ul>
       {milestone.total === 0 ? null : <Bar done={milestone.done} total={milestone.total} label={`${title}: ${said}`} />}
       {milestone.depends_on.length ? <p className="quiet">After {milestone.depends_on.map(titleOf).join(", ")}</p> : null}

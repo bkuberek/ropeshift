@@ -105,9 +105,13 @@ func WorkOrderPart(w WorkOrderSpec) Part {
 	}
 	slices.Sort(needs)
 	read := []string{"work_order", w.ID, w.Title, strconv.FormatInt(w.Priority, 10), w.Size, strings.Join(needs, ",")}
-	// A work order that names no base keeps the digest it had before the format could name one.
+	// A work order that names no base, and continues no branch, keeps the digest it had before the format
+	// could name either.
 	if w.Base != "" {
 		read = append(read, "base="+w.Base)
+	}
+	if w.Continues != "" {
+		read = append(read, "continues="+w.Continues)
 	}
 	return Part{Ref: "work_order:" + w.ID, Digest: ContentDigest(read...)}
 }

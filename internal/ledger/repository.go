@@ -141,6 +141,9 @@ type Repository struct {
 	StartFrom    StartFrom    `json:"start_from"`
 	// State says whether the repository is in its project. Empty reads as RepositoryActive.
 	State RepositoryState `json:"state,omitempty"`
+	// Planning says a member named this repository its project's planning repository, the plan of record
+	// (ADR-0022). A project names at most one.
+	Planning bool `json:"planning,omitempty"`
 }
 
 // Removed reports a record kept as history after its repository left the project.
@@ -216,6 +219,9 @@ func (r Repository) Validate() error {
 	}
 	if r.StartFrom == StartFromAccepted && r.MergeMethod.Rewrites() {
 		return fmt.Errorf("%w (%s)", ErrRewritesCommits, r.MergeMethod)
+	}
+	if r.Planning && r.Removed() {
+		return fmt.Errorf("%w: a removed repository cannot be the planning repository", ErrRepositoryState)
 	}
 	return nil
 }

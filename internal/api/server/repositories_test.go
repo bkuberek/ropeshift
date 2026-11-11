@@ -217,3 +217,25 @@ func TestARepositoryReadsItsReviewAgreementBesideItsLevel(t *testing.T) {
 		t.Errorf("the level reads %v: %v", got.Level(), err)
 	}
 }
+
+func TestAMemberNamesThePlanningRepository(t *testing.T) {
+	d := apitest.Start(t)
+	other := "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d"
+	detected(t, d, aRepository, "main")
+	if only, err := d.Client.Repository(t.Context(), aRepository); err != nil || !only.PlanOfRecord || only.Planning {
+		t.Fatalf("a project's only repository reads %+v: %v", only, err)
+	}
+	detected(t, d, other, "main")
+	list, err := d.Client.Repositories(t.Context())
+	if err != nil || len(list.Repositories) != 2 || list.Repositories[0].PlanOfRecord || list.Repositories[1].PlanOfRecord {
+		t.Fatalf("two repositories with none named read %+v: %v", list, err)
+	}
+	yes := true
+	named, err := d.Client.SetRepository(t.Context(), other, api.RepositoryChange{Planning: &yes})
+	if err != nil || !named.Planning || !named.PlanOfRecord {
+		t.Fatalf("naming the planning repository left %+v: %v", named, err)
+	}
+	if first, err := d.Client.Repository(t.Context(), aRepository); err != nil || first.PlanOfRecord {
+		t.Errorf("the other repository reads %+v: %v", first, err)
+	}
+}

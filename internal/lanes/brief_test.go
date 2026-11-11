@@ -134,3 +134,37 @@ func TestAChangeIsNotToldItReviews(t *testing.T) {
 		}
 	}
 }
+
+// ADR-0023: a lane that finishes someone's branch is told what its branch already holds, where the change is
+// measured from, and that the branch itself stays as its author left it.
+func TestABriefSaysWhichBranchTheWorkFinishes(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Finish the retry branch", Continues: &Continuation{Branch: "feature/retry", Tip: "tip123", Base: "fork456"}})
+	for _, want := range []string{"finishes branch feature/retry", "tip123", "git log fork456..HEAD", "Never push to feature/retry"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, brief)
+		}
+	}
+	if plain := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Add the budget"}); strings.Contains(plain, "finishes branch") {
+		t.Errorf("a brief for new work speaks of a branch:\n%s", plain)
+	}
+}
+
+// ADR-0022: a lane is told where each other repository of its project is checked out for it to read, at
+// which commit, that it may change nothing there, and which ones it could not be given.
+func TestABriefNamesTheRepositoriesTheLaneReads(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Plan it", Kind: workorders.KindPlan, Reads: []ReadTree{
+		{Name: "api", Path: "/work/plan-lanes/lane-1.reads/api", Ref: "origin/main", Commit: "abc123"},
+		{Name: "web", Detail: "no checkout of it on this machine"},
+	}})
+	for _, want := range []string{
+		"/work/plan-lanes/lane-1.reads/api", "api", "abc123", "origin/main", "read-only",
+		"web", "no checkout of it on this machine",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, brief)
+		}
+	}
+	if plain := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Plan it", Kind: workorders.KindPlan}); strings.Contains(plain, "read-only") {
+		t.Errorf("a brief with nothing to read speaks of it:\n%s", plain)
+	}
+}

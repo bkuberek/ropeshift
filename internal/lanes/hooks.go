@@ -256,6 +256,12 @@ type DenyPolicy struct {
 	Home string `json:"home,omitempty"`
 	// DefaultBranches are the branches no push may reach.
 	DefaultBranches []string `json:"default_branches,omitempty"`
+	// Kept are the branches a lane continues and never moves (ADR-0023): no push may reach one, and no
+	// command that moves or checks out a branch may name one.
+	Kept []string `json:"kept,omitempty"`
+	// ReadOnlyRoots are worktrees of other repositories a lane reads and never changes (ADR-0022): no git
+	// command that writes may run in one, and like everything outside Roots, no write may reach one.
+	ReadOnlyRoots []string `json:"read_only_roots,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
 	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A

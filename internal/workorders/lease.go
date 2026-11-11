@@ -3,6 +3,8 @@ package workorders
 import (
 	"errors"
 	"fmt"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Claim errors. Each is a different instruction to the caller.
@@ -106,6 +108,13 @@ type Claim struct {
 	// exists (FR-BASE-4).
 	BaseRef    string
 	BaseCommit string
+	// ContinuesRef and ContinuesCommit are the in-flight branch this claim's lane continues and the tip its
+	// own branch began at (ADR-0023). BaseCommit is then where that branch left the base.
+	ContinuesRef    string
+	ContinuesCommit string
+	// Reads are the other repositories of its project the lane reads, at the commits recorded when the
+	// claim was made (ADR-0022). A claim that brings a parked lane back keeps its first claim's.
+	Reads []ledger.RepositoryRead
 }
 
 // Ended reports a claim that no longer holds anything.

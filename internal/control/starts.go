@@ -1,6 +1,7 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -41,6 +42,32 @@ type startInput struct {
 	base         string
 	startFrom    ledger.StartFrom
 	dependencies []dependencyWork
+	// reads are the other repositories of the project the lane reads, read-only (ADR-0022).
+	reads []ledger.Repository
+}
+
+// readsOf names the repositories a work order's lane reads beside its own (ADR-0022): a planning lane reads
+// every other active repository of its project, so it plans against the code as it is. A lane never reads
+// a repository of another project, because the ledger it reads from holds only this project's. Work that
+// changes code reads none yet.
+func readsOf(tx ports.ReadTx, order workorders.WorkOrder) ([]ledger.Repository, error) {
+	if order.Kind != workorders.KindPlan {
+		return nil, nil
+	}
+	all, err := tx.Repositories().Repositories()
+	if err != nil {
+		return nil, err
+	}
+	var out []ledger.Repository
+	for _, record := range all {
+		if record.ID != order.RepositoryID && !record.Removed() {
+			out = append(out, record)
+		}
+	}
+	slices.SortFunc(out, func(a, b ledger.Repository) int {
+		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.ID, b.ID))
+	})
+	return out, nil
 }
 
 // startFacts reads what the ledger says of where a work order should start. A dependency counts when it
@@ -84,7 +111,8 @@ func startFacts(tx ports.ReadTx, order workorders.WorkOrder) (startInput, error)
 		}
 	}
 	slices.SortFunc(in.dependencies, func(a, b dependencyWork) int { return strings.Compare(a.WorkOrder, b.WorkOrder) })
-	return in, nil
+	in.reads, err = readsOf(tx, order)
+	return in, err
 }
 
 // pass remembers what git said in one pass, so a pass over many ready work orders fetches a branch once
@@ -133,8 +161,51 @@ func unavailable(format string, args ...any) *workorders.StartHold {
 	return &workorders.StartHold{Reason: workorders.HoldBaseUnavailable, Detail: fmt.Sprintf(format, args...)}
 }
 
-// decide gives the start, or the reason there is none yet. It never answers with the checkout's HEAD.
+// decide gives the start, with what the lane reads, or the reason there is none yet.
 func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workorders.Start, *workorders.StartHold) {
+	start, hold := s.place(ctx, in, seen)
+	if hold != nil || len(in.reads) == 0 {
+		return start, hold
+	}
+	start.Reads = s.readsAt(ctx, in.reads, seen)
+	return start, nil
+}
+
+// readsAt records each repository a lane reads at its base branch tip, as the same pass reads every tip. A
+// repository with no checkout here, or a base that cannot be read, is recorded with the reason and no
+// commit: the lane still starts, and its brief says what it could not read.
+func (s *Starts) readsAt(ctx context.Context, repositories []ledger.Repository, seen *pass) []ledger.RepositoryRead {
+	out := make([]ledger.RepositoryRead, 0, len(repositories))
+	for _, record := range repositories {
+		read := ledger.RepositoryRead{Repository: record.ID, Name: record.Name}
+		path, err := seen.checkout(ctx, s.Checkout, record.ID)
+		if err != nil {
+			read.Detail = fmt.Sprintf("no checkout of it on this machine: %v", err)
+			out = append(out, read)
+			continue
+		}
+		base := record.Base()
+		if base == "" {
+			if base, err = s.Bases.DefaultBranch(ctx, path); err != nil || base == "" {
+				read.Detail = fmt.Sprintf("it names no default branch: %v", err)
+				out = append(out, read)
+				continue
+			}
+		}
+		tip, err := seen.tip(ctx, s.Bases, path, base)
+		if err != nil {
+			read.Detail = err.Error()
+		} else {
+			read.Ref, read.Commit = tip.Ref, tip.Commit
+		}
+		out = append(out, read)
+	}
+	return out
+}
+
+// place gives where the lane's branch begins, or the reason there is none yet. It never answers with the
+// checkout's HEAD.
+func (s *Starts) place(ctx context.Context, in startInput, seen *pass) (workorders.Start, *workorders.StartHold) {
 	path, err := seen.checkout(ctx, s.Checkout, in.order.RepositoryID)
 	if err != nil {
 		return workorders.Start{}, unavailable("no checkout of repository %s: %v", in.order.RepositoryID, err)
@@ -149,6 +220,9 @@ func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workord
 	if err != nil {
 		return workorders.Start{}, unavailable("%v", err)
 	}
+	if in.order.Continues != "" {
+		return s.continuedStart(ctx, path, tip, in)
+	}
 	if len(in.dependencies) == 0 {
 		return workorders.Start{Ref: tip.Ref, Commit: tip.Commit}, nil
 	}
@@ -156,6 +230,33 @@ func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workord
 		return s.acceptedStart(ctx, path, in.dependencies)
 	}
 	return s.mergedStart(ctx, path, tip, in.dependencies)
+}
+
+// continuedStart places a lane that finishes an in-flight branch (ADR-0023). Its branch begins at the
+// continued branch's tip, and its base commit is where that branch left the base, so its review reads the
+// whole change and not only the lane's commits. Dependencies wait for their merge into the base, as with
+// `merged`, because the lane builds on the continued branch and not on accepted work. Nothing here moves
+// the continued branch.
+func (s *Starts) continuedStart(ctx context.Context, path string, tip ports.BaseTip, in startInput) (workorders.Start, *workorders.StartHold) {
+	if len(in.dependencies) > 0 {
+		if _, hold := s.mergedStart(ctx, path, tip, in.dependencies); hold != nil {
+			return workorders.Start{}, hold
+		}
+	}
+	branch, err := s.Bases.Branch(ctx, path, in.order.Continues)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return workorders.Start{}, &workorders.StartHold{
+			Reason: workorders.HoldContinuedBranchMissing, Detail: fmt.Sprintf("the work continues branch %s: %v", in.order.Continues, err),
+		}
+	case err != nil:
+		return workorders.Start{}, unavailable("reading branch %s: %v", in.order.Continues, err)
+	}
+	base, err := s.Bases.MergeBase(ctx, path, branch.Commit, tip.Commit)
+	if err != nil {
+		return workorders.Start{}, unavailable("finding where %s left %s: %v", branch.Ref, tip.Ref, err)
+	}
+	return workorders.Start{Ref: tip.Ref, Commit: base, ContinuesRef: branch.Ref, ContinuesCommit: branch.Commit}, nil
 }
 
 // mergedStart waits until every dependency's accepted commit is in the base, and then starts from the
@@ -337,7 +438,7 @@ func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, ac
 			if err != nil {
 				return err
 			}
-			if row.StartHeld != nil || len(in.dependencies) > 0 {
+			if row.StartHeld != nil || len(in.dependencies) > 0 || row.Continues != "" {
 				inputs = append(inputs, in)
 			}
 		}

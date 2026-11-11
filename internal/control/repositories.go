@@ -47,6 +47,9 @@ type RepositoryChange struct {
 	ReviewTarget *ledger.ReviewTarget
 	// MergeAuthority is how much of each change the person decides after the review.
 	MergeAuthority *ledger.MergeAuthority
+	// Planning names this repository the project's planning repository, and takes that from any other, or
+	// with false takes it from this one (ADR-0022).
+	Planning *bool
 }
 
 // detectedEvent is the data of EventRepositoryDetected. Name is there when the read named the record.
@@ -203,20 +206,84 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 				return err
 			}
 		}
-		if err := tx.Repositories().Settings(after); err != nil {
-			return err
+		if after.Planning && !before.Planning {
+			if err := takePlanning(tx, id, actor); err != nil {
+				return err
+			}
 		}
-		event, err := repositoryEvent(ledger.EventRepositoryChanged, id, changedEvent{Before: before, After: after}, actor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(event)
-		return err
+		return saveSettings(tx, before, after, actor)
 	})
 	if err != nil {
 		return ledger.Repository{}, err
 	}
 	return after, nil
+}
+
+// saveSettings keeps a member's change to one record, with the event that names it before and after.
+func saveSettings(tx ports.WriteTx, before, after ledger.Repository, actor ledger.Actor) error {
+	if err := tx.Repositories().Settings(after); err != nil {
+		return err
+	}
+	event, err := repositoryEvent(ledger.EventRepositoryChanged, after.ID, changedEvent{Before: before, After: after}, actor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(event)
+	return err
+}
+
+// takePlanning takes the plan of record from every other repository of the project, each with an event of
+// its own, so a project names at most one planning repository.
+func takePlanning(tx ports.WriteTx, id string, actor ledger.Actor) error {
+	all, err := tx.Repositories().Repositories()
+	if err != nil {
+		return err
+	}
+	for _, other := range all {
+		if other.ID == id || !other.Planning {
+			continue
+		}
+		cleared := other
+		cleared.Planning = false
+		if err := saveSettings(tx, other, cleared, actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PlanningIn finds the project's planning repository: the one a member named, or else its one active
+// repository (ADR-0022). A project of several repositories that named none has none, which is ErrNotFound.
+func PlanningIn(repositories ports.RepositoryReader) (ledger.Repository, error) {
+	all, err := repositories.Repositories()
+	if err != nil {
+		return ledger.Repository{}, err
+	}
+	var active []ledger.Repository
+	for _, record := range all {
+		if record.Removed() {
+			continue
+		}
+		if record.Planning {
+			return record, nil
+		}
+		active = append(active, record)
+	}
+	if len(active) == 1 {
+		return active[0], nil
+	}
+	return ledger.Repository{}, fmt.Errorf("the project names no planning repository: %w", ports.ErrNotFound)
+}
+
+// Planning reads the project's planning repository, or ErrNotFound when it has none.
+func (r *Repositories) Planning(ctx context.Context, scope ledger.WorkspaceID) (ledger.Repository, error) {
+	var record ledger.Repository
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		record, err = PlanningIn(tx.Repositories())
+		return err
+	})
+	return record, err
 }
 
 // removedEvent is the data of EventRepositoryRemoved.
@@ -253,7 +320,7 @@ func (r *Repositories) Remove(ctx context.Context, scope ledger.WorkspaceID, id 
 		if err := tx.Repositories().Remove(id); err != nil {
 			return err
 		}
-		record.State = ledger.RepositoryRemoved
+		record.State, record.Planning = ledger.RepositoryRemoved, false
 		event, err := repositoryEvent(ledger.EventRepositoryRemoved, id, removedEvent{Name: record.Name, Identity: ledger.RepositoryIdentity(record.Remote, id)}, actor)
 		if err != nil {
 			return err
@@ -303,6 +370,9 @@ func apply(record ledger.Repository, change RepositoryChange) ledger.Repository 
 	}
 	if change.MergeAuthority != nil {
 		record.MergeAuthority = *change.MergeAuthority
+	}
+	if change.Planning != nil {
+		record.Planning = *change.Planning
 	}
 	return record
 }

@@ -24,6 +24,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/clock"
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/adapters/hookrun"
+	"ropeshift.com/ropeshift/internal/adapters/inventory"
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
 	"ropeshift.com/ropeshift/internal/adapters/localauth"
 	"ropeshift.com/ropeshift/internal/adapters/machine"
@@ -484,6 +485,7 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		StateDir:   paths.StateDir,
 		RunDir:     paths.RunDir,
 		Override:   override,
+		Inventory:  inventory.Git{},
 	}, terminal, nil
 }
 
@@ -748,7 +750,7 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		}),
 		tick("intake", opts.intakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			var failed []error
-			intake := control.NewIntake(store).Telling(windows)
+			intake := control.NewIntake(store).Telling(windows).Checking(soloStarts(opts, kept))
 			sources, err := projectSources(ctx, opts, kept, home, p.ID)
 			if err != nil {
 				failed = append(failed, err)

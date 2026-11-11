@@ -61,6 +61,21 @@ func (g Git) Output(ctx context.Context, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// Feed runs one command with input on its stdin and returns its stdout as it is, for a command that
+// answers many questions in one run, such as `cat-file --batch`.
+func (g Git) Feed(ctx context.Context, input []byte, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = g.Dir
+	cmd.Env = g.environment()
+	cmd.Stdin = bytes.NewReader(input)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.Bytes(), nil
+}
+
 // Text runs one command and returns its stdout with the last newline removed.
 func (g Git) Text(ctx context.Context, args ...string) (string, error) {
 	out, err := g.Output(ctx, args...)

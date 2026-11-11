@@ -379,7 +379,7 @@ func TestRequirementGetReturnsTheAPIRecord(t *testing.T) {
 	if err := json.Unmarshal([]byte(s.must("requirement", "get", "PAY-12", "--json")), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("the CLI printed %+v, and the API holds %+v", got, want)
 	}
 	if text := s.must("requirement", "get", "PAY-12"); !strings.Contains(text, "It retries") {
@@ -1082,5 +1082,18 @@ func TestPlanApproveNamesTheDifferenceOfANewVersion(t *testing.T) {
 	}
 	if approved := s.must("plan", "approve", plan, "--version", "2"); !strings.Contains(approved, "version 2") {
 		t.Errorf("approve printed %q", approved)
+	}
+}
+
+// ADR-0023: a requirement the code already meets says so, with its evidence.
+func TestRequirementListSaysWhatTheCodeMeets(t *testing.T) {
+	s := newSession(t)
+	source := fake.NewWorkSource()
+	source.Write("requirements.md", []byte("+++\nkind = \"requirements\"\nid = \"payments\"\n\n[[requirement]]\nid = \"PAY-11\"\ntext = \"One client\"\n"+
+		"status = \"met\"\nevidence = [\"api:client.go\", \"api:client_test.go\"]\n\n[[requirement]]\nid = \"PAY-12\"\ntext = \"It retries\"\n+++\n"))
+	s.poll(source)
+	text := s.must("requirement", "list")
+	if !strings.Contains(text, "PAY-11\tv1\tOne client\tmet by existing code: api:client.go, api:client_test.go\n") || !strings.Contains(text, "PAY-12\tv1\tIt retries\n") {
+		t.Errorf("list:\n%s", text)
 	}
 }

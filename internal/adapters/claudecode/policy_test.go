@@ -105,6 +105,22 @@ func TestEveryDenialIsADenyRuleToo(t *testing.T) {
 	}
 }
 
+// ADR-0023: the branch a lane continues is kept from every push the way a default branch is, in the CLI's
+// own rules and in the hook's policy.
+func TestTheBranchALaneContinuesIsKeptFromEveryPush(t *testing.T) {
+	spec := policySpec(t)
+	spec.Kept = []string{"feature/retry"}
+	rules := generateSettings(spec).Permissions.Deny
+	for _, rule := range []string{"Bash(git push * feature/retry)", "Bash(git push * *:feature/retry)", "Bash(git push * +feature/retry)"} {
+		if !slices.Contains(rules, rule) {
+			t.Errorf("no rule %s", rule)
+		}
+	}
+	if policy := compilePolicy(spec); !slices.Equal(policy.Kept, []string{"feature/retry"}) {
+		t.Errorf("the hook's policy keeps %v", policy.Kept)
+	}
+}
+
 // A deny rule written through a link also applies at the link's real location, so a rule
 // on a sibling that leads back to the worktree denies every write in it. That is how `/tmp`
 // reads on macOS, where it is a link to `/private/tmp`.
@@ -403,5 +419,29 @@ func TestASessionThatWritesIsNotReadOnly(t *testing.T) {
 	}
 	if reason, denied := compilePolicy(spec).Decide(lanes.ToolCall{Tool: lanes.ToolBash, Command: "git commit -m x", Cwd: spec.Dir}); denied {
 		t.Errorf("a writing session's commit was denied: %s", reason)
+	}
+}
+
+// ADR-0022: the worktrees of the other repositories a lane reads are directories the session may read with
+// no prompt, and never write: the CLI's own rules deny an edit there, and the hook's policy denies a git
+// command that writes there.
+func TestTheRepositoriesALaneReadsAreReadOnly(t *testing.T) {
+	spec := policySpec(t)
+	api := filepath.Join(filepath.Dir(spec.Dir), "lane-1.reads", "api")
+	spec.ReadOnlyDirs = []string{api}
+	settings := generateSettings(spec)
+	if !slices.Equal(settings.Permissions.AdditionalDirectories, []string{api}) {
+		t.Errorf("the session may read %v", settings.Permissions.AdditionalDirectories)
+	}
+	for _, rule := range []string{"Edit(/" + api + ")", "Edit(/" + api + "/**)"} {
+		if !slices.Contains(settings.Permissions.Deny, rule) {
+			t.Errorf("no rule %s", rule)
+		}
+	}
+	if policy := compilePolicy(spec); !slices.Contains(policy.ReadOnlyRoots, api) {
+		t.Errorf("the hook's policy holds read-only roots %v", policy.ReadOnlyRoots)
+	}
+	if plain := generateSettings(policySpec(t)); len(plain.Permissions.AdditionalDirectories) != 0 {
+		t.Errorf("a lane that reads nothing may read %v", plain.Permissions.AdditionalDirectories)
 	}
 }

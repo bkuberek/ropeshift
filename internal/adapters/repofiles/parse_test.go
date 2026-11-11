@@ -336,6 +336,63 @@ func TestParseFile(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "an existing shared contract has criteria and no work orders",
+			fixture: "contract-existing.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if c := doc.Contract; c == nil || !c.Existing || !c.Shared || len(c.WorkOrders) != 0 || len(c.Criteria) != 1 {
+					t.Errorf("contract %+v", doc.Contract)
+				}
+			},
+		},
+		{
+			name:    "a work order continues an in-flight branch",
+			fixture: "contract-continues.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if c := doc.Contract; c == nil || c.WorkOrders[0].Continues != "feature/retry" || c.WorkOrders[0].Base != "" {
+					t.Errorf("contract %+v", doc.Contract)
+				}
+			},
+		},
+		{
+			name:    "a requirement the code meets cites its evidence",
+			fixture: "requirements-met.md",
+			check: func(t *testing.T, doc planning.Document) {
+				r := doc.Requirements
+				if r == nil || len(r.Requirements) != 2 {
+					t.Fatalf("requirements %+v", r)
+				}
+				met, open := r.Requirements[0], r.Requirements[1]
+				if !met.Met() || len(met.Evidence) != 2 || met.Evidence[0] != "api:internal/client.go" || open.Met() || open.Status != planning.RequirementOpen {
+					t.Errorf("requirements %+v", r.Requirements)
+				}
+			},
+		},
+		{
+			name:    "a milestone the code delivers",
+			fixture: "milestone-existing.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if m := doc.Milestone; m == nil || !m.Existing {
+					t.Errorf("milestone %+v", doc.Milestone)
+				}
+				head, _ := doc.Head()
+				if !strings.Contains(string(head.Fields), `"existing":true`) {
+					t.Errorf("the ledger's fields %s", head.Fields)
+				}
+			},
+		},
+		{
+			name:    "a plan records what it left out",
+			fixture: "plan-left-out.md",
+			check: func(t *testing.T, doc planning.Document) {
+				if p := doc.Plan; p == nil || len(p.LeftOut) != 1 || p.LeftOut[0].Ref != "branch:spike/old-ui" || p.LeftOut[0].Reason != "An abandoned experiment" {
+					t.Errorf("plan %+v", doc.Plan)
+				}
+			},
+		},
+		{name: "an existing contract with work orders", fixture: "contract-existing-orders.md", wantErr: planning.ErrBadFile},
+		{name: "a met requirement with no evidence", fixture: "requirements-met-no-evidence.md", wantErr: planning.ErrBadFile},
+		{name: "something left out with no reason", fixture: "plan-left-out-no-reason.md", wantErr: planning.ErrBadFile},
 		{name: "one requirement twice", fixture: "repeated-requirement.md", wantErr: planning.ErrBadFile},
 		{name: "a citation with no kind", fixture: "bad-document-ref.md", wantErr: planning.ErrBadFile},
 		{name: "a citation of a kind that is no document", fixture: "unknown-document-kind.md", wantErr: planning.ErrBadFile},
@@ -368,5 +425,35 @@ func TestParseFile(t *testing.T) {
 			}
 			tt.check(t, doc)
 		})
+	}
+}
+
+// A brief that onboards existing code shows these beside the formats, so each one is a file intake reads,
+// and together they show every field the format has for existing work (ADR-0023).
+func TestEveryAdoptionExampleIsAFile(t *testing.T) {
+	var met, existingMilestone, existingContract, continues, leftOut bool
+	for _, example := range planning.AdoptionExamples {
+		doc, err := ParseFile([]byte(example.Text))
+		if err != nil {
+			t.Fatalf("the %s example: %v", example.Kind, err)
+		}
+		if doc.Kind != example.Kind || example.Intro == "" || strings.TrimSpace(doc.Statement) == "" {
+			t.Errorf("the %s example reads as %s, says %q of itself, with prose %q", example.Kind, doc.Kind, example.Intro, doc.Statement)
+		}
+		switch {
+		case doc.Requirements != nil:
+			met = slices.ContainsFunc(doc.Requirements.Requirements, func(r planning.RequirementSpec) bool { return r.Met() && len(r.Evidence) > 0 })
+		case doc.Milestone != nil:
+			existingMilestone = doc.Milestone.Existing
+		case doc.Contract != nil && doc.Contract.Existing:
+			existingContract = doc.Contract.Shared && len(doc.Contract.WorkOrders) == 0
+		case doc.Contract != nil:
+			continues = slices.ContainsFunc(doc.Contract.WorkOrders, func(w planning.WorkOrderSpec) bool { return w.Continues != "" })
+		case doc.Plan != nil:
+			leftOut = len(doc.Plan.LeftOut) > 0
+		}
+	}
+	if !met || !existingMilestone || !existingContract || !continues || !leftOut {
+		t.Errorf("met %v, existing milestone %v, existing contract %v, continues %v, left out %v", met, existingMilestone, existingContract, continues, leftOut)
 	}
 }

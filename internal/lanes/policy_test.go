@@ -372,3 +372,94 @@ func TestAReadOnlyPolicySurvivesBeingWrittenAndRead(t *testing.T) {
 		t.Errorf("after a round trip a write was denied %v with %q", denied, reason)
 	}
 }
+
+// ADR-0023: a lane never moves the branch it continues. No push reaches it, and no command that moves or
+// checks out a branch names it, while reading it stays open.
+func TestAPolicyKeepsTheBranchALaneContinues(t *testing.T) {
+	const cwd = "/work/app-lanes/lane-1"
+	policy := CompilePolicy(PolicySpec{
+		Worktree: cwd, Home: "/home/person", DefaultBranches: []string{"main"}, Kept: []string{"feature/retry"},
+	})
+	tests := []struct {
+		name    string
+		command string
+		denied  string
+	}{
+		{name: "a log of it", command: "git log --oneline feature/retry"},
+		{name: "a diff against it", command: "git diff feature/retry..HEAD"},
+		{name: "a show of a file on it", command: "git show feature/retry:internal/a.go"},
+		{name: "a push of the lane's own branch", command: "git push -u origin HEAD:lane/lane-1"},
+		{name: "a branch with a longer name", command: "git branch -f feature/retry-2 HEAD"},
+
+		{name: "a push to it", command: "git push origin HEAD:feature/retry", denied: ReasonKept},
+		{name: "a push of it by name", command: "git push origin feature/retry", denied: ReasonKept},
+		{name: "a push to its full ref", command: "git push origin HEAD:refs/heads/feature/retry", denied: ReasonKept},
+		{name: "a delete of it", command: "git push origin :feature/retry", denied: ReasonKept},
+		{name: "a forced move", command: "git branch -f feature/retry HEAD", denied: ReasonKept},
+		{name: "a delete", command: "git branch -D feature/retry", denied: ReasonKept},
+		{name: "a rename", command: "git branch -m feature/retry old", denied: ReasonKept},
+		{name: "a switch to it", command: "git switch feature/retry", denied: ReasonKept},
+		{name: "a checkout of it", command: "git checkout feature/retry", denied: ReasonKept},
+		{name: "a ref update", command: "git update-ref refs/heads/feature/retry HEAD", denied: ReasonKept},
+		{name: "a push to the default branch still", command: "git push origin HEAD:main", denied: ReasonDefaultBranch},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: tt.command, Cwd: cwd})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("%q: denied %v with %q, want %q", tt.command, denied, reason, tt.denied)
+			}
+		})
+	}
+	raw, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read DenyPolicy
+	if err := json.Unmarshal(raw, &read); err != nil || len(read.Kept) != 1 || read.Kept[0] != "feature/retry" {
+		t.Errorf("the policy as a hook reads it: %+v, %v", read.Kept, err)
+	}
+}
+
+// ADR-0022: the read-only worktrees of other repositories a lane reads take no write, no commit, no push,
+// and no branch change, as a review lane's worktree takes none, while the lane's own worktree works as
+// before.
+func TestAPolicyKeepsTheReadOnlyWorktreesReadOnly(t *testing.T) {
+	const cwd = "/work/plan-lanes/lane-1"
+	const api = "/work/plan-lanes/lane-1.reads/api"
+	policy := CompilePolicy(PolicySpec{
+		Worktree: cwd, Home: "/home/person", DefaultBranches: []string{"main"}, ReadOnlyRoots: []string{api},
+	})
+	tests := []struct {
+		name    string
+		command string
+		denied  string
+	}{
+		{name: "a log there", command: "git -C " + api + " log --oneline"},
+		{name: "a grep there", command: "cd " + api + " && git grep -n retry"},
+		{name: "a read of a file there", command: "cat " + api + "/README.md"},
+		{name: "a commit in the lane's own worktree", command: "git commit -m plan"},
+		{name: "a branch in the lane's own worktree", command: "git branch -f lane/lane-1 HEAD"},
+
+		{name: "a commit there", command: "git -C " + api + " commit -m x", denied: ReasonReadOnlyTree},
+		{name: "a commit after cd", command: "cd " + api + " && git commit -m x", denied: ReasonReadOnlyTree},
+		{name: "a checkout there", command: "git -C " + api + " checkout -b mine", denied: ReasonReadOnlyTree},
+		{name: "a switch there", command: "cd " + api + " && git switch main", denied: ReasonReadOnlyTree},
+		{name: "a reset there", command: "git -C " + api + " reset --hard HEAD~1", denied: ReasonReadOnlyTree},
+		{name: "a push from there", command: "git -C " + api + " push origin HEAD:main", denied: ReasonReadOnlyTree},
+		{name: "a stage there", command: "git -C " + api + " add .", denied: ReasonReadOnlyTree},
+		{name: "a work tree option", command: "git --work-tree=" + api + " commit -m x", denied: ReasonReadOnlyTree},
+		{name: "a write there", command: "echo x > " + api + "/notes.txt", denied: ReasonOutside},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: tt.command, Cwd: cwd})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("%q: denied %v with %q, want %q", tt.command, denied, reason, tt.denied)
+			}
+		})
+	}
+	if reason, denied := policy.Decide(ToolCall{Tool: toolEdit, Path: api + "/main.go", Cwd: cwd}); !denied || reason != ReasonOutside {
+		t.Errorf("an edit there: denied %v with %q", denied, reason)
+	}
+}
