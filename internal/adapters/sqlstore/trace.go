@@ -23,6 +23,14 @@ type TraceEntry struct {
 type Options struct {
 	// Trace receives every statement, in order, when it is set.
 	Trace func(TraceEntry)
+	// Installation holds the records every project shares (ADR-0021): members and their sessions,
+	// workers with their join grants, autonomy, and run windows, orchestrators, and the autonomy policy.
+	// A project's transaction reaches them there, under the installation's own scope. With none, the
+	// store keeps them in its own database under each transaction's scope, as a single ledger does.
+	Installation *Installation
+	// Schema is the schema every transaction of the store runs in, on a server that holds several
+	// projects and the installation as schemas of one database. Empty uses the connection's own.
+	Schema string
 }
 
 // Names a trace check needs.

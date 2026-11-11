@@ -208,4 +208,6 @@ These defaults reduce the risk, and they do not remove it. [Authorization](autho
 ropeshift backup /path/to/ledger-backup.db
 ```
 
-The daemon copies its ledger through SQLite's online backup, so it goes on writing while the copy is made. The copy is one SQLite file, readable only by its owner, that holds every record and the passphrase's hash. A file already at the path is never replaced. A fresh installation runs on a copy when the copy is its `ledger.db` before its first start. The worker's journal, which holds the lanes on this machine, stays outside the copy.
+The daemon copies its ledger through SQLite's online backup, so it goes on writing while the copy is made. The copy is one SQLite file, readable only by its owner, that holds every record of the default project: its work, plans, questions, decisions, policies, and repositories. A file already at the path is never replaced. A fresh installation runs on a copy when the copy is its `ledger.db` before its first start, and asks for a new passphrase at its first sign-in. The worker's journal, which holds the lanes on this machine, stays outside the copy.
+
+The member, the passphrase's hash, the member sessions, the workers, their autonomy and run windows, and the orchestrators live in the installation database, `installation.db`, beside the ledger in the state directory, and the copy leaves them out. To keep them too, stop the daemon and copy `installation.db` with the ledger.

@@ -23,11 +23,19 @@ type Store struct {
 	trace    func(TraceEntry)
 	compiled sync.Map
 	nextTx   atomic.Uint64
+	// installation holds the records every project shares, or is nil for a store that keeps them.
+	installation *Installation
+	// scope is the statement that puts each transaction in the store's schema, or empty.
+	scope string
 }
 
-// New returns a Store on an open database. It owns db from here on.
+// New returns a Store on an open database. It owns db from here on, and never the installation's.
 func New(db *sql.DB, dialect Dialect, opts Options) *Store {
-	return &Store{db: db, dialect: dialect, trace: opts.Trace}
+	s := &Store{db: db, dialect: dialect, trace: opts.Trace, installation: opts.Installation}
+	if opts.Schema != "" {
+		s.scope = dialect.SchemaSQL(opts.Schema)
+	}
+	return s
 }
 
 // Close closes the database.
@@ -51,6 +59,16 @@ type session struct {
 	// changed records that a statement touched a row, so a commit can refuse a
 	// change with no event.
 	changed bool
+	// begin, when set, starts the transaction the session runs on before its first statement.
+	begin func() error
+}
+
+// ready starts the session's transaction when it begins at its first statement.
+func (se *session) ready() error {
+	if se.begin == nil {
+		return nil
+	}
+	return se.begin()
 }
 
 func (s *Store) session(ctx context.Context, on runner, mode Mode, op string) *session {
@@ -73,6 +91,9 @@ func (s *Store) prepared(text string) compiled {
 }
 
 func (se *session) bound(st *statement, p params) (string, []any, error) {
+	if err := se.ready(); err != nil {
+		return "", nil, fmt.Errorf("%s: %w", st.name, err)
+	}
 	c := se.store.prepared(rewritten(st.name, st.text))
 	args, err := c.bind(p)
 	if err != nil {
@@ -125,6 +146,9 @@ func (se *session) rows(st *statement, p params) (*sql.Rows, error) {
 // readClock reads database time. The dialect supplies the text, and a trace sees
 // it as one statement.
 func (se *session) readClock() (int64, error) {
+	if err := se.ready(); err != nil {
+		return 0, fmt.Errorf("%s: %w", StatementReadClock, err)
+	}
 	se.note(StatementReadClock)
 	var now int64
 	if err := se.on.QueryRowContext(se.ctx, se.store.dialect.ClockSQL()).Scan(&now); err != nil {
@@ -133,12 +157,31 @@ func (se *session) readClock() (int64, error) {
 	return now, nil
 }
 
+// begin starts a transaction, in the store's schema when it has one. The schema is set on the
+// transaction, so a connection that goes back to a pool shared with other projects keeps nothing.
+func (s *Store) begin(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	tx, err := s.db.BeginTx(ctx, opts)
+	if err != nil || s.scope == "" {
+		return tx, err
+	}
+	if _, err := tx.ExecContext(ctx, s.scope); err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("schema: %w", err)
+	}
+	return tx, nil
+}
+
 // Migrate applies each schema change once, in its own transaction.
 func (s *Store) Migrate(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, createMigrations); err != nil {
+	return s.migrate(ctx, s.dialect.Migrations)
+}
+
+// migrate applies the schema changes a dialect lists, each once.
+func (s *Store) migrate(ctx context.Context, list func() ([]Migration, error)) error {
+	if err := s.createMigrations(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	migrations, err := s.dialect.Migrations()
+	migrations, err := list()
 	if err != nil {
 		return err
 	}
@@ -151,8 +194,25 @@ func (s *Store) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// createMigrations makes the table of applied migrations, in the store's schema.
+func (s *Store) createMigrations(ctx context.Context) error {
+	if s.scope == "" {
+		_, err := s.db.ExecContext(ctx, createMigrations)
+		return err
+	}
+	tx, err := s.begin(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, createMigrations); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) apply(ctx context.Context, m Migration) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -217,7 +277,7 @@ func (s *Store) CreateWorkspace(ctx context.Context, w ledger.Workspace, actor l
 		return false, err
 	}
 	const op = "workspace.create"
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return false, err
 	}
@@ -260,12 +320,13 @@ func (s *Store) Read(ctx context.Context, scope ledger.WorkspaceID, fn func(port
 	if err := scope.Validate(); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.begin(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	t := &readTx{session: s.session(ctx, tx, ModeRead, "read"), scope: scope}
+	t := &readTx{session: s.session(ctx, tx, ModeRead, "read"), scope: scope, side: s.shared(true)}
+	defer t.side.rollback()
 	if _, err := t.Workspace(); err != nil {
 		return err
 	}
@@ -277,13 +338,14 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 	if err := scope.Validate(); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 	crashpoint.Hit(op, "begun")
-	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope}
+	t := &writeTx{session: s.session(ctx, tx, ModeWrite, op), scope: scope, side: s.shared(false)}
+	defer t.side.rollback()
 	if err := t.open(); err != nil {
 		return err
 	}
@@ -292,12 +354,17 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 		return err
 	}
 	if t.events == 0 && !commitsWithoutEvents() {
-		if t.changed {
+		if t.changed || t.side.changed() {
 			return fmt.Errorf("%s: %w", op, ports.ErrNoEvent)
 		}
 		return nil
 	}
 	crashpoint.Hit(op, "before-commit")
+	// The shared records commit first: a crash between the two commits keeps a shared change whose
+	// event the project's log lacks, and never an event whose change is missing.
+	if err := t.side.commit(); err != nil {
+		return fmt.Errorf("%s: commit the installation's records: %w", op, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("%s: commit: %w", op, err)
 	}
@@ -309,6 +376,8 @@ func (s *Store) Write(ctx context.Context, scope ledger.WorkspaceID, op string, 
 type readTx struct {
 	*session
 	scope ledger.WorkspaceID
+	// side reads the records every project shares, on a store that has an installation.
+	side *shared
 }
 
 func (t *readTx) Workspace() (ledger.Workspace, error) {
@@ -355,7 +424,8 @@ func (t *readTx) Planning() ports.PlanningReader {
 }
 
 func (t *readTx) Workers() ports.WorkerReader {
-	return workerTx{session: t.session, scope: t.scope}
+	se, scope := t.side.session(t.session, t.scope)
+	return workerTx{session: se, scope: scope}
 }
 
 func (t *readTx) Wakes() ports.WakeReader {
@@ -370,6 +440,8 @@ type writeTx struct {
 	rev     int64
 	revHeld bool
 	events  int
+	// side writes the records every project shares, on a store that has an installation.
+	side *shared
 }
 
 // openRevisionFirst takes the revision and then reads the clock. On Postgres at
@@ -451,7 +523,8 @@ func (t *writeTx) Planning() ports.PlanningWriter {
 }
 
 func (t *writeTx) Workers() ports.WorkerWriter {
-	return workerTx{session: t.session, scope: t.scope, now: t.now}
+	se, scope := t.side.session(t.session, t.scope)
+	return workerTx{session: se, scope: scope, now: t.now}
 }
 
 func (t *writeTx) Wakes() ports.WakeWriter {

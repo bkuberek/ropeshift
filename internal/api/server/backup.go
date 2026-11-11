@@ -10,8 +10,8 @@ import (
 )
 
 // backup copies the ledger to a file a member names. It changes nothing in the ledger, and it needs
-// a member's session all the same, because it writes a file that holds every record and the
-// passphrase's hash, at a path the caller chose.
+// a member's session all the same, because it writes a file that holds every record of the project,
+// at a path the caller chose.
 func (h *handler) backup(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
 	var in api.BackupRequest
 	if !decode(w, r, &in) {

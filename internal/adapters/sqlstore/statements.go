@@ -6,12 +6,19 @@ type statement struct {
 	text string
 }
 
-// every lists all statements, so a check can prepare each on another database.
-var every []*statement
+// every lists all statements of a project's ledger, and everyInstallation those of the installation
+// database, so a check can prepare each on another database of the same kind.
+var every, everyInstallation []*statement
 
 func define(name, text string) *statement {
 	st := &statement{name: name, text: text}
 	every = append(every, st)
+	return st
+}
+
+func defineInstallation(name, text string) *statement {
+	st := &statement{name: name, text: text}
+	everyInstallation = append(everyInstallation, st)
 	return st
 }
 
@@ -24,11 +31,20 @@ type Statement struct {
 // Statements lists every statement the Store can run, as a dialect sends it, so a
 // check can prepare each one on a real server (D7).
 func Statements(dialect Dialect) []Statement {
-	out := make([]Statement, 0, len(every)+1)
-	for _, st := range every {
+	return append(rendered(every, dialect), Statement{Name: StatementReadClock, Text: dialect.ClockSQL()})
+}
+
+// InstallationStatements lists every statement the installation database runs, as a dialect sends it.
+func InstallationStatements(dialect Dialect) []Statement {
+	return rendered(everyInstallation, dialect)
+}
+
+func rendered(statements []*statement, dialect Dialect) []Statement {
+	out := make([]Statement, 0, len(statements)+1)
+	for _, st := range statements {
 		out = append(out, Statement{Name: st.name, Text: compile(expandMatch(st.text, dialect), dialect.Placeholder).text})
 	}
-	return append(out, Statement{Name: StatementReadClock, Text: dialect.ClockSQL()})
+	return out
 }
 
 var (

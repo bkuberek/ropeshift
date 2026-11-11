@@ -212,7 +212,7 @@ func (s *Store) ScheduleWake(ctx context.Context, scope ledger.WorkspaceID, id s
 	if err := scope.Validate(); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
