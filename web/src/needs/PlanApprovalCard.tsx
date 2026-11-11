@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import type { ReactNode } from "react";
 
 import { decideApproval } from "../api/client";
-import type { ContractDifference, Difference, PartDifference, PlanApprovalNeed } from "../api/types";
+import type { Adoption, ContractDifference, Difference, FileChange, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { Fact, words } from "../parts/parts";
 import { useAct } from "./useAct";
@@ -114,6 +114,80 @@ function Changes({ difference }: { difference: Difference }) {
   );
 }
 
+// Records is one group of an adopted plan, each record with what it says, or a word that it holds none.
+function Records({ title, rows }: { title: string; rows: { key: string; label: string; text: string }[] }) {
+  return (
+    <Part title={title}>
+      {rows.length ? (
+        <ul className="links">
+          {rows.map((row) => (
+            <li key={row.key} aria-label={row.label}>
+              <span className="mono">{row.label}</span> {row.text}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="quiet">Nothing.</p>
+      )}
+    </Part>
+  );
+}
+
+function changeText(change: FileChange): string {
+  return change.from ? `${change.status} ${change.from} to ${change.path}` : `${change.status} ${change.path}`;
+}
+
+// AdoptionGroups shows an adopted plan as one plan and its branch as one change (ADR-0023): every claim of
+// what the code already does with its evidence, which approving it stands behind, each in-flight branch it
+// continues, what it adds, what it leaves out and why, and every file the branch added, changed, or moved.
+function AdoptionGroups({ adoption }: { adoption: Adoption }) {
+  const joined = (label: string, items?: string[]) => (items?.length ? `${label} ${items.join(", ")}` : "");
+  return (
+    <>
+      <Records
+        title="What exists"
+        rows={adoption.exists.map((record) => ({
+          key: record.ref,
+          label: record.ref,
+          text: [record.title, joined("Evidence:", record.evidence), joined("Rests on:", record.cites)].filter(Boolean).join(". "),
+        }))}
+      />
+      <Records
+        title="What continues"
+        rows={adoption.continues.map((work) => ({
+          key: `${work.contract}/${work.work_order}`,
+          label: work.work_order,
+          text: `${work.title}, continuing ${work.branch}${work.repo ? ` in ${work.repo}` : ""} (${work.contract})`,
+        }))}
+      />
+      <Records
+        title="What is new"
+        rows={adoption.new.map((record) => ({
+          key: record.ref,
+          label: record.ref,
+          text: [record.title, joined("Work orders:", record.work_orders)].filter(Boolean).join(". "),
+        }))}
+      />
+      <Records title="What is left out" rows={adoption.left_out.map((left) => ({ key: left.ref, label: left.ref, text: left.reason }))} />
+      <Part title="What the branch changes">
+        {adoption.changes_unread ? (
+          <p className="quiet">The changes could not be read: {adoption.changes_unread}</p>
+        ) : adoption.changes.length ? (
+          <ul className="links">
+            {adoption.changes.map((change) => (
+              <li key={`${change.status} ${change.from ?? ""} ${change.path}`} className="mono">
+                {changeText(change)}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="quiet">Nothing.</p>
+        )}
+      </Part>
+    </>
+  );
+}
+
 // A plan is approved as one step: the digest sent is the one on this page, so a version that changed
 // since this read is refused, and approving decides every draft with the member as the one who decided.
 export function PlanApprovalCard({ id, need, after }: { id: string; need: PlanApprovalNeed; after: () => Promise<void> }) {
@@ -149,6 +223,7 @@ export function PlanApprovalCard({ id, need, after }: { id: string; need: PlanAp
           ))}
         </ul>
       ) : null}
+      {need.adoption ? <AdoptionGroups adoption={need.adoption} /> : null}
       <Changes difference={need.difference} />
       <Part title="Draft decisions">
         {need.drafts.length ? (

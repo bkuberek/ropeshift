@@ -128,6 +128,27 @@ export type ContractDifference = { ref: string; criteria: PartDifference; work_o
 // How a plan version differs from the last one a member approved. Base is zero when none was approved.
 export type Difference = { base?: number; added?: string[]; changed?: string[]; removed?: string[]; contracts?: ContractDifference[] };
 
+// A claim an adopted plan makes of what the code already does, with what shows it and what it rests on.
+export type ExistingRecord = { ref: string; title: string; evidence?: string[]; cites?: string[] };
+
+export type ContinuedWork = { contract: string; work_order: string; title: string; repo?: string; branch: string };
+
+export type NewRecord = { ref: string; title: string; work_orders?: string[] };
+
+export type LeftOutRecord = { ref: string; reason: string };
+
+export type FileChange = { status: "added" | "changed" | "moved" | "deleted"; path: string; from?: string };
+
+// An adopted plan as its approval groups it, with every file its branch changed, or why those could not be read.
+export type Adoption = {
+  exists: ExistingRecord[];
+  continues: ContinuedWork[];
+  new: NewRecord[];
+  left_out: LeftOutRecord[];
+  changes: FileChange[];
+  changes_unread?: string;
+};
+
 export type PlanApprovalNeed = {
   approval: Approval;
   title: string;
@@ -138,6 +159,8 @@ export type PlanApprovalNeed = {
   drafts: DraftDecision[];
   difference: Difference;
   summary: string;
+  // Adoption groups a plan that adopts an existing project.
+  adoption?: Adoption;
 };
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
