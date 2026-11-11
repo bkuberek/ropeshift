@@ -26,6 +26,8 @@ An installation holds one or more projects, and the API names the project in the
 
 An archived project answers every change with 409 `project_archived`, a backup excepted, and a step its state refuses answers 409 `project_state`.
 
+`POST /v1/projects/{project}/backup` copies one project's ledger, and `POST /v1/installation/backup` copies the installation database. Each takes `{"path": "..."}`, an absolute path on the daemon's machine where no file exists, and needs a member's session.
+
 A change to a record every project shares, such as a member's sign-in, a worker's registration or autonomy, or an orchestrator, records its event in the installation's log, and no project's log holds it.
 
 ## The combined Needs you
@@ -39,8 +41,6 @@ One worker per machine serves every active project. Version 2 of the plane proto
 A worker claims work on its own route, `POST /v1/workers/{id}/claims`, with the work order and its project in the body.
 
 A worker one protocol version behind names no project and serves only the default project, the one the routes with no project serve. Once the installation removes that project, such a worker's session is refused with the code `protocol`.
-
-`POST /v1/projects/{project}/backup` copies one project's ledger, and `POST /v1/installation/backup` copies the installation database. Each takes `{"path": "..."}`, an absolute path on the daemon's machine where no file exists, and needs a member's session.
 
 ## Routes with no project
 
