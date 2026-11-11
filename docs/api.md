@@ -11,6 +11,8 @@ An installation holds one or more projects, and the API names the project in the
 | The installation's | `/v1/` | The registry of projects, members and their sessions, the passphrase, workers with their autonomy, run windows, and orchestrators, the worker's telemetry, the health of the control plane, the installation's backup, the combined Needs you, and the protocol a worker speaks with its credential |
 | A project's | `/v1/projects/{project}/` | Everything else: work orders, lanes, plans, requirements, documents, questions, decisions, policies, approvals, effects, notices, repositories, the fleet's mode and caps, the read models, the event stream, measures, and backups |
 
+A route on a project's records with no project in its path does not exist and answers 404.
+
 `{project}` is the project's name, as `ropeshift project list` prints it. A name the installation does not hold answers 404 with the code `no_project`, and a record of another project answers 404 with `not_found`, because a project's routes read only that project's ledger. A repository another project holds answers 409 with `repository_held`, and the message names that project. A change a repository's record refuses as it stands, such as a name another repository of the project holds, answers 409 with `repository_state`.
 
 `GET /v1/projects` lists the projects, each with its state, the identity of each repository it holds, and how many things wait on a member in it, and `GET /v1/projects/{project}` shows one with its database and its repository records. A member's session takes a project through its lifecycle, and each step records an event in the installation's log:
@@ -44,8 +46,4 @@ One worker per machine serves every active project. Version 2 of the plane proto
 
 A worker claims work on its own route, `POST /v1/workers/{id}/claims`, with the work order and its project in the body.
 
-A worker one protocol version behind names no project and serves only the default project, the one the routes with no project serve. Once the installation removes that project, such a worker's session is refused with the code `protocol`.
-
-## Routes with no project
-
-Until the release after the one that added projects, the daemon still answers each project route at its old path with no project, such as `/v1/work-orders`, for the installation's first project, `default` on an installation that upgraded from one ledger. Each answer carries the header `Deprecation: true`. These routes keep a worker one protocol version behind and a script written before projects working through one upgrade. Once the installation removes the first project, they answer 404 with the code `no_project`. No surface of ropeshift calls them, and the release after removes them.
+A worker that speaks version 1, which names no project and serves only the first project, is no longer served. Opening a session at version 1 answers 426 with the code `protocol`, and the message says the version is no longer served and the worker must be upgraded; the error also carries the worker's version and the oldest and newest the control plane accepts. A worker whose session was opened at version 1 before the control plane was upgraded is refused the same way on its next call, until it opens a session at version 2.

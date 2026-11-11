@@ -232,7 +232,7 @@ func authenticate(workers ports.WorkerReader, auth ledger.WorkerAuth) (ledger.Wo
 // OpenSession opens a new epoch and negotiates the protocol. The epoch moves in one
 // transaction, so an older session is stale from this commit on.
 func (w *Workers) OpenSession(ctx context.Context, request ledger.SessionRequest) (ledger.Session, error) {
-	session, err := openSession(ctx, w.store.Installation(w.scope), w.options, request, nil)
+	session, err := openSession(ctx, w.store.Installation(w.scope), w.options, request)
 	if err != nil {
 		return ledger.Session{}, err
 	}
@@ -242,9 +242,8 @@ func (w *Workers) OpenSession(ctx context.Context, request ledger.SessionRequest
 	return session, nil
 }
 
-// openSession opens a new epoch on the installation's records. accept, when set, can refuse the protocol
-// the two sides agreed on, before anything changes.
-func openSession(ctx context.Context, installation ports.Installation, options WorkerOptions, request ledger.SessionRequest, accept func(int) error) (ledger.Session, error) {
+// openSession opens a new epoch on the installation's records, on the protocol the two sides agree on.
+func openSession(ctx context.Context, installation ports.Installation, options WorkerOptions, request ledger.SessionRequest) (ledger.Session, error) {
 	session := ledger.Session{HeartbeatMs: options.HeartbeatMs, LeaseTTLMs: options.LeaseTTLMs}
 	err := installation.Write(ctx, "worker.session", func(tx ports.SharedTx) error {
 		record, err := authenticate(tx.Workers(), request.Auth)
@@ -253,11 +252,6 @@ func openSession(ctx context.Context, installation ports.Installation, options W
 		}
 		if session.Protocol, err = ledger.NegotiateProtocol(options.Protocol, request.Protocol); err != nil {
 			return err
-		}
-		if accept != nil {
-			if err := accept(session.Protocol); err != nil {
-				return err
-			}
 		}
 		next := record.Worker
 		next.Protocol, next.Manifest = session.Protocol, request.Manifest

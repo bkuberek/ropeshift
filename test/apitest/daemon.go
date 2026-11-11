@@ -167,8 +167,6 @@ type Options struct {
 	Panes server.Panes
 	// WebAddress is where the daemon says its web UI listens. Empty serves none.
 	WebAddress string
-	// Unscoped serves the deprecated routes with no project, as the daemon does for one release.
-	Unscoped bool
 	// Checkouts is the machine of the daemon's worker. Nil has none, and registering a repository refuses.
 	Checkouts ports.Checkouts
 }
@@ -204,7 +202,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	config := server.Config{
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
-		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress, Unscoped: options.Unscoped,
+		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
 		Checkouts: options.Checkouts,
 	}
 	daemon := serve(t, config, options.Wrap)
@@ -274,7 +272,7 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 	identity := fake.NewIdentityProvider()
 	machine := fake.NewCheckouts()
 	config := server.Config{
-		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, Unscoped: true, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
+		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
 		Matcher:   lexical.Matcher{Store: store},
 		Matching:  func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
 		Checkouts: machine,

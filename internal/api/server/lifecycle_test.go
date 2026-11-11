@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -203,8 +202,7 @@ func TestRemovingAProjectNeedsAllItAsks(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(in.State.Dir, filepath.FromSlash(project.Database))); !os.IsNotExist(err) {
 		t.Errorf("the database stayed: %v", err)
 	}
-	// The first project is removed like any other. The installation's routes go on, and the routes with no
-	// project, which served it, say it is gone.
+	// The first project is removed like any other, and the installation's routes go on.
 	if _, err := in.Client.ArchiveProject(t.Context(), apitest.ProjectName); err != nil {
 		t.Fatal(err)
 	}
@@ -219,9 +217,5 @@ func TestRemovingAProjectNeedsAllItAsks(t *testing.T) {
 	}
 	if _, err := in.Client.Health(t.Context()); err != nil {
 		t.Errorf("health with no first project: %v", err)
-	}
-	var refused *api.Error
-	if err := in.Client.Do(t.Context(), http.MethodGet, "/v1/work-orders", nil, nil); !errors.As(err, &refused) || refused.Detail.Code != api.CodeNoProject {
-		t.Errorf("a route with no project after the first project went: %v", err)
 	}
 }
