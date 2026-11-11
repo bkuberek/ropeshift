@@ -156,10 +156,14 @@ func (s *suite) rs12Offered(log *rs12Log, lane string) bool {
 	return false
 }
 
-// stagesOrCommits says a request is for what generated settings let a lane run with no prompt, so a
-// member should never have seen it.
-func stagesOrCommits(command string) bool {
-	return strings.Contains(command, "git add") || strings.Contains(command, "git commit")
+// runsUnasked says a request is for what generated settings let a lane run with no prompt (FR-LANE-19),
+// so a member should never have seen it: a stage, a commit, a directory, or a file in the worktree, which
+// a worker states as a path relative to it.
+func runsUnasked(row authority.Approval) bool {
+	if row.Subject == lanes.ToolBash {
+		return strings.Contains(row.Command, "git add") || strings.Contains(row.Command, "git commit") || row.Command == "mkdir -p plans"
+	}
+	return row.Subject == "Write" && row.Path != "" && !path.IsAbs(row.Path)
 }
 
 // rs12Approves says a call is what a planning lane was told to do and nothing more. A member's
@@ -173,9 +177,9 @@ func rs12Approves(row authority.Approval) bool {
 }
 
 // rs12Answer stands for the member a planning lane's prompt reaches, so a lane does not wait out this
-// suite's limit on nobody. A file is a default-mode lane's to ask for, and a member answers that. A
-// stage and a commit are not: generated settings allow them, which is what this suite shows, so one
-// that reached a person fails it however the lane ended.
+// suite's limit on nobody. A file in the worktree, its directory, a stage, and a commit never reach one:
+// generated settings allow them, which is what this suite shows, so one that reached a person fails it
+// however the lane ended. A member still answers it, so the run shows what else the lane did.
 func (s *suite) rs12Answer() {
 	s.t.Helper()
 	var list api.ApprovalList
@@ -188,8 +192,8 @@ func (s *suite) rs12Answer() {
 		}
 		wanted := rs12Approves(row)
 		s.t.Logf("rs12 plan: a request on %s, which a member %s", row.Subject, map[bool]string{true: "approves", false: "refuses"}[wanted])
-		if stagesOrCommits(row.Command) {
-			s.t.Errorf("a stage or a commit waited on a member")
+		if runsUnasked(row) {
+			s.t.Errorf("a call generated settings allow waited on a member: %s %s%s", row.Subject, row.Command, row.Path)
 		}
 		if wanted {
 			s.approve(row)
@@ -215,15 +219,15 @@ func standInOrchestrator(question, scope string) []any {
 	}
 }
 
-// standInPlanner plays what a real planning lane did: a file that reaches a member, and a stage and a
-// commit that generated settings allow, which the double holds to those rules. The double's own
-// write leaves a file empty, so the text follows it.
+// standInPlanner plays what a planning lane does under FR-LANE-19: a directory, a file, a stage, and a
+// commit, each of which generated settings allow, and which the double decides by those rules. The
+// double's own write leaves a file empty, so the text follows it.
 func standInPlanner() []any {
 	return []any{
 		map[string]any{"init": true},
 		standInPrompt(),
-		map[string]any{"tool": "Bash", "command": "mkdir -p plans"},
-		map[string]any{"tool": "Write", "file": rs12PlanFile, "prompts": true},
+		map[string]any{"tool": "Bash", "command": "mkdir -p plans", "ruled": true},
+		map[string]any{"tool": "Write", "file": rs12PlanFile, "ruled": true},
 		map[string]any{"tool": "Bash", "command": "printf '%s' '" + rs12StandInContract + "' > " + rs12PlanFile},
 		map[string]any{"tool": "Bash", "command": "git add plans && git commit -q -m 'plan the retry budget'", "unprompted": true},
 		map[string]any{"mcp": lanes.ToolLaneReport, "arguments": map[string]any{"outcome": "completed"}},

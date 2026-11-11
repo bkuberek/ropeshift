@@ -144,6 +144,10 @@ type step struct {
 	// Unprompted says the call runs only under an allow rule of `--settings`, and a call no rule
 	// covers ends the session, as one with nobody to answer would wait.
 	Unprompted bool `json:"unprompted,omitempty"`
+	// Ruled says the rules of `--settings` decide the call, as the CLI reads them: a deny rule stops
+	// it, a call an allow rule covers runs with no prompt, and anything else prompts, as Prompts does.
+	// Each outcome is witnessed as `blocked`, `unprompted`, or `prompted`, with the call.
+	Ruled bool `json:"ruled,omitempty"`
 }
 
 // A session's flags, as the real CLI takes them.
@@ -383,6 +387,8 @@ type settings struct {
 	} `json:"hooks"`
 	Permissions struct {
 		Allow []string `json:"allow"`
+		Ask   []string `json:"ask"`
+		Deny  []string `json:"deny"`
 	} `json:"permissions"`
 	StatusLine struct {
 		Command string `json:"command"`
@@ -856,6 +862,19 @@ func (s *session) callBuiltin(st step) {
 	}
 	if st.Unprompted && !s.settings.allows(st.Command) {
 		fail("%q would wait on a permission prompt", st.Command)
+	}
+	if st.Ruled {
+		call := strings.TrimSpace(st.Tool + " " + st.Command + st.File)
+		switch s.settings.rule(st) {
+		case ruleDenies:
+			witness("blocked", call)
+			return
+		case ruleAllows:
+			witness("unprompted", call)
+		default:
+			witness("prompted", call)
+			st.Prompts = true
+		}
 	}
 	if !s.permitted(st, input) {
 		return
