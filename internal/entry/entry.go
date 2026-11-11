@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
+	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/adapters/localauth"
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
 	"ropeshift.com/ropeshift/internal/adapters/repofiles"
@@ -82,7 +83,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 func cliOptions() cli.Options {
 	opts := cli.Options{
 		Session: os.Getenv(authority.EnvMemberToken), Project: os.Getenv(api.EnvProject), ReadPassphrase: localauth.ReadPassphrase,
-		RepositoryHere: repositoryHere,
+		RepositoryHere: repositoryHere, RepositoryRoot: repositoryRoot,
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
 		opts.Terminal = os.Stdin
@@ -116,6 +117,20 @@ func repositoryHere(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	return ledger.RepositoryIdentity(description.Remote, description.Instance), nil
+}
+
+// repositoryRoot is the top of the git working tree that holds the working directory, as git names it, or
+// empty when none does.
+func repositoryRoot(ctx context.Context) (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	top, err := gitcli.Git{Dir: dir}.Text(ctx, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", nil
+	}
+	return top, nil
 }
 
 // terminalPanes reaches the worker's private tmux server with the person's own terminal and

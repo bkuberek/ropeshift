@@ -48,7 +48,12 @@ func (c *invocation) approvalShow(args []string) int {
 	defer client.Close()
 	row, err := client.Approval(c.ctx, id)
 	return c.finish(err, row, func() string {
-		return fmt.Sprintf("%s\nstate: %s\n%s\nrequested by: %s\ndigest: %s\n", row.Summary, row.State, approvalSubject(row), row.RequestedBy, row.SubjectDigest)
+		var out strings.Builder
+		fmt.Fprintf(&out, "%s\nstate: %s\n%s\nrequested by: %s\ndigest: %s\n", row.Summary, row.State, approvalSubject(row), row.RequestedBy, row.SubjectDigest)
+		if adoption := api.PlanDetailOf(row).Adoption; adoption != nil {
+			writeAdoption(&out, *adoption, "")
+		}
+		return out.String()
 	})
 }
 

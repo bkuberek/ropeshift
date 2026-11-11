@@ -327,3 +327,49 @@ How the work is planned, in prose.
 `,
 	},
 }
+
+// Onboarding is an existing document before and after an adopt session onboards it (ADR-0023): the front
+// matter goes on top, with a table for each requirement the document states under the ID it already gives,
+// and every line the document held stays below it as it was.
+type Onboarding struct {
+	Before string
+	After  string
+}
+
+// onboardedProse is the existing document's own text, which onboarding leaves as it is.
+const onboardedProse = `# Payments requirements
+
+What the payments service must do, as the team wrote it down.
+
+## PAY-11: One client
+
+Every payment call goes through one client, so retries and logging live in one place.
+
+## PAY-12: Retries
+
+A failed call retries with the same idempotency key.
+`
+
+// OnboardedExample is a requirements document the code partly meets, before and after onboarding. Tests
+// parse the after and hold its prose to the before.
+var OnboardedExample = Onboarding{
+	Before: onboardedProse,
+	After: `+++
+kind = "requirements"
+id = "payments"
+title = "Payments requirements"
+plan = "payments-v2"
+
+[[requirement]]
+id = "PAY-11"
+text = "Every payment call goes through one client"
+status = "met"
+evidence = ["api:internal/payments/client.go", "api:internal/payments/client_test.go"]
+
+[[requirement]]
+id = "PAY-12"
+text = "A failed call retries with the same idempotency key"
++++
+
+` + onboardedProse,
+}

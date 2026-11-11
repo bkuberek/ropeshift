@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -228,6 +229,8 @@ func RunWorktrees(t *testing.T, fresh func(*testing.T) WorktreeRig) {
 		{"a detached worktree is discarded whatever it holds, and the repository keeps its branches", checkDetachedDiscard},
 		{"a diff names the patch and the files a commit changed since its base", checkDiffNamesTheChange},
 		{"a diff of a commit the repository lacks is not found", checkDiffOfNothing},
+		{"the changes since a base name each file a commit added", checkChangesNameEachFile},
+		{"the changes of a commit the repository lacks are not found", checkChangesOfNothing},
 		{"a context file is left beside the pack and git sees none of it", checkContextFile},
 	}
 	for _, check := range checks {
@@ -778,6 +781,29 @@ func checkDiffOfNothing(t *testing.T, ctx context.Context, r WorktreeRig) {
 	}
 	if _, err := r.Worktrees.Diff(ctx, r.Repository, "--output=x", head); !errors.Is(err, ports.ErrNotFound) {
 		t.Errorf("a base that reads as an option: %v", err)
+	}
+}
+
+func checkChangesNameEachFile(t *testing.T, ctx context.Context, r WorktreeRig) {
+	base := r.Grow("main")
+	head := r.Touch("notes.txt")
+	changes, err := r.Bases.Changes(ctx, r.Repository, base, head)
+	if err != nil || !slices.Equal(changes, []planning.FileChange{{Status: planning.ChangeAdded, Path: "notes.txt"}}) {
+		t.Errorf("the changes read %+v: %v", changes, err)
+	}
+	none, err := r.Bases.Changes(ctx, r.Repository, head, head)
+	if err != nil || none == nil || len(none) != 0 {
+		t.Errorf("a commit against itself changes %+v: %v", none, err)
+	}
+}
+
+func checkChangesOfNothing(t *testing.T, ctx context.Context, r WorktreeRig) {
+	head := r.Grow("main")
+	missing := strings.Repeat("a", 40)
+	for _, pair := range [][2]string{{missing, head}, {head, missing}, {"--output=x", head}} {
+		if _, err := r.Bases.Changes(ctx, r.Repository, pair[0], pair[1]); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("changes %v: %v", pair, err)
+		}
 	}
 }
 

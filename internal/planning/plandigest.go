@@ -256,4 +256,7 @@ type PlanDetail struct {
 	Decisions  int            `json:"decisions,omitempty"`
 	Difference Difference     `json:"difference"`
 	Source     string         `json:"source,omitempty"`
+	// Adoption groups a plan that adopts an existing project, and lists every file its branch changed
+	// (ADR-0023). Any other plan has none.
+	Adoption *Adoption `json:"adoption,omitempty"`
 }

@@ -262,6 +262,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadPassphrase, Message: err.Error()})
 	case errors.Is(err, authority.ErrNotEnrolled):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeNotEnrolled, Message: err.Error()})
+	case errors.Is(err, workorders.ErrAlreadyPlanned):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeAlreadyPlanned, Message: err.Error()})
 	case errors.Is(err, ledger.ErrProjectExists):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectExists, Message: err.Error()})
 	case errors.Is(err, ledger.ErrProjectState):
@@ -389,7 +391,7 @@ func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request, actor 
 	record, err := h.workOrders.Record(r.Context(), h.Scope, control.LedgerWork{
 		Order: workorders.WorkOrder{
 			ID: in.ID, Kind: kind, Title: in.Title, RepositoryID: in.RepositoryID, Priority: in.Priority,
-			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs,
+			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs, Adopt: in.Adopt,
 		},
 		Statement: in.Statement,
 		Criteria:  in.Criteria,

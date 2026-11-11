@@ -211,6 +211,9 @@ type DesiredLease struct {
 	// reads into the lane's context folder before the lane starts, as it does for a lane that adopts a
 	// project (ADR-0023).
 	Inventory bool `json:"inventory,omitempty"`
+	// Adopt says the lane adopts an existing project (ADR-0023): a planning lane whose brief onboards what the
+	// project already holds and plans what remains.
+	Adopt bool `json:"adopt,omitempty"`
 	// Deadline is the work order's, in database time. Zero means it has none.
 	Deadline int64 `json:"deadline,omitempty"`
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with

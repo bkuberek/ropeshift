@@ -1,7 +1,9 @@
 package server_test
 
 import (
+	"encoding/json"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +11,9 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -237,5 +242,45 @@ func TestAWebPagePassesOrSendsBackAContractReview(t *testing.T) {
 	}
 	if states["wo-pass"] != workorders.Ready || states["wo-back"] != workorders.Planning {
 		t.Errorf("states %v", states)
+	}
+}
+
+// ADR-0023: Needs you shows an adopted plan's request grouped as its detail holds it, so the web UI lists
+// every claim with its evidence, each continued branch, what is new, what is left out, and the branch's
+// changes.
+func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
+	d, _, _ := aWorld(t)
+	adoption := planning.Adoption{
+		Exists:    []planning.ExistingRecord{{Ref: "requirement:SHOP-1", Title: "One client", Evidence: []string{"shop:client.go"}}},
+		Continues: []planning.ContinuedWork{{Contract: "contract:retry", WorkOrder: "retry-finish", Title: "Finish it", Branch: "feature/retry"}},
+		New:       []planning.NewRecord{},
+		LeftOut:   []planning.LeftOut{{Ref: "branch:spike/old-ui", Reason: "Abandoned"}},
+		Changes:   []planning.FileChange{{Status: planning.ChangeAdded, Path: "plans/plan.md"}},
+	}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Adopt shop", Ref: "shop", Adoption: &adoption})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := authority.Approval{
+		ID: "adopt-approval", Kind: authority.KindPlan, WorkOrder: "adopt-1", Subject: "shop@1", SubjectDigest: "sha256:abc", Summary: "Plan Adopt shop, version 1",
+		RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1, PlanVersion: 1, Detail: string(detail),
+	}
+	err = d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
+		if _, err := tx.Approvals().Insert(request); err != nil {
+			return err
+		}
+		event, err := authority.ApprovalEvent(request, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if need.Adoption == nil || !reflect.DeepEqual(*need.Adoption, adoption) {
+		t.Errorf("the need groups %+v, want %+v", need.Adoption, adoption)
 	}
 }

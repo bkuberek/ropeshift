@@ -26,8 +26,10 @@ const (
 	planCriterion = "The plan is written to the repository as files, and the person has gone through it in this session."
 )
 
-// planStarted is what `plan start --json` prints.
+// planStarted is what `plan start --json` and `adopt --json` print.
 type planStarted struct {
+	// Project is the project an adoption made or chose. `plan start` leaves it out.
+	Project    string `json:"project,omitempty"`
 	WorkOrder  string `json:"work_order"`
 	Lane       string `json:"lane"`
 	Worker     string `json:"worker"`
@@ -74,11 +76,19 @@ func (c *invocation) planStart(args []string) int {
 	if code != ExitOK {
 		return code
 	}
-	started, code := c.openSession(client, text, chosenRepository, chosenWorker)
+	started, code := c.openSession(client, sessionDraft{
+		title: planTitle(text), statement: text, criterion: planCriterion, repository: chosenRepository, worker: chosenWorker,
+	})
 	if code != ExitOK {
 		return code
 	}
-	attach := !*noAttach && !c.asJSON && c.terminal != nil && c.panes != nil
+	return c.joinSession(client, started, *noAttach)
+}
+
+// joinSession puts the person's terminal on a session's pane, or says how to join it when there is no
+// terminal to put there or the person asked for none.
+func (c *invocation) joinSession(client *api.ProjectClient, started planStarted, noAttach bool) int {
+	attach := !noAttach && !c.asJSON && c.terminal != nil && c.panes != nil
 	if !attach {
 		return c.finish(nil, started, func() string {
 			text := fmt.Sprintf("Join the session with: %s\n", started.Attach)
@@ -125,9 +135,16 @@ func planTitle(goal string) string {
 	return defaultPlanTitle
 }
 
-// chooseRepository finds the repository the session plans in: the one the person names, or the only
-// one the daemon reads. A name matches a source's instance or its ID, as `source list` prints it.
+// chooseRepository finds the repository the session plans in: the one the person names, else the project's
+// planning repository (ADR-0022), else the only one the daemon reads. A name matches a source's instance or
+// its ID, as `source list` prints it.
 func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (string, int) {
+	if named == "" {
+		planning, code := c.planningRepository(client)
+		if code != ExitOK || planning != "" {
+			return planning, code
+		}
+	}
 	list, err := client.Sources(c.ctx)
 	if err != nil {
 		return "", c.failure(err)
@@ -148,6 +165,22 @@ func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (
 		return "", c.usageError("the daemon reads more than one repository; pass --repository with one of: %s", strings.Join(instances, ", "))
 	}
 	return instances[0], ExitOK
+}
+
+// planningRepository is the project's planning repository: the one a member named, or else its only
+// repository. A project of several repositories that named none has none, and neither has one that holds
+// no repository yet.
+func (c *invocation) planningRepository(client *api.ProjectClient) (string, int) {
+	list, err := client.Repositories(c.ctx)
+	if err != nil {
+		return "", c.failure(err)
+	}
+	for _, view := range list.Repositories {
+		if !view.Removed() && (view.Planning || view.PlanOfRecord) {
+			return view.ID, ExitOK
+		}
+	}
+	return "", ExitOK
 }
 
 // chooseWorker finds the worker that runs the session: the one the person names, the only one
@@ -191,15 +224,24 @@ func (c *invocation) chooseWorker(client *api.ProjectClient, named string) (stri
 	return "", c.usageError("more than one worker is registered, and the ledger cannot say which one is up; pass --worker with one of: %s", strings.Join(listed, ", "))
 }
 
+// sessionDraft is the planning work a session opens: what it is called and for, the one criterion it holds,
+// whether it adopts the project, and where it runs.
+type sessionDraft struct {
+	title, statement, criterion string
+	adopt                       bool
+	repository, worker          string
+}
+
 // openSession makes the member calls in order. A step that fails says which work order it left behind.
-func (c *invocation) openSession(client *api.ProjectClient, goal, repository, worker string) (planStarted, int) {
+func (c *invocation) openSession(client *api.ProjectClient, draft sessionDraft) (planStarted, int) {
+	repository, worker := draft.repository, draft.worker
 	id, err := newID()
 	if err != nil {
 		return planStarted{}, c.failure(err)
 	}
 	created, err := client.CreateWorkOrder(c.ctx, api.CreateWorkOrder{
-		ID: id, Kind: workorders.KindPlan, Title: planTitle(goal), Statement: goal, RepositoryID: repository,
-		Criteria: []planning.Criterion{{ID: "c1", Text: planCriterion}},
+		ID: id, Kind: workorders.KindPlan, Title: draft.title, Statement: draft.statement, RepositoryID: repository, Adopt: draft.adopt,
+		Criteria: []planning.Criterion{{ID: "c1", Text: draft.criterion}},
 	})
 	if err != nil {
 		return planStarted{}, c.failure(err)

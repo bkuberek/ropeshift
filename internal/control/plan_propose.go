@@ -39,7 +39,7 @@ func (i *Intake) proposablePlans(ctx context.Context, scope ledger.WorkspaceID) 
 				return err
 			}
 			if !asked {
-				out = append(out, acceptedPlan{order: row, commit: branch.Digest})
+				out = append(out, acceptedPlan{order: row, commit: branch.Digest, lane: branch.Lane})
 			}
 		}
 		return nil
@@ -88,8 +88,12 @@ func (i *Intake) ProposePlans(ctx context.Context, scope ledger.WorkspaceID, ope
 			continue
 		}
 		batch, _ = refuseCycles(batch)
+		var changes branchChanges
+		if plan.order.Adopt {
+			changes = i.adoptionChanges(ctx, scope, plan)
+		}
 		err = i.store.Write(ctx, scope, "intake.propose", func(tx ports.WriteTx) error {
-			return askAboutBranch(tx, plan, batch)
+			return askAboutBranch(tx, plan, batch, changes)
 		})
 		if err != nil {
 			failed = append(failed, fmt.Errorf("plan %s: %w", plan.order.ID, err))
@@ -100,8 +104,70 @@ func (i *Intake) ProposePlans(ctx context.Context, scope ledger.WorkspaceID, ope
 	return proposed, errors.Join(failed...)
 }
 
-// askAboutBranch raises one request for each plan file the branch holds whose digest the ledger does not.
-func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBatch) error {
+// branchChanges is what an adoption branch changed since its lane began, or why that could not be read.
+type branchChanges struct {
+	files  []planning.FileChange
+	unread string
+}
+
+// adoptionChanges reads every file an adopt lane's branch added, changed, moved, or deleted since the commit
+// its claim began the branch at, so the person reads the branch as one change (ADR-0023). What cannot be read
+// is said, and the request is raised all the same.
+func (i *Intake) adoptionChanges(ctx context.Context, scope ledger.WorkspaceID, plan acceptedPlan) branchChanges {
+	if i.starts == nil {
+		return branchChanges{unread: "this control plane reads no repository's history"}
+	}
+	var claim workorders.Claim
+	err := i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		claim, err = tx.Claims().OfLane(plan.lane)
+		return err
+	})
+	switch {
+	case err != nil:
+		return branchChanges{unread: fmt.Sprintf("the lane's claim could not be read: %v", err)}
+	case claim.BaseCommit == "":
+		return branchChanges{unread: "the lane recorded no commit its branch began at"}
+	}
+	path, err := i.starts.Checkout(ctx, scope, plan.order.RepositoryID)
+	if err != nil {
+		return branchChanges{unread: err.Error()}
+	}
+	files, err := i.starts.Bases.Changes(ctx, path, claim.BaseCommit, plan.commit)
+	if err != nil {
+		return branchChanges{unread: fmt.Sprintf("git could not read the branch from %s to %s: %v", claim.BaseCommit, plan.commit, err)}
+	}
+	return branchChanges{files: files}
+}
+
+// adoptionOf groups the records of one plan a branch holds as its approval shows them, with what the branch
+// changed.
+func adoptionOf(batch ports.ChangeBatch, plan planning.PlanFile, changes branchChanges) *planning.Adoption {
+	files := planning.AdoptedFiles{Plan: plan}
+	for _, record := range batch.Records {
+		switch {
+		case record.Requirements != nil && record.Requirements.Plan == plan.ID:
+			files.Requirements = append(files.Requirements, *record.Requirements)
+		case record.File.Milestone != nil && record.File.Milestone.Plan == plan.ID:
+			files.Milestones = append(files.Milestones, *record.File.Milestone)
+		}
+	}
+	for _, item := range batch.Items {
+		if item.Contract.Plan == plan.ID {
+			files.Contracts = append(files.Contracts, item.Contract)
+		}
+	}
+	adoption := planning.GroupAdoption(files)
+	if changes.files != nil {
+		adoption.Changes = changes.files
+	}
+	adoption.ChangesUnread = changes.unread
+	return &adoption
+}
+
+// askAboutBranch raises one request for each plan file the branch holds whose digest the ledger does not. A
+// branch that adopts a project groups each plan it holds, with what the branch changed.
+func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBatch, changes branchChanges) error {
 	asked, err := askedAbout(tx.Approvals(), branch.order.ID, branch.commit)
 	if err != nil || asked {
 		return err
@@ -117,6 +183,9 @@ func askAboutBranch(tx ports.WriteTx, branch acceptedPlan, batch ports.ChangeBat
 		ask := planAsk{
 			ref: item.Plan.ID, title: item.Plan.Title, version: 1, digest: planning.PlanDigest(entries), entries: entries,
 			decisions: len(item.Plan.Decisions), source: branch.commit, workOrder: branch.order.ID,
+		}
+		if branch.order.Adopt {
+			ask.adoption = adoptionOf(batch, *item.Plan, changes)
 		}
 		link, err := tx.Planning().Link(planning.SubjectPlan, item.Key)
 		switch {

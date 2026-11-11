@@ -29,9 +29,11 @@ type installation struct {
 
 	mu      sync.Mutex
 	sources []planning.SourceBinding
-	workers []api.WorkerLine
-	review  api.ReviewResult
-	order   workorders.State
+	// repositories are the project's repositories, among which a planning one names where to plan.
+	repositories []api.RepositoryView
+	workers      []api.WorkerLine
+	review       api.ReviewResult
+	order        workorders.State
 	// laneAppears is how many reads of the new lane answer not found before its first report.
 	laneAppears int
 	laneReads   int
@@ -65,6 +67,11 @@ func newInstallation(t *testing.T) *installation {
 		i.mu.Lock()
 		defer i.mu.Unlock()
 		return api.SourceList{Sources: i.sources}, nil
+	})
+	i.on("GET /v1/repositories", func(*http.Request, []byte) (any, *api.Error) {
+		i.mu.Lock()
+		defer i.mu.Unlock()
+		return api.RepositoryList{Repositories: append([]api.RepositoryView{}, i.repositories...)}, nil
 	})
 	i.on("GET /v1/workers", func(*http.Request, []byte) (any, *api.Error) {
 		i.mu.Lock()
@@ -431,25 +438,33 @@ func TestPlanStartChoosesTheWorker(t *testing.T) {
 func TestPlanStartChoosesTheRepository(t *testing.T) {
 	shop := planning.SourceBinding{ID: "repofiles:shop", Adapter: "repofiles", Instance: "shop", Health: "healthy"}
 	blog := planning.SourceBinding{ID: "repofiles:blog", Adapter: "repofiles", Instance: "blog", Health: "healthy"}
+	named := []api.RepositoryView{{Repository: ledger.Repository{ID: "shop", Name: "shop"}}, {Repository: ledger.Repository{ID: "blog", Name: "blog", Planning: true}}}
+	only := []api.RepositoryView{{Repository: ledger.Repository{ID: "blog", Name: "blog"}, PlanOfRecord: true}}
+	removed := []api.RepositoryView{{Repository: ledger.Repository{ID: "blog", Name: "blog", Planning: true, State: ledger.RepositoryRemoved}}}
 	tests := []struct {
-		name    string
-		sources []planning.SourceBinding
-		args    []string
-		want    int
-		repo    string
-		stderr  string
+		name         string
+		sources      []planning.SourceBinding
+		repositories []api.RepositoryView
+		args         []string
+		want         int
+		repo         string
+		stderr       string
 	}{
-		{"the only source", []planning.SourceBinding{shop}, nil, cli.ExitOK, "shop", ""},
-		{"a repository named by its instance", []planning.SourceBinding{shop, blog}, []string{"--repository", "blog"}, cli.ExitOK, "blog", ""},
-		{"a repository named by its source ID", []planning.SourceBinding{shop, blog}, []string{"--repository", "repofiles:blog"}, cli.ExitOK, "blog", ""},
-		{"two sources and no choice", []planning.SourceBinding{shop, blog}, nil, cli.ExitUsage, "", "blog"},
-		{"a repository no source has", []planning.SourceBinding{shop}, []string{"--repository", "nowhere"}, cli.ExitUsage, "", "nowhere"},
-		{"no source", nil, nil, cli.ExitConflict, "", "source"},
+		{"the only source", []planning.SourceBinding{shop}, nil, nil, cli.ExitOK, "shop", ""},
+		{"the planning repository a member named", []planning.SourceBinding{shop, blog}, named, nil, cli.ExitOK, "blog", ""},
+		{"the project's only repository", []planning.SourceBinding{shop, blog}, only, nil, cli.ExitOK, "blog", ""},
+		{"a named repository over the planning one", []planning.SourceBinding{shop, blog}, named, []string{"--repository", "shop"}, cli.ExitOK, "shop", ""},
+		{"a planning repository the project removed", []planning.SourceBinding{shop}, removed, nil, cli.ExitOK, "shop", ""},
+		{"a repository named by its instance", []planning.SourceBinding{shop, blog}, nil, []string{"--repository", "blog"}, cli.ExitOK, "blog", ""},
+		{"a repository named by its source ID", []planning.SourceBinding{shop, blog}, nil, []string{"--repository", "repofiles:blog"}, cli.ExitOK, "blog", ""},
+		{"two sources and no choice", []planning.SourceBinding{shop, blog}, nil, nil, cli.ExitUsage, "", "blog"},
+		{"a repository no source has", []planning.SourceBinding{shop}, nil, []string{"--repository", "nowhere"}, cli.ExitUsage, "", "nowhere"},
+		{"no source", nil, nil, nil, cli.ExitConflict, "", "source"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			i := newInstallation(t)
-			i.sources = tt.sources
+			i.sources, i.repositories = tt.sources, tt.repositories
 			code, _, stderr := i.start(t, false, append([]string{"--goal", "x"}, tt.args...)...)
 			if code != tt.want || !strings.Contains(stderr, tt.stderr) {
 				t.Fatalf("exit %d (want %d): %s", code, tt.want, stderr)

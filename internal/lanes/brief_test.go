@@ -168,3 +168,59 @@ func TestABriefNamesTheRepositoriesTheLaneReads(t *testing.T) {
 		t.Errorf("a brief with nothing to read speaks of it:\n%s", plain)
 	}
 }
+
+// ADR-0023: an adopt lane is a planning lane told to onboard what the project already holds. Its brief says
+// where the inventory is, gives each rule of adoption, and shows every record it writes for existing work,
+// with an existing document before and after onboarding, so a real agent has an example of each.
+func TestAnAdoptBriefCarriesTheRulesAndAnExampleOfEachRecord(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true})
+	if len(planning.AdoptionExamples) < 5 {
+		t.Fatalf("%d examples", len(planning.AdoptionExamples))
+	}
+	for _, example := range planning.AdoptionExamples {
+		if !strings.Contains(brief, example.Text) || !strings.Contains(brief, example.Intro) {
+			t.Errorf("the brief leaves out the %s example of existing work", example.Kind)
+		}
+	}
+	if !strings.Contains(brief, planning.OnboardedExample.Before) || !strings.Contains(brief, planning.OnboardedExample.After) {
+		t.Error("the brief leaves out the document before and after onboarding")
+	}
+	for _, want := range []string{
+		InventoryFile, "Onboard, do not rewrite", "keep its prose", "existing IDs", "git mv",
+		"belongs to another tool", "contradict", "draft decision",
+		"status = \"met\"", "evidence", "existing = true", "no work orders",
+		"shared contracts first", "continues", "[[left_out]]", "reason",
+		"Write nothing else", "your own branch", "default branch",
+		// The planning lane's own rules still hold.
+		"Commit the files on this branch", "approves the plan in one step",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the adopt brief says nothing of %q", want)
+		}
+	}
+}
+
+// The inventory's shape in the brief is what the worker writes, so the agent reads the file it is shown.
+func TestAnAdoptBriefShowsTheInventoryAsTheWorkerWritesIt(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Adopt the project", Kind: workorders.KindPlan, Adopt: true})
+	raw, err := planning.RenderInventory(inventoryExample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(brief, string(raw)) {
+		t.Errorf("the brief does not show the inventory as RenderInventory writes it:\n%s", brief)
+	}
+	if len(inventoryExample.Repositories) == 0 || len(inventoryExample.Repositories[0].Branches) == 0 || len(inventoryExample.Repositories[0].Documents) == 0 {
+		t.Errorf("the example inventory shows no document or branch: %+v", inventoryExample)
+	}
+}
+
+// Planning work that does not adopt is told nothing of adoption.
+func TestAPlanningBriefThatDoesNotAdoptSaysNothingOfIt(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo", Title: "Plan it", Kind: workorders.KindPlan})
+	for _, unwanted := range []string{InventoryFile, "Onboard, do not rewrite", planning.OnboardedExample.After} {
+		if strings.Contains(brief, unwanted) {
+			t.Errorf("a planning brief that does not adopt holds %q", unwanted)
+		}
+	}
+}

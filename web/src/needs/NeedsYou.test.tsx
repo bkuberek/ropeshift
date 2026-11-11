@@ -669,6 +669,53 @@ describe("a plan approval", () => {
     await userEvent.click(within(card()).getByRole("button", { name: "Approve this plan" }));
     expect((await within(card()).findByRole("alert")).textContent).toContain("no longer matches");
   });
+
+  it("groups an adopted plan, with each claim's evidence and every file its branch changed", () => {
+    const { view, item: need } = planView();
+    need.plan_approval.adoption = {
+      exists: [
+        { ref: "requirement:SHOP-1", title: "One client", evidence: ["shop:client.go", "shop:client_test.go"] },
+        { ref: "contract:client", title: "Payments client", cites: ["requirement:SHOP-1"] },
+      ],
+      continues: [{ contract: "contract:retry", work_order: "retry-finish", title: "Finish the retry branch", repo: ".", branch: "feature/retry" }],
+      new: [{ ref: "contract:retry", title: "Retry failed calls", work_orders: ["retry-docs"] }],
+      left_out: [{ ref: "branch:spike/old-ui", reason: "An abandoned experiment" }],
+      changes: [
+        { status: "changed", path: "docs/requirements.md" },
+        { status: "moved", path: "docs/payments.md", from: "notes/payments.md" },
+        { status: "added", path: "plans/plan.md" },
+      ],
+    };
+    show(view);
+    const exists = within(card()).getByRole("region", { name: "What exists" });
+    expect(within(exists).getByRole("listitem", { name: "requirement:SHOP-1" }).textContent).toContain("shop:client_test.go");
+    expect(within(exists).getByRole("listitem", { name: "contract:client" }).textContent).toContain("requirement:SHOP-1");
+    const continues = within(card()).getByRole("region", { name: "What continues" });
+    expect(continues.textContent).toContain("feature/retry");
+    expect(continues.textContent).toContain("retry-finish");
+    expect(within(card()).getByRole("region", { name: "What is new" }).textContent).toContain("retry-docs");
+    expect(within(card()).getByRole("region", { name: "What is left out" }).textContent).toContain("An abandoned experiment");
+    const changes = within(card()).getByRole("region", { name: "What the branch changes" });
+    const files = within(changes).getAllByRole("listitem");
+    expect(files.map((file) => file.textContent)).toEqual([
+      "changed docs/requirements.md",
+      "moved notes/payments.md to docs/payments.md",
+      "added plans/plan.md",
+    ]);
+  });
+
+  it("says a group of an adopted plan holds nothing, and why its changes could not be read", () => {
+    const { view, item: need } = planView();
+    need.plan_approval.adoption = { exists: [], continues: [], new: [], left_out: [], changes: [], changes_unread: "the lane recorded no commit its branch began at" };
+    show(view);
+    expect(within(card()).getByRole("region", { name: "What is left out" }).textContent).toContain("Nothing.");
+    expect(within(card()).getByRole("region", { name: "What the branch changes" }).textContent).toContain("the lane recorded no commit its branch began at");
+  });
+
+  it("shows no groups for a plan that adopts nothing", () => {
+    show();
+    expect(within(card()).queryByRole("region", { name: "What exists" })).toBeNull();
+  });
 });
 
 describe("a contract review", () => {
