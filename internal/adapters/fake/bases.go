@@ -170,4 +170,54 @@ func (w *Worktrees) Contains(_ context.Context, _, ancestor, commit string) (boo
 	return false, nil
 }
 
+// Branch reads a branch a lane continues. With a remote it reads the remote's, which the fetch brought,
+// and a fetch that fails falls back to the branch this machine holds. A branch nobody grew is ErrNotFound.
+func (w *Worktrees) Branch(_ context.Context, repository, branch string) (ports.BaseTip, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	commit, ok := w.tips[tipKey(repository, branch)]
+	if !ok {
+		return ports.BaseTip{}, fmt.Errorf("%w: no branch %s", ports.ErrNotFound, branch)
+	}
+	ref := branch
+	if w.remote != "" && w.fetchFail == nil {
+		ref = w.remote + "/" + branch
+	}
+	return ports.BaseTip{Ref: ref, Commit: commit}, nil
+}
+
+// MergeBase walks what each commit grew from and answers with the first commit b's history meets that a's
+// holds, nearest first.
+func (w *Worktrees) MergeBase(_ context.Context, _, a, b string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, name := range []string{a, b} {
+		if _, ok := w.history[name]; !ok {
+			return "", fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+	}
+	held := map[string]bool{}
+	for stack := []string{a}; len(stack) > 0; {
+		at := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if !held[at] {
+			held[at] = true
+			stack = append(stack, w.history[at]...)
+		}
+	}
+	seen := map[string]bool{}
+	for queue := []string{b}; len(queue) > 0; {
+		at := queue[0]
+		queue = queue[1:]
+		if held[at] {
+			return at, nil
+		}
+		if !seen[at] {
+			seen[at] = true
+			queue = append(queue, w.history[at]...)
+		}
+	}
+	return "", fmt.Errorf("%w: %s and %s share no history", ports.ErrNotFound, a, b)
+}
+
 var _ ports.Bases = (*Worktrees)(nil)

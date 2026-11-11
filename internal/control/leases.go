@@ -84,6 +84,7 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		}
 		if claim.BaseCommit == "" {
 			claim.BaseRef, claim.BaseCommit = start.Ref, start.Commit
+			claim.ContinuesRef, claim.ContinuesCommit = start.ContinuesRef, start.ContinuesCommit
 		}
 		if err := l.pinPack(tx, current, &claim, actor); err != nil {
 			return err
@@ -132,6 +133,7 @@ func continuesLane(tx ports.WriteTx, order workorders.WorkOrder, claim *workorde
 	}
 	claim.Overrides, claim.PackID = last.Overrides, last.PackID
 	claim.BaseRef, claim.BaseCommit = last.BaseRef, last.BaseCommit
+	claim.ContinuesRef, claim.ContinuesCommit = last.ContinuesRef, last.ContinuesCommit
 	return err
 }
 

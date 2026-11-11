@@ -34,4 +34,12 @@ type Bases interface {
 	// DefaultBranch names the branch a repository's work lands on, for a repository no member named a
 	// base for. It reads an upstream's default first, and a repository with none has its current branch.
 	DefaultBranch(ctx context.Context, repository string) (string, error)
+	// Branch reads where an in-flight branch someone else works on stands, for a lane that continues it
+	// (ADR-0023). With a remote that holds the branch, it fetches it and answers with the remote-tracking
+	// commit; otherwise it answers with the local branch. A branch neither holds is ErrNotFound. It moves
+	// no branch.
+	Branch(ctx context.Context, repository, branch string) (BaseTip, error)
+	// MergeBase finds the commit two commits last shared. Two commits with no common history, or a commit
+	// the repository does not hold, is ErrNotFound.
+	MergeBase(ctx context.Context, repository, a, b string) (string, error)
 }

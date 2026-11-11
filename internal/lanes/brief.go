@@ -47,6 +47,25 @@ type BriefSpec struct {
 	Attempt *ledger.DesiredAttempt
 	// Rework is why the work came back for this attempt, when it did.
 	Rework *ledger.DesiredRework
+	// Continues is the in-flight branch this work finishes, when it finishes one (ADR-0023).
+	Continues *Continuation
+}
+
+// Continuation is an in-flight branch a lane finishes: its name, the tip the lane's own branch began at,
+// and the commit where the branch left its base, which the work is measured from.
+type Continuation struct {
+	Branch string
+	Tip    string
+	Base   string
+}
+
+// writeContinuation tells a lane whose branch began on someone's in-flight branch what it holds, and that
+// the branch itself stays as its author left it.
+func writeContinuation(out *strings.Builder, c Continuation) {
+	fmt.Fprintf(out, "\nThis work finishes branch %s, which someone started. Your branch began at its tip, commit %s, so it already holds "+
+		"that work; read it with git log %s..HEAD and git diff %s before you change anything. The change is measured from commit %s, "+
+		"where %s left its base, and review reads all of it. Commit on your own branch. Never push to %s, move it, or switch to it: "+
+		"it stays as its author left it.\n", c.Branch, c.Tip, c.Base, c.Base, c.Base, c.Branch, c.Branch)
 }
 
 // planningNotice tells a planning lane what the ledger takes from it: files, at a commit, and only
@@ -196,6 +215,9 @@ func Brief(spec BriefSpec) string {
 		for _, criterion := range spec.Criteria {
 			out.WriteString("- " + criterion + "\n")
 		}
+	}
+	if spec.Continues != nil {
+		writeContinuation(&out, *spec.Continues)
 	}
 	if spec.Rework != nil {
 		writeRework(&out, *spec.Rework)

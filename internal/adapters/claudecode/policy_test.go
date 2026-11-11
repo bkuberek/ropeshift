@@ -105,6 +105,22 @@ func TestEveryDenialIsADenyRuleToo(t *testing.T) {
 	}
 }
 
+// ADR-0023: the branch a lane continues is kept from every push the way a default branch is, in the CLI's
+// own rules and in the hook's policy.
+func TestTheBranchALaneContinuesIsKeptFromEveryPush(t *testing.T) {
+	spec := policySpec(t)
+	spec.Kept = []string{"feature/retry"}
+	rules := generateSettings(spec).Permissions.Deny
+	for _, rule := range []string{"Bash(git push * feature/retry)", "Bash(git push * *:feature/retry)", "Bash(git push * +feature/retry)"} {
+		if !slices.Contains(rules, rule) {
+			t.Errorf("no rule %s", rule)
+		}
+	}
+	if policy := compilePolicy(spec); !slices.Equal(policy.Kept, []string{"feature/retry"}) {
+		t.Errorf("the hook's policy keeps %v", policy.Kept)
+	}
+}
+
 // A deny rule written through a link also applies at the link's real location, so a rule
 // on a sibling that leads back to the worktree denies every write in it. That is how `/tmp`
 // reads on macOS, where it is a link to `/private/tmp`.

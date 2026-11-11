@@ -533,6 +533,7 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	}
 	lease.Lane, lease.Repository, lease.Branch, lease.Title = claim.Lane, row.RepositoryID, row.Branch, row.Title
 	lease.BaseRef, lease.BaseCommit = claim.BaseRef, claim.BaseCommit
+	lease.Continues, lease.ContinuesRef, lease.ContinuesCommit = row.Continues, claim.ContinuesRef, claim.ContinuesCommit
 	lease.Deadline, lease.Overrides = row.Deadline, claim.Overrides
 	lease.Contract, lease.ContractVersion = row.ContractID, row.ContractVersion
 	lease.Kind = string(row.Kind)
@@ -1045,6 +1046,7 @@ func (w *Workers) view(tx ports.ReadTx, row ledger.LaneRow) (ledger.LaneView, er
 	switch claim, err := tx.Claims().OfLane(row.ID); {
 	case err == nil:
 		view.BaseRef, view.BaseCommit = claim.BaseRef, claim.BaseCommit
+		view.ContinuesRef, view.ContinuesCommit = claim.ContinuesRef, claim.ContinuesCommit
 	case !errors.Is(err, ports.ErrNotFound):
 		return view, err
 	}

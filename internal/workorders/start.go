@@ -8,6 +8,11 @@ import "fmt"
 type Start struct {
 	Ref    string `json:"ref,omitempty"`
 	Commit string `json:"commit,omitempty"`
+	// ContinuesRef and ContinuesCommit are the in-flight branch a lane continues and its tip, where the
+	// lane's branch begins (ADR-0023). Commit is then where that branch left the base, which review diffs
+	// from, rather than where the lane's branch begins.
+	ContinuesRef    string `json:"continues_ref,omitempty"`
+	ContinuesCommit string `json:"continues_commit,omitempty"`
 }
 
 // HoldReason says why work that is ready cannot start yet.
@@ -23,6 +28,9 @@ const (
 	// HoldBaseUnavailable says the base branch could not be read: the fetch failed, or no such branch
 	// exists. A lane never starts from anything else.
 	HoldBaseUnavailable HoldReason = "base_unavailable"
+	// HoldContinuedBranchMissing says the in-flight branch the work continues is on neither the repository's
+	// remote nor its checkout (ADR-0023).
+	HoldContinuedBranchMissing HoldReason = "continued_branch_missing"
 )
 
 // StartHold is a reason a ready work order is not claimed, and what it waits for.

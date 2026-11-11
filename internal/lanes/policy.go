@@ -21,6 +21,10 @@ const (
 	ReasonDefaultBranch = "ropeshift policy: a push to the default branch is denied on this lane. Push the lane's own branch."
 	ReasonOutside       = "ropeshift policy: a write outside this lane's worktree is denied. Write inside the worktree, with a path the policy can read."
 	ReasonPushApart     = "ropeshift policy: a push runs as a command of its own on this lane, because a commit runs with no prompt and a push does not. Commit first, then push alone."
+	// ReasonKept is what a lane is told when it reaches for the branch it continues, which stays as its
+	// author left it (ADR-0023).
+	ReasonKept = "ropeshift policy: a lane never moves the branch it continues. Do not push to it, move it, switch to it, or check it out: " +
+		"read it with git log, git show, and git diff, and commit on this lane's own branch."
 	// ReasonReadOnly is what a lane that only reads is told when it reaches for a write. Its worktree is
 	// thrown away when it ends, so a file it writes there reaches nothing, but a commit, a push, or a ref
 	// would reach the work it judges.
@@ -71,6 +75,8 @@ type PolicySpec struct {
 	Home         string
 	// DefaultBranches are the branches no push may reach.
 	DefaultBranches []string
+	// Kept are the branches a lane continues, which nothing it runs may move.
+	Kept []string
 	// Writable are other directories a lane may write, such as its private temp.
 	Writable []string
 	// QuestionTool says what a call of the agent's own question tool becomes.
@@ -115,7 +121,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		deny = readOnlyRules()
 	}
 	return DenyPolicy{
-		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
+		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates,
 	}
@@ -350,6 +356,9 @@ func (p DenyPolicy) decideGit(leaders, args []shellWord, at string, seen *gitSee
 			return rule.Reason, true
 		}
 	}
+	if p.namesKept(args[0].text, args[1:]) {
+		return ReasonKept, true
+	}
 	switch args[0].text {
 	case "push":
 		seen.pushes = true
@@ -376,6 +385,23 @@ func (p DenyPolicy) decideStage(places []shellWord, at string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// movesBranches are the subcommands that move, make, delete, or check out the branch they name.
+var movesBranches = []string{"branch", "switch", "checkout", "update-ref"}
+
+// namesKept says a command moves or checks out a kept branch: a subcommand of movesBranches that names one,
+// as a branch or as its full ref.
+func (p DenyPolicy) namesKept(subcommand string, args []shellWord) bool {
+	if len(p.Kept) == 0 || !slices.Contains(movesBranches, subcommand) {
+		return false
+	}
+	for _, word := range args {
+		if slices.Contains(p.Kept, strings.TrimPrefix(word.text, "refs/heads/")) {
+			return true
+		}
+	}
+	return false
 }
 
 // pushOptionsWithValue are the options of `git push` that take the next word.
@@ -424,6 +450,9 @@ func (p DenyPolicy) decidePush(args []shellWord) (string, bool) {
 		destination = strings.TrimPrefix(destination, "refs/heads/")
 		if slices.Contains(p.DefaultBranches, destination) {
 			return ReasonDefaultBranch, true
+		}
+		if slices.Contains(p.Kept, destination) {
+			return ReasonKept, true
 		}
 	}
 	return "", false

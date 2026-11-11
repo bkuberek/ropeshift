@@ -145,6 +145,8 @@ type SessionSpec struct {
 	ReadyTimeout time.Duration
 	// DefaultBranch is the repository's own, which the generation's policy guards.
 	DefaultBranch string
+	// Kept are the branches the lane continues, which nothing it runs may push to or move (ADR-0023).
+	Kept []string
 	// ApprovalWait bounds a hook that waits on a decision.
 	ApprovalWait time.Duration
 	// Gates are the permission rules a person must approve.

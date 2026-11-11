@@ -303,6 +303,56 @@ func TestBaseTipNeverFallsBackToTheCheckout(t *testing.T) {
 	}
 }
 
+// ADR-0023: a branch a lane continues is the remote's when the remote holds it, else this checkout's own,
+// and reading it moves no branch.
+func TestABranchToContinueIsTheRemotesOrElseTheCheckouts(t *testing.T) {
+	t.Parallel()
+	origin := gittest.New(t)
+	fork := origin.Commit("README.txt", "one\n")
+	origin.Branch("feature/retry", fork)
+	clone := origin.Clone("clone")
+	worktrees := gitcli.Worktrees{Env: clone.Env()}
+	pushed := origin.Advance("feature/retry")
+	shared, err := worktrees.Branch(t.Context(), clone.Dir, "feature/retry")
+	if err != nil || shared.Ref != "origin/feature/retry" || shared.Commit != pushed {
+		t.Errorf("a branch the remote holds: %+v, %v", shared, err)
+	}
+	clone.Branch("wip/only-here", "main")
+	local := clone.Advance("wip/only-here")
+	if mine, err := worktrees.Branch(t.Context(), clone.Dir, "wip/only-here"); err != nil || mine.Ref != "wip/only-here" || mine.Commit != local {
+		t.Errorf("a branch only this checkout holds: %+v, %v", mine, err)
+	}
+	if gone, err := worktrees.Branch(t.Context(), clone.Dir, "feature/gone"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a branch nobody holds: %+v, %v", gone, err)
+	}
+	if now := origin.Git("rev-parse", "feature/retry"); now != pushed {
+		t.Errorf("reading the branch moved it from %s to %s", pushed, now)
+	}
+	if now := clone.Git("rev-parse", "wip/only-here"); now != local {
+		t.Errorf("reading the branch moved it from %s to %s", local, now)
+	}
+}
+
+func TestMergeBaseIsWhereTwoLinesParted(t *testing.T) {
+	t.Parallel()
+	repo := gittest.New(t)
+	fork := repo.Commit("README.txt", "one\n")
+	repo.Branch("feature", fork)
+	feature := repo.Advance("feature")
+	main := repo.Advance("main")
+	worktrees := gitcli.Worktrees{Env: repo.Env()}
+	if base, err := worktrees.MergeBase(t.Context(), repo.Dir, feature, main); err != nil || base != fork {
+		t.Errorf("merge base %s, %v; want %s", base, err, fork)
+	}
+	if base, err := worktrees.MergeBase(t.Context(), repo.Dir, feature, "0000000000000000000000000000000000000000"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a commit the repository lacks: %s, %v", base, err)
+	}
+	orphan := repo.Git("commit-tree", "-m", "alone", repo.Git("rev-parse", "main^{tree}"))
+	if base, err := worktrees.MergeBase(t.Context(), repo.Dir, feature, orphan); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("two lines with no common history: %s, %v", base, err)
+	}
+}
+
 // TestALaneGetsItsPlace composes the three ports on real git, a real profile file,
 // and the allowlist.
 func TestALaneGetsItsPlace(t *testing.T) {

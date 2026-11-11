@@ -27,6 +27,9 @@ type batchRefs struct {
 	// plans are the plan files this batch changed, by the plan's ID in the ledger, which the end of the
 	// batch gives a plan version.
 	plans map[string]planFileRead
+	// missing are the work orders that continue a branch their repository does not hold, by the ID the
+	// file gives each, with what a person reads of it.
+	missing map[string]string
 }
 
 type batchContract struct {

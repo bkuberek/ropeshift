@@ -559,7 +559,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
-		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.lease.BaseCommit, Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
+		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
 		Detached: r.reviewing(),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
@@ -729,6 +729,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
 		RunMode: mode, Planning: r.planning(), ReadOnly: r.reviewing(), ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
+		Kept:  r.kept(),
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
 		Telemetry: r.sessionTelemetry(prepared, repository),
 	}

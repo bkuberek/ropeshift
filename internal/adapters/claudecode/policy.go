@@ -55,7 +55,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		writable = append(writable, spec.TempDir)
 	}
 	return lanes.CompilePolicy(lanes.PolicySpec{
-		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Writable: writable,
+		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Kept: spec.Kept, Writable: writable,
 		QuestionTool: questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec),
@@ -127,7 +127,7 @@ func attachedMarker(spec ports.SessionSpec) string {
 // `Edit` rule for a path, because a `Bash` rule does not match a redirect target.
 func denyRules(spec ports.SessionSpec) []string {
 	rules := []string{"Bash(git push --force*)", "Bash(git push -f*)", "Bash(git push * --force*)", "Bash(git push * -f*)"}
-	for _, branch := range defaultBranches(spec) {
+	for _, branch := range slices.Concat(defaultBranches(spec), spec.Kept) {
 		rules = append(rules, "Bash(git push * "+branch+")", "Bash(git push * *:"+branch+")", "Bash(git push * +"+branch+")")
 	}
 	if spec.ReadOnly {

@@ -196,6 +196,12 @@ type DesiredLease struct {
 	// branch where its checkout is.
 	BaseRef    string `json:"base_ref,omitempty"`
 	BaseCommit string `json:"base_commit,omitempty"`
+	// Continues names the in-flight branch the lane finishes, and ContinuesRef and ContinuesCommit the ref
+	// it was read at and its tip, where the lane's own branch begins (ADR-0023). BaseCommit is then where
+	// that branch left the base. The lane never moves the branch it continues.
+	Continues       string `json:"continues,omitempty"`
+	ContinuesRef    string `json:"continues_ref,omitempty"`
+	ContinuesCommit string `json:"continues_commit,omitempty"`
 	// Deadline is the work order's, in database time. Zero means it has none.
 	Deadline int64 `json:"deadline,omitempty"`
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with

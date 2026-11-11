@@ -66,7 +66,10 @@ type WorkOrder struct {
 	Requirements      []string          `json:"requirements,omitempty"`
 	Needs             map[string]string `json:"needs,omitempty"`
 	// Base is the branch this work starts from, which overrides its repository's base branch (FR-BASE-2).
-	Base            string `json:"base,omitempty"`
+	Base string `json:"base,omitempty"`
+	// Continues names the in-flight branch this work finishes (ADR-0023). Its lane starts from that branch's
+	// tip on a branch of its own, and the branch itself never moves.
+	Continues       string `json:"continues,omitempty"`
 	ContractID      string `json:"contract_id,omitempty"`
 	ContractVersion int64  `json:"contract_version,omitempty"`
 	Fence           int64  `json:"fence,omitempty"`
@@ -449,6 +452,7 @@ func Diff(a, b WorkOrder) []string {
 	note("requirements", slices.Equal(a.Requirements, b.Requirements))
 	note("needs", sameNeeds(a.Needs, b.Needs))
 	note("base", a.Base == b.Base)
+	note("continues", a.Continues == b.Continues)
 	note("contract_id", a.ContractID == b.ContractID)
 	note("contract_version", a.ContractVersion == b.ContractVersion)
 	note("fence", a.Fence == b.Fence)

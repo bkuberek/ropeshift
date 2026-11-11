@@ -51,6 +51,8 @@ type IntakeReport struct {
 type Intake struct {
 	store   ports.Store
 	windows messages.Windows
+	// starts reads the branches work orders continue, when set (Checking).
+	starts *Starts
 }
 
 // NewIntake returns the use case over a Store.
@@ -146,6 +148,11 @@ func (i *Intake) record(ctx context.Context, scope ledger.WorkspaceID, source po
 	}
 	held := map[string]string{}
 	refs := refsOf(batch)
+	missing, err := i.missingBranches(ctx, scope, batch)
+	if err != nil {
+		return report, err
+	}
+	refs.missing = missing
 	for _, item := range batch.Records {
 		report.saw(item.Path, item.Source)
 		if detail := repeatedKey(item, held); detail != "" {
@@ -690,17 +697,37 @@ func (r *itemRecorder) standingProblems() (itemOutcome, error) {
 }
 
 // problemsOf names what keeps a recorded contract's work back while it stands: criteria that serve no
-// requirement, and repositories the project does not hold.
+// requirement, repositories the project does not hold, and branches to continue that are gone.
 func (r *itemRecorder) problemsOf(contract planning.Contract) (string, error) {
 	untraced, err := r.untraced(contract)
 	if err != nil {
 		return "", err
 	}
 	unknown, err := r.unknownRepositories()
-	if err != nil || untraced == "" || unknown == "" {
-		return untraced + unknown, err
+	if err != nil {
+		return "", err
 	}
-	return untraced + "; " + unknown, nil
+	var parts []string
+	for _, part := range []string{untraced, unknown, r.missingBranches()} {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "; "), nil
+}
+
+// missingBranches names each work order of the file that continues a branch its repository does not hold.
+func (r *itemRecorder) missingBranches() string {
+	var details []string
+	for _, spec := range r.item.Contract.WorkOrders {
+		if detail, gone := r.refs.missing[spec.ID]; gone {
+			details = append(details, detail)
+		}
+	}
+	if len(details) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%v: %s", planning.ErrBadFile, strings.Join(details, "; "))
 }
 
 // unknownRepositories names each repository the file's work orders name that the project does not hold
@@ -911,6 +938,7 @@ func (r *itemRecorder) recordOrder(contract planning.Contract, spec planning.Wor
 		Requirements:      contract.Requirements,
 		Needs:             spec.Needs,
 		Base:              spec.Base,
+		Continues:         spec.Continues,
 		ContractID:        contract.ID,
 		ContractVersion:   contract.Version,
 	})

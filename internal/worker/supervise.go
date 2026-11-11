@@ -383,7 +383,33 @@ func (r *laneRun) briefText() string {
 		WorkOrder: r.lease.WorkOrder, Title: r.lease.Title, Statement: r.lease.Statement, Criteria: r.lease.Criteria,
 		Pack: r.readPack() != nil, Handoff: r.inherited, Pending: r.pendingInstruction(), Facts: r.factsOwed(),
 		Kind: workorders.Kind(r.lease.Kind), Review: r.lease.Review, Attempt: r.lease.Attempt, Rework: r.lease.Rework,
+		Continues: r.continuation(),
 	}))
+}
+
+// continuation is the in-flight branch this lane finishes, when its claim began it on one (ADR-0023).
+func (r *laneRun) continuation() *lanes.Continuation {
+	if r.lease.Continues == "" || r.lease.ContinuesCommit == "" {
+		return nil
+	}
+	return &lanes.Continuation{Branch: r.lease.Continues, Tip: r.lease.ContinuesCommit, Base: r.lease.BaseCommit}
+}
+
+// begins is the commit a new branch for this lane begins at: the tip of the branch it continues, or else
+// the base its claim resolved.
+func (r *laneRun) begins() string {
+	if r.lease.ContinuesCommit != "" {
+		return r.lease.ContinuesCommit
+	}
+	return r.lease.BaseCommit
+}
+
+// kept are the branches nothing this lane runs may move: the one it continues.
+func (r *laneRun) kept() []string {
+	if r.lease.Continues == "" {
+		return nil
+	}
+	return []string{r.lease.Continues}
 }
 
 // declareWait keeps a lane's own word that it waits on something outside, for a time it

@@ -134,3 +134,17 @@ func TestAChangeIsNotToldItReviews(t *testing.T) {
 		}
 	}
 }
+
+// ADR-0023: a lane that finishes someone's branch is told what its branch already holds, where the change is
+// measured from, and that the branch itself stays as its author left it.
+func TestABriefSaysWhichBranchTheWorkFinishes(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Finish the retry branch", Continues: &Continuation{Branch: "feature/retry", Tip: "tip123", Base: "fork456"}})
+	for _, want := range []string{"finishes branch feature/retry", "tip123", "git log fork456..HEAD", "Never push to feature/retry"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, brief)
+		}
+	}
+	if plain := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Add the budget"}); strings.Contains(plain, "finishes branch") {
+		t.Errorf("a brief for new work speaks of a branch:\n%s", plain)
+	}
+}

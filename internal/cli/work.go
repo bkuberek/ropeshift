@@ -578,6 +578,9 @@ func laneDetail(lane ledger.LaneView) string {
 	if lane.BaseCommit != "" {
 		text += fmt.Sprintf("base\t%s\t%s\n", dashIfEmpty(lane.BaseRef), lane.BaseCommit)
 	}
+	if lane.ContinuesCommit != "" {
+		text += fmt.Sprintf("continues\t%s\t%s\n", lane.ContinuesRef, lane.ContinuesCommit)
+	}
 	return text
 }
 

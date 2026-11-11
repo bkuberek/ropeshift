@@ -149,6 +149,9 @@ func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workord
 	if err != nil {
 		return workorders.Start{}, unavailable("%v", err)
 	}
+	if in.order.Continues != "" {
+		return s.continuedStart(ctx, path, tip, in)
+	}
 	if len(in.dependencies) == 0 {
 		return workorders.Start{Ref: tip.Ref, Commit: tip.Commit}, nil
 	}
@@ -156,6 +159,33 @@ func (s *Starts) decide(ctx context.Context, in startInput, seen *pass) (workord
 		return s.acceptedStart(ctx, path, in.dependencies)
 	}
 	return s.mergedStart(ctx, path, tip, in.dependencies)
+}
+
+// continuedStart places a lane that finishes an in-flight branch (ADR-0023). Its branch begins at the
+// continued branch's tip, and its base commit is where that branch left the base, so its review reads the
+// whole change and not only the lane's commits. Dependencies wait for their merge into the base, as with
+// `merged`, because the lane builds on the continued branch and not on accepted work. Nothing here moves
+// the continued branch.
+func (s *Starts) continuedStart(ctx context.Context, path string, tip ports.BaseTip, in startInput) (workorders.Start, *workorders.StartHold) {
+	if len(in.dependencies) > 0 {
+		if _, hold := s.mergedStart(ctx, path, tip, in.dependencies); hold != nil {
+			return workorders.Start{}, hold
+		}
+	}
+	branch, err := s.Bases.Branch(ctx, path, in.order.Continues)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return workorders.Start{}, &workorders.StartHold{
+			Reason: workorders.HoldContinuedBranchMissing, Detail: fmt.Sprintf("the work continues branch %s: %v", in.order.Continues, err),
+		}
+	case err != nil:
+		return workorders.Start{}, unavailable("reading branch %s: %v", in.order.Continues, err)
+	}
+	base, err := s.Bases.MergeBase(ctx, path, branch.Commit, tip.Commit)
+	if err != nil {
+		return workorders.Start{}, unavailable("finding where %s left %s: %v", branch.Ref, tip.Ref, err)
+	}
+	return workorders.Start{Ref: tip.Ref, Commit: base, ContinuesRef: branch.Ref, ContinuesCommit: branch.Commit}, nil
 }
 
 // mergedStart waits until every dependency's accepted commit is in the base, and then starts from the
@@ -337,7 +367,7 @@ func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, ac
 			if err != nil {
 				return err
 			}
-			if row.StartHeld != nil || len(in.dependencies) > 0 {
+			if row.StartHeld != nil || len(in.dependencies) > 0 || row.Continues != "" {
 				inputs = append(inputs, in)
 			}
 		}
