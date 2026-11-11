@@ -83,9 +83,9 @@ Ropeshift has four parts. Each is built for solo mode in this release:
 
 | Part | What it provides in this release |
 |------|----------------------------------|
-| Work ledger | The system of record for execution, in a local SQLite ledger: claims, leases, outcomes, questions, decisions, and evidence. Work comes from repository files or is recorded directly, so ropeshift works with no tracker at all |
-| Planning and decisions | Plans and versioned contracts, a contract review that finds questions before work starts, and a searchable record of every decision and its rationale |
-| Supervised agents | One orchestrator per machine pulls work and exercises judgment. A deterministic daemon keeps each Claude Code session healthy, and a fence stops a holder that lost its claim from writing |
+| Work ledger | The system of record for execution, in a local SQLite ledger per project: claims, leases, outcomes, questions, decisions, and evidence. One installation holds many isolated projects, and a project can span several repositories. Work comes from repository files or is recorded directly, so ropeshift works with no tracker at all |
+| Planning and decisions | A planning session with one agent that turns your answers into requirements, documents, milestones, contracts, and work orders, approved as one plan; `ropeshift adopt` to bring an existing project in; a contract review that finds questions before work starts; and a searchable record of every decision and its rationale |
+| Supervised agents | One orchestrator per machine pulls work and exercises judgment. A deterministic daemon keeps each Claude Code session healthy, and a fence stops a holder that lost its claim from writing. A review agent checks each finished change against its contract and gives every criterion a verdict |
 | Web UI | Roadmap, plans, documents, decisions, open questions, and what is in progress, on hold, stuck, and completed, served on loopback, with `ropeshift top` beside it in a terminal |
 
 These parts of the design are not built yet: pushing accepted work, opening its pull request, and merging it; reading work from an issue tracker and writing results back to it, workers on more than one machine, and drivers for Codex and opencode.
