@@ -20,6 +20,7 @@ func TestEveryConditionIsListed(t *testing.T) {
 	}
 	note(lanes.Facts{State: lanes.Working, SinceProgress: time.Hour, StallAfter: time.Minute})
 	note(lanes.Facts{ContextTokens: 2, WarnTokens: 1})
+	note(lanes.Facts{State: lanes.Tripped, DayCapped: true})
 	shape := reflect.TypeFor[lanes.Facts]()
 	for i := range shape.NumField() {
 		if shape.Field(i).Type.Kind() != reflect.Bool {

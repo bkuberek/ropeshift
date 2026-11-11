@@ -221,6 +221,9 @@ type DesiredLease struct {
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with
 	// the count it has acted on.
 	Resets int64 `json:"resets,omitempty"`
+	// WindowResets counts an orchestrator's resets of this lane's breaker, which clear its window and leave
+	// its day, the same way (ADR-0014).
+	WindowResets int64 `json:"window_resets,omitempty"`
 	// Respawns counts the requests for this lane's next generation, the same way.
 	Respawns int64 `json:"respawns,omitempty"`
 	// Overrides is this lane's own profile layer, as TOML.

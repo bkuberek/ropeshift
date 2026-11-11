@@ -279,6 +279,8 @@ type LaneReader interface {
 	Rows() ([]ledger.LaneRow, error)
 	// Resets returns how many times a lane's breaker was reset, or ErrNotFound.
 	Resets(lane string) (int64, error)
+	// WindowResets returns how many times an orchestrator reset a lane's breaker window, or ErrNotFound.
+	WindowResets(lane string) (int64, error)
 	// Respawns returns how many times someone asked for a lane's next generation.
 	Respawns(lane string) (int64, error)
 	// Artifacts lists what a lane left, oldest first.
@@ -329,6 +331,8 @@ type LaneWriter interface {
 	WantPark(lane, reason string) error
 	// Reset counts one human reset of a lane's breaker and returns the count.
 	Reset(lane string) (int64, error)
+	// ResetWindow counts one orchestrator's reset of a lane's breaker window and returns the count.
+	ResetWindow(lane string) (int64, error)
 	// Respawn counts one request for a lane's next generation.
 	Respawn(lane string) error
 	// Guarded keeps how a stop left a worktree. Work no remote holds withdraws a request

@@ -550,6 +550,11 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, err
 	}
 	lease.Resets = resets
+	windowResets, err := tx.Lanes().WindowResets(claim.Lane)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return lease, err
+	}
+	lease.WindowResets = windowResets
 	respawns, err := tx.Lanes().Respawns(claim.Lane)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return lease, err

@@ -159,7 +159,7 @@ func (r *laneRun) chargePlanned(ctx context.Context, next int64) bool {
 type judging func(breaker lanes.Breaker, charges []lanes.Restart, from time.Time) lanes.BreakerVerdict
 
 func (r *laneRun) charged(ctx context.Context, key string, from time.Time, judge judging) (lanes.Restart, bool) {
-	reset := false
+	reset := resetNone
 	for {
 		charges, err := r.w.journal.Restarts(ctx, r.lease.Lane)
 		if err != nil {
@@ -171,14 +171,24 @@ func (r *laneRun) charged(ctx context.Context, key string, from time.Time, judge
 				return charge, true
 			}
 		}
-		verdict := judge(r.state.breaker().Bounded(r.w.respawnBound(ctx)), charges, from)
-		if reset {
-			verdict.Delay, verdict.Tripped = 0, false
+		breaker := r.state.breaker().Bounded(r.w.respawnBound(ctx))
+		verdict := judge(breaker, charges, from)
+		if reset != resetNone {
+			verdict.Delay = 0
+		}
+		if reset == resetMember {
+			verdict.Tripped = false
+		}
+		r.state.setDayCapped(verdict.Tripped && breaker.OverDay(charges, from))
+		if !verdict.Tripped && reset != resetNone {
+			// A reset that a verdict lets through leaves `tripped`. One of an orchestrator's that finds the
+			// day full leaves the lane where it was, waiting for a member.
+			r.signal(ctx, lanes.OnHumanReset)
 		}
 		if !verdict.Tripped {
 			charge := lanes.Restart{
 				Key: chargeKey(key), AtMs: from.UnixMilli(), NotBeforeMs: from.Add(verdict.Delay).UnixMilli(),
-				Planned: verdict.Planned, Reset: reset && !verdict.Planned,
+				Planned: verdict.Planned, Reset: reset != resetNone && !verdict.Planned,
 			}
 			if _, err := r.w.journal.ChargeRestart(ctx, r.lease.Lane, charge); err != nil {
 				r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
@@ -187,11 +197,30 @@ func (r *laneRun) charged(ctx context.Context, key string, from time.Time, judge
 			return charge, true
 		}
 		r.signal(ctx, lanes.OnRestartLimit)
-		if !r.awaitReset(ctx) {
+		if reset = r.awaitReset(ctx); reset == resetNone {
 			return lanes.Restart{}, false
 		}
-		from, reset = r.w.clock.Now(), true
+		from = r.w.clock.Now()
 	}
+}
+
+// resetKind says who reset a tripped lane's breaker, which decides what the reset clears.
+type resetKind int
+
+const (
+	resetNone resetKind = iota
+	// resetMember is a member's reset, which clears the window and overrides the day's verdict.
+	resetMember
+	// resetWindow is an orchestrator's, which clears the window and leaves the day (ADR-0014).
+	resetWindow
+)
+
+// setDayCapped keeps whether the breaker's last verdict found the lane's day full, which a tripped lane
+// reports so that an orchestrator does not ask for a reset only a member can make.
+func (s *laneState) setDayCapped(capped bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dayCapped = capped
 }
 
 // respawnBound reads what this worker's autonomy holds a lane's generations to. A journal that cannot
@@ -220,47 +249,77 @@ func (r *laneRun) waitUntil(ctx context.Context, moment time.Time) bool {
 	return !r.fenced.Load()
 }
 
-// awaitReset holds a tripped lane until a member resets it. A reset the worker has seen is
-// counted in the journal, so a restart neither loses one nor takes one twice.
-func (r *laneRun) awaitReset(ctx context.Context) bool {
+// awaitReset holds a tripped lane until a member resets it, or an orchestrator resets its window. A reset
+// the worker has seen is counted in the journal, so a restart neither loses one nor takes one twice. A
+// member's reset clears every charge, and an orchestrator's leaves on the day what the window counted.
+func (r *laneRun) awaitReset(ctx context.Context) resetKind {
 	for {
 		if r.fenced.Load() {
-			return false
+			return resetNone
 		}
-		resets, seen, err := r.resetCounts(ctx)
+		counts, err := r.resetCounts(ctx)
 		if err != nil {
 			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-		} else if resets > seen {
-			if err := r.w.journal.ClearRestarts(ctx, r.lease.Lane, resets); err != nil {
-				r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
-				return false
-			}
-			r.signal(ctx, lanes.OnHumanReset)
-			return true
+		} else if kind := r.takeReset(ctx, counts); kind != resetNone {
+			return max(kind, resetNone)
 		}
 		select {
 		case <-ctx.Done():
-			return false
+			return resetNone
 		case <-time.After(superviseEvery):
 		}
 	}
 }
 
-func (r *laneRun) resetCounts(ctx context.Context) (resets, seen int64, err error) {
+// resetTally is what the ledger asks of a lane's breaker, and what this worker has acted on.
+type resetTally struct {
+	resets, seen             int64
+	windowResets, windowSeen int64
+}
+
+// takeReset acts on a reset the worker has not seen. A window reset that came with a member's is spent by
+// the member's, which clears more. A failed write answers -1, which stops the lane's run.
+func (r *laneRun) takeReset(ctx context.Context, counts resetTally) resetKind {
+	window := counts.windowResets > counts.windowSeen
+	if counts.resets > counts.seen {
+		if err := r.w.journal.ClearRestarts(ctx, r.lease.Lane, counts.resets); err != nil {
+			r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+			return -1
+		}
+		if window {
+			if err := r.w.journal.ClearWindow(ctx, r.lease.Lane, counts.windowResets); err != nil {
+				r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+				return -1
+			}
+		}
+		return resetMember
+	}
+	if !window {
+		return resetNone
+	}
+	if err := r.w.journal.ClearWindow(ctx, r.lease.Lane, counts.windowResets); err != nil {
+		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
+		return -1
+	}
+	return resetWindow
+}
+
+func (r *laneRun) resetCounts(ctx context.Context) (resetTally, error) {
 	record, err := r.w.journal.Lane(ctx, r.lease.Lane)
 	if err != nil {
-		return 0, 0, err
+		return resetTally{}, err
 	}
+	counts := resetTally{seen: record.ResetsSeen, windowSeen: record.WindowResetsSeen}
 	leases, err := r.w.desiredLeases(ctx)
 	if err != nil {
-		return 0, 0, err
+		return resetTally{}, err
 	}
 	for _, lease := range leases {
 		if lease.Lane == r.lease.Lane {
-			return lease.Resets, record.ResetsSeen, nil
+			counts.resets, counts.windowResets = lease.Resets, lease.WindowResets
 		}
 	}
-	return 0, record.ResetsSeen, nil
+	return counts, nil
 }
 
 // nextGeneration moves the lane on, in the journal and in this run together, so a kill

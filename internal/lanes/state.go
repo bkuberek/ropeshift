@@ -217,11 +217,14 @@ const (
 	DegradedMode     Condition = "degraded_mode"
 	UnpushedWork     Condition = "unpushed_work"
 	Drifted          Condition = "drifted"
+	// DayCapped says a tripped lane's breaker tripped on its daily cap on generations, and not on its window
+	// alone, so only a member's reset starts it again (ADR-0014).
+	DayCapped Condition = "day_capped"
 )
 
 // EveryCondition lists the conditions, in the design's order.
 var EveryCondition = []Condition{
-	Stalled, Overdue, WaitingExternal, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode, UnpushedWork, Drifted,
+	Stalled, Overdue, WaitingExternal, NearBudget, BriefUnconfirmed, PackOversized, HandoffDegraded, DegradedMode, UnpushedWork, Drifted, DayCapped,
 }
 
 // Facts is what a lane's conditions derive from.
@@ -246,6 +249,8 @@ type Facts struct {
 	Degraded         bool
 	UnpushedWork     bool
 	Drifted          bool
+	// DayCapped says the breaker's last verdict found the lane's day full.
+	DayCapped bool
 }
 
 // Conditions derives a lane's conditions, in the design's order. `waiting_external`
@@ -271,6 +276,7 @@ func Conditions(f Facts) []Condition {
 	raise(DegradedMode, f.Degraded)
 	raise(UnpushedWork, f.UnpushedWork)
 	raise(Drifted, f.Drifted)
+	raise(DayCapped, f.State == Tripped && f.DayCapped)
 	return out
 }
 
