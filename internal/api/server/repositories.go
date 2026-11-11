@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // repositoryRoutes keep every change behind a member's session. How much ropeshift may merge, and what
@@ -31,12 +34,33 @@ func (h *handler) removeRepository(w http.ResponseWriter, r *http.Request, actor
 		fail(w, err)
 		return
 	}
-	agreement, err := h.repositories.ReviewAgreement(r.Context(), h.Scope)
+	h.replyRepository(r.Context(), w, removed)
+}
+
+// replyRepository answers with one record as a client reads it.
+func (h *handler) replyRepository(ctx context.Context, w http.ResponseWriter, record ledger.Repository) {
+	agreement, err := h.repositories.ReviewAgreement(ctx, h.Scope)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, api.ViewOf(removed, agreement))
+	plan, err := h.planOfRecord(ctx)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	view := api.ViewOf(record, agreement)
+	view.PlanOfRecord = record.ID == plan
+	reply(w, http.StatusOK, view)
+}
+
+// planOfRecord names the repository the project plans in, and is empty for a project that has none.
+func (h *handler) planOfRecord(ctx context.Context) (string, error) {
+	record, err := h.repositories.Planning(ctx, h.Scope)
+	if errors.Is(err, ports.ErrNotFound) {
+		return "", nil
+	}
+	return record.ID, err
 }
 
 // addRepositories registers the repositories of clones on the machine of the worker this daemon runs
@@ -78,9 +102,16 @@ func (h *handler) listRepositories(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	plan, err := h.planOfRecord(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
 	list := api.RepositoryList{Repositories: make([]api.RepositoryView, 0, len(records))}
 	for _, record := range records {
-		list.Repositories = append(list.Repositories, api.ViewOf(record, agreement))
+		view := api.ViewOf(record, agreement)
+		view.PlanOfRecord = record.ID == plan
+		list.Repositories = append(list.Repositories, view)
 	}
 	reply(w, http.StatusOK, list)
 }
@@ -91,12 +122,7 @@ func (h *handler) showRepository(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	agreement, err := h.repositories.ReviewAgreement(r.Context(), h.Scope)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	reply(w, http.StatusOK, api.ViewOf(record, agreement))
+	h.replyRepository(r.Context(), w, record)
 }
 
 func (h *handler) changeRepository(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
@@ -111,15 +137,11 @@ func (h *handler) changeRepository(w http.ResponseWriter, r *http.Request, actor
 	}
 	changed, err := h.repositories.Change(r.Context(), h.Scope, record.ID, control.RepositoryChange{
 		Name: in.Name, Base: in.Base, MergeMethod: in.MergeMethod, StartFrom: in.StartFrom, ReviewTarget: in.ReviewTarget, MergeAuthority: in.MergeAuthority,
+		Planning: in.Planning,
 	}, actor)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	agreement, err := h.repositories.ReviewAgreement(r.Context(), h.Scope)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	reply(w, http.StatusOK, api.ViewOf(changed, agreement))
+	h.replyRepository(r.Context(), w, changed)
 }

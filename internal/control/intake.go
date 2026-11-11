@@ -90,6 +90,9 @@ func (i *Intake) Poll(ctx context.Context, scope ledger.WorkspaceID, source port
 		return IntakeReport{}, err
 	}
 	crashpoint.Hit("intake", "polled")
+	if batch, err = i.offPlan(ctx, scope, description.Instance, batch); err != nil {
+		return IntakeReport{}, err
+	}
 	report, err := i.record(ctx, scope, source, batch, planOrigin{})
 	if err != nil {
 		return report, err

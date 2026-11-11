@@ -70,6 +70,9 @@ var (
 	// ErrBaseMoved means a file and the ledger's version of it each changed a base the other never
 	// saw, so neither can stand as the next version of the other.
 	ErrBaseMoved = errors.New("the base moved")
+	// ErrNotPlanningRepository means a plan file sits in a repository of a project that plans in another
+	// (ADR-0022), so intake reads nothing from it.
+	ErrNotPlanningRepository = errors.New("not the planning repository")
 )
 
 // Criterion is one acceptance criterion. Requirements lists the requirement IDs it serves.

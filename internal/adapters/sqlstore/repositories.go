@@ -10,14 +10,14 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state`
+const repositoryColumns = `id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning`
 
 var (
 	stmtInsertRepository = define("repository.insert",
 		`INSERT INTO repositories
-  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state)
+  (workspace_id, id, name, remote, default_branch, base_branch, forge_binding, merge_method, review_target, start_from, merge_authority, state, planning)
 VALUES
-  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority, :state)
+  (:workspace_id, :id, :name, :remote, :default_branch, :base_branch, :forge_binding, :merge_method, :review_target, :start_from, :merge_authority, :state, :planning)
 ON CONFLICT DO NOTHING`)
 
 	stmtRepository = define("repository.get",
@@ -45,13 +45,15 @@ ON CONFLICT DO NOTHING`)
 	stmtReleaseRepository = defineInstallation("repository_index.release",
 		`DELETE FROM repository_index WHERE identity = :identity AND project_id = :project_id AND repository_id = :repository_id`)
 
+	// stmtRepositoryState also takes the plan of record from a repository that leaves its project.
 	stmtRepositoryState = define("repository.state",
-		`UPDATE repositories SET state = :state WHERE workspace_id = :workspace_id AND id = :id`)
+		`UPDATE repositories SET state = :state, planning = CASE WHEN :state = 'removed' THEN 0 ELSE planning END
+ WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtRepositorySettings = define("repository.settings",
 		`UPDATE repositories
    SET name = :name, base_branch = :base_branch, forge_binding = :forge_binding, merge_method = :merge_method,
-       review_target = :review_target, start_from = :start_from, merge_authority = :merge_authority
+       review_target = :review_target, start_from = :start_from, merge_authority = :merge_authority, planning = :planning
  WHERE workspace_id = :workspace_id AND id = :id`)
 )
 
@@ -72,7 +74,9 @@ func (t repositoryTx) scoped(p params) params {
 func scanRepository(row scanner) (ledger.Repository, error) {
 	var r ledger.Repository
 	var method, target, start, authority, state string
-	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority, &state)
+	var planning int64
+	err := row.Scan(&r.ID, &r.Name, &r.Remote, &r.DefaultBranch, &r.BaseBranch, &r.ForgeBinding, &method, &target, &start, &authority, &state, &planning)
+	r.Planning = planning != 0
 	r.State = ledger.RepositoryState(state)
 	r.MergeMethod, r.ReviewTarget, r.StartFrom = ledger.MergeMethod(method), ledger.ReviewTarget(target), ledger.StartFrom(start)
 	r.MergeAuthority = ledger.MergeAuthority(authority)
@@ -127,7 +131,7 @@ func repositoryParams(r ledger.Repository) params {
 	return params{
 		"id": r.ID, "name": r.Name, "remote": r.Remote, "default_branch": r.DefaultBranch, "base_branch": r.BaseBranch,
 		"forge_binding": r.ForgeBinding, "merge_method": string(r.MergeMethod), "review_target": string(r.Target()), "start_from": string(r.StartFrom),
-		"merge_authority": string(r.Level()), "state": string(cmp.Or(r.State, ledger.RepositoryActive)),
+		"merge_authority": string(r.Level()), "state": string(cmp.Or(r.State, ledger.RepositoryActive)), "planning": flag(r.Planning),
 	}
 }
 

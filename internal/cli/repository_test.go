@@ -361,3 +361,34 @@ func TestRepositoryRemoveKeepsTheRecordAsHistory(t *testing.T) {
 		t.Errorf("no repository: exit %d", code)
 	}
 }
+
+// ADR-0022: a member names the project's planning repository, which a project of one repository needs no
+// name for, and a project has one.
+func TestRepositorySetNamesThePlanningRepository(t *testing.T) {
+	s := newSession(t)
+	other := "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d"
+	s.detect(aRepositoryID, "main")
+	if text := s.must("repository", "show", aRepositoryID); !strings.Contains(text, "planning repository\tyes\t(the project's only repository)") {
+		t.Errorf("a project's only repository:\n%s", text)
+	}
+	s.detect(other, "main")
+	if text := s.must("repository", "show", aRepositoryID); !strings.Contains(text, "planning repository\tno") {
+		t.Errorf("one of two repositories with none named:\n%s", text)
+	}
+	if code, _, stderr := s.run("repository", "set", aRepositoryID, other, "--planning"); code != cli.ExitUsage || !strings.Contains(stderr, "one planning repository") {
+		t.Errorf("naming two planning repositories: exit %d, %q", code, stderr)
+	}
+	if text := s.must("repository", "set", other[:8], "--planning"); !strings.Contains(text, "planning repository\tyes\n") {
+		t.Errorf("set printed:\n%s", text)
+	}
+	if text := s.must("repository", "list"); !strings.Contains(text, " (planning)\t"+other[:12]) || strings.Contains(text, " (planning)\t"+aRepositoryID[:12]) {
+		t.Errorf("list does not mark the planning repository:\n%s", text)
+	}
+	s.must("repository", "set", aRepositoryID, "--planning")
+	if text := s.must("repository", "show", other); !strings.Contains(text, "planning repository\tno") {
+		t.Errorf("naming another left the first:\n%s", text)
+	}
+	if text := s.must("repository", "set", aRepositoryID, "--planning=false"); !strings.Contains(text, "planning repository\tno") {
+		t.Errorf("--planning=false printed:\n%s", text)
+	}
+}

@@ -33,6 +33,9 @@ func repositoryLine(view api.RepositoryView) string {
 	if view.Removed() {
 		name += " (removed)"
 	}
+	if view.Planning {
+		name += " (planning)"
+	}
 	return fmt.Sprintf("%s\t%s\tbase %s\tmerge %s\tstart %s\treview %s\tauthority %s\t%s\n",
 		name, shortRepository(view.ID), dashIfEmpty(view.Base), view.MergeMethod, view.StartFrom, view.Target(), view.Level(), dashIfEmpty(view.Remote))
 }
@@ -42,6 +45,7 @@ func repositoryText(view api.RepositoryView) string {
 	fmt.Fprintf(&out, "repository\t%s\n", view.ID)
 	fmt.Fprintf(&out, "name\t%s\n", dashIfEmpty(view.Name))
 	fmt.Fprintf(&out, "state\t%s\n", cmp.Or(view.State, ledger.RepositoryActive))
+	fmt.Fprintf(&out, "planning repository\t%s\n", planningText(view))
 	fmt.Fprintf(&out, "remote\t%s\n", dashIfEmpty(view.Remote))
 	fmt.Fprintf(&out, "default branch\t%s\n", dashIfEmpty(view.DefaultBranch))
 	if view.BaseBranch == "" {
@@ -57,6 +61,17 @@ func repositoryText(view api.RepositoryView) string {
 	fmt.Fprintf(&out, "review agreement, last 30 days\t%s\n", agreementText(view.ReviewAgreement.Last30Days))
 	fmt.Fprintf(&out, "review agreement, all time\t%s\n", agreementText(view.ReviewAgreement.AllTime))
 	return out.String()
+}
+
+// planningText says whether the project plans in this repository, and why.
+func planningText(view api.RepositoryView) string {
+	switch {
+	case view.Planning:
+		return "yes"
+	case view.PlanOfRecord:
+		return "yes\t(the project's only repository)"
+	}
+	return "no"
 }
 
 // agreementText says how a person's decisions stood against the review agent's verdicts. It names each
@@ -120,6 +135,7 @@ func (c *invocation) repositorySet(args []string) int {
 	start := set.String("start-from", "", "what dependent work starts from: merged or accepted")
 	target := set.String("review-target", "", "where accepted work is reviewed and lands: branch or pull_request")
 	authority := set.String("merge-authority", "", "how much of each change you decide after the review: person_merges, person_approves, or review_approves")
+	planning := set.Bool("planning", false, "make this the project's planning repository, which intake reads plan files from; --planning=false stops it")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
@@ -155,8 +171,14 @@ func (c *invocation) repositorySet(args []string) int {
 		value := ledger.MergeAuthority(*authority)
 		change.MergeAuthority = &value
 	}
+	if given["planning"] {
+		if *planning && len(positional) > 1 {
+			return c.usageError("a project has one planning repository, and this names %d", len(positional))
+		}
+		change.Planning = planning
+	}
 	if len(given) == 0 {
-		return c.usageError("name a setting to change: --name, --base, --merge-method, --start-from, --review-target, or --merge-authority")
+		return c.usageError("name a setting to change: --name, --base, --merge-method, --start-from, --review-target, --merge-authority, or --planning")
 	}
 	client, exit := c.projectClient()
 	if client == nil {
