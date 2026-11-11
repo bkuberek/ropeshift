@@ -1,4 +1,5 @@
-import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, RecordedRead, WorkAction } from "./types";
+import { splitProject } from "../app/route";
+import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, ProjectList, RecordedRead, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -11,24 +12,31 @@ function documentQuery({ path, instance, version }: DocumentRef): URLSearchParam
   return query;
 }
 
+// project is the route of one project's records, as the API names it: the project the page shows, which
+// its address names.
+function project(rest: string): string {
+  return `/v1/projects/${encodeURIComponent(splitProject(window.location.pathname).project)}${rest}`;
+}
+
 // The API's own names. A test holds them to the list the web listener serves, which a Go test writes,
 // and each row of that list names a CLI command, so the UI reaches nothing the CLI cannot.
 export const paths = {
   signIn: "/v1/sessions",
   signOut: "/v1/sessions/end",
-  events: "/v1/events",
-  needsYou: "/v1/views/needs-you",
-  view: (name: string, category = "") => `/v1/views/${encodeURIComponent(name)}${category ? `?${new URLSearchParams({ category })}` : ""}`,
-  documentRead: (ref: DocumentRef) => `/v1/documents/read?${documentQuery(ref)}`,
-  documentVersions: (ref: DocumentRef) => `/v1/documents/versions?${documentQuery(ref)}`,
-  documentRecorded: (id: string, version = "") => `/v1/documents/recorded?${new URLSearchParams(version ? { id, version } : { id })}`,
-  answer: (id: string) => `/v1/questions/${encodeURIComponent(id)}/answer`,
-  decideApproval: (id: string) => `/v1/approvals/${encodeURIComponent(id)}/decide`,
-  decideEffect: (id: string) => `/v1/effects/${encodeURIComponent(id)}/decide`,
-  work: (id: string, verb: string) => `/v1/work-orders/${encodeURIComponent(id)}/${verb}`,
+  projects: "/v1/projects",
+  events: () => project("/events"),
+  needsYou: () => project("/views/needs-you"),
+  view: (name: string, category = "") => project(`/views/${encodeURIComponent(name)}${category ? `?${new URLSearchParams({ category })}` : ""}`),
+  documentRead: (ref: DocumentRef) => project(`/documents/read?${documentQuery(ref)}`),
+  documentVersions: (ref: DocumentRef) => project(`/documents/versions?${documentQuery(ref)}`),
+  documentRecorded: (id: string, version = "") => project(`/documents/recorded?${new URLSearchParams(version ? { id, version } : { id })}`),
+  answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
+  decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
+  decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
+  work: (id: string, verb: string) => project(`/work-orders/${encodeURIComponent(id)}/${verb}`),
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
-  pane: (lane: string) => `/v1/panes/${encodeURIComponent(lane)}`,
-  paneInput: (lane: string) => `/v1/panes/${encodeURIComponent(lane)}/input`,
+  pane: (lane: string) => project(`/panes/${encodeURIComponent(lane)}`),
+  paneInput: (lane: string) => project(`/panes/${encodeURIComponent(lane)}/input`),
 };
 
 // The keys a member may press in a lane's pane. The list is closed, and the server holds the same one.
@@ -97,7 +105,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export function readNeedsYou(): Promise<NeedsYou> {
-  return call("GET", paths.needsYou);
+  return call("GET", paths.needsYou());
+}
+
+// readProjects lists the installation's projects, which every view of one project names in its address.
+export function readProjects(): Promise<ProjectList> {
+  return call("GET", paths.projects);
 }
 
 // readView reads one read model. The server filters, so a page never holds what a filter left out.
@@ -160,7 +173,7 @@ export function startOrchestrator(worker: string): Promise<unknown> {
 
 // The stream every open page follows. A browser's own reconnect names the last revision it saw.
 export function followEvents(after: number): EventSource {
-  return new EventSource(`${paths.events}?after=${after}`);
+  return new EventSource(`${paths.events()}?after=${after}`);
 }
 
 // followPane streams a lane's pane: a snapshot of its screen each time it changes, and the lane's state

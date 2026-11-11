@@ -87,7 +87,7 @@ func TestNoViewHoldsASecret(t *testing.T) {
 // A read needs no session on the socket (D26).
 func TestAViewOnTheSocketNeedsNoSession(t *testing.T) {
 	d := apitest.Start(t)
-	anonymous := api.NewUnixClient(d.Socket)
+	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
 	for _, name := range api.Views {
 		var out api.Stamp
@@ -396,7 +396,7 @@ func TestDocumentsListOutsideAnyRead(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	request := httptest.NewRequestWithContext(ctx, http.MethodGet, api.ViewPath(api.ViewDocuments), nil)
+	request := httptest.NewRequestWithContext(ctx, http.MethodGet, apitest.Route(api.ViewPath(api.ViewDocuments)), nil)
 	server.New(config).ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", recorder.Code, recorder.Body)

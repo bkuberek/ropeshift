@@ -48,23 +48,23 @@ func ViewOf(record ledger.Repository, agreement measures.ReviewAgreement) Reposi
 }
 
 // Repositories lists the records.
-func (c *Client) Repositories(ctx context.Context) (RepositoryList, error) {
+func (c *ProjectClient) Repositories(ctx context.Context) (RepositoryList, error) {
 	var out RepositoryList
-	err := c.Do(ctx, http.MethodGet, "/v1/repositories", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/repositories", nil, &out)
 	return out, err
 }
 
 // Repository reads one record, by its identity or a unique prefix of it.
-func (c *Client) Repository(ctx context.Context, id string) (RepositoryView, error) {
+func (c *ProjectClient) Repository(ctx context.Context, id string) (RepositoryView, error) {
 	var out RepositoryView
-	err := c.Do(ctx, http.MethodGet, repositoryPath(id), nil, &out)
+	err := c.do(ctx, http.MethodGet, repositoryPath(id), nil, &out)
 	return out, err
 }
 
 // SetRepository changes the settings of one record, which only a member can do.
-func (c *Client) SetRepository(ctx context.Context, id string, in RepositoryChange) (RepositoryView, error) {
+func (c *ProjectClient) SetRepository(ctx context.Context, id string, in RepositoryChange) (RepositoryView, error) {
 	var out RepositoryView
-	err := c.Do(ctx, http.MethodPatch, repositoryPath(id), in, &out)
+	err := c.do(ctx, http.MethodPatch, repositoryPath(id), in, &out)
 	return out, err
 }
 

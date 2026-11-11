@@ -12,7 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
-// EventsPath is the ledger's event stream.
+// EventsPath is a project's event stream, as it reads under /v1.
 const EventsPath = "/v1/events"
 
 // StreamEvent is one ledger event as a reader sees it: what happened, to what, and when. It carries a
@@ -39,8 +39,8 @@ func StreamEventOf(event ledger.Event) StreamEvent {
 // Events follows the ledger from a revision: every event after it, in order, then each new one. The
 // stream is one long read, so the channel closes when it breaks, and the last revision a reader saw
 // resumes it with nothing missed. A slow reader holds the stream back and loses nothing.
-func (c *Client) Events(ctx context.Context, after int64) (<-chan StreamEvent, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+EventsPath, nil)
+func (c *ProjectClient) Events(ctx context.Context, after int64) (<-chan StreamEvent, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+c.Route(EventsPath), nil)
 	if err != nil {
 		return nil, err
 	}

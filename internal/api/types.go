@@ -50,6 +50,16 @@ const (
 	CodeWindowOpen = "window_open"
 	// CodeStaleStatement means an acknowledgement names text other than the current statement.
 	CodeStaleStatement = "stale_statement"
+	// CodeNoProject means a path names a project the installation does not hold.
+	CodeNoProject = "no_project"
+	// CodeRepositoryHeld means another project holds the repository, which the message names.
+	CodeRepositoryHeld = "repository_held"
+	// CodeProjectExists means another project holds the ID or the name.
+	CodeProjectExists = "project_exists"
+	// CodeProjectState means a project's state refuses a lifecycle step, which the message names.
+	CodeProjectState = "project_state"
+	// CodeProjectArchived means a change to an archived project, which is read-only until restored.
+	CodeProjectArchived = "project_archived"
 )
 
 // ErrorBody is every error response.
@@ -115,6 +125,9 @@ type ClaimRequest struct {
 	ClaimID  string `json:"claim_id"`
 	WorkerID string `json:"worker_id"`
 	TTLMs    int64  `json:"ttl_ms,omitempty"`
+	// WorkOrder names the work a worker claims on the plane protocol's route, which has no work order
+	// in its path.
+	WorkOrder string `json:"work_order,omitempty"`
 }
 
 // ContractPin names the contract version a work order pinned.

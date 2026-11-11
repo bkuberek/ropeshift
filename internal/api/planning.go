@@ -53,9 +53,9 @@ type ReviewPlan struct {
 }
 
 // ReviewPlan records a work order that reads a plan and its contracts.
-func (c *Client) ReviewPlan(ctx context.Context, plan string, in ReviewPlan) (workorders.WorkOrder, error) {
+func (c *ProjectClient) ReviewPlan(ctx context.Context, plan string, in ReviewPlan) (workorders.WorkOrder, error) {
 	var out workorders.WorkOrder
-	err := c.Do(ctx, http.MethodPost, "/v1/plans/"+url.PathEscape(plan)+"/reviews", in, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/plans/"+url.PathEscape(plan)+"/reviews", in, &out)
 	return out, err
 }
 
@@ -75,13 +75,13 @@ type Unblock struct {
 }
 
 // Resolve returns blocked work to ready.
-func (c *Client) Resolve(ctx context.Context, id string, in Unblock) error {
-	return c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/resolve", in, nil)
+func (c *ProjectClient) Resolve(ctx context.Context, id string, in Unblock) error {
+	return c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/resolve", in, nil)
 }
 
 // Replan returns blocked work to planning.
-func (c *Client) Replan(ctx context.Context, id string, in Unblock) error {
-	return c.Do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/replan", in, nil)
+func (c *ProjectClient) Replan(ctx context.Context, id string, in Unblock) error {
+	return c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/replan", in, nil)
 }
 
 // Document is one document at one version. A list leaves Body empty.
@@ -196,53 +196,53 @@ type RecordedRead struct {
 
 // RecordedDocument reads one version of a planning document, by its reference, with its stored body. A
 // version of 0 reads the newest.
-func (c *Client) RecordedDocument(ctx context.Context, id string, version int64) (RecordedRead, error) {
+func (c *ProjectClient) RecordedDocument(ctx context.Context, id string, version int64) (RecordedRead, error) {
 	values := url.Values{"id": {id}}
 	if version != 0 {
 		values.Set("version", strconv.FormatInt(version, 10))
 	}
 	var out RecordedRead
-	err := c.Do(ctx, http.MethodGet, "/v1/documents/recorded?"+values.Encode(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/documents/recorded?"+values.Encode(), nil, &out)
 	return out, err
 }
 
 // Plans lists plans.
-func (c *Client) Plans(ctx context.Context) ([]planning.Plan, error) {
+func (c *ProjectClient) Plans(ctx context.Context) ([]planning.Plan, error) {
 	var out PlanList
-	err := c.Do(ctx, http.MethodGet, "/v1/plans", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/plans", nil, &out)
 	return out.Plans, err
 }
 
 // Plan reads one plan with what hangs off it.
-func (c *Client) Plan(ctx context.Context, id string) (PlanView, error) {
+func (c *ProjectClient) Plan(ctx context.Context, id string) (PlanView, error) {
 	var out PlanView
-	err := c.Do(ctx, http.MethodGet, "/v1/plans/"+url.PathEscape(id), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/plans/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
 
 // Requirements lists every requirement's newest version.
-func (c *Client) Requirements(ctx context.Context) ([]planning.Requirement, error) {
+func (c *ProjectClient) Requirements(ctx context.Context) ([]planning.Requirement, error) {
 	var out RequirementList
-	err := c.Do(ctx, http.MethodGet, "/v1/requirements", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/requirements", nil, &out)
 	return out.Requirements, err
 }
 
 // Requirement reads a requirement's newest version by its key.
-func (c *Client) Requirement(ctx context.Context, key string) (planning.Requirement, error) {
+func (c *ProjectClient) Requirement(ctx context.Context, key string) (planning.Requirement, error) {
 	var out planning.Requirement
-	err := c.Do(ctx, http.MethodGet, "/v1/requirements/"+url.PathEscape(key), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/requirements/"+url.PathEscape(key), nil, &out)
 	return out, err
 }
 
 // SendBack returns a work order in review to planning.
-func (c *Client) SendBack(ctx context.Context, id string, in SendBack) error {
-	return c.Do(ctx, http.MethodPost, workOrderPath(id, "send-back"), in, nil)
+func (c *ProjectClient) SendBack(ctx context.Context, id string, in SendBack) error {
+	return c.do(ctx, http.MethodPost, workOrderPath(id, "send-back"), in, nil)
 }
 
 // Documents lists every source's documents.
-func (c *Client) Documents(ctx context.Context) ([]Document, error) {
+func (c *ProjectClient) Documents(ctx context.Context) ([]Document, error) {
 	var out DocumentList
-	err := c.Do(ctx, http.MethodGet, "/v1/documents", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/documents", nil, &out)
 	return out.Documents, err
 }
 
@@ -266,15 +266,15 @@ func (r DocumentRef) query() string {
 }
 
 // Document reads one document.
-func (c *Client) Document(ctx context.Context, ref DocumentRef) (Document, error) {
+func (c *ProjectClient) Document(ctx context.Context, ref DocumentRef) (Document, error) {
 	var out Document
-	err := c.Do(ctx, http.MethodGet, "/v1/documents/read?"+ref.query(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/documents/read?"+ref.query(), nil, &out)
 	return out, err
 }
 
 // DocumentVersions lists one document's versions, newest first.
-func (c *Client) DocumentVersions(ctx context.Context, ref DocumentRef) ([]DocumentVersion, error) {
+func (c *ProjectClient) DocumentVersions(ctx context.Context, ref DocumentRef) ([]DocumentVersion, error) {
 	var out DocumentVersions
-	err := c.Do(ctx, http.MethodGet, "/v1/documents/versions?"+ref.query(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/documents/versions?"+ref.query(), nil, &out)
 	return out.Versions, err
 }

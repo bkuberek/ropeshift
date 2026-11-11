@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Completed, InProgress, OnHold, Operations, ShopFloor, Stuck } from "../api/types";
 import { openPage } from "../opening";
-import { FakeEvents, golden, refusal, serveViews } from "../testing";
+import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
 
 function serving<T>(name: string, change: (view: T) => void) {
   const view = golden<T>(name);
@@ -130,7 +130,7 @@ describe("on hold", () => {
     const card = await line("Wait for the check");
     const wakes = within(card).getByText("Wakes").closest("div");
     expect(wakes?.textContent).toContain("When question question-1 is answered, or when a person resumes it");
-    expect(within(wakes as HTMLElement).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe("/questions?id=question-1");
+    expect(within(wakes as HTMLElement).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe(here("/questions?id=question-1"));
     expect(card.textContent).not.toContain("any_of");
     expect(within(card).getAllByText("Parked").length).toBeGreaterThan(0);
     expect(within(card).getByText("wo-parked")).toBeTruthy();
@@ -373,7 +373,7 @@ describe("completed", () => {
   it("sends work waiting for a word to where it is given", async () => {
     serveViews();
     openPage("/completed");
-    expect(within(await line("Trim the log")).getByRole("link", { name: "Decide in Needs you" }).getAttribute("href")).toBe("/");
+    expect(within(await line("Trim the log")).getByRole("link", { name: "Decide in Needs you" }).getAttribute("href")).toBe(here("/"));
     expect(within(await line("Ship the first cut")).queryByRole("link", { name: "Decide in Needs you" })).toBeNull();
   });
 
@@ -539,7 +539,7 @@ describe("operations", () => {
     const fleet = await screen.findByRole("region", { name: "Fleet" });
     const waiting = within(fleet).getByText("Waiting for a person").closest("div");
     expect(waiting?.textContent).toContain("11");
-    expect(within(waiting as HTMLElement).getByRole("link").getAttribute("href")).toBe("/");
+    expect(within(waiting as HTMLElement).getByRole("link").getAttribute("href")).toBe(here("/"));
   });
 
   it("counts workers against those it has heard from", async () => {
@@ -561,7 +561,7 @@ describe("operations", () => {
     serveViews();
     openPage("/operations");
     const note = await screen.findByText(/each lane's last state/);
-    expect(within(note).getByRole("link", { name: "the shop floor" }).getAttribute("href")).toBe("/shop-floor");
+    expect(within(note).getByRole("link", { name: "the shop floor" }).getAttribute("href")).toBe(here("/shop-floor"));
   });
 
   it("keeps a state this build has no words for in the count", async () => {

@@ -28,7 +28,10 @@ func viewing(name string) func(*invocation, []string) int {
 		if len(positional) != 0 {
 			return c.usageError("unexpected argument %q", positional[0])
 		}
-		client := c.client()
+		client, exit := c.projectClient()
+		if client == nil {
+			return exit
+		}
 		defer client.Close()
 		var raw json.RawMessage
 		err := client.ReadView(c.ctx, name, *category, &raw)
@@ -63,7 +66,10 @@ func (c *invocation) runTop(args []string) int {
 	if *width == 0 {
 		*width, _ = top.Width(c.stdout)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	read := top.Reader(client)
 	snapshot, err := read(c.ctx)
@@ -142,7 +148,10 @@ func (c *invocation) effectShow(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.Effect(c.ctx, id)
 	return c.finish(err, row, func() string { return effectLine(row) })
@@ -165,7 +174,10 @@ func (c *invocation) effectDecide(args []string) int {
 	if *outcome == "" {
 		return c.usageError("--outcome is required: happened, not_happened, or retry")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.DecideEffect(c.ctx, id, api.DecideEffect{Outcome: ledger.EffectOutcome(*outcome), Reason: *reason})
 	return c.finish(err, row, func() string { return effectLine(row) })
@@ -184,7 +196,10 @@ func (c *invocation) events(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()

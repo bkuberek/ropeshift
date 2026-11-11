@@ -71,7 +71,10 @@ func (c *invocation) workCreate(args []string) int {
 		request.Criteria = append(request.Criteria, planning.Criterion{ID: fmt.Sprintf("c%d", i+1), Text: text})
 	}
 	request.DependsOn, request.Requirements = dependsOn, requirements
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	created, err := client.CreateWorkOrder(c.ctx, request)
 	return c.finish(err, created, func() string { return orderLine(created) })
@@ -92,7 +95,10 @@ func (c *invocation) workList(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	var rows []workorders.WorkOrder
 	var err error
@@ -132,7 +138,10 @@ func (c *invocation) workShow(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.WorkOrder(c.ctx, id)
 	if err != nil {
@@ -206,7 +215,10 @@ func (c *invocation) workReview(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	result, err := client.Review(c.ctx, id)
 	code := c.finish(err, result, func() string {
@@ -250,7 +262,10 @@ func (c *invocation) workClaim(args []string) int {
 		request.ClaimID = generated
 	}
 	request.TTLMs = ttl.Milliseconds()
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	grant, err := client.Claim(c.ctx, id, request)
 	return c.finish(err, grant, func() string {
@@ -275,7 +290,10 @@ func (c *invocation) workRelease(args []string) int {
 	if claim == "" || request.Fence == 0 {
 		return c.usageError("--claim-id and --fence are required")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	err := client.Release(c.ctx, id, claim, request)
 	return c.finish(err, struct {
@@ -294,7 +312,10 @@ func (c *invocation) workAcceptance(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	view, err := client.Acceptance(c.ctx, id)
 	return c.finish(err, view, func() string {
@@ -328,7 +349,10 @@ func (c *invocation) workAccept(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	result, err := client.Accept(c.ctx, id)
 	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.State) })
@@ -348,7 +372,10 @@ func (c *invocation) workRework(args []string) int {
 	if *reason == "" {
 		return c.usageError("--reason is required")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	result, err := client.Rework(c.ctx, id, api.ReworkRequest{Reason: *reason})
 	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.State) })
@@ -369,7 +396,10 @@ func (c *invocation) workReassign(args []string) int {
 	if request.Reason == "" {
 		return c.usageError("--reason is required")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	err := client.Reassign(c.ctx, id, request)
 	return c.finish(err, struct {
@@ -409,7 +439,10 @@ func (c *invocation) workWrite(args []string) int {
 		request.WriteID = generated
 	}
 	request.Payload = []byte(payload)
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	written, err := client.Write(c.ctx, id, request)
 	return c.finish(err, written, func() string { return fmt.Sprintf("%s\t%s\trevision %d\n", id, written.ID, written.Rev) })
@@ -432,7 +465,10 @@ func (c *invocation) workCancel(args []string) int {
 	if request.Reason == "" {
 		return c.usageError("--reason is required")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	result, err := client.CancelWork(c.ctx, id, request)
 	return c.finish(err, result, func() string { return fmt.Sprintf("%s\t%s\n", id, result.State) })
@@ -467,7 +503,10 @@ func (c *invocation) laneStart(args []string) int {
 		}
 		request.LaneID = generated
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	dispatched, err := client.StartLane(c.ctx, id, request)
 	return c.finish(err, dispatched, func() string {
@@ -495,7 +534,10 @@ func (c *invocation) laneList(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	lanes, err := client.Lanes(c.ctx)
 	if lanes == nil {
@@ -520,7 +562,10 @@ func (c *invocation) laneShow(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	lane, err := client.Lane(c.ctx, id)
 	return c.finish(err, lane, func() string { return laneDetail(lane) })
@@ -545,7 +590,10 @@ func (c *invocation) sourceList(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	list, err := client.Sources(c.ctx)
 	return c.finish(err, list, func() string {
@@ -624,7 +672,10 @@ func (c *invocation) laneReset(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	reset, err := client.ResetLane(c.ctx, id)
 	return c.finish(err, reset, func() string { return "reset the lane of " + reset.WorkOrder + "\n" })
@@ -641,7 +692,10 @@ func (c *invocation) laneRespawn(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	asked, err := client.RespawnLane(c.ctx, id)
 	return c.finish(err, asked, func() string { return "asked for a new generation of the lane of " + asked.WorkOrder + "\n" })
@@ -658,7 +712,10 @@ func (c *invocation) laneResume(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	resumed, err := client.ResumeLane(c.ctx, id)
 	return c.finish(err, resumed, func() string {
@@ -682,7 +739,10 @@ func (c *invocation) laneArchive(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	lane, err := client.Lane(c.ctx, id)
 	if err != nil {
@@ -695,7 +755,7 @@ func (c *invocation) laneArchive(args []string) int {
 
 // health says the control plane read its ledger, which an answer on the socket alone would not.
 func (c *invocation) health(args []string) int {
-	client, ok, code := c.noArguments(args)
+	client, ok, code := c.noArgumentsAtInstallation(args)
 	if !ok {
 		return code
 	}
@@ -709,16 +769,35 @@ func fleetLine(fleet api.Fleet) string {
 		fleet.Mode, fleet.WIPLimit, fleet.RepositoryLimit, fleet.WorkerLimit)
 }
 
-func (c *invocation) noArguments(args []string) (*api.Client, bool, int) {
+// noArguments reads a command on a project that takes no argument, and returns that project's client.
+func (c *invocation) noArguments(args []string) (*api.ProjectClient, bool, int) {
+	if !c.parseNothing(args) {
+		return nil, false, ExitUsage
+	}
+	client, exit := c.projectClient()
+	return client, client != nil, exit
+}
+
+// noArgumentsAtInstallation reads a command on the installation that takes no argument.
+func (c *invocation) noArgumentsAtInstallation(args []string) (*api.Client, bool, int) {
+	if !c.parseNothing(args) {
+		return nil, false, ExitUsage
+	}
+	return c.client(), true, ExitOK
+}
+
+// parseNothing reads a command line that holds only flags, and says so when it holds more.
+func (c *invocation) parseNothing(args []string) bool {
 	set := c.flags()
 	positional, ok := c.parse(set, args)
 	if !ok {
-		return nil, false, ExitUsage
+		return false
 	}
 	if len(positional) != 0 {
-		return nil, false, c.usageError("unexpected argument %q", positional[0])
+		c.usageError("unexpected argument %q", positional[0])
+		return false
 	}
-	return c.client(), true, ExitOK
+	return true
 }
 
 func (c *invocation) fleetShow(args []string) int {
@@ -757,7 +836,10 @@ func (c *invocation) fleetCaps(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	current, err := client.Fleet(c.ctx)
 	if err != nil {

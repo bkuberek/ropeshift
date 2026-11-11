@@ -21,6 +21,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/crashpoint"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 	"ropeshift.com/ropeshift/test/contract"
@@ -84,7 +85,7 @@ type paneRun struct {
 	paths   api.Paths
 	repo    string
 	extra   []string
-	client  *api.Client
+	client  *api.ProjectClient
 	exited  chan error
 	process *exec.Cmd
 	stderr  bytes.Buffer
@@ -105,7 +106,7 @@ func newPaneRun(t *testing.T, fixture string, extra ...string) (*paneRun, error)
 		// A session's socket has a 104-byte limit, and a run directory leaves it room.
 		paths: api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(apitest.ShortDir(t), "run")},
 	}
-	r.client = api.NewUnixClient(r.paths.ControlSocket())
+	r.client = api.NewUnixClient(r.paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	t.Cleanup(r.client.Close)
 	doubles.TmuxOn(t, r.paths.TerminalSocket())
 	return r, nil
@@ -473,7 +474,7 @@ func newRestartRun(t *testing.T, extra ...string) (*paneRun, error) {
 		t: t, w: w, binary: binary, path: doubles.InstallFakeClaude(t, "crash-then-report"), repo: repo.Dir, extra: extra,
 		paths: api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(apitest.ShortDir(t), "run")},
 	}
-	r.client = api.NewUnixClient(r.paths.ControlSocket())
+	r.client = api.NewUnixClient(r.paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	t.Cleanup(r.client.Close)
 	doubles.ReapShims(t, filepath.Join(r.paths.StateDir, "lanes", "lane-1"))
 	return r, nil

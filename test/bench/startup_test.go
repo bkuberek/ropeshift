@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/doubles"
 )
 
@@ -77,7 +78,7 @@ func TestTopStartsWithinTheBudget(t *testing.T) {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	}()
-	client := api.NewUnixClient(paths.ControlSocket())
+	client := api.NewUnixClient(paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
@@ -131,7 +132,7 @@ func timeDaemon(t *testing.T, binary string) time.Duration {
 	cmd := exec.Command(binary, "solo")
 	cmd.Env = []string{"HOME=" + dir, "PATH=" + doubles.InstallFakeClaude(t, "no-session"), api.EnvStateDir + "=" + paths.StateDir, api.EnvRunDir + "=" + paths.RunDir, api.EnvWeb + "=" + api.WebOff,
 		api.EnvTelemetry + "=127.0.0.1:0"}
-	client := api.NewUnixClient(paths.ControlSocket())
+	client := api.NewUnixClient(paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	start := time.Now()
 	if err := cmd.Start(); err != nil {

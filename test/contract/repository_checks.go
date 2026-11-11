@@ -276,8 +276,10 @@ func checkRepositoryIsScoped(r *Rig) error {
 	if err != nil {
 		return err
 	}
+	// A store whose installation keeps the repository index refuses the same repository in a second
+	// workspace (FR-PROJ-6). One with no installation keeps a record in each.
 	in, err := control.NewRepositories(s).Detect(r.Ctx, other, control.DetectedRepository{ID: "repo-1", DefaultBranch: "trunk"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
-	if err != nil || in.DefaultBranch != "trunk" {
+	if !errors.Is(err, ledger.ErrRepositoryHeld) && (err != nil || in.DefaultBranch != "trunk") {
 		return Violatedf("workspace b made %+v: %v", in, err)
 	}
 	if kept, err := r.theRepository(s, "repo-1"); err != nil || kept.DefaultBranch != "main" {

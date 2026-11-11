@@ -48,7 +48,7 @@ func applyApprovalVariant(variant string) {
 // it, that look is the same call, so a look a kill interrupted is taken again.
 type approvalDriver struct {
 	*handoffDriver
-	client  *api.Client
+	client  *api.ProjectClient
 	decides sync.Once
 }
 
@@ -152,7 +152,7 @@ func (d *approvalDriver) Adopt(ctx context.Context, h ports.SessionHandle, from 
 // roleWorkerApproval runs one lane through one decision on a real worker.
 func roleWorkerApproval(c *child) error {
 	return runHandoffWorker(c, func(d *handoffDriver) ports.AgentDriver {
-		return &approvalDriver{handoffDriver: d, client: api.NewUnixClient(c.spec.Socket)}
+		return &approvalDriver{handoffDriver: d, client: api.NewUnixClient(c.spec.Socket).Project(ledger.DefaultProjectName)}
 	})
 }
 

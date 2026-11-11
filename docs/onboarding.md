@@ -202,12 +202,13 @@ Ropeshift's defaults keep a subscription worker nearer to a person at work, and 
 
 These defaults reduce the risk, and they do not remove it. [Authorization](authorization.md) states the levels, and the vendor pages above are the ones to read before the first lane, because they can change.
 
-## Back up the ledger
+## Back up a project and the installation
 
 ```sh
-ropeshift backup /path/to/ledger-backup.db
+ropeshift backup /path/to/project-backup.db
+ropeshift backup --installation /path/to/installation-backup.db
 ```
 
-The daemon copies its ledger through SQLite's online backup, so it goes on writing while the copy is made. The copy is one SQLite file, readable only by its owner, that holds every record of the default project: its work, plans, questions, decisions, policies, and repositories. A file already at the path is never replaced. A fresh installation runs on a copy when the copy is its `ledger.db` before its first start, and asks for a new passphrase at its first sign-in. The worker's journal, which holds the lanes on this machine, stays outside the copy.
+The daemon copies a ledger through SQLite's online backup, so it goes on writing while the copy is made. Each copy is one SQLite file, readable only by its owner, and a file already at the path is never replaced. The first command copies one project, chosen as for any command on a project's records: every record of it, its work, plans, questions, decisions, policies, and repositories, and nothing of another project. `ropeshift project import` registers that copy in another installation with the project's ID. The worker's journal, which holds the lanes on this machine, stays outside the copy.
 
-The member, the passphrase's hash, the member sessions, the workers, their autonomy and run windows, and the orchestrators live in the installation database, `installation.db`, beside the ledger in the state directory, and the copy leaves them out. To keep them too, stop the daemon and copy `installation.db` with the ledger.
+The second copies the installation database, `installation.db`: the registry of projects, the member, the passphrase's hash, the member sessions, the workers, their autonomy and run windows, and the orchestrators. Restoring a whole installation takes its installation backup and each project's backup. A fresh installation runs on a copy of its first project when the copy is its `ledger.db` before its first start, and asks for a new passphrase at its first sign-in unless its `installation.db` is a copy too.

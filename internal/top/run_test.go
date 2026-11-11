@@ -50,7 +50,7 @@ func TestALiveFrameFollowsTheLedger(t *testing.T) {
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	w.Running("wo-first", "Rotate the keys").End("blocked", "no_outcome")
-	client := api.NewUnixClient(d.Socket)
+	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
 	config := top.Config{Read: top.Reader(client), Follow: client.Events, Now: time.Now}
 	keys, press := io.Pipe()

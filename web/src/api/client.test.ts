@@ -17,6 +17,7 @@ import {
   readDocument,
   readDocumentVersions,
   readNeedsYou,
+  readProjects,
   readRecorded,
   readView,
   sendBack,
@@ -30,7 +31,7 @@ import type { Route, WorkAction } from "./types";
 
 const served = (routes as Route[]).map((route) => ({
   method: route.method,
-  path: new RegExp(`^${route.pattern.replaceAll("{id}", "[^/]+")}(\\?.*)?$`),
+  path: new RegExp(`^${route.pattern.replaceAll("{id}", "[^/]+").replaceAll("{project}", "[^/]+")}(\\?.*)?$`),
 }));
 
 const reachable = (method: string, path: string) => served.some((route) => route.method === method && route.path.test(path));
@@ -53,7 +54,7 @@ describe("the client", () => {
     await passReview("wo");
     await sendBack("wo", "because");
     for (const route of routes as Route[]) {
-      const view = /^\/v1\/views\/(.+)$/.exec(route.pattern)?.[1];
+      const view = /^\/v1\/projects\/\{project\}\/views\/(.+)$/.exec(route.pattern)?.[1];
       if (view) {
         await readView(view);
       }
@@ -65,10 +66,11 @@ describe("the client", () => {
     await typeIntoPane("lane:a b", "A planning tool", true);
     await pressPaneKey("lane:a b", "Ctrl-C");
     expect(sent.length).toBeGreaterThan(20);
+    await readProjects();
     for (const call of sent) {
-      expect(reachable(call.method, call.path), `${call.method} ${call.path}`).toBe(true);
+      expect(reachable(call.method, call.url), `${call.method} ${call.url}`).toBe(true);
     }
-    expect(reachable("GET", paths.events)).toBe(true);
+    expect(reachable("GET", paths.events())).toBe(true);
     expect(reachable("GET", paths.pane("lane:a b"))).toBe(true);
   });
 
@@ -129,6 +131,6 @@ describe("the client", () => {
     }
     globalThis.EventSource = Recording as unknown as typeof EventSource;
     followEvents(12);
-    expect(opened).toBe("/v1/events?after=12");
+    expect(opened).toBe("/v1/projects/default/events?after=12");
   });
 });

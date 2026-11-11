@@ -255,7 +255,7 @@ func LaneOrder(snapshot Snapshot) []api.FloorLane {
 }
 
 // Reader reads the fleet through the one client every surface uses.
-func Reader(client *api.Client) func(context.Context) (Snapshot, error) {
+func Reader(client *api.ProjectClient) func(context.Context) (Snapshot, error) {
 	return func(ctx context.Context) (Snapshot, error) {
 		var snapshot Snapshot
 		if err := client.ReadView(ctx, api.ViewNeedsYou, "", &snapshot.Needs); err != nil {

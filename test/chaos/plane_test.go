@@ -103,8 +103,8 @@ func (c *child) newWorker() (*worker.Worker, *sqlite.Journal, func(), error) {
 	if err := journal.Migrate(c.ctx); err != nil {
 		return nil, nil, nil, err
 	}
-	client := api.NewUnixClient(c.spec.Socket)
-	subject := worker.New(workerlink.New(client), journal, clock.System{}, worker.Config{
+	client := api.NewUnixClient(c.spec.Socket).Project(ledger.DefaultProjectName)
+	subject := worker.New(workerlink.New(client.Client), journal, clock.System{}, worker.Config{
 		Name:      "child",
 		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },
@@ -173,12 +173,12 @@ func roleWorkerLane(c *child) error {
 	if c.spec.Variant == splitLaneEnd {
 		opened = splitJournal{Journal: journal}
 	}
-	client := api.NewUnixClient(c.spec.Socket)
+	client := api.NewUnixClient(c.spec.Socket).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	driver := fake.NewAgentDriver()
 	driver.Play(laneScript(journal, c.ctx))
 	worktrees := fake.NewWorktrees()
-	subject := worker.New(workerlink.New(client), opened, clock.System{}, worker.Config{
+	subject := worker.New(workerlink.New(client.Client), opened, clock.System{}, worker.Config{
 		Name:      "child",
 		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },
@@ -345,9 +345,9 @@ func planeOutage(t *testing.T, w *world, step string) error {
 	if err := journal.Migrate(ctx); err != nil {
 		return err
 	}
-	client := api.NewUnixClient(socket)
+	client := api.NewUnixClient(socket).Project(ledger.DefaultProjectName)
 	defer client.Close()
-	subject := worker.New(workerlink.New(client), journal, clock.System{}, worker.Config{
+	subject := worker.New(workerlink.New(client.Client), journal, clock.System{}, worker.Config{
 		Name:      "parent",
 		JoinToken: func(context.Context) (string, error) { return token, nil },
 	})
@@ -578,7 +578,7 @@ func checkSoloSleep(w *world, sabotage ...string) error {
 		_ = daemon.Process.Kill()
 		<-exited
 	}()
-	client := api.NewUnixClient(paths.ControlSocket())
+	client := api.NewUnixClient(paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	ctx := w.rig.Ctx
 	err := until("the worker's registration", func() (bool, error) {

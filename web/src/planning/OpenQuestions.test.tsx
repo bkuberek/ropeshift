@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Questions } from "../api/types";
 import { openPage } from "../opening";
-import { golden, serveViews } from "../testing";
+import { golden, here, serveViews } from "../testing";
 
 const filters = () => screen.findByRole("navigation", { name: "Filter by category" });
 
@@ -38,7 +38,7 @@ describe("the open questions", () => {
     serveViews();
     openPage("/questions");
     const card = await screen.findByRole("article", { name: "Should the budget hold across restarts?" });
-    expect(within(card).getByRole("link", { name: "Answer in Needs you" }).getAttribute("href")).toBe("/");
+    expect(within(card).getByRole("link", { name: "Answer in Needs you" }).getAttribute("href")).toBe(here("/"));
   });
 
   it("offers no answer for a question nobody has brought to a person", async () => {
@@ -65,7 +65,7 @@ describe("the open questions", () => {
     openPage("/questions?id=question-review");
     expect(await screen.findByRole("article", { name: "Does the plan cover a restart?" })).toBeTruthy();
     expect(screen.queryByRole("article", { name: "Should the budget hold across restarts?" })).toBeNull();
-    expect(screen.getByRole("link", { name: "All open questions" }).getAttribute("href")).toBe("/questions");
+    expect(screen.getByRole("link", { name: "All open questions" }).getAttribute("href")).toBe(here("/questions"));
   });
 });
 

@@ -29,6 +29,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api/shimlink"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -307,7 +308,7 @@ func (in *installation) waitFor(what string, done func() bool) {
 // waitReady waits for the daemon's own answer, and holds one member's session across restarts.
 func (in *installation) waitReady() {
 	in.t.Helper()
-	client := api.NewUnixClient(in.paths().ControlSocket())
+	client := api.NewUnixClient(in.paths().ControlSocket()).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	in.waitFor("the daemon's answer", func() bool {
 		_, err := client.Health(in.t.Context())

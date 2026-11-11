@@ -78,6 +78,10 @@ const (
 	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the
 	// first passphrase needs no session, which is safe only while no agent runs unasked.
 	ActionRunOrchestrator Action = "orchestrator.run"
+	// ActionManageProject creates, renames, archives, restores, removes, or imports a project of the
+	// installation (ADR-0021). A project holds every record of a product, so no agent has this, and no row
+	// below may ever grant it.
+	ActionManageProject Action = "project.manage"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -89,7 +93,7 @@ func Actions() []Action {
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
-		ActionSetRepository,
+		ActionSetRepository, ActionManageProject,
 	}
 }
 

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { openPage } from "../opening";
-import { FakeEvents, golden, refusal, serveViews } from "../testing";
+import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
 
 const views = () => screen.findByRole("navigation", { name: "Views" });
 const go = async (name: string | RegExp) => userEvent.click(within(await views()).getByRole("link", { name }));
@@ -24,7 +24,7 @@ describe("the views", () => {
     openPage("/");
     await go("Roadmap");
     expect(await screen.findByRole("heading", { level: 1, name: "Roadmap" })).toBeTruthy();
-    expect(window.location.pathname).toBe("/roadmap");
+    expect(window.location.pathname).toBe(here("/roadmap"));
     expect(sent.some((call) => call.path === "/v1/views/roadmap")).toBe(true);
   });
 
@@ -47,7 +47,7 @@ describe("the views", () => {
     await go("Roadmap");
     await screen.findByRole("heading", { level: 1, name: "Roadmap" });
     window.history.back();
-    await waitFor(() => expect(window.location.pathname).toBe("/"));
+    await waitFor(() => expect(window.location.pathname).toBe(here("/")));
     expect(await screen.findByRole("heading", { level: 1, name: "Needs you" })).toBeTruthy();
   });
 
@@ -85,7 +85,7 @@ describe("the views", () => {
     serveViews();
     openPage("/no-such-view");
     expect(await screen.findByRole("heading", { level: 1, name: "No such view" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Back to Needs you" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: "Back to Needs you" }).getAttribute("href")).toBe(here("/"));
   });
 
   it("leaves a modified click to the browser, which opens a new tab", async () => {
@@ -101,7 +101,7 @@ describe("the views", () => {
     fireEvent.click(link, { ctrlKey: true });
     document.removeEventListener("click", watch);
     expect(left).toBe(true);
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe(here("/"));
   });
 
   it("folds the list behind a button a phone can reach", async () => {
@@ -241,7 +241,7 @@ describe("a view on the stream", () => {
     serveViews();
     const ordinary = globalThis.fetch;
     globalThis.fetch = ((path: string, init?: RequestInit) => {
-      if (path === "/v1/views/roadmap") {
+      if (path === "/v1/projects/default/views/roadmap") {
         return new Promise<Response>((resolve) => answers.push(resolve));
       }
       return ordinary(path, init);

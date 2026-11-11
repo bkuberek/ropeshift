@@ -100,13 +100,13 @@ func roleWorkerMessage(c *child) error {
 	if err := journal.Migrate(c.ctx); err != nil {
 		return err
 	}
-	client := api.NewUnixClient(c.spec.Socket)
+	client := api.NewUnixClient(c.spec.Socket).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	dir := filepath.Dir(c.spec.Journal)
 	driver := &messageDriver{lastingDriver: &lastingDriver{AgentDriver: fake.NewAgentDriver(), dir: dir, log: c.log, journal: journal}}
 	profiles := fake.NewProfileSource()
 	profiles.PutUser(c.spec.Profile)
-	subject := worker.New(workerlink.New(client), journal, clock.System{}, worker.Config{
+	subject := worker.New(workerlink.New(client.Client), journal, clock.System{}, worker.Config{
 		Name:      "child",
 		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },
@@ -148,7 +148,7 @@ func roleWorkerMessage(c *child) error {
 
 // messagePasses waits on a daemon's own loop, until the message's effect has an end or the worker
 // has marked one a kill left open, which it will not write again.
-func messagePasses(c *child, subject *worker.Worker, journal *sqlite.Journal, client *api.Client) error {
+func messagePasses(c *child, subject *worker.Worker, journal *sqlite.Journal, client *api.ProjectClient) error {
 	draft := messages.Draft{ID: c.spec.Message, To: messages.Target{Lane: c.spec.Lane}, Kind: messages.KindInstruction, Body: "Use two retries."}
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {

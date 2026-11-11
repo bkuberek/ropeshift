@@ -198,7 +198,7 @@ func roleWorkerPark(c *child) error {
 	if err := journal.Migrate(c.ctx); err != nil {
 		return err
 	}
-	client := api.NewUnixClient(c.spec.Socket)
+	client := api.NewUnixClient(c.spec.Socket).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	dir := filepath.Dir(c.spec.Journal)
 	driver := &parkDriver{
@@ -207,7 +207,7 @@ func roleWorkerPark(c *child) error {
 	}
 	profiles := fake.NewProfileSource()
 	profiles.PutUser(c.spec.Profile)
-	subject := worker.New(witnessLink{WorkerLink: workerlink.New(client), log: c.log}, journal, clock.System{}, worker.Config{
+	subject := worker.New(witnessLink{WorkerLink: workerlink.New(client.Client), log: c.log}, journal, clock.System{}, worker.Config{
 		Name:      "child",
 		JoinToken: func(context.Context) (string, error) { return c.spec.Key, nil },
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "worker:", err) },

@@ -54,7 +54,7 @@ func (c *invocation) telemetryQuery(args []string) int {
 
 // telemetryLanes prints each lane's context, tokens, and cost from the local store.
 func (c *invocation) telemetryLanes(args []string) int {
-	client, ok, code := c.noArguments(args)
+	client, ok, code := c.noArgumentsAtInstallation(args)
 	if !ok {
 		return code
 	}

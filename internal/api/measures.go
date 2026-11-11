@@ -36,12 +36,12 @@ func ParseWindow(text string) (time.Duration, error) {
 }
 
 // Measures reads every product measure over one window, from the ledger alone.
-func (c *Client) Measures(ctx context.Context, window string) (measures.Report, error) {
+func (c *ProjectClient) Measures(ctx context.Context, window string) (measures.Report, error) {
 	var out measures.Report
 	path := MeasuresPath
 	if window != "" {
 		path += "?window=" + url.QueryEscape(window)
 	}
-	err := c.Do(ctx, http.MethodGet, path, nil, &out)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
 	return out, err
 }

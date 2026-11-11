@@ -7,10 +7,12 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -22,7 +24,8 @@ type request struct {
 }
 
 // plane is a control plane that answers from a script, for a command whose steps matter more than
-// the ledger behind them. A route nobody scripted answers 404.
+// the ledger behind them. A route nobody scripted answers 404. It holds one project, and a script names
+// that project's routes as they read under /v1.
 type plane struct {
 	t      *testing.T
 	Socket string
@@ -46,6 +49,14 @@ func newPlane(t *testing.T) *plane {
 }
 
 func (p *plane) serve(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && r.URL.Path == api.ProjectsPath {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(api.ProjectList{Projects: []api.Project{{Name: apitest.ProjectName, State: ledger.ProjectActive, Repositories: []string{}}}})
+		return
+	}
+	if rest, ok := strings.CutPrefix(r.URL.Path, apitest.Route("/v1")); ok {
+		r.URL.Path, r.URL.RawPath = "/v1"+rest, ""
+	}
 	body, _ := io.ReadAll(r.Body)
 	p.mu.Lock()
 	p.calls = append(p.calls, request{Method: r.Method, Path: r.URL.Path, Body: string(body)})

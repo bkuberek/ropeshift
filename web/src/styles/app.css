@@ -1589,3 +1589,17 @@ textarea {
   font-family: var(--mono);
   font-size: 0.875em;
 }
+
+/* The project switch */
+
+.project-switch select {
+  min-height: 2.75rem;
+  max-width: 16rem;
+  padding: 0.25rem 0.5rem;
+  border: 2px solid var(--muted);
+  border-radius: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+}

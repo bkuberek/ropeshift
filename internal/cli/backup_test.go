@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -56,4 +57,48 @@ func TestBackupSaysWhenThereIsNone(t *testing.T) {
 	if code != cli.ExitError || !strings.Contains(stderr, "own tooling") {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
+}
+
+// TestBackupCopiesTheProjectItChose holds FR-PROJ-9 from the command line: backup takes its project as
+// every command on project records does, and --installation copies the installation's records instead.
+func TestBackupCopiesTheProjectItChose(t *testing.T) {
+	p := newProjects(t)
+	dir := t.TempDir()
+	stdout := p.must(cli.Options{}, "backup", "--project", "acme", filepath.Join(dir, "acme.db"))
+	if !strings.Contains(stdout, "project acme") {
+		t.Errorf("stdout %q", stdout)
+	}
+	if n := countIn(t, filepath.Join(dir, "acme.db"), "work_orders WHERE id = 'wo-acme'"); n != 1 {
+		t.Errorf("acme's copy holds %d of its work orders", n)
+	}
+	if n := countIn(t, filepath.Join(dir, "acme.db"), "work_orders WHERE id = 'wo-home'"); n != 0 {
+		t.Errorf("acme's copy holds the first project's work order")
+	}
+	stdout = p.must(cli.Options{}, "backup", "--installation", filepath.Join(dir, "installation.db"))
+	if !strings.Contains(stdout, "installation") {
+		t.Errorf("stdout %q", stdout)
+	}
+	if n := countIn(t, filepath.Join(dir, "installation.db"), "projects"); n != 2 {
+		t.Errorf("the installation's copy holds %d projects", n)
+	}
+	if code, _, _ := p.run(cli.Options{}, "backup", filepath.Join(dir, "unchosen.db")); code != cli.ExitUsage {
+		t.Errorf("no project to choose: exit %d", code)
+	}
+	if code, _, _ := p.run(cli.Options{}, "backup", "--installation", "--project", "acme", filepath.Join(dir, "both.db")); code != cli.ExitUsage {
+		t.Errorf("--installation with --project: exit %d", code)
+	}
+}
+
+func countIn(t *testing.T, file, table string) int64 {
+	t.Helper()
+	db, err := sqlite.OpenDB(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int64
+	if err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

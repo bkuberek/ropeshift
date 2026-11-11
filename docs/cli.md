@@ -14,12 +14,37 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 
 `ropeshiftd` answers the same forms for its own commands: `solo`, `help`, and `version`.
 
+## Projects
+
+An installation holds one or more projects, and each project's records live in a ledger of their own. A command on a project's records acts on one project, which it takes from the first of these that names one:
+
+1. `--project <name>`.
+2. `ROPESHIFT_PROJECT`.
+3. The project that holds the repository the command runs in: its remote, with no credential and no `.git` suffix, or its first commit when it has no remote.
+4. The only active project.
+
+With none of these, the command exits 2 and lists the projects. A name the installation does not hold exits 2 with the same list.
+
+Every step of a project's lifecycle needs a member's session and records an event in the installation's log, with who took it.
+
+A repository belongs to one project. Its identity is its remote, or its first commit when it has none, so every clone of one repository is the same repository. Registering a repository another project holds is refused with exit 4, and the message names that project.
+
+The commands on the installation's own records take no project: `project`, `worker`, `orchestrator`, `login`, `sign-out`, `passphrase`, `init`, `service`, `health`, `telemetry`, which reads the worker's own store, and `backup --installation`.
+
 ## Commands
 
 | Command | Does |
 |---------|------|
 | `ropeshift top [--once] [--width N]` | Watches the fleet: what needs a person first, in the order the Needs you view holds, then each lane in that order with its state, reachability, and whether its value is `observed` or `last_reported`, then the workers. A parked lane says what it waits for, such as `waits for question q-1 or a person`. It follows the ledger's events and reads again at least every 5 seconds, and it changes nothing: it names the command for what the cursor stands on. Text from agents and repositories prints with control characters replaced. With no terminal, or with `--once`, it prints one frame, and `--json` prints one document. A printed frame is as wide as the terminal on stdout, and 120 columns when stdout is not a terminal, such as a pipe or a file. `--width N` sets its width in columns, and clips each line to it |
-| `ropeshift health` | Says the control plane answered and read its ledger, and the revision it stands at. It exits 9 when nothing answers |
+| `ropeshift health` | Says the control plane answered and read its ledger, and the revision the first project stands at. It exits 9 when nothing answers |
+| `ropeshift project list` | Lists the installation's projects, oldest first, each with its state, its display name, and how many repositories it holds. `--json` lists the identity of each repository |
+| `ropeshift project show <name>` | Shows one project: its ID, which every record of its ledger carries, its display name, its state, its database, and the record of each repository it holds |
+| `ropeshift project create <name> [--display-name T]` | Creates a project with a ledger of its own, at the current schema, and registers it. The name is a lowercase, hyphenated slug no other project holds, used in addresses and `--project`. The ID is new, so the project's backup imports into any installation |
+| `ropeshift project rename <name> <new-name>` | Changes a project's name. Its ID, its database, and every record keep their identity, and the old name names nothing |
+| `ropeshift project archive <name>` | Makes a project read-only in every surface: it takes no claims and no change, and the daemon runs no intake, tick, or notice for it. It reads and backs up as before. It is refused, naming the lane, while any lane of the project has not ended, so drain it first with `fleet drain`. Archiving an archived project changes nothing |
+| `ropeshift project restore <name>` | Returns an archived project to active. A project that is not archived exits 4 |
+| `ropeshift project remove <name> --confirm <name> (--backup F \| --no-backup)` | Deletes an archived project's database and drops it from the registry and the repository index, after writing its backup to F when `--backup` names a file. It exits 2 unless `--confirm` repeats the name and exactly one of `--backup` and `--no-backup` is given, and 4 for a project that is not archived. The project the daemon's worker serves, the installation's first, stays |
+| `ropeshift project import <file> [--name N]` | Registers a project from its backup, keeping its ID, under `--name` or the name its backup holds. It exits 4 when the installation holds that ID or name, or when another project holds one of its repositories, which the message names. A relative path is read from where the command runs |
 | `ropeshift version [--json]` | Prints the version, the commit, the build date, the Go version, and the platform. It needs no daemon, and `ropeshiftd version` prints the same under the daemon's name. `--version` is the same command. See [versioning](versioning.md#what-a-binary-reports) |
 | `ropeshift help [<command>]` | Lists every command by group, or prints one command's usage, what it does, and its flags. See [help](#help) |
 | `ropeshift work create --title T [--criterion C]...` | Records a work order and the contract it pins, in `contract_review`. With `--kind plan --repository R`, its lane writes repository files on its branch, and intake reads them at the commit a member accepts. The files are goals, plans, requirements, specs, architecture documents, experience designs, milestones, and contracts, and intake keeps a numbered version of each document for every committed change. A contract pins each document it cites to the version at its commit, and a criterion that serves no requirement of its plan keeps the work from `ready`. A contract names the milestone of its plan it belongs to, which every contract of a plan with milestones must do, and the shared contracts of its plan it uses, and a milestone names the milestones it depends on. Intake makes every work order of a milestone wait for every work order of the milestones it depends on, and every work order of a contract wait for the work orders of each shared contract it uses. A reference to a milestone or shared contract the plan does not hold is a problem, and intake records nothing from that file. A plan whose milestones, shared contracts, or work orders depend on each other in a loop is refused whole, and the problem names the loop. `source list` names R, and reports a file intake could not read |
@@ -99,7 +124,7 @@ Every command takes `--json`. With it, a result is one JSON document on stdout, 
 | `ropeshift sign-out` | Ends the session this shell holds, so its token opens nothing again. The token in `ROPESHIFT_MEMBER_TOKEN` is all it needs, so it works with no terminal, and it never asks for the passphrase. With no token, or one whose session expired or already ended, it says there is no session to end and exits 8 |
 | `ropeshift passphrase set` | Sets the passphrase on the terminal. The first needs no session, and a later one asks for the current passphrase. A passphrase has at least 8 bytes |
 | `ropeshift init` | Sets up this machine for solo mode, and a second run says only what is left. It asks for the first passphrase on the terminal and keeps one already set. It waits for the worker's registration, and with no daemon running it runs one for its own length, because a first start registers the worker. It runs the doctor and says, for each agent CLI, whether to install it, sign in through its vendor's own flow, or nothing, with the level the worker starts at. It writes a sample contract to the installation's directory and keeps one already there. It exits 1 when no agent CLI is usable, after every other step. See [onboarding](onboarding.md) |
-| `ropeshift backup <file>` | Copies the ledger to a new file through SQLite's online backup, while the daemon goes on writing. A relative path is read from where the command runs, a file already at the path is never replaced and exits 2, and only the owner can read the copy. It needs a member's session, because the copy holds every record of the default project. The member, the passphrase's hash, and the workers live in the installation database, which the copy leaves out. A control plane with no online backup exits 1 |
+| `ropeshift backup <file> [--installation]` | Copies the project's ledger to a new file through SQLite's online backup, while the daemon goes on writing. The copy holds every record of that project and nothing of another project, and `project import` registers it in another installation with its ID. `--installation` copies the installation database instead: the registry of projects, the member and the passphrase's hash, the member sessions, and the workers, and it takes no project. Restoring a whole installation takes its installation backup and each project's backup. A relative path is read from where the command runs, a file already at the path is never replaced and exits 2, and only the owner can read the copy. It needs a member's session, because the copy holds every record it names. A control plane with no online backup exits 1 |
 | `ropeshift service install [--name N] [-- daemon flags]` | Runs the daemon as a launchd agent on macOS or a systemd user unit on Linux, from the `ropeshiftd` beside this command, and starts it, or restarts it with the new definition. The flags after `--` go to `ropeshiftd solo` as they are. A flag it refuses, or a `--source` that is not an absolute path, exits 2 before anything is written. The definition keeps this shell's `PATH`, locale, and ropeshift's own location variables, because a service manager starts the daemon with almost none, and it holds no other variable. The launchd agent sets `ProcessType` to `Interactive`. The name is `dev.ropeshift.ropeshiftd` on macOS and `ropeshiftd` on Linux by default. See [onboarding](onboarding.md#run-the-daemon-as-a-service) |
 | `ropeshift service uninstall [--name N]` | Stops the service and removes its definition. No lane stops: a lane's processes live outside the service, and the daemon adopts them when it starts again. A service that is not installed exits 3 |
 | `ropeshift worker doctor` | Reports each agent CLI on this machine: whether it is present, its version, whether that version is qualified, and the kind of its sign-in. It uses the vendor's status command, reads no credential, and needs no daemon. It exits 1 when no CLI is usable |
@@ -133,7 +158,7 @@ These commands are for ropeshift or an agent CLI to run, and a person does not n
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--source <path>` | None | A repository to read work and documents from. Repeat it for each repository |
+| `--source <path>` | None | A repository to read work and documents from, into the installation's first project. Repeat it for each repository. A repository another project holds is refused: each read says which project holds it, and reads nothing from it |
 | `--ref <ref>` | The default branch | The ref intake reads in each source |
 | `--dir <dir>` | The whole repository | The directory intake reads in each source |
 | `--web <address>` | `127.0.0.1:7317`, or `ROPESHIFT_WEB` | The loopback address of the web UI, or `off` |

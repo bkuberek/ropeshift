@@ -16,6 +16,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/adapters/localauth"
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
+	"ropeshift.com/ropeshift/internal/adapters/repofiles"
 	"ropeshift.com/ropeshift/internal/adapters/tmux"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -79,7 +80,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 // cliOptions finds the local control plane. A path that does not resolve leaves the
 // socket empty, and the command reports it cannot reach anything.
 func cliOptions() cli.Options {
-	opts := cli.Options{Session: os.Getenv(authority.EnvMemberToken), ReadPassphrase: localauth.ReadPassphrase}
+	opts := cli.Options{
+		Session: os.Getenv(authority.EnvMemberToken), Project: os.Getenv(api.EnvProject), ReadPassphrase: localauth.ReadPassphrase,
+		RepositoryHere: repositoryHere,
+	}
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
 		opts.Terminal = os.Stdin
 	}
@@ -98,6 +102,20 @@ func cliOptions() cli.Options {
 	opts.StartDaemon = startDaemonForInit(paths)
 	opts.StateDir = paths.StateDir
 	return opts
+}
+
+// repositoryHere is the identity of the repository that holds the working directory, as the repository
+// index names it (ADR-0021), or empty when no repository with a commit holds it.
+func repositoryHere(ctx context.Context) (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	description, err := repofiles.New(repofiles.Config{Repository: dir}).Describe(ctx)
+	if err != nil {
+		return "", nil
+	}
+	return ledger.RepositoryIdentity(description.Remote, description.Instance), nil
 }
 
 // terminalPanes reaches the worker's private tmux server with the person's own terminal and

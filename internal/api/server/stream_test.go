@@ -74,7 +74,7 @@ func TestAQuietStreamSpeaksAtOnce(t *testing.T) {
 	cookies, _ := r.signedIn(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL(api.EventsPath+"?after="+strconv.FormatInt(revisionOf(t, r.d), 10)), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL(apitest.Route(api.EventsPath)+"?after="+strconv.FormatInt(revisionOf(t, r.d), 10)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestAStreamHoldsMoreThanOnePage(t *testing.T) {
 
 func TestAStreamRefusesAResumePointThatIsNoRevision(t *testing.T) {
 	d := apitest.Start(t)
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://ropeshift"+api.EventsPath, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://ropeshift"+apitest.Route(api.EventsPath), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

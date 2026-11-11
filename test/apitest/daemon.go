@@ -30,6 +30,9 @@ import (
 // Scope is the workspace of every harness.
 const Scope = ledger.WorkspaceID("test-workspace")
 
+// Project is the name a harness's one project answers to, under /v1/projects/{project}/.
+const ProjectName = ledger.DefaultProjectName
+
 // LeaseTTL is the policy lease of every harness.
 const LeaseTTL = int64(60_000)
 
@@ -43,8 +46,9 @@ const Passphrase = "a passphrase only a person knows"
 type Daemon struct {
 	Socket string
 	Store  *sqlstore.Store
-	// Client calls as the harness's member, and Session is what it presents.
-	Client  *api.Client
+	// Client calls the harness's project as its member, and the installation's routes through the client
+	// it carries. Session is what it presents.
+	Client  *api.ProjectClient
 	Session string
 	// Config is what the handler runs on, for a second listener on the same ledger.
 	Config server.Config
@@ -109,7 +113,7 @@ func ShortDir(t testing.TB) string {
 // SignIn gives a client a session on a server this harness did not start, over the API,
 // which is the path a person's own client takes. It sets the harness's passphrase if nobody
 // has, and it returns the token for a process the client cannot hand it to.
-func SignIn(ctx context.Context, client *api.Client) (string, error) {
+func SignIn(ctx context.Context, client signingIn) (string, error) {
 	err := client.SetPassphrase(ctx, api.SetPassphrase{Passphrase: Passphrase})
 	var refused *api.Error
 	if err != nil && (!errors.As(err, &refused) || refused.Detail.Code != api.CodeSessionRequired) {
@@ -121,6 +125,13 @@ func SignIn(ctx context.Context, client *api.Client) (string, error) {
 	}
 	client.UseSession(session.Token)
 	return session.Token, nil
+}
+
+// signingIn is the part of a client that signs in, which a project's client carries too.
+type signingIn interface {
+	SetPassphrase(context.Context, api.SetPassphrase) error
+	SignIn(context.Context, api.SignIn) (api.Session, error)
+	UseSession(string)
 }
 
 // RawClient is an HTTP client on a socket, for a test that must send what the API's client never would.
@@ -156,6 +167,8 @@ type Options struct {
 	Panes server.Panes
 	// WebAddress is where the daemon says its web UI listens. Empty serves none.
 	WebAddress string
+	// Unscoped serves the deprecated routes with no project, as the daemon does for one release.
+	Unscoped bool
 }
 
 // Start serves the API until the test ends.
@@ -185,20 +198,31 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: Scope, Name: "Test"}, actor); err != nil {
 		t.Fatal(err)
 	}
+	identity := fake.NewIdentityProvider()
+	config := server.Config{
+		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
+		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
+		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress, Unscoped: options.Unscoped,
+	}
+	daemon := serve(t, config, options.Wrap)
+	daemon.Store = store
+	if !options.NoMember {
+		daemon.signIn(t, identity)
+	}
+	return daemon
+}
+
+// serve serves a handler on its own socket until the test ends.
+func serve(t testing.TB, config server.Config, wrap func(http.Handler) http.Handler) *Daemon {
+	t.Helper()
 	socket := filepath.Join(ShortDir(t), api.ControlSocketName)
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity := fake.NewIdentityProvider()
-	config := server.Config{
-		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
-		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
-		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress,
-	}
 	handler := server.New(config)
-	if options.Wrap != nil {
-		handler = options.Wrap(handler)
+	if wrap != nil {
+		handler = wrap(handler)
 	}
 	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	done := make(chan struct{})
@@ -212,11 +236,59 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	})
 	client := api.NewUnixClient(socket)
 	t.Cleanup(client.Close)
-	daemon := &Daemon{Socket: socket, Store: store, Client: client, Config: config}
-	if !options.NoMember {
-		daemon.signIn(t, identity)
+	return &Daemon{Socket: socket, Client: client.Project(ProjectName), Config: config}
+}
+
+// Installation is an installation on a state directory: its first project `default` on the ledger file,
+// and every other project in a database of its own, served by one API with one member.
+type Installation struct {
+	*Daemon
+	State *sqlite.State
+}
+
+// StartInstallation serves an installation with the projects named after its first one, until the test
+// ends. Each project's ID is its name with "-id" after it, so a test can tell the two apart.
+func StartInstallation(t testing.TB, names ...string) *Installation {
+	t.Helper()
+	ctx := context.Background()
+	actor := ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}
+	state, store, err := sqlite.Upgrade(ctx, t.TempDir(), api.LedgerFileName, ledger.Workspace{ID: Scope, Name: "Test"}, actor)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return daemon
+	t.Cleanup(func() {
+		_ = state.Close()
+		_ = store.Close()
+	})
+	for _, name := range names {
+		if _, _, err := state.CreateProject(ctx, ledger.Project{ID: ledger.WorkspaceID(name + "-id"), Name: name}, actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	identity := fake.NewIdentityProvider()
+	config := server.Config{
+		Scope: Scope, Store: store, Projects: state, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
+		Matcher:  lexical.Matcher{Store: store},
+		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+	}
+	daemon := serve(t, config, nil)
+	daemon.Store = store
+	daemon.signIn(t, identity)
+	return &Installation{Daemon: daemon, State: state}
+}
+
+// In returns the Store and the member's client of one project.
+func (in *Installation) In(t testing.TB, name string) (ledger.Project, ports.Store, *api.ProjectClient) {
+	t.Helper()
+	project, err := in.State.Named(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := in.State.Open(t.Context(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return project, store, in.Client.Project(name)
 }
 
 // signIn enrolls the harness's member and gives the client a session, in process, so that a
@@ -268,3 +340,6 @@ func (d *Daemon) Completed(t *testing.T, id string, result workorders.LaneResult
 		t.Fatal(err)
 	}
 }
+
+// Route is where a project route, as it reads under /v1, lives for the harness's project.
+func Route(path string) string { return api.InProject(ProjectName, path) }

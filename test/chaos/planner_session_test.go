@@ -50,7 +50,7 @@ func newPlannerRun(t *testing.T) *plannerRun {
 		t: t, w: w, binary: binary, path: doubles.InstallFakeClaude(t, "pane-survives"), repo: repo.Dir,
 		paths: api.Paths{StateDir: filepath.Join(w.target.Dir, "state"), RunDir: filepath.Join(apitest.ShortDir(t), "run")},
 	}
-	run.client = api.NewUnixClient(run.paths.ControlSocket())
+	run.client = api.NewUnixClient(run.paths.ControlSocket()).Project(ledger.DefaultProjectName)
 	t.Cleanup(run.client.Close)
 	terminal := doubles.TmuxOn(t, run.paths.TerminalSocket())
 	// The daemon is the same binary under another name, and the command line is what a renamed binary acts as.

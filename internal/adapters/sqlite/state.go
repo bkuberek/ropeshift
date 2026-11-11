@@ -2,13 +2,16 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // ProjectsDir holds the ledger of each project an installation creates after its first, in the state
@@ -24,6 +27,13 @@ type State struct {
 	// project, which the first project to hold each one keeps.
 	IndexConflicts []ledger.IndexedRepository
 	opts           sqlstore.Options
+
+	// mu guards the ledgers the state keeps open, one Store per project, so every call to a project
+	// shares one pool.
+	mu     sync.Mutex
+	stores map[ledger.WorkspaceID]*sqlstore.Store
+	// owned are the ledgers the state opened itself, which it closes. A caller's own Store it only lends.
+	owned map[ledger.WorkspaceID]bool
 }
 
 // OpenState opens the installation database of a state directory, creating it when it is missing, and
@@ -39,11 +49,63 @@ func OpenState(ctx context.Context, dir string, opts sqlstore.Options) (*State, 
 		return nil, err
 	}
 	opts.Installation = installation
-	return &State{Dir: dir, Installation: installation, opts: opts}, nil
+	return &State{
+		Dir: dir, Installation: installation, opts: opts,
+		stores: map[ledger.WorkspaceID]*sqlstore.Store{}, owned: map[ledger.WorkspaceID]bool{},
+	}, nil
 }
 
-// Close closes the installation database. Each project's Store closes on its own.
-func (s *State) Close() error { return s.Installation.Close() }
+// Close closes every ledger the state opened, and then the installation database. A Store the caller
+// lent it stays open.
+func (s *State) Close() error {
+	s.mu.Lock()
+	var failed []error
+	for id, store := range s.stores {
+		if s.owned[id] {
+			failed = append(failed, store.Close())
+		}
+	}
+	s.stores, s.owned = map[ledger.WorkspaceID]*sqlstore.Store{}, map[ledger.WorkspaceID]bool{}
+	s.mu.Unlock()
+	return errors.Join(append(failed, s.Installation.Close())...)
+}
+
+// Lend keeps a project's Store, opened and closed by the caller, as the one Open returns for it.
+func (s *State) Lend(id ledger.WorkspaceID, store *sqlstore.Store) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stores[id], s.owned[id] = store, false
+}
+
+// List returns every project, oldest first.
+func (s *State) List(ctx context.Context) ([]ledger.Project, error) {
+	return s.Installation.Projects(ctx)
+}
+
+// Named returns the project with a name, or ErrNotFound.
+func (s *State) Named(ctx context.Context, name string) (ledger.Project, error) {
+	return s.Installation.Project(ctx, name)
+}
+
+// Index lists which project holds each repository.
+func (s *State) Index(ctx context.Context) ([]ledger.IndexedRepository, error) {
+	return s.Installation.RepositoryIndex(ctx)
+}
+
+// Open returns a project's Store, opening its ledger on first use and keeping it open after.
+func (s *State) Open(ctx context.Context, p ledger.Project) (ports.Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if store, ok := s.stores[p.ID]; ok {
+		return store, nil
+	}
+	store, err := s.openLedger(ctx, p.Database)
+	if err != nil {
+		return nil, err
+	}
+	s.stores[p.ID], s.owned[p.ID] = store, true
+	return store, nil
+}
 
 // file resolves a project's database to its file. It must name a file inside the state directory.
 func (s *State) file(database string) (string, error) {
@@ -97,7 +159,8 @@ func fileNameRune(c rune) bool {
 
 // CreateProject creates a project's ledger in the projects folder at this build's schema, with its
 // workspace, and then registers it. The ledger exists before the registry names it, so a crash between
-// the two leaves a file the registry does not know, and a retry registers it.
+// the two leaves a file the registry does not know, and a retry registers it. The state keeps the Store
+// it returns, and closes it.
 func (s *State) CreateProject(ctx context.Context, p ledger.Project, actor ledger.Actor) (ledger.Project, *sqlstore.Store, error) {
 	database, err := projectDatabase(p.ID)
 	if err != nil {
@@ -133,5 +196,35 @@ func (s *State) CreateProject(ctx context.Context, p ledger.Project, actor ledge
 		_ = store.Close()
 		return ledger.Project{}, nil, err
 	}
+	s.keep(registered.ID, store)
 	return registered, store, nil
 }
+
+// keep holds a ledger the state opened as the one Open returns for its project. A ledger it already
+// holds for the project stays, and the second closes.
+func (s *State) keep(id ledger.WorkspaceID, store *sqlstore.Store) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if kept, ok := s.stores[id]; ok && kept != store {
+		_ = store.Close()
+		return
+	}
+	s.stores[id], s.owned[id] = store, true
+}
+
+// Backup copies a project's ledger through the online backup, while the daemon goes on writing.
+func (s *State) Backup(ctx context.Context, p ledger.Project, path string) (int64, error) {
+	file, err := s.file(p.Database)
+	if err != nil {
+		return 0, err
+	}
+	return LedgerBackup{File: file}.Backup(ctx, path)
+}
+
+// BackupInstallation copies the installation database: the registry, the members and the passphrase's
+// hash, and the workers.
+func (s *State) BackupInstallation(ctx context.Context, path string) (int64, error) {
+	return LedgerBackup{File: filepath.Join(s.Dir, InstallationFileName)}.Backup(ctx, path)
+}
+
+var _ ports.Projects = (*State)(nil)

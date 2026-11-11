@@ -35,6 +35,10 @@ func (in *Installation) Migrate(ctx context.Context) error {
 // The operations of the installation database, as traces and crash steps name them.
 const (
 	opCreateProject = "project.create"
+	opRenameProject = "project.rename"
+	opProjectState  = "project.state"
+	opDropProject   = "project.drop"
+	opImportProject = "project.import"
 	opIndex         = "repository_index.rebuild"
 )
 
@@ -69,6 +73,18 @@ ON CONFLICT DO NOTHING`)
 
 	stmtListProjects = defineInstallation("project.list",
 		`SELECT `+projectColumns+` FROM projects ORDER BY created_at, id`)
+
+	stmtRenameProject = defineInstallation("project.rename",
+		`UPDATE projects SET name = :name WHERE id = :id AND name <> :name`)
+
+	stmtSetProjectState = defineInstallation("project.set_state",
+		`UPDATE projects SET state = :state WHERE id = :id AND state <> :state`)
+
+	stmtDeleteProject = defineInstallation("project.delete",
+		`DELETE FROM projects WHERE id = :id`)
+
+	stmtForgetProjectRepositories = defineInstallation("repository_index.forget_project",
+		`DELETE FROM repository_index WHERE project_id = :project_id`)
 
 	stmtClearRepositoryIndex = defineInstallation("repository_index.clear",
 		`DELETE FROM repository_index`)
@@ -267,6 +283,164 @@ func readProject(se *session, st *statement, p params) (ledger.Project, error) {
 		return ledger.Project{}, fmt.Errorf("project: %w", ports.ErrNotFound)
 	}
 	return project, err
+}
+
+// projectData is a project's record as a lifecycle event holds it.
+type projectData struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	State       string `json:"state"`
+	Database    string `json:"database"`
+}
+
+func dataOf(p ledger.Project) *projectData {
+	return &projectData{Name: p.Name, DisplayName: p.DisplayName, State: string(p.State), Database: p.Database}
+}
+
+// projectChange is the data of a lifecycle event: the record before, and after unless it went.
+type projectChange struct {
+	Before *projectData `json:"before"`
+	After  *projectData `json:"after,omitempty"`
+}
+
+// changeProject applies one change to a registered project and appends its event, and changes nothing,
+// with no event, when the project already reads as the change leaves it.
+func (in *Installation) changeProject(ctx context.Context, op string, id ledger.WorkspaceID, eventType string, change func(*installationTx, ledger.Project) (int64, error), actor ledger.Actor) (ledger.Project, error) {
+	var after ledger.Project
+	err := in.write(ctx, op, func(t *installationTx) error {
+		before, err := readProject(t.session, stmtReadProject, params{"id": string(id)})
+		if err != nil {
+			return err
+		}
+		n, err := change(t, before)
+		if err != nil {
+			return err
+		}
+		if after, err = readProject(t.session, stmtReadProject, params{"id": string(id)}); err != nil || n == 0 {
+			return err
+		}
+		data, err := json.Marshal(projectChange{Before: dataOf(before), After: dataOf(after)})
+		if err != nil {
+			return err
+		}
+		return t.append(ledger.EventDraft{Type: eventType, Actor: actor, Data: data, Subject: ledger.Subject{Kind: ledger.SubjectProject, ID: string(id)}})
+	})
+	return after, err
+}
+
+// RenameProject gives a project a new name, which no other project may hold. The ID and the database stay.
+func (in *Installation) RenameProject(ctx context.Context, id ledger.WorkspaceID, name string, actor ledger.Actor) (ledger.Project, error) {
+	if err := ledger.ValidateProjectName(name); err != nil {
+		return ledger.Project{}, err
+	}
+	return in.changeProject(ctx, opRenameProject, id, ledger.EventProjectRenamed, func(t *installationTx, _ ledger.Project) (int64, error) {
+		if holder, err := readProject(t.session, stmtProjectNamed, params{"name": name}); err == nil && holder.ID != id {
+			return 0, fmt.Errorf("%w: project %s is named %q", ledger.ErrProjectExists, holder.ID, name)
+		} else if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return 0, err
+		}
+		return t.exec(stmtRenameProject, params{"id": string(id), "name": name})
+	}, actor)
+}
+
+// SetProjectState moves a project to a state, with its event: archived or restored.
+func (in *Installation) SetProjectState(ctx context.Context, id ledger.WorkspaceID, state ledger.ProjectState, actor ledger.Actor) (ledger.Project, error) {
+	if !state.Valid() {
+		return ledger.Project{}, fmt.Errorf("%w: state %q", ledger.ErrInvalidProject, state)
+	}
+	eventType := ledger.EventProjectRestored
+	if state == ledger.ProjectArchived {
+		eventType = ledger.EventProjectArchived
+	}
+	return in.changeProject(ctx, opProjectState, id, eventType, func(t *installationTx, _ ledger.Project) (int64, error) {
+		return t.exec(stmtSetProjectState, params{"id": string(id), "state": string(state)})
+	}, actor)
+}
+
+// DropProject forgets a project: its entry in the registry and every repository it held in the index.
+// The event that records who removed it stays in the installation's log.
+func (in *Installation) DropProject(ctx context.Context, id ledger.WorkspaceID, actor ledger.Actor) error {
+	return in.write(ctx, opDropProject, func(t *installationTx) error {
+		before, err := readProject(t.session, stmtReadProject, params{"id": string(id)})
+		if err != nil {
+			return err
+		}
+		if _, err := t.exec(stmtForgetProjectRepositories, params{"project_id": string(id)}); err != nil {
+			return err
+		}
+		if _, err := t.exec(stmtDeleteProject, params{"id": string(id)}); err != nil {
+			return err
+		}
+		data, err := json.Marshal(projectChange{Before: dataOf(before)})
+		if err != nil {
+			return err
+		}
+		return t.append(ledger.EventDraft{Type: ledger.EventProjectRemoved, Actor: actor, Data: data, Subject: ledger.Subject{Kind: ledger.SubjectProject, ID: string(id)}})
+	})
+}
+
+// ImportProject registers a project from a backup, with the ID the backup holds, and enters each of its
+// repositories in the index, all in one transaction. It is refused when the installation holds the ID
+// or the name, or when another project holds one of the repositories, which the refusal names.
+func (in *Installation) ImportProject(ctx context.Context, p ledger.Project, repositories []ledger.IndexedRepository, actor ledger.Actor) (ledger.Project, error) {
+	if p.State == "" {
+		p.State = ledger.ProjectActive
+	}
+	if err := p.Validate(); err != nil {
+		return ledger.Project{}, err
+	}
+	err := in.write(ctx, opImportProject, func(t *installationTx) error {
+		if _, err := readProject(t.session, stmtReadProject, params{"id": string(p.ID)}); err == nil {
+			return fmt.Errorf("%w: the installation holds project ID %s", ledger.ErrProjectExists, p.ID)
+		} else if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		for _, entry := range repositories {
+			if err := t.refuseHeld(entry.Identity); err != nil {
+				return err
+			}
+		}
+		if p.CreatedAt == 0 {
+			p.CreatedAt = t.now
+		}
+		n, err := t.exec(stmtInsertProject, projectParams(p))
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("%w: another project holds the name %q or the database %q", ledger.ErrProjectExists, p.Name, p.Database)
+		}
+		for _, entry := range repositories {
+			if _, err := t.exec(stmtIndexRepository, params{"identity": entry.Identity, "project_id": string(p.ID), "repository_id": entry.Repository}); err != nil {
+				return err
+			}
+		}
+		data, err := json.Marshal(projectCreated{Name: p.Name, DisplayName: p.DisplayName, Database: p.Database})
+		if err != nil {
+			return err
+		}
+		return t.append(ledger.EventDraft{Type: ledger.EventProjectImported, Actor: actor, Data: data, Subject: ledger.Subject{Kind: ledger.SubjectProject, ID: string(p.ID)}})
+	})
+	if err != nil {
+		return ledger.Project{}, err
+	}
+	return p, nil
+}
+
+// refuseHeld refuses an identity any project holds, naming it.
+func (t *installationTx) refuseHeld(identity string) error {
+	row, err := t.row(stmtRepositoryHolder, params{"identity": identity})
+	if err != nil {
+		return err
+	}
+	var project, name string
+	switch err := row.Scan(&project, &name); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	}
+	return fmt.Errorf("%w: project %s holds %s", ledger.ErrRepositoryHeld, name, identity)
 }
 
 // Project returns the project with a name, or ErrNotFound.

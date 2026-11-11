@@ -39,7 +39,10 @@ func (c *invocation) questionList(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	rows, err := client.Questions(c.ctx, filter)
 	if rows == nil {
@@ -63,7 +66,10 @@ func (c *invocation) questionShow(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("takes one question ID")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.Question(c.ctx, positional[0])
 	return c.finish(err, row, func() string { return questionLine(row) })
@@ -97,7 +103,10 @@ func (c *invocation) questionRecord(args []string) int {
 		request.ID = id
 	}
 	request.Categories = categories
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.RecordQuestion(c.ctx, request)
 	return c.finish(err, row, func() string { return questionLine(row) })
@@ -112,7 +121,10 @@ func (c *invocation) questionDismiss(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("takes one question ID")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	err := client.DismissQuestion(c.ctx, positional[0])
 	return c.finish(err, struct {
@@ -146,7 +158,10 @@ func (c *invocation) questionAnswer(args []string) int {
 		request.ID = id
 	}
 	request.Citations = citations
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.AnswerQuestion(c.ctx, positional[0], request)
 	return c.finish(err, row, func() string { return decisionLine(row) })
@@ -162,7 +177,10 @@ func (c *invocation) questionBatches(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	rows, err := client.Batches(c.ctx, *category)
 	if rows == nil {
@@ -206,7 +224,10 @@ func (c *invocation) decisionList(args []string) int {
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	rows, err := client.Decisions(c.ctx, filter)
 	if rows == nil {
@@ -230,7 +251,10 @@ func (c *invocation) decisionShow(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("takes one decision ID")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.Decision(c.ctx, positional[0])
 	return c.finish(err, row, func() string { return decisionLine(row) })
@@ -273,7 +297,10 @@ func (c *invocation) decisionRecord(args []string) int {
 		request.Status = questions.DecisionAssumed
 	}
 	request.Categories, request.Citations, request.NoConflict = categories, citations, noConflict
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.RecordDecision(c.ctx, request)
 	return c.finish(err, row, func() string { return decisionLine(row) })
@@ -305,7 +332,10 @@ func (c *invocation) decisionOverturn(args []string) int {
 		request.ID = id
 	}
 	request.Citations = citations
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.OverturnDecision(c.ctx, positional[0], request)
 	return c.finish(err, row, func() string {
@@ -349,7 +379,10 @@ func (c *invocation) policyList(args []string) int {
 	if !ok {
 		return c.usageError("no policy %q", *kind)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	rows, err := client.PoliciesOf(c.ctx, named)
 	return c.finish(err, api.PolicyList{Versions: rows}, func() string {
@@ -379,7 +412,10 @@ func (c *invocation) policyShow(args []string) int {
 	if !ok {
 		return c.usageError("no policy %q", *kind)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.PolicyOf(c.ctx, named, version)
 	return c.finish(err, row, func() string { return row.Body })
@@ -402,7 +438,10 @@ func (c *invocation) policyPublish(args []string) int {
 	if err != nil {
 		return c.failure(err)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.PublishPolicy(c.ctx, string(body))
 	return c.finish(err, row, func() string { return policyLine(row) })
@@ -429,7 +468,10 @@ func (c *invocation) categoryAdd(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("takes one category name")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	err := client.AddCategory(c.ctx, positional[0])
 	return c.finish(err, api.AddCategory{Name: positional[0]}, func() string { return positional[0] + "\n" })
@@ -452,7 +494,10 @@ func (c *invocation) search(args []string) int {
 	if len(kinds) == 0 {
 		kinds = append(questions.LookupKinds(), questions.OpenKinds()...)
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	found, err := client.Candidates(c.ctx, strings.Join(positional, " "), kinds, *limit)
 	return c.finish(err, api.CandidateList{Candidates: found}, func() string {

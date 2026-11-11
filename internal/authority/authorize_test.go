@@ -1,6 +1,7 @@
 package authority_test
 
 import (
+	"slices"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -110,6 +111,22 @@ func TestOnlyAMemberChangesARepository(t *testing.T) {
 		listed = listed || action == authority.ActionSetRepository
 	}
 	if !listed {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
+	}
+}
+
+// TestOnlyAMemberManagesAProject holds ADR-0021's lifecycle to members: no agent, worker, or tick creates,
+// renames, archives, restores, removes, or imports a project.
+func TestOnlyAMemberManagesAProject(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionManageProject) {
+		t.Error("a member may not manage a project")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionManageProject) {
+			t.Errorf("%s may manage a project", kind)
+		}
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionManageProject) {
 		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 }

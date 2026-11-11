@@ -477,3 +477,15 @@ export type PaneScreen = { lane_id: string; generation: number; screen: string }
 
 // PaneLane says a lane has no screen to show now, and the state that says why.
 export type PaneLane = { lane_id: string; generation: number; state: string };
+
+// A project of the installation, as the registry lists it.
+export type Project = {
+  id: string;
+  name: string;
+  display_name?: string;
+  state: "active" | "archived";
+  created_at: number;
+  repositories: string[];
+};
+
+export type ProjectList = { projects: Project[] };

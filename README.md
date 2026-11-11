@@ -129,6 +129,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Vision](docs/vision.md): the problem, the principles, and the non-goals.
 - [Onboarding](docs/onboarding.md): installing a release, from an empty machine to a first lane, and what to know before it runs.
 - [Command line](docs/cli.md): every command, the daemon's flags, and the exit codes.
+- [API](docs/api.md): the routes of the installation and of each project.
 - [Authorization](docs/authorization.md): who may approve what, and the limit of same-user isolation.
 - [Qualification](docs/qualification.md): how each Claude Code version is checked before ropeshift relies on it.
 - [Notifications](docs/notifications.md): what a notice says, and where it goes.

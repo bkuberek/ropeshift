@@ -391,12 +391,12 @@ type Operations struct {
 }
 
 // ReadView reads one read model into out. An empty category does not filter.
-func (c *Client) ReadView(ctx context.Context, name, category string, out any) error {
+func (c *ProjectClient) ReadView(ctx context.Context, name, category string, out any) error {
 	path := ViewPath(name)
 	if category != "" {
 		path += "?category=" + url.QueryEscape(category)
 	}
-	return c.Do(ctx, http.MethodGet, path, nil, out)
+	return c.do(ctx, http.MethodGet, path, nil, out)
 }
 
 // WorkDetail is a work order with how its review stands: the reviews it has had, the verdicts that speak for

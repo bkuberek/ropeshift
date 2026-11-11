@@ -25,8 +25,20 @@ const maxBody = 1 << 20
 
 // Config is what the handlers run on.
 type Config struct {
+	// Scope and Store are the project the plane protocol serves: the installation's first project, whose
+	// worker this control plane runs. The installation's routes read the records every project shares
+	// through it.
 	Scope ledger.WorkspaceID
 	Store ports.Store
+	// Projects is the installation's registry, which every project-scoped route resolves its path
+	// through. Nil serves Store as the one project, named default.
+	Projects ports.Projects
+	// Matching makes the question ladder's matcher of a project's Store. Nil gives a project other than
+	// the first no candidates.
+	Matching func(ports.Store) ports.Matcher
+	// Unscoped serves each project-scoped route with no project in its path on the first project, as
+	// before projects, for one release. Every answer to one carries a Deprecation header.
+	Unscoped bool
 	// LeaseTTL is the policy's lease in milliseconds, for a claim that names none.
 	LeaseTTL int64
 	// Protocol is the plane protocol this control plane speaks. Zero means this
@@ -50,8 +62,8 @@ type Config struct {
 	LongParkedMs int64
 	// Telemetry reads the local worker's telemetry store. Nil has none, and its reads answer empty.
 	Telemetry ports.TelemetryReader
-	// Backup copies the ledger while it runs. Nil has none, as on Postgres, which a team backs up
-	// with its own tooling.
+	// Backup copies the ledger of a control plane with no registry while it runs. Nil has none, as on
+	// Postgres, which a team backs up with its own tooling. A registry backs up each of its projects.
 	Backup ports.LedgerBackup
 	// Starts places the lane of every claim: the base it begins from, fetched, and the wait for the merge
 	// of the work it depends on. Nil places none, and a worker begins a branch where its checkout is.
@@ -81,30 +93,60 @@ type handler struct {
 	effects      *control.Effects
 	notices      *control.Notices
 	repositories *control.Repositories
+	// lifecycle and router are the installation's, which only the first project's handler holds.
+	lifecycle *control.Projects
+	router    *router
 }
 
-// New returns the versioned API.
+// New returns the versioned API. The installation's routes sit at the top, and each project's routes
+// under /v1/projects/{project}/, on that project's ledger (ADR-0021).
 func New(config Config) http.Handler {
-	h := newHandler(config)
+	if config.Projects == nil {
+		config.Projects = oneProject{project: ledger.Project{
+			ID: config.Scope, Name: ledger.DefaultProjectName, State: ledger.ProjectActive, Database: "ledger",
+		}, store: config.Store, backup: config.Backup}
+	}
+	home := newHandler(config)
+	projects := newRouter(config, home)
+	home.lifecycle, home.router = control.NewProjects(config.Projects, config.Scope), projects
 	mux := http.NewServeMux()
+	home.installationRoutes(mux)
+	projects.registryRoutes(mux)
+	mux.Handle(projectPrefix+"{project}/", projects)
+	if config.Unscoped {
+		mux.HandleFunc("/v1/", projects.unscoped)
+	}
+	return mux
+}
+
+// installationRoutes are the routes of the installation's own records: members and their sessions,
+// workers with their autonomy and orchestrators, the plane protocol, and the worker's telemetry.
+func (h *handler) installationRoutes(mux *http.ServeMux) {
+	h.lifecycleRoutes(mux)
+	h.sessionRoutes(mux)
 	h.workerRoutes(mux)
+	h.orchestratorRoutes(mux)
+	h.autonomyRoutes(mux)
+	h.telemetryRoutes(mux)
+	mux.HandleFunc("GET /v1/health", h.health)
+}
+
+// projectRoutes are one project's routes, as they read under /v1. The router serves them under
+// /v1/projects/{project}/.
+func (h *handler) projectRoutes(mux *http.ServeMux) {
+	h.laneRoutes(mux)
 	h.planningRoutes(mux)
 	h.questionRoutes(mux)
 	h.messageRoutes(mux)
-	h.sessionRoutes(mux)
 	h.approvalRoutes(mux)
-	h.orchestratorRoutes(mux)
-	h.autonomyRoutes(mux)
 	h.repositoryRoutes(mux)
 	h.effectRoutes(mux)
 	h.viewRoutes(mux)
 	h.eventRoutes(mux)
 	h.noticeRoutes(mux)
-	h.telemetryRoutes(mux)
 	h.measureRoutes(mux)
 	h.paneRoutes(mux)
 	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
-	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
 	mux.HandleFunc("GET /v1/work-orders", h.listWorkOrders)
@@ -119,7 +161,6 @@ func New(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/work-orders/{id}/cancel", h.member(h.cancel))
 	mux.HandleFunc("POST /v1/work-orders/{id}/lanes", h.member(h.startLane))
 	mux.HandleFunc("POST /v1/work-orders/{id}/writes", h.member(h.write))
-	return mux
 }
 
 func newHandler(config Config) *handler {
@@ -192,11 +233,19 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadPassphrase, Message: err.Error()})
 	case errors.Is(err, authority.ErrNotEnrolled):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeNotEnrolled, Message: err.Error()})
+	case errors.Is(err, ledger.ErrProjectExists):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectExists, Message: err.Error()})
+	case errors.Is(err, ledger.ErrProjectState):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectState, Message: err.Error()})
+	case errors.Is(err, ledger.ErrProjectArchived):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeProjectArchived, Message: err.Error()})
+	case errors.Is(err, ledger.ErrRepositoryHeld):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRepositoryHeld, Message: err.Error()})
 	case errors.Is(err, ledger.ErrStaleEpoch):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository), errors.Is(err, ledger.ErrInvalidProject):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, authority.ErrRiskNotAcknowledged):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeRiskNotAcknowledged, Message: err.Error()})
@@ -429,6 +478,43 @@ func (h *handler) claim(w http.ResponseWriter, r *http.Request) {
 			grant, err = h.leases.Claim(r.Context(), h.Scope, request, actor)
 		}
 	}
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, grantBody(grant))
+}
+
+// workerClaim is a worker's claim on the plane protocol, which names the work in its body. The worker's
+// credential says who claims, so a member's session counts for nothing here.
+func (h *handler) workerClaim(w http.ResponseWriter, r *http.Request) {
+	var in api.ClaimRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.ClaimID == "" || in.WorkOrder == "" {
+		invalid(w, "a claim needs a claim_id and a work_order")
+		return
+	}
+	worker := r.PathValue("id")
+	if in.WorkerID != "" && in.WorkerID != worker {
+		invalid(w, "the claim names worker %s on worker %s's route", in.WorkerID, worker)
+		return
+	}
+	project, err := h.self(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if refuseArchived(w, r, project) {
+		return
+	}
+	ttl := in.TTLMs
+	if ttl == 0 {
+		ttl = h.LeaseTTL
+	}
+	request := workorders.ClaimRequest{WorkOrder: in.WorkOrder, ClaimID: in.ClaimID, Worker: worker, TTLMs: ttl}
+	grant, err := h.workers.Claim(r.Context(), ledger.WorkerAuth{WorkerID: worker, Credential: bearer(r)}, request)
 	if err != nil {
 		fail(w, err)
 		return

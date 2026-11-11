@@ -85,17 +85,17 @@ func TestNoLaneOrOrchestratorCanCancelWork(t *testing.T) {
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	lane := w.Running("wo", "Drop the old plan")
-	path := "/v1/work-orders/wo/cancel"
+	path := apitest.Route("/v1/work-orders/wo/cancel")
 	reason := api.CancelWork{Reason: "not mine to end"}
 
-	anonymous := api.NewUnixClient(d.Socket)
+	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
 	refusedWith(t, anonymous.Do(t.Context(), http.MethodPost, path, reason, nil), http.StatusUnauthorized, api.CodeSessionRequired)
 
 	worker := anonymous.WithCredential(w.Credential())
 	refusedWith(t, worker.Do(t.Context(), http.MethodPost, path, reason, nil), http.StatusUnauthorized, api.CodeSessionRequired)
 
-	forged := api.NewUnixClient(d.Socket)
+	forged := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer forged.Close()
 	forged.UseSession(w.Credential())
 	if err := forged.Do(t.Context(), http.MethodPost, path, reason, nil); err == nil {
@@ -142,7 +142,7 @@ func TestNoLaneOrOrchestratorCanCancelWork(t *testing.T) {
 
 func TestAWebPageCancelsThroughItsOwnRoute(t *testing.T) {
 	if !slices.ContainsFunc(api.WebRoutes(), func(route api.WebRoute) bool {
-		return route.Method == http.MethodPost && route.Pattern == "/v1/work-orders/{id}/cancel" && route.Command == "work cancel"
+		return route.Method == http.MethodPost && route.Pattern == api.ProjectRoute("/v1/work-orders/{id}/cancel") && route.Command == "work cancel"
 	}) {
 		t.Error("the web listener has no route to cancel work")
 	}

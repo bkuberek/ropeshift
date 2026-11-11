@@ -100,7 +100,10 @@ func (c *invocation) repositoryShow(args []string) int {
 	if len(positional) != 1 {
 		return c.usageError("this takes one repository")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	view, err := client.Repository(c.ctx, positional[0])
 	return c.finish(err, view, func() string { return repositoryText(view) })
@@ -152,7 +155,10 @@ func (c *invocation) repositorySet(args []string) int {
 	if len(given) == 0 {
 		return c.usageError("name a setting to change: --base, --merge-method, --start-from, --integration, or --merge-authority")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	view, err := client.SetRepository(c.ctx, positional[0], change)
 	return c.finish(err, view, func() string { return repositoryText(view) })

@@ -221,10 +221,10 @@ func TestAWebPagePassesOrSendsBackAContractReview(t *testing.T) {
 	r := webOn(t, d)
 	cookies, token := r.signedIn(t)
 	headers := map[string]string{api.HeaderCSRF: token, "Origin": "http://" + r.web.Host}
-	response, raw := r.send(t, call{method: http.MethodPost, path: "/v1/work-orders/wo-pass/review", body: struct{}{}, cookies: cookies, headers: headers})
+	response, raw := r.send(t, call{method: http.MethodPost, path: apitest.Route("/v1/work-orders/wo-pass/review"), body: struct{}{}, cookies: cookies, headers: headers})
 	wantStatus(t, response, raw, http.StatusOK, "")
 	response, raw = r.send(t, call{
-		method: http.MethodPost, path: "/v1/work-orders/wo-back/send-back", body: api.SendBack{Reason: "The criteria are vague."}, cookies: cookies, headers: headers,
+		method: http.MethodPost, path: apitest.Route("/v1/work-orders/wo-back/send-back"), body: api.SendBack{Reason: "The criteria are vague."}, cookies: cookies, headers: headers,
 	})
 	wantStatus(t, response, raw, http.StatusNoContent, "")
 	states := map[string]workorders.State{}

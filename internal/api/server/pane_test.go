@@ -141,7 +141,7 @@ func (r *paneRig) watch(t *testing.T, cookies []*http.Cookie, lane string) *pane
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), paneWait)
 	t.Cleanup(cancel)
-	path := strings.ReplaceAll(api.PanePath, "{id}", lane)
+	path := apitest.Route(strings.ReplaceAll(api.PanePath, "{id}", lane))
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.web.URL(path), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +225,9 @@ func (s *paneStream) silent(t *testing.T, wait time.Duration) {
 	}
 }
 
-func inputPath(lane string) string { return strings.ReplaceAll(api.PaneInputPath, "{id}", lane) }
+func inputPath(lane string) string {
+	return apitest.Route(strings.ReplaceAll(api.PaneInputPath, "{id}", lane))
+}
 
 // typeInto sends an input as the page does, with the session's cookies and its token.
 func (r *paneRig) typeInto(t *testing.T, cookies []*http.Cookie, token, lane string, input any) (*http.Response, []byte) {
@@ -250,14 +252,14 @@ func TestAMemberSeesALanesPane(t *testing.T) {
 func TestThePaneRefusesAnyoneWithNoMembersSession(t *testing.T) {
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
-	response, raw := r.send(t, call{path: strings.ReplaceAll(api.PanePath, "{id}", r.lane.ID)})
+	response, raw := r.send(t, call{path: apitest.Route(strings.ReplaceAll(api.PanePath, "{id}", r.lane.ID))})
 	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
 	response, raw = r.send(t, call{method: http.MethodPost, path: inputPath(r.lane.ID), body: api.PaneInput{Key: "Enter"}})
 	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeSessionRequired)
 
 	socket := apitest.RawClient(r.d.Socket)
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		path := strings.ReplaceAll(api.PanePath, "{id}", r.lane.ID)
+		path := apitest.Route(strings.ReplaceAll(api.PanePath, "{id}", r.lane.ID))
 		var body *strings.Reader
 		if method == http.MethodPost {
 			path, body = inputPath(r.lane.ID), strings.NewReader(`{"key":"Enter"}`)
@@ -392,7 +394,7 @@ func TestThePaneRefusesALaneWithNoPane(t *testing.T) {
 		{"an ended lane", ended.ID, http.StatusConflict, api.CodeLaneEnded},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			response, raw := r.send(t, call{path: strings.ReplaceAll(api.PanePath, "{id}", tt.lane), cookies: cookies})
+			response, raw := r.send(t, call{path: apitest.Route(strings.ReplaceAll(api.PanePath, "{id}", tt.lane)), cookies: cookies})
 			wantStatus(t, response, raw, tt.status, tt.code)
 			response, raw = r.typeInto(t, cookies, token, tt.lane, api.PaneInput{Key: "Enter"})
 			wantStatus(t, response, raw, tt.status, tt.code)
@@ -407,7 +409,7 @@ func TestThePaneRefusesALaneWithNoPane(t *testing.T) {
 	noneWorld := apitest.NewWorld(t, none.d)
 	running := noneWorld.Running("wo-plan", "Plan the product")
 	noneCookies, noneToken := none.signedIn(t)
-	response, raw := none.send(t, call{path: strings.ReplaceAll(api.PanePath, "{id}", running.ID), cookies: noneCookies})
+	response, raw := none.send(t, call{path: apitest.Route(strings.ReplaceAll(api.PanePath, "{id}", running.ID)), cookies: noneCookies})
 	wantStatus(t, response, raw, http.StatusConflict, api.CodeNoPane)
 	response, raw = none.send(t, call{method: http.MethodPost, path: inputPath(running.ID), body: api.PaneInput{Key: "Enter"}, cookies: noneCookies, headers: map[string]string{api.HeaderCSRF: noneToken}})
 	wantStatus(t, response, raw, http.StatusConflict, api.CodeNoPane)

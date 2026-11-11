@@ -12,6 +12,9 @@ import (
 type registered struct {
 	Command
 	run func(*invocation, []string) int
+	// installation says the command acts on the installation's own records, so it takes no project
+	// (ADR-0021). Every other command acts on one project's.
+	installation bool
 }
 
 // section is the commands help prints under one heading.
@@ -24,6 +27,15 @@ func command(name, args, summary string, run func(*invocation, []string) int) re
 	return registered{Command: Command{Name: name, Args: args, Summary: summary}, run: run}
 }
 
+// installation marks commands on the installation's own records: projects, members and sessions,
+// workers and their orchestrators, the worker's telemetry, and this machine.
+func installation(commands ...registered) []registered {
+	for i := range commands {
+		commands[i].installation = true
+	}
+	return commands
+}
+
 // registry is every command this package runs, in the groups and the order help prints them.
 // Routing, help, IsCommand, HasCommand, and Commands all read it, so no command runs without a line
 // in help.
@@ -31,9 +43,19 @@ func registry() []section {
 	return []section{
 		{"Watch", append([]registered{
 			command("top", "[--once] [--width N]", "watch the fleet, by who needs a person", (*invocation).runTop),
-			command("health", "", "say the control plane answers, and at what revision", (*invocation).health),
+			installation(command("health", "", "say the control plane answers, and at what revision", (*invocation).health))[0],
 			command("events", "[--after N] [--limit N]", "follow the ledger's events from a revision", (*invocation).events),
 		}, views()...)},
+		{"Projects", installation(
+			command("project list", "", "list the installation's projects, each with its state and repositories", (*invocation).projectList),
+			command("project show", "<name>", "show a project's record, its database, and its repositories", (*invocation).projectShow),
+			command("project create", "<name> [--display-name T]", "create a project with a ledger of its own", (*invocation).projectCreate),
+			command("project rename", "<name> <new-name>", "change a project's name, which its ID and records keep", (*invocation).projectRename),
+			command("project archive", "<name>", "make a project read-only, once its lanes ended", setsProject((*api.Client).ArchiveProject, "archived")),
+			command("project restore", "<name>", "return an archived project to active", setsProject((*api.Client).RestoreProject, "restored")),
+			command("project remove", "<name> --confirm <name> (--backup F | --no-backup)", "delete an archived project's database, after its backup", (*invocation).projectRemove),
+			command("project import", "<file> [--name N]", "register a project from its backup, keeping its ID", (*invocation).projectImport),
+		)},
 		{"Work orders", []registered{
 			command("work create", "--title T [--criterion C]... [flags]", "record a work order, or planning work with --kind plan", (*invocation).workCreate),
 			command("work list", "[--state S] [--worker W]", "list work orders, or what a worker can run", (*invocation).workList),
@@ -115,11 +137,12 @@ func registry() []section {
 			command("effect decide", "<id> --outcome O [--reason R]", "say an effect happened, not_happened, or may retry", (*invocation).effectDecide),
 			command("notice list", "", "say what each channel was told, and how many times", (*invocation).noticeList),
 		}},
-		{"Telemetry and measures", []registered{
+		{"Telemetry and measures", append(installation(
 			command("telemetry query", "[--signal S] [--name N] [--lane L] [--since D] [--limit N]", "read the worker's local telemetry, newest first", (*invocation).telemetryQuery),
 			command("telemetry lanes", "", "print each lane's context, tokens, and cost", (*invocation).telemetryLanes),
+		),
 			command("measures", "[--window D]", "print the product measures, the north star first", (*invocation).measuresCommand),
-		}},
+		)},
 		{"Fleet", []registered{
 			command("fleet show", "", "show the fleet's mode and caps", (*invocation).fleetShow),
 			command("fleet run", "", "let the fleet take claims and start lanes", setsFleet(ledger.FleetRun)),
@@ -127,7 +150,7 @@ func registry() []section {
 			command("fleet drain", "", "pause, and start no new generations either", setsFleet(ledger.FleetDrain)),
 			command("fleet caps", "[--wip N] [--per-repository N] [--per-worker N]", "set what a claim is held to", (*invocation).fleetCaps),
 		}},
-		{"Workers and orchestrators", []registered{
+		{"Workers and orchestrators", installation(
 			command("worker list", "", "list registered workers", (*invocation).workerList),
 			command("worker token", "", "make a join token", (*invocation).workerToken),
 			command("worker doctor", "", "report which agent CLIs are usable here", (*invocation).workerDoctor),
@@ -140,17 +163,17 @@ func registry() []section {
 			command("orchestrator show", "<worker>", "show a worker's orchestrator", (*invocation).orchestratorShow),
 			command("orchestrator start", "<worker>", "run a worker's orchestrator, or reset a breaker that stopped it", setsOrchestrator(ledger.OrchestratorRunning)),
 			command("orchestrator stop", "<worker>", "stop a worker's orchestrator, which stops no lane", setsOrchestrator(ledger.OrchestratorStopped)),
-		}},
-		{"Sessions", []registered{
+		)},
+		{"Sessions", installation(
 			command("login", "", "print a session for this shell, for eval", (*invocation).login),
 			command("sign-out", "", "end this shell's session", (*invocation).signOut),
 			command("passphrase set", "", "set the passphrase, on the terminal", (*invocation).passphraseSet),
-		}},
+		)},
 		{"This machine", []registered{
-			command("init", "", "set up this machine: passphrase, worker, doctor, sample", (*invocation).initMachine),
-			command("backup", "<file>", "copy the ledger to a new file while the daemon runs", (*invocation).backup),
-			command("service install", "[--name N] [-- daemon flags]", "run the daemon as this machine's service, from now on", (*invocation).serviceInstall),
-			command("service uninstall", "[--name N]", "stop the daemon's service and remove it, which stops no lane", (*invocation).serviceUninstall),
+			installation(command("init", "", "set up this machine: passphrase, worker, doctor, sample", (*invocation).initMachine))[0],
+			command("backup", "<file> [--installation]", "copy the project's ledger, or the installation's records, to a new file while the daemon runs", (*invocation).backup),
+			installation(command("service install", "[--name N] [-- daemon flags]", "run the daemon as this machine's service, from now on", (*invocation).serviceInstall))[0],
+			installation(command("service uninstall", "[--name N]", "stop the daemon's service and remove it, which stops no lane", (*invocation).serviceUninstall))[0],
 		}},
 	}
 }

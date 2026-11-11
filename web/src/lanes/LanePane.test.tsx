@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { paneKeys } from "../api/client";
 import type { InProgress, OnHold } from "../api/types";
 import { openPage } from "../opening";
-import { FakeEvents, golden, refusal, serveViews } from "../testing";
+import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
 import type { Sent } from "../testing";
 
 const lane = "lane:plan 1";
@@ -13,9 +13,9 @@ const page = `/lane?id=${encodeURIComponent(lane)}`;
 const panePath = `/v1/panes/${encodeURIComponent(lane)}`;
 
 function paneStream(): FakeEvents {
-  const found = FakeEvents.opened.find((stream) => stream.url === panePath);
+  const found = FakeEvents.opened.find((stream) => stream.path === panePath);
   if (!found) {
-    throw new Error(`no stream of ${panePath} among ${FakeEvents.opened.map((stream) => stream.url).join(", ")}`);
+    throw new Error(`no stream of ${panePath} among ${FakeEvents.opened.map((stream) => stream.path).join(", ")}`);
   }
   return found;
 }
@@ -196,7 +196,7 @@ describe("a planning session's work order", () => {
     serveViews((call) => (call.path.startsWith("/v1/views/in-progress") ? { status: 200, body: running } : undefined));
     openPage("/in-progress");
     const link = await screen.findByRole("link", { name: "Open the planning session" });
-    expect(link.getAttribute("href")).toBe(`/lane?id=${encodeURIComponent(first.lane.id)}`);
+    expect(link.getAttribute("href")).toBe(here(`/lane?id=${encodeURIComponent(first.lane.id)}`));
   });
 
   it("leads nowhere for other work", async () => {

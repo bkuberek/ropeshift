@@ -31,10 +31,10 @@ func refusedWith(t *testing.T, err error, status int, code string) {
 // user, and a lane runs as that user, so reaching the socket proves nothing.
 func TestAHumanDecisionWithNoSessionIsRefused(t *testing.T) {
 	d := apitest.Start(t)
-	anonymous := api.NewUnixClient(d.Socket)
+	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
 	var out questions.Decision
-	err := anonymous.Do(t.Context(), http.MethodPost, "/v1/decisions", api.RecordDecision{
+	err := anonymous.Do(t.Context(), http.MethodPost, apitest.Route("/v1/decisions"), api.RecordDecision{
 		ID: "d1", Status: questions.DecisionDecided, Statement: "Use one port.",
 	}, &out)
 	var refused *api.Error
@@ -52,7 +52,7 @@ func TestAHumanDecisionWithNoSessionIsRefused(t *testing.T) {
 
 func TestASessionExpires(t *testing.T) {
 	d := apitest.Start(t)
-	client := api.NewUnixClient(d.Socket)
+	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
 	session, err := client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase, TTLMs: 1})
 	if err != nil {
@@ -60,13 +60,13 @@ func TestASessionExpires(t *testing.T) {
 	}
 	client.UseSession(session.Token)
 	time.Sleep(5 * time.Millisecond)
-	err = client.Do(t.Context(), http.MethodPost, "/v1/categories", api.AddCategory{Name: "pricing"}, nil)
+	err = client.Do(t.Context(), http.MethodPost, apitest.Route("/v1/categories"), api.AddCategory{Name: "pricing"}, nil)
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
 }
 
 func TestALiveSessionNamesItsMember(t *testing.T) {
 	d := apitest.Start(t)
-	client := api.NewUnixClient(d.Socket)
+	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
 	session, err := client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase, TTLMs: 60_000})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestALiveSessionNamesItsMember(t *testing.T) {
 	}
 	client.UseSession(session.Token)
 	var out questions.Decision
-	err = client.Do(t.Context(), http.MethodPost, "/v1/decisions", api.RecordDecision{
+	err = client.Do(t.Context(), http.MethodPost, apitest.Route("/v1/decisions"), api.RecordDecision{
 		ID: "d1", Status: questions.DecisionDecided, Statement: "Use one port.",
 	}, &out)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestALiveSessionNamesItsMember(t *testing.T) {
 
 func TestASessionCannotOutliveALogin(t *testing.T) {
 	d := apitest.Start(t)
-	client := api.NewUnixClient(d.Socket)
+	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
 	before := time.Now().UnixMilli()
 	session, err := client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase, TTLMs: 24 * authority.LoginTTLMs})
@@ -103,7 +103,7 @@ func TestASessionCannotOutliveALogin(t *testing.T) {
 // mode: an agent can try, and a try is on record with no trace of what it tried.
 func TestAWrongPassphraseOpensNothingAndStaysVisible(t *testing.T) {
 	d := apitest.Start(t)
-	client := api.NewUnixClient(d.Socket)
+	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
 	const guess = "a guess at the passphrase"
 	_, err := client.SignIn(t.Context(), api.SignIn{Passphrase: guess})
@@ -179,6 +179,7 @@ var sessionless = map[string]string{
 	"POST /v1/workers/{id}/sessions":                 "a worker's credential",
 	"POST /v1/workers/{id}/heartbeat":                "a worker's credential",
 	"POST /v1/workers/{id}/events":                   "a worker's credential",
+	"POST /v1/workers/{id}/claims":                   "a worker's credential",
 	"POST /v1/workers/{id}/ask":                      "a worker's credential",
 	"POST /v1/workers/{id}/lane-facts":               "a worker's credential",
 	"POST /v1/workers/{id}/lane-context":             "a worker's credential",
@@ -191,11 +192,22 @@ var sessionless = map[string]string{
 
 var routeLine = regexp.MustCompile(`mux\.HandleFunc\("((POST|PUT|PATCH|DELETE) ([^"]+))", (.+)\)$`)
 
+// reached is where a route a handler registers is served: an installation route where it reads, and a
+// project route under the harness's project.
+func reached(path string) string {
+	for _, prefix := range []string{"/v1/sessions", "/v1/passphrase", "/v1/workers", "/v1/autonomy", "/v1/telemetry", "/v1/health", "/v1/projects", "/v1/installation"} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return path
+		}
+	}
+	return apitest.Route(path)
+}
+
 // TestEveryChangingRouteNeedsASession reads the routes from the source, so none can be
 // left out, and calls each one with no session.
 func TestEveryChangingRouteNeedsASession(t *testing.T) {
 	d := apitest.Start(t)
-	anonymous := api.NewUnixClient(d.Socket)
+	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -225,7 +237,7 @@ func TestEveryChangingRouteNeedsASession(t *testing.T) {
 			}
 			checked++
 			concrete := strings.NewReplacer("{id}", "w1", "{claim}", "c1").Replace(path)
-			err := anonymous.Do(t.Context(), method, concrete, struct{}{}, nil)
+			err := anonymous.Do(t.Context(), method, reached(concrete), struct{}{}, nil)
 			refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
 		}
 	}
@@ -237,7 +249,7 @@ func TestEveryChangingRouteNeedsASession(t *testing.T) {
 func TestAMemberClaimNeedsASession(t *testing.T) {
 	d := apitest.Start(t)
 	createReady(t, d, "w1")
-	anonymous := api.NewUnixClient(d.Socket)
+	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
 	_, err := anonymous.Claim(t.Context(), "w1", api.ClaimRequest{ClaimID: "c1", WorkerID: "worker-a", TTLMs: 60_000})
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
@@ -248,7 +260,7 @@ func TestAnAnswerNeedsAMemberSession(t *testing.T) {
 	if _, err := d.Client.RecordQuestion(t.Context(), api.RecordQuestion{ID: "q1", Text: "What is the retry budget?"}); err != nil {
 		t.Fatal(err)
 	}
-	anonymous := api.NewUnixClient(d.Socket)
+	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
 	_, err := anonymous.AnswerQuestion(t.Context(), "q1", api.AnswerQuestion{ID: "d1", Answer: "Two retries."})
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)

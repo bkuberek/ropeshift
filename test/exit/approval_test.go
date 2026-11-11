@@ -119,7 +119,7 @@ func TestExitE7NoSelfApproval(t *testing.T) {
 	defer client.Close()
 	decide := api.DecideApproval{Digest: a.SubjectDigest, Allow: true}
 	var refused *api.Error
-	asSession := api.NewUnixClient(in.paths().ControlSocket())
+	asSession := api.NewUnixClient(in.paths().ControlSocket()).Project(ledger.DefaultProjectName)
 	defer asSession.Close()
 	asSession.UseSession(token)
 	if _, err := asSession.DecideApproval(t.Context(), a.ID, decide); !errors.As(err, &refused) || refused.Status != http.StatusUnauthorized {

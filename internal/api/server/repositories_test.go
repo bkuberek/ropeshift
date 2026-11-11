@@ -103,14 +103,14 @@ func TestOnlyAMemberChangesARepository(t *testing.T) {
 	on := true
 	cases := []struct {
 		name  string
-		setup func(*api.Client) *api.Client
+		setup func(*api.ProjectClient) *api.ProjectClient
 	}{
-		{"a caller with nothing", func(c *api.Client) *api.Client { return c }},
-		{"the worker's credential", func(c *api.Client) *api.Client { return c.WithCredential(credential) }},
+		{"a caller with nothing", func(c *api.ProjectClient) *api.ProjectClient { return c }},
+		{"the worker's credential", func(c *api.ProjectClient) *api.ProjectClient { return c.WithCredential(credential) }},
 		{"a lane's token where a session goes", withSession("a-lane-token")},
 	}
 	for _, tt := range cases {
-		plain := api.NewUnixClient(d.Socket)
+		plain := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 		t.Cleanup(plain.Close)
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := tt.setup(plain).SetRepository(t.Context(), aRepository, api.RepositoryChange{Integration: &on})

@@ -352,7 +352,7 @@ func (s *suite) tryCLI(args ...string) ([]byte, error) {
 func (s *suite) memberSession() []string {
 	s.t.Helper()
 	if s.session == "" {
-		client := api.NewUnixClient(s.paths.ControlSocket())
+		client := api.NewUnixClient(s.paths.ControlSocket()).Project(ledger.DefaultProjectName)
 		defer client.Close()
 		token, err := apitest.SignIn(s.t.Context(), client)
 		if err != nil {

@@ -18,6 +18,16 @@ const SubjectProject = "project"
 const (
 	// EventProjectCreated records a project registered in the installation, with its database.
 	EventProjectCreated = "project.created"
+	// EventProjectRenamed records a new name, which the ID and the database keep.
+	EventProjectRenamed = "project.renamed"
+	// EventProjectArchived and EventProjectRestored record a project leaving the active state and coming
+	// back to it.
+	EventProjectArchived = "project.archived"
+	EventProjectRestored = "project.restored"
+	// EventProjectRemoved records a project the installation forgot, whose database went.
+	EventProjectRemoved = "project.removed"
+	// EventProjectImported records a project registered from a backup, with the ID the backup holds.
+	EventProjectImported = "project.imported"
 	// EventRecordsMoved records the installation records an upgrade copied out of a project's database.
 	EventRecordsMoved = "installation.records_moved"
 )
@@ -35,6 +45,17 @@ var ErrInvalidProject = errors.New("invalid project")
 
 // ErrProjectExists means another project of the installation holds the ID, the name, or the database.
 var ErrProjectExists = errors.New("a project holds that ID, name, or database")
+
+// ErrProjectState means a project's state refuses a lifecycle step: an archive while a lane runs, a
+// restore of a project that is active, or a removal of one that is not archived.
+var ErrProjectState = errors.New("the project's state refuses this")
+
+// ErrProjectArchived means a change to an archived project, which is read-only until it is restored.
+var ErrProjectArchived = errors.New("the project is archived, so it is read-only")
+
+// ErrRepositoryHeld means another project of the installation holds the repository (ADR-0021). The error
+// names that project.
+var ErrRepositoryHeld = errors.New("another project holds that repository")
 
 // projectNameLimit keeps a name usable as one segment of a URL path and a DNS label.
 const projectNameLimit = 63

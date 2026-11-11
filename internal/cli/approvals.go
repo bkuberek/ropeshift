@@ -15,7 +15,10 @@ func (c *invocation) approvalList(args []string) int {
 	if _, ok := c.parse(set, args); !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	rows, err := client.Approvals(c.ctx, authority.ApprovalState(*state))
 	return c.finish(err, api.ApprovalList{Approvals: rows}, func() string {
@@ -38,7 +41,10 @@ func (c *invocation) approvalShow(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.Approval(c.ctx, id)
 	return c.finish(err, row, func() string {
@@ -79,7 +85,10 @@ func (c *invocation) approvalDecide(args []string, allow bool) int {
 	if *digest == "" {
 		return c.usageError("--digest is required: it says what you read")
 	}
-	client := c.client()
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
 	defer client.Close()
 	row, err := client.DecideApproval(c.ctx, id, api.DecideApproval{Digest: *digest, Allow: allow, Reason: *reason})
 	return c.finish(err, row, func() string { return fmt.Sprintf("%s is %s\n", row.ID, row.State) })

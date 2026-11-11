@@ -25,7 +25,7 @@ func joinWorker(t *testing.T, d *apitest.Daemon) (string, int64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker := api.NewUnixClient(d.Socket).WithCredential(credential.Credential)
+	worker := api.NewUnixClient(d.Socket).Project(apitest.ProjectName).WithCredential(credential.Credential)
 	t.Cleanup(worker.Close)
 	session, err := worker.OpenSession(t.Context(), aSubscriptionWorker, ledger.SessionRequest{Protocol: ledger.ProtocolVersion, Manifest: ledger.Manifest{
 		Drivers: []ledger.DriverManifest{{Driver: "claude-code", Present: true, SignIn: ledger.SignIn{Kind: ledger.SignInSubscription, Status: ledger.SignedIn}}},
@@ -36,15 +36,15 @@ func joinWorker(t *testing.T, d *apitest.Daemon) (string, int64) {
 	return credential.Credential, session.Epoch
 }
 
-func withSession(token string) func(*api.Client) *api.Client {
-	return func(c *api.Client) *api.Client {
+func withSession(token string) func(*api.ProjectClient) *api.ProjectClient {
+	return func(c *api.ProjectClient) *api.ProjectClient {
 		c.UseSession(token)
 		return c
 	}
 }
 
 // memberActs are the acts that keep a person near automated use, as a caller's client makes them.
-func memberActs(client *api.Client) map[string]func(*testing.T) error {
+func memberActs(client *api.ProjectClient) map[string]func(*testing.T) error {
 	return map[string]func(*testing.T) error{
 		"open a window": func(t *testing.T) error {
 			_, err := client.OpenWindow(t.Context(), aSubscriptionWorker, api.OpenWindow{ID: "w1", LengthMs: 60_000})
@@ -76,16 +76,16 @@ func TestAnAgentCannotOpenAWindowOrAcknowledgeTheRisk(t *testing.T) {
 	}
 	cases := []struct {
 		name  string
-		setup func(*api.Client) *api.Client
+		setup func(*api.ProjectClient) *api.ProjectClient
 	}{
-		{"a caller with nothing", func(c *api.Client) *api.Client { return c }},
-		{"the worker's credential", func(c *api.Client) *api.Client { return c.WithCredential(credential) }},
+		{"a caller with nothing", func(c *api.ProjectClient) *api.ProjectClient { return c }},
+		{"the worker's credential", func(c *api.ProjectClient) *api.ProjectClient { return c.WithCredential(credential) }},
 		{"the credential where a session goes", withSession(credential)},
 		{"a lane's token where a session goes", withSession("a-lane-token")},
 		{"a session that ended", withSession(spent.Token)},
 	}
 	for _, tt := range cases {
-		plain := api.NewUnixClient(d.Socket)
+		plain := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 		t.Cleanup(plain.Close)
 		caller := tt.setup(plain)
 		for act, attempt := range memberActs(caller) {
@@ -128,7 +128,7 @@ func TestAWorkerCarriesNoSuchAct(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker := api.NewUnixClient(d.Socket).WithCredential(credential)
+	worker := api.NewUnixClient(d.Socket).Project(apitest.ProjectName).WithCredential(credential)
 	defer worker.Close()
 	call := ledger.OrchestratorCall{Epoch: epoch, Lane: running.Lane()}
 	path := "/v1/workers/" + aSubscriptionWorker + "/orchestrator/acts/"
