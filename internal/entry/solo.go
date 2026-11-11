@@ -30,7 +30,6 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/repofiles"
 	"ropeshift.com/ropeshift/internal/adapters/secrets"
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
-	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
 	"ropeshift.com/ropeshift/internal/adapters/systemd"
 	"ropeshift.com/ropeshift/internal/adapters/tmux"
 	"ropeshift.com/ropeshift/internal/adapters/workerlink"
@@ -184,21 +183,20 @@ func holdInstallation(stateDir string) (*os.File, error) {
 	return nil, err
 }
 
-func openLedger(ctx context.Context, stateDir string) (ports.Store, error) {
-	store, err := sqlite.Open(filepath.Join(stateDir, api.LedgerFileName), sqlstore.Options{})
+// openLedger brings the state directory to this build (ADR-0021) and opens the default project's ledger,
+// which keeps the ledger file and the solo workspace, with the records every project shares in the
+// installation database beside it. A repository a second project holds too stays with the first, and
+// the daemon says so.
+func openLedger(ctx context.Context, stateDir string, stderr io.Writer) (*sqlite.State, ports.Store, error) {
+	state, store, err := sqlite.Upgrade(ctx, stateDir, api.LedgerFileName, ledger.Workspace{ID: soloScope, Name: "Solo"}, tickActor("solo"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := store.Migrate(ctx); err != nil {
-		_ = store.Close()
-		return nil, err
+	for _, conflict := range state.IndexConflicts {
+		fmt.Fprintf(stderr, "ropeshiftd: repository %s is in another project, which keeps it; project %s holds it as %s too\n",
+			conflict.Identity, conflict.Project, conflict.Repository)
 	}
-	_, err = store.CreateWorkspace(ctx, ledger.Workspace{ID: soloScope, Name: "Solo"}, tickActor("solo"))
-	if err != nil {
-		_ = store.Close()
-		return nil, err
-	}
-	return store, nil
+	return state, store, nil
 }
 
 // serveSolo runs until the context ends. It has no shutdown step that correctness
@@ -212,10 +210,11 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	defer lock.Close()
-	store, err := openLedger(ctx, paths.StateDir)
+	state, store, err := openLedger(ctx, paths.StateDir, stderr)
 	if err != nil {
 		return err
 	}
+	defer state.Close()
 	defer store.Close()
 	listener, err := server.Listen(paths.ControlSocket())
 	if err != nil {

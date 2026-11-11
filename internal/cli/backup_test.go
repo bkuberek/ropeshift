@@ -35,8 +35,8 @@ func TestBackupNamesAFileFromWhereItRuns(t *testing.T) {
 	}
 }
 
-// TestBackupNeedsAMember holds that a copy of every record, and of the passphrase's hash, is a
-// member's to ask for, though it changes nothing in the ledger.
+// TestBackupNeedsAMember holds that a copy of every record of a project is a member's to ask for,
+// though it changes nothing in the ledger.
 func TestBackupNeedsAMember(t *testing.T) {
 	backup := fake.NewLedgerBackup()
 	s := &session{t: t, daemon: apitest.StartWith(t, apitest.Options{Backup: backup})}

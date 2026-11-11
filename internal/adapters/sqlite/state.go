@@ -20,7 +20,10 @@ const ProjectsDir = "projects"
 type State struct {
 	Dir          string
 	Installation *sqlstore.Installation
-	opts         sqlstore.Options
+	// IndexConflicts are the repositories the last rebuild of the repository index found in a second
+	// project, which the first project to hold each one keeps.
+	IndexConflicts []ledger.IndexedRepository
+	opts           sqlstore.Options
 }
 
 // OpenState opens the installation database of a state directory, creating it when it is missing, and
