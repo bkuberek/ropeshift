@@ -295,3 +295,45 @@ func TestRepositoryAddRegistersClonesAndSaysWhatItRefused(t *testing.T) {
 		}
 	}
 }
+
+// FR-REPO-12: `repository set` takes several repositories and applies the same change to each, one event
+// per repository. A name the project does not hold changes none of them.
+func TestRepositorySetChangesSeveralRepositories(t *testing.T) {
+	s := newSession(t)
+	const other = "0a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4"
+	s.detect(aRepositoryID, "main")
+	s.detect(other, "main")
+	s.must("repository", "set", other, "--name", "web")
+	if code, _, _ := s.run("repository", "set", "app", "nowhere", "--merge-method", "squash"); code != cli.ExitNotFound {
+		t.Errorf("a name the project does not hold: exit %d", code)
+	}
+	if text := s.must("repository", "show", "app"); !strings.Contains(text, "merge method\tmerge") {
+		t.Errorf("a refused set changed a repository:\n%s", text)
+	}
+	text := s.must("repository", "set", "app", "web", "--review-target", "pull_request")
+	if strings.Count(text, "review target\tpull_request") != 2 || !strings.Contains(text, "name\tapp") || !strings.Contains(text, "name\tweb") {
+		t.Errorf("a set of two printed:\n%s", text)
+	}
+	var list api.RepositoryList
+	if err := json.Unmarshal([]byte(s.must("repository", "set", "app", "web", "--merge-method", "squash", "--json")), &list); err != nil || len(list.Repositories) != 2 {
+		t.Errorf("json %+v: %v", list, err)
+	}
+	for _, id := range []string{aRepositoryID, other} {
+		var changes int
+		err := s.daemon.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+			events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectRepository, ID: id})
+			for _, event := range events {
+				if event.Type == ledger.EventRepositoryChanged {
+					changes++
+				}
+			}
+			return err
+		})
+		if err != nil || (id == aRepositoryID && changes != 2) || (id == other && changes != 3) {
+			t.Errorf("%s changed %d times: %v", id[:7], changes, err)
+		}
+	}
+	if code, _, _ := s.run("repository", "set", "app", "web", "--name", "one"); code != cli.ExitUsage {
+		t.Errorf("one name for two repositories: exit %d", code)
+	}
+}

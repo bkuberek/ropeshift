@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
 	"path/filepath"
@@ -118,13 +119,16 @@ func (c *invocation) repositorySet(args []string) int {
 	if !ok {
 		return ExitUsage
 	}
-	if len(positional) != 1 {
-		return c.usageError("this takes one repository")
+	if len(positional) == 0 {
+		return c.usageError("name a repository to change")
 	}
 	var change api.RepositoryChange
 	given := map[string]bool{}
 	set.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	if given["name"] {
+		if len(positional) > 1 {
+			return c.usageError("--name renames one repository, and this names %d", len(positional))
+		}
 		change.Name = name
 	}
 	if given["base"] {
@@ -154,8 +158,45 @@ func (c *invocation) repositorySet(args []string) int {
 		return exit
 	}
 	defer client.Close()
-	view, err := client.SetRepository(c.ctx, positional[0], change)
-	return c.finish(err, view, func() string { return repositoryText(view) })
+	if len(positional) == 1 {
+		view, err := client.SetRepository(c.ctx, positional[0], change)
+		return c.finish(err, view, func() string { return repositoryText(view) })
+	}
+	return c.setEach(client, positional, change)
+}
+
+// setEach applies one change to several repositories, one event each (FR-REPO-12). Every name must
+// name a repository of the project before any changes, and a change one repository refuses leaves the
+// others changed and says which refused.
+func (c *invocation) setEach(client *api.ProjectClient, names []string, change api.RepositoryChange) int {
+	ids := make([]string, 0, len(names))
+	for _, name := range names {
+		view, err := client.Repository(c.ctx, name)
+		if err != nil {
+			return c.failure(err)
+		}
+		ids = append(ids, view.ID)
+	}
+	list := api.RepositoryList{Repositories: []api.RepositoryView{}}
+	code := ExitOK
+	for _, id := range ids {
+		view, err := client.SetRepository(c.ctx, id, change)
+		if err != nil {
+			if failed := c.failure(err); code == ExitOK {
+				code = failed
+			}
+			continue
+		}
+		list.Repositories = append(list.Repositories, view)
+	}
+	printed := c.finish(nil, list, func() string {
+		texts := make([]string, 0, len(list.Repositories))
+		for _, view := range list.Repositories {
+			texts = append(texts, repositoryText(view))
+		}
+		return strings.Join(texts, "\n")
+	})
+	return cmp.Or(code, printed)
 }
 
 // repositoryAdd registers, in the project it resolves, the git clones at or below paths on this machine,
