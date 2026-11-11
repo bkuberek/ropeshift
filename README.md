@@ -88,7 +88,7 @@ Ropeshift has four parts. Each is built for solo mode in this release:
 | Supervised agents | One orchestrator per machine pulls work and exercises judgment. A deterministic daemon keeps each Claude Code session healthy, and a fence stops a holder that lost its claim from writing |
 | Web UI | Roadmap, plans, documents, decisions, open questions, and what is in progress, on hold, stuck, and completed, served on loopback, with `ropeshift top` beside it in a terminal |
 
-These parts of the design are not built yet: reading work from an issue tracker and writing results back to it, workers on more than one machine, and drivers for Codex and opencode.
+These parts of the design are not built yet: pushing accepted work, opening its pull request, and merging it; reading work from an issue tracker and writing results back to it, workers on more than one machine, and drivers for Codex and opencode.
 
 ## How work flows
 
