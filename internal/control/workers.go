@@ -696,7 +696,7 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 			return applyUpload(tx, worker, id, e)
 		})
 	}
-	if e.WorkOrder == "" && ledger.IsOrchestratorLane(e.Lane) {
+	if orchestratorReport(e) {
 		write = func(ctx context.Context) error {
 			return storeOrchestratorEvent(ctx, w.store.Installation(w.scope), worker, id, e)
 		}
@@ -717,6 +717,13 @@ func uploadResult(e ledger.UploadEvent, err error) (*ledger.UploadResult, error)
 		return &ledger.UploadResult{Seq: e.Seq, Status: ledger.UploadInvalid, Detail: err.Error()}, nil
 	}
 	return nil, err
+}
+
+// orchestratorReport says an event is a worker's word about its orchestrator's session. An effect of the
+// orchestrator's lane is no such word: it waits for a person, as any lane's does.
+func orchestratorReport(e ledger.UploadEvent) bool {
+	effect := e.Type == ledger.UploadEffectUnknown || e.Type == ledger.UploadEffectSettled
+	return e.WorkOrder == "" && ledger.IsOrchestratorLane(e.Lane) && !effect
 }
 
 // storeOrchestratorEvent stores what a worker says of its orchestrator once, in the installation's log,

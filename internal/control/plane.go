@@ -443,7 +443,7 @@ func (p *Plane) storeEvent(ctx context.Context, record ledger.WorkerRecord, e le
 	worker := record.ID
 	id := ledger.UploadedEventID(worker, e.Epoch, e.Seq)
 	switch {
-	case e.WorkOrder == "" && ledger.IsOrchestratorLane(e.Lane):
+	case orchestratorReport(e):
 		return uploadResult(e, storeOrchestratorEvent(ctx, p.installation, worker, id, e))
 	case e.WorkOrder == "" && e.Lane == "" && e.Type == ledger.UploadDriverQualified && record.Protocol >= ledger.ProtocolProjects:
 		return uploadResult(e, storeQualification(ctx, p.installation, worker, id, e))

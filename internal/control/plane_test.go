@@ -300,3 +300,40 @@ func TestAnOrchestratorCannotCiteAnotherProjectsRecord(t *testing.T) {
 		t.Errorf("beta does not read its own decision: %+v", records)
 	}
 }
+
+// TestAnOrchestratorsUnknownEffectIsAnEffect uploads an effect a crash left unknown on the orchestrator's
+// lane: it is an effect for a person to decide, in the default project, and no word about the
+// orchestrator's state.
+func TestAnOrchestratorsUnknownEffectIsAnEffect(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	ctx := t.Context()
+	call := r.orchestrating()
+	payload, err := json.Marshal(ledger.EffectReport{Key: "effect-1", Kind: "message", Target: "lane-x", Attempt: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := r.plane.Upload(ctx, ledger.UploadBatch{Auth: r.auth, Epoch: r.epoch, Events: []ledger.UploadEvent{
+		{Epoch: r.epoch, Seq: 1, Type: ledger.UploadEffectUnknown, Lane: call.Lane, Generation: 1, Payload: payload},
+	}})
+	if err != nil || len(reply.Rejected) != 0 {
+		t.Fatalf("the upload: %+v, %v", reply, err)
+	}
+	var effects []ledger.UnknownEffect
+	err = r.stores["pa"].Read(ctx, "pa", func(tx ports.ReadTx) error {
+		effects, err = tx.Effects().Effects()
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effects) != 1 || effects[0].Key != "effect-1" || effects[0].Lane != call.Lane {
+		t.Errorf("the default project holds %+v", effects)
+	}
+	row, err := r.plane.Orchestrator(ctx, "worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.ReportedAt != 0 {
+		t.Errorf("an effect moved the orchestrator's record: %+v", row)
+	}
+}
