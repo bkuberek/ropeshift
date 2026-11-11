@@ -169,6 +169,8 @@ type Options struct {
 	WebAddress string
 	// Unscoped serves the deprecated routes with no project, as the daemon does for one release.
 	Unscoped bool
+	// Checkouts is the machine of the daemon's worker. Nil has none, and registering a repository refuses.
+	Checkouts ports.Checkouts
 }
 
 // Start serves the API until the test ends.
@@ -203,6 +205,7 @@ func StartWith(t testing.TB, options Options) *Daemon {
 		Scope: Scope, Store: store, LeaseTTL: LeaseTTL, Protocol: options.Protocol, HeartbeatMs: HeartbeatMs,
 		Knowledge: options.Knowledge, Matcher: lexical.Matcher{Store: store}, Identity: identity, Windows: options.Windows,
 		Telemetry: options.Telemetry, Backup: options.Backup, Panes: options.Panes, WebAddress: options.WebAddress, Unscoped: options.Unscoped,
+		Checkouts: options.Checkouts,
 	}
 	daemon := serve(t, config, options.Wrap)
 	daemon.Store = store
@@ -245,6 +248,8 @@ func serve(t testing.TB, config server.Config, wrap func(http.Handler) http.Hand
 type Installation struct {
 	*Daemon
 	State *sqlite.State
+	// Checkouts is the machine of the worker the daemon runs, with the clones a test places on it.
+	Checkouts *fake.Checkouts
 }
 
 // StartInstallation serves an installation with the projects named after its first one, until the test
@@ -267,15 +272,17 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 		}
 	}
 	identity := fake.NewIdentityProvider()
+	machine := fake.NewCheckouts()
 	config := server.Config{
 		Scope: Scope, Store: store, Projects: state, Installation: state.Installation, Unscoped: true, LeaseTTL: LeaseTTL, HeartbeatMs: HeartbeatMs, Identity: identity,
-		Matcher:  lexical.Matcher{Store: store},
-		Matching: func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		Matcher:   lexical.Matcher{Store: store},
+		Matching:  func(store ports.Store) ports.Matcher { return lexical.Matcher{Store: store} },
+		Checkouts: machine,
 	}
 	daemon := serve(t, config, nil)
 	daemon.Store = store
 	daemon.signIn(t, identity)
-	return &Installation{Daemon: daemon, State: state}
+	return &Installation{Daemon: daemon, State: state, Checkouts: machine}
 }
 
 // In returns the Store and the member's client of one project.

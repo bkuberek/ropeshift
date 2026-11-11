@@ -20,6 +20,23 @@ const (
 	EventRepositoryDetected = "repository.detected"
 	// EventRepositoryChanged records a member changing the settings a source read cannot.
 	EventRepositoryChanged = "repository.changed"
+	// EventRepositoryRegistered records a member registering a repository from a clone on a worker's
+	// machine (ADR-0022): its name and what git said of it.
+	EventRepositoryRegistered = "repository.registered"
+)
+
+// RepositoryOutcome is what became of one clone a member registered in a project (ADR-0022).
+type RepositoryOutcome string
+
+// The outcomes of registering a clone.
+const (
+	// Registered made the repository's record in the project.
+	Registered RepositoryOutcome = "registered"
+	// AlreadyRegistered found the project holds the repository already, and registered nothing.
+	AlreadyRegistered RepositoryOutcome = "known"
+	// RegistrationRefused registered nothing: another project holds the repository, or the path holds no
+	// clone.
+	RegistrationRefused RepositoryOutcome = "refused"
 )
 
 // MergeMethod is how a pull request lands on its base branch.

@@ -130,3 +130,19 @@ func TestOnlyAMemberManagesAProject(t *testing.T) {
 		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 }
+
+// TestOnlyAMemberRegistersARepository holds ADR-0022's registration to members: no agent, worker, or tick
+// adds a repository to a project or takes one out.
+func TestOnlyAMemberRegistersARepository(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionRegisterRepository) {
+		t.Error("a member may not register a repository")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionRegisterRepository) {
+			t.Errorf("%s may register a repository", kind)
+		}
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionRegisterRepository) {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
+	}
+}

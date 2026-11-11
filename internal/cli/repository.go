@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -155,4 +156,74 @@ func (c *invocation) repositorySet(args []string) int {
 	defer client.Close()
 	view, err := client.SetRepository(c.ctx, positional[0], change)
 	return c.finish(err, view, func() string { return repositoryText(view) })
+}
+
+// repositoryAdd registers, in the project it resolves, the git clones at or below paths on this machine,
+// through the daemon whose worker runs here (ADR-0022). It exits 4 when anything was refused, after the
+// rest were registered.
+func (c *invocation) repositoryAdd(args []string) int {
+	set := c.flags()
+	depth := set.Int("depth", 1, "how many levels below a path that is not a clone to look for clones")
+	dryRun := set.Bool("dry-run", false, "say what would be registered and refused, and record nothing")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	if len(positional) == 0 {
+		return c.usageError("name a path to register: a clone, or a folder of clones")
+	}
+	if *depth < 1 {
+		return c.usageError("--depth takes 1 or more, not %d", *depth)
+	}
+	paths := make([]string, 0, len(positional))
+	for _, path := range positional {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return c.failure(err)
+		}
+		paths = append(paths, absolute)
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	report, err := client.AddRepositories(c.ctx, api.RepositoryAdd{Paths: paths, Depth: *depth, DryRun: *dryRun})
+	if report.Repositories == nil {
+		report.Repositories = []api.RepositoryAdded{}
+	}
+	code := c.finish(err, report, func() string { return addedText(report) })
+	if code == ExitOK && report.Refused() > 0 {
+		return ExitConflict
+	}
+	return code
+}
+
+// addedText prints one line for each clone and each path: what became of it, the repository's name and
+// identity, and where it is.
+func addedText(report api.RepositoryAddReport) string {
+	var out strings.Builder
+	for _, added := range report.Repositories {
+		if added.Outcome == ledger.RegistrationRefused {
+			fmt.Fprintf(&out, "refused\t%s\t%s\n", added.Path, added.Reason)
+			continue
+		}
+		var name, id string
+		if added.Repository != nil {
+			name, id = added.Repository.Name, shortRepository(added.Repository.ID)
+		}
+		word := "registered"
+		switch {
+		case added.Outcome == ledger.AlreadyRegistered:
+			word = "already registered"
+		case report.DryRun:
+			word = "would register"
+		}
+		fmt.Fprintf(&out, "%s\t%s\t%s\t%s", word, name, id, added.Path)
+		if added.Checkout != "" && added.Checkout != added.Path {
+			fmt.Fprintf(&out, "\t(%s; this worker keeps %s)", dashIfEmpty(added.Reason), added.Checkout)
+		}
+		out.WriteString("\n")
+	}
+	return out.String()
 }

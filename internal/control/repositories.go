@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -81,13 +82,11 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 	}
 	var record ledger.Repository
 	err := r.store.Write(ctx, scope, "repository.detect", func(tx ports.WriteTx) error {
-		var named string
-		var moved bool
-		var err error
-		if record, named, moved, err = detectIn(tx.Repositories(), found); err != nil || !moved {
+		look, err := detectIn(tx.Repositories(), found, nil)
+		if record = look.record; err != nil || !look.moved {
 			return err
 		}
-		event, err := repositoryEvent(ledger.EventRepositoryDetected, found.ID, detectedEvent{Name: named, Remote: found.Remote, DefaultBranch: found.DefaultBranch}, actor)
+		event, err := repositoryEvent(ledger.EventRepositoryDetected, found.ID, detectedEvent{Name: look.named, Remote: found.Remote, DefaultBranch: found.DefaultBranch}, actor)
 		if err != nil {
 			return err
 		}
@@ -100,56 +99,70 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 	return record, nil
 }
 
-// detectIn makes or refreshes a record in a transaction, and says the name it gave the record, if it gave
-// one, and whether anything moved, because a look that finds the same facts appends nothing.
-func detectIn(repositories ports.RepositoryWriter, found DetectedRepository) (ledger.Repository, string, bool, error) {
+// detection is what one look at a repository did to its record.
+type detection struct {
+	record ledger.Repository
+	// named is the name the look gave the record, if it gave one.
+	named string
+	// made says the look made the record, and moved that it changed it, because a look that finds the
+	// same facts appends nothing.
+	made, moved bool
+}
+
+// detectIn makes or refreshes a record in a transaction. A new name avoids the names the project's
+// records hold and the ones claimed, which a run that registers several clones claims as it goes.
+func detectIn(repositories ports.RepositoryWriter, found DetectedRepository, claimed map[string]bool) (detection, error) {
 	record, err := repositories.Repository(found.ID)
 	if errors.Is(err, ports.ErrNotFound) {
 		record = ledger.NewRepository(found.ID)
 		record.Remote, record.DefaultBranch = found.Remote, found.DefaultBranch
-		if record.Name, err = freeName(repositories, found); err != nil {
-			return ledger.Repository{}, "", false, err
+		if record.Name, err = freeName(repositories, found, claimed); err != nil {
+			return detection{}, err
 		}
 		if _, err := repositories.Insert(record); err != nil {
-			return ledger.Repository{}, "", false, err
+			return detection{}, err
 		}
-		return record, record.Name, true, nil
+		return detection{record: record, named: record.Name, made: true, moved: true}, nil
 	}
 	if err != nil {
-		return ledger.Repository{}, "", false, err
+		return detection{}, err
 	}
 	moved, err := repositories.Detected(found.ID, found.Remote, found.DefaultBranch)
 	if err != nil {
-		return ledger.Repository{}, "", false, err
+		return detection{}, err
 	}
 	var named string
 	if record.Name == "" {
-		if named, err = freeName(repositories, found); err != nil {
-			return ledger.Repository{}, "", false, err
+		if named, err = freeName(repositories, found, claimed); err != nil {
+			return detection{}, err
 		}
 	}
 	if !moved && named == "" {
-		return record, "", false, nil
+		return detection{record: record}, nil
 	}
 	if record, err = repositories.Repository(found.ID); err != nil {
-		return ledger.Repository{}, "", false, err
+		return detection{}, err
 	}
 	if named != "" {
 		record.Name = named
 		if err := repositories.Settings(record); err != nil {
-			return ledger.Repository{}, "", false, err
+			return detection{}, err
 		}
 	}
-	return record, named, true, nil
+	return detection{record: record, named: named, moved: true}, nil
 }
 
-// freeName names a repository as ADR-0022 does, among the names the project's records hold.
-func freeName(repositories ports.RepositoryReader, found DetectedRepository) (string, error) {
+// freeName names a repository as ADR-0022 does, among the names the project's records hold and the ones
+// claimed.
+func freeName(repositories ports.RepositoryReader, found DetectedRepository, claimed map[string]bool) (string, error) {
 	all, err := repositories.Repositories()
 	if err != nil {
 		return "", err
 	}
-	taken := map[string]bool{}
+	taken := maps.Clone(claimed)
+	if taken == nil {
+		taken = map[string]bool{}
+	}
 	for _, record := range all {
 		taken[record.Name] = true
 	}
