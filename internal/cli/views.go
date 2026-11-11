@@ -45,6 +45,35 @@ func viewing(name string) func(*invocation, []string) int {
 	}
 }
 
+// needs is `ropeshift needs`: what waits on a member in every active project, the longest wait first,
+// each item with its project. Text and JSON hold the same items.
+func (c *invocation) needs(args []string) int {
+	client, ok, code := c.noArgumentsAtInstallation(args)
+	if !ok {
+		return code
+	}
+	defer client.Close()
+	view, err := client.NeedsYou(c.ctx)
+	if view.Items == nil {
+		view.Items = []api.NeedItem{}
+	}
+	return c.finish(err, view, func() string {
+		var out strings.Builder
+		for _, item := range view.Items {
+			project := "-"
+			if item.Project != nil {
+				project = item.Project.Name
+			}
+			waited := time.Duration(max(view.AsOf-item.Since, 0)) * time.Millisecond
+			fmt.Fprintf(&out, "%s\t%s\t%s\twaiting %s\n", project, item.Kind, item.ID, waited.Round(time.Second))
+		}
+		if len(view.Items) == 0 {
+			out.WriteString("Nothing waits on a member.\n")
+		}
+		return out.String()
+	})
+}
+
 // runTop is `ropeshift top`. The first read comes before the screen changes, so a daemon that is down
 // exits 9 as any other command does. With no terminal it prints one frame, because a pipe cannot hold
 // a live view. A printed frame is as wide as the terminal on stdout, or the plain 120 columns when

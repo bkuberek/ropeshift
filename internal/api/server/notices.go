@@ -49,10 +49,11 @@ func readNotify(body string) (authority.NotifyPolicyDraft, error) {
 	return authority.NotifyPolicyDraft{Body: body, Policy: file.NotifyPolicy}, nil
 }
 
-// Waiting reads what waits for a person, as notices, so the tick and the Needs you view cannot differ
-// about it. Only the kind of each thing and why it waits go in, which is what keeps a title, a
-// question, or anything else an agent wrote from leaving the machine.
-func Waiting(config Config) func(context.Context) ([]ledger.Notice, error) {
+// Waiting reads what waits for a person in one project, as notices that name the project, so the tick and
+// the Needs you view cannot differ about it. Only the project's name, the kind of each thing, and why it
+// waits go in, which is what keeps a title, a question, or anything else an agent wrote from leaving the
+// machine.
+func Waiting(config Config, project string) func(context.Context) ([]ledger.Notice, error) {
 	h := newHandler(config)
 	return func(ctx context.Context) ([]ledger.Notice, error) {
 		var notices []ledger.Notice
@@ -70,7 +71,7 @@ func Waiting(config Config) func(context.Context) ([]ledger.Notice, error) {
 				if item.Work != nil {
 					reason = item.Work.Reason
 				}
-				notices = append(notices, ledger.NewNotice(h.Scope, item.Kind, reason, item.ID, item.Since))
+				notices = append(notices, ledger.NewNotice(h.Scope, item.Kind, reason, item.ID, item.Since).In(project))
 			}
 			return nil
 		})

@@ -113,7 +113,8 @@ func TestTheDesktopChannelNeedsAPolicyToo(t *testing.T) {
 	if len(spawned) != 1 {
 		t.Fatalf("spawned %+v", spawned)
 	}
-	if last := spawned[0].Args[len(spawned[0].Args)-1]; last != "A lane stopped, and it needs you." {
+	// The project's name leads the text, because one member hears of every project (FR-PROJ-8).
+	if last := spawned[0].Args[len(spawned[0].Args)-1]; last != ledger.DefaultProjectName+": A lane stopped, and it needs you." {
 		t.Errorf("the desktop heard %q", last)
 	}
 }
@@ -249,7 +250,7 @@ func TestAFailureReportsNoAddressAndNoKey(t *testing.T) {
 
 func TestWaitingIsWhatNeedsYouHolds(t *testing.T) {
 	d, _ := hostileWaiting(t)
-	notices, err := server.Waiting(d.Config)(t.Context())
+	notices, err := server.Waiting(d.Config, ledger.DefaultProjectName)(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

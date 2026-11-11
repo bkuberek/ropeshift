@@ -98,7 +98,8 @@ func (c *invocation) noProject(detail api.ErrorDetail) int {
 }
 
 func projectLine(p api.Project) string {
-	return fmt.Sprintf("%s\t%s\t%s\t%s\n", p.Name, p.State, dashIfEmpty(p.DisplayName), api.Count(int64(len(p.Repositories)), "repository", "repositories"))
+	return fmt.Sprintf("%s\t%s\t%s\t%s\t%d waiting\n", p.Name, p.State, dashIfEmpty(p.DisplayName),
+		api.Count(int64(len(p.Repositories)), "repository", "repositories"), p.Waiting)
 }
 
 func (c *invocation) projectList(args []string) int {

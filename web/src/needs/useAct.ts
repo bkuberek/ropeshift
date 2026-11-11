@@ -1,10 +1,12 @@
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 
-import { ApiError } from "../api/client";
+import { ApiError, inProjectOf } from "../api/client";
+import { ItemProject } from "../app/route";
 
 // useAct runs one change at a time, so a second press cannot send a second decision, and it keeps what
 // the server refused in words a person can act on.
 export function useAct(after: () => Promise<void>) {
+  const project = useContext(ItemProject);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
   const running = useRef(false);
@@ -17,7 +19,7 @@ export function useAct(after: () => Promise<void>) {
     setBusy(true);
     setFailure("");
     try {
-      await change();
+      await (project ? inProjectOf(project, change) : change());
       await after();
       return true;
     } catch (error) {

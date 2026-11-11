@@ -70,6 +70,7 @@ func newInstallationRig(t *testing.T) *installationRig {
 		Repository: func(context.Context, string) (string, error) { return "/repository", nil },
 		Socket:     "/run/worker.sock", Spool: "/state/hooks.spool", Binary: "/state/bin/ropeshift",
 		StateDir: dir, RunDir: dir,
+		Telemetry: worker.LaneTelemetry{Endpoint: "http://127.0.0.1:7318", Header: "x-ropeshift-telemetry=t", Workspace: "pa"},
 	}
 	r.subject = worker.New(&fake.WorkerLink{Plane: r.plane}, r.journal, fake.NewClock(time.UnixMilli(1_000_000)), worker.Config{
 		Name:      "test",
@@ -178,6 +179,13 @@ func TestOneWorkerRunsLanesOfTwoProjectsAtOnce(t *testing.T) {
 		}
 		if record.Project != project {
 			t.Errorf("the journal keeps %s in project %q, want %s", lane, record.Project, project)
+		}
+	}
+	// Each lane's telemetry carries its project's ID as a resource attribute (FR-OBS-2).
+	for _, spec := range r.driver.Specs() {
+		want := map[string]string{"lane-a": "pa", "lane-b": "pb"}[spec.Lane]
+		if spec.Telemetry.Tags.Project != want || !strings.Contains(spec.Telemetry.Tags.ResourceAttributes(), "ropeshift.project="+want) {
+			t.Errorf("lane %s is tagged %+v, want project %s", spec.Lane, spec.Telemetry.Tags, want)
 		}
 	}
 	state, err := r.journal.Desired(t.Context())

@@ -40,6 +40,7 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, SignInPath, "login"},
 		{http.MethodPost, SignOutPath, "sign-out"},
 		{http.MethodGet, ProjectsPath, "project list"},
+		{http.MethodGet, NeedsYouPath, "needs"},
 		{http.MethodPut, "/v1/workers/{id}/orchestrator", "orchestrator start"},
 	}
 	inProject := []WebRoute{

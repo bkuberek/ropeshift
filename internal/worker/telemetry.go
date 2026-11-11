@@ -35,8 +35,14 @@ func (r *laneRun) sessionTelemetry(prepared PreparedLane, repository string) por
 		return ports.SessionTelemetry{}
 	}
 	settings := prepared.Profile.Telemetry
+	// The lane's project is the workspace its records carry. A plane of one project names none, and the
+	// worker's own workspace stands for it.
+	project := r.lease.Project
+	if project == "" {
+		project = t.Workspace
+	}
 	tags := lanes.TelemetryTags{
-		Workspace: t.Workspace, WorkOrder: r.lease.WorkOrder, Lane: r.lease.Lane, Role: r.role(), Generation: r.currentGeneration(),
+		Project: project, Workspace: project, WorkOrder: r.lease.WorkOrder, Lane: r.lease.Lane, Role: r.role(), Generation: r.currentGeneration(),
 		Profile: prepared.Profile.Name, Repo: filepath.Base(repository), Branch: prepared.Worktree.Branch, Worker: r.w.config.Name,
 		Driver: prepared.Profile.Driver,
 	}

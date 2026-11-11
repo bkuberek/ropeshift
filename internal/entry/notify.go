@@ -73,7 +73,7 @@ func noticeTick(config server.Config, projects ports.Projects, deps notifyDeps, 
 		Run: eachProject(projects, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			inProject := config
 			inProject.Scope, inProject.Store = p.ID, store
-			items, err := server.Waiting(inProject)(ctx)
+			items, err := server.Waiting(inProject, p.Name)(ctx)
 			if err != nil {
 				return err
 			}

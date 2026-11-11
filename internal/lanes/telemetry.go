@@ -9,6 +9,9 @@ import (
 // The resource attributes every lane's telemetry carries, so an agent's own data points join the
 // work order, lane, and generation that produced them (FR-OBS-2).
 const (
+	// AttrProject is the lane's project (ADR-0021), and AttrWorkspace holds the same ID, which every
+	// record of the project carries.
+	AttrProject    = "ropeshift.project"
 	AttrWorkspace  = "ropeshift.workspace"
 	AttrWorkOrder  = "ropeshift.work_order.id"
 	AttrLane       = "ropeshift.lane.id"
@@ -45,6 +48,7 @@ func (s TelemetrySettings) WorkerSettings() TelemetrySettings {
 
 // TelemetryTags is what identifies one generation's telemetry.
 type TelemetryTags struct {
+	Project    string
 	Workspace  string
 	WorkOrder  string
 	Lane       string
@@ -73,7 +77,7 @@ func (t TelemetryTags) Pairs() [][2]string {
 		generation = strconv.FormatInt(t.Generation, 10)
 	}
 	all := [][2]string{
-		{AttrWorkspace, t.Workspace}, {AttrWorkOrder, t.WorkOrder}, {AttrLane, t.Lane}, {AttrRole, t.Role},
+		{AttrProject, t.Project}, {AttrWorkspace, t.Workspace}, {AttrWorkOrder, t.WorkOrder}, {AttrLane, t.Lane}, {AttrRole, t.Role},
 		{AttrGeneration, generation}, {AttrProfile, t.Profile}, {AttrRepo, t.Repo}, {AttrBranch, t.Branch},
 		{AttrWorker, t.Worker}, {AttrDriver, t.Driver},
 	}

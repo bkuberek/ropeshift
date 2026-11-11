@@ -12,10 +12,25 @@ function documentQuery({ path, instance, version }: DocumentRef): URLSearchParam
   return query;
 }
 
-// project is the route of one project's records, as the API names it: the project the page shows, which
-// its address names.
+// acting names the project an item of the combined Needs you acts in, while its change is sent.
+let acting = "";
+
+// project is the route of one project's records, as the API names it: the project an item names while it
+// acts, or else the project the page shows, which its address names.
 function project(rest: string): string {
-  return `/v1/projects/${encodeURIComponent(splitProject(window.location.pathname).project)}${rest}`;
+  return `/v1/projects/${encodeURIComponent(acting || splitProject(window.location.pathname).project)}${rest}`;
+}
+
+// inProjectOf sends a change to the project an item belongs to. A path is built when its call starts, so
+// the project holds for the whole of one change, and every call after it reaches the page's project again.
+export function inProjectOf<T>(name: string, run: () => T): T {
+  const was = acting;
+  acting = name;
+  try {
+    return run();
+  } finally {
+    acting = was;
+  }
 }
 
 // The API's own names. A test holds them to the list the web listener serves, which a Go test writes,
@@ -25,7 +40,7 @@ export const paths = {
   signOut: "/v1/sessions/end",
   projects: "/v1/projects",
   events: () => project("/events"),
-  needsYou: () => project("/views/needs-you"),
+  needsYou: () => "/v1/needs-you",
   view: (name: string, category = "") => project(`/views/${encodeURIComponent(name)}${category ? `?${new URLSearchParams({ category })}` : ""}`),
   documentRead: (ref: DocumentRef) => project(`/documents/read?${documentQuery(ref)}`),
   documentVersions: (ref: DocumentRef) => project(`/documents/versions?${documentQuery(ref)}`),

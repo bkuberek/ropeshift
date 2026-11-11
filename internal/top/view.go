@@ -93,8 +93,21 @@ func CommandFor(action string, item api.NeedItem) (string, bool) {
 	return "ropeshift " + fmt.Sprintf(format, clean(item.ID)), true
 }
 
-// itemCommands is what a person can do about one item.
+// itemCommands is what a person can do about one item, in the project it waits in.
 func itemCommands(item api.NeedItem) []string {
+	commands := commandsFor(item)
+	if item.Project == nil {
+		return commands
+	}
+	for i, command := range commands {
+		if !strings.HasPrefix(command, "ropeshift orchestrator ") {
+			commands[i] = command + " --project " + projectOf(item)
+		}
+	}
+	return commands
+}
+
+func commandsFor(item api.NeedItem) []string {
 	switch item.Kind {
 	case api.NeedQuestions:
 		return []string{"ropeshift question batches"}
@@ -231,13 +244,14 @@ func (m Model) header() string {
 	return line
 }
 
-// needLines gives each need a line. The kind column is as wide as the widest kind listed, so every ID
-// starts in one column.
+// needLines gives each need a line, with the project it waits in. The project and kind columns are as wide
+// as the widest listed, so every ID starts in one column.
 func (m Model) needLines() []string {
 	items := m.snapshot.Needs.Items
-	width := 0
+	width, projects := 0, 0
 	for _, item := range items {
 		width = max(width, utf8.RuneCountInString(clean(item.Kind)))
+		projects = max(projects, utf8.RuneCountInString(projectOf(item)))
 	}
 	lines := make([]string, 0, len(items))
 	for i, item := range items {
@@ -245,9 +259,22 @@ func (m Model) needLines() []string {
 		if i == m.cursor {
 			mark = ">"
 		}
-		lines = append(lines, fmt.Sprintf("%s %5s  %-*s %s  %s", mark, age(m.ago(item.Since)), width, clean(item.Kind), clean(item.ID), what(item)))
+		project := ""
+		if projects > 0 {
+			project = fmt.Sprintf("%-*s ", projects, projectOf(item))
+		}
+		lines = append(lines, fmt.Sprintf("%s %5s  %s%-*s %s  %s", mark, age(m.ago(item.Since)), project, width, clean(item.Kind), clean(item.ID), what(item)))
 	}
 	return lines
+}
+
+// projectOf names the project an item of the combined Needs you waits in, or nothing for an item read
+// from one project.
+func projectOf(item api.NeedItem) string {
+	if item.Project == nil {
+		return ""
+	}
+	return clean(item.Project.Name)
 }
 
 func (m Model) laneLines() []string {

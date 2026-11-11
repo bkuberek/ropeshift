@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -174,6 +175,7 @@ func failProject(w http.ResponseWriter, name string, err error) {
 // registryRoutes are the installation's routes for its projects.
 func (rt *router) registryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/projects", rt.listProjects)
+	mux.HandleFunc("GET "+api.NeedsYouPath, rt.combinedNeeds)
 	mux.HandleFunc("GET /v1/projects/{project}", rt.showProject)
 	rt.home.handler.installationBackupRoutes(mux)
 }
@@ -201,9 +203,76 @@ func (rt *router) listProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	list := api.ProjectList{Projects: make([]api.Project, 0, len(projects))}
 	for _, p := range projects {
-		list.Projects = append(list.Projects, projectBody(p, held[p.ID]))
+		body := projectBody(p, held[p.ID])
+		if p.State == ledger.ProjectActive {
+			needs, err := rt.needsOf(r.Context(), p)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			body.Waiting = len(needs.Items)
+		}
+		list.Projects = append(list.Projects, body)
 	}
 	reply(w, http.StatusOK, list)
+}
+
+// needsOf reads one project's Needs you, each item labeled with the project, as its own read.
+func (rt *router) needsOf(ctx context.Context, p ledger.Project) (api.NeedsYou, error) {
+	_, s, err := rt.project(ctx, p.Name)
+	if err != nil {
+		return api.NeedsYou{}, err
+	}
+	label := &api.ProjectLabel{ID: p.ID, Name: p.Name, DisplayName: p.DisplayName}
+	var out api.NeedsYou
+	err = s.handler.Store.Read(ctx, p.ID, func(tx ports.ReadTx) error {
+		workspace, err := tx.Workspace()
+		if err != nil {
+			return err
+		}
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		out.Stamp = api.Stamp{AsOf: now, Revision: workspace.Rev}
+		if out.Items, err = s.handler.needs(tx, out.Stamp); err != nil {
+			return err
+		}
+		for i := range out.Items {
+			out.Items[i].Project = label
+		}
+		return nil
+	})
+	return out, err
+}
+
+// combinedNeeds is the combined Needs you: what waits on a member in every active project, read from each
+// project's ledger now, the longest wait first, each item labeled with its project (FR-PROJ-8). An archived
+// project is read-only, and nothing in it can be acted on, so it lists nothing.
+func (rt *router) combinedNeeds(w http.ResponseWriter, r *http.Request) {
+	projects, err := rt.config.Projects.List(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	out := api.NeedsYou{Items: []api.NeedItem{}, Projects: []api.NeedsProject{}}
+	for _, p := range projects {
+		if p.State != ledger.ProjectActive {
+			continue
+		}
+		needs, err := rt.needsOf(r.Context(), p)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		out.AsOf = max(out.AsOf, needs.AsOf)
+		out.Items = append(out.Items, needs.Items...)
+		out.Projects = append(out.Projects, api.NeedsProject{
+			ProjectLabel: api.ProjectLabel{ID: p.ID, Name: p.Name, DisplayName: p.DisplayName}, Revision: needs.Revision, Waiting: len(needs.Items),
+		})
+	}
+	slices.SortStableFunc(out.Items, func(a, b api.NeedItem) int { return cmp.Compare(a.Since, b.Since) })
+	reply(w, http.StatusOK, out)
 }
 
 func projectBody(p ledger.Project, repositories []string) api.Project {

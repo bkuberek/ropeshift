@@ -90,6 +90,10 @@ export function useRoute(): Route {
 
 const Arrivals = createContext(0);
 
+// ItemProject is the project an item of the combined Needs you belongs to: its changes and its links
+// reach that project, whichever project the page shows.
+export const ItemProject = createContext("");
+
 export function ArrivalsProvider({ value, children }: { value: number; children: ReactNode }) {
   return <Arrivals.Provider value={value}>{children}</Arrivals.Provider>;
 }
@@ -117,7 +121,8 @@ type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
 // taken from a record's text.
 export function Link({ to: view, stay = false, onClick, children, ...rest }: LinkProps) {
   const { project } = useRoute();
-  const to = placed(view, project);
+  const item = useContext(ItemProject);
+  const to = placed(view, item || project);
   const follow = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {

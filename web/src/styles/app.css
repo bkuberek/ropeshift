@@ -431,6 +431,15 @@ fieldset {
   font-size: 1rem;
 }
 
+/* The project an item of the combined Needs you belongs to. */
+.wait-project {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
 @media (min-width: 52rem) {
   .queue {
     --text-x: 2.75rem;

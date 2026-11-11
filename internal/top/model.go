@@ -254,17 +254,24 @@ func LaneOrder(snapshot Snapshot) []api.FloorLane {
 	return lanes
 }
 
-// Reader reads the fleet through the one client every surface uses.
+// Reader reads the fleet through the one client every surface uses: what waits in every active project,
+// and the lanes of the project the client calls. The revision it follows is that project's.
 func Reader(client *api.ProjectClient) func(context.Context) (Snapshot, error) {
 	return func(ctx context.Context) (Snapshot, error) {
 		var snapshot Snapshot
-		if err := client.ReadView(ctx, api.ViewNeedsYou, "", &snapshot.Needs); err != nil {
+		needs, err := client.NeedsYou(ctx)
+		if err != nil {
 			return snapshot, err
 		}
+		for _, project := range needs.Projects {
+			if project.Name == client.Name() {
+				needs.Revision = project.Revision
+			}
+		}
+		snapshot.Needs = needs
 		if err := client.ReadView(ctx, api.ViewShopFloor, "", &snapshot.Floor); err != nil {
 			return snapshot, err
 		}
-		var err error
 		snapshot.Telemetry, err = client.LaneTelemetry(ctx)
 		return snapshot, err
 	}

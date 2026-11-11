@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -283,5 +284,46 @@ func TestTwoProjectsKeepTheirRecordsApartOnTheCommandLine(t *testing.T) {
 	}
 	if out := p.must(none, "search", "invoice upload", "--project", "acme"); strings.Contains(out, "decision") {
 		t.Errorf("acme's lookup finds the first project's decision: %q", out)
+	}
+}
+
+// TestTheCombinedNeedsYouNamesEachProject holds FR-PROJ-8 on the command line: `needs` and `top` list what
+// waits in both projects, each item with its project, `top` names the project in the command it offers,
+// and `project list` says how much waits in each.
+func TestTheCombinedNeedsYouNamesEachProject(t *testing.T) {
+	p := newProjects(t)
+	needs := p.must(cli.Options{}, "needs")
+	for _, want := range []string{ledger.DefaultProjectName + "\tcontract_review\two-home", "acme\tcontract_review\two-acme"} {
+		if !strings.Contains(needs, want) {
+			t.Errorf("needs lacks %q:\n%s", want, needs)
+		}
+	}
+	var view api.NeedsYou
+	if err := json.Unmarshal([]byte(p.must(cli.Options{}, "needs", "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{}
+	for _, item := range view.Items {
+		if item.Project != nil {
+			labels[item.ID] = item.Project.Name
+		}
+	}
+	if labels["wo-home"] != ledger.DefaultProjectName || labels["wo-acme"] != "acme" || len(view.Projects) != 2 {
+		t.Errorf("the combined view labels %v, projects %+v", labels, view.Projects)
+	}
+	frame := p.must(cli.Options{}, "top", "--once", "--project", "acme", "--width", "200")
+	for _, want := range []string{"wo-home", "wo-acme", ledger.DefaultProjectName + " ", "acme "} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("top lacks %q:\n%s", want, frame)
+		}
+	}
+	if !strings.Contains(frame, "--project ") {
+		t.Errorf("top offers a command with no project:\n%s", frame)
+	}
+	list := p.must(cli.Options{}, "project", "list")
+	for _, line := range strings.Split(strings.TrimSpace(list), "\n") {
+		if !strings.HasSuffix(line, "1 waiting") {
+			t.Errorf("project list: %q", line)
+		}
 	}
 }

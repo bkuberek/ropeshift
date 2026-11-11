@@ -142,9 +142,13 @@ export type PlanApprovalNeed = {
 
 export type ContractReviewNeed = { work_order: WorkOrder; contract: string; version: number; plan: string };
 
+// ProjectLabel names the project an item of the combined Needs you belongs to.
+export type ProjectLabel = { id: string; name: string; display_name?: string };
+
 export type NeedItem = {
   id: string;
   since: number;
+  project?: ProjectLabel;
 } & (
   | { kind: "questions"; batch: Batch }
   | { kind: "approval"; approval: Approval }
@@ -154,7 +158,12 @@ export type NeedItem = {
   | { kind: "contract_review"; contract_review: ContractReviewNeed }
 );
 
-export type NeedsYou = Stamp & { items: NeedItem[] };
+// NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
+export type NeedsProject = ProjectLabel & { revision: number; waiting: number };
+
+// NeedsYou lists what waits on a member. The combined view holds every active project's items, each
+// labeled with its project, and where each project's ledger stood.
+export type NeedsYou = Stamp & { items: NeedItem[]; projects?: NeedsProject[] };
 
 export type Goal = { id: string; title: string; status: string; statement?: string; success_measures?: string[]; source?: string };
 

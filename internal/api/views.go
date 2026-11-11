@@ -140,8 +140,9 @@ type ContractReviewNeed struct {
 }
 
 // NeedItem is one thing that waits for a person. Since is database time, and Kind says which field
-// holds the rest.
+// holds the rest. Project names its project in the combined Needs you.
 type NeedItem struct {
+	Project        *ProjectLabel        `json:"project,omitempty"`
 	Kind           string               `json:"kind"`
 	ID             string               `json:"id"`
 	Since          int64                `json:"since"`
@@ -153,10 +154,37 @@ type NeedItem struct {
 	ContractReview *ContractReviewNeed  `json:"contract_review,omitempty"`
 }
 
-// NeedsYou is the default view: what a member can act on, the longest wait first (FR-UI-2).
+// NeedsYou is the default view: what a member can act on, the longest wait first (FR-UI-2). The combined
+// view lists every active project's, and Projects says where each project's ledger stood.
 type NeedsYou struct {
 	Stamp
-	Items []NeedItem `json:"items"`
+	Items    []NeedItem     `json:"items"`
+	Projects []NeedsProject `json:"projects,omitempty"`
+}
+
+// NeedsYouPath is the combined Needs you: what waits on a member in every active project (FR-PROJ-8).
+const NeedsYouPath = "/v1/needs-you"
+
+// ProjectLabel names the project an item of the combined Needs you belongs to.
+type ProjectLabel struct {
+	ID          ledger.WorkspaceID `json:"id"`
+	Name        string             `json:"name"`
+	DisplayName string             `json:"display_name,omitempty"`
+}
+
+// NeedsProject is one project's part of the combined Needs you: the revision its ledger stood at, and how
+// many of its items wait.
+type NeedsProject struct {
+	ProjectLabel
+	Revision int64 `json:"revision"`
+	Waiting  int   `json:"waiting"`
+}
+
+// NeedsYou reads the combined Needs you of every active project.
+func (c *Client) NeedsYou(ctx context.Context) (NeedsYou, error) {
+	var out NeedsYou
+	err := c.Do(ctx, http.MethodGet, NeedsYouPath, nil, &out)
+	return out, err
 }
 
 // The states of a milestone, from its work orders and the milestones it depends on. A milestone is done
