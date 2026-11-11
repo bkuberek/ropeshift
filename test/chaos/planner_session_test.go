@@ -107,16 +107,26 @@ func (p *plannerRun) run(t *testing.T, args ...string) *person {
 
 // detaches presses the detach keys and says the command ended cleanly, which a person who detaches
 // from a session that goes on expects.
+// It presses them again every two seconds until the command ends, because a tmux client that has
+// just drawn its first frame can miss keys typed at once; a press after the command ended goes
+// nowhere.
 func (p *person) detaches() error {
+	deadline := time.After(20 * time.Second)
+	again := time.NewTicker(2 * time.Second)
+	defer again.Stop()
 	p.screen.Type(p.t, detachKeys)
-	select {
-	case err := <-p.exited:
-		if err != nil {
-			return fmt.Errorf("the command ended badly after the detach: %v: %q", err, p.screen.Drawn())
+	for {
+		select {
+		case err := <-p.exited:
+			if err != nil {
+				return fmt.Errorf("the command ended badly after the detach: %v: %q", err, p.screen.Drawn())
+			}
+			return nil
+		case <-again.C:
+			p.screen.Type(p.t, detachKeys)
+		case <-deadline:
+			return fmt.Errorf("the command did not end after the detach keys: %q", p.screen.Drawn())
 		}
-		return nil
-	case <-time.After(20 * time.Second):
-		return fmt.Errorf("the command did not end after the detach keys: %q", p.screen.Drawn())
 	}
 }
 
@@ -232,6 +242,9 @@ func TestAPlanningSessionSurvivesADetachAndAWorkerRestart(t *testing.T) {
 	joined := p.run(t, "lane", "attach", lane)
 	if err := joined.sees("fakeclaude"); err != nil {
 		t.Fatal(err)
+	}
+	if err := p.marked(lane, true); err != nil {
+		t.Fatalf("while a person was attached again: %v", err)
 	}
 	if err := joined.detaches(); err != nil {
 		t.Fatal(err)
