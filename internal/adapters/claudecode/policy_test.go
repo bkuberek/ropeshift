@@ -421,3 +421,27 @@ func TestASessionThatWritesIsNotReadOnly(t *testing.T) {
 		t.Errorf("a writing session's commit was denied: %s", reason)
 	}
 }
+
+// ADR-0022: the worktrees of the other repositories a lane reads are directories the session may read with
+// no prompt, and never write: the CLI's own rules deny an edit there, and the hook's policy denies a git
+// command that writes there.
+func TestTheRepositoriesALaneReadsAreReadOnly(t *testing.T) {
+	spec := policySpec(t)
+	api := filepath.Join(filepath.Dir(spec.Dir), "lane-1.reads", "api")
+	spec.ReadOnlyDirs = []string{api}
+	settings := generateSettings(spec)
+	if !slices.Equal(settings.Permissions.AdditionalDirectories, []string{api}) {
+		t.Errorf("the session may read %v", settings.Permissions.AdditionalDirectories)
+	}
+	for _, rule := range []string{"Edit(/" + api + ")", "Edit(/" + api + "/**)"} {
+		if !slices.Contains(settings.Permissions.Deny, rule) {
+			t.Errorf("no rule %s", rule)
+		}
+	}
+	if policy := compilePolicy(spec); !slices.Contains(policy.ReadOnlyRoots, api) {
+		t.Errorf("the hook's policy holds read-only roots %v", policy.ReadOnlyRoots)
+	}
+	if plain := generateSettings(policySpec(t)); len(plain.Permissions.AdditionalDirectories) != 0 {
+		t.Errorf("a lane that reads nothing may read %v", plain.Permissions.AdditionalDirectories)
+	}
+}

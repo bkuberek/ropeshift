@@ -202,6 +202,9 @@ type DesiredLease struct {
 	Continues       string `json:"continues,omitempty"`
 	ContinuesRef    string `json:"continues_ref,omitempty"`
 	ContinuesCommit string `json:"continues_commit,omitempty"`
+	// Reads are the other repositories of the project the lane reads, read-only, at the commits its claim
+	// recorded (ADR-0022).
+	Reads []RepositoryRead `json:"reads,omitempty"`
 	// Deadline is the work order's, in database time. Zero means it has none.
 	Deadline int64 `json:"deadline,omitempty"`
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with
@@ -228,6 +231,17 @@ type DesiredLease struct {
 	Attempt *DesiredAttempt `json:"attempt,omitempty"`
 	// Rework is why the work came back for this attempt, when it did.
 	Rework *DesiredRework `json:"rework,omitempty"`
+}
+
+// RepositoryRead is another repository of a lane's project that the lane reads, read-only, at a commit
+// recorded on its claim when it starts (ADR-0022). The worker checks it out with no branch, and the brief
+// names it. A repository that could not be read has no commit, and Detail says why.
+type RepositoryRead struct {
+	Repository string `json:"repository"`
+	Name       string `json:"name,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	Commit     string `json:"commit,omitempty"`
+	Detail     string `json:"detail,omitempty"`
 }
 
 // DesiredRework is why a work order's last attempt went back: the reason a member gave, or the review whose

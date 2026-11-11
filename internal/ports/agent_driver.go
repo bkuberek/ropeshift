@@ -147,6 +147,10 @@ type SessionSpec struct {
 	DefaultBranch string
 	// Kept are the branches the lane continues, which nothing it runs may push to or move (ADR-0023).
 	Kept []string
+	// ReadOnlyDirs are worktrees of other repositories the session reads and never changes (ADR-0022). A
+	// driver lets the session read them with no prompt, and denies every write and every git command that
+	// writes there.
+	ReadOnlyDirs []string
 	// ApprovalWait bounds a hook that waits on a decision.
 	ApprovalWait time.Duration
 	// Gates are the permission rules a person must approve.

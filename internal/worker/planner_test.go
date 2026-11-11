@@ -20,6 +20,13 @@ func newPlanningRig(t *testing.T, setup func(*fake.AgentDriver)) *laneRig {
 	return newLaneRigWith(t, base, setup)
 }
 
+// newPlanningRigFor is a planning lane rig over a rig a test set up.
+func newPlanningRigFor(t *testing.T, base *rig) *laneRig {
+	t.Helper()
+	base.kind = workorders.KindPlan
+	return newLaneRigWith(t, base, func(*fake.AgentDriver) {})
+}
+
 // noPane is a driver that offers no interactive run mode, as one does on a machine with no tmux.
 type noPane struct {
 	*fake.AgentDriver

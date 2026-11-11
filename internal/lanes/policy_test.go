@@ -420,3 +420,46 @@ func TestAPolicyKeepsTheBranchALaneContinues(t *testing.T) {
 		t.Errorf("the policy as a hook reads it: %+v, %v", read.Kept, err)
 	}
 }
+
+// ADR-0022: the read-only worktrees of other repositories a lane reads take no write, no commit, no push,
+// and no branch change, as a review lane's worktree takes none, while the lane's own worktree works as
+// before.
+func TestAPolicyKeepsTheReadOnlyWorktreesReadOnly(t *testing.T) {
+	const cwd = "/work/plan-lanes/lane-1"
+	const api = "/work/plan-lanes/lane-1.reads/api"
+	policy := CompilePolicy(PolicySpec{
+		Worktree: cwd, Home: "/home/person", DefaultBranches: []string{"main"}, ReadOnlyRoots: []string{api},
+	})
+	tests := []struct {
+		name    string
+		command string
+		denied  string
+	}{
+		{name: "a log there", command: "git -C " + api + " log --oneline"},
+		{name: "a grep there", command: "cd " + api + " && git grep -n retry"},
+		{name: "a read of a file there", command: "cat " + api + "/README.md"},
+		{name: "a commit in the lane's own worktree", command: "git commit -m plan"},
+		{name: "a branch in the lane's own worktree", command: "git branch -f lane/lane-1 HEAD"},
+
+		{name: "a commit there", command: "git -C " + api + " commit -m x", denied: ReasonReadOnlyTree},
+		{name: "a commit after cd", command: "cd " + api + " && git commit -m x", denied: ReasonReadOnlyTree},
+		{name: "a checkout there", command: "git -C " + api + " checkout -b mine", denied: ReasonReadOnlyTree},
+		{name: "a switch there", command: "cd " + api + " && git switch main", denied: ReasonReadOnlyTree},
+		{name: "a reset there", command: "git -C " + api + " reset --hard HEAD~1", denied: ReasonReadOnlyTree},
+		{name: "a push from there", command: "git -C " + api + " push origin HEAD:main", denied: ReasonReadOnlyTree},
+		{name: "a stage there", command: "git -C " + api + " add .", denied: ReasonReadOnlyTree},
+		{name: "a work tree option", command: "git --work-tree=" + api + " commit -m x", denied: ReasonReadOnlyTree},
+		{name: "a write there", command: "echo x > " + api + "/notes.txt", denied: ReasonOutside},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: tt.command, Cwd: cwd})
+			if denied != (tt.denied != "") || reason != tt.denied {
+				t.Errorf("%q: denied %v with %q, want %q", tt.command, denied, reason, tt.denied)
+			}
+		})
+	}
+	if reason, denied := policy.Decide(ToolCall{Tool: toolEdit, Path: api + "/main.go", Cwd: cwd}); !denied || reason != ReasonOutside {
+		t.Errorf("an edit there: denied %v with %q", denied, reason)
+	}
+}

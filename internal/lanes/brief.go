@@ -49,6 +49,33 @@ type BriefSpec struct {
 	Rework *ledger.DesiredRework
 	// Continues is the in-flight branch this work finishes, when it finishes one (ADR-0023).
 	Continues *Continuation
+	// Reads are the other repositories of the project the lane reads, read-only (ADR-0022).
+	Reads []ReadTree
+}
+
+// ReadTree is another repository of the project checked out for a lane to read, at the commit its claim
+// recorded, with no branch. One the worker could not give the lane has no path, and Detail says why.
+type ReadTree struct {
+	Name   string
+	Path   string
+	Ref    string
+	Commit string
+	Detail string
+}
+
+// writeReads names where each other repository of the project stands for the lane to read, and that it is
+// read-only: a lane changes only its own worktree.
+func writeReads(out *strings.Builder, reads []ReadTree) {
+	out.WriteString("\nThe other repositories of this project are checked out for you to read, read-only, each at the commit recorded " +
+		"when this lane started and on no branch. Read them to work against the code as it is. Do not edit, commit, push, or change " +
+		"branches in them: your work goes only in your own worktree, and they are removed when this lane ends.\n")
+	for _, read := range reads {
+		if read.Path == "" {
+			fmt.Fprintf(out, "- %s: not available, because %s\n", read.Name, read.Detail)
+			continue
+		}
+		fmt.Fprintf(out, "- %s: %s, at commit %s (%s)\n", read.Name, read.Path, read.Commit, read.Ref)
+	}
 }
 
 // Continuation is an in-flight branch a lane finishes: its name, the tip the lane's own branch began at,
@@ -218,6 +245,9 @@ func Brief(spec BriefSpec) string {
 	}
 	if spec.Continues != nil {
 		writeContinuation(&out, *spec.Continues)
+	}
+	if len(spec.Reads) != 0 {
+		writeReads(&out, spec.Reads)
 	}
 	if spec.Rework != nil {
 		writeRework(&out, *spec.Rework)

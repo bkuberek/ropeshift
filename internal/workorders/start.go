@@ -1,6 +1,10 @@
 package workorders
 
-import "fmt"
+import (
+	"fmt"
+
+	"ropeshift.com/ropeshift/internal/ledger"
+)
 
 // Start is where a lane's branch begins: a ref a person reads it by, and the commit that ref named when
 // the claim was made. The worktree starts at the commit, so a branch that moves later changes nothing
@@ -13,6 +17,9 @@ type Start struct {
 	// from, rather than where the lane's branch begins.
 	ContinuesRef    string `json:"continues_ref,omitempty"`
 	ContinuesCommit string `json:"continues_commit,omitempty"`
+	// Reads are the other repositories of the project the lane reads, each at the commit it stood at when
+	// the start was decided (ADR-0022).
+	Reads []ledger.RepositoryRead `json:"reads,omitempty"`
 }
 
 // HoldReason says why work that is ready cannot start yet.

@@ -148,3 +148,23 @@ func TestABriefSaysWhichBranchTheWorkFinishes(t *testing.T) {
 		t.Errorf("a brief for new work speaks of a branch:\n%s", plain)
 	}
 }
+
+// ADR-0022: a lane is told where each other repository of its project is checked out for it to read, at
+// which commit, that it may change nothing there, and which ones it could not be given.
+func TestABriefNamesTheRepositoriesTheLaneReads(t *testing.T) {
+	brief := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Plan it", Kind: workorders.KindPlan, Reads: []ReadTree{
+		{Name: "api", Path: "/work/plan-lanes/lane-1.reads/api", Ref: "origin/main", Commit: "abc123"},
+		{Name: "web", Detail: "no checkout of it on this machine"},
+	}})
+	for _, want := range []string{
+		"/work/plan-lanes/lane-1.reads/api", "api", "abc123", "origin/main", "read-only",
+		"web", "no checkout of it on this machine",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, brief)
+		}
+	}
+	if plain := Brief(BriefSpec{WorkOrder: "wo-1", Title: "Plan it", Kind: workorders.KindPlan}); strings.Contains(plain, "read-only") {
+		t.Errorf("a brief with nothing to read speaks of it:\n%s", plain)
+	}
+}

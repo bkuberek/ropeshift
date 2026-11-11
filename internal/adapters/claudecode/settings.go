@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -47,6 +48,9 @@ type permissions struct {
 	Allow []string `json:"allow"`
 	Deny  []string `json:"deny,omitempty"`
 	Ask   []string `json:"ask,omitempty"`
+	// AdditionalDirectories are directories outside the worktree the session may read with no prompt: the
+	// worktrees of other repositories it reads, which its deny rules keep it from writing.
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
 }
 
 // settingsFile is what a generation's `--settings` holds. It holds no secret, because
@@ -93,7 +97,9 @@ func allowRules(spec ports.SessionSpec) []string {
 // call, or a denial could be skipped by a slow machine.
 func generateSettings(spec ports.SessionSpec) settingsFile {
 	out := settingsFile{
-		Permissions:  permissions{Allow: allowRules(spec), Deny: denyRules(spec), Ask: askRules(spec)},
+		Permissions: permissions{
+			Allow: allowRules(spec), Deny: denyRules(spec), Ask: askRules(spec), AdditionalDirectories: slices.Clone(spec.ReadOnlyDirs),
+		},
 		APIKeyHelper: spec.Credential.APIKeyHelper, CrossSessionInbound: spec.Override.Inbound(inboundAccept),
 	}
 	if spec.Binary == "" {

@@ -158,9 +158,11 @@ type LaneView struct {
 	BaseCommit string `json:"base_commit,omitempty"`
 	// ContinuesRef and ContinuesCommit are the in-flight branch the lane continues and the tip its branch
 	// began at, when it continues one (ADR-0023).
-	ContinuesRef    string     `json:"continues_ref,omitempty"`
-	ContinuesCommit string     `json:"continues_commit,omitempty"`
-	Artifacts       []Artifact `json:"artifacts,omitempty"`
+	ContinuesRef    string `json:"continues_ref,omitempty"`
+	ContinuesCommit string `json:"continues_commit,omitempty"`
+	// Reads are the other repositories of the project the lane reads, at the commits its claim recorded.
+	Reads     []RepositoryRead `json:"reads,omitempty"`
+	Artifacts []Artifact       `json:"artifacts,omitempty"`
 	// Generations lists each run of an agent in this lane, oldest first.
 	Generations []Generation `json:"generations,omitempty"`
 }

@@ -21,6 +21,10 @@ const (
 	ReasonDefaultBranch = "ropeshift policy: a push to the default branch is denied on this lane. Push the lane's own branch."
 	ReasonOutside       = "ropeshift policy: a write outside this lane's worktree is denied. Write inside the worktree, with a path the policy can read."
 	ReasonPushApart     = "ropeshift policy: a push runs as a command of its own on this lane, because a commit runs with no prompt and a push does not. Commit first, then push alone."
+	// ReasonReadOnlyTree is what a lane is told when it reaches for a write in a worktree of another
+	// repository it reads (ADR-0022).
+	ReasonReadOnlyTree = "ropeshift policy: the worktrees of the other repositories are for reading. Do not commit, stage, push, " +
+		"or change branches there: read them with git log, git show, and git grep, and work only in this lane's own worktree."
 	// ReasonKept is what a lane is told when it reaches for the branch it continues, which stays as its
 	// author left it (ADR-0023).
 	ReasonKept = "ropeshift policy: a lane never moves the branch it continues. Do not push to it, move it, switch to it, or check it out: " +
@@ -77,6 +81,8 @@ type PolicySpec struct {
 	DefaultBranches []string
 	// Kept are the branches a lane continues, which nothing it runs may move.
 	Kept []string
+	// ReadOnlyRoots are worktrees of other repositories the lane reads, where no git command may write.
+	ReadOnlyRoots []string
 	// Writable are other directories a lane may write, such as its private temp.
 	Writable []string
 	// QuestionTool says what a call of the agent's own question tool becomes.
@@ -121,7 +127,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		deny = readOnlyRules()
 	}
 	return DenyPolicy{
-		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
+		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates,
 	}
@@ -359,6 +365,9 @@ func (p DenyPolicy) decideGit(leaders, args []shellWord, at string, seen *gitSee
 	if p.namesKept(args[0].text, args[1:]) {
 		return ReasonKept, true
 	}
+	if p.inReadOnlyTree(args[0].text, places, at) {
+		return ReasonReadOnlyTree, true
+	}
 	switch args[0].text {
 	case "push":
 		seen.pushes = true
@@ -385,6 +394,29 @@ func (p DenyPolicy) decideStage(places []shellWord, at string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// writesInTree are the subcommands that write in the worktree they run in: readOnlyGit's, and a stage.
+var writesInTree = append(slices.Clone(readOnlyGit), "add")
+
+// inReadOnlyTree says a git command that writes runs in a read-only worktree, where it stands or where its
+// options point.
+func (p DenyPolicy) inReadOnlyTree(subcommand string, places []shellWord, at string) bool {
+	if len(p.ReadOnlyRoots) == 0 || !slices.Contains(writesInTree, subcommand) {
+		return false
+	}
+	for _, place := range append([]shellWord{{text: at}}, places...) {
+		resolved, ok := p.resolve(place, at)
+		if !ok {
+			continue
+		}
+		for _, root := range p.ReadOnlyRoots {
+			if resolved == root || strings.HasPrefix(resolved, root+"/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // movesBranches are the subcommands that move, make, delete, or check out the branch they name.

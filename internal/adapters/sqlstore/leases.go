@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -329,24 +330,24 @@ type claimTx struct {
 
 var (
 	stmtFindClaim = define("claim.find",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads
   FROM claims
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtListClaims = define("claim.list",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads
   FROM claims
  WHERE workspace_id = :workspace_id
  ORDER BY work_order_id, fence`)
 
 	stmtRecordClaim = define("claim.record",
 		`INSERT INTO claims (workspace_id, id, work_order_id, worker_id, fence, granted_at, lane_id, lane_overrides, pack_id, base_ref, base_commit,
-  continues_ref, continues_commit)
+  continues_ref, continues_commit, reads)
 VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at, :lane, :overrides, :pack_id, :base_ref, :base_commit,
-  :continues_ref, :continues_commit)`)
+  :continues_ref, :continues_commit, :reads)`)
 
 	stmtClaimOfLane = define("claim.of_lane",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads
   FROM claims
  WHERE workspace_id = :workspace_id AND lane_id = :lane
  ORDER BY fence DESC
@@ -365,9 +366,16 @@ func scanClaim(row scanner) (workorders.Claim, error) {
 	var c workorders.Claim
 	var endedAt sql.NullInt64
 	var reason, lane, pack sql.NullString
+	var reads string
 	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason, &lane, &c.Overrides, &pack, &c.BaseRef, &c.BaseCommit,
-		&c.ContinuesRef, &c.ContinuesCommit); err != nil {
+		&c.ContinuesRef, &c.ContinuesCommit, &reads); err != nil {
 		return workorders.Claim{}, err
+	}
+	if err := json.Unmarshal([]byte(reads), &c.Reads); err != nil {
+		return workorders.Claim{}, fmt.Errorf("claim %s reads: %w", c.ID, err)
+	}
+	if len(c.Reads) == 0 {
+		c.Reads = nil
 	}
 	c.EndedAt, c.EndReason, c.Lane, c.PackID = endedAt.Int64, reason.String, lane.String, pack.String
 	return c, nil
@@ -403,11 +411,16 @@ func (t claimTx) List() ([]workorders.Claim, error) {
 }
 
 func (t claimTx) Record(c workorders.Claim) error {
-	_, err := t.exec(stmtRecordClaim, params{
+	reads, err := json.Marshal(nonNil(c.Reads))
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtRecordClaim, params{
 		"workspace_id": string(t.scope), "id": c.ID, "work_order_id": c.WorkOrder,
 		"worker_id": c.Worker, "fence": c.Fence, "granted_at": c.GrantedAt,
 		"lane": nullText(c.Lane), "overrides": c.Overrides, "pack_id": nullText(c.PackID),
 		"base_ref": c.BaseRef, "base_commit": c.BaseCommit, "continues_ref": c.ContinuesRef, "continues_commit": c.ContinuesCommit,
+		"reads": string(reads),
 	})
 	return err
 }
