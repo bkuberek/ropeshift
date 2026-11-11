@@ -537,12 +537,12 @@ func workerLaneCase() crashCase {
 			if err != nil {
 				return err
 			}
-			retried, err := countOf(w, workorders.EventType(workorders.TriggerLaneFailedRetry), spec.WorkOrder)
+			failed, err := countOf(w, workorders.EventType(workorders.TriggerLaneFailed), spec.WorkOrder)
 			if err != nil {
 				return err
 			}
-			if completed+retried != 1 {
-				return contract.Violatedf("%d outcomes on record for one lane", completed+retried)
+			if completed+failed != 1 {
+				return contract.Violatedf("%d outcomes on record for one lane", completed+failed)
 			}
 			return nil
 		},

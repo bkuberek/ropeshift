@@ -119,6 +119,8 @@ type WriteTx interface {
 	// Event returns the event with a client-generated ID, or ErrNotFound. It is how
 	// a retry finds its first attempt.
 	Event(id string) (ledger.Event, error)
+	// EventsAbout returns every event about one subject, in order.
+	EventsAbout(subject ledger.Subject) ([]ledger.Event, error)
 	// Append adds one event, which takes its own revision.
 	Append(ledger.EventDraft) (ledger.Event, error)
 	// SaveFleet replaces a workspace's fleet mode and caps.
@@ -195,6 +197,9 @@ type WorkOrderWriter interface {
 	// Move is a compare-and-set on the state of an unleased work order. It
 	// reports whether the row matched.
 	Move(id string, from, to workorders.State) (bool, error)
+	// Retry returns failed work to `ready` with the attempts it now allows, and reports whether the row
+	// was still failed.
+	Retry(id string, maxAttempts int64) (bool, error)
 	// Reviewed records who passed a work order's review. An empty member voids it.
 	Reviewed(id, member string) error
 	// TakenIn records the commit intake read for an accepted `plan` work order.

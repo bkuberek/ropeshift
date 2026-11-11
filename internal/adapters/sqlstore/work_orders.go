@@ -89,6 +89,10 @@ VALUES
 		`UPDATE work_orders SET state = :to_state
  WHERE workspace_id = :workspace_id AND id = :id AND state = :from_state`)
 
+	stmtRetryWorkOrder = define("work_order.retry",
+		`UPDATE work_orders SET state = 'ready', max_attempts = :max_attempts
+ WHERE workspace_id = :workspace_id AND id = :id AND state = 'failed'`)
+
 	stmtReviewedWorkOrder = define("work_order.reviewed",
 		`UPDATE work_orders SET reviewed_by = :member
  WHERE workspace_id = :workspace_id AND id = :id`)
@@ -188,6 +192,11 @@ func (t workOrderTx) Move(id string, from, to workorders.State) (bool, error) {
 	n, err := t.exec(stmtMoveWorkOrder, params{
 		"workspace_id": string(t.scope), "id": id, "from_state": string(from), "to_state": string(to),
 	})
+	return n > 0, err
+}
+
+func (t workOrderTx) Retry(id string, maxAttempts int64) (bool, error) {
+	n, err := t.exec(stmtRetryWorkOrder, params{"workspace_id": string(t.scope), "id": id, "max_attempts": maxAttempts})
 	return n > 0, err
 }
 

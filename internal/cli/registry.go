@@ -73,6 +73,7 @@ func registry() []section {
 			command("work send-back", "<id> --reason R", "return reviewed work to planning", (*invocation).workSendBack),
 			command("work resolve", "<id> --reason R", "return blocked work to ready", (*invocation).workResolve),
 			command("work replan", "<id> --reason R", "return blocked work to planning", (*invocation).workReplan),
+			command("work retry", "<id> --reason R", "return failed work to ready, adding an attempt when none is left", (*invocation).workRetry),
 		}},
 		{"Plans and requirements", []registered{
 			command("adopt", "[<path>...] [--planning NAME] [--worker ID] [--no-attach]", "adopt the project in this repository: register it and the clones under paths, and start a session that onboards what it holds", (*invocation).adopt),

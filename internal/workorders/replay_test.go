@@ -53,7 +53,7 @@ func TestGeneratedEventSequences(t *testing.T) {
 			change := Change{Trigger: trigger, Fence: fence}
 			switch trigger {
 			case TriggerClaimGranted, TriggerClaimReleased, TriggerTakeover, TriggerLaneCompleted,
-				TriggerLaneBlocked, TriggerLaneFailedRetry, TriggerAttemptsExhausted, TriggerLaneParked:
+				TriggerLaneBlocked, TriggerLaneFailed, TriggerAttemptsExhausted, TriggerLaneParked:
 				fence++
 				change.Fence = fence
 			case TriggerCanceled:
@@ -252,5 +252,50 @@ func TestMoveRefusesALeasedEdge(t *testing.T) {
 	}
 	if edge, err := Move(WorkOrder{State: Intake}, TriggerAccepted); err != nil || edge.To != Planning {
 		t.Errorf("got %+v, %v", edge, err)
+	}
+}
+
+// A ledger an earlier build wrote holds a failed lane that returned its work to ready on its own. Nothing
+// takes that edge now, and a replay still reads it, so a projection rebuilt from that ledger is the one it
+// had.
+func TestAnAutomaticRetryAnEarlierBuildRecordedStillReplays(t *testing.T) {
+	events := []ledger.Event{createdEvent(t)}
+	for rev, change := range []Change{
+		{Trigger: TriggerAccepted}, {Trigger: TriggerContractSubmitted}, {Trigger: TriggerReadyPassed},
+		{Trigger: TriggerClaimGranted, Fence: 1, ClaimID: "c1"}, {Trigger: TriggerLaneStarted, Fence: 1},
+		{Trigger: TriggerLaneFailedRetry, Fence: 2, Attempts: 1},
+	} {
+		events = append(events, changeEvent(t, int64(rev)+2, change))
+	}
+	book, err := Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := book[testID]; got.State != Ready || got.Attempts != 1 || got.Fence != 2 {
+		t.Errorf("replayed %+v", got)
+	}
+	if _, ok := Next(Running, TriggerLaneFailedRetry); ok {
+		t.Error("a failed lane can still return its work to ready on its own")
+	}
+}
+
+// A retry that adds an attempt keeps the bound it moved to, so a replay reads the work as the
+// projection holds it.
+func TestARetryReplaysWithTheAttemptItAdded(t *testing.T) {
+	events := []ledger.Event{createdEvent(t)}
+	for rev, change := range []Change{
+		{Trigger: TriggerAccepted}, {Trigger: TriggerContractSubmitted}, {Trigger: TriggerReadyPassed},
+		{Trigger: TriggerClaimGranted, Fence: 1, ClaimID: "c1"}, {Trigger: TriggerLaneStarted, Fence: 1},
+		{Trigger: TriggerAttemptsExhausted, Fence: 2, Attempts: 1},
+		{Trigger: TriggerRetried, MaxAttempts: 2, Reason: "the network came back"},
+	} {
+		events = append(events, changeEvent(t, int64(rev)+2, change))
+	}
+	book, err := Replay(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := book[testID]; got.State != Ready || got.Attempts != 1 || got.MaxAttempts != 2 {
+		t.Errorf("replayed %+v", got)
 	}
 }

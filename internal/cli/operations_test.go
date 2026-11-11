@@ -62,6 +62,7 @@ var operations = map[string]string{
 	"POST /v1/work-orders/{id}/send-back":              "work send-back",
 	"POST /v1/work-orders/{id}/resolve":                "work resolve",
 	"POST /v1/work-orders/{id}/replan":                 "work replan",
+	"POST /v1/work-orders/{id}/retry":                  "work retry",
 	"POST /v1/work-orders/{id}/lane-resume":            "lane resume",
 	"POST /v1/work-orders/{id}/lane-reset":             "lane reset",
 	"POST /v1/work-orders/{id}/lane-respawn":           "lane respawn",

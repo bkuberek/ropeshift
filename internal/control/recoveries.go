@@ -1,9 +1,12 @@
 package control
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -97,4 +100,99 @@ func (r *Recoveries) RecoveryPolicyVersions(ctx context.Context, scope ledger.Wo
 		return nil, err
 	}
 	return []authority.PolicyVersion{version}, nil
+}
+
+// laneEnds are the triggers of a lane's end, which carry its outcome and the reason it gave.
+var laneEnds = []workorders.Trigger{
+	workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailed, workorders.TriggerLaneFailedRetry,
+	workorders.TriggerAttemptsExhausted,
+}
+
+// lastLaneEnd reads how a work order's last lane ended: the lane, its outcome, the reason it gave, and
+// what it reported. A work order no lane ended reads as nothing.
+func lastLaneEnd(tx ports.WriteTx, workOrder string) (workorders.Change, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: workOrder})
+	if err != nil {
+		return workorders.Change{}, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		var change workorders.Change
+		if json.Unmarshal(events[i].Data, &change) != nil {
+			continue
+		}
+		for _, end := range laneEnds {
+			if change.Trigger == end {
+				return change, nil
+			}
+		}
+	}
+	return workorders.Change{}, nil
+}
+
+// retryWork returns failed work to `ready` for another attempt, and keeps why with the work order, so the
+// next lane's brief carries the failed lane's reason and the retry's (ADR-0014). Work with no attempts
+// left gets one more, which only a member's retry or a member's grant reaches. Work that was ready when its
+// lane started is ready again, as it is after a takeover, so the definition of ready does not run.
+func retryWork(tx ports.WriteTx, current workorders.WorkOrder, reason string, actor ledger.Actor) (workorders.State, error) {
+	if _, err := workorders.Move(current, workorders.TriggerRetried); err != nil {
+		return "", err
+	}
+	change := workorders.Change{Trigger: workorders.TriggerRetried, Reason: reason}
+	bound := current.MaxAttempts
+	if !current.AttemptsLeft() {
+		bound = max(current.AttemptBound(), current.Attempts) + 1
+		change.MaxAttempts = bound
+	}
+	won, err := tx.WorkOrders().Retry(current.ID, bound)
+	if err != nil {
+		return "", err
+	}
+	if !won {
+		return "", fmt.Errorf("%w: work order %s is no longer failed", workorders.ErrIllegalMove, current.ID)
+	}
+	ended, err := lastLaneEnd(tx, current.ID)
+	if err != nil {
+		return "", err
+	}
+	change.Lane = ended.Lane
+	event, err := workorders.ChangeEvent(workorders.EventType(workorders.TriggerRetried), current.ID, change, actor)
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Append(event); err != nil {
+		return "", err
+	}
+	why := cmp.Or(ended.Reason, string(ended.Outcome), string(workorders.OutcomeFailed))
+	note := workorders.ReworkNote{
+		WorkOrder: current.ID, Attempt: current.Fence,
+		Reason: fmt.Sprintf("The last attempt's lane failed (%s), and the work was retried: %s", why, reason),
+	}
+	if err := tx.Evidence().RecordRework(note); err != nil {
+		return "", err
+	}
+	return workorders.Ready, nil
+}
+
+// Retry is a member's retry of failed work, with why. A member is bound by no recovery policy, so work
+// with no attempts left gets one more.
+func (r *Recoveries) Retry(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) (workorders.State, error) {
+	if !authority.Allowed(actor, authority.ActionRetryWork) {
+		return "", workorders.ErrForbidden
+	}
+	if strings.TrimSpace(reason) == "" {
+		return "", fmt.Errorf("%w: a retry needs a reason", workorders.ErrInvalid)
+	}
+	var state workorders.State
+	err := r.store.Write(ctx, scope, "work_order.retry", func(tx ports.WriteTx) error {
+		current, err := tx.WorkOrders().Get(id)
+		if err != nil {
+			return err
+		}
+		state, err = retryWork(tx, current, reason, actor)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return state, nil
 }

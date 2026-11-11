@@ -74,8 +74,9 @@ type Ending struct {
 	Attempts int64
 }
 
-// EndOf follows the outcome table. A failed lane returns to `ready` while attempts
-// remain, and a work order with no attempts left fails.
+// EndOf follows the outcome table. A failed lane leaves its work `failed` whether or not attempts
+// remain, and the trigger says which: a retry is judged by an orchestrator or made by a member, so a
+// crash that repeats does not spend every attempt unseen (ADR-0014).
 func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
 	switch outcome {
 	case OutcomeCompleted:
@@ -85,7 +86,7 @@ func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
 	case OutcomeFailed:
 		attempts := w.Attempts + 1
 		if attempts < w.MaxAttempts {
-			return Ending{TriggerLaneFailedRetry, Ready, attempts}, nil
+			return Ending{TriggerLaneFailed, Failed, attempts}, nil
 		}
 		return Ending{TriggerAttemptsExhausted, Failed, attempts}, nil
 	}
@@ -110,3 +111,10 @@ type LaneResult struct {
 	// Settings are what the lane ran on, for the experience record of a lane that never bound.
 	Settings *measures.Settings `json:"settings,omitempty"`
 }
+
+// AttemptsLeft says a failed work order may run again without a member adding an attempt. A work order
+// that names no bound has one attempt.
+func (w WorkOrder) AttemptsLeft() bool { return w.Attempts < w.AttemptBound() }
+
+// AttemptBound is how many attempts a work order allows, which is one when it names none.
+func (w WorkOrder) AttemptBound() int64 { return max(w.MaxAttempts, 1) }

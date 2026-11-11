@@ -54,6 +54,11 @@ const (
 	ActionTakeQuestion  Action = "question.take"
 	// ActionUnblock takes work out of `blocked`, where a lane left it because no answer would help.
 	ActionUnblock Action = "work_order.unblock"
+	// ActionRetryWork returns failed work to `ready` with no recovery policy to hold it, and adds an attempt
+	// when none is left. An orchestrator retries only through a recovery act, which its policy bounds, so no
+	// row below may ever grant this. For a delegate (ADR-0024) a retry with attempts left is operational,
+	// and one with none left is consent.
+	ActionRetryWork Action = "work_order.retry"
 	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
 	ActionDecideApproval Action = "approval.decide"
 	// ActionApprovePlan approves a plan version. A plan sets scope, and scope stays with a person, so
@@ -94,7 +99,7 @@ func Actions() []Action {
 		ActionArchiveLane, ActionCancelWork, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
-		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
+		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator, ActionRetryWork,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionManageProject,
 	}

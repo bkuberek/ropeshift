@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -48,7 +49,7 @@ var LeaseChecks = []Check{
 	{"L27", "a lane ends once", checkLaneEndsOnce},
 	{"L28", "only the current generation can end a lane", checkStaleGenerationEnd},
 	{"L29", "a lapsed lane ends after its worker returns", checkLapsedLaneEnd},
-	{"L30", "a failed lane returns to ready while attempts remain", checkAttempts},
+	{"L30", "a failed lane leaves its work failed until a retry, and a retry with no attempts left adds one", checkAttempts},
 	{"L31", "a dispatch needs a claim and names one lane", checkDispatch},
 	{"L32", "the per-repository and per-worker caps hold under racing claims", checkCaps},
 	{"L33", "a lapsed work order counts toward every cap", checkLapsedCounts},
@@ -742,6 +743,10 @@ func checkLaneEndsOnce(r *Rig) error {
 	if err := ops.EndLane(r.Ctx, r.Scope, old, laneResult(workorders.OutcomeFailed, workorders.ReasonCrashed), r.worker("a")); err != nil {
 		return err
 	}
+	// A failed lane leaves its work failed until someone retries it (ADR-0014).
+	if _, err := control.NewRecoveries(s).Retry(r.Ctx, r.Scope, again, "a rival takes it", theMember); err != nil {
+		return err
+	}
 	if _, err := r.Running(s, again, "b"); err != nil {
 		return err
 	}
@@ -829,8 +834,23 @@ func checkAttempts(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if w.State != workorders.Ready || w.Attempts != 1 {
-		return Violatedf("after a first failure: state %s, attempts %d", w.State, w.Attempts)
+	// The failure leaves attempts, and nothing retries it on its own: a crash that repeats would spend each
+	// attempt unseen (ADR-0014).
+	if w.State != workorders.Failed || w.Attempts != 1 || w.MaxAttempts != 2 {
+		return Violatedf("after a first failure: state %s, attempts %d of %d", w.State, w.Attempts, w.MaxAttempts)
+	}
+	if _, err := ops.Claim(r.Ctx, r.Scope, r.Request(id, r.worker("b").ID), r.worker("b")); err == nil {
+		return Violatedf("failed work was claimed before a retry")
+	}
+	recoveries := control.NewRecoveries(s)
+	if state, err := recoveries.Retry(r.Ctx, r.Scope, id, "the network came back", theMember); err != nil || state != workorders.Ready {
+		return Violatedf("a member's retry: %s, %v", state, err)
+	}
+	if w, err = r.WorkOrder(s, id); err != nil {
+		return err
+	}
+	if w.State != workorders.Ready || w.Attempts != 1 || w.MaxAttempts != 2 {
+		return Violatedf("a retry with attempts left moved the bound: state %s, attempts %d of %d", w.State, w.Attempts, w.MaxAttempts)
 	}
 	second, err := r.Running(s, id, "b")
 	if err != nil {
@@ -848,7 +868,48 @@ func checkAttempts(r *Rig) error {
 	if w.State != workorders.Failed || w.Attempts != 2 {
 		return Violatedf("after a last failure: state %s, attempts %d", w.State, w.Attempts)
 	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, id, "", theMember); !errors.Is(err, workorders.ErrInvalid) {
+		return Violatedf("a retry with no reason: %v", err)
+	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, id, "one more try", r.worker("b")); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a worker retried failed work: %v", err)
+	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, id, "one more try", ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "o"}); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("an orchestrator retried failed work outside a recovery act: %v", err)
+	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, id, "one more try", theMember); err != nil {
+		return err
+	}
+	if w, err = r.WorkOrder(s, id); err != nil {
+		return err
+	}
+	if w.State != workorders.Ready || w.Attempts != 2 || w.MaxAttempts != 3 {
+		return Violatedf("a member's retry with no attempts left: state %s, attempts %d of %d", w.State, w.Attempts, w.MaxAttempts)
+	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, id, "again", theMember); !errors.Is(err, workorders.ErrIllegalMove) {
+		return Violatedf("a retry of work that is not failed: %v", err)
+	}
+	if err := retryNoted(s, r, id, "one more try", workorders.ReasonCrashed); err != nil {
+		return err
+	}
 	return r.CheckProjection(s)
+}
+
+// retryNoted reads why work came back for the brief of its next lane: the failed lane's reason and the
+// retry's.
+func retryNoted(s ports.Store, r *Rig, id string, reasons ...string) error {
+	return s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		note, err := tx.Evidence().Reworked(id)
+		if err != nil {
+			return err
+		}
+		for _, reason := range reasons {
+			if !strings.Contains(note.Reason, reason) {
+				return Violatedf("the next lane reads %q, which does not say %q", note.Reason, reason)
+			}
+		}
+		return nil
+	})
 }
 
 func checkDispatch(r *Rig) error {
