@@ -125,9 +125,16 @@ func planTitle(goal string) string {
 	return defaultPlanTitle
 }
 
-// chooseRepository finds the repository the session plans in: the one the person names, or the only
-// one the daemon reads. A name matches a source's instance or its ID, as `source list` prints it.
+// chooseRepository finds the repository the session plans in: the one the person names, else the project's
+// planning repository (ADR-0022), else the only one the daemon reads. A name matches a source's instance or
+// its ID, as `source list` prints it.
 func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (string, int) {
+	if named == "" {
+		planning, code := c.planningRepository(client)
+		if code != ExitOK || planning != "" {
+			return planning, code
+		}
+	}
 	list, err := client.Sources(c.ctx)
 	if err != nil {
 		return "", c.failure(err)
@@ -148,6 +155,22 @@ func (c *invocation) chooseRepository(client *api.ProjectClient, named string) (
 		return "", c.usageError("the daemon reads more than one repository; pass --repository with one of: %s", strings.Join(instances, ", "))
 	}
 	return instances[0], ExitOK
+}
+
+// planningRepository is the project's planning repository: the one a member named, or else its only
+// repository. A project of several repositories that named none has none, and neither has one that holds
+// no repository yet.
+func (c *invocation) planningRepository(client *api.ProjectClient) (string, int) {
+	list, err := client.Repositories(c.ctx)
+	if err != nil {
+		return "", c.failure(err)
+	}
+	for _, view := range list.Repositories {
+		if !view.Removed() && (view.Planning || view.PlanOfRecord) {
+			return view.ID, ExitOK
+		}
+	}
+	return "", ExitOK
 }
 
 // chooseWorker finds the worker that runs the session: the one the person names, the only one
