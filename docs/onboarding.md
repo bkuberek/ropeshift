@@ -175,7 +175,7 @@ A lane that writes, which is a change, rework, planning, or adopt lane, works in
 
 Everything else still asks, and the request waits for a member:
 
-- A write outside the worktree. Where the lane's hook can read the path, it refuses the call outright, and that includes a path that climbs out with `..` and a file program whose path passes through a link. A file tool that writes through a link that leads out of the worktree asks.
+- A write outside the worktree. Where the lane's hook can read the path, it refuses the call outright, and that includes a path that climbs out with `..` and a file program whose path passes through a link. A file tool that writes through a link that leads out of the worktree asks, or is refused where a generated deny rule names the place it lands.
 - A push of any kind. A force push, and a push to the default branch or to a branch the lane continues, are refused.
 - A move of any other branch, and any command not listed above.
 - Every action your profile gates.
