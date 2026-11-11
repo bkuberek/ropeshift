@@ -102,10 +102,12 @@ var SQLiteProject = Backend{Name: "project", Fresh: func(t testing.TB) Database 
 		Restartable: true,
 		ShiftClock:  func(delta int64) { offset.Add(delta) },
 		Open: func(t testing.TB, opts sqlstore.Options) ports.Store {
-			installation, err := sqlite.OpenInstallation(filepath.Join(dir, sqlite.InstallationFileName), sqlstore.Options{})
+			// The installation reads the same shifted clock, because a run window it holds ends by that time.
+			installationDB, err := sqlite.OpenDB(filepath.Join(dir, sqlite.InstallationFileName))
 			if err != nil {
 				t.Fatal(err)
 			}
+			installation := sqlstore.NewInstallation(installationDB, ShiftedDialect{sqlite.Dialect{}, offset}, sqlstore.Options{})
 			t.Cleanup(func() { _ = installation.Close() })
 			db, err := sqlite.OpenDB(file)
 			if err != nil {

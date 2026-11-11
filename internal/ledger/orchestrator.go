@@ -44,6 +44,9 @@ type Orchestrator struct {
 	// Conditions are what its worker last said beside its state, and ReportedAt when.
 	Conditions []string `json:"conditions,omitempty"`
 	ReportedAt int64    `json:"reported_at,omitempty"`
+	// Settings are what its current run bound with, as a lane's experience record holds a lane's. It
+	// serves every project, so they stay here, where a decision in any project reads them.
+	Settings json.RawMessage `json:"settings,omitempty"`
 }
 
 // Tripped says its breaker stopped it, and only a person may reset that.
@@ -85,6 +88,8 @@ type OrchestratorReport struct {
 	// Conditions and At travel with a status, and At is database time.
 	Conditions []string `json:"conditions,omitempty"`
 	At         int64    `json:"at,omitempty"`
+	// Settings travel with a binding.
+	Settings json.RawMessage `json:"settings,omitempty"`
 }
 
 // Apply moves the projection. A report of a start this one replaced says nothing of it.
@@ -97,6 +102,9 @@ func (o Orchestrator) Apply(report OrchestratorReport) Orchestrator {
 	}
 	if report.At != 0 {
 		o.ReportedAt = report.At
+	}
+	if len(report.Settings) != 0 {
+		o.Settings = report.Settings
 	}
 	o.Generation = max(o.Generation, report.Generation)
 	return o

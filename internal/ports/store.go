@@ -50,6 +50,9 @@ type Store interface {
 	// change its answer. Like Renew it takes no revision and appends no event: it runs after
 	// the transaction that evaluated, on one row, and it only schedules (FR-PARK-5).
 	ScheduleWake(ctx context.Context, scope ledger.WorkspaceID, id string, nextEvalAt int64) error
+	// Installation is where the records every project shares change (ADR-0021): the installation's
+	// database, or, for a store that keeps them itself, its own database under scope.
+	Installation(scope ledger.WorkspaceID) Installation
 	// Close releases the database.
 	Close() error
 }
@@ -74,6 +77,9 @@ type ReadTx interface {
 	Planning() PlanningReader
 	// Workers reads registered workers and join grants.
 	Workers() WorkerReader
+	// InstallationEvents returns up to limit events of the installation's log after a revision, in
+	// order. A store that keeps the shared records itself has their events in its own log, and none here.
+	InstallationEvents(after int64, limit int) ([]ledger.Event, error)
 	// Questions reads questions, decisions, and a workspace's added categories.
 	Questions() QuestionReader
 	// Members reads who can sign in and who has.
@@ -128,13 +134,15 @@ type WriteTx interface {
 	// Planning reads and writes plans, contracts, links, dependencies, and
 	// bindings.
 	Planning() PlanningWriter
-	// Workers reads and writes registered workers and join grants.
-	Workers() WorkerWriter
+	// Workers reads registered workers and join grants. A project transaction never writes them: a change
+	// to a record every project shares commits through the Installation.
+	Workers() WorkerReader
 	// Questions reads and writes questions, decisions, and added categories.
 	Questions() QuestionWriter
-	// Members reads and writes who can sign in and who has.
-	Members() MemberWriter
-	// Policies reads and writes policy versions.
+	// Members reads who can sign in and who has, which only the Installation writes.
+	Members() MemberReader
+	// Policies reads and writes policy versions. It refuses a version of the autonomy policy, which the
+	// Installation writes.
 	Policies() PolicyWriter
 	// Measures reads and writes experience records.
 	Measures() MeasureWriter

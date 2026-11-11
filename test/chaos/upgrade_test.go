@@ -91,7 +91,7 @@ func prepareUpgrade(w *world) (childSpec, error) {
 	}, system); err != nil {
 		return childSpec{}, err
 	}
-	err = store.Write(ctx, upgradeScope, "chaos.legacy", func(tx ports.WriteTx) error {
+	err = store.Installation(upgradeScope).Write(ctx, "chaos.legacy", func(tx ports.SharedTx) error {
 		now := tx.Now()
 		if err := tx.Members().SaveMember(authority.MemberRecord{ID: "member-1", IdentitySubject: "local", DisplayName: "M", Status: "active", ProofDigest: "hash"}); err != nil {
 			return err

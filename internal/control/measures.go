@@ -93,6 +93,17 @@ func HistoryIn(tx ports.ReadTx) (measures.History, error) {
 	for _, e := range events {
 		h.read(e)
 	}
+	// A person resetting an orchestrator interrupts every project it serves, and the installation's log
+	// holds that.
+	shared, err := ReadAllEvents(tx.InstallationEvents)
+	if err != nil {
+		return measures.History{}, err
+	}
+	for _, e := range shared {
+		if e.Subject.Kind == ledger.SubjectOrchestrator {
+			h.orchestrator(e)
+		}
+	}
 	h.history.Repositories, h.history.Calibrations, err = agreementFacts(tx)
 	return h.history, err
 }

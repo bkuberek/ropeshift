@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -20,7 +21,7 @@ const firstRun = 1
 // Orchestrator reads a worker's orchestrator. A worker no member started one on has none.
 func (w *Workers) Orchestrator(ctx context.Context, worker string) (ledger.Orchestrator, error) {
 	var row ledger.Orchestrator
-	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+	err := w.store.Installation(w.scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		row, err = tx.Workers().Orchestrator(worker)
 		return err
@@ -39,7 +40,7 @@ func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, a
 		return ledger.Orchestrator{}, fmt.Errorf("%w: an orchestrator cannot be %q", workorders.ErrInvalid, desired)
 	}
 	var row ledger.Orchestrator
-	err := w.store.Write(ctx, w.scope, "orchestrator.set", func(tx ports.WriteTx) error {
+	err := w.store.Installation(w.scope).Write(ctx, "orchestrator.set", func(tx ports.SharedTx) error {
 		if _, err := tx.Workers().Find(worker); err != nil {
 			return err
 		}
@@ -81,7 +82,7 @@ func (w *Workers) SetOrchestrator(ctx context.Context, worker, desired string, a
 // nextRun is a new start, which says nothing yet.
 func nextRun(current ledger.Orchestrator) ledger.Orchestrator {
 	current.Run, current.Desired = max(current.Run+1, firstRun), ledger.OrchestratorRunning
-	current.Actual, current.Generation, current.Conditions, current.ReportedAt = "", 0, nil, 0
+	current.Actual, current.Generation, current.Conditions, current.ReportedAt, current.Settings = "", 0, nil, 0, nil
 	return current
 }
 
@@ -96,10 +97,11 @@ func desiredOrchestrator(tx ports.ReadTx, worker string) (*ledger.DesiredOrchest
 	return &ledger.DesiredOrchestrator{Lane: row.Lane(), Resets: row.Resets}, nil
 }
 
-// orchestratorUpload stores what a worker says of its orchestrator. There is no fence, because there
-// is no work order: a worker speaks for its own, and a word about a start this one replaced is kept
-// and moves nothing.
-func orchestratorUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+// orchestratorUpload stores what a worker says of its orchestrator, in the installation's records and
+// log, because an orchestrator serves every project. There is no fence, because there is no work order: a
+// worker speaks for its own, and a word about a start this one replaced is kept and moves nothing. A
+// binding keeps the settings the run bound with on the record, where a decision in any project reads them.
+func orchestratorUpload(tx ports.SharedTx, worker, id string, e ledger.UploadEvent) error {
 	row, err := tx.Workers().Orchestrator(worker)
 	if errors.Is(err, ports.ErrNotFound) {
 		return fmt.Errorf("%w: worker %s has no orchestrator", workorders.ErrInvalid, worker)
@@ -120,6 +122,16 @@ func orchestratorUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEven
 		report.Actual, report.Conditions = status.ActualState, status.Conditions
 	case ledger.UploadLaneEnded:
 		report.Actual = "ended"
+	case ledger.UploadGenerationBound:
+		var binding workorders.GenerationBinding
+		if err := json.Unmarshal(e.Payload, &binding); err != nil {
+			return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+		}
+		settings := boundSettings(binding)
+		settings.WorkOrderSize = measures.SizeUnknown
+		if report.Settings, err = json.Marshal(settings); err != nil {
+			return err
+		}
 	}
 	if err := tx.Workers().SaveOrchestrator(row.Apply(report)); err != nil {
 		return err
@@ -133,32 +145,7 @@ func orchestratorUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEven
 		Actor:   ledger.Actor{Kind: ledger.ActorWorker, ID: worker},
 		Subject: ledger.Subject{Kind: ledger.SubjectOrchestrator, ID: row.ID},
 	})
-	if err != nil {
-		return err
-	}
-	return orchestratorExperience(tx, worker, e)
-}
-
-// orchestratorExperience keeps an orchestrator's run on record as a lane's is: its settings from its
-// first binding, which its decisions' records name, and how it ended.
-func orchestratorExperience(tx ports.WriteTx, worker string, e ledger.UploadEvent) error {
-	actor := ledger.Actor{Kind: ledger.ActorWorker, ID: worker}
-	switch e.Type {
-	case ledger.UploadGenerationBound:
-		var binding workorders.GenerationBinding
-		if err := json.Unmarshal(e.Payload, &binding); err != nil {
-			return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
-		}
-		return openLaneExperience(tx, e.Lane, "", boundSettings(binding), actor)
-	case ledger.UploadLaneEnded:
-		var result workorders.LaneResult
-		_ = json.Unmarshal(e.Payload, &result)
-		if result.Outcome == "" {
-			result.Outcome = workorders.Outcome(ledger.StateEnded)
-		}
-		return closeLaneExperience(tx, e.Lane, "", result, actor)
-	}
-	return nil
+	return err
 }
 
 // WakeDigest reads what this worker's orchestrator could judge now. It reads only what the worker may

@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -86,7 +87,7 @@ func checkExperienceImmutable(r *Rig) error {
 	return r.CheckExperiences(s)
 }
 
-// checkDecisionSettings records a decision as an orchestrator whose run's record names its settings,
+// checkDecisionSettings records a decision as an orchestrator whose record names its run's settings,
 // on a question about a work order of a known size, and reads both into the decision's record.
 func checkDecisionSettings(r *Rig) error {
 	s := r.Store()
@@ -94,11 +95,17 @@ func checkDecisionSettings(r *Rig) error {
 	orchestrator := ledger.Orchestrator{ID: ledger.OrchestratorOf(worker), WorkerID: worker, Desired: ledger.OrchestratorRunning, Run: 1}
 	run := measures.Settings{Driver: "claude-code", ModelRequested: "opus", ModelResolved: "model-o", Effort: "high",
 		Context: measures.ContextSettings{Role: "orchestrator", WarnTokens: 60000, CompactTokens: 80000, HandoffTokens: 100000}, WorkOrderSize: measures.SizeUnknown}
-	err := s.Write(r.Ctx, r.Scope, "test.orchestrator", func(tx ports.WriteTx) error {
+	settings, err := json.Marshal(run)
+	if err != nil {
+		return err
+	}
+	orchestrator.Settings = settings
+	err = s.Installation(r.Scope).Write(r.Ctx, "test.orchestrator", func(tx ports.SharedTx) error {
 		if err := tx.Workers().SaveOrchestrator(orchestrator); err != nil {
 			return err
 		}
-		return r.writeExperience(tx, measures.Experience{ID: r.ID("x"), SubjectKind: measures.SubjectLane, SubjectID: orchestrator.Lane(), Settings: run, Chosen: "orchestrate"})
+		_, err := tx.Append(r.noteDraft(r.ID("note")))
+		return err
 	})
 	if err != nil {
 		return err

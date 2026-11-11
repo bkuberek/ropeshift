@@ -107,8 +107,8 @@ func (a *autonomyRig) acknowledge() error {
 
 // past is a write past every use case, with the event every transaction needs, so that only a rule
 // of the store's own can refuse it.
-func (a *autonomyRig) past(write func(ports.WriteTx) error) error {
-	return a.store.Write(a.r.Ctx, a.r.Scope, "past-the-use-case", func(tx ports.WriteTx) error {
+func (a *autonomyRig) past(write func(ports.SharedTx) error) error {
+	return a.store.Installation(a.r.Scope).Write(a.r.Ctx, "past-the-use-case", func(tx ports.SharedTx) error {
 		if err := write(tx); err != nil {
 			return err
 		}
@@ -122,8 +122,8 @@ func checkStoreRefusesAgentWindow(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	window := func(actor ledger.Actor) func(ports.WriteTx) error {
-		return func(tx ports.WriteTx) error {
+	window := func(actor ledger.Actor) func(ports.SharedTx) error {
+		return func(tx ports.SharedTx) error {
 			return tx.Workers().InsertWindow(authority.RunWindow{
 				ID: r.ID("forged"), WorkerID: a.worker(), OpenedBy: actor.ID, OpenedKind: string(actor.Kind), OpenedAt: tx.Now(), ClosesAt: tx.Now() + 60_000,
 			})
@@ -145,8 +145,8 @@ func checkStoreRefusesAgentAcknowledgement(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	acknowledgement := func(actor ledger.Actor) func(ports.WriteTx) error {
-		return func(tx ports.WriteTx) error {
+	acknowledgement := func(actor ledger.Actor) func(ports.SharedTx) error {
+		return func(tx ports.SharedTx) error {
 			return tx.Workers().SaveAutonomy(authority.WorkerAutonomy{
 				WorkerID: a.worker(), Level: authority.LevelUnattended, AcknowledgedBy: actor.ID,
 				AcknowledgedKind: string(actor.Kind), AcknowledgedDigest: authority.RiskDigest(), AcknowledgedAt: tx.Now(),
@@ -616,7 +616,7 @@ func checkAutonomyReplays(r *Rig) error {
 // CheckAutonomy compares what a store holds of every worker with what the log replays to, so a row
 // no event stands behind is a violation.
 func (r *Rig) CheckAutonomy(s ports.Store) error {
-	events, err := r.Events(s, r.Scope)
+	events, err := r.SharedEvents(s)
 	if err != nil {
 		return err
 	}

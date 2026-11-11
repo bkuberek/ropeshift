@@ -13,7 +13,8 @@ import (
 )
 
 // Autonomy holds what keeps a person near automated use (FR-ORCH-6). Every write here is a member's:
-// no agent can open a window, choose a level, or stand behind the stated risk.
+// no agent can open a window, choose a level, or stand behind the stated risk. A worker is every
+// project's, so each of these reads and writes the installation's records, with the events in its log.
 type Autonomy struct {
 	store ports.Store
 }
@@ -133,7 +134,7 @@ func withinRespawns(lanes ports.LaneReader, lane string, facts autonomyFacts, no
 // View reads where a worker stands, as a person reads it.
 func (a *Autonomy) View(ctx context.Context, scope ledger.WorkspaceID, worker string) (authority.AutonomyView, error) {
 	var view authority.AutonomyView
-	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+	err := a.store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		record, err := tx.Workers().Find(worker)
 		if err != nil {
 			return err
@@ -166,7 +167,7 @@ func (a *Autonomy) SetLevel(ctx context.Context, scope ledger.WorkspaceID, worke
 	if !level.Valid() {
 		return fmt.Errorf("%w: %q is no autonomy level", workorders.ErrInvalid, level)
 	}
-	return a.store.Write(ctx, scope, "autonomy.set", func(tx ports.WriteTx) error {
+	return a.store.Installation(scope).Write(ctx, "autonomy.set", func(tx ports.SharedTx) error {
 		record, err := tx.Workers().Find(worker)
 		if err != nil {
 			return err
@@ -190,7 +191,7 @@ func (a *Autonomy) SetLevel(ctx context.Context, scope ledger.WorkspaceID, worke
 	})
 }
 
-func appendAutonomy(tx ports.WriteTx, kind, worker string, record any, actor ledger.Actor) error {
+func appendAutonomy(tx ports.SharedTx, kind, worker string, record any, actor ledger.Actor) error {
 	event, err := authority.AutonomyEvent(kind, worker, record, actor)
 	if err != nil {
 		return err
@@ -211,7 +212,7 @@ func (a *Autonomy) AcknowledgeRisk(ctx context.Context, scope ledger.WorkspaceID
 	if digest != authority.RiskDigest() {
 		return fmt.Errorf("%w: run ropeshift worker risk, and read what it prints", authority.ErrStaleStatement)
 	}
-	return a.store.Write(ctx, scope, "autonomy.acknowledge", func(tx ports.WriteTx) error {
+	return a.store.Installation(scope).Write(ctx, "autonomy.acknowledge", func(tx ports.SharedTx) error {
 		if _, err := tx.Workers().Find(worker); err != nil {
 			return err
 		}
@@ -246,7 +247,7 @@ func (a *Autonomy) OpenWindow(ctx context.Context, scope ledger.WorkspaceID, wor
 		return authority.RunWindow{}, err
 	}
 	var row authority.RunWindow
-	err = a.store.Write(ctx, scope, "autonomy.window_open", func(tx ports.WriteTx) error {
+	err = a.store.Installation(scope).Write(ctx, "autonomy.window_open", func(tx ports.SharedTx) error {
 		if _, err := tx.Workers().Find(worker); err != nil {
 			return err
 		}
@@ -285,7 +286,7 @@ func (a *Autonomy) CloseWindow(ctx context.Context, scope ledger.WorkspaceID, wo
 	if !authority.Allowed(actor, authority.ActionOpenWindow) {
 		return workorders.ErrForbidden
 	}
-	return a.store.Write(ctx, scope, "autonomy.window_close", func(tx ports.WriteTx) error {
+	return a.store.Installation(scope).Write(ctx, "autonomy.window_close", func(tx ports.SharedTx) error {
 		row, err := tx.Workers().OpenWindow(worker, tx.Now())
 		if errors.Is(err, ports.ErrNotFound) {
 			return nil
@@ -310,7 +311,7 @@ func (a *Autonomy) PublishAutonomyPolicy(ctx context.Context, scope ledger.Works
 		return authority.PolicyVersion{}, workorders.ErrForbidden
 	}
 	var record authority.PolicyVersion
-	err := a.store.Write(ctx, scope, "policy.publish", func(tx ports.WriteTx) error {
+	err := a.store.Installation(scope).Write(ctx, "policy.publish", func(tx ports.SharedTx) error {
 		current, err := currentAutonomyVersion(tx)
 		if err != nil {
 			return err
@@ -342,7 +343,7 @@ func (a *Autonomy) PublishAutonomyPolicy(ctx context.Context, scope ledger.Works
 
 // currentAutonomyVersion reads the version in force, and records the built-in one the first time a
 // member changes it, so every version a member reviews has the one before it on record.
-func currentAutonomyVersion(tx ports.WriteTx) (authority.PolicyVersion, error) {
+func currentAutonomyVersion(tx ports.SharedTx) (authority.PolicyVersion, error) {
 	version, err := tx.Policies().InForce(authority.PolicyAutonomy)
 	if !errors.Is(err, ports.ErrNotFound) {
 		return version, err
@@ -366,7 +367,7 @@ func builtInAutonomy(id string, createdAt int64) (authority.PolicyVersion, error
 // for still has the built-in version in force.
 func (a *Autonomy) AutonomyVersions(ctx context.Context, scope ledger.WorkspaceID) ([]authority.PolicyVersion, error) {
 	var versions []authority.PolicyVersion
-	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+	err := a.store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		versions, err = tx.Policies().Versions(authority.PolicyAutonomy)
 		return err

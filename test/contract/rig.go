@@ -269,6 +269,18 @@ func (r *Rig) Events(s ports.Store, scope ledger.WorkspaceID) ([]ledger.Event, e
 	return events, err
 }
 
+// SharedEvents reads every event about the records every project shares: the installation's log, or, on a
+// store that keeps them itself, its own log.
+func (r *Rig) SharedEvents(s ports.Store) ([]ledger.Event, error) {
+	var events []ledger.Event
+	err := s.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
+		var err error
+		events, err = control.ReadAllEvents(tx.Events)
+		return err
+	})
+	return events, err
+}
+
 // Note appends one event that touches nothing else.
 func (r *Rig) Note(s ports.Store, scope ledger.WorkspaceID, id string) (ledger.Event, error) {
 	var event ledger.Event

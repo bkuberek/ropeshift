@@ -1,6 +1,7 @@
 package control
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -109,31 +110,34 @@ func closeLaneExperience(tx ports.WriteTx, lane, workOrder string, result workor
 	return err
 }
 
-// deciderSettings are the settings of the session that made a decision: an orchestrator's current
-// lane, or a lane's own. A person's decision ran on no session.
+// deciderSettings are the settings of the session that made a decision: an orchestrator's current run,
+// which its record holds because it serves every project, or a lane's own. A person's decision ran on no
+// session.
 func deciderSettings(tx ports.WriteTx, actor ledger.Actor) (measures.Settings, error) {
-	lane := ""
 	switch authority.PartyOf(actor) {
 	case authority.PartyLane:
-		lane = actor.ID
 	case authority.PartyOrchestrator:
 		row, err := tx.Workers().Orchestrator(actor.ID)
-		if errors.Is(err, ports.ErrNotFound) {
+		if errors.Is(err, ports.ErrNotFound) || (err == nil && len(row.Settings) == 0) {
 			return measures.Settings{}, nil
 		}
 		if err != nil {
 			return measures.Settings{}, err
 		}
-		lane = row.Lane()
+		var settings measures.Settings
+		if err := json.Unmarshal(row.Settings, &settings); err != nil {
+			return measures.Settings{}, fmt.Errorf("the settings of %s: %w", row.Lane(), err)
+		}
+		return settings, nil
 	default:
 		return measures.Settings{}, nil
 	}
-	record, err := tx.Measures().Experience(measures.SubjectLane, lane)
+	record, err := tx.Measures().Experience(measures.SubjectLane, actor.ID)
 	if errors.Is(err, ports.ErrNotFound) {
 		return measures.Settings{}, nil
 	}
 	if err != nil {
-		return measures.Settings{}, fmt.Errorf("the settings of %s: %w", lane, err)
+		return measures.Settings{}, fmt.Errorf("the settings of %s: %w", actor.ID, err)
 	}
 	return record.Settings, nil
 }

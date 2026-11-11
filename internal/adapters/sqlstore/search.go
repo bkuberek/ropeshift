@@ -1,8 +1,10 @@
 package sqlstore
 
 import (
+	"fmt"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -101,7 +103,7 @@ func (t *readTx) Members() ports.MemberReader {
 	return memberTx{session: se, scope: scope}
 }
 
-func (t *writeTx) Members() ports.MemberWriter {
+func (t *writeTx) Members() ports.MemberReader {
 	se, scope := t.side.session(t.session, t.scope)
 	return memberTx{session: se, scope: scope}
 }
@@ -121,7 +123,20 @@ func (t *readTx) Policies() ports.PolicyReader {
 
 func (t *writeTx) Policies() ports.PolicyWriter {
 	se, scope := t.side.session(t.session, t.scope)
-	return policyTx{session: t.session, scope: t.scope, autonomy: se, autonomyScope: scope}
+	return projectPolicies{policyTx{session: t.session, scope: t.scope, autonomy: se, autonomyScope: scope}}
+}
+
+// projectPolicies is the policy area of a project transaction, which reads the autonomy policy and never
+// writes it: a version of it commits through the installation.
+type projectPolicies struct {
+	policyTx
+}
+
+func (t projectPolicies) Insert(p authority.PolicyVersion) (bool, error) {
+	if p.Kind == authority.PolicyAutonomy {
+		return false, fmt.Errorf("%w: the autonomy policy is the installation's", ports.ErrNotShared)
+	}
+	return t.policyTx.Insert(p)
 }
 
 func (t *readTx) Evidence() ports.EvidenceReader {

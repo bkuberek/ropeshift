@@ -136,7 +136,7 @@ func (w *Workers) CreateJoinToken(ctx context.Context, actor ledger.Actor) (stri
 		return "", err
 	}
 	var token string
-	err = w.store.Write(ctx, w.scope, "worker.join_token", func(tx ports.WriteTx) error {
+	err = w.store.Installation(w.scope).Write(ctx, "worker.join_token", func(tx ports.SharedTx) error {
 		id, err := newID(tx.Now())
 		if err != nil {
 			return err
@@ -169,7 +169,7 @@ func (w *Workers) Register(ctx context.Context, registration ledger.Registration
 	if err != nil {
 		return ledger.WorkerCredential{}, err
 	}
-	err = w.store.Write(ctx, w.scope, "worker.register", func(tx ports.WriteTx) error {
+	err = w.store.Installation(w.scope).Write(ctx, "worker.register", func(tx ports.SharedTx) error {
 		grant, err := tx.Workers().JoinGrant(id)
 		if errors.Is(err, ports.ErrNotFound) {
 			return ledger.ErrBadJoinToken
@@ -225,7 +225,7 @@ func authenticate(workers ports.WorkerReader, auth ledger.WorkerAuth) (ledger.Wo
 // transaction, so an older session is stale from this commit on.
 func (w *Workers) OpenSession(ctx context.Context, request ledger.SessionRequest) (ledger.Session, error) {
 	session := ledger.Session{HeartbeatMs: w.options.HeartbeatMs, LeaseTTLMs: w.options.LeaseTTLMs}
-	err := w.store.Write(ctx, w.scope, "worker.session", func(tx ports.WriteTx) error {
+	err := w.store.Installation(w.scope).Write(ctx, "worker.session", func(tx ports.SharedTx) error {
 		record, err := authenticate(tx.Workers(), request.Auth)
 		if err != nil {
 			return err
@@ -240,11 +240,13 @@ func (w *Workers) OpenSession(ctx context.Context, request ledger.SessionRequest
 		}
 		draft := workerEvent(eventSessionOpened, record.ID, ledger.Actor{Kind: ledger.ActorWorker, ID: record.ID})
 		draft.Data = []byte(fmt.Sprintf(`{"epoch":%d,"protocol":%d}`, session.Epoch, session.Protocol))
-		event, err := tx.Append(draft)
-		session.DesiredRev = event.Rev
+		_, err = tx.Append(draft)
 		return err
 	})
 	if err != nil {
+		return ledger.Session{}, err
+	}
+	if session.DesiredRev, err = w.desiredRev(ctx); err != nil {
 		return ledger.Session{}, err
 	}
 	return session, nil
@@ -295,12 +297,16 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 			return ledger.HeartbeatReply{}, err
 		}
 	}
+	shared, err := w.sharedRevision(ctx)
+	if err != nil {
+		return ledger.HeartbeatReply{}, err
+	}
 	err = w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		workspace, err := tx.Workspace()
 		if err != nil {
 			return err
 		}
-		reply.DesiredRev, reply.FleetMode = workspace.Rev, workspace.FleetMode
+		reply.DesiredRev, reply.FleetMode = shared+workspace.Rev, workspace.FleetMode
 		reply.ServerTimeMs, err = tx.Now()
 		return err
 	})
@@ -318,11 +324,43 @@ func (w *Workers) renewOrReturn(ctx context.Context, lease workorders.Lease, act
 	return err
 }
 
+// sharedRevision reads how far the records every project shares moved. A worker's desired state reads its
+// orchestrator and its autonomy there, so the revision it watches counts them, and it reads this first: a
+// change after this read moves the revision again, so the worker reads once more.
+func (w *Workers) sharedRevision(ctx context.Context) (int64, error) {
+	var rev int64
+	err := w.store.Installation(w.scope).Read(ctx, func(tx ports.SharedReadTx) error {
+		var err error
+		rev, err = tx.Revision()
+		return err
+	})
+	return rev, err
+}
+
+// desiredRev is the revision of a worker's desired state: the project's and the shared records', which each
+// only grow, so their sum moves whenever either does.
+func (w *Workers) desiredRev(ctx context.Context) (int64, error) {
+	shared, err := w.sharedRevision(ctx)
+	if err != nil {
+		return 0, err
+	}
+	err = w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		workspace, err := tx.Workspace()
+		shared += workspace.Rev
+		return err
+	})
+	return shared, err
+}
+
 // Desired reads what this worker should hold. A worker that already has this
 // revision reads nothing more.
 func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (ledger.DesiredState, error) {
 	state := ledger.DesiredState{Leases: []ledger.DesiredLease{}}
-	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+	shared, err := w.sharedRevision(ctx)
+	if err != nil {
+		return ledger.DesiredState{}, err
+	}
+	err = w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
 		if _, err := authenticate(tx.Workers(), request.Auth); err != nil {
 			return err
 		}
@@ -330,8 +368,8 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 		if err != nil {
 			return err
 		}
-		state.Rev, state.FleetMode = workspace.Rev, workspace.FleetMode
-		if request.Since == workspace.Rev {
+		state.Rev, state.FleetMode = shared+workspace.Rev, workspace.FleetMode
+		if request.Since == state.Rev {
 			state.Unchanged = true
 			return nil
 		}
@@ -562,12 +600,7 @@ func (w *Workers) Watch(ctx context.Context, request ledger.WatchRequest) (<-cha
 		ticker := time.NewTicker(watchEvery)
 		defer ticker.Stop()
 		for {
-			var rev int64
-			err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
-				workspace, err := tx.Workspace()
-				rev = workspace.Rev
-				return err
-			})
+			rev, err := w.desiredRev(ctx)
 			if err == nil && rev > last {
 				last = rev
 				select {
@@ -619,14 +652,22 @@ func (w *Workers) Upload(ctx context.Context, batch ledger.UploadBatch) (ledger.
 // event again, so an outcome is never lost to a lapse.
 func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.UploadEvent) (*ledger.UploadResult, error) {
 	id := ledger.UploadedEventID(worker, e.Epoch, e.Seq)
-	err := w.store.Write(ctx, w.scope, opUpload, func(tx ports.WriteTx) error {
-		if _, err := tx.Event(id); err == nil {
-			return nil
-		} else if !errors.Is(err, ports.ErrNotFound) {
-			return err
+	write := func(ctx context.Context) error {
+		return w.store.Write(ctx, w.scope, opUpload, func(tx ports.WriteTx) error {
+			if _, err := tx.Event(id); err == nil {
+				return nil
+			} else if !errors.Is(err, ports.ErrNotFound) {
+				return err
+			}
+			return applyUpload(tx, worker, id, e)
+		})
+	}
+	if e.WorkOrder == "" && ledger.IsOrchestratorLane(e.Lane) {
+		write = func(ctx context.Context) error {
+			return storeOrchestratorEvent(ctx, w.store.Installation(w.scope), worker, id, e)
 		}
-		return applyUpload(tx, worker, id, e)
-	})
+	}
+	err := write(ctx)
 	var fenced *workorders.FencedError
 	switch {
 	case err == nil:
@@ -639,14 +680,24 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 	return nil, err
 }
 
+// storeOrchestratorEvent stores what a worker says of its orchestrator once, in the installation's log,
+// because an orchestrator is every project's.
+func storeOrchestratorEvent(ctx context.Context, installation ports.Installation, worker, id string, e ledger.UploadEvent) error {
+	return installation.Write(ctx, opUpload, func(tx ports.SharedTx) error {
+		if _, err := tx.Event(id); err == nil {
+			return nil
+		} else if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		return orchestratorUpload(tx, worker, id, e)
+	})
+}
+
 // applyUpload stores one event inside its transaction. A lane's start and end change
 // the work order, so they run the same statements as the use cases.
 func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
 	if e.Type == ledger.UploadEffectUnknown || e.Type == ledger.UploadEffectSettled {
 		return effectUpload(tx, worker, id, e)
-	}
-	if e.WorkOrder == "" && ledger.IsOrchestratorLane(e.Lane) {
-		return orchestratorUpload(tx, worker, id, e)
 	}
 	stamp := func(draft *ledger.EventDraft) { draft.ID, draft.OccurredAt = id, e.OccurredAt }
 	lease := workorders.Lease{WorkOrder: e.WorkOrder, ClaimID: e.ClaimID, Fence: e.Fence}
@@ -1090,7 +1141,7 @@ func (w *Workers) Offered(ctx context.Context, worker string) ([]workorders.Work
 // List returns every registered worker.
 func (w *Workers) List(ctx context.Context) ([]ledger.Worker, error) {
 	var workers []ledger.Worker
-	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+	err := w.store.Installation(w.scope).Read(ctx, func(tx ports.SharedReadTx) error {
 		var err error
 		workers, err = tx.Workers().List()
 		return err
