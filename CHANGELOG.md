@@ -32,6 +32,17 @@
 
 * keep an effect of an orchestrator's lane in the project's effects ([c6f61a7](https://github.com/bkuberek/ropeshift/commit/c6f61a751f55845f761c1939c79c4fd765f48d5c))
 
+### Notes
+
+* One installation now holds many projects, each with a ledger database of its own. An existing installation becomes the `default` project on its first start: it keeps its ledger file, its workspace ID, and every record, and its members, workers, run windows, autonomy, and orchestrators move into a new `installation.db` beside it. The upgrade is safe to interrupt and repeats from where it stopped.
+* `ropeshift project create|list|show|rename|archive|restore|remove|import` manage projects. The CLI picks the project from `--project`, then `ROPESHIFT_PROJECT`, then the repository you are in, then the only project, and exits 2 with the list when it cannot. The web UI has a project switcher.
+* One worker and one orchestrator serve every active project. The lane caps count the lanes of every project on the machine, and a repository profile can lower them but never raise them. `ropeshift needs` and the web UI's Needs you list what waits in every project, each item labeled with its project.
+* `ropeshift repository add <path>... [--depth N] [--dry-run]` registers a clone, or every clone in a folder. A repository another project holds is refused, naming that project, and the rest are still registered. Repositories have names, `repository set` changes several at once, and `repository remove` keeps the record as history.
+* A repository's `integration` setting is replaced by `review_target`, `branch` or `pull_request`, and existing values are converted. Ropeshift does not push or open pull requests yet.
+* `ropeshift backup` now copies one project, and `ropeshift backup --installation` copies the members, workers, and other installation records. Back up both.
+* Every project-scoped API route moved under `/v1/projects/{project}/`. The old routes still answer for the first project, marked `Deprecation: true`, and are removed in the next release. Workers use plane protocol 2; a worker on protocol 1 serves only the first project.
+* This release adds database migrations `0039` to `0042`, and the installation database's migration `0001`. They run on the first start.
+
 ## [0.1.0-alpha.8](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.7...v0.1.0-alpha.8) (2026-11-10)
 
 
