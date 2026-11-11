@@ -18,6 +18,10 @@ const Nudge = "You ended your turn with no outcome. Call the " + ToolLaneReport 
 // PackFile is where a pack sits in a worktree, in a directory git does not see.
 const PackFile = ".ropeshift/context/pack.md"
 
+// InventoryFile sits beside the pack of a lane that adopts a project: the inventory of each repository it
+// works in and reads, which the worker took with no model before the lane started (ADR-0023).
+const InventoryFile = ".ropeshift/context/inventory.json"
+
 // ReviewDiffFile and ReviewFilesFile sit beside the pack in a review lane's worktree: what the reviewed
 // lane changed, as a patch, and the paths it touches, one to a line.
 const (

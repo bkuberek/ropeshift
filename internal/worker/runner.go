@@ -51,6 +51,9 @@ type LaneRuntime struct {
 	Override lanes.SessionOverride
 	// Telemetry is where each session's telemetry goes. Empty sends none.
 	Telemetry LaneTelemetry
+	// Inventory reads what each repository holds for a lane whose lease asks for an inventory before it
+	// starts (ADR-0023). Nil takes none, and such a lane does not start.
+	Inventory ports.Inventory
 }
 
 // laneRun is one lane this process is running.
@@ -592,6 +595,9 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.setWorktreePath(prepared.Worktree.Path)
 	r.setReads(r.prepareReads(ctx, prepared.Worktree.Path))
+	if err := r.writeInventory(ctx, repository, prepared.Worktree.Path); err != nil {
+		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
 	r.state.thresholds(prepared.Profile, r.role())
 	r.readFacts(ctx)
 	packFile, err := r.writePrompt(ctx, prepared.Worktree.Path)

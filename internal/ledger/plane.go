@@ -205,6 +205,12 @@ type DesiredLease struct {
 	// Reads are the other repositories of the project the lane reads, read-only, at the commits its claim
 	// recorded (ADR-0022).
 	Reads []RepositoryRead `json:"reads,omitempty"`
+	// RepositoryName is what the project calls Repository.
+	RepositoryName string `json:"repository_name,omitempty"`
+	// Inventory asks the worker to write the inventory of the lane's repository and of every repository it
+	// reads into the lane's context folder before the lane starts, as it does for a lane that adopts a
+	// project (ADR-0023).
+	Inventory bool `json:"inventory,omitempty"`
 	// Deadline is the work order's, in database time. Zero means it has none.
 	Deadline int64 `json:"deadline,omitempty"`
 	// Resets counts the human resets of this lane's breaker, for a worker to compare with
