@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import { createJoinToken, stopOrchestrator } from "../api/admin";
 import { inProjectOf, readView, startOrchestrator } from "../api/client";
 import type { Operations, Project, ShopFloor, WorkerLine } from "../api/types";
 import type { Live } from "../api/useView";
@@ -7,14 +10,15 @@ import { useAct } from "../needs/useAct";
 import { Ago, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Button, LinkTabs } from "../ui/controls";
 import { Absent, Banner, EmptyState, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
-import { useToast } from "../ui/overlays";
+import { Dialog, useToast } from "../ui/overlays";
+import { Icon } from "../ui/Icon";
 import { laneLabel, workerStates } from "./states";
 
 type FloorRead = { project: string; view: ShopFloor };
 
 // useEveryFloor reads the floor of every active project, because a machine serves them all and its
 // sessions belong to each.
-function useEveryFloor(live: Live, projects: Project[]) {
+export function useEveryFloor(live: Live, projects: Project[]) {
   const names = projects.filter((row) => row.state === "active").map((row) => row.name);
   return useView<FloorRead[]>(
     () => Promise.all(names.map((name) => inProjectOf(name, () => readView<ShopFloor>("shop-floor")).then((view) => ({ project: name, view })))),
@@ -23,7 +27,7 @@ function useEveryFloor(live: Live, projects: Project[]) {
   );
 }
 
-const running = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff", "parking"]);
+export const running = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff", "parking"]);
 
 function StartOrchestrator({ line, after }: { line: WorkerLine; after: () => Promise<void> }) {
   const { act, busy, failure } = useAct(after);
@@ -50,9 +54,94 @@ function StartOrchestrator({ line, after }: { line: WorkerLine; after: () => Pro
   );
 }
 
+function StopOrchestrator({ line, after }: { line: WorkerLine; after: () => Promise<void> }) {
+  const { act, busy, failure } = useAct(after);
+  const toast = useToast();
+  const name = line.worker.name || line.worker.id;
+  return (
+    <>
+      <Button
+        small
+        loading={busy}
+        disabled={busy}
+        onClick={() =>
+          void act(() => stopOrchestrator(line.worker.id)).then((done) => {
+            if (done) {
+              toast("success", `Asked ${name} to stop its orchestrator. Its lanes keep running.`);
+            }
+          })
+        }
+      >
+        Stop orchestrator
+      </Button>
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </>
+  );
+}
+
+// JoinToken makes a join token and shows it once: the ledger keeps only its digest.
+function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [token, setToken] = useState("");
+  const { act, busy, failure } = useAct(async () => {});
+  const toast = useToast();
+  const close = () => {
+    setToken("");
+    onClose();
+  };
+  return (
+    <Dialog
+      open={open}
+      title="Create join token"
+      onClose={close}
+      footer={
+        <>
+          <span className="spacer" />
+          {token ? (
+            <Button variant="primary" onClick={close}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button onClick={close}>Cancel</Button>
+              <Button variant="primary" loading={busy} onClick={() => void act(() => createJoinToken().then((made) => setToken(made.token)))}>
+                Create token
+              </Button>
+            </>
+          )}
+        </>
+      }
+    >
+      {token ? (
+        <div className="field-stack">
+          <p className="small">This is the only time the token is shown. A worker on another machine registers with it once, from a terminal on that machine.</p>
+          <div className="row-tight token-row">
+            <code className="mono token">{token}</code>
+            <Button
+              small
+              icon="copy"
+              onClick={() =>
+                void navigator.clipboard?.writeText(token).then(
+                  () => toast("success", "Copied the join token."),
+                  () => toast("warning", "The browser did not let this page copy. Select the token and copy it."),
+                )
+              }
+            >
+              Copy
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="small">A join token lets one new worker register with this installation. It is shown once, and the ledger keeps only its digest.</p>
+      )}
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </Dialog>
+  );
+}
+
 // WorkersPage lists each machine with what it reports, and every session on it. A measure no source
 // reports to this page yet says so, and is never drawn as zero.
-export function WorkersPage({ live, projects, selected, after }: { live: Live; projects: Project[]; selected: string; after: () => Promise<void> }) {
+export function WorkersPage({ live, projects, selected, after, dialog = "" }: { live: Live; projects: Project[]; selected: string; after: () => Promise<void>; dialog?: string }) {
+  const [joining, setJoining] = useState(dialog === "token");
   const floors = useEveryFloor(live, projects);
   const now = useClock();
   const reads = floors.view ?? [];
@@ -65,7 +154,16 @@ export function WorkersPage({ live, projects, selected, after }: { live: Live; p
   const lanes = reads.flatMap((read) => read.view.lanes.map((lane) => ({ lane, project: read.project })));
   const stamp = reads[0]?.view;
   return (
-    <Page title="Workers and resources" note="Machines that serve this installation, what each reports, and the sessions on each.">
+    <Page
+      title="Workers and resources"
+      note="Machines that serve this installation, what each reports, and the sessions on each."
+      actions={
+        <Button icon="key" onClick={() => setJoining(true)}>
+          Create join token
+        </Button>
+      }
+    >
+      <JoinToken open={joining} onClose={() => setJoining(false)} />
       <LinkTabs
         label="Usage and resources"
         tabs={[
@@ -82,9 +180,16 @@ export function WorkersPage({ live, projects, selected, after }: { live: Live; p
         ) : null}
         {floors.view && projects.length > 0 && workers.size === 0 ? (
           <div className="panel">
-            <EmptyState icon="server" title="No worker has connected">
-              A worker joins with a join token, from a terminal on its own machine. Creating a join token from this page arrives in a later build; a terminal
-              creates one with ropeshift worker token.
+            <EmptyState
+              icon="server"
+              title="No worker has connected"
+              action={
+                <Button variant="primary" icon="key" onClick={() => setJoining(true)}>
+                  Create join token
+                </Button>
+              }
+            >
+              A worker joins with a join token, from a terminal on its own machine.
             </EmptyState>
           </div>
         ) : null}
@@ -105,6 +210,9 @@ export function WorkersPage({ live, projects, selected, after }: { live: Live; p
                       <th scope="col">Free disk</th>
                       <th scope="col">Orchestrator</th>
                       <th scope="col">Freshness</th>
+                      <th scope="col">
+                        <span className="visually-hidden">Settings</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -146,7 +254,7 @@ export function WorkersPage({ live, projects, selected, after }: { live: Live; p
                               ) : (
                                 <Absent>none</Absent>
                               )}
-                              {stopped ? <StartOrchestrator line={line} after={after} /> : null}
+                              {stopped ? <StartOrchestrator line={line} after={after} /> : <StopOrchestrator line={line} after={after} />}
                             </span>
                           </td>
                           <td data-label="Freshness">
@@ -157,6 +265,12 @@ export function WorkersPage({ live, projects, selected, after }: { live: Live; p
                                 </>
                               ) : null}
                             </Freshness>
+                          </td>
+                          <td className="actions-cell">
+                            <Link className="btn btn-sm" to={addressOf("/settings", { section: "autonomy", worker: line.worker.id })} installation>
+                              <Icon name="sliders" size="sm" />
+                              Autonomy
+                            </Link>
                           </td>
                         </tr>
                       );

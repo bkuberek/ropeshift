@@ -53,7 +53,7 @@ describe.each(pages)("the view at %s", (path) => {
     expect(screen.getByRole("main").querySelectorAll(built)).toHaveLength(0);
     ownDrawings(screen.getByRole("main"));
     for (const href of links()) {
-      expect(href, href).toMatch(/^(\/projects\/[a-z0-9-]+\/[a-z-]*(\?[^#]*)?|\/(needs-you|workers|usage)(\?[^#]*)?|#main)$/);
+      expect(href, href).toMatch(/^(\/projects\/[a-z0-9-]+\/[a-z-]*(\?[^#]*)?|\/(needs-you|workers|usage|projects|import|members|settings|agents|audit)(\?[^#]*)?|#main)$/);
     }
   });
 });

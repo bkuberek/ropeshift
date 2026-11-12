@@ -54,7 +54,7 @@ function paintChrome(theme: Theme): void {
   document.head.append(meta);
 }
 
-export function useTheme(): { theme: Theme; nextTheme: () => void } {
+export function useTheme(): { theme: Theme; nextTheme: () => void; setTheme: (theme: Theme) => void } {
   const [theme, setTheme] = useState<Theme>(remembered);
   useEffect(() => {
     if (theme === "system") {
@@ -66,5 +66,5 @@ export function useTheme(): { theme: Theme; nextTheme: () => void } {
     paintChrome(theme);
   }, [theme]);
   const nextTheme = () => setTheme((was) => order[(order.indexOf(was) + 1) % order.length] ?? "system");
-  return { theme, nextTheme };
+  return { theme, nextTheme, setTheme };
 }

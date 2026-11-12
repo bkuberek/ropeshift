@@ -25,6 +25,7 @@ A route on a project's records with no project in its path does not exist and an
 | `POST /v1/projects/{project}/restore` | `{}` | Restore |
 | `POST /v1/projects/{project}/remove` | `{"confirm": "...", "backup": "..."}` or `{"confirm": "...", "no_backup": true}` | Remove an archived project |
 | `POST /v1/projects/import` | `{"path": "...", "name": "..."}` | Import a project's backup, keeping its ID |
+| `POST /v1/projects/import/upload` | `{"backup": "<base64>", "name": "..."}` | Import a backup the request carries, as a browser uploads it, up to 128 MiB |
 
 An archived project answers every change with 409 `project_archived`, a backup excepted, and a step its state refuses answers 409 `project_state`.
 
@@ -32,7 +33,9 @@ An archived project answers every change with 409 `project_archived`, a backup e
 
 `POST /v1/projects/{project}/repositories` registers repositories in the project from git clones on the machine of the daemon's worker, and needs a member's session. It takes `{"paths": [...], "depth": N, "dry_run": true}`, where each path is absolute. A path that is the top of a clone is that clone, and any other directory holds the clones among its children, down to `depth` levels, one by default. The answer lists each clone and each path with its `outcome`: `registered`, `known` for a repository the project holds already, or `refused` with a `reason`, such as another project holding the repository or a path that holds no clone. A refusal registers nothing for that clone and stops none of the others, and a dry run records nothing. `POST /v1/projects/{project}/repositories/{repository}/remove` takes a repository out of the project once no open work order targets it, and answers 409 `repository_state` while one does; the record stays as history with state `removed`, and another project may then register it.
 
-`POST /v1/projects/{project}/backup` copies one project's ledger, and `POST /v1/installation/backup` copies the installation database. Each takes `{"path": "..."}`, an absolute path on the daemon's machine where no file exists, and needs a member's session.
+`POST /v1/projects/{project}/backup` copies one project's ledger, and `POST /v1/installation/backup` copies the installation database. Each takes `{"path": "..."}`, an absolute path on the daemon's machine where no file exists, and needs a member's session. `POST /v1/projects/{project}/backup/download` and `POST /v1/installation/backup/download` take `{}` and answer the same copy in the response, as `application/vnd.sqlite3` with a file name in `Content-Disposition`, for a browser that saves it as a download; nothing of it stays on the daemon's machine.
+
+`GET /v1/audit` reads the installation's log, and `GET /v1/projects/{project}/audit` a project's, newest first: each event with its revision, type, actor, subject, times, and its whole record. `actor` keeps one actor kind, `kind` the event types that start with its text, `subject` one subject kind, `limit` sets the page from 1 to 200 (50 by default), and `before` starts the page below a revision, which the answer's `next` names, zero when no older event is left. A filtered read looks at 5,000 events at most and answers `"scanned": true` with `next` where it stopped. `GET /v1/members` lists each member that holds a live session, with when each session began and ends, and how many members can sign in; no answer carries a session's token.
 
 A change to a record every project shares, such as a member's sign-in, a worker's registration or autonomy, or an orchestrator, records its event in the installation's log, and no project's log holds it.
 

@@ -25,13 +25,14 @@ export function inProject(project: string, to: string): string {
 }
 
 // The installation's views, whose addresses name no project.
-const installationPaths = new Set(["/needs-you", "/workers", "/usage"]);
+const installationPaths = new Set(["/needs-you", "/workers", "/usage", "/projects", "/import", "/members"]);
 
 // placed is where a link to a view goes: into the project the page shows, unless it names a project or
 // is a view of the installation.
-function placed(to: string, project = splitProject(window.location.pathname).project): string {
+// A view with both scopes, such as Settings, is the installation's when a link says so.
+function placed(to: string, project = splitProject(window.location.pathname).project, installation = false): string {
   const path = to.split("?")[0] ?? "";
-  return projectAddress.test(path) || installationPaths.has(path) ? to : inProject(project, to);
+  return installation || projectAddress.test(path) || installationPaths.has(path) ? to : inProject(project, to);
 }
 
 type Place = { address: string; moves: number };
@@ -75,8 +76,8 @@ function subscribe(listener: () => void): () => void {
 
 // go moves to a view of the project the page shows, or to an address that names a project. replace takes
 // the place of the address the page is at, for a move no person asked for.
-export function go(to: string, { stay = false, replace = false, project = "" } = {}): void {
-  const address = placed(to, splitProject(window.location.pathname).project || project);
+export function go(to: string, { stay = false, replace = false, project = "", installation = false } = {}): void {
+  const address = placed(to, splitProject(window.location.pathname).project || project, installation);
   if (replace) {
     window.history.replaceState(null, "", address);
   } else {
@@ -124,23 +125,25 @@ type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   to: string;
   // stay keeps the keyboard where it is, for a link that changes what a view shows and not which view.
   stay?: boolean;
+  // installation says a view with both scopes is the installation's, so no project goes into its address.
+  installation?: boolean;
 };
 
 // Link is an ordinary link the application follows itself. Anything but a plain press is the browser's,
 // so a new tab still opens one. Every address here is the application's own, and no address is ever
 // taken from a record's text.
-export function Link({ to: view, stay = false, onClick, children, ...rest }: LinkProps) {
+export function Link({ to: view, stay = false, installation = false, onClick, children, ...rest }: LinkProps) {
   const { project } = useRoute();
   const item = useContext(ItemProject);
   const current = useContext(CurrentProject);
-  const to = placed(view, item || project || current);
+  const to = placed(view, item || project || current, installation);
   const follow = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
     event.preventDefault();
-    go(to, { stay });
+    go(to, { stay, installation: true });
   };
   return (
     <a href={to} onClick={follow} {...rest}>

@@ -27,12 +27,22 @@ describe("an address", () => {
     ["/needs-you", "needs-you"],
     ["/workers", "workers"],
     ["/usage", "usage"],
+    ["/projects", "projects"],
+    ["/import", "import"],
+    ["/members", "members"],
+    ["/settings", "settings"],
+    ["/agents", "agents"],
+    ["/audit", "audit"],
   ])("%s is an installation view", (path, view) => {
     expect(resolve(path, "")).toEqual({ kind: "view", view, project: "" });
   });
 
   it.each([
     ["/projects/harbor/roadmap", "roadmap"],
+    ["/projects/harbor/repositories", "repositories"],
+    ["/projects/harbor/agents", "agents"],
+    ["/projects/harbor/settings", "settings"],
+    ["/projects/harbor/audit", "audit"],
     ["/projects/harbor/plans", "plans"],
     ["/projects/harbor/documents", "documents"],
     ["/projects/harbor/decisions", "decisions"],
@@ -50,11 +60,11 @@ describe("an address", () => {
     expect(resolve("/projects/two%20words/floor", "")).toEqual({ kind: "view", view: "floor", project: "two words" });
   });
 
-  it.each(["/roadmap", "/floor", "/in-progress", "/shop-floor", "/requirements"])("%s names a project view and no project, so it waits for one", (path) => {
+  it.each(["/roadmap", "/floor", "/in-progress", "/shop-floor", "/requirements", "/repositories"])("%s names a project view and no project, so it waits for one", (path) => {
     expect(resolve(path, "")).toEqual({ kind: "pick-project", path });
   });
 
-  it.each(["/projects/harbor/nowhere", "/nowhere", "/projects"])("%s holds no view", (path) => {
+  it.each(["/projects/harbor/nowhere", "/nowhere", "/projects/harbor/members"])("%s holds no view", (path) => {
     expect(resolve(path, "")).toEqual({ kind: "missing" });
   });
 });
@@ -77,5 +87,18 @@ describe("the views", () => {
     expect(goKeys.w).toBe("work");
     expect(goKeys.f).toBe("floor");
     expect(goKeys.u).toBe("usage");
+  });
+});
+
+describe("a view at both scopes", () => {
+  it("is the installation's with no project in its address, and the project's under one", () => {
+    expect(resolve("/settings", "?section=backup")).toEqual({ kind: "view", view: "settings", project: "" });
+    expect(resolve("/projects/harbor/settings", "?section=fleet")).toEqual({ kind: "view", view: "settings", project: "harbor" });
+  });
+
+  it("names the page by the view, never by a record", () => {
+    expect(titleOf("repositories")).toBe("Repositories");
+    expect(titleOf("import")).toBe("Import an existing project");
+    expect(titleOf("members")).toBe("Members");
   });
 });

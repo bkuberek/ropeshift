@@ -26,6 +26,116 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/workers/{id}/orchestrator",
+    "command": "orchestrator show"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects",
+    "command": "project create"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/rename",
+    "command": "project rename"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/archive",
+    "command": "project archive"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/restore",
+    "command": "project restore"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/remove",
+    "command": "project remove"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/import/upload",
+    "command": "project import"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/installation/backup/download",
+    "command": "backup"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/workers",
+    "command": "worker list"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/workers/tokens",
+    "command": "worker token"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/workers/{id}/autonomy",
+    "command": "worker autonomy"
+  },
+  {
+    "method": "PUT",
+    "pattern": "/v1/workers/{id}/autonomy",
+    "command": "worker level"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/workers/{id}/autonomy/acknowledgement",
+    "command": "worker acknowledge-risk"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/workers/{id}/windows",
+    "command": "worker window-open"
+  },
+  {
+    "method": "DELETE",
+    "pattern": "/v1/workers/{id}/windows",
+    "command": "worker window-close"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/autonomy/risk",
+    "command": "worker risk"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/members",
+    "command": "member list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/audit",
+    "command": "audit"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/roster",
+    "command": "agent list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/roster/history",
+    "command": "agent history"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/roster/changes",
+    "command": "agent set"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/roster/revert",
+    "command": "agent revert"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/events",
     "command": "events"
   },
@@ -123,6 +233,121 @@
     "method": "POST",
     "pattern": "/v1/projects/{project}/panes/{id}/input",
     "command": "lane attach"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/backup/download",
+    "command": "backup"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/audit",
+    "command": "audit"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/repositories",
+    "command": "repository list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/repositories/{id}",
+    "command": "repository show"
+  },
+  {
+    "method": "PATCH",
+    "pattern": "/v1/projects/{project}/repositories/{id}",
+    "command": "repository set"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/repositories",
+    "command": "repository add"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/repositories/{id}/remove",
+    "command": "repository remove"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/fleet",
+    "command": "fleet show"
+  },
+  {
+    "method": "PUT",
+    "pattern": "/v1/projects/{project}/fleet/mode",
+    "command": "fleet pause"
+  },
+  {
+    "method": "PUT",
+    "pattern": "/v1/projects/{project}/fleet/caps",
+    "command": "fleet caps"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/policies",
+    "command": "policy list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/policies/{version}",
+    "command": "policy show"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/policies",
+    "command": "policy publish"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/categories",
+    "command": "category list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/approvals",
+    "command": "approval list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/plans",
+    "command": "plan list"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders",
+    "command": "work create"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/claims",
+    "command": "work claim"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/work-orders/{id}/lanes",
+    "command": "lane start"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/roster",
+    "command": "agent list"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/roster/history",
+    "command": "agent history"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/roster/changes",
+    "command": "agent set"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/roster/revert",
+    "command": "agent revert"
   },
   {
     "method": "GET",

@@ -1,0 +1,16 @@
+{
+  "as_of": 1794000000000,
+  "enrolled": 0,
+  "members": [
+    {
+      "id": "member-1",
+      "sessions": [
+        {
+          "created_at": 1794000000000,
+          "expires_at": 1794003600000
+        }
+      ],
+      "last_sign_in": 1794000000000
+    }
+  ]
+}

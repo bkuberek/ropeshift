@@ -15,7 +15,7 @@ import { NoSuchView, PageFor } from "./pages";
 import type { Entry } from "./ranking";
 import { Palette } from "./Palette";
 import { recentRecords, useFlag } from "./prefs";
-import { ArrivalsProvider, CurrentProject, go, inProject, useRoute } from "./route";
+import { ArrivalsProvider, CurrentProject, go, inProject, Link, useRoute } from "./route";
 import type { View } from "./routes";
 import { goKeys, resolve, titleOf } from "./routes";
 import { addressOfView, Dock, navGroups, projectName, ProjectSwitcher, Sidebar, StatusBar, TopBar, useProjectSwitcher } from "./Shell";
@@ -88,7 +88,7 @@ export function App() {
   const project = route.project || route.params.get("project") || chosen(list);
   setCurrentProject(project);
   const needs = useNeedsYou(project);
-  const { theme, nextTheme } = useTheme();
+  const { theme, nextTheme, setTheme } = useTheme();
   const opened = useRef(route.moves);
   const mac = useMemo(onMac, []);
   const [singleKeys, setSingleKeys] = useFlag("ropeshift-single-keys", true);
@@ -198,6 +198,17 @@ export function App() {
         }),
       ),
       { key: "action:projects", group: "Actions", title: "Switch project", icon: "projects", meta: "P", run: () => switcher.setOpen(true) },
+      { key: "action:create-project", group: "Actions", title: "Create project", icon: "plus", to: "/projects?dialog=create" },
+      { key: "action:import", group: "Actions", title: "Import an existing project", icon: "import", to: "/import" },
+      { key: "action:import-backup", group: "Actions", title: "Import a project from a backup", icon: "upload", to: "/projects", keywords: "restore upload" },
+      ...(project
+        ? [
+            { key: "action:register", group: "Actions" as const, title: "Register repositories", icon: "repo" as const, to: inProject(project, "/repositories?dialog=register") },
+            { key: "action:fleet", group: "Actions" as const, title: "Pause or drain the fleet", icon: "pause" as const, to: inProject(project, "/settings?section=fleet") },
+          ]
+        : []),
+      { key: "action:join-token", group: "Actions", title: "Create join token", icon: "key", to: "/workers?dialog=token" },
+      { key: "action:backup-installation", group: "Actions", title: "Back up the installation", icon: "download", to: inProject(project, "/settings?section=backup") },
       { key: "action:dock", group: "Actions", title: dockOpen ? "Close the conversation panel" : "Open the conversation panel", icon: "chat", meta: ".", run: () => setDockOpen(!dockOpen) },
       { key: "action:theme", group: "Actions", title: `Switch theme (${themeWords[theme].replace("Theme: ", "now ")})`, icon: "theme", run: nextTheme },
       { key: "action:sheet", group: "Actions", title: "Show keyboard shortcuts", icon: "keyboard", meta: "?", run: () => setSheetOpen(true) },
@@ -274,10 +285,12 @@ export function App() {
                 </div>
               ) : null}
               {needsSession ? <SignIn onSignedIn={signedInAgain} /> : null}
-              {projects.list && projects.list.length === 0 && !needsSession ? (
+              {projects.list && projects.list.length === 0 && !needsSession && view !== "projects" && view !== "import" ? (
                 <div className="screen">
                   <h1 tabIndex={-1}>No project yet</h1>
-                  <p className="muted">This installation holds no project. Run ropeshift project create on a terminal.</p>
+                  <p className="muted">
+                    This installation holds no project. <Link to="/projects?dialog=create">Create a project</Link> or <Link to="/import">import an existing one</Link>.
+                  </p>
                 </div>
               ) : null}
               <div hidden={needsSession}>
@@ -286,7 +299,20 @@ export function App() {
                     <div hidden={view !== "needs-you"} className="screen-flush">
                       <NeedsYou view={needs.view} readAt={needs.readAt} after={needs.reload} active={view === "needs-you"} />
                     </div>
-                    {view && view !== "needs-you" ? <PageFor key={`${view}:${project}`} view={view} project={project} params={route.params} live={live} after={needs.reload} needs={needs.view} projects={list} /> : null}
+                    {view && view !== "needs-you" ? <PageFor
+                        key={`${view}:${project}:${route.project ? "project" : "installation"}`}
+                        view={view}
+                        project={project}
+                        scoped={route.project !== ""}
+                        params={route.params}
+                        live={live}
+                        after={needs.reload}
+                        needs={needs.view}
+                        projects={list}
+                        reloadProjects={projects.reload}
+                        prefs={{ theme, setTheme, singleKeys, setSingleKeys }}
+                        onSignedOut={() => void needs.forget()}
+                      /> : null}
                     {resolved.kind === "missing" ? <NoSuchView /> : null}
                   </>
                 ) : null}

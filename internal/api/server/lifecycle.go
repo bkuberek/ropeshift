@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
@@ -14,6 +17,7 @@ import (
 func (h *handler) lifecycleRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/projects", h.member(h.createProject))
 	mux.HandleFunc("POST /v1/projects/import", h.member(h.importProject))
+	mux.HandleFunc("POST "+api.ImportUploadPath, h.member(h.importUploaded))
 	mux.HandleFunc("POST /v1/projects/{project}/rename", h.member(h.renameProject))
 	mux.HandleFunc("POST /v1/projects/{project}/archive", h.member(h.archiveProject))
 	mux.HandleFunc("POST /v1/projects/{project}/restore", h.member(h.restoreProject))
@@ -55,6 +59,37 @@ func (h *handler) importProject(w http.ResponseWriter, r *http.Request, actor le
 		return
 	}
 	p, err := h.lifecycle.Import(r.Context(), in.Path, in.Name, actor)
+	h.answerProject(w, r.Context(), http.StatusCreated, p, err)
+}
+
+// importUploaded registers a project from a backup the request carries, as a browser uploads it. The
+// backup goes to a file of its own, which the import reads the way it reads a path a member names, and
+// which is gone when the answer ends.
+func (h *handler) importUploaded(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.ImportUpload
+	// base64 takes four bytes for every three, and the rest of the body is a name.
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, api.ImportUploadMaxBytes/3*4+maxBody))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&in); err != nil {
+		invalid(w, "%v", err)
+		return
+	}
+	if len(in.Backup) == 0 {
+		invalid(w, "an upload carries a project's backup, and this one carries none")
+		return
+	}
+	dir, err := os.MkdirTemp("", "ropeshift-import-")
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "upload.db")
+	if err := os.WriteFile(path, in.Backup, 0o600); err != nil {
+		fail(w, err)
+		return
+	}
+	p, err := h.lifecycle.Import(r.Context(), path, in.Name, actor)
 	h.answerProject(w, r.Context(), http.StatusCreated, p, err)
 }
 

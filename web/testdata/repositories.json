@@ -1,0 +1,47 @@
+{
+  "repositories": [
+    {
+      "id": "id-api",
+      "name": "api",
+      "remote": "git@example.invalid:acme/api.git",
+      "default_branch": "main",
+      "merge_method": "merge",
+      "merge_authority": "person_merges",
+      "review_target": "branch",
+      "start_from": "merged",
+      "state": "active",
+      "base": "main",
+      "review_agreement": {
+        "last_30_days": {
+          "decisions": 0,
+          "agreed": 0,
+          "disagreed": 0,
+          "unknown": 0,
+          "agreement_rate": {
+            "numerator": 0,
+            "denominator": 0,
+            "value": null
+          },
+          "approvals_overturned": 0,
+          "later_defects": 0,
+          "failures_overridden": 0
+        },
+        "all_time": {
+          "decisions": 0,
+          "agreed": 0,
+          "disagreed": 0,
+          "unknown": 0,
+          "agreement_rate": {
+            "numerator": 0,
+            "denominator": 0,
+            "value": null
+          },
+          "approvals_overturned": 0,
+          "later_defects": 0,
+          "failures_overridden": 0
+        }
+      },
+      "plan_of_record": true
+    }
+  ]
+}

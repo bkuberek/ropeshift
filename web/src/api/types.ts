@@ -580,6 +580,8 @@ export type Project = {
   state: "active" | "archived";
   created_at: number;
   repositories: string[];
+  // waiting counts what waits on a member in an active project.
+  waiting?: number;
 };
 
 export type ProjectList = { projects: Project[] };

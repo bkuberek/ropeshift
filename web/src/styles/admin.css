@@ -1,0 +1,227 @@
+/* Projects, repositories, import, settings, agents, members, workers' actions, and the audit. */
+
+.muted-row td {
+  color: var(--text-2);
+}
+
+.field-narrow {
+  max-width: 280px;
+}
+
+.field-tiny {
+  max-width: 96px;
+}
+
+.plain-fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.record-form {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.form-grid > .field {
+  margin-top: 0;
+}
+
+.select-wrap:has(> .field-narrow) {
+  max-width: 280px;
+}
+
+.dialog-note {
+  margin-bottom: var(--s-12);
+}
+
+.form-actions {
+  margin-top: var(--s-12);
+}
+
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--s-4) var(--s-12);
+}
+
+.class-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: var(--s-8);
+  align-items: end;
+  margin-bottom: var(--s-8);
+}
+
+.class-row > .field {
+  margin-top: 0;
+}
+
+.panel-tabs {
+  padding: 0 var(--s-8);
+}
+
+.plain-list {
+  list-style: none;
+  margin: var(--s-8) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-12);
+  margin-bottom: var(--s-16);
+}
+
+.filters-row > .field {
+  margin-top: 0;
+  min-width: 160px;
+}
+
+.filters-actions {
+  display: flex;
+  gap: var(--s-8);
+}
+
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  min-height: 24px;
+  color: var(--link, var(--text));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-12);
+  padding: var(--s-8) var(--s-12);
+  border-top: 1px solid var(--border);
+}
+
+.event-record {
+  margin-top: var(--s-12);
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.token-row {
+  align-items: center;
+}
+
+.token {
+  padding: var(--s-6) var(--s-8);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  background: var(--surface-2);
+  word-break: break-all;
+  user-select: all;
+}
+
+.tree-group {
+  padding: 12px var(--s-8) 4px;
+}
+
+.tree > div:first-child .tree-group {
+  padding-top: 0;
+}
+
+.settings-body {
+  min-width: 0;
+}
+
+.show-phone {
+  display: none;
+}
+
+/* A difference by line, as the review of a versioned record shows it. */
+.diff {
+  border: 1px solid var(--border);
+  border-radius: var(--r-8);
+  overflow: auto;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: 20px;
+}
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.diff-table td {
+  padding: 0 var(--s-8);
+  white-space: pre-wrap;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+.diff-table .sign {
+  width: 14px;
+  padding: 0 0 0 var(--s-8);
+  user-select: none;
+  color: var(--text-2);
+}
+
+.diff-table tr.add td {
+  background: var(--diff-add);
+}
+
+.diff-table tr.del td {
+  background: var(--diff-del);
+}
+
+@media (max-width: 639px) {
+  .show-phone {
+    display: block;
+  }
+
+  /* On a phone the section's title stays first, for orientation, and the section list follows it. */
+  .settings-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-body > .page-head {
+    order: -1;
+  }
+
+  .settings-body > .show-phone {
+    margin-bottom: var(--s-16);
+  }
+
+  .class-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .filters-row > .field {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .pager {
+    padding: var(--s-8);
+  }
+}
+
+@media (forced-colors: active) {
+  .diff-table tr.add td,
+  .diff-table tr.del td {
+    background: Canvas;
+  }
+}

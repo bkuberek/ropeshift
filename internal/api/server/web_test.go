@@ -336,6 +336,8 @@ func TestASessionInAHeaderOpensNothingHere(t *testing.T) {
 	}
 }
 
+// A worker's own routes and setting the passphrase stay on the socket. A join token and a policy are a
+// member's steps, which the web UI takes as the CLI does (FR-UI-7).
 func TestAWorkersRoutesStayOnTheSocket(t *testing.T) {
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
@@ -346,8 +348,6 @@ func TestAWorkersRoutesStayOnTheSocket(t *testing.T) {
 		{path: "/v1/workers/w/desired?since=0"},
 		{path: "/v1/workers/w/watch"},
 		{method: http.MethodPut, path: "/v1/passphrase", body: api.SetPassphrase{Passphrase: "a new passphrase"}},
-		{method: http.MethodPost, path: "/v1/workers/tokens", body: struct{}{}},
-		{method: http.MethodPost, path: apitest.Route("/v1/policies"), body: struct{}{}},
 	} {
 		t.Run(attempt.method+attempt.path, func(t *testing.T) {
 			attempt.cookies, attempt.headers = cookies, map[string]string{api.HeaderCSRF: token}

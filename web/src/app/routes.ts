@@ -1,15 +1,35 @@
 import { splitProject } from "./route";
 
-// The application's views. Needs you, Workers, and Usage belong to the installation; the rest to one
-// project, whose name leads the address: /projects/{project}/{view}.
-export const installationViews = ["needs-you", "workers", "usage"] as const;
-export const projectViews = ["roadmap", "plans", "documents", "decisions", "questions", "work", "work-order", "floor", "lane", "measures"] as const;
+// The application's views. Needs you, Workers, Usage, Projects, Import, and Members belong to the
+// installation; the rest to one project, whose name leads the address: /projects/{project}/{view}.
+// Settings, Agents, and Audit have both scopes: the installation's with no project in the address, and a
+// project's under it.
+export const installationViews = ["needs-you", "workers", "usage", "projects", "import", "members", "settings", "agents", "audit"] as const;
+export const projectViews = [
+  "roadmap",
+  "plans",
+  "documents",
+  "decisions",
+  "questions",
+  "work",
+  "work-order",
+  "floor",
+  "lane",
+  "measures",
+  "repositories",
+  "agents",
+  "settings",
+  "audit",
+] as const;
 
 export type InstallationView = (typeof installationViews)[number];
 export type ProjectView = (typeof projectViews)[number];
 export type View = InstallationView | ProjectView;
 
-export const views: View[] = [...installationViews, ...projectViews];
+export const views: View[] = [...new Set<View>([...installationViews, ...projectViews])];
+
+// bothScopes are the views an address may name with or without a project.
+export const bothScopes = new Set<View>(["settings", "agents", "audit"]);
 
 export type Resolved =
   | { kind: "view"; view: View; project: string }
@@ -34,6 +54,13 @@ const titles: Record<View, string> = {
   floor: "Floor",
   lane: "Lane",
   measures: "Measures",
+  projects: "Projects",
+  import: "Import an existing project",
+  members: "Members",
+  settings: "Settings",
+  agents: "Agents",
+  audit: "Audit",
+  repositories: "Repositories",
 };
 
 export function titleOf(view: View): string {

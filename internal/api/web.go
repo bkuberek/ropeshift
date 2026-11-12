@@ -42,7 +42,33 @@ func WebRoutes() []WebRoute {
 		{http.MethodGet, ProjectsPath, "project list"},
 		{http.MethodGet, NeedsYouPath, "needs"},
 		{http.MethodPut, "/v1/workers/{id}/orchestrator", "orchestrator start"},
+		{http.MethodGet, "/v1/workers/{id}/orchestrator", "orchestrator show"},
+		{http.MethodPost, ProjectsPath, "project create"},
+		{http.MethodPost, ProjectsPath + "/{project}/rename", "project rename"},
+		{http.MethodPost, ProjectsPath + "/{project}/archive", "project archive"},
+		{http.MethodPost, ProjectsPath + "/{project}/restore", "project restore"},
+		{http.MethodPost, ProjectsPath + "/{project}/remove", "project remove"},
+		{http.MethodPost, ImportUploadPath, "project import"},
+		{http.MethodPost, InstallationBackupDownloadPath, "backup"},
+		{http.MethodGet, "/v1/workers", "worker list"},
+		{http.MethodPost, "/v1/workers/tokens", "worker token"},
+		{http.MethodGet, "/v1/workers/{id}/autonomy", "worker autonomy"},
+		{http.MethodPut, "/v1/workers/{id}/autonomy", "worker level"},
+		{http.MethodPost, "/v1/workers/{id}/autonomy/acknowledgement", "worker acknowledge-risk"},
+		{http.MethodPost, "/v1/workers/{id}/windows", "worker window-open"},
+		{http.MethodDelete, "/v1/workers/{id}/windows", "worker window-close"},
+		{http.MethodGet, RiskPath, "worker risk"},
+		{http.MethodGet, MembersPath, "member list"},
+		{http.MethodGet, AuditPath, "audit"},
 	}
+	// The roster's routes read and change the installation's layer at the top, and a project's under it.
+	roster := []WebRoute{
+		{http.MethodGet, "/v1/roster", "agent list"},
+		{http.MethodGet, "/v1/roster/history", "agent history"},
+		{http.MethodPost, "/v1/roster/changes", "agent set"},
+		{http.MethodPost, "/v1/roster/revert", "agent revert"},
+	}
+	routes = append(routes, roster...)
 	inProject := []WebRoute{
 		{http.MethodGet, EventsPath, "events"},
 		{http.MethodGet, "/v1/documents/read", "document show"},
@@ -64,7 +90,27 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/work-orders/{id}/lane-resume", "lane resume"},
 		{http.MethodGet, PanePath, "lane attach"},
 		{http.MethodPost, PaneInputPath, "lane attach"},
+		{http.MethodPost, BackupDownloadPath, "backup"},
+		{http.MethodGet, AuditPath, "audit"},
+		{http.MethodGet, "/v1/repositories", "repository list"},
+		{http.MethodGet, "/v1/repositories/{id}", "repository show"},
+		{http.MethodPatch, "/v1/repositories/{id}", "repository set"},
+		{http.MethodPost, "/v1/repositories", "repository add"},
+		{http.MethodPost, "/v1/repositories/{id}/remove", "repository remove"},
+		{http.MethodGet, "/v1/fleet", "fleet show"},
+		{http.MethodPut, "/v1/fleet/mode", "fleet pause"},
+		{http.MethodPut, "/v1/fleet/caps", "fleet caps"},
+		{http.MethodGet, "/v1/policies", "policy list"},
+		{http.MethodGet, "/v1/policies/{version}", "policy show"},
+		{http.MethodPost, "/v1/policies", "policy publish"},
+		{http.MethodGet, "/v1/categories", "category list"},
+		{http.MethodGet, "/v1/approvals", "approval list"},
+		{http.MethodGet, "/v1/plans", "plan list"},
+		{http.MethodPost, "/v1/work-orders", "work create"},
+		{http.MethodPost, "/v1/work-orders/{id}/claims", "work claim"},
+		{http.MethodPost, "/v1/work-orders/{id}/lanes", "lane start"},
 	}
+	inProject = append(inProject, roster...)
 	for _, name := range Views {
 		inProject = append(inProject, WebRoute{http.MethodGet, ViewPath(name), "view " + name})
 	}
