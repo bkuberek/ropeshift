@@ -112,6 +112,11 @@ func (c *Client) send(ctx context.Context, method, path string, in, out any) err
 	if out == nil {
 		return nil
 	}
+	// A route that answers a file, such as a backup, writes its bytes to a writer as they come.
+	if writer, ok := out.(io.Writer); ok {
+		_, err := io.Copy(writer, response.Body)
+		return err
+	}
 	return json.NewDecoder(response.Body).Decode(out)
 }
 

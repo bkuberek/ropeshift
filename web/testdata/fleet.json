@@ -1,0 +1,6 @@
+{
+  "fleet_mode": "run",
+  "wip_limit": 0,
+  "lanes_per_repository": 0,
+  "lanes_per_worker": 0
+}

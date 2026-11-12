@@ -1,0 +1,42 @@
+{
+  "dry_run": true,
+  "repositories": [
+    {
+      "path": "/work/api",
+      "outcome": "known",
+      "repository": {
+        "id": "id-api",
+        "name": "api",
+        "remote": "git@example.invalid:acme/api.git",
+        "default_branch": "main",
+        "merge_method": "merge",
+        "merge_authority": "person_merges",
+        "review_target": "branch",
+        "start_from": "merged",
+        "state": "active"
+      },
+      "checkout": "/work/api"
+    },
+    {
+      "path": "/work/web",
+      "outcome": "registered",
+      "repository": {
+        "id": "id-web",
+        "name": "web",
+        "remote": "https://example.invalid/acme/web.git",
+        "default_branch": "trunk",
+        "merge_method": "merge",
+        "merge_authority": "person_merges",
+        "review_target": "branch",
+        "start_from": "merged",
+        "state": "active"
+      },
+      "checkout": "/work/web"
+    },
+    {
+      "path": "/nowhere",
+      "outcome": "refused",
+      "reason": "is not a git clone and holds none 1 levels down"
+    }
+  ]
+}

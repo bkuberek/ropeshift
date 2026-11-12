@@ -1,0 +1,74 @@
+{
+  "scope": "project",
+  "as_of": 1794000000000,
+  "head": 4,
+  "next": 0,
+  "events": [
+    {
+      "rev": 4,
+      "type": "policy.published",
+      "subject_kind": "policy",
+      "subject_id": "generated-1",
+      "actor_kind": "member",
+      "actor_id": "member-1",
+      "recorded_at": 1794000000000,
+      "id": "generated-2",
+      "data": {
+        "id": "generated-1",
+        "kind": "recovery",
+        "version": 2,
+        "digest": "sha256:6109422651973fdc2e5a039a9e5d608393018ad1436c8e01a6285fdab337586c",
+        "body": "[recovery_policy]\nversion = 2\nrestart_stalled = true\nmax_breaker_resets_per_day = 3\nretry_failed = false\nreplan_blocked = true\nmax_attempts = 3\n",
+        "settings": "{\"version\":2,\"restart_stalled\":true,\"max_breaker_resets_per_day\":3,\"retry_failed\":false,\"replan_blocked\":true,\"max_attempts\":3}",
+        "authored_by": "member-1",
+        "created_at": 1794000000000
+      }
+    },
+    {
+      "rev": 3,
+      "type": "policy.published",
+      "subject_kind": "policy",
+      "subject_id": "generated-3",
+      "actor_kind": "system",
+      "actor_id": "built-in",
+      "recorded_at": 1794000000000,
+      "id": "generated-4",
+      "data": {
+        "id": "generated-3",
+        "kind": "recovery",
+        "version": 1,
+        "digest": "sha256:eaadb4dfde4a411997d552fe0f635a3a904eae05a8bef9d3f25d7036aa2ef2a0",
+        "body": "[recovery_policy]\nversion = 1\nrestart_stalled = true\nmax_breaker_resets_per_day = 2\nretry_failed = true\nreplan_blocked = true\nmax_attempts = 3\n",
+        "settings": "{\"version\":1,\"restart_stalled\":true,\"max_breaker_resets_per_day\":2,\"retry_failed\":true,\"replan_blocked\":true,\"max_attempts\":3}",
+        "authored_by": "built-in",
+        "created_at": 1794000000000
+      }
+    },
+    {
+      "rev": 2,
+      "type": "repository.registered",
+      "subject_kind": "repository",
+      "subject_id": "id-api",
+      "actor_kind": "member",
+      "actor_id": "member-1",
+      "recorded_at": 1794000000000,
+      "id": "generated-5",
+      "data": {
+        "name": "api",
+        "remote": "git@example.invalid:acme/api.git",
+        "default_branch": "main"
+      }
+    },
+    {
+      "rev": 1,
+      "type": "workspace.created",
+      "subject_kind": "workspace",
+      "subject_id": "test-workspace",
+      "actor_kind": "system",
+      "actor_id": "test",
+      "recorded_at": 1794000000000,
+      "id": "generated-6",
+      "data": {}
+    }
+  ]
+}

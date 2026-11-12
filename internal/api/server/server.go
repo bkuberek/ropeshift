@@ -144,6 +144,9 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.telemetryRoutes(mux)
 	h.installationRosterRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
+	mux.HandleFunc("GET "+api.AuditPath, h.installationAudit)
+	mux.HandleFunc("GET "+api.MembersPath, h.listMembers)
+	mux.HandleFunc("POST "+api.InstallationBackupDownloadPath, h.member(h.downloadInstallationBackup))
 }
 
 // projectRoutes are one project's routes, as they read under /v1. The router serves them under
@@ -163,6 +166,8 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.paneRoutes(mux)
 	h.projectRosterRoutes(mux)
 	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
+	mux.HandleFunc("POST "+api.BackupDownloadPath, h.member(h.downloadBackup))
+	mux.HandleFunc("GET "+api.AuditPath, h.projectAudit)
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
 	mux.HandleFunc("GET /v1/work-orders", h.listWorkOrders)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -279,4 +280,68 @@ func TestAReviewIsNoPartOfThePlanItsContractBelongsTo(t *testing.T) {
 	if counted != planned {
 		t.Errorf("the roadmap lists %d work orders of plans and the plans view %d", counted, planned)
 	}
+}
+
+// TestGoldenSettingsReads writes what the projects, repositories, settings, agents, members, and audit
+// pages read, from a real ledger, so their tests run on what the API serves.
+func TestGoldenSettingsReads(t *testing.T) {
+	in := apitest.StartInstallation(t, "beta")
+	in.Checkouts.Place(ports.Clone{Path: "/work/api", ID: "id-api", Remote: "git@example.invalid:acme/api.git", DefaultBranch: "main"})
+	in.Checkouts.Place(ports.Clone{Path: "/work/web", ID: "id-web", Remote: "https://example.invalid/acme/web.git", DefaultBranch: "trunk"})
+	project := in.Client.Project(apitest.ProjectName)
+	if _, err := project.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work/api"}}); err != nil {
+		t.Fatal(err)
+	}
+	dry, err := project.AddRepositories(t.Context(), api.RepositoryAdd{Paths: []string{"/work", "/nowhere"}, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := "[recovery_policy]\nversion = 2\nrestart_stalled = true\nmax_breaker_resets_per_day = 3\nretry_failed = false\nreplan_blocked = true\nmax_attempts = 3\n"
+	if _, err := project.PublishPolicy(t.Context(), recovery); err != nil {
+		t.Fatal(err)
+	}
+	reads := map[string]func() (any, error){
+		"repositories":       func() (any, error) { return project.Repositories(t.Context()) },
+		"repository-dry-run": func() (any, error) { return dry, nil },
+		"fleet":              func() (any, error) { return project.Fleet(t.Context()) },
+		"roster":             func() (any, error) { return project.Roster(t.Context()) },
+		"roster-history":     func() (any, error) { return project.RosterHistory(t.Context(), "") },
+		"members":            func() (any, error) { return in.Client.Members(t.Context()) },
+		"audit":              func() (any, error) { return project.Audit(t.Context(), api.AuditQuery{Limit: 8}) },
+		"policies-recovery": func() (any, error) {
+			var out api.PolicyList
+			err := in.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/policies?kind=recovery"), nil, &out)
+			return out, err
+		},
+	}
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			value, err := read()
+			if err != nil {
+				t.Fatal(err)
+			}
+			holdsGolden(t, name, steadyTimes(steady(pretty(t, value))))
+		})
+	}
+}
+
+var wallTime = regexp.MustCompile(`": 1[0-9]{12}\b`)
+
+// steadyTimes moves the times a harness on the wall clock wrote to a fixed start, kept to the minute
+// from the earliest, so a session that lasts an hour still reads as an hour.
+func steadyTimes(raw []byte) []byte {
+	const start, minute = int64(1_794_000_000_000), int64(60_000)
+	earliest := int64(0)
+	for _, match := range wallTime.FindAll(raw, -1) {
+		var at int64
+		fmt.Sscan(string(match[3:]), &at)
+		if earliest == 0 || at < earliest {
+			earliest = at
+		}
+	}
+	return wallTime.ReplaceAllFunc(raw, func(match []byte) []byte {
+		var at int64
+		fmt.Sscan(string(match[3:]), &at)
+		return fmt.Appendf(nil, "\": %d", start+(at-earliest+minute/2)/minute*minute)
+	})
 }

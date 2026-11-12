@@ -1,0 +1,402 @@
+{
+  "scope": "project",
+  "installation_version": 0,
+  "project_version": 0,
+  "roster": {
+    "agents": [
+      {
+        "name": "lookup",
+        "purpose": "One fact: a definition, a path, a value, or a version. For a search that needs many files, use explore.",
+        "kind": "lookup",
+        "access": "read_only",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "context"
+          ],
+          "deny": [
+            "edit",
+            "shell",
+            "web",
+            "delegate"
+          ]
+        },
+        "class": "small",
+        "effort": "low",
+        "approval": "none",
+        "instructions": "Find the one fact asked for, with the fewest reads. Stop as soon as you have it.",
+        "report": "The fact, then the path and line it came from, in at most 50 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "explore",
+        "purpose": "Broad read-only search across a codebase or its documents, when the answer needs many files. For one known fact, use lookup. For a diagnosis or a review, use analysis.",
+        "kind": "explore",
+        "access": "read_only",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "context"
+          ],
+          "deny": [
+            "edit",
+            "shell",
+            "web",
+            "delegate"
+          ]
+        },
+        "class": "small",
+        "effort": "medium",
+        "approval": "none",
+        "instructions": "Search before reading whole files. Report what you found and where, and say what you did not find.",
+        "report": "The answer first, then each finding with its path and line, in at most 300 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "analysis",
+        "purpose": "Deep review, debugging, and diagnosis, with evidence. For a plain search, use explore. To judge finished work against its contract, use review.",
+        "kind": "analysis",
+        "access": "read_only",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "shell",
+            "context"
+          ],
+          "deny": [
+            "edit",
+            "web",
+            "delegate"
+          ]
+        },
+        "class": "large",
+        "effort": "high",
+        "approval": "none",
+        "instructions": "Form a hypothesis, test it against the code and its behavior, and keep only what the evidence supports. Change nothing.",
+        "report": "The finding first, then the evidence for it with paths and lines, then what remains uncertain, in at most 400 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "reasoning",
+        "purpose": "Specs, documents, and hard trade-offs that need the strongest model. It waits for approval on each start. For a diagnosis, use analysis.",
+        "kind": "reasoning",
+        "access": "writing",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "edit",
+            "web",
+            "context"
+          ],
+          "deny": [
+            "shell",
+            "delegate"
+          ]
+        },
+        "class": "frontier",
+        "effort": "high",
+        "approval": "per_use",
+        "instructions": "State the problem and the constraints, weigh the options against them, and write the result where you were asked to.",
+        "report": "The decision or the document's path first, then the trade-offs that decided it, in at most 300 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "mechanical",
+        "purpose": "Bulk edits that follow a stated rule exactly, such as a rename or a format change. For a change that needs judgment, use light-implementation or implementation.",
+        "kind": "mechanical",
+        "access": "writing",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "edit",
+            "shell",
+            "context"
+          ],
+          "deny": [
+            "web",
+            "delegate"
+          ]
+        },
+        "class": "small",
+        "effort": "low",
+        "approval": "none",
+        "instructions": "Apply the rule you were given to every place it covers, and nothing else. Stop and report when a case does not fit the rule.",
+        "report": "How many places changed, the files, and every case that did not fit the rule, in at most 150 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "light-implementation",
+        "purpose": "A small change from a complete written spec that names the files and the check. For an ordinary change with a clear spec, use implementation.",
+        "kind": "implementation",
+        "access": "writing",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "edit",
+            "shell",
+            "web",
+            "context"
+          ],
+          "deny": [
+            "delegate"
+          ]
+        },
+        "class": "small",
+        "effort": "medium",
+        "approval": "none",
+        "instructions": "Make exactly the change the spec describes, run the check it names, and stop when it passes.",
+        "report": "The files changed and the check's result, in at most 150 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "implementation",
+        "purpose": "An ordinary change with a clear spec. For a small change with a complete spec, use light-implementation. For a change across many files or with subtle behavior, use heavy-implementation.",
+        "kind": "implementation",
+        "access": "writing",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "edit",
+            "shell",
+            "web",
+            "context"
+          ],
+          "deny": [
+            "delegate"
+          ]
+        },
+        "class": "standard",
+        "effort": "medium",
+        "approval": "none",
+        "instructions": "Read the code the change touches, make the change with its tests, and run the checks that cover it.",
+        "report": "The files changed, the checks run with their results, and anything left undone, in at most 200 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "heavy-implementation",
+        "purpose": "A change across many files, or with subtle behavior. For an ordinary change, use implementation. For a change that failed at this tier, use deep-implementation.",
+        "kind": "implementation",
+        "access": "writing",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "edit",
+            "shell",
+            "web",
+            "context"
+          ],
+          "deny": [
+            "delegate"
+          ]
+        },
+        "class": "large",
+        "effort": "high",
+        "approval": "none",
+        "instructions": "Map what the change touches before editing, keep each step working, and test the behavior that could break.",
+        "report": "The files changed, the checks run with their results, the risks you saw, and anything left undone, in at most 300 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "deep-implementation",
+        "purpose": "A change that failed at the heavy tier, or that no lower tier can do. It waits for approval on each start. Try heavy-implementation first.",
+        "kind": "implementation",
+        "access": "writing",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "edit",
+            "shell",
+            "web",
+            "context"
+          ],
+          "deny": [
+            "delegate"
+          ]
+        },
+        "class": "frontier",
+        "effort": "max",
+        "approval": "per_use",
+        "instructions": "Find why earlier attempts failed before changing anything, then make the change with tests that prove it.",
+        "report": "Why earlier attempts failed, the files changed, and the checks run with their results, in at most 300 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      },
+      {
+        "name": "review",
+        "purpose": "Judging finished work against its contract, criterion by criterion. For a diagnosis of a failure, use analysis.",
+        "kind": "review",
+        "access": "read_only",
+        "tools": {
+          "allow": [
+            "read",
+            "search",
+            "shell",
+            "context"
+          ],
+          "deny": [
+            "edit",
+            "web",
+            "delegate"
+          ]
+        },
+        "class": "large",
+        "effort": "high",
+        "approval": "none",
+        "instructions": "Judge each criterion against the work as it stands, with the evidence for each verdict. Change nothing.",
+        "report": "A verdict per criterion with its evidence, then any defect outside the criteria, in at most 400 words.",
+        "enabled": true,
+        "sources": {
+          "access": "builtin",
+          "approval": "builtin",
+          "class": "builtin",
+          "effort": "builtin",
+          "enabled": "builtin",
+          "instructions": "builtin",
+          "kind": "builtin",
+          "purpose": "builtin",
+          "report": "builtin",
+          "tools.allow": "builtin",
+          "tools.deny": "builtin"
+        }
+      }
+    ],
+    "guide": "Hand work to the agents below when it makes the work cheaper or better, and do it yourself when it does not.\n\n- Choose the lightest agent that does the task reliably the first time.\n- Give an agent below the standard class a complete written spec: the files, the change, and how to check it.\n- Move up one tier only after an agent actually failed at the task, never in anticipation.\n- An agent that needs approval for each start waits for that approval, so start one only when the work needs it.\n- Use one writing agent at a time for each piece of work, and never two on the same files.\n- Read each agent's report, and check its claims against the work before you build on them.",
+    "guide_source": "builtin",
+    "defaults": {
+      "plan": "reasoning",
+      "contract_review": "analysis",
+      "review": "review",
+      "change": {
+        "large": "heavy-implementation",
+        "medium": "implementation",
+        "small": "light-implementation"
+      }
+    },
+    "digest": "sha256:a46787470911063d1d56c496912e473e27e507eaad35151e5e6b1c77eec3d4f5"
+  }
+}

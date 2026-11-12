@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -64,4 +68,60 @@ func (h *handler) self(ctx context.Context) (ledger.Project, error) {
 		}
 	}
 	return ledger.Project{}, fmt.Errorf("project %s: %w", h.Scope, ports.ErrNotFound)
+}
+
+// downloadBackup answers a copy of this handler's project in the response, which a browser saves as a
+// download. The copy is made the way a backup to a file is, into a directory of its own that is gone
+// when the answer ends, so nothing of it stays on the daemon's machine.
+func (h *handler) downloadBackup(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
+	if !decode(w, r, &struct{}{}) {
+		return
+	}
+	project, err := h.self(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	h.answerCopy(w, project.Name, func(path string) (int64, error) { return h.Projects.Backup(r.Context(), project, path) })
+}
+
+// downloadInstallationBackup answers a copy of the installation's own records in the response.
+func (h *handler) downloadInstallationBackup(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
+	if !decode(w, r, &struct{}{}) {
+		return
+	}
+	h.answerCopy(w, "installation", func(path string) (int64, error) { return h.Projects.BackupInstallation(r.Context(), path) })
+}
+
+// answerCopy makes a copy with copy, into a file it names, and answers its bytes with a file name that
+// says what it holds and when it was made.
+func (h *handler) answerCopy(w http.ResponseWriter, name string, copy func(path string) (int64, error)) {
+	dir, err := os.MkdirTemp("", "ropeshift-backup-")
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, name+".db")
+	if _, err := copy(path); err != nil {
+		answerBackup(w, path, 0, err)
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	header := w.Header()
+	header.Set("Content-Type", api.BackupMediaType)
+	header.Set("Content-Length", fmt.Sprint(info.Size()))
+	header.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fmt.Sprintf("ropeshift-%s-%s.db", name, time.Now().UTC().Format("20060102-150405"))))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, file)
 }

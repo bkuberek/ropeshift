@@ -46,6 +46,7 @@ func registry() []section {
 			installation(command("needs", "", "list what waits on a member in every active project", (*invocation).needs))[0],
 			installation(command("health", "", "say the control plane answers, and at what revision", (*invocation).health))[0],
 			command("events", "[--after N] [--limit N]", "follow the ledger's events from a revision", (*invocation).events),
+			command("audit", "[--installation] [--actor K] [--kind T] [--subject S] [--before N] [--limit N]", "read a log's events newest first, each with who did it", (*invocation).audit),
 		}, views()...)},
 		{"Projects", installation(
 			command("project list", "", "list the installation's projects, each with its state, repositories, and what waits", (*invocation).projectList),
@@ -173,6 +174,7 @@ func registry() []section {
 		{"Sessions", installation(
 			command("login", "", "print a session for this shell, for eval", (*invocation).login),
 			command("sign-out", "", "end this shell's session", (*invocation).signOut),
+			command("member list", "", "list each member with a live session, and when each began and ends", (*invocation).memberList),
 			command("passphrase set", "", "set the passphrase, on the terminal", (*invocation).passphraseSet),
 		)},
 		{"This machine", []registered{
