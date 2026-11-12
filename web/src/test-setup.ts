@@ -5,12 +5,20 @@ import { afterEach, beforeEach, vi } from "vitest";
 // that waits for one waits this long before it fails.
 configure({ asyncUtilTimeout: 4000 });
 
+// The accessibility checks run in node and drive a real browser, so they have no page here.
+const inPage = typeof window !== "undefined";
+
 // A page shows one project, which its address names, so every test starts inside the one it serves.
 beforeEach(() => {
-  window.history.replaceState(null, "", "/projects/default/");
+  if (inPage) {
+    window.history.replaceState(null, "", "/projects/default/");
+  }
 });
 
 afterEach(() => {
+  if (!inPage) {
+    return;
+  }
   cleanup();
   vi.unstubAllGlobals();
   document.cookie = "ropeshift_csrf=; max-age=0";
