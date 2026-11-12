@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -335,17 +336,17 @@ var wallTime = regexp.MustCompile(`": 1[0-9]{12}\b`)
 // from the earliest, so a session that lasts an hour still reads as an hour.
 func steadyTimes(raw []byte) []byte {
 	const start, minute = int64(1_794_000_000_000), int64(60_000)
+	at := func(match []byte) int64 {
+		value, _ := strconv.ParseInt(string(match[3:]), 10, 64)
+		return value
+	}
 	earliest := int64(0)
 	for _, match := range wallTime.FindAll(raw, -1) {
-		var at int64
-		fmt.Sscan(string(match[3:]), &at)
-		if earliest == 0 || at < earliest {
-			earliest = at
+		if earliest == 0 || at(match) < earliest {
+			earliest = at(match)
 		}
 	}
 	return wallTime.ReplaceAllFunc(raw, func(match []byte) []byte {
-		var at int64
-		fmt.Sscan(string(match[3:]), &at)
-		return fmt.Appendf(nil, "\": %d", start+(at-earliest+minute/2)/minute*minute)
+		return fmt.Appendf(nil, "\": %d", start+(at(match)-earliest+minute/2)/minute*minute)
 	})
 }
