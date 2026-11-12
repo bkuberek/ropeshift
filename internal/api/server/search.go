@@ -97,8 +97,9 @@ func (h *handler) readSearch(tx ports.ReadTx, request searchRequest, stamp api.S
 			hits = append(hits, found{record: record, rank: rank, order: slices.Index(api.SearchKinds, record.Kind)})
 		}
 	}
+	// Ties go by title before ID, so the order never rests on an ID the ledger made at random.
 	slices.SortStableFunc(hits, func(a, b found) int {
-		return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.order, b.order), cmp.Compare(a.record.ID, b.record.ID))
+		return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.order, b.order), cmp.Compare(a.record.Title, b.record.Title), cmp.Compare(a.record.ID, b.record.ID))
 	})
 	view := api.Search{Stamp: stamp, Query: request.query, Records: make([]api.SearchRecord, 0, len(hits))}
 	for _, hit := range hits {
@@ -120,22 +121,23 @@ func (h *handler) searchable(tx ports.ReadTx, kind string) ([]api.SearchRecord, 
 		}
 	}
 	wants := func(kindOf string) bool { return kind == "" || kind == kindOf }
-	if wants(api.SearchWorkOrder) {
+	if wants(api.SearchWorkOrder) || wants(api.SearchLane) {
 		orders, err := tx.WorkOrders().List()
 		if err != nil {
 			return nil, err
 		}
+		titles := map[string]string{}
 		for _, order := range orders {
+			titles[order.ID] = order.Title
 			add(api.SearchWorkOrder, order.ID, order.Title, string(order.State))
 		}
-	}
-	if wants(api.SearchLane) {
 		lanes, err := h.workers.LanesIn(tx)
 		if err != nil {
 			return nil, err
 		}
+		// A lane's ID says nothing to a person, so a lane is found by the title of the work it runs.
 		for _, lane := range lanes {
-			add(api.SearchLane, lane.ID, lane.WorkOrder, lane.ActualState)
+			add(api.SearchLane, lane.ID, cmp.Or(titles[lane.WorkOrder], lane.WorkOrder), lane.ActualState)
 		}
 	}
 	if err := searchPlanning(tx, wants, add); err != nil {
