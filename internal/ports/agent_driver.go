@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/roster"
 )
 
 // The values of a capability that has a closed list.
@@ -70,6 +71,23 @@ type Capabilities struct {
 	Degraded bool
 	// Resume is the driver's data for the resume table.
 	Resume lanes.ResumeCosts
+	// Subagents says whether the CLI starts the roster's agents (roster.SubagentsNative or
+	// roster.SubagentsNone), and SubagentTools whether it enforces their tools (roster.ToolsEnforced or
+	// roster.ToolsInstructionsOnly). A driver that says nothing has neither (ADR-0025).
+	Subagents     string
+	SubagentTools string
+}
+
+// Support is what a driver's capabilities say of the roster's agents.
+func (c Capabilities) Support() roster.Support {
+	return roster.Support{Subagents: c.Subagents, SubagentTools: c.SubagentTools}
+}
+
+// SessionAgent is one roster agent a session may start, fitted inside the session's rules, with the model
+// it runs on this driver (ADR-0025).
+type SessionAgent struct {
+	roster.Fitted
+	Model string
 }
 
 // DoctorReport says what is present and usable. It uses vendor status commands and
@@ -160,6 +178,14 @@ type SessionSpec struct {
 	Override lanes.SessionOverride
 	// Telemetry says where the session's own telemetry goes. An empty endpoint sends none.
 	Telemetry SessionTelemetry
+	// Agents are the roster agents this session may start, each fitted inside its rules, which a driver
+	// renders in lane-scoped configuration only, on every start and resume (ADR-0025). Empty renders none.
+	Agents []SessionAgent
+	// Effort is the session's effort, from the roster agent the lane runs as. Empty leaves the CLI's own.
+	Effort string
+	// Deny are the tool categories the lane's own agent denies, which narrow its rules and never widen
+	// them.
+	Deny []string
 }
 
 // SessionTelemetry points a session's telemetry at the worker's receiver, tagged with what produced it

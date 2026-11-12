@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 )
 
 // FakeDriverName stands for the one driver phase 1 has.
@@ -310,6 +311,7 @@ func (d *AgentDriver) Capabilities(context.Context) (ports.Capabilities, error) 
 		NativeResume: !d.noResume, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
 		Version:     d.version, Degraded: degraded, Resume: d.costs,
+		Subagents: roster.SubagentsNative, SubagentTools: roster.ToolsEnforced,
 	}, nil
 }
 
