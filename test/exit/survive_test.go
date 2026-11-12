@@ -149,9 +149,12 @@ func TestLaneReadCarriesFreshness(t *testing.T) {
 		view := read()
 		return view.ActualState == "working" && view.Freshness == ledger.FreshnessObserved && view.AsOf != 0 && view.ReportedByEpoch >= 1
 	})
-	if text := in.must("lane", "list"); !strings.Contains(text, "lane-1\tworking") || !strings.Contains(text, ledger.FreshnessObserved) {
-		t.Errorf("lane list: %q", text)
-	}
+	// A value stays observed for three heartbeats after the lease that confirms it, so each read is
+	// its own look: the list may read it a heartbeat later than the lane did.
+	in.waitFor("the lane list to read the lane as working and observed", func() bool {
+		code, text, _ := in.run("lane", "list")
+		return code == 0 && strings.Contains(text, "lane-1\tworking") && strings.Contains(text, ledger.FreshnessObserved)
+	})
 	release := filepath.Join(doubles.BinDir(in.path), "release")
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)

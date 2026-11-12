@@ -67,7 +67,17 @@ func shortDir(t *testing.T) string {
 	return dir
 }
 
+// start runs a shim and connects to it.
 func start(t *testing.T, mode string, change func(*shimlink.Config)) *running {
+	t.Helper()
+	r := launch(t, mode, change)
+	r.client = r.dial()
+	return r
+}
+
+// launch runs a shim without connecting to it. A shim whose child exits at once and whose linger is short
+// closes its socket before a connection is sure to arrive, so a test of that end does not dial.
+func launch(t *testing.T, mode string, change func(*shimlink.Config)) *running {
 	t.Helper()
 	t.Setenv(envChild, mode)
 	dir := shortDir(t)
@@ -92,7 +102,6 @@ func start(t *testing.T, mode string, change func(*shimlink.Config)) *running {
 			t.Error("the shim did not stop")
 		}
 	})
-	r.client = r.dial()
 	return r
 }
 
@@ -319,7 +328,7 @@ func TestANewAttachTakesOver(t *testing.T) {
 }
 
 func TestALingeringShimEndsAndLeavesTheExitOnDisk(t *testing.T) {
-	r := start(t, "exit:4", func(c *shimlink.Config) { c.Linger = 20 * time.Millisecond })
+	r := launch(t, "exit:4", func(c *shimlink.Config) { c.Linger = 20 * time.Millisecond })
 	select {
 	case err := <-r.done:
 		r.done <- err
