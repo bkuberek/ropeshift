@@ -15,6 +15,7 @@ import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentList, DocumentPage, OneRequirement, Requirements } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
+import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
 import { RecordedPage } from "../planning/Recorded";
 import { Roadmap } from "../planning/Roadmap";
@@ -215,6 +216,8 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
       return <ViewPage<RoadmapView> name="roadmap" live={live} title="Roadmap" body={(read) => <Roadmap view={read} />} />;
     case "plans":
       return plansPage(live, param("plan"));
+    case "planning":
+      return <PlanningPage live={live} project={project} label={label} lane={param("lane")} after={after} />;
     case "documents":
       return documentsPage(live, params);
     case "decisions":

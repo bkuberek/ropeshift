@@ -508,3 +508,34 @@
     padding-right: max(var(--s-4), env(safe-area-inset-right, 0px));
   }
 }
+
+/* A planning session's header keeps its title on a line of its own on a phone, with the target, state, and
+   actions above it. */
+@media (max-width: 639px) {
+  .convo-head-top {
+    flex-wrap: wrap;
+  }
+
+  .convo-title {
+    order: 9;
+    flex: 1 1 100%;
+    white-space: normal;
+  }
+
+  .convo-head-top .spacer {
+    display: none;
+  }
+
+  .convo-head-top > .btn,
+  .convo-head-top > .icon-btn {
+    margin-left: auto;
+  }
+
+  .convo-head-top > .btn + .icon-btn {
+    margin-left: 0;
+  }
+
+  .layers {
+    padding-bottom: var(--s-8);
+  }
+}

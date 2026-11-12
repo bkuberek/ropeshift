@@ -1098,3 +1098,98 @@ details.older[open] > summary {
     gap: 0;
   }
 }
+
+/* ---------- Planning pane ---------- */
+.planning {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  height: auto;
+}
+
+.planning .grid-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+.convo-head {
+  padding: var(--s-12) var(--s-16);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: inset 0 3px 0 var(--t);
+}
+
+.convo-head-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  min-width: 0;
+}
+
+.convo-title {
+  font-size: var(--fs-16);
+  line-height: var(--lh-16);
+  min-width: 0;
+}
+
+.convo-which {
+  margin-top: var(--s-6);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  display: flex;
+  gap: var(--s-6);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.convo-can {
+  margin-top: var(--s-4);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-2);
+}
+
+.convo-term {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.convo-term .pane {
+  margin-top: 0;
+  padding: var(--s-12) var(--s-16);
+}
+
+.convo-term .pane-screen {
+  max-height: none;
+  min-height: 240px;
+}
+
+.pane-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  padding: var(--s-6) var(--s-12);
+  font-size: var(--fs-12);
+  background: var(--t-bg);
+  color: var(--t);
+  border-bottom: 1px solid var(--border);
+  min-height: 32px;
+}
+
+.pane-parked {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+}
+
+.outline {
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  overflow: auto;
+}
+
+.outline-title {
+  margin-bottom: var(--s-4);
+}

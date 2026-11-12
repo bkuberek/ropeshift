@@ -10,7 +10,7 @@ import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
-import { Absent, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
+import { Absent, Badge, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
 import { parseScreen, trimScreen } from "./screen";
 
 // retryMs is how long the page waits before it opens a pane's stream again: after the stream closed
@@ -27,7 +27,7 @@ type Shown =
   | { kind: "opening" }
   | { kind: "screen"; generation: number; screen: string }
   | { kind: "away"; generation: number; state: string; screen: string }
-  | { kind: "refused"; message: string };
+  | { kind: "refused"; message: string; screen: string };
 
 // usePane follows a lane's pane. The server follows the lane from one generation's pane to the next, so
 // the page holds one stream for the life of the page.
@@ -47,7 +47,7 @@ function usePane(lane: string, live: Live): Shown {
         return;
       }
       if (refused) {
-        setShown({ kind: "refused", message: refused.message });
+        setShown({ kind: "refused", message: refused.message, screen: last });
         if (refused.code === "session_required") {
           await session.current();
         }
@@ -218,9 +218,13 @@ function Typing({ lane, live }: { lane: string; live: boolean }) {
   );
 }
 
-export function LanePane({ lane, live }: { lane: string; live: Live }) {
+// LanePane is a lane's live pane. A page that holds it may say the person is detached, which takes the
+// typing away and leaves the screen, and the state the ledger gives the lane, which labels the last screen
+// received when the lane is parked and has no process to show.
+export function LanePane({ lane, live, attached = true, state = "" }: { lane: string; live: Live; attached?: boolean; state?: string }) {
   const shown = usePane(lane, live);
-  const screen = shown.kind === "screen" || shown.kind === "away" ? shown.screen : "";
+  const screen = shown.kind === "screen" || shown.kind === "away" || shown.kind === "refused" ? shown.screen : "";
+  const parked = shown.kind !== "screen" && (state === "parked" || (shown.kind === "away" && shown.state === "parked"));
   return (
     <section className="pane" aria-label={`Pane of lane ${lane}`} data-keys="own">
       <p className="pane-status" role="status">
@@ -231,8 +235,16 @@ export function LanePane({ lane, live }: { lane: string; live: Live }) {
           {shown.message}
         </p>
       ) : null}
+      {parked && screen ? (
+        <p className="pane-parked">
+          <Badge tone="warning" glyph="pause">
+            Parked
+          </Badge>
+          <span className="small muted">The last screen this page received.</span>
+        </p>
+      ) : null}
       {screen ? <Screen lane={lane} text={screen} /> : null}
-      <Typing lane={lane} live={shown.kind === "screen"} />
+      {attached ? <Typing lane={lane} live={shown.kind === "screen"} /> : null}
     </section>
   );
 }

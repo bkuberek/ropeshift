@@ -52,6 +52,7 @@ describe("an address", () => {
     ["/projects/harbor/floor", "floor"],
     ["/projects/harbor/lane", "lane"],
     ["/projects/harbor/measures", "measures"],
+    ["/projects/harbor/planning", "planning"],
   ])("%s is a view of that project", (path, view) => {
     expect(resolve(path, "")).toEqual({ kind: "view", view, project: "harbor" });
   });
@@ -60,7 +61,7 @@ describe("an address", () => {
     expect(resolve("/projects/two%20words/floor", "")).toEqual({ kind: "view", view: "floor", project: "two words" });
   });
 
-  it.each(["/roadmap", "/floor", "/in-progress", "/shop-floor", "/requirements", "/repositories"])("%s names a project view and no project, so it waits for one", (path) => {
+  it.each(["/roadmap", "/floor", "/in-progress", "/shop-floor", "/requirements", "/repositories", "/planning"])("%s names a project view and no project, so it waits for one", (path) => {
     expect(resolve(path, "")).toEqual({ kind: "pick-project", path });
   });
 
@@ -76,6 +77,10 @@ describe("the views", () => {
     }
     expect(titleOf("work-order")).toBe("Work order");
     expect(titleOf("needs-you")).toBe("Needs you");
+  });
+
+  it("name the planning views by what they show", () => {
+    expect(titleOf("planning")).toBe("Planning");
   });
 
   it("are reached with G and a key, each key once", () => {

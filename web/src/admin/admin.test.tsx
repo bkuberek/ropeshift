@@ -197,7 +197,8 @@ describe("Import an existing project", () => {
     await userEvent.click(await screen.findByRole("radio", { name: /web/ }));
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
     await userEvent.click(screen.getByRole("button", { name: "Start adopt session" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/tidewater/lane"));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/tidewater/planning"));
+    expect(window.location.search).toMatch(/^\?lane=[0-9A-Z]{26}$/);
     const steps = sent.filter((call) => call.method !== "GET").map((call) => `${call.method} ${call.project || "-"} ${call.path.replace(/\/[0-9A-Z]{26}(\/|$)/, "/ID$1")}`);
     expect(steps).toEqual([
       "POST - /v1/projects",
