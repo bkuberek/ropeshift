@@ -202,3 +202,15 @@ func TestSubagentUsageNamesTheRosterAgent(t *testing.T) {
 		t.Fatalf("agent usage %+v", agents)
 	}
 }
+
+// TestAUserMessageWhoseContentIsTextStillParses: reading assistant messages must not cost a user line
+// whose content is a string, which the replay of an input carries.
+func TestAUserMessageWhoseContentIsTextStillParses(t *testing.T) {
+	p, err := parseLine([]byte(`{"type":"user","isReplay":true,"uuid":"u-1","message":{"role":"user","content":"hello"}}`), false)
+	if err != nil || p.event.Kind != ports.EventInputAdmitted || p.event.InputID != "u-1" {
+		t.Fatalf("parsed %+v, %v", p, err)
+	}
+	if _, err := parseLine([]byte(`{"type":"assistant","message":{"content":"text"}}`), false); err != nil {
+		t.Fatalf("an assistant message of another shape: %v", err)
+	}
+}

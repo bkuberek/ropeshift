@@ -117,7 +117,9 @@ func TestM1WalkingSkeleton(t *testing.T) {
 			if err := json.Unmarshal(bound.Payload, &generation); err != nil {
 				t.Fatal(err)
 			}
-			if generation.ModelRequested != "opus" || generation.ModelResolved != "claude-fixture-5-5" {
+			// The contract's work is a small change, which runs as the light-implementation agent, whose class
+			// the built-in profile maps to haiku (ADR-0025).
+			if generation.ModelRequested != "haiku" || generation.ModelResolved != "claude-fixture-5-5" {
 				t.Errorf("the generation records %+v", generation)
 			}
 		})

@@ -50,9 +50,9 @@ type streamLine struct {
 	} `json:"compact_metadata"`
 	// MessagingSocket is where a session reads messages. It changes with the process.
 	MessagingSocket string `json:"messaging_socket_path"`
-	// Message is an assistant message, of which the driver reads the usage and the subagent each Agent
-	// call starts, and no other content.
-	Message *streamMessage `json:"message"`
+	// Message is a line's message, whose shape differs by type: a user message's content can be text.
+	// The driver reads only an assistant message's usage and the subagent each of its Agent calls starts.
+	Message json.RawMessage `json:"message"`
 }
 
 // streamMessage is what the driver reads of an assistant message.
@@ -176,14 +176,15 @@ func parseSystem(line streamLine) parsed {
 // `parent_tool_use_id` (landscape/claude-code.md); whether every subagent's usage reaches the stream is
 // a qualified surface, so usage it does not report stays the lane's own.
 func parseAssistant(line streamLine) parsed {
-	if line.Message == nil {
+	var message streamMessage
+	if len(line.Message) == 0 || json.Unmarshal(line.Message, &message) != nil {
 		return parsed{}
 	}
 	if line.ParentToolUseID != nil {
-		return parsed{parent: *line.ParentToolUseID, usage: line.Message.Usage}
+		return parsed{parent: *line.ParentToolUseID, usage: message.Usage}
 	}
 	started := map[string]string{}
-	for _, block := range line.Message.Content {
+	for _, block := range message.Content {
 		if block.Type == "tool_use" && (block.Name == agentTool || block.Name == "Task") && block.Input.SubagentType != "" {
 			started[block.ID] = block.Input.SubagentType
 		}
