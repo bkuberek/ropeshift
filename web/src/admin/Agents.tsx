@@ -112,7 +112,6 @@ export function AgentsPage({ live, project, label, archived, scope, agent, tab }
                       <thead>
                         <tr>
                           <th scope="col">Name</th>
-                          <th scope="col">Kind</th>
                           <th scope="col">Access</th>
                           <th scope="col">Class</th>
                           <th scope="col">Effort</th>
@@ -135,7 +134,6 @@ export function AgentsPage({ live, project, label, archived, scope, agent, tab }
                                   </Badge>
                                 )}
                               </td>
-                              <td data-label="Kind">{row.kind}</td>
                               <td data-label="Access">{row.access}</td>
                               <td data-label="Class">{row.class}</td>
                               <td data-label="Effort">{row.effort}</td>
@@ -314,8 +312,7 @@ function AgentEditor({ agent, models, scope, version, readOnly, after }: { agent
       </div>
       <TabPanel idBase={idBase} selected={tab}>
         {tab === "definition" ? (
-          <fieldset className="panel-body field-stack" disabled={readOnly}>
-            <legend className="visually-hidden">Definition of {agent.name}</legend>
+          <fieldset className="panel-body field-stack plain-fieldset" disabled={readOnly} aria-label={`Definition of ${agent.name}`}>
             <Field label="Purpose" source={sourceOf("purpose")} help="What a session reads to pick this agent.">
               <textarea className="textarea" rows={3} value={draft.purpose} onChange={(event) => set("purpose", event.target.value)} />
             </Field>

@@ -11,7 +11,7 @@ import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
 import { outcomeOf } from "./logic";
-import { Reading, SaveBar, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
+import { GridField, Reading, SaveBar, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 const authorities: { level: MergeAuthority; text: string }[] = [
   { level: "person_merges", text: "You review and merge each change. The verdicts come first." },
@@ -207,8 +207,9 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
     <section className="panel" aria-labelledby={`repo-${view.id}`}>
       <div className="panel-head">
         <h2 id={`repo-${view.id}`}>{label(view)}</h2>
-        <span className="subtle mono small">{view.id}</span>
-        <span className="spacer" />
+        <span className="subtle small">
+          record <span className="mono">{view.id}</span>
+        </span>
         <Button small variant="danger-outline" icon="trash" disabled={archived} onClick={() => setRemoving(true)}>
           Remove…
         </Button>
@@ -221,16 +222,15 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
           void save();
         }}
       >
-        <fieldset className="record-grid" disabled={archived}>
-          <legend className="visually-hidden">Record of {label(view)}</legend>
-          <Field label="Name">
+        <fieldset className="form-grid record-form" disabled={archived} aria-label={`Record of ${label(view)}`}>
+          <GridField label="Name">
             <input className="input mono field-narrow" autoComplete="off" spellCheck={false} value={draft.name} onChange={(event) => set("name", event.target.value)} />
-          </Field>
-          <Field label="Base branch" help={`Lanes start from this branch. Unset, the default branch: ${view.default_branch ?? "unknown"}.`}>
+          </GridField>
+          <GridField label="Base branch" help={`Lanes start from this branch. Unset, the default branch: ${view.default_branch ?? "unknown"}.`}>
             <input className="input mono field-narrow" autoComplete="off" spellCheck={false} placeholder={view.default_branch ? `${view.default_branch}…` : "main…"} value={draft.base} onChange={(event) => set("base", event.target.value)} />
-          </Field>
+          </GridField>
+          <span className="label">Start from</span>
           <div className="field">
-            <span className="label">Start from</span>
             <Segmented<StartFrom>
               label="Start from"
               value={draft.start_from}
@@ -242,15 +242,15 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
             />
             <p className="help">accepted lets dependent work start from accepted commits before they merge; squash and rebase rule it out.</p>
           </div>
+          <span className="label">Planning repository</span>
           <div className="field">
-            <span className="label">Planning repository</span>
             <label className="check-row">
               <input type="checkbox" checked={draft.planning} onChange={(event) => set("planning", event.target.checked)} />
               <span>The project's plan lives in this repository</span>
             </label>
           </div>
+          <span className="label">Review target</span>
           <div className="field">
-            <span className="label">Review target</span>
             <Segmented<ReviewTarget>
               label="Review target"
               value={draft.review_target}
@@ -262,20 +262,13 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
             />
             <p className="help">pull_request opens a pull request before review and needs a forge binding. branch reviews locally and pushes nothing before a merge.</p>
           </div>
-          <Field label="Merge method" help="squash and rebase rule out starting dependent work from accepted commits.">
-            <Select className="field-narrow" value={draft.merge_method} onChange={(event) => set("merge_method", event.target.value as MergeMethod)}>
-              <option value="merge">merge</option>
-              <option value="squash">squash</option>
-              <option value="rebase">rebase</option>
-            </Select>
-          </Field>
-          <Field label="Forge binding" help="The forge's name for this repository, such as owner/name, for pull requests.">
+          <GridField label="Forge binding" help="The forge's name for this repository, such as owner/name, for pull requests.">
             <input className="input mono field-narrow" autoComplete="off" spellCheck={false} placeholder="owner/name…" value={draft.forge_binding} onChange={(event) => set("forge_binding", event.target.value)} />
-          </Field>
-          <div className="field record-wide" role="radiogroup" aria-labelledby={`auth-${view.id}`}>
-            <span className="label" id={`auth-${view.id}`}>
-              Merge authority
-            </span>
+          </GridField>
+          <span className="label" id={`auth-${view.id}`}>
+            Merge authority
+          </span>
+          <div className="field" role="radiogroup" aria-labelledby={`auth-${view.id}`}>
             {authorities.map((row) => (
               <label key={row.level} className="option">
                 <input type="radio" name={`auth-${view.id}`} value={row.level} checked={draft.merge_authority === row.level} onChange={() => set("merge_authority", row.level)} />
@@ -296,6 +289,13 @@ function RecordForm({ view, archived, projectLabel, after }: { view: RepositoryV
               {raising ? "Raising it: " : ""}agreement on {label(view)}: {agreement.agreed} of {agreement.decisions} over 30 days. The level never rises by itself.
             </p>
           </div>
+          <GridField label="Merge method" help="squash and rebase rule out starting dependent work from accepted commits.">
+            <Select className="field-narrow" value={draft.merge_method} onChange={(event) => set("merge_method", event.target.value as MergeMethod)}>
+              <option value="merge">merge</option>
+              <option value="squash">squash</option>
+              <option value="rebase">rebase</option>
+            </Select>
+          </GridField>
         </fieldset>
         {change.failure ? <Refusal>{change.failure}</Refusal> : null}
       </form>
@@ -399,7 +399,14 @@ export function RegisterDialog({ open, projectLabel, onClose, after }: { open: b
       onClose={onClose}
       footer={
         <>
-          <span className="small muted">Step {dry ? 2 : 1} of 2</span>
+          <span className="small muted">
+            {dry
+              ? [
+                  `${dry.repositories.filter((row) => row.outcome === "refused").length} refused`,
+                  `${dry.repositories.filter((row) => row.outcome === "known").length} already here`,
+                ].join(", ")
+              : "Step 1 of 2"}
+          </span>
           <span className="spacer" />
           {dry ? (
             <>

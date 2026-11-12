@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 import type { Download } from "../api/client";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { Button } from "../ui/controls";
 import { Banner, SkeletonRows } from "../ui/display";
+import { Icon } from "../ui/Icon";
 import type { DiffLine } from "./logic";
 
 // useRead follows one read, and reads again after a change this page made, as well as when the stream
@@ -164,4 +165,39 @@ export function useDraft<T>(saved: T): [T, (next: T | ((was: T) => T)) => void, 
   const [draft, setDraft] = useState<T>(stable);
   useEffect(() => setDraft(stable), [stable]);
   return [draft, setDraft, stable];
+}
+
+// GridField is a field in a form grid: its label in the left column, and the control with its help and
+// message in the right, as a long record form lays them out.
+export function GridField({ label, help, warning, error, children }: {
+  label: ReactNode;
+  help?: ReactNode;
+  warning?: ReactNode;
+  error?: ReactNode;
+  children: ReactElement<{ id?: string; "aria-describedby"?: string; "aria-invalid"?: boolean }>;
+}) {
+  const id = useId();
+  const described = [help ? `${id}-help` : "", error || warning ? `${id}-message` : ""].filter(Boolean).join(" ") || undefined;
+  const control = isValidElement(children) ? cloneElement(children, { id, "aria-describedby": described, "aria-invalid": error ? true : undefined }) : children;
+  return (
+    <>
+      <label className="label" htmlFor={id}>
+        {label}
+      </label>
+      <div className={`field${error ? " has-error" : warning ? " has-warning" : ""}`}>
+        {control}
+        {help ? (
+          <p className="help" id={`${id}-help`}>
+            {help}
+          </p>
+        ) : null}
+        {error || warning ? (
+          <p className={`msg ${error ? "msg-error" : "msg-warning"}`} id={`${id}-message`}>
+            <Icon name="warning" size="sm" />
+            <span>{error ?? warning}</span>
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
 }

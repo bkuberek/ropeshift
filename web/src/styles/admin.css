@@ -12,22 +12,25 @@
   max-width: 96px;
 }
 
-.record-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s-12) var(--s-24);
+.plain-fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.record-form {
   border: 0;
   margin: 0;
   padding: 0;
   min-width: 0;
 }
 
-.record-grid > .field {
+.form-grid > .field {
   margin-top: 0;
 }
 
-.record-wide {
-  grid-column: 1 / -1;
+.select-wrap:has(> .field-narrow) {
+  max-width: 280px;
 }
 
 .dialog-note {
@@ -188,7 +191,20 @@
     display: block;
   }
 
-  .record-grid,
+  /* On a phone the section's title stays first, for orientation, and the section list follows it. */
+  .settings-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-body > .page-head {
+    order: -1;
+  }
+
+  .settings-body > .show-phone {
+    margin-bottom: var(--s-16);
+  }
+
   .class-row {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -11,7 +11,8 @@ import { Page } from "../parts/parts";
 import { Button } from "../ui/controls";
 import { Absent, EmptyState, Panel, Refusal, StateBadge, TableRegion } from "../ui/display";
 import { Field } from "../ui/forms";
-import { Dialog, useToast } from "../ui/overlays";
+import { Icon } from "../ui/Icon";
+import { Dialog, Menu, useToast } from "../ui/overlays";
 import { base64Of, dateOf, saveDownload, useChange } from "./parts";
 
 type Open = { kind: "create" } | { kind: "import"; file: File } | { kind: "rename" | "archive" | "remove"; project: Project } | null;
@@ -61,6 +62,7 @@ export function ProjectsPage({ live, projects, reload, dialog }: { live: Live; p
             Import backup
           </Button>
           <Link className="btn" to="/import">
+            <Icon name="import" size="sm" />
             Import an existing project
           </Link>
           <Button variant="primary" icon="plus" onClick={() => setOpen({ kind: "create" })}>
@@ -111,7 +113,7 @@ export function ProjectsPage({ live, projects, reload, dialog }: { live: Live; p
                           <span className="proj-mark" aria-hidden="true">
                             {shown.charAt(0).toUpperCase()}
                           </span>
-                          <strong>{archived ? shown : <Link to={`/projects/${encodeURIComponent(row.name)}/repositories`}>{shown}</Link>}</strong>
+                          <strong>{shown}</strong>
                         </span>{" "}
                         <span className="mono small subtle">{row.name}</span>
                       </td>
@@ -148,7 +150,6 @@ export function ProjectsPage({ live, projects, reload, dialog }: { live: Live; p
                           <>
                             <Button
                               small
-                              icon="download"
                               loading={backup.busy}
                               onClick={() =>
                                 void backup.run(() => downloadBackup(row.name)).then((file) => {
@@ -161,12 +162,10 @@ export function ProjectsPage({ live, projects, reload, dialog }: { live: Live; p
                             >
                               Back up
                             </Button>{" "}
-                            <Button small onClick={() => setOpen({ kind: "rename", project: row })}>
-                              Rename…
-                            </Button>{" "}
                             <Button small onClick={() => setOpen({ kind: "archive", project: row })}>
                               Archive…
-                            </Button>
+                            </Button>{" "}
+                            <Menu label={`Actions for ${shown}`} items={[{ label: "Rename…", icon: "pencil", onSelect: () => setOpen({ kind: "rename", project: row }) }]} />
                           </>
                         )}
                       </td>

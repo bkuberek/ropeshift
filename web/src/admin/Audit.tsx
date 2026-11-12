@@ -67,7 +67,7 @@ export function AuditView({ live, project, label, scope, actor, kind }: { live: 
           </Select>
         </Field>
         <Field label="Act">
-          <input className="input mono" autoComplete="off" spellCheck={false} placeholder="work_order.…" value={typed.kind} onChange={(event) => setTyped({ ...typed, kind: event.target.value })} />
+          <input className="input mono" autoComplete="off" spellCheck={false} placeholder="project.created…" value={typed.kind} onChange={(event) => setTyped({ ...typed, kind: event.target.value })} />
         </Field>
         <Field label="Subject">
           <input className="input mono" autoComplete="off" spellCheck={false} placeholder="work_order…" value={typed.subject} onChange={(event) => setTyped({ ...typed, subject: event.target.value })} />
