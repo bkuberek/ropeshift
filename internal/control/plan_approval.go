@@ -20,8 +20,8 @@ import (
 
 // approvePlan is what approving a plan version does, in the transaction that records the approval. It
 // holds the approval to the digest the ledger has now, decides what the plan drafted as the member's
-// decisions, and passes the contract review of the work the version covers. A kill leaves all of
-// that or none of it (FR-PLAN-9, FR-PLAN-10).
+// decisions, passes the contract review of the work the version covers, and approves the merge of the
+// planning branch the version came from. A kill leaves all of that or none of it (FR-PLAN-9, FR-PLAN-10).
 func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Actor) error {
 	version, err := tx.Planning().PlanVersion(approval.Plan, approval.PlanVersion)
 	if errors.Is(err, ports.ErrNotFound) && approval.WorkOrder != "" {
@@ -51,8 +51,10 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 	if err := decideDrafts(tx, version, member); err != nil {
 		return err
 	}
-	_, err = passCoveredReviews(tx, member)
-	return err
+	if _, err := passCoveredReviews(tx, member); err != nil {
+		return err
+	}
+	return approvePlanMerge(tx, version, approval, member, "")
 }
 
 // planDecisionID names the decision a draft becomes in one version of one plan. It is derived, so the
@@ -368,11 +370,11 @@ func approvedBeforeRecorded(tx ports.WriteTx, version planning.PlanVersion, ref 
 	return authority.Approval{}, false, nil
 }
 
-// finishApproved completes the approval of a branch once the ledger holds what it approved: the request
-// names its version, the drafts are decided as the approving member's, and the review of the work the
-// version covers passes. The ledger holds the records because the member accepted the commit, so no
-// word of the lane's reached them before.
-func finishApproved(tx ports.WriteTx, version planning.PlanVersion, approval authority.Approval) error {
+// finishApproved completes the approval of a branch once the ledger holds what it approved, read at commit:
+// the request names its version, the drafts are decided as the approving member's, the review of the work
+// the version covers passes, and the branch's merge is approved. The ledger holds the records because the
+// member accepted the commit, so no word of the lane's reached them before.
+func finishApproved(tx ports.WriteTx, version planning.PlanVersion, approval authority.Approval, commit string) error {
 	member := ledger.Actor{Kind: ledger.ActorMember, ID: strings.TrimPrefix(approval.DecidedBy, string(ledger.ActorMember)+":")}
 	if approval.Plan == "" {
 		linked, err := tx.Approvals().LinkPlan(approval.ID, version.PlanID, version.Version)
@@ -391,8 +393,10 @@ func finishApproved(tx ports.WriteTx, version planning.PlanVersion, approval aut
 	if err := decideDrafts(tx, version, member); err != nil {
 		return err
 	}
-	_, err := passCoveredReviews(tx, member)
-	return err
+	if _, err := passCoveredReviews(tx, member); err != nil {
+		return err
+	}
+	return approvePlanMerge(tx, version, approval, member, commit)
 }
 
 // voidUnclaimed closes the approvals of a branch that no version of the ledger claimed, because intake

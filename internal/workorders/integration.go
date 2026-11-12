@@ -40,6 +40,15 @@ type GateInput struct {
 	// PullRequest is the pull request the work lands through, as a worker last read it, with review target
 	// `pull_request`. Its checks count only when its head is Commit.
 	PullRequest *ledger.PullRequest
+	// Plan is set for a planning branch, which no review judges: a member's plan approval bound to Commit is
+	// its approval, and nothing else is (ADR-0018, ADR-0020).
+	Plan *PlanStanding
+}
+
+// PlanStanding is what plan approval says of a planning branch's commit.
+type PlanStanding struct {
+	// Waiting names each plan on the branch whose approval no member has decided yet.
+	Waiting []string
 }
 
 // Gate is the integration rule's answer, with what a member reads of a wait or a hold, and the required
@@ -59,10 +68,16 @@ type Gate struct {
 // one still running waits. At person_merges ropeshift never merges: the work waits for the person's merge on
 // the forge, which ends it. With review target `branch` no forge runs checks, so the verdicts, and any check
 // result on record for the attempt, are the gate; a failed one never reaches here, because acceptance sends it
-// back.
+// back. A planning branch merges only once a member's plan approval binds to its commit, and while no plan on
+// it waits for one.
 func MergeGate(in GateInput) Gate {
 	if in.Target == ledger.ReviewOnPullRequest {
 		if gate, decided := pullRequestGate(in); decided {
+			return gate
+		}
+	}
+	if in.Plan != nil {
+		if gate, decided := planGate(in); decided {
 			return gate
 		}
 	}
@@ -104,6 +119,18 @@ func pullRequestGate(in GateInput) (Gate, bool) {
 		return Gate{Step: StepWait, Why: fmt.Sprintf("required checks are still running on %s: %s", short(in.Commit), strings.Join(pending, ", "))}, true
 	case in.Authority == ledger.PersonMerges:
 		return Gate{Step: StepWait, Why: fmt.Sprintf("at person_merges you merge pull request #%d yourself, and the work ends when ropeshift reads your merge", pr.Number)}, true
+	}
+	return Gate{}, false
+}
+
+// planGate holds a planning branch until plan approval allows its merge: a plan on it still waits for a member,
+// or no member's plan approval binds to the commit.
+func planGate(in GateInput) (Gate, bool) {
+	switch {
+	case len(in.Plan.Waiting) != 0:
+		return Gate{Step: StepWait, Why: fmt.Sprintf("%s waits for a member's approval, which approves the merge of %s", strings.Join(in.Plan.Waiting, ", "), short(in.Commit))}, true
+	case !in.Approved:
+		return Gate{Step: StepWait, Why: fmt.Sprintf("no member's plan approval binds to %s yet, and a plan approval is the only approval of a planning branch's merge", short(in.Commit))}, true
 	}
 	return Gate{}, false
 }

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/cli"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -87,5 +89,17 @@ func TestWorkAcceptancePrintsTheVerdicts(t *testing.T) {
 	text := s.must("work", "acceptance", "wo")
 	if !strings.Contains(text, "verdict\tc1\tcannot_judge\t") {
 		t.Errorf("acceptance leaves out the verdicts:\n%s", text)
+	}
+}
+
+// A planning branch's approval is a member's plan approval, and work show names the plan version it approved.
+func TestWorkShowNamesThePlanVersionThatApprovedAMerge(t *testing.T) {
+	detail := api.WorkDetail{WorkOrder: workorders.WorkOrder{ID: "plan-1", Kind: workorders.KindPlan, State: workorders.Done}, Integrations: []ledger.IntegrationRecord{{
+		ID: "i1", WorkOrder: "plan-1", ApprovedCommit: "1111aaaa2222bbbb", MergeAuthority: ledger.ReviewApproves, ApprovedByKind: ledger.ApprovedByMember,
+		ApprovedByID: "dana", ApprovedAt: 1, MergedCommit: "3333cccc4444dddd", MergedAt: 2, Plan: "01PLAN", PlanVersion: 2,
+	}}}
+	text := cli.WorkDetailText(detail)
+	if want := "approved\t1111aaaa2222\tby member dana\tat review_approves\tmerged as 3333cccc4444\tplan 01PLAN version 2\n"; !strings.Contains(text, want) {
+		t.Errorf("show leaves out %q:\n%s", want, text)
 	}
 }

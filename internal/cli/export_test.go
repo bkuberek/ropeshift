@@ -17,8 +17,9 @@ func PaneTiming(poll, wait time.Duration) (restore func()) {
 	return func() { panePoll, paneWait = previousPoll, previousWait }
 }
 
-// WorkOrderText and LaneDetail are what `work show` and `lane show` print.
+// WorkOrderText, WorkDetailText, and LaneDetail are what `work show` and `lane show` print.
 var (
-	WorkOrderText = workOrderText
-	LaneDetail    = laneDetail
+	WorkOrderText  = workOrderText
+	WorkDetailText = workDetailText
+	LaneDetail     = laneDetail
 )

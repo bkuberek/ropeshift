@@ -17,7 +17,8 @@ const (
 
 // IntegrationRecord is one approval of a work order's reviewed commit for merge, and the merge that followed
 // it (ADR-0020, FR-MERGE-6). An approval binds to its commit: a new commit needs an approval of its own, and
-// this one never merges anything else. MergedAt is zero until the commit lands.
+// this one never merges anything else. MergedAt is zero until the commit lands. The approval of a planning
+// branch is a member's plan approval, and names the plan version it approved (ADR-0018).
 type IntegrationRecord struct {
 	ID             string         `json:"id"`
 	WorkOrder      string         `json:"work_order_id"`
@@ -29,6 +30,8 @@ type IntegrationRecord struct {
 	ApprovedAt     int64          `json:"approved_at"`
 	MergedCommit   string         `json:"merged_commit,omitempty"`
 	MergedAt       int64          `json:"merged_at,omitempty"`
+	Plan           string         `json:"plan_id,omitempty"`
+	PlanVersion    int64          `json:"plan_version,omitempty"`
 }
 
 // Merged says the approved commit landed.
