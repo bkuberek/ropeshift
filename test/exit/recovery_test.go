@@ -81,8 +81,8 @@ func recoveryInstall(t *testing.T, fixture, profile string) (*install, string) {
 	return in, in.workers()[0].ID
 }
 
-// recoveryWork records wo-1 on the source's repository with the attempts it allows, as ledger work a
-// member reviewed, and runs lane-1 on it.
+// recoveryWork records wo-1 on the source's repository with the attempts it allows, zero for none of its
+// own, as ledger work a member reviewed, and runs lane-1 on it.
 func (in *install) recoveryWork(attempts int64) {
 	in.t.Helper()
 	_, err := control.NewWorkOrders(in.ledgerOf()).Record(in.t.Context(), soloScope, control.LedgerWork{
@@ -173,17 +173,18 @@ func TestAnOrchestratorRestartsAStalledLaneWithinPolicy(t *testing.T) {
 }
 
 // TestFailedWorkStaysFailedUntilTheOrchestratorRetriesIt is ADR-0014's change to the state machine on the
-// real binary: a crashed lane leaves its work failed with attempts left, nothing retries it on its own, and
-// the orchestrator's work_retry returns it to ready, with the next lane told why.
+// real binary: a crashed lane leaves its work failed with the attempts the recovery policy gives work that
+// names none, nothing retries it on its own, and the orchestrator's work_retry returns it to ready within
+// that policy, with the next lane told why.
 func TestFailedWorkStaysFailedUntilTheOrchestratorRetriesIt(t *testing.T) {
 	crashes := `"lane-1": {"turns": [[{"init": true}, ` + recoveryCrash + `]]}`
 	completes := `"lane-2": {"turns": [[{"init": true}, ` + recoveryBrief + `, ` + recoveryReport + `, ` + recoveryResult + `]]}`
 	in, worker := recoveryInstall(t, recoveryFixture(crashes, completes, orchestratorRecovers("work_retry", "the crash was a network fault")),
 		"[lifecycle]\nmax_restarts = 0\n")
-	in.recoveryWork(3)
+	in.recoveryWork(0)
 	in.waitFor("the failure", func() bool { return in.show("wo-1").State == workorders.Failed })
 	time.Sleep(aFewPasses)
-	if row := in.show("wo-1"); row.State != workorders.Failed || row.Attempts != 1 || row.MaxAttempts != 3 {
+	if row := in.show("wo-1"); row.State != workorders.Failed || row.Attempts != 1 || row.MaxAttempts != 0 {
 		t.Fatalf("failed work with attempts left moved on its own: %s, %d of %d", row.State, row.Attempts, row.MaxAttempts)
 	}
 	in.must("orchestrator", "start", worker)
@@ -268,5 +269,55 @@ func TestABreakerResetPastTheDaysBoundReachesAMember(t *testing.T) {
 		return a.Result == authority.RecoveryDone && a.Approval == request.ID && strings.HasPrefix(a.Actor, string(ledger.ActorMember)+":")
 	}) {
 		t.Errorf("no grant on record: %+v", acts)
+	}
+}
+
+// TestARetryPastThePolicysAttemptsReachesAMember is the other side of the policy's attempts on the real
+// binary: under a policy of one attempt, the orchestrator's work_retry changes nothing and raises a request
+// that waits in Needs you, and a member's approval adds an attempt and returns the work to ready.
+func TestARetryPastThePolicysAttemptsReachesAMember(t *testing.T) {
+	crashes := `"lane-1": {"turns": [[{"init": true}, ` + recoveryCrash + `]]}`
+	in, worker := recoveryInstall(t, recoveryFixture(crashes, orchestratorRecovers("work_retry", "the crash was a network fault")),
+		"[lifecycle]\nmax_restarts = 0\n")
+	policy := filepath.Join(t.TempDir(), "recovery.toml")
+	body := strings.Replace(strings.Replace(authority.BuiltInRecoveryPolicyBody, "version = 1", "version = 2", 1), "max_attempts = 3", "max_attempts = 1", 1)
+	if err := os.WriteFile(policy, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in.must("policy", "publish", "--file", policy)
+	in.recoveryWork(0)
+	in.waitFor("the failure", func() bool { return in.show("wo-1").State == workorders.Failed })
+	in.must("orchestrator", "start", worker)
+
+	var request authority.Approval
+	in.waitFor("the request", func() bool {
+		var needs api.NeedsYou
+		if err := json.Unmarshal([]byte(in.must("needs", "--json")), &needs); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range needs.Items {
+			if item.Approval != nil && item.Approval.Kind == authority.KindRecovery {
+				request = *item.Approval
+				return true
+			}
+		}
+		return false
+	})
+	if request.Subject != string(authority.RecoverRetry) || request.WorkOrder != "wo-1" {
+		t.Fatalf("the request %+v", request)
+	}
+	if row := in.show("wo-1"); row.State != workorders.Failed {
+		t.Fatalf("a refused retry moved the work to %s", row.State)
+	}
+	shown := in.must("approval", "show", request.ID)
+	for _, want := range []string{"the crash was a network fault", "max_attempts: the work order used 1 of max_attempts 1", "outside recovery policy version 2"} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("approval show lacks %q:\n%s", want, shown)
+		}
+	}
+	in.must("approval", "approve", request.ID, "--digest", request.SubjectDigest)
+	in.waitFor("the member's retry", func() bool { return in.show("wo-1").State == workorders.Ready })
+	if row := in.show("wo-1"); row.Attempts != 1 || row.MaxAttempts != 2 {
+		t.Errorf("a member's grant left %d of %d attempts", row.Attempts, row.MaxAttempts)
 	}
 }

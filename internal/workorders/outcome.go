@@ -76,8 +76,9 @@ type Ending struct {
 
 // EndOf follows the outcome table. A failed lane leaves its work `failed` whether or not attempts
 // remain, and the trigger says which: a retry is judged by an orchestrator or made by a member, so a
-// crash that repeats does not spend every attempt unseen (ADR-0014).
-func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
+// crash that repeats does not spend every attempt unseen (ADR-0014). byDefault is the attempts a work
+// order gets when it names no bound, which the recovery policy in force states.
+func EndOf(w WorkOrder, outcome Outcome, byDefault int64) (Ending, error) {
 	switch outcome {
 	case OutcomeCompleted:
 		return Ending{TriggerLaneCompleted, Acceptance, w.Attempts}, nil
@@ -85,7 +86,7 @@ func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
 		return Ending{TriggerLaneBlocked, Blocked, w.Attempts}, nil
 	case OutcomeFailed:
 		attempts := w.Attempts + 1
-		if attempts < w.MaxAttempts {
+		if attempts < w.AttemptBound(byDefault) {
 			return Ending{TriggerLaneFailed, Failed, attempts}, nil
 		}
 		return Ending{TriggerAttemptsExhausted, Failed, attempts}, nil
@@ -112,9 +113,15 @@ type LaneResult struct {
 	Settings *measures.Settings `json:"settings,omitempty"`
 }
 
-// AttemptsLeft says a failed work order may run again without a member adding an attempt. A work order
-// that names no bound has one attempt.
-func (w WorkOrder) AttemptsLeft() bool { return w.Attempts < w.AttemptBound() }
+// AttemptsLeft says a failed work order may run again without a member adding an attempt, where byDefault
+// is the attempts a work order that names no bound gets.
+func (w WorkOrder) AttemptsLeft(byDefault int64) bool { return w.Attempts < w.AttemptBound(byDefault) }
 
-// AttemptBound is how many attempts a work order allows, which is one when it names none.
-func (w WorkOrder) AttemptBound() int64 { return max(w.MaxAttempts, 1) }
+// AttemptBound is how many attempts a work order allows: its own bound, or byDefault when it names none,
+// and one when neither names any.
+func (w WorkOrder) AttemptBound(byDefault int64) int64 {
+	if w.MaxAttempts > 0 {
+		return w.MaxAttempts
+	}
+	return max(byDefault, 1)
+}

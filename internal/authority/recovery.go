@@ -19,14 +19,17 @@ const PolicyRecovery PolicyKind = "recovery"
 // ErrBadRecoveryPolicy marks a recovery policy a workspace cannot run on.
 var ErrBadRecoveryPolicy = errors.New("invalid recovery policy")
 
-// RecoveryPolicy is the body of a recovery policy version. Each switch allows one act, and
-// MaxBreakerResetsPerDay bounds the breaker resets orchestrators make on one work order's lanes in a day.
+// RecoveryPolicy is the body of a recovery policy version. Each switch allows one act,
+// MaxBreakerResetsPerDay bounds the breaker resets orchestrators make on one work order's lanes in a day,
+// and MaxAttempts is the attempts a work order gets when it names no bound of its own.
 type RecoveryPolicy struct {
 	Version                int64 `toml:"version" json:"version"`
 	RestartStalled         bool  `toml:"restart_stalled" json:"restart_stalled"`
 	MaxBreakerResetsPerDay int64 `toml:"max_breaker_resets_per_day" json:"max_breaker_resets_per_day"`
 	RetryFailed            bool  `toml:"retry_failed" json:"retry_failed"`
 	ReplanBlocked          bool  `toml:"replan_blocked" json:"replan_blocked"`
+	// MaxAttempts is how many attempts a work order gets when it names no bound of its own.
+	MaxAttempts int64 `toml:"max_attempts" json:"max_attempts"`
 }
 
 // RecoveryPolicyFile is the table a member publishes.
@@ -48,11 +51,12 @@ restart_stalled = true
 max_breaker_resets_per_day = 2
 retry_failed = true
 replan_blocked = true
+max_attempts = 3
 `
 
 // DefaultRecoveryPolicy is what BuiltInRecoveryPolicyBody says.
 func DefaultRecoveryPolicy() RecoveryPolicy {
-	return RecoveryPolicy{Version: 1, RestartStalled: true, MaxBreakerResetsPerDay: 2, RetryFailed: true, ReplanBlocked: true}
+	return RecoveryPolicy{Version: 1, RestartStalled: true, MaxBreakerResetsPerDay: 2, RetryFailed: true, ReplanBlocked: true, MaxAttempts: 3}
 }
 
 // Check accepts a policy a workspace can run on.
@@ -63,7 +67,19 @@ func (p RecoveryPolicy) Check() error {
 	if p.MaxBreakerResetsPerDay < 0 {
 		return fmt.Errorf("%w: max_breaker_resets_per_day %d is below zero", ErrBadRecoveryPolicy, p.MaxBreakerResetsPerDay)
 	}
+	if p.MaxAttempts < 1 {
+		return fmt.Errorf("%w: max_attempts %d leaves a work order no attempt", ErrBadRecoveryPolicy, p.MaxAttempts)
+	}
 	return nil
+}
+
+// AttemptBound is how many attempts a work order allows: its own bound when it names one, and otherwise
+// this policy's. A policy that names none leaves one.
+func (p RecoveryPolicy) AttemptBound(own int64) int64 {
+	if own > 0 {
+		return own
+	}
+	return max(p.MaxAttempts, 1)
 }
 
 // NewRecoveryPolicyVersion stores a draft under a generated ID.
@@ -135,7 +151,7 @@ type RecoveryFacts struct {
 	DayCapped bool
 	// ResetsToday counts the breaker resets orchestrators made on this work order's lanes in the last day.
 	ResetsToday int64
-	// Attempts and MaxAttempts are the work order's. A work order that names no bound has one attempt.
+	// Attempts and MaxAttempts are the work order's. A work order that names no bound has the policy's.
 	Attempts    int64
 	MaxAttempts int64
 }
@@ -173,7 +189,7 @@ func (p RecoveryPolicy) Judge(f RecoveryFacts) (Refusal, bool) {
 		if !p.RetryFailed {
 			return refuse(CheckRetryFailed, "retry_failed is false")
 		}
-		if bound := max(f.MaxAttempts, 1); f.Attempts >= bound {
+		if bound := p.AttemptBound(f.MaxAttempts); f.Attempts >= bound {
 			return refuse(CheckAttempts, fmt.Sprintf("the work order used %d of max_attempts %d", f.Attempts, bound))
 		}
 	case RecoverReplan:

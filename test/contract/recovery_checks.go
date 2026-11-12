@@ -25,6 +25,7 @@ var RecoveryChecks = []Check{
 	{"RV8", "no orchestrator decides a recovery request, and one whose subject moved is void", checkRecoveryDecision},
 	{"RV9", "a recovery act needs a reason, an orchestrator, and an act the design names", checkRecoveryRefusesTheRest},
 	{"RV10", "the recovery policy is published like any other, and only by a member", checkRecoveryPolicyPublished},
+	{"RV11", "work that names no bound of its own has the policy's attempts, and a retry past them reaches a member", checkRecoveryPolicyAttempts},
 }
 
 // recoveryRig is a running lane, with its worker's orchestrator started and in its third generation.
@@ -295,9 +296,18 @@ func checkRecoveryElsewhere(r *Rig) error {
 
 // failedRecoveryRig is an orchestrated lane whose work failed, with the attempts a work order allows.
 func failedRecoveryRig(r *Rig, attempts int64) (*recoveryRig, error) {
+	return failedRecoveryRigOn(r, r.Store(), attempts)
+}
+
+// failedRecoveryRigOn is failedRecoveryRig in a store a test chose.
+func failedRecoveryRigOn(r *Rig, store ports.Store, attempts int64) (*recoveryRig, error) {
 	r.MaxAttempts = attempts
 	defer func() { r.MaxAttempts = 0 }()
-	o, err := newRecoveryRig(r)
+	s, err := newStatusRigOn(r, store, r.Ready)
+	if err != nil {
+		return nil, err
+	}
+	o, err := orchestrating(s)
 	if err != nil {
 		return nil, err
 	}
@@ -621,4 +631,72 @@ func checkRecoveryPolicyPublished(r *Rig) error {
 		return Violatedf("versions %+v: %v", versions, err)
 	}
 	return nil
+}
+
+// lastTrigger reads the trigger of a work order's last move.
+func lastTrigger(s *statusRig, id string) (workorders.Trigger, error) {
+	var change workorders.Change
+	err := s.store.Read(s.r.Ctx, s.r.Scope, func(tx ports.ReadTx) error {
+		events, err := tx.EventsAbout(ledger.Subject{Kind: workorders.SubjectKind, ID: id})
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(events[len(events)-1].Data, &change)
+	})
+	return change.Trigger, err
+}
+
+func checkRecoveryPolicyAttempts(r *Rig) error {
+	within, err := failedRecoveryRig(r, -1)
+	if err != nil {
+		return err
+	}
+	if trigger, err := lastTrigger(within.statusRig, within.grant.WorkOrder); err != nil || trigger != workorders.TriggerLaneFailed {
+		return Violatedf("a first failure under the policy's three attempts ended as %s: %v", trigger, err)
+	}
+	result, err := within.act(ledger.VerbRetry, "the network came back")
+	if err != nil {
+		return err
+	}
+	order, err := within.order()
+	if err != nil {
+		return err
+	}
+	if result.Result != authority.RecoveryDone || order.State != workorders.Ready || order.MaxAttempts != 0 {
+		return Violatedf("a retry within the policy's attempts came to %+v, and the work reads %s with a bound of %d", result, order.State, order.MaxAttempts)
+	}
+	body := strings.Replace(strings.Replace(authority.BuiltInRecoveryPolicyBody, "version = 1", "version = 2", 1), "max_attempts = 3", "max_attempts = 1", 1)
+	policy := authority.DefaultRecoveryPolicy()
+	policy.Version, policy.MaxAttempts = 2, 1
+	if _, err := control.NewRecoveries(within.store).PublishRecoveryPolicy(r.Ctx, r.Scope, authority.RecoveryPolicyDraft{Body: body, Policy: policy}, theMember); err != nil {
+		return err
+	}
+	spent, err := failedRecoveryRigOn(r, within.store, -1)
+	if err != nil {
+		return err
+	}
+	if trigger, err := lastTrigger(spent.statusRig, spent.grant.WorkOrder); err != nil || trigger != workorders.TriggerAttemptsExhausted {
+		return Violatedf("a failure under a policy of one attempt ended as %s: %v", trigger, err)
+	}
+	refused, err := spent.act(ledger.VerbRetry, "try once more")
+	if err != nil {
+		return err
+	}
+	if refused.Result != authority.RecoveryRefused || refused.Check != authority.CheckAttempts || refused.PolicyVersion != 2 || !strings.Contains(refused.Limit, "1 of max_attempts 1") {
+		return Violatedf("a retry past the policy's attempts came to %+v", refused)
+	}
+	requests, err := recoveryRequests(spent.statusRig, spent.grant.WorkOrder)
+	if err != nil || len(requests) != 1 {
+		return Violatedf("requests %+v: %v", requests, err)
+	}
+	if _, err := grant(spent.statusRig, requests[0]); err != nil {
+		return err
+	}
+	if order, err = spent.order(); err != nil {
+		return err
+	}
+	if order.State != workorders.Ready || order.Attempts != 1 || order.MaxAttempts != 2 {
+		return Violatedf("a member's grant left %s with %d of %d attempts", order.State, order.Attempts, order.MaxAttempts)
+	}
+	return r.CheckProjection(within.store)
 }

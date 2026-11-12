@@ -344,21 +344,29 @@ func wakeLanes(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 	return out, nil
 }
 
-// wakeStuckWork is work that waits on a judged recovery act: failed work with attempts left, and blocked
-// work. Failed work with none left waits for a member, and a wake would only raise a request for one. Each
-// counts once for as long as it stands, since any move changes its fence.
+// wakeStuckWork is work that waits on a judged recovery act: failed work, and blocked work, as the design's
+// digest lists them. Failed work with no attempts left says so, because a retry of it is outside the policy
+// and reaches a member as a request. Each counts once for as long as it stands, since any move changes its
+// fence.
 func wakeStuckWork(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
+	byDefault, err := defaultAttempts(tx.Policies())
+	if err != nil {
+		return nil, err
+	}
 	rows, err := tx.WorkOrders().List()
 	if err != nil {
 		return nil, err
 	}
 	var out []ledger.WakeItem
 	for _, row := range rows {
-		switch {
-		case row.State == workorders.Failed && row.AttemptsLeft():
-			text := fmt.Sprintf("%s failed, with %d of %d attempts used", row.Title, row.Attempts, row.AttemptBound())
+		switch row.State {
+		case workorders.Failed:
+			text := fmt.Sprintf("%s failed, with %d of %d attempts used", row.Title, row.Attempts, row.AttemptBound(byDefault))
+			if !row.AttemptsLeft(byDefault) {
+				text += ", so a retry needs a member"
+			}
 			out = append(out, ledger.WakeItem{Kind: ledger.WakeFailed, ID: row.ID, Stamp: row.Fence, Text: text})
-		case row.State == workorders.Blocked:
+		case workorders.Blocked:
 			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: row.Title + " is blocked"})
 		}
 	}

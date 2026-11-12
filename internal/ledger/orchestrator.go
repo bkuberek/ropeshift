@@ -145,8 +145,8 @@ const (
 	WakeApproval = "approval"
 	// WakeTripped is a lane whose breaker its window tripped, which a reset could start again.
 	WakeTripped = "tripped_lane"
-	// WakeFailed is failed work with attempts left, and WakeBlocked is blocked work. Each waits for a
-	// judged act: nothing retries or replans work on its own (ADR-0014).
+	// WakeFailed is failed work, and WakeBlocked is blocked work. Each waits for a judged act: nothing
+	// retries or replans work on its own (ADR-0014).
 	WakeFailed  = "failed_work"
 	WakeBlocked = "blocked_work"
 )

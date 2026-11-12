@@ -764,7 +764,11 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if generation != holder.Generation {
 		return fenced(tx, holder.WorkOrder)
 	}
-	ending, err := workorders.EndOf(current, result.Outcome)
+	byDefault, err := defaultAttempts(tx.Policies())
+	if err != nil {
+		return err
+	}
+	ending, err := workorders.EndOf(current, result.Outcome, byDefault)
 	if err != nil {
 		return err
 	}

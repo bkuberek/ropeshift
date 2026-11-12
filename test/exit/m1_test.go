@@ -50,7 +50,9 @@ func TestM1WalkingSkeleton(t *testing.T) {
 	}{
 		{"a lane completes", "lane-completed", workorders.Acceptance, workorders.TriggerLaneCompleted, workorders.OutcomeCompleted, ""},
 		{"a lane reports it is blocked", "lane-blocked", workorders.Blocked, workorders.TriggerLaneBlocked, workorders.OutcomeBlocked, "the contract names a file that does not exist"},
-		{"a session dies mid-turn", "crash-mid-turn", workorders.Failed, workorders.TriggerAttemptsExhausted, workorders.OutcomeFailed, "crashed"},
+		// The work order names no bound, so it has the recovery policy's three attempts, and its first failure
+		// leaves two (ADR-0014).
+		{"a session dies mid-turn", "crash-mid-turn", workorders.Failed, workorders.TriggerLaneFailed, workorders.OutcomeFailed, "crashed"},
 		{"a lane ends with no outcome", "no-outcome", workorders.Blocked, workorders.TriggerLaneBlocked, workorders.OutcomeBlocked, "no_outcome"},
 	}
 	for _, tt := range tests {

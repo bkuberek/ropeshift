@@ -9,16 +9,17 @@ import (
 )
 
 // The built-in recovery policy is the one the design states: an orchestrator restarts a stalled lane,
-// retries failed work, and replans blocked work, and resets a breaker at most twice a day.
+// retries failed work, and replans blocked work, and resets a breaker at most twice a day. Work that names
+// no bound of its own gets three attempts, as a review gets three rounds.
 func TestTheBuiltInRecoveryPolicyIsTheOneTheDesignStates(t *testing.T) {
-	want := authority.RecoveryPolicy{Version: 1, RestartStalled: true, MaxBreakerResetsPerDay: 2, RetryFailed: true, ReplanBlocked: true}
+	want := authority.RecoveryPolicy{Version: 1, RestartStalled: true, MaxBreakerResetsPerDay: 2, RetryFailed: true, ReplanBlocked: true, MaxAttempts: 3}
 	if got := authority.DefaultRecoveryPolicy(); got != want {
 		t.Errorf("the built-in policy reads %+v", got)
 	}
 	if err := want.Check(); err != nil {
 		t.Errorf("the built-in policy does not check: %v", err)
 	}
-	for _, line := range []string{"[recovery_policy]", "version = 1", "restart_stalled = true", "max_breaker_resets_per_day = 2", "retry_failed = true", "replan_blocked = true"} {
+	for _, line := range []string{"[recovery_policy]", "version = 1", "restart_stalled = true", "max_breaker_resets_per_day = 2", "retry_failed = true", "replan_blocked = true", "max_attempts = 3"} {
 		if !strings.Contains(authority.BuiltInRecoveryPolicyBody, line+"\n") {
 			t.Errorf("the built-in body does not say %q", line)
 		}
@@ -26,7 +27,7 @@ func TestTheBuiltInRecoveryPolicyIsTheOneTheDesignStates(t *testing.T) {
 }
 
 func TestARecoveryPolicyNamesAVersionAndNoNegativeBound(t *testing.T) {
-	for _, bad := range []authority.RecoveryPolicy{{Version: 0}, {Version: 2, MaxBreakerResetsPerDay: -1}} {
+	for _, bad := range []authority.RecoveryPolicy{{Version: 0, MaxAttempts: 3}, {Version: 2, MaxBreakerResetsPerDay: -1, MaxAttempts: 3}, {Version: 2}} {
 		if err := bad.Check(); !errors.Is(err, authority.ErrBadRecoveryPolicy) {
 			t.Errorf("%+v checks: %v", bad, err)
 		}
@@ -56,7 +57,7 @@ func TestARecoveryPolicyVersionReadsBackAndRefusesAnotherBody(t *testing.T) {
 // Each act checks only what bounds it, and a refusal names the check that failed and the limit.
 func TestEachRecoveryActIsHeldToItsOwnChecks(t *testing.T) {
 	builtIn := authority.DefaultRecoveryPolicy()
-	off := authority.RecoveryPolicy{Version: 2, MaxBreakerResetsPerDay: 0}
+	off := authority.RecoveryPolicy{Version: 2, MaxBreakerResetsPerDay: 0, MaxAttempts: 1}
 	cases := []struct {
 		name   string
 		policy authority.RecoveryPolicy
@@ -75,7 +76,10 @@ func TestEachRecoveryActIsHeldToItsOwnChecks(t *testing.T) {
 		{"a retry with attempts left", builtIn, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 1, MaxAttempts: 3}, "", ""},
 		{"a retry the policy turns off", off, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 1, MaxAttempts: 3}, authority.CheckRetryFailed, "retry_failed is false"},
 		{"a retry with no attempts left", builtIn, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 3, MaxAttempts: 3}, authority.CheckAttempts, "3 of max_attempts 3"},
-		{"a retry of work that names no bound", builtIn, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 1}, authority.CheckAttempts, "1 of max_attempts 1"},
+		{"a retry of work that names no bound, within the policy's", builtIn, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 2}, "", ""},
+		{"a retry of work that used the policy's bound", builtIn, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 3}, authority.CheckAttempts, "3 of max_attempts 3"},
+		{"a retry of work whose own bound is tighter than the policy's", builtIn, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 1, MaxAttempts: 1}, authority.CheckAttempts, "1 of max_attempts 1"},
+		{"a retry under a policy of one attempt", authority.RecoveryPolicy{Version: 2, RetryFailed: true, MaxAttempts: 1}, authority.RecoveryFacts{Act: authority.RecoverRetry, Attempts: 1}, authority.CheckAttempts, "1 of max_attempts 1"},
 		{"a replan", builtIn, authority.RecoveryFacts{Act: authority.RecoverReplan}, "", ""},
 		{"a replan the policy turns off", off, authority.RecoveryFacts{Act: authority.RecoverReplan}, authority.CheckReplanBlocked, "replan_blocked is false"},
 	}

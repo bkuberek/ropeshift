@@ -66,7 +66,8 @@ type Check struct {
 
 // Rig is one check's world.
 type Rig struct {
-	// MaxAttempts is what a new work order allows, zero for the default.
+	// MaxAttempts is what a new work order allows, zero for the rig's default, and below zero for no bound
+	// of its own, which leaves the recovery policy's.
 	MaxAttempts int64
 	T           testing.TB
 	Ctx         context.Context
@@ -307,6 +308,7 @@ func (r *Rig) NewWorkOrder(s ports.Store) (workorders.WorkOrder, error) {
 	if attempts == 0 {
 		attempts = defaultMaxAttempts
 	}
+	attempts = max(attempts, 0)
 	return r.NewOps(s).Create(r.Ctx, r.Scope, workorders.WorkOrder{
 		ID:           r.ID("wo"),
 		Kind:         workorders.KindChange,

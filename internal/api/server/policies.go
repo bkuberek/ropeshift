@@ -69,7 +69,7 @@ const recoveryPolicyTable = "recovery_policy"
 
 // recoveryPolicyKeys are the settings a recovery policy must state. A switch left out would allow or
 // refuse an act nobody chose.
-var recoveryPolicyKeys = []string{"version", "restart_stalled", "max_breaker_resets_per_day", "retry_failed", "replan_blocked"}
+var recoveryPolicyKeys = []string{"version", "restart_stalled", "max_breaker_resets_per_day", "retry_failed", "replan_blocked", "max_attempts"}
 
 // readRecoveryPolicy reads a body whose table is `recovery_policy`, on the same terms as a lane policy.
 func readRecoveryPolicy(body string) (authority.RecoveryPolicyDraft, error) {

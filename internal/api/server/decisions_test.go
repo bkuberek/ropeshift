@@ -450,7 +450,7 @@ func TestARecoveryPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (authority.RecoveryPolicy{Version: 2, RestartStalled: true, MaxBreakerResetsPerDay: 2, ReplanBlocked: true}); inForce != want {
+	if want := (authority.RecoveryPolicy{Version: 2, RestartStalled: true, MaxBreakerResetsPerDay: 2, ReplanBlocked: true, MaxAttempts: 3}); inForce != want {
 		t.Errorf("in force %+v, want %+v", inForce, want)
 	}
 	if _, err := daemon.Client.PublishPolicy(ctx, body); err != nil {
@@ -469,8 +469,10 @@ func TestARecoveryPolicyBodyMustBeComplete(t *testing.T) {
 		{"no replan switch", strings.Replace(base, "replan_blocked = true\n", "", 1)},
 		{"no version", strings.Replace(base, "version = 2\n", "", 1)},
 		{"a bound below zero", strings.Replace(base, "= 2\nretry", "= -1\nretry", 1)},
+		{"no default attempts", strings.Replace(base, "max_attempts = 3\n", "", 1)},
+		{"no attempt at all", strings.Replace(base, "max_attempts = 3", "max_attempts = 0", 1)},
 		{"a version that is not newer", authority.BuiltInRecoveryPolicyBody + "# a changed body\n"},
-		{"a max_attempts the policy does not hold", base + "max_attempts = 3\n"},
+		{"a key stated twice", base + "max_attempts = 4\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

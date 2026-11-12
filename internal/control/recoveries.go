@@ -134,16 +134,21 @@ func lastLaneEnd(tx ports.WriteTx, workOrder string) (workorders.Change, error) 
 
 // retryWork returns failed work to `ready` for another attempt, and keeps why with the work order, so the
 // next lane's brief carries the failed lane's reason and the retry's (ADR-0014). Work with no attempts
-// left gets one more, which only a member's retry or a member's grant reaches. Work that was ready when its
+// left gets one more, which only a member's retry or a member's grant reaches: its bound becomes its own,
+// one past the attempts it used. Work with attempts left keeps whatever bound it had, its own or none. Work that was ready when its
 // lane started is ready again, as it is after a takeover, so the definition of ready does not run.
 func retryWork(tx ports.WriteTx, current workorders.WorkOrder, reason string, actor ledger.Actor) (workorders.State, error) {
 	if _, err := workorders.Move(current, workorders.TriggerRetried); err != nil {
 		return "", err
 	}
 	change := workorders.Change{Trigger: workorders.TriggerRetried, Reason: reason}
+	byDefault, err := defaultAttempts(tx.Policies())
+	if err != nil {
+		return "", err
+	}
 	bound := current.MaxAttempts
-	if !current.AttemptsLeft() {
-		bound = max(current.AttemptBound(), current.Attempts) + 1
+	if !current.AttemptsLeft(byDefault) {
+		bound = max(current.AttemptBound(byDefault), current.Attempts) + 1
 		change.MaxAttempts = bound
 	}
 	won, err := tx.WorkOrders().Retry(current.ID, bound)
@@ -201,6 +206,28 @@ func (r *Recoveries) Retry(ctx context.Context, scope ledger.WorkspaceID, id, re
 		return "", err
 	}
 	return state, nil
+}
+
+// policyReader reads the version of a policy in force.
+type policyReader interface {
+	InForce(kind authority.PolicyKind) (authority.PolicyVersion, error)
+}
+
+// defaultAttempts is the attempts the recovery policy in force gives a work order that names no bound. A
+// workspace that recorded no version yet runs on the built-in one, and nothing here writes it.
+func defaultAttempts(policies policyReader) (int64, error) {
+	version, err := policies.InForce(authority.PolicyRecovery)
+	if errors.Is(err, ports.ErrNotFound) {
+		return authority.DefaultRecoveryPolicy().MaxAttempts, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	policy, err := authority.ReadRecoveryPolicy(version)
+	if err != nil {
+		return 0, err
+	}
+	return policy.AttemptBound(0), nil
 }
 
 // recoveryPolicyInForce reads what the version in force says. A body that no longer matches its digest

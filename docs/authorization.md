@@ -115,7 +115,10 @@ restart_stalled = true
 max_breaker_resets_per_day = 2
 retry_failed = true
 replan_blocked = true
+max_attempts = 3
 ```
+
+`max_attempts` is how many attempts a work order gets when it names no bound of its own. A work order's own bound wins, and no work order file sets one yet, so for now every work order has the policy's. A member's retry of work with no attempts left gives that work a bound of its own, one past the attempts it used.
 
 It has four tools for it, each with the project, the work order, and a reason that must not be empty:
 
@@ -123,12 +126,12 @@ It has four tools for it, each with the project, the work order, and a reason th
 |------|------|------------------------|
 | `lane_restart` | Ends a stalled lane's session and starts its next generation, which counts toward the lane's day | `restart_stalled` is true, and the lane runs on this orchestrator's machine |
 | `lane_reset` | Resets a tripped breaker, so the lane starts again | The lane runs on this orchestrator's machine, it does not read `day_capped`, and orchestrators reset this work order's breaker fewer than `max_breaker_resets_per_day` times in the last day |
-| `work_retry` | Returns failed work to `ready`, and the next lane reads why the last one failed and the reason | `retry_failed` is true, and the work has used fewer than its `max_attempts`, which is 1 when the work names none |
+| `work_retry` | Returns failed work to `ready`, and the next lane reads why the last one failed and the reason | `retry_failed` is true, and the work has used fewer attempts than its own bound, or the policy's `max_attempts` when it names none |
 | `work_replan` | Sends blocked work to `planning` with the reason and its lane's outcome, where its contract passes review again | `replan_blocked` is true |
 
 A call whose work order or lane is no longer stalled, tripped, failed, or blocked answers with a conflict and records nothing: another actor already moved it. A call outside the policy changes nothing. It raises an approval request of kind `recovery`, bound to the act, its arguments, the reason, and a digest of the work order and lane as they stood, and the call's answer names it. The request waits in Needs you with the reason and the limit it went past, and the same call again finds the same request. Only a member decides one: approving it runs the act as the member's decision, and a retry of work with no attempts left gets one more attempt. The request is void once its work order or lane moves.
 
-Every call that acts or is refused is a `recovery` event naming the act, the work order and its lane, the orchestrator and the generation of its session, the reason, the policy version in force, and the result. A failed lane leaves its work `failed` until someone retries it, so a crash that repeats does not spend every attempt unseen. The worker wakes its orchestrator for failed work with attempts left, blocked work, and a lane its window tripped. The policy bounds orchestrators and not members: `ropeshift lane respawn`, `ropeshift lane reset`, `ropeshift work retry`, and `ropeshift work replan` do the same as a member. A takeover is never a recovery act: the control plane's takeover policy or a member reassigns lapsed work.
+Every call that acts or is refused is a `recovery` event naming the act, the work order and its lane, the orchestrator and the generation of its session, the reason, the policy version in force, and the result. A failed lane leaves its work `failed` until someone retries it, so a crash that repeats does not spend every attempt unseen. The worker wakes its orchestrator for failed work, blocked work, and a lane its window tripped. A wake for failed work with no attempts left says so, because a retry of it reaches a member. The policy bounds orchestrators and not members: `ropeshift lane respawn`, `ropeshift lane reset`, `ropeshift work retry`, and `ropeshift work replan` do the same as a member. A takeover is never a recovery act: the control plane's takeover policy or a member reassigns lapsed work.
 
 ## The limit of same-user isolation
 
