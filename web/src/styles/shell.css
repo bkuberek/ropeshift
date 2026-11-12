@@ -465,3 +465,21 @@ a.sb-item:hover {
   display: none !important;
 }
 
+
+/* The page covers the whole screen (viewport-fit=cover), so on a phone with rounded corners or a notch
+   the bars pad themselves by the safe area. Elsewhere the insets are zero and nothing moves. */
+.app {
+  grid-template-rows: calc(var(--topbar-h) + env(safe-area-inset-top, 0px)) minmax(0, 1fr) calc(var(--statusbar-h) + env(safe-area-inset-bottom, 0px));
+}
+
+.topbar {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(var(--s-12), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--s-12), env(safe-area-inset-right, 0px));
+}
+
+.statusbar {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}

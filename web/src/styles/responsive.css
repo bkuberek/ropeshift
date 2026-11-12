@@ -499,3 +499,12 @@
     display: none;
   }
 }
+
+/* A phone's bars keep their own gutters and pad by the safe area as well. */
+@media (max-width: 639px) {
+  .topbar {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(var(--s-4), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--s-4), env(safe-area-inset-right, 0px));
+  }
+}

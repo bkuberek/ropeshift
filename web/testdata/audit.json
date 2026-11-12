@@ -1,20 +1,46 @@
 {
   "scope": "project",
   "as_of": 1794000000000,
-  "head": 4,
+  "head": 5,
   "next": 0,
   "events": [
+    {
+      "rev": 5,
+      "type": "roster.changed",
+      "subject_kind": "roster",
+      "subject_id": "project",
+      "actor_kind": "member",
+      "actor_id": "member-1",
+      "recorded_at": 1794000000000,
+      "id": "generated-1",
+      "data": {
+        "id": "generated-2",
+        "scope": "project",
+        "version": 1,
+        "digest": "sha256:df95d01445a210eb04f90ea318e8b00c21dde85ac9f6def88c083852120470d1",
+        "body": {
+          "agents": {
+            "heavy-implementation": {
+              "effort": "max"
+            }
+          }
+        },
+        "summary": "set heavy-implementation effort=max",
+        "authored_by": "member:member-1",
+        "created_at": 1794000000000
+      }
+    },
     {
       "rev": 4,
       "type": "policy.published",
       "subject_kind": "policy",
-      "subject_id": "generated-1",
+      "subject_id": "generated-3",
       "actor_kind": "member",
       "actor_id": "member-1",
       "recorded_at": 1794000000000,
-      "id": "generated-2",
+      "id": "generated-4",
       "data": {
-        "id": "generated-1",
+        "id": "generated-3",
         "kind": "recovery",
         "version": 2,
         "digest": "sha256:6109422651973fdc2e5a039a9e5d608393018ad1436c8e01a6285fdab337586c",
@@ -28,13 +54,13 @@
       "rev": 3,
       "type": "policy.published",
       "subject_kind": "policy",
-      "subject_id": "generated-3",
+      "subject_id": "generated-5",
       "actor_kind": "system",
       "actor_id": "built-in",
       "recorded_at": 1794000000000,
-      "id": "generated-4",
+      "id": "generated-6",
       "data": {
-        "id": "generated-3",
+        "id": "generated-5",
         "kind": "recovery",
         "version": 1,
         "digest": "sha256:eaadb4dfde4a411997d552fe0f635a3a904eae05a8bef9d3f25d7036aa2ef2a0",
@@ -52,7 +78,7 @@
       "actor_kind": "member",
       "actor_id": "member-1",
       "recorded_at": 1794000000000,
-      "id": "generated-5",
+      "id": "generated-7",
       "data": {
         "name": "api",
         "remote": "git@example.invalid:acme/api.git",
@@ -67,7 +93,7 @@
       "actor_kind": "system",
       "actor_id": "test",
       "recorded_at": 1794000000000,
-      "id": "generated-6",
+      "id": "generated-8",
       "data": {}
     }
   ]

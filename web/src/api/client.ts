@@ -25,7 +25,7 @@ export function setCurrentProject(name: string): void {
 
 // project is the route of one project's records, as the API names it: the project an item names while it
 // acts, or else the project the page shows, which its address names, or else the one the page chose.
-function project(rest: string): string {
+export function project(rest: string): string {
   return `/v1/projects/${encodeURIComponent(acting || splitProject(window.location.pathname).project || current)}${rest}`;
 }
 
@@ -106,7 +106,7 @@ function readCookie(name: string): string {
   return "";
 }
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   if (method !== "GET") {
     headers["Content-Type"] = "application/json";
@@ -126,6 +126,25 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     return undefined as T;
   }
   return (await response.json()) as T;
+}
+
+// A file a route answers, such as a backup: its bytes and the name the server gave it.
+export type Download = { blob: Blob; name: string };
+
+// request sends a change whose answer is a file, which a page saves as a download.
+export async function request(method: string, path: string, body: unknown): Promise<Download> {
+  let response: Response;
+  try {
+    response = await fetch(path, { method, headers: { "Content-Type": "application/json", [csrfHeader]: readCookie(csrfCookie) }, body: JSON.stringify(body ?? {}) });
+  } catch {
+    throw new ApiError(0, "unreachable", "The daemon did not answer.");
+  }
+  if (!response.ok) {
+    const refused = (await response.json().catch(() => null)) as { error?: { code: string; message: string } } | null;
+    throw new ApiError(response.status, refused?.error?.code ?? "unavailable", refused?.error?.message ?? response.statusText);
+  }
+  const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1];
+  return { blob: await response.blob(), name: named ?? "ropeshift-backup.db" };
 }
 
 export function readNeedsYou(): Promise<NeedsYou> {

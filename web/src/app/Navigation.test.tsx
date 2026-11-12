@@ -15,7 +15,7 @@ describe("the views", () => {
     const names = within(await views()).getAllByRole("link").map((link) => link.textContent);
     expect(names).toEqual([
       "Needs you11 waiting", "Roadmap", "Plans", "Documents", "Decisions", "Open questions", "Work orders", "Floor", "Measures",
-      "Workers and resources", "Usage",
+      "Repositories", "Agents", "Settings", "Audit", "Projects", "Workers and resources", "Members", "Usage",
     ]);
   });
 

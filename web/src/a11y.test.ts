@@ -50,6 +50,21 @@ async function answer(route: Route): Promise<void> {
   if (path === "/v1/documents/recorded") {
     return json(goldens["recorded-document"] ?? "{}");
   }
+  // What the projects, repositories, settings, agents, members, and audit pages read.
+  const admin: Record<string, string | undefined> = {
+    "/v1/repositories": goldens.repositories,
+    "/v1/fleet": goldens.fleet,
+    "/v1/policies": goldens["policies-recovery"],
+    "/v1/roster": goldens.roster,
+    "/v1/roster/history": goldens["roster-history"],
+    "/v1/members": goldens.members,
+    "/v1/audit": goldens.audit,
+    "/v1/workers": JSON.stringify({ workers: [{ id: "worker-1", name: "atlas", manifest: { capacity: { max_lanes: 6 } } }] }),
+    "/v1/categories": JSON.stringify({ categories: ["security", "data"] }),
+  };
+  if (admin[path]) {
+    return json(admin[path] ?? "{}");
+  }
   if (path === "/v1/events") {
     return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": open\n\n" });
   }
@@ -75,6 +90,18 @@ const views = [
   "/projects/default/measures",
   "/usage",
   "/workers",
+  "/projects",
+  "/import",
+  "/members",
+  "/settings?section=admission",
+  "/projects/default/settings?section=recovery",
+  "/projects/default/settings?section=fleet",
+  "/agents",
+  "/projects/default/agents?agent=heavy-implementation",
+  "/projects/default/agents?tab=history",
+  "/projects/default/repositories?repo=id-api",
+  "/projects/default/audit",
+  "/audit",
 ];
 
 const sizes = { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } } as const;

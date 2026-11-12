@@ -1,5 +1,7 @@
+import { lazy, Suspense } from "react";
 import type { ReactNode } from "react";
 
+import type { Prefs } from "../admin/Settings";
 import { readView } from "../api/client";
 import type { Decisions as DecisionsView, DocumentKind, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Roadmap as RoadmapView, Stamp } from "../api/types";
 import type { Live } from "../api/useView";
@@ -20,6 +22,7 @@ import { LinkTabs } from "../ui/controls";
 import { Banner, EmptyState, SkeletonRows } from "../ui/display";
 import { addressOf, Link } from "./route";
 import type { View } from "./routes";
+import { titleOf } from "./routes";
 
 // A document list runs git for each file, so a page that follows the stream reads it this seldom.
 const documentsGapMs = 30_000;
@@ -156,13 +159,57 @@ function plansPage(live: Live, id: string) {
   );
 }
 
-type PageProps = { view: View; project: string; params: URLSearchParams; live: Live; after: () => Promise<void>; needs: NeedsYou; projects: Project[] };
+// The pages that manage the installation and a project's records load when a person first opens one,
+// so the views of daily work load without them.
+const AgentsPage = lazy(() => import("../admin/Agents").then((page) => ({ default: page.AgentsPage })));
+const AuditView = lazy(() => import("../admin/Audit").then((page) => ({ default: page.AuditView })));
+const ImportPage = lazy(() => import("../admin/Import").then((page) => ({ default: page.ImportPage })));
+const MembersPage = lazy(() => import("../admin/Members").then((page) => ({ default: page.MembersPage })));
+const ProjectsPage = lazy(() => import("../admin/Projects").then((page) => ({ default: page.ProjectsPage })));
+const RepositoriesPage = lazy(() => import("../admin/Repositories").then((page) => ({ default: page.RepositoriesPage })));
+const SettingsPage = lazy(() => import("../admin/Settings").then((page) => ({ default: page.SettingsPage })));
+
+// Loading stands while a page's code loads: its title at once, and skeleton rows where its body will be.
+function Loading({ view }: { view: View }) {
+  return (
+    <Page title={titleOf(view)}>
+      <div className="panel">
+        <SkeletonRows rows={5} />
+      </div>
+    </Page>
+  );
+}
+
+type PageProps = {
+  view: View;
+  project: string;
+  // scoped says the address names the project, which makes a view with both scopes the project's.
+  scoped: boolean;
+  params: URLSearchParams;
+  live: Live;
+  after: () => Promise<void>;
+  needs: NeedsYou;
+  projects: Project[];
+  reloadProjects: () => Promise<void>;
+  prefs: Prefs;
+  onSignedOut: () => void;
+};
 
 // PageFor shows the view an address names. Needs you is not here, because it stays mounted behind every
 // other view, so a half-written answer survives a look elsewhere.
-export function PageFor({ view, project, params, live, after, needs, projects }: PageProps) {
+export function PageFor(props: PageProps) {
+  return (
+    <Suspense fallback={<Loading view={props.view} />}>
+      <ViewFor {...props} />
+    </Suspense>
+  );
+}
+
+function ViewFor({ view, project, scoped, params, live, after, needs, projects, reloadProjects, prefs, onSignedOut }: PageProps) {
   const param = (name: string) => params.get(name) ?? "";
   const label = projects.find((row) => row.name === project)?.display_name || project;
+  const archived = projects.find((row) => row.name === project)?.state === "archived";
+  const scope = scoped ? "project" : "installation";
   switch (view) {
     case "roadmap":
       return <ViewPage<RoadmapView> name="roadmap" live={live} title="Roadmap" body={(read) => <Roadmap view={read} />} />;
@@ -202,7 +249,21 @@ export function PageFor({ view, project, params, live, after, needs, projects }:
     case "measures":
       return <ViewPage<OperationsView> name="operations" live={live} title="Measures" note={() => "The fleet, the counts by state, the sources, and the product measures, from the ledger."} body={(read) => <Operations view={read} />} />;
     case "workers":
-      return <WorkersPage live={live} projects={projects} selected={param("worker")} after={after} />;
+      return <WorkersPage live={live} projects={projects} selected={param("worker")} after={after} dialog={param("dialog")} />;
+    case "projects":
+      return <ProjectsPage live={live} projects={projects} reload={reloadProjects} dialog={param("dialog")} />;
+    case "import":
+      return <ImportPage projects={projects} chosen={param("project")} reload={reloadProjects} />;
+    case "members":
+      return <MembersPage live={live} onSignedOut={onSignedOut} />;
+    case "repositories":
+      return <RepositoriesPage live={live} project={project} label={label} selected={param("repo")} dialog={param("dialog")} archived={archived} />;
+    case "settings":
+      return <SettingsPage live={live} project={scoped ? project : ""} label={label} archived={archived} section={param("section")} worker={param("worker")} prefs={prefs} />;
+    case "agents":
+      return <AgentsPage live={live} project={project} label={label} archived={archived} scope={scope} agent={param("agent")} tab={param("tab")} />;
+    case "audit":
+      return <AuditView live={live} project={project} label={label} scope={scope} actor={param("actor")} kind={param("kind")} />;
     case "usage":
       return <UsagePage live={live} project={project} label={label} />;
     case "needs-you":

@@ -17,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -298,6 +299,9 @@ func TestGoldenSettingsReads(t *testing.T) {
 	}
 	recovery := "[recovery_policy]\nversion = 2\nrestart_stalled = true\nmax_breaker_resets_per_day = 3\nretry_failed = false\nreplan_blocked = true\nmax_attempts = 3\n"
 	if _, err := project.PublishPolicy(t.Context(), recovery); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := project.ChangeRoster(t.Context(), roster.Change{Op: roster.OpSet, Agent: "heavy-implementation", Fields: map[string]string{"effort": "max"}}); err != nil {
 		t.Fatal(err)
 	}
 	reads := map[string]func() (any, error){

@@ -1,4 +1,24 @@
 {
   "scope": "project",
-  "versions": []
+  "versions": [
+    {
+      "id": "generated-1",
+      "scope": "project",
+      "version": 1,
+      "digest": "sha256:df95d01445a210eb04f90ea318e8b00c21dde85ac9f6def88c083852120470d1",
+      "body": {
+        "agents": {
+          "heavy-implementation": {
+            "effort": "max"
+          }
+        }
+      },
+      "summary": "set heavy-implementation effort=max",
+      "authored_by": "member:member-1",
+      "created_at": 1794000000000,
+      "difference": [
+        "~ heavy-implementation.effort (the layer below) -> max"
+      ]
+    }
+  ]
 }

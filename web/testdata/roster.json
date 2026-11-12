@@ -1,7 +1,7 @@
 {
   "scope": "project",
   "installation_version": 0,
-  "project_version": 0,
+  "project_version": 1,
   "roster": {
     "agents": [
       {
@@ -289,7 +289,7 @@
           ]
         },
         "class": "large",
-        "effort": "high",
+        "effort": "max",
         "approval": "none",
         "instructions": "Map what the change touches before editing, keep each step working, and test the behavior that could break.",
         "report": "The files changed, the checks run with their results, the risks you saw, and anything left undone, in at most 300 words.",
@@ -298,7 +298,7 @@
           "access": "builtin",
           "approval": "builtin",
           "class": "builtin",
-          "effort": "builtin",
+          "effort": "project",
           "enabled": "builtin",
           "instructions": "builtin",
           "kind": "builtin",
@@ -397,6 +397,6 @@
         "small": "light-implementation"
       }
     },
-    "digest": "sha256:a46787470911063d1d56c496912e473e27e507eaad35151e5e6b1c77eec3d4f5"
+    "digest": "sha256:ab2c43f186dfce59997bcdd17b0af7b5f0a75ce115010ad5f7640a188d4657fe"
   }
 }

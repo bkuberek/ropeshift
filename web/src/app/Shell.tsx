@@ -38,15 +38,26 @@ export const navGroups: { name: string; items: NavItem[] }[] = [
     ],
   },
   {
+    name: "Project",
+    items: [
+      { view: "repositories", icon: "repo" },
+      { view: "agents", icon: "roster" },
+      { view: "settings", icon: "sliders" },
+      { view: "audit", icon: "history" },
+    ],
+  },
+  {
     name: "Installation",
     items: [
+      { view: "projects", icon: "projects" },
       { view: "workers", icon: "server" },
+      { view: "members", icon: "users" },
       { view: "usage", icon: "gauge" },
     ],
   },
 ];
 
-const installation = new Set<View>(["needs-you", "workers", "usage"]);
+const installation = new Set<View>(["needs-you", "workers", "usage", "projects", "import", "members"]);
 
 // addressOfView is where a view of the current project, or of the installation, lives.
 export function addressOfView(view: View, project: string): string {
@@ -163,6 +174,23 @@ export function ProjectSwitcher({ project, projects, waiting, path, anchor, open
                     </button>
                   );
                 })}
+                <div className="menu-sep" role="separator" />
+                {switcherLinks.map((entry) => (
+                  <button
+                    key={entry.to}
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    tabIndex={-1}
+                    onClick={() => {
+                      close(false);
+                      go(entry.to);
+                    }}
+                  >
+                    <Icon name={entry.icon} size="sm" />
+                    <span className="truncate">{entry.label}</span>
+                  </button>
+                ))}
               </div>
             </div>,
             document.body,
@@ -171,6 +199,13 @@ export function ProjectSwitcher({ project, projects, waiting, path, anchor, open
     </>
   );
 }
+
+// The switcher's last entries: what makes a project, and the list that manages them.
+const switcherLinks: { label: string; to: string; icon: IconName }[] = [
+  { label: "Create project", to: "/projects?dialog=create", icon: "plus" },
+  { label: "Import an existing project", to: "/import", icon: "import" },
+  { label: "Manage projects", to: "/projects", icon: "projects" },
+];
 
 // useProjectSwitcher holds the switcher's popover, so the P key can open it from anywhere.
 export function useProjectSwitcher() {
