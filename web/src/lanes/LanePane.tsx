@@ -10,7 +10,7 @@ import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
-import { Absent, ConditionChip, EmptyState, Fact, Facts, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
+import { Absent, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
 import { parseScreen, trimScreen } from "./screen";
 
 // retryMs is how long the page waits before it opens a pane's stream again: after the stream closed
@@ -321,9 +321,7 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
                     </span>
                   </Fact>
                   <Fact name="Seen">
-                    <span className={lane.freshness === "observed" ? "fresh" : "fresh reported"}>
-                      {lane.freshness === "observed" ? "Observed" : "Last reported"} <Ago at={lane.as_of} />
-                    </span>
+                    <Freshness kind={freshnessOf(lane.freshness)} at={lane.as_of} source="the lane's worker" />
                   </Fact>
                   <Fact name="Work order">
                     <Link to={addressOf("/work-order", { id: lane.work_order })}>{lane.work_order}</Link>

@@ -10,7 +10,7 @@ import { actionWords } from "../needs/WorkCard";
 import { Ago, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Icon } from "../ui/Icon";
 import { Button, Segmented } from "../ui/controls";
-import { Absent, Banner, ConditionChip, EmptyState, Id, LaneBadge, ProjectTag, Refusal, SkeletonRows, TableRegion, TargetChip } from "../ui/display";
+import { Absent, Banner, ConditionChip, EmptyState, Freshness, freshnessOf, Id, LaneBadge, ProjectTag, Refusal, SkeletonRows, TableRegion, TargetChip } from "../ui/display";
 import { Field } from "../ui/forms";
 import { Dialog, Menu } from "../ui/overlays";
 import { laneLabel } from "./states";
@@ -145,9 +145,7 @@ function LaneTable({ rows, label, after }: { rows: Row[]; label: string; after: 
                 <Absent>unavailable</Absent>
               </td>
               <td data-label="Freshness">
-                <span className={row.lane.freshness === "observed" ? "fresh" : "fresh reported"}>
-                  {row.lane.freshness === "observed" ? "Observed" : "Last reported"} <Ago at={row.lane.as_of} />
-                </span>
+                <Freshness kind={freshnessOf(row.lane.freshness)} at={row.lane.as_of} source="the lane's worker" />
               </td>
               <td className="actions-cell">{row.own ? <LaneActions row={row} after={after} /> : <span className="visually-hidden">No action: another project's lane</span>}</td>
             </tr>
@@ -197,14 +195,13 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
           </span>
         ))}
         <span className="spacer" />
-        <span className={line.freshness === "observed" ? "fresh" : "fresh reported"}>
-          {line.freshness === "observed" ? "Observed" : "Last reported"}
+        <Freshness kind={freshnessOf(line.freshness)} source="the worker's heartbeat">
           {worker.last_handshake_at ? (
             <>
               , handshake <Ago at={worker.last_handshake_at} />
             </>
           ) : null}
-        </span>
+        </Freshness>
       </div>
       {rows.length ? <LaneTable rows={rows} label={`Lanes on ${name}`} after={after} /> : <p className="panel-body muted">No lane runs on {name}.</p>}
     </section>

@@ -4,12 +4,11 @@ import { actOnWork, startOrchestrator, workActions } from "../api/client";
 import type { OrchestratorAction, WorkAction, WorkNeed } from "../api/types";
 import { Link } from "../app/route";
 import { onlyAPerson, readWake, WakeWords } from "../floor/WakeWords";
-import { Ago } from "../parts/parts";
 import { Verdicts } from "../parts/Verdicts";
 import type { ButtonVariant } from "../ui/controls";
 import { Button } from "../ui/controls";
 import { DecisionCard } from "../ui/DecisionCard";
-import { ConditionChip, Fact, Facts, Id, LaneBadge, Refusal, TargetChip, WorkBadge } from "../ui/display";
+import { ConditionChip, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Refusal, TargetChip, WorkBadge } from "../ui/display";
 import { Field } from "../ui/forms";
 import type { Frame } from "./frame";
 import { kindOf } from "./kinds";
@@ -161,9 +160,7 @@ export function WorkCard({ id, work, after, frame, inPage = false }: { id: strin
               {(work.lane.conditions ?? []).map((condition) => (
                 <ConditionChip key={condition} name={condition} />
               ))}
-              <span className={work.lane.freshness === "observed" ? "fresh" : "fresh reported"}>
-                {work.lane.freshness === "observed" ? "Observed" : "Last reported"} <Ago at={work.lane.as_of} />
-              </span>
+              <Freshness kind={freshnessOf(work.lane.freshness)} at={work.lane.as_of} source="the lane's worker" />
             </span>
           </Fact>
           {work.detail ? (

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, KeyboardEvent, ReactNode } from "react";
+import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode } from "react";
 
 import { Link } from "../app/route";
 import type { IconName } from "./Icon";
@@ -25,7 +25,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   shortcut?: string;
 };
 
-export function buttonClass(variant: ButtonVariant = "secondary", small = false, extra = ""): string {
+function buttonClass(variant: ButtonVariant = "secondary", small = false, extra = ""): string {
   return [variantClass[variant], small ? "btn-sm" : "", extra].filter(Boolean).join(" ");
 }
 
@@ -43,18 +43,6 @@ export function Button({ variant = "secondary", small = false, loading = false, 
       {icon ? <Icon name={icon} size={small ? "sm" : "md"} /> : null}
       {children}
     </button>
-  );
-}
-
-type LinkButtonProps = AnchorHTMLAttributes<HTMLAnchorElement> & { to: string; variant?: ButtonVariant; small?: boolean; icon?: IconName };
-
-// LinkButton goes somewhere and looks like a button: an action that opens a view.
-export function LinkButton({ to, variant = "secondary", small = false, icon, className = "", children, ...rest }: LinkButtonProps) {
-  return (
-    <Link to={to} className={buttonClass(variant, small, className)} {...rest}>
-      {icon ? <Icon name={icon} size={small ? "sm" : "md"} /> : null}
-      {children}
-    </Link>
   );
 }
 

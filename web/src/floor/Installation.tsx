@@ -6,7 +6,7 @@ import { addressOf, Link } from "../app/route";
 import { useAct } from "../needs/useAct";
 import { Ago, Page, StampLine, useClock, ViewTime, words } from "../parts/parts";
 import { Button, LinkTabs } from "../ui/controls";
-import { Absent, Banner, EmptyState, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
+import { Absent, Banner, EmptyState, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
 import { useToast } from "../ui/overlays";
 import { laneLabel, workerStates } from "./states";
 
@@ -150,14 +150,13 @@ export function WorkersPage({ live, projects, selected, after }: { live: Live; p
                             </span>
                           </td>
                           <td data-label="Freshness">
-                            <span className={line.freshness === "observed" ? "fresh" : "fresh reported"}>
-                              {line.freshness === "observed" ? "Observed" : "Last reported"}
+                            <Freshness kind={freshnessOf(line.freshness)} source="the worker's heartbeat">
                               {line.worker.last_handshake_at ? (
                                 <>
                                   , handshake <Ago at={line.worker.last_handshake_at} />
                                 </>
                               ) : null}
-                            </span>
+                            </Freshness>
                           </td>
                         </tr>
                       );

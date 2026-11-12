@@ -12,7 +12,7 @@ import { Ago, Lasted, Page, StampLine, useClock, ViewTime, words } from "../part
 import { Verdicts } from "../parts/Verdicts";
 import { Icon } from "../ui/Icon";
 import { LinkTabs, TabPanel, Tabs } from "../ui/controls";
-import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Id, LaneBadge, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
+import { Absent, Banner, ConditionChip, Digest, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, RecordChip, SkeletonRows, StateBadge, TableRegion, WorkBadge } from "../ui/display";
 import type { WorkGroup } from "./states";
 import { checkStates, workStates } from "./states";
 import { WakeWords } from "./WakeWords";
@@ -451,9 +451,7 @@ export function WorkOrderPage({ live, id, tab, needs, after }: { live: Live; id:
                       </Fact>
                       <Fact name="Generation">{row.lane.generation}</Fact>
                       <Fact name="Seen">
-                        <span className={row.lane.freshness === "observed" ? "fresh" : "fresh reported"}>
-                          {row.lane.freshness === "observed" ? "Observed" : "Last reported"} <Ago at={row.lane.as_of} />
-                        </span>
+                        <Freshness kind={freshnessOf(row.lane.freshness)} at={row.lane.as_of} source="the lane's worker" />
                       </Fact>
                       <Fact name="Worker">{row.lane.worker_id ? <Id value={row.lane.worker_id} /> : <Absent>none yet</Absent>}</Fact>
                       <Fact name="Estimated cost">

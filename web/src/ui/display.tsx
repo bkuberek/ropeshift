@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Link } from "../app/route";
 import type { StateLook, Tone } from "../floor/states";
 import { conditions, laneStates, lookOf, workStates } from "../floor/states";
-import { agoLabel, agoWords } from "../needs/wait";
+import { Ago } from "../parts/parts";
 import type { GlyphName, IconName } from "./Icon";
 import { Glyph, Icon } from "./Icon";
 
@@ -168,56 +168,32 @@ export function Banner({ tone = "neutral", action, children }: { tone?: BannerTo
   );
 }
 
-// Meter draws a measure against its maximum, with a tick at its warning threshold. The number beside it
-// says the same, so the drawing is decoration.
-export function Meter({ value, max = 100, threshold, tone }: { value: number; max?: number; threshold?: number; tone?: "warning" | "danger" }) {
-  const share = (amount: number) => `${Math.round((Math.min(Math.max(amount, 0), max) / max) * 1000) / 10}%`;
-  return (
-    <span className={`meter${tone === "warning" ? " warn" : tone === "danger" ? " danger" : ""}`} aria-hidden="true">
-      <i style={{ width: share(value) }} />
-      {threshold === undefined ? null : <b style={{ left: share(threshold) }} />}
-    </span>
-  );
-}
 
-// Progress draws how much of some work is done. The words say the same to a screen reader.
-export function Progress({ done, total, label }: { done: number; total: number; label: string }) {
-  const share = total > 0 ? Math.min(Math.max(done, 0), total) / total : 0;
-  return (
-    <div
-      className="progress"
-      role="progressbar"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={total}
-      aria-valuenow={done}
-      aria-valuetext={`${done} of ${total} done`}
-    >
-      <i style={{ width: `${Math.round(share * 1000) / 10}%` }} />
-    </div>
-  );
-}
 
 export type FreshnessKind = "observed" | "last_reported" | "stale";
 
 const freshClass: Record<FreshnessKind, string> = { observed: "fresh", last_reported: "fresh reported", stale: "fresh stale" };
 const freshWords: Record<FreshnessKind, string> = { observed: "Observed", last_reported: "Last reported", stale: "Stale" };
 
-// Freshness says how a value was learned and how old it is: a solid dot for observed, a hollow one for
-// last reported, a warning ring for stale. The tooltip names the source.
-export function Freshness({ kind, ageMs, source }: { kind: FreshnessKind; ageMs?: number; source?: string }) {
-  const age = ageMs === undefined ? "" : ` ${agoLabel(ageMs)}`;
-  const spoken = ageMs === undefined ? "" : `, ${agoWords(ageMs)}`;
+// freshnessOf reads the API's word for how a value was learned. Anything but observed is last reported.
+export function freshnessOf(word: string): FreshnessKind {
+  return word === "observed" ? "observed" : word === "stale" ? "stale" : "last_reported";
+}
+
+// Freshness says how a value was learned and how old it is (FR-UI-5): a solid dot for observed, a hollow
+// one for last reported, a warning ring for stale, then the age, which counts on between reads. The
+// tooltip names the source.
+export function Freshness({ kind, at, source, children }: { kind: FreshnessKind; at?: number; source?: string; children?: ReactNode }) {
   return (
     <span className={freshClass[kind]} title={source ? `${freshWords[kind]} from ${source}` : undefined}>
-      <span aria-hidden="true">
-        {freshWords[kind]}
-        {age}
-      </span>
-      <span className="visually-hidden">
-        {freshWords[kind]}
-        {spoken}
-      </span>
+      {freshWords[kind]}
+      {at ? (
+        <>
+          {" "}
+          <Ago at={at} />
+        </>
+      ) : null}
+      {children}
     </span>
   );
 }
