@@ -1,10 +1,16 @@
 import { Fragment, useId } from "react";
 
+import { readPlan } from "../api/client";
 import type { Contract, ContractHistory, PlanDetail, PlanReview, Plans as View, WorkOrder } from "../api/types";
+import type { Live } from "../api/useView";
+import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
-import { workLabel } from "../floor/states";
-import { Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
+import { approvalStates, workLabel } from "../floor/states";
+import { Bar, Fact, Id, LongFact, plural, Section, words } from "../parts/parts";
+import { Banner, EmptyState, StateBadge } from "../ui/display";
+import { DifferenceBlock, DraftDecisions } from "./PlanParts";
 import { StateCounts } from "./Roadmap";
+import { StartSession } from "./StartSession";
 
 // A work order's size says how much of the critical path it weighs.
 const sizeWords = (size: string) => `Size ${size || "unknown"}`;
@@ -58,7 +64,27 @@ function countsOf(orders: WorkOrder[]): Record<string, number> {
   return counts;
 }
 
+// versionWords says which version of a plan is in force and which one waits.
+export function versionWords(detail: PlanDetail): string {
+  const parts = [detail.approved_version ? `Version ${detail.approved_version} approved` : "No version approved yet"];
+  if (detail.pending_version) {
+    parts.push(`version ${detail.pending_version} waits`);
+  }
+  return parts.join(" · ");
+}
+
+function ReviewVersion({ detail }: { detail: PlanDetail }) {
+  return detail.pending_version ? (
+    <Link className="btn btn-sm" to={addressOf("/plan", { id: detail.plan.id, version: String(detail.pending_version) })}>
+      Review version {detail.pending_version}
+    </Link>
+  ) : null;
+}
+
 function PlanLine({ detail }: { detail: PlanDetail }) {
+  const counts = countsOf(detail.work_orders);
+  const total = detail.work_orders.length;
+  const done = counts.done ?? 0;
   return (
     <li className="list-row">
       <Link className="list-row-title" to={addressOf("/plans", { plan: detail.plan.id })}>
@@ -66,17 +92,35 @@ function PlanLine({ detail }: { detail: PlanDetail }) {
       </Link>
       <ul className="chips">
         <li>{words(detail.plan.status)}</li>
+        <li>{versionWords(detail)}</li>
         <li>{plural(detail.contracts.length, "contract")}</li>
         <li>{plural(detail.reviews.length, "review")}</li>
       </ul>
-      <StateCounts states={countsOf(detail.work_orders)} />
+      {total ? (
+        <div className="list-row-progress">
+          <Bar done={done} total={total} label={`${detail.plan.title}: ${done} of ${total} done`} />
+          <p className="muted">
+            {done} of {total} done
+          </p>
+        </div>
+      ) : (
+        <p className="muted">No work yet</p>
+      )}
+      <StateCounts states={counts} />
+      <ReviewVersion detail={detail} />
     </li>
   );
 }
 
-export function PlanList({ view }: { view: View }) {
+export function PlanList({ view, project }: { view: View; project: string }) {
   if (view.plans.length === 0 && view.unplanned.length === 0) {
-    return <p className="empty">No plans yet.</p>;
+    return (
+      <div className="panel">
+        <EmptyState icon="plan" title="No plans yet" action={<StartSession project={project} variant="primary" />}>
+          A plan holds the contracts and work a goal needs. Start a planning session to write one.
+        </EmptyState>
+      </div>
+    );
   }
   return (
     <>
@@ -246,7 +290,42 @@ function Review({ review }: { review: PlanReview }) {
   );
 }
 
-export function PlanPage({ detail }: { detail: PlanDetail }) {
+// PlanVersions reads the plan beside the plans view, which names its versions with where each request stands,
+// how the newest version differs from the one a member approved, and the answers it drafts.
+function PlanVersions({ detail, live }: { detail: PlanDetail; live: Live }) {
+  const read = useView(() => readPlan(detail.plan.id), `plan:${detail.plan.id}`, live);
+  const view = read.view;
+  const approval = view?.approval;
+  return (
+    <>
+      {read.failure ? <Banner tone="danger">{read.failure}</Banner> : null}
+      {view && view.versions.length ? (
+        <Section title="Versions">
+          <ol className="list-rows" aria-label="Versions of the plan">
+            {view.versions.map((line) => (
+              <li key={line.version} className="list-row row">
+                <Link to={addressOf("/plan", { id: detail.plan.id, version: String(line.version) })}>Version {line.version}</Link>
+                {line.state ? <StateBadge table={approvalStates} state={line.state} /> : <span className="unavailable">no request</span>}
+              </li>
+            ))}
+          </ol>
+        </Section>
+      ) : null}
+      {approval ? (
+        <>
+          <Section title={`Version ${approval.approval.plan_version}: difference from ${approval.detail.difference?.base ? `version ${approval.detail.difference.base}` : "the approved version"}`}>
+            <DifferenceBlock difference={approval.detail.difference ?? {}} live={live} />
+          </Section>
+          <Section title="Draft decisions">
+            <DraftDecisions drafts={approval.drafts ?? []} proposedBy={approval.approval.requested_by} />
+          </Section>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+export function PlanPage({ detail, live }: { detail: PlanDetail; live: Live }) {
   const names = namesOf(detail);
   return (
     <>
@@ -255,6 +334,7 @@ export function PlanPage({ detail }: { detail: PlanDetail }) {
       </p>
       <dl className="kv facts-page">
         <Fact name="Status">{words(detail.plan.status)}</Fact>
+        <Fact name="Version">{versionWords(detail)}</Fact>
         {detail.goal ? <Fact name="Goal">{detail.goal.title}</Fact> : null}
       </dl>
       {detail.plan.source ? (
@@ -263,10 +343,11 @@ export function PlanPage({ detail }: { detail: PlanDetail }) {
         </dl>
       ) : null}
       {detail.pending_version ? (
-        <p className="plan-waiting">
-          Version {detail.pending_version} waits for approval in <Link to="/needs-you?kind=decisions">Needs you</Link>.
-        </p>
+        <Banner tone="warning" action={<ReviewVersion detail={detail} />}>
+          <strong>Version {detail.pending_version} waits for your approval.</strong> It also waits in <Link to="/needs-you?kind=decisions">Needs you</Link>.
+        </Banner>
       ) : null}
+      <PlanVersions detail={detail} live={live} />
       <Section title="Contracts">
         {detail.contracts.length ? (
           detail.contracts.map((history) => <History key={history.id} history={history} orders={detail.work_orders} names={names} />)

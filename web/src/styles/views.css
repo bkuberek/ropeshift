@@ -1170,17 +1170,6 @@ tr.selected td {
   background: var(--selected);
 }
 
-/* The traceability matrix wraps a requirement's text, which runs long. */
-.table.matrix td {
-  white-space: normal;
-  vertical-align: top;
-}
-
-.table.matrix td .id {
-  display: inline;
-  max-width: none;
-}
-
 /* ---------- Roadmap ---------- */
 .plan-line {
   display: flex;
@@ -1205,4 +1194,31 @@ tr.selected td {
 .wo-card.legend {
   display: inline-block;
   padding: 0 var(--s-6);
+}
+
+/* ---------- Plan approval ---------- */
+.sticky {
+  position: sticky;
+  top: var(--s-16);
+}
+
+.diff-title {
+  margin-bottom: var(--s-6);
+}
+
+.drafts {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* The traceability matrix wraps a requirement's text, which runs long. */
+.table.matrix td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.table.matrix td .id {
+  display: inline;
+  max-width: none;
 }

@@ -15,8 +15,10 @@ import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
+import { PlanApprovalPage } from "../planning/PlanApproval";
 import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
+import { StartSession } from "../planning/StartSession";
 import { RoadmapPage } from "../planning/Roadmap";
 import { Banner, EmptyState, SkeletonRows } from "../ui/display";
 import { Link } from "./route";
@@ -88,10 +90,19 @@ function documentsPage(live: Live, params: URLSearchParams, project: string, tab
   );
 }
 
-function plansPage(live: Live, id: string) {
+function plansPage(live: Live, id: string, project: string) {
   const find = (view: Plans | null) => view?.plans.find((row) => row.plan.id === id);
   if (!id) {
-    return <ViewPage<Plans> name="plans" live={live} title="Plans" note={(view) => count(view.plans.length, "plan")} body={(view) => <PlanList view={view} />} />;
+    return (
+      <ViewPage<Plans>
+        name="plans"
+        live={live}
+        title="Plans"
+        note={(view) => count(view.plans.length, "plan")}
+        actions={<StartSession project={project} />}
+        body={(view) => <PlanList view={view} project={project} />}
+      />
+    );
   }
   return (
     <ViewPage<Plans>
@@ -107,7 +118,7 @@ function plansPage(live: Live, id: string) {
       }
       body={(view) => {
         const detail = find(view);
-        return detail ? <PlanPage detail={detail} /> : <EmptyState icon="plan" title="No plan with that ID" action={<Link to="/plans">All plans</Link>} />;
+        return detail ? <PlanPage detail={detail} live={live} /> : <EmptyState icon="plan" title="No plan with that ID" action={<Link to="/plans">All plans</Link>} />;
       }}
     />
   );
@@ -168,7 +179,9 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "roadmap":
       return <RoadmapPage live={live} project={project} />;
     case "plans":
-      return plansPage(live, param("plan"));
+      return plansPage(live, param("plan"), project);
+    case "plan":
+      return <PlanApprovalPage key={`${param("id")}:${param("version")}`} live={live} id={param("id")} version={param("version")} after={after} />;
     case "planning":
       return <PlanningPage live={live} project={project} label={label} lane={param("lane")} after={after} />;
     case "documents":

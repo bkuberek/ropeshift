@@ -239,11 +239,10 @@ export function PlanApprovalCard({ id, need, after, frame }: { id: string; need:
           </Fact>
         ) : null}
       </Facts>
-      {approval.plan_id ? (
-        <p>
-          <Link to={addressOf("/plans", { plan: approval.plan_id })}>Read the plan</Link>
-        </p>
-      ) : null}
+      <p className="row-tight">
+        <Link to={addressOf("/plan", { id: approval.plan_id || approval.id, version: String(need.version) })}>Open the full plan approval</Link>
+        {approval.plan_id ? <Link to={addressOf("/plans", { plan: approval.plan_id })}>Read the plan</Link> : null}
+      </p>
       {need.adoption ? <AdoptionGroups adoption={need.adoption} /> : null}
       <Changes difference={need.difference} />
       <Part title="Draft decisions">

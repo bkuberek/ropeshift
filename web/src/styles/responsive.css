@@ -539,3 +539,11 @@
     padding-bottom: var(--s-8);
   }
 }
+
+/* Below the wide layout the decision comes first, so the button that decides is not at the end of a long page. */
+@media (max-width: 1023px) {
+  .decision-aside {
+    order: -1;
+    position: static;
+  }
+}

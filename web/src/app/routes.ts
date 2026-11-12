@@ -8,6 +8,7 @@ export const installationViews = ["needs-you", "workers", "usage", "projects", "
 export const projectViews = [
   "roadmap",
   "plans",
+  "plan",
   "planning",
   "documents",
   "traceability",
@@ -48,6 +49,7 @@ const titles: Record<View, string> = {
   usage: "Usage",
   roadmap: "Roadmap",
   plans: "Plans",
+  plan: "Plan approval",
   planning: "Planning",
   documents: "Documents",
   traceability: "Traceability",
