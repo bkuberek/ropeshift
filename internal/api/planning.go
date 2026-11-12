@@ -179,11 +179,20 @@ type RecordedDocument struct {
 	Versions []RecordedVersion `json:"versions"`
 }
 
-// TracedWork is a work order that carries a criterion, and where it stands.
+// TracedVerdict is what a review found of one criterion on the commit it read.
+type TracedVerdict struct {
+	Verdict workorders.VerdictKind `json:"verdict"`
+	Commit  string                 `json:"commit"`
+}
+
+// TracedWork is a work order that carries a criterion, and where it stands. Verdict is the latest verdict
+// of that criterion that speaks for the work order's current attempt and the commit it left, and it is
+// absent until a review has judged the criterion.
 type TracedWork struct {
-	ID    string           `json:"id"`
-	Title string           `json:"title"`
-	State workorders.State `json:"state"`
+	ID      string           `json:"id"`
+	Title   string           `json:"title"`
+	State   workorders.State `json:"state"`
+	Verdict *TracedVerdict   `json:"verdict,omitempty"`
 }
 
 // TracedCriterion is a criterion of a contract's newest version that serves a requirement, with the work
