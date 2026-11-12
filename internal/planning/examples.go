@@ -175,7 +175,8 @@ What the shared client must offer the contracts that use it, in prose.
 		Intro: "A contract belongs to one milestone of its plan and cites the documents it depends on in documents. Each criterion " +
 			"lists the requirement ids it serves. uses lists the ids of the shared contracts of the plan this one builds on, and " +
 			"each of its work orders waits for theirs. Each work order sets repo, priority, size, depends_on, and needs, and may set base to start from a branch other than " +
-			"its repository's base branch.",
+			"its repository's base branch. agent names the roster agent the work's lane runs as, chosen from the agents in your context: the lightest one that " +
+			"does the work reliably. With no agent, the roster's default mapping chooses one by the work's kind and size.",
 		Text: `+++
 kind = "contract"
 id = "checkout-retry"
@@ -203,6 +204,7 @@ title = "Add the retry budget"
 repo = "."
 priority = 2
 size = "medium"
+agent = "implementation"
 depends_on = []
 needs = { driver = "claude-code" }
 +++

@@ -105,6 +105,7 @@ func registry() []section {
 			command("policy show", "<version> [--kind K]", "show one version as it was written", (*invocation).policyShow),
 			command("policy publish", "--file F", "publish a new version", (*invocation).policyPublish),
 		}},
+		{"Agents", agentCommands()},
 		{"Documents and sources", []registered{
 			command("document list", "", "list documents, each with its digest", (*invocation).documentList),
 			command("document show", "<path> [--version V] [--instance I]", "show one document", (*invocation).documentShow),

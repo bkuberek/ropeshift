@@ -41,7 +41,7 @@ func TestALanesExperienceHoldsItsSettingsAndItsOutcome(t *testing.T) {
 	}
 	record := r.experience("lane-1")
 	want := measures.Settings{
-		Driver: "claude-code", ModelRequested: "opus", ModelResolved: "resolved-model", Effort: "high", RunMode: ports.RunModeHeadless,
+		Driver: "claude-code", ModelRequested: "sonnet", ModelResolved: "resolved-model", Effort: "medium", RunMode: ports.RunModeHeadless,
 		ProfileDigest: record.Settings.ProfileDigest, WorkOrderSize: measures.SizeUnknown,
 		Context: measures.ContextSettings{Role: lanes.RoleWriter, WarnTokens: 120000, CompactTokens: 150000, HandoffTokens: 180000},
 	}

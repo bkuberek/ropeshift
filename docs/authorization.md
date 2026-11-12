@@ -100,9 +100,23 @@ command_prefix = "go test"
 [[delegation_policy.classes]]
 tool = "Edit"
 path = "docs/**"
+
+[[delegation_policy.classes]]
+tool = "Agent"
+agent = "deep-implementation"
 ```
 
-A class names a tool and exactly one of a command prefix or a path, and a call that carries the other field goes to a member. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A prefix admits any arguments, so declare only a command whose arguments cannot start something else: `go test -exec` can. A class reads where a call lands, inside the lane's worktree, so a link a lane made under `docs/` leads nowhere a class covers. A path with a `..` in it goes to a member, because a tool reads that off the text and the disk may disagree, and so does a file with a second name, which could lie anywhere. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
+A class names a tool and exactly one of a command prefix, a path, or an agent. An `agent` class names the `Agent` tool and one roster agent whose approval is per use, and covers a lane's start of that agent alone, as the call's own input names it ([agents](#agents)). A class with a prefix or a path and a call that carries the other field goes to a member. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A prefix admits any arguments, so declare only a command whose arguments cannot start something else: `go test -exec` can. A class reads where a call lands, inside the lane's worktree, so a link a lane made under `docs/` leads nowhere a class covers. A path with a `..` in it goes to a member, because a tool reads that off the text and the disk may disagree, and so does a file with a second name, which could lie anywhere. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
+
+## Agents
+
+Every session ropeshift starts receives the agent roster as subagents: agents by kind of work, each with a purpose, a capability class, an effort, an approval setting, and allowed tool categories. On Claude Code the worker passes them with the `--agents` flag on every start and resume, and writes nothing to `~/.claude/agents/` or to a worktree.
+
+- A rendered agent's tools are its allowed categories, less its denied ones, inside its session's generated rules. A read-only agent never holds an edit tool, and in a lane that writes it holds no shell, because the lane's rules let a shell move and delete files with no prompt. A review lane receives read-only agents only, and the orchestrator receives none.
+- No rendered agent sets a permission mode, hooks, or MCP servers. Its permission mode is the session's, the lane's deny rules and hooks apply inside it, and no agent may start another: the session sets `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`, and every rendered agent disallows the `Agent` tool.
+- Starting an agent whose approval is `per_use` asks in every permission mode, through an `ask` rule `Agent(<name>)`, and raises an ordinary request bound to the call's digest. A member decides it, or an orchestrator under an `agent` class of the delegation policy. A lane that runs as a per-use agent asks nothing to start: its plan's approval or the member who started it decided that.
+- The agent a lane runs as sets its model, through the class mapping of the user's profile, and its effort. Its denied categories narrow the lane's rules, and never widen them. A lane's own profile layer still wins.
+- Changing the roster or its routing guide is a consent operation: only a member's session runs `ropeshift agent set`, `add`, `disable`, `enable`, `reset`, `revert`, and `guide set` and `reset`, at a scope the command names. The class mapping lives in the user's profile, `[agent.classes]`, which no repository or lane layer can change, so a file a plan or an agent can edit cannot make a cheap agent expensive.
 
 ## Recovery
 

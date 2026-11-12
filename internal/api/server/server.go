@@ -4,6 +4,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,6 +78,9 @@ type Config struct {
 	// which registering repositories reads and records (ADR-0022). Nil has no worker's machine, and a
 	// registration refuses.
 	Checkouts ports.Checkouts
+	// ModelClasses reads the model each driver's profile on the worker this daemon runs maps every
+	// capability class to, by driver and then class (ADR-0025). Nil shows no rendered model.
+	ModelClasses func(context.Context) (map[string]map[string]string, error)
 }
 
 type handler struct {
@@ -138,6 +142,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.orchestratorRoutes(mux)
 	h.autonomyRoutes(mux)
 	h.telemetryRoutes(mux)
+	h.installationRosterRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)
 }
 
@@ -156,6 +161,7 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.noticeRoutes(mux)
 	h.measureRoutes(mux)
 	h.paneRoutes(mux)
+	h.projectRosterRoutes(mux)
 	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
 	mux.HandleFunc("GET /v1/sources", h.sources)
 	mux.HandleFunc("POST /v1/work-orders", h.member(h.createWorkOrder))
@@ -389,7 +395,7 @@ func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request, actor 
 	record, err := h.workOrders.Record(r.Context(), h.Scope, control.LedgerWork{
 		Order: workorders.WorkOrder{
 			ID: in.ID, Kind: kind, Title: in.Title, RepositoryID: in.RepositoryID, Priority: in.Priority,
-			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs, Adopt: in.Adopt,
+			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs, Adopt: in.Adopt, Agent: in.Agent,
 		},
 		Statement: in.Statement,
 		Criteria:  in.Criteria,

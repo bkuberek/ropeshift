@@ -115,6 +115,18 @@ type Claim struct {
 	// Reads are the other repositories of its project the lane reads, at the commits recorded when the
 	// claim was made (ADR-0022). A claim that brings a parked lane back keeps its first claim's.
 	Reads []ledger.RepositoryRead
+	// Agent is the roster agent this claim's lane runs as, and Roster the roster it started with
+	// (ADR-0025). A claim that brings a parked lane back keeps its first claim's.
+	Agent  string
+	Roster RosterPin
+}
+
+// RosterPin is the roster a lane started with: the version of each layer it folded, zero for a layer with
+// none, and the digest of the roster they resolve to.
+type RosterPin struct {
+	Installation int64  `json:"installation,omitempty"`
+	Project      int64  `json:"project,omitempty"`
+	Digest       string `json:"digest,omitempty"`
 }
 
 // Ended reports a claim that no longer holds anything.

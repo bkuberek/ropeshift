@@ -40,6 +40,8 @@ type SharedReadTx interface {
 	Members() MemberReader
 	// Policies reads the autonomy policy, the one kind every project shares.
 	Policies() PolicyReader
+	// Roster reads the installation's layer of the agent roster.
+	Roster() RosterReader
 }
 
 // SharedTx is one write transaction of the shared records, which holds the installation's revision.
@@ -58,4 +60,6 @@ type SharedTx interface {
 	Members() MemberWriter
 	// Policies reads and writes the autonomy policy, and refuses any other kind.
 	Policies() PolicyWriter
+	// Roster reads and writes the installation's layer of the agent roster, and refuses a project's.
+	Roster() RosterWriter
 }

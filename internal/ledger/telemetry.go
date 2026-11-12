@@ -29,6 +29,10 @@ const (
 	MetricContextBaseline = "ropeshift.lane.context.baseline"
 	MetricTokens          = "ropeshift.lane.tokens"
 	MetricCost            = "ropeshift.lane.cost"
+	// MetricAgentTokens counts the tokens a roster agent spent inside a lane, where the driver reports
+	// which agent spent them (FR-AGENT-12). They are part of the lane's own usage, kept apart so a lane's
+	// tokens break down by agent without counting twice.
+	MetricAgentTokens     = "ropeshift.lane.agent.tokens"
 	MetricStall           = "ropeshift.lane.stall.duration"
 	MetricRespawns        = "ropeshift.lane.respawns"
 	MetricBreakerTrips    = "ropeshift.lane.breaker.trips"
@@ -43,7 +47,9 @@ const (
 
 // The attributes of ropeshift's own spans and metrics, beside a lane's tags.
 const (
-	AttrTokenType         = "ropeshift.token.type"
+	AttrTokenType = "ropeshift.token.type"
+	// AttrAgent names the roster agent a figure counts toward.
+	AttrAgent             = "ropeshift.agent"
 	AttrOutcome           = "ropeshift.lane.outcome"
 	AttrStartReason       = "ropeshift.generation.start_reason"
 	AttrEndReason         = "ropeshift.generation.end_reason"

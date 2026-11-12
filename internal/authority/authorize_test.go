@@ -177,3 +177,19 @@ func TestAnOrchestratorRecoversOnlyWithinItsPolicy(t *testing.T) {
 		}
 	}
 }
+
+// TestOnlyAMemberChangesTheRoster holds ADR-0025's consent operation to members until confirmation cards
+// arrive: no agent, worker, or tick changes the agent roster or its routing guide (FR-AGENT-7).
+func TestOnlyAMemberChangesTheRoster(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionChangeRoster) {
+		t.Error("a member may not change the roster")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionChangeRoster) {
+			t.Errorf("%s may change the roster", kind)
+		}
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionChangeRoster) {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
+	}
+}

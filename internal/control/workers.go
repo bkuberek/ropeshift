@@ -535,6 +535,10 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 	lease.BaseRef, lease.BaseCommit = claim.BaseRef, claim.BaseCommit
 	lease.Continues, lease.ContinuesRef, lease.ContinuesCommit = row.Continues, claim.ContinuesRef, claim.ContinuesCommit
 	lease.Reads = claim.Reads
+	lease.Agent = claim.Agent
+	if lease.Roster, err = pinnedRoster(tx.Roster(), claim.Roster); err != nil {
+		return lease, err
+	}
 	if record, err := tx.Repositories().Repository(row.RepositoryID); err == nil {
 		lease.RepositoryName = record.Name
 	} else if !errors.Is(err, ports.ErrNotFound) {

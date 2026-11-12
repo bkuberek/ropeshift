@@ -15,7 +15,7 @@ const workOrderColumns = `id, kind, state, title, repository_id, priority, size,
        contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
        takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts,
        deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
-       unknown_repository, continues, adopt`
+       unknown_repository, continues, adopt, agent`
 
 var (
 	stmtReadWorkOrder = define("work_order.read",
@@ -68,12 +68,12 @@ var (
   (workspace_id, id, kind, state, title, repository_id, priority, size, requirements, needs,
    contract_id, contract_version, fence, claim_id, lease_worker, lease_until,
    takeover_after, branch, resume_lane_id, rework_of, attempts, max_attempts, deadline, reviewed_by, rev, reviews_plan, review_pins, plan_commit, base, start_held, reviews, reviews_fence,
-   unknown_repository, continues, adopt)
+   unknown_repository, continues, adopt, agent)
 VALUES
   (:workspace_id, :id, :kind, :state, :title, :repository_id, :priority, :size, :requirements, :needs,
    :contract_id, :contract_version, :fence, :claim_id, :lease_worker, :lease_until,
    :takeover_after, :branch, :resume_lane_id, :rework_of, :attempts, :max_attempts, :deadline, :reviewed_by, :rev, :reviews_plan, :review_pins, :plan_commit, :base, :start_held, :reviews, :reviews_fence,
-   :unknown_repository, :continues, :adopt)`)
+   :unknown_repository, :continues, :adopt, :agent)`)
 
 	stmtDeleteWorkOrders = define("work_order.delete_all",
 		`DELETE FROM work_orders WHERE workspace_id = :workspace_id`)
@@ -291,6 +291,7 @@ func workOrderParams(scope ledger.WorkspaceID, w workorders.WorkOrder) (params, 
 		"base":               nullText(w.Base),
 		"continues":          nullText(w.Continues),
 		"adopt":              flag(w.Adopt),
+		"agent":              w.Agent,
 		"workspace_id":       string(scope),
 		"id":                 w.ID,
 		"kind":               string(w.Kind),
@@ -347,7 +348,7 @@ func scanWorkOrder(row scanner) (workorders.WorkOrder, error) {
 		&contractID, &contractVersion, &w.Fence, &claimID, &leaseWorker, &leaseUntil,
 		&takeoverAfter, &branch, &resumeLane, &reworkOf, &w.Attempts, &w.MaxAttempts,
 		&deadline, &reviewedBy, &w.Rev, &reviewsPlan, &reviewPins, &planCommit, &base, &startHeld, &reviews, &reviewsFence,
-		&unknownRepository, &continues, &adopt)
+		&unknownRepository, &continues, &adopt, &w.Agent)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}

@@ -127,6 +127,22 @@ func (r *laneRun) measureContext(tokens, baseline int64) {
 	}
 }
 
+// measureAgent records the tokens a roster agent spent in this lane, by type and under its name, so the
+// lane's usage breaks down by agent (FR-AGENT-12).
+func (r *laneRun) measureAgent(agent string, usage *lanes.Usage) {
+	if agent == "" || usage == nil {
+		return
+	}
+	for kind, tokens := range map[string]int64{
+		"input": usage.InputTokens, "output": usage.OutputTokens, "cache_read": usage.CacheReadTokens, "cache_write": usage.CacheCreationTokens,
+	} {
+		if tokens != 0 {
+			r.measure(ledger.MetricAgentTokens, ports.MetricCounter, "{token}", float64(tokens),
+				ports.Attribute{Key: ledger.AttrTokenType, Value: kind}, ports.Attribute{Key: ledger.AttrAgent, Value: agent})
+		}
+	}
+}
+
 // measureTurn records a turn's tokens by type and its cost. The cost is the turn's share of the
 // session's running total, a difference between totals, because a total accumulates across resumes.
 // A turn a kill stopped reports nothing, so a sum of these is a lower bound.

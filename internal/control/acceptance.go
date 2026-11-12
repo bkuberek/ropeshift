@@ -388,7 +388,7 @@ func reworkFor(tx ports.WriteTx, id string, note workorders.ReworkNote, failed [
 	if err != nil {
 		return "", err
 	}
-	failures, err := readyFailures(tx.Planning(), tx.WorkOrders(), tx.Questions(), back)
+	failures, err := readyFailures(tx.Planning(), tx.WorkOrders(), tx.Questions(), tx.Roster(), back)
 	if err != nil {
 		return "", err
 	}

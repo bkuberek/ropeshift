@@ -140,6 +140,7 @@ func denyRules(spec ports.SessionSpec) []string {
 	for _, dir := range spec.ReadOnlyDirs {
 		rules = append(rules, "Edit(/"+dir+")", "Edit(/"+dir+"/**)")
 	}
+	rules = append(rules, laneDenyRules(spec)...)
 	return append(rules, editRules(spec.Dir)...)
 }
 
@@ -217,7 +218,7 @@ func askRules(spec ports.SessionSpec) []string {
 	if !spec.OnlyTools && !spec.ReadOnly {
 		rules = append(rules, pushRules...)
 	}
-	for _, rule := range spec.Gates {
+	for _, rule := range slices.Concat(spec.Gates, perUseRules(spec)) {
 		if !slices.Contains(rules, rule) {
 			rules = append(rules, rule)
 		}

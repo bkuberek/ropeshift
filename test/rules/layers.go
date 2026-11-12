@@ -35,6 +35,7 @@ var domainPackages = map[string]bool{
 	"parking":      true,
 	"planning":     true,
 	"questions":    true,
+	"roster":       true,
 	"workorders":   true,
 }
 

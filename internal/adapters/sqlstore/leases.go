@@ -330,24 +330,27 @@ type claimTx struct {
 
 var (
 	stmtFindClaim = define("claim.find",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads,
+       agent, roster_digest, roster_installation, roster_project
   FROM claims
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtListClaims = define("claim.list",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads,
+       agent, roster_digest, roster_installation, roster_project
   FROM claims
  WHERE workspace_id = :workspace_id
  ORDER BY work_order_id, fence`)
 
 	stmtRecordClaim = define("claim.record",
 		`INSERT INTO claims (workspace_id, id, work_order_id, worker_id, fence, granted_at, lane_id, lane_overrides, pack_id, base_ref, base_commit,
-  continues_ref, continues_commit, reads)
+  continues_ref, continues_commit, reads, agent, roster_digest, roster_installation, roster_project)
 VALUES (:workspace_id, :id, :work_order_id, :worker_id, :fence, :granted_at, :lane, :overrides, :pack_id, :base_ref, :base_commit,
-  :continues_ref, :continues_commit, :reads)`)
+  :continues_ref, :continues_commit, :reads, :agent, :roster_digest, :roster_installation, :roster_project)`)
 
 	stmtClaimOfLane = define("claim.of_lane",
-		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads
+		`SELECT id, work_order_id, worker_id, fence, granted_at, ended_at, end_reason, lane_id, lane_overrides, pack_id, base_ref, base_commit, continues_ref, continues_commit, reads,
+       agent, roster_digest, roster_installation, roster_project
   FROM claims
  WHERE workspace_id = :workspace_id AND lane_id = :lane
  ORDER BY fence DESC
@@ -368,7 +371,7 @@ func scanClaim(row scanner) (workorders.Claim, error) {
 	var reason, lane, pack sql.NullString
 	var reads string
 	if err := row.Scan(&c.ID, &c.WorkOrder, &c.Worker, &c.Fence, &c.GrantedAt, &endedAt, &reason, &lane, &c.Overrides, &pack, &c.BaseRef, &c.BaseCommit,
-		&c.ContinuesRef, &c.ContinuesCommit, &reads); err != nil {
+		&c.ContinuesRef, &c.ContinuesCommit, &reads, &c.Agent, &c.Roster.Digest, &c.Roster.Installation, &c.Roster.Project); err != nil {
 		return workorders.Claim{}, err
 	}
 	if err := json.Unmarshal([]byte(reads), &c.Reads); err != nil {
@@ -420,7 +423,8 @@ func (t claimTx) Record(c workorders.Claim) error {
 		"worker_id": c.Worker, "fence": c.Fence, "granted_at": c.GrantedAt,
 		"lane": nullText(c.Lane), "overrides": c.Overrides, "pack_id": nullText(c.PackID),
 		"base_ref": c.BaseRef, "base_commit": c.BaseCommit, "continues_ref": c.ContinuesRef, "continues_commit": c.ContinuesCommit,
-		"reads": string(reads),
+		"reads": string(reads), "agent": c.Agent, "roster_digest": c.Roster.Digest,
+		"roster_installation": c.Roster.Installation, "roster_project": c.Roster.Project,
 	})
 	return err
 }

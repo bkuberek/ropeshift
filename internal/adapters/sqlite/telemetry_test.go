@@ -190,3 +190,31 @@ func TestRetentionHoldsTheStoreUnderItsSize(t *testing.T) {
 		t.Errorf("retention kept the oldest batch and dropped newer ones")
 	}
 }
+
+// TestALanesTokensBreakDownByAgent is FR-AGENT-12: the tokens each roster agent spent inside a lane read
+// by agent and type, as part of the lane's own figures and not added to them.
+func TestALanesTokensBreakDownByAgent(t *testing.T) {
+	store := openTelemetry(t)
+	agent := func(name, kind string, v float64, at int64) ports.TelemetryRecord {
+		return metric("lane-1", "ropeshift.lane.agent.tokens", v, at, map[string]any{"ropeshift.agent": name, "ropeshift.token.type": kind})
+	}
+	records := []ports.TelemetryRecord{
+		metric("lane-1", "ropeshift.lane.tokens", 500, 10, map[string]any{"ropeshift.token.type": "input"}),
+		agent("explore", "input", 120, 11), agent("explore", "input", 30, 12), agent("explore", "output", 9, 12),
+		agent("review", "input", 40, 13),
+	}
+	if err := store.Append(t.Context(), 100, records); err != nil {
+		t.Fatal(err)
+	}
+	lanes, err := store.Lanes(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lanes) != 1 {
+		t.Fatalf("lanes %+v", lanes)
+	}
+	one := lanes[0]
+	if one.Tokens["input"] != 500 || one.Agents["explore"]["input"] != 150 || one.Agents["explore"]["output"] != 9 || one.Agents["review"]["input"] != 40 {
+		t.Errorf("lane-1 %+v", one)
+	}
+}

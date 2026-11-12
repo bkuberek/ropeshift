@@ -58,6 +58,9 @@ type PreparedLane struct {
 	// DefaultBranch is the repository's, for the generation's policy. A policy guards the
 	// usual names whether or not this read works, so a failed read stops nothing.
 	DefaultBranch string
+	// LaneModel and LaneEffort say the lane's own profile layer set the model or the effort, which then
+	// wins over the roster agent the lane runs as (ADR-0025).
+	LaneModel, LaneEffort bool
 }
 
 // Provisioner gives a lane its settings, its worktree, and its environment. It holds
@@ -75,6 +78,19 @@ type Provisioner struct {
 // branches. A review would leave a branch behind.
 var ErrNoDetached = errors.New("this worker's worktrees cannot check a commit out with no branch")
 
+// laneSets says whether a lane's own profile layer changed the model or the effort from what the layers
+// below it give, because that layer wins over the roster agent the lane runs as.
+func (p Provisioner) laneSets(ctx context.Context, request LaneRequest, profile lanes.Profile) (bool, bool, error) {
+	if request.Overrides == "" {
+		return false, false, nil
+	}
+	below, err := p.Profiles.Load(ctx, request.Repository, "")
+	if err != nil {
+		return false, false, err
+	}
+	return below.Agent.Model != profile.Agent.Model, below.Agent.Effort != profile.Agent.Effort, nil
+}
+
 // Prepare resolves the profile first, because a bad profile should stop a lane
 // before it leaves anything on disk, and a retry converges on the same worktree.
 func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (PreparedLane, error) {
@@ -82,6 +98,10 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 		return PreparedLane{}, ErrNoDetached
 	}
 	profile, err := p.Profiles.Load(ctx, request.Repository, request.Overrides)
+	if err != nil {
+		return PreparedLane{}, err
+	}
+	laneModel, laneEffort, err := p.laneSets(ctx, request, profile)
 	if err != nil {
 		return PreparedLane{}, err
 	}
@@ -113,7 +133,10 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 		return PreparedLane{}, err
 	}
 	if request.Private {
-		return PreparedLane{Worktree: ports.Worktree{Path: request.Repository}, Environment: environment, Profile: profile, ProfileDigest: digest}, nil
+		return PreparedLane{
+			Worktree: ports.Worktree{Path: request.Repository}, Environment: environment, Profile: profile, ProfileDigest: digest,
+			LaneModel: laneModel, LaneEffort: laneEffort,
+		}, nil
 	}
 	place, err := lanes.Place(profile.Worktree, request.Repository, request.Lane, request.Branch)
 	if err != nil {
@@ -130,7 +153,10 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 	if err != nil {
 		branch = ""
 	}
-	return PreparedLane{Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch}, nil
+	return PreparedLane{
+		Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch,
+		LaneModel: laneModel, LaneEffort: laneEffort,
+	}, nil
 }
 
 // emptyDir leaves a directory that exists and holds nothing, whatever an earlier generation wrote there.

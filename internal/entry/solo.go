@@ -253,7 +253,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store,
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
-		Checkouts: kept,
+		Checkouts: kept, ModelClasses: soloModelClasses(paths),
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
@@ -423,6 +423,22 @@ func soloManifest(paths api.Paths) ledger.Manifest {
 		}
 	}
 	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: localauth.Member}, maxLanes)
+}
+
+// soloModelClasses reads the model this worker's profile maps each capability class to, from the user's
+// layer as it stands at each read, because only that layer may change the mapping (ADR-0025).
+func soloModelClasses(paths api.Paths) func(context.Context) (map[string]map[string]string, error) {
+	return func(context.Context) (map[string]map[string]string, error) {
+		raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		profile, err := profiles.Resolve(string(raw))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]map[string]string{profile.Driver: profile.Agent.Classes}, nil
+	}
 }
 
 // soloDriver is the agent CLI, as this machine would start it.

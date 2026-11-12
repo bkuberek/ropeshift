@@ -169,7 +169,8 @@ func TestReportedLaneStopsAtTheEndOfItsTurn(t *testing.T) {
 		t.Fatalf("%d sessions", len(specs))
 	}
 	spec := specs[0]
-	if spec.Model != "opus" || spec.PermissionMode != "default" || spec.Binary != "/state/bin/ropeshift" {
+	// A medium change runs as the implementation agent, whose class the built-in profile maps to sonnet.
+	if spec.Model != "sonnet" || spec.Effort != "medium" || spec.PermissionMode != "default" || spec.Binary != "/state/bin/ropeshift" {
 		t.Errorf("spec %+v", spec)
 	}
 	if !slices.Equal(spec.Tools, lanes.Tools) {

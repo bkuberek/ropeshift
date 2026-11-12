@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/roster"
 )
 
 // The values of a capability that has a closed list.
@@ -70,6 +71,23 @@ type Capabilities struct {
 	Degraded bool
 	// Resume is the driver's data for the resume table.
 	Resume lanes.ResumeCosts
+	// Subagents says whether the CLI starts the roster's agents (roster.SubagentsNative or
+	// roster.SubagentsNone), and SubagentTools whether it enforces their tools (roster.ToolsEnforced or
+	// roster.ToolsInstructionsOnly). A driver that says nothing has neither (ADR-0025).
+	Subagents     string
+	SubagentTools string
+}
+
+// Support is what a driver's capabilities say of the roster's agents.
+func (c Capabilities) Support() roster.Support {
+	return roster.Support{Subagents: c.Subagents, SubagentTools: c.SubagentTools}
+}
+
+// SessionAgent is one roster agent a session may start, fitted inside the session's rules, with the model
+// it runs on this driver (ADR-0025).
+type SessionAgent struct {
+	roster.Fitted
+	Model string
 }
 
 // DoctorReport says what is present and usable. It uses vendor status commands and
@@ -160,6 +178,14 @@ type SessionSpec struct {
 	Override lanes.SessionOverride
 	// Telemetry says where the session's own telemetry goes. An empty endpoint sends none.
 	Telemetry SessionTelemetry
+	// Agents are the roster agents this session may start, each fitted inside its rules, which a driver
+	// renders in lane-scoped configuration only, on every start and resume (ADR-0025). Empty renders none.
+	Agents []SessionAgent
+	// Effort is the session's effort, from the roster agent the lane runs as. Empty leaves the CLI's own.
+	Effort string
+	// Deny are the tool categories the lane's own agent denies, which narrow its rules and never widen
+	// them.
+	Deny []string
 }
 
 // SessionTelemetry points a session's telemetry at the worker's receiver, tagged with what produced it
@@ -260,6 +286,9 @@ const (
 	EventSessionBound EventKind = "session_bound"
 	// EventUsage carries the context of one API call.
 	EventUsage EventKind = "usage"
+	// EventAgentUsage carries the tokens of one message a roster agent spent, where the driver reports
+	// which agent spent them (FR-AGENT-12). They count toward the lane, under the agent's name.
+	EventAgentUsage EventKind = "agent_usage"
 	// EventTurnEnded carries how a turn ended, which is the only signal a turn is
 	// over. An exit code cannot say, because a stopped turn exits 0.
 	EventTurnEnded EventKind = "turn_ended"
@@ -329,6 +358,9 @@ type DriverEvent struct {
 	Usage *lanes.UsageReading
 	// Attempt counts an EventRetry's tries.
 	Attempt int64
+	// Agent names the roster agent an EventAgentUsage counts toward, and Tokens what it spent.
+	Agent  string
+	Tokens *lanes.Usage
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64

@@ -106,8 +106,14 @@ func (s *TelemetryStore) applyMigration(ctx context.Context, name string) error 
 	return tx.Commit()
 }
 
-// labelOf is the token type a record counts under, which the lane summary sums by.
+// labelOf is the token type a record counts under, which the lane summary sums by. An agent's tokens count
+// under the agent and the type, as `<agent>:<type>`, because an agent's name holds no colon.
 func labelOf(record ports.TelemetryRecord) string {
+	if record.Name == ledger.MetricAgentTokens {
+		agent, _ := record.Attributes[ledger.AttrAgent].(string)
+		kind, _ := record.Attributes[ledger.AttrTokenType].(string)
+		return agent + ":" + kind
+	}
 	for _, key := range []string{ledger.AttrTokenType, agentTokenType} {
 		if text, ok := record.Attributes[key].(string); ok && (record.Name == ledger.MetricTokens || record.Name == agentTokens) {
 			return text
@@ -251,6 +257,23 @@ func (s *TelemetryStore) Lanes(ctx context.Context) ([]ports.LaneTelemetry, erro
 	agent, err := s.figures(ctx, agentTokens, agentCost)
 	if err != nil {
 		return nil, err
+	}
+	byAgent, err := s.figures(ctx, ledger.MetricAgentTokens, "")
+	if err != nil {
+		return nil, err
+	}
+	for lane, figures := range byAgent {
+		summary := get(lane)
+		for label, tokens := range figures.tokens {
+			agent, kind, _ := strings.Cut(label, ":")
+			if summary.Agents == nil {
+				summary.Agents = map[string]map[string]int64{}
+			}
+			if summary.Agents[agent] == nil {
+				summary.Agents[agent] = map[string]int64{}
+			}
+			summary.Agents[agent][kind] += tokens
+		}
 	}
 	for lane := range summaries {
 		figures, ok := own[lane]
