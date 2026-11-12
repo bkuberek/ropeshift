@@ -17,6 +17,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api/shimlink"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 const (
@@ -57,19 +58,28 @@ type shimProcesses struct {
 }
 
 // stop ends a session the suite started, after its daemon is gone: an interrupt, then the
-// end of the shim that holds it. It never signals by name.
+// end of the shim that holds it. It never signals by name, and an ID is signaled only while the
+// process holding it still names this lane: the session by the lane's config directory, the shim
+// by its name and its directory.
 func (p *shimProcesses) stop() {
+	dir := p.suite.shimDir()
+	signal := func(pid int, sig syscall.Signal, markers ...string) {
+		if _, skipped := procs.Signal(pid, sig, markers...); skipped != "" {
+			p.suite.t.Log(skipped)
+		}
+	}
+	child := []string{filepath.Dir(dir)}
 	if exists(p.state.ChildPID) {
-		_ = syscall.Kill(p.state.ChildPID, syscall.SIGINT)
+		signal(p.state.ChildPID, syscall.SIGINT, child...)
 		for deadline := time.Now().Add(10 * time.Second); exists(p.state.ChildPID) && time.Now().Before(deadline); {
 			time.Sleep(50 * time.Millisecond)
 		}
 		if exists(p.state.ChildPID) {
-			_ = syscall.Kill(p.state.ChildPID, syscall.SIGKILL)
+			signal(p.state.ChildPID, syscall.SIGKILL, child...)
 		}
 	}
 	if exists(p.state.ShimPID) {
-		_ = syscall.Kill(p.state.ShimPID, syscall.SIGKILL)
+		signal(p.state.ShimPID, syscall.SIGKILL, "lane-shim", dir)
 	}
 }
 

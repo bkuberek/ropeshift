@@ -24,6 +24,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 // The two processes this file adds to the test binary.
@@ -232,17 +233,24 @@ func newShimRig(t *testing.T) *shimRig {
 	return r
 }
 
-// leaveNothing stops by exact ID what this run started, and only that.
+// leaveNothing stops by exact ID what this run started, and only that: an ID is signaled while the
+// process holding it still runs what the shim was told to start, the shim by its name and its
+// directory and the child by the command the shim was given.
 func (r *shimRig) leaveNothing() {
 	state, err := shimlink.ReadState(r.spec.Dir)
 	if err != nil {
 		return
 	}
-	if state.ChildPID != 0 {
-		_ = syscall.Kill(state.ChildPID, syscall.SIGKILL)
-	}
-	if state.ShimPID != 0 {
-		_ = syscall.Kill(state.ShimPID, syscall.SIGKILL)
+	for _, recorded := range []struct {
+		pid     int
+		markers []string
+	}{{state.ChildPID, shimConfig(r.spec).Command}, {state.ShimPID, []string{"lane-shim", r.spec.Dir}}} {
+		if recorded.pid == 0 {
+			continue
+		}
+		if _, skipped := procs.Signal(recorded.pid, syscall.SIGKILL, recorded.markers...); skipped != "" {
+			r.t.Log(skipped)
+		}
 	}
 }
 

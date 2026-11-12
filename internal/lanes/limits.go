@@ -87,11 +87,13 @@ type SignInState struct {
 	// Limited says a limit stands. ResetAtMs is when it ends, and zero means nobody said.
 	Limited   bool  `json:"limited,omitempty"`
 	ResetAtMs int64 `json:"reset_at_ms,omitempty"`
-	// Probe is the lane that tries again when nobody said, and ProbeAtMs is when. Tries counts the
-	// times it found the limit still there.
-	Probe     string `json:"probe,omitempty"`
-	ProbeAtMs int64  `json:"probe_at_ms,omitempty"`
-	Tries     int64  `json:"tries,omitempty"`
+	// Probe is the lane that tries again when nobody said, and ProbeAtMs is when. ProbeGeneration is
+	// the generation that found the limit, which tries nothing: only a later one is sent to. Tries
+	// counts the times it found the limit still there.
+	Probe           string `json:"probe,omitempty"`
+	ProbeAtMs       int64  `json:"probe_at_ms,omitempty"`
+	ProbeGeneration int64  `json:"probe_generation,omitempty"`
+	Tries           int64  `json:"tries,omitempty"`
 	// Hint is `/usage`, free text that may name local plugins, so it never leaves this machine.
 	// HintRead says a read was made, which a run mode with no such read has nothing to show for.
 	Hint     string `json:"hint,omitempty"`
@@ -103,7 +105,7 @@ type SignInState struct {
 // Reach is one lane finding its limit, and says whether that changed anything. The first lane to
 // find one starts the wait, and with no reset to go by it is the lane that tries again. Only that
 // lane, once its time came, moves the wait on: anything else is the same limit heard again.
-func (s *SignInState) Reach(lane string, nowMs int64, base time.Duration) bool {
+func (s *SignInState) Reach(lane string, generation, nowMs int64, base time.Duration) bool {
 	if s.Limited && (s.Probe != lane || nowMs < s.ProbeAtMs) {
 		return false
 	}
@@ -112,9 +114,9 @@ func (s *SignInState) Reach(lane string, nowMs int64, base time.Duration) bool {
 	}
 	s.Limited = true
 	s.ResetAtMs = s.Last.Reset(nowMs)
-	s.Probe, s.ProbeAtMs = "", 0
+	s.Probe, s.ProbeAtMs, s.ProbeGeneration = "", 0, 0
 	if s.ResetAtMs == 0 {
-		s.Probe, s.ProbeAtMs = lane, nowMs+UsageBackoff(base, s.Tries).Milliseconds()
+		s.Probe, s.ProbeAtMs, s.ProbeGeneration = lane, nowMs+UsageBackoff(base, s.Tries).Milliseconds(), generation
 	}
 	return true
 }
@@ -123,6 +125,14 @@ func (s *SignInState) Reach(lane string, nowMs int64, base time.Duration) bool {
 // only once its time came: a turn that was under way when the limit landed proves nothing.
 func (s SignInState) Passed(lane string, nowMs int64) bool {
 	return s.Limited && lane == s.Probe && nowMs >= s.ProbeAtMs
+}
+
+// Probing says a lane is out finding whether a limit passed: the probe, past its time, in a
+// generation after the one that found the limit. The generation that found it tries nothing, however
+// late a pass finds it: a kill, or a park that failed, can leave it unparked past its time, and it
+// has to park for its wake to send it on.
+func (s SignInState) Probing(lane string, generation, nowMs int64) bool {
+	return s.Limited && lane == s.Probe && nowMs >= s.ProbeAtMs && generation > s.ProbeGeneration
 }
 
 // UsageBackoff is how long a limit with no known reset waits, by how many tries found it.
