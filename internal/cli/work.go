@@ -151,7 +151,7 @@ func (c *invocation) workShow(args []string) int {
 	if err != nil {
 		return c.finish(err, row, nil)
 	}
-	detail := api.WorkDetail{WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why}
+	detail := api.WorkDetail{WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest}
 	return c.finish(nil, detail, func() string { return workDetailText(detail) })
 }
 
@@ -159,12 +159,23 @@ func (c *invocation) workShow(args []string) int {
 func workDetailText(detail api.WorkDetail) string {
 	var out strings.Builder
 	out.WriteString(workOrderText(detail.WorkOrder))
+	if pr := detail.PullRequest; pr != nil {
+		fmt.Fprintf(&out, "pull request\t#%d\t%s\thead %s\t%s\n", pr.Number, pr.State, shortCommit(pr.HeadCommit), pr.URL)
+	}
 	out.WriteString(reviewLines(detail.JudgedBy))
 	out.WriteString(verdictLines(detail.Verdicts))
 	if detail.Why != "" {
 		fmt.Fprintf(&out, "waiting\tfor a member: %s\n", oneLine(detail.Why))
 	}
 	return out.String()
+}
+
+// shortCommit is enough of a commit to read and find it again.
+func shortCommit(commit string) string {
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	return commit
 }
 
 // oneLine puts text on one line, because a line of output is one record.

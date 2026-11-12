@@ -293,6 +293,10 @@ func hasUnknown(effects []lanes.Effect) bool {
 // find looks for one effect a crash left unknown. A session that exists shows a spawn
 // happened, and a session that is gone shows a stop did.
 func (w *Worker) find(ctx context.Context, effect lanes.Effect, session ports.Located, incomplete bool) lanes.Finding {
+	if effect.Kind.Forge() {
+		// A forge request's own run looks again, and no pass of a lane's reconcile decides it.
+		return lanes.FoundUnknown
+	}
 	switch effect.Kind {
 	case lanes.EffectWorktree:
 		_, err := w.config.Lanes.Provisioner.Worktrees.Inspect(ctx, effect.Target)
@@ -362,6 +366,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.deliverMessages(ctx)
 	w.parkOnPolicy(ctx)
 	w.tendOrchestrator(ctx)
+	w.tendForge(ctx)
 	return actions, nil
 }
 
@@ -439,6 +444,11 @@ func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 
 func (rt *LaneRuntime) configDir(lane string) string {
 	return filepath.Join(rt.StateDir, "lanes", lane)
+}
+
+// forgeConfigDir is the empty directory a lane's `gh` reads its configuration from.
+func (rt *LaneRuntime) forgeConfigDir(lane string) string {
+	return filepath.Join(rt.configDir(lane), "gh")
 }
 
 func (rt *LaneRuntime) tempDir(lane string) string {

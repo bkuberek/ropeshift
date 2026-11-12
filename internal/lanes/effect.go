@@ -32,7 +32,21 @@ const (
 	EffectRemoval EffectKind = "removal"
 	// EffectHook runs a profile's hook.
 	EffectHook EffectKind = "hook"
+	// EffectPush pushes a lane's branch to its repository's remote for a pull request, which belongs to
+	// no lane: the worker runs it after the lane ended (ADR-0020).
+	EffectPush EffectKind = "push"
+	// EffectPullRequest opens a pull request, or finds the one open.
+	EffectPullRequest EffectKind = "pull_request"
+	// EffectComment posts a comment on a pull request.
+	EffectComment EffectKind = "comment"
 )
+
+// Forge says this effect is a forge request's. Each is safe to run again after a crash, because a push
+// never forces, an open finds the pull request already open, and a comment carries a key the forge is
+// read for first, so the worker that runs them runs one again rather than asking a person.
+func (k EffectKind) Forge() bool {
+	return k == EffectPush || k == EffectPullRequest || k == EffectComment
+}
 
 // Observable says a restart can look for this effect. Nothing shows whether a session
 // took an input before a crash, so an input stays unknown until a person decides, and the

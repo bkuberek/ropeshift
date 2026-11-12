@@ -1,4 +1,4 @@
-import type { Operations as View, SourceBinding } from "../api/types";
+import type { ForgeLine, Operations as View, SourceBinding } from "../api/types";
 import { Link } from "../app/route";
 import { Fact, Id, Section, words } from "../parts/parts";
 import { Measures, ReviewAgreement } from "./Measures";
@@ -47,6 +47,20 @@ function Source({ source }: { source: SourceBinding }) {
   );
 }
 
+// Forge is one worker's gh sign-in for one repository: work that needs the forge waits while it cannot run.
+function Forge({ line }: { line: ForgeLine }) {
+  return (
+    <li className="row">
+      <p className="row-title">{line.repository_name || line.repository}</p>
+      <ul className="tags">
+        <li className="tag-strong">{words(line.state)}</li>
+        <li>{line.worker_name || line.worker}</li>
+      </ul>
+      {line.detail ? <p className="mono quiet">{line.detail}</p> : null}
+    </li>
+  );
+}
+
 export function Operations({ view }: { view: View }) {
   const { fleet } = view;
   return (
@@ -83,6 +97,15 @@ export function Operations({ view }: { view: View }) {
           <p className="quiet">No source is bound.</p>
         )}
       </Section>
+      {view.forges?.length ? (
+        <Section title="Forge sign-in">
+          <ul className="rows">
+            {view.forges.map((line) => (
+              <Forge key={line.worker + "/" + line.repository} line={line} />
+            ))}
+          </ul>
+        </Section>
+      ) : null}
       <Measures report={view.measures} />
       <ReviewAgreement report={view.measures} />
     </>

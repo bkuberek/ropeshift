@@ -501,25 +501,27 @@ func TestNoRouteWritesALane(t *testing.T) {
 	}
 }
 
-// TestCanaryIsFirstAndFails proves the canary can fail a run: a copy of it, executed,
+// TestCanaryIsFirstAndFails proves each canary can fail a run: a copy of it, executed,
 // exits with an error and leaves its mark.
 func TestCanaryIsFirstAndFails(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "test", "doubles", "canary", "claude"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	copied := filepath.Join(dir, "claude")
-	if err := os.WriteFile(copied, raw, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(copied, "-p")
-	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	if err := cmd.Run(); err == nil {
-		t.Error("the canary exited 0")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "tripped")); err != nil {
-		t.Errorf("the canary left no mark: %v", err)
+	for _, name := range []string{"claude", "gh"} {
+		raw, err := os.ReadFile(filepath.Join(repoRoot(t), "test", "doubles", "canary", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		copied := filepath.Join(dir, name)
+		if err := os.WriteFile(copied, raw, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(copied, "-p")
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		if err := cmd.Run(); err == nil {
+			t.Errorf("the %s canary exited 0", name)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "tripped")); err != nil {
+			t.Errorf("the %s canary left no mark: %v", name, err)
+		}
 	}
 }
 
@@ -604,11 +606,18 @@ func outsideRefusedList(found []string) []string {
 // signInRead finds the one vendor command that touches a sign-in.
 var signInRead = []string{`"auth"`}
 
-// signInFile is the one file that may run it, and it runs only `auth status`.
+// signInFile is the one file that may run it for the agent CLI, and it runs only `auth status`.
 const signInFile = "internal/adapters/claudecode/doctor.go"
 
-// TestOnlyAStatusReadTouchesASignIn holds the doctor to reading. A command that changes a
-// sign-in would disturb every session on this login.
+// forgeSignInFile is the one file that may run it for the forge's CLI, which runs only `auth status`
+// and never asks for the token (ADR-0020).
+const forgeSignInFile = "internal/adapters/ghcli/forge.go"
+
+// forgeTokenWords are what a `gh` command that signs in or shows the token would hold.
+var forgeTokenWords = []string{`"login"`, `"logout"`, `"refresh"`, `"token"`, `"--show-token"`, `"setup-git"`}
+
+// TestOnlyAStatusReadTouchesASignIn holds the doctor and the forge adapter to reading. A command that
+// changes a sign-in would disturb every session on this login.
 func TestOnlyAStatusReadTouchesASignIn(t *testing.T) {
 	found, err := FindSource(repoRoot(t), []string{"cmd", "internal"}, signInCommands)
 	if err != nil {
@@ -622,8 +631,9 @@ func TestOnlyAStatusReadTouchesASignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	reads = outsideRefusedList(reads)
-	if len(reads) != 1 || !strings.Contains(reads[0], signInFile) {
-		t.Errorf("the status read is at %v, and only %s may hold it", reads, signInFile)
+	if len(reads) != 2 || !slices.ContainsFunc(reads, func(hit string) bool { return strings.Contains(hit, signInFile) }) ||
+		!slices.ContainsFunc(reads, func(hit string) bool { return strings.Contains(hit, forgeSignInFile) }) {
+		t.Errorf("the status read is at %v, and only %s and %s may hold it", reads, signInFile, forgeSignInFile)
 	}
 	raw, err := os.ReadFile(filepath.Join(repoRoot(t), signInFile))
 	if err != nil {
@@ -631,6 +641,18 @@ func TestOnlyAStatusReadTouchesASignIn(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `[]string{"auth", "status"}`) {
 		t.Error("the doctor runs something other than the status read")
+	}
+	forge, err := os.ReadFile(filepath.Join(repoRoot(t), forgeSignInFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(forge), `"auth"`) != 1 || !strings.Contains(string(forge), `"auth", "status", "--hostname"`) {
+		t.Error("the forge adapter runs something other than the status read")
+	}
+	for _, word := range forgeTokenWords {
+		if strings.Contains(string(forge), word) {
+			t.Errorf("the forge adapter holds %s, which signs in or shows the token", word)
+		}
 	}
 }
 

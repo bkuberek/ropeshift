@@ -196,6 +196,10 @@ func (w lastingWorktrees) Push(context.Context, string, string, string) error {
 	return errors.New("a stand-in worktree has no remote")
 }
 
+func (w lastingWorktrees) PushBranch(_ context.Context, repository, _ string) error {
+	return fmt.Errorf("%w: a stand-in repository %s", ports.ErrNoRemote, repository)
+}
+
 // Fetch has nothing to bring, because a stand-in worktree has no remote.
 func (w lastingWorktrees) Fetch(context.Context, string, []string) error { return nil }
 

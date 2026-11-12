@@ -45,6 +45,9 @@ type RepositoryChange struct {
 	StartFrom   *ledger.StartFrom
 	// ReviewTarget is where accepted work is reviewed and lands.
 	ReviewTarget *ledger.ReviewTarget
+	// ForgeBinding names the repository on its forge as HOST/OWNER/REPO, which review target pull_request
+	// needs. Empty takes it from the remote again.
+	ForgeBinding *string
 	// MergeAuthority is how much of each change the person decides after the review.
 	MergeAuthority *ledger.MergeAuthority
 	// Planning names this repository the project's planning repository, and takes that from any other, or
@@ -196,6 +199,9 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 		}
 		after = apply(before, change)
 		if err := after.Validate(); err != nil {
+			return err
+		}
+		if err := needsBinding(after, change); err != nil {
 			return err
 		}
 		if after == before {
@@ -368,6 +374,12 @@ func apply(record ledger.Repository, change RepositoryChange) ledger.Repository 
 	if change.ReviewTarget != nil {
 		record.ReviewTarget = *change.ReviewTarget
 	}
+	if change.ForgeBinding != nil {
+		record.ForgeBinding = *change.ForgeBinding
+	}
+	if record.Target() == ledger.ReviewOnPullRequest && record.ForgeBinding == "" {
+		record.ForgeBinding = ledger.BindingFromRemote(record.Remote)
+	}
 	if change.MergeAuthority != nil {
 		record.MergeAuthority = *change.MergeAuthority
 	}
@@ -375,6 +387,22 @@ func apply(record ledger.Repository, change RepositoryChange) ledger.Repository 
 		record.Planning = *change.Planning
 	}
 	return record
+}
+
+// needsBinding refuses a change that sets review target pull_request, or a binding, and leaves a record that
+// reviews through pull requests with no repository on a forge to open them in (FR-MERGE-1). Ropeshift takes
+// the binding from a remote on a forge, and a member names it for any other.
+func needsBinding(after ledger.Repository, change RepositoryChange) error {
+	touched := change.ForgeBinding != nil || (change.ReviewTarget != nil && *change.ReviewTarget == ledger.ReviewOnPullRequest)
+	if !touched || after.Target() != ledger.ReviewOnPullRequest || after.ForgeBinding != "" {
+		return nil
+	}
+	remote := after.Remote
+	if remote == "" {
+		remote = "none"
+	}
+	return fmt.Errorf("%w: review target pull_request needs a forge binding, and the remote (%s) names no repository on a forge; name one as HOST/OWNER/REPO",
+		ledger.ErrInvalidRepository, remote)
 }
 
 // Get reads one record, or ErrNotFound.
@@ -431,6 +459,29 @@ func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, na
 
 // minRepositoryPrefix is the shortest prefix of an identity that names a repository.
 const minRepositoryPrefix = 7
+
+// ForgeHealth reads what each worker last said of its forge sign-in, by repository, with each worker's name.
+func (r *Repositories) ForgeHealth(ctx context.Context, scope ledger.WorkspaceID) ([]ledger.ForgeHealth, error) {
+	var out []ledger.ForgeHealth
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = ForgeHealthIn(tx)
+		return err
+	})
+	return out, err
+}
+
+// ForgeHealthIn reads the forge health inside a read, with each worker's name.
+func ForgeHealthIn(tx ports.ReadTx) ([]ledger.ForgeHealth, error) {
+	all, err := tx.Forge().Health()
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		all[i].WorkerName = workerName(tx.Workers(), all[i].Worker)
+	}
+	return all, nil
+}
 
 // ReviewAgreement reads how a member's decisions stood against the review agent's verdicts, for the workspace
 // and for each repository (FR-CAL-2). It reads the records of those decisions and no event.

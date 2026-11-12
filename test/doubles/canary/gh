@@ -1,0 +1,7 @@
+#!/bin/sh
+# A `gh` that must never run. It sits beside the claude canary, first on PATH during the default, chaos,
+# and bench layers, so no test reaches GitHub through a real `gh`. If anything executes it, it leaves the
+# same mark, which fails the run.
+: >>"$(dirname "$0")/tripped"
+echo "the gh canary ran: no test may run the real gh" >&2
+exit 70

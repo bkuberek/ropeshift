@@ -660,7 +660,7 @@ func checkAcceptanceRace(r *Rig) error {
 // racingForge runs a step while a tick waits for its answer, which is the one moment a later
 // attempt can start between the tick's read and its write.
 type racingForge struct {
-	ports.Forge
+	ports.CheckSource
 	during func() error
 }
 
@@ -668,7 +668,7 @@ func (f racingForge) Checks(ctx context.Context, scope ledger.WorkspaceID, reque
 	if err := f.during(); err != nil {
 		return nil, err
 	}
-	return f.Forge.Checks(ctx, scope, request)
+	return f.CheckSource.Checks(ctx, scope, request)
 }
 
 func checkForgeKeepsItsAttempt(r *Rig) error {
@@ -682,7 +682,7 @@ func checkForgeKeepsItsAttempt(r *Rig) error {
 	forge := &fake.Forge{}
 	r.forgeSays(forge, first, forgeCheck(criterionOne, workorders.CheckPassed))
 	once := false
-	racing := racingForge{Forge: forge, during: func() error {
+	racing := racingForge{CheckSource: forge, during: func() error {
 		if once {
 			return nil
 		}

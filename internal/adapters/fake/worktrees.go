@@ -315,6 +315,21 @@ func (w *Worktrees) Push(_ context.Context, path, remote, ref string) error {
 	return nil
 }
 
+// PushBranch takes a branch to the remote UseRemote named, or refuses it. With no remote it is
+// ErrNoRemote.
+func (w *Worktrees) PushBranch(_ context.Context, repository, branch string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.remote == "" {
+		return fmt.Errorf("%w: %s", ports.ErrNoRemote, repository)
+	}
+	if w.refuse {
+		return ErrPushRefused
+	}
+	w.pushed = append(w.pushed, lanes.HeadsRef(branch))
+	return nil
+}
+
 // DefaultBranch names the branch every fake repository lands on.
 func (w *Worktrees) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
 

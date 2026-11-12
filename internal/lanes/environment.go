@@ -39,6 +39,9 @@ var (
 	// ErrSessionVariable means a reference names a variable that marks or
 	// authenticates an agent session, which no lane may inherit.
 	ErrSessionVariable = errors.New("a session variable cannot pass to a lane")
+	// ErrForgeCredential means a reference names a variable through which the forge's CLI reads a
+	// token or its configuration, which no lane may have (ADR-0020).
+	ErrForgeCredential = errors.New("a forge credential cannot pass to a lane")
 	// ErrBadReference means a secret reference has no form this build reads.
 	ErrBadReference = errors.New("bad secret reference")
 	// ErrMissingVariable means a reference names a variable that is not set.
@@ -58,6 +61,20 @@ func sessionVariable(name string) bool {
 	return name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_") || name == authority.EnvMemberToken
 }
 
+// EnvForgeConfig is where the forge's CLI reads its configuration and its sign-in
+// (https://cli.github.com/manual/gh_help_environment). A lane's points at an empty directory of its own.
+const EnvForgeConfig = "GH_CONFIG_DIR"
+
+// forgeVariable reports a name through which `gh` reads a token or its configuration. A lane never gets
+// one from a profile, and the allowlist already leaves each out.
+func forgeVariable(name string) bool {
+	switch name {
+	case "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", EnvForgeConfig:
+		return true
+	}
+	return false
+}
+
 // EnvironmentSpec is what a lane's environment is built from.
 type EnvironmentSpec struct {
 	// Lookup reads the process's environment.
@@ -69,6 +86,9 @@ type EnvironmentSpec struct {
 	Tags map[string]string
 	// Allocation is what this lane holds beside its worktree. Empty fields add nothing.
 	Allocation Allocation
+	// ForgeConfigDir is the empty directory the lane's `gh` reads its configuration from, so the person's
+	// sign-in is not there to use. Empty sets nothing.
+	ForgeConfigDir string
 }
 
 // BuildEnvironment returns the whole environment of a lane, sorted so that a spec
@@ -104,6 +124,9 @@ func BuildEnvironment(spec EnvironmentSpec) ([]string, error) {
 	if spec.Allocation.ComposeProject != "" {
 		values[EnvComposeProject] = spec.Allocation.ComposeProject
 	}
+	if spec.ForgeConfigDir != "" {
+		values[EnvForgeConfig] = spec.ForgeConfigDir
+	}
 	out := make([]string, 0, len(values))
 	for name, value := range values {
 		out = append(out, name+"="+value)
@@ -127,6 +150,9 @@ func passThrough(ref string, lookup func(string) (string, bool)) (string, string
 	}
 	if sessionVariable(name) {
 		return "", "", fmt.Errorf("%w: %s", ErrSessionVariable, name)
+	}
+	if forgeVariable(name) {
+		return "", "", fmt.Errorf("%w: %s", ErrForgeCredential, name)
 	}
 	value, ok := lookup(name)
 	if !ok {

@@ -1139,6 +1139,23 @@ func (h *handler) readShopFloor(tx ports.ReadTx, _ *http.Request, stamp api.Stam
 	return view, nil
 }
 
+// forgeLines reads each worker's forge sign-in for each repository, with the repository's name.
+func forgeLines(tx ports.ReadTx) ([]api.ForgeLine, error) {
+	health, err := control.ForgeHealthIn(tx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.ForgeLine, 0, len(health))
+	for _, h := range health {
+		line := api.ForgeLine{ForgeHealth: h}
+		if record, err := tx.Repositories().Repository(h.Repository); err == nil {
+			line.RepositoryName = record.Name
+		}
+		out = append(out, line)
+	}
+	return out, nil
+}
+
 func (h *handler) readOperations(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
 	workspace, err := tx.Workspace()
 	if err != nil {
@@ -1183,6 +1200,9 @@ func (h *handler) readOperations(tx ports.ReadTx, _ *http.Request, stamp api.Sta
 	}
 	if bindings != nil {
 		view.Sources = bindings
+	}
+	if view.Forges, err = forgeLines(tx); err != nil {
+		return nil, err
 	}
 	length, err := api.ParseWindow(api.DefaultMeasureWindow)
 	if err != nil {

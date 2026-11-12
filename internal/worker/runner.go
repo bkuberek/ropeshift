@@ -54,6 +54,12 @@ type LaneRuntime struct {
 	// Inventory reads what each repository holds for a lane whose lease asks for an inventory before it
 	// starts (ADR-0023). Nil takes none, and such a lane does not start.
 	Inventory ports.Inventory
+	// Forge runs what the control plane asks of a forge: pushes, pull requests, comments, and reads of the
+	// sign-in's health (ADR-0020). Nil runs none, and a repository that reviews through pull requests waits.
+	Forge ports.Forge
+	// ForgeEvery is how often the forge's sign-in is read for each repository, and how long a failed forge
+	// request waits before its next attempt. Zero takes a minute.
+	ForgeEvery time.Duration
 }
 
 // laneRun is one lane this process is running.
@@ -569,7 +575,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
 		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
-		Detached: r.reviewing(),
+		Detached: r.reviewing(), ForgeConfigDir: r.rt.forgeConfigDir(r.lease.Lane),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
 		Tags: map[string]string{

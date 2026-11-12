@@ -19,6 +19,9 @@ const (
 	// authority leaves that to the review. The control plane takes it by rule, as a system actor, and
 	// names the review it rests on.
 	ActionAcceptReviewed Action = "acceptance.reviewed"
+	// ActionRecordMerge ends work a person merged on the forge, at a level where the person merges
+	// (ADR-0020). The control plane takes it by rule, from what a worker read, and nobody else does.
+	ActionRecordMerge    Action = "integration.record_merge"
 	ActionAddCategory    Action = "category.add"
 	ActionAnswerQuestion Action = "question.answer"
 	ActionArchiveLane    Action = "lane.archive"
@@ -112,7 +115,7 @@ func Actions() []Action {
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator, ActionRetryWork,
 		ActionRecover, ActionPassRecovery, ActionDecideRecovery,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
-		ActionSetRepository, ActionRegisterRepository, ActionManageProject,
+		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge,
 	}
 }
 
@@ -124,7 +127,7 @@ var granted = map[ledger.ActorKind]map[Action]bool{
 		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRecover: true, ActionRespawnLane: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},
-	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true},
+	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true, ActionRecordMerge: true},
 }
 
 // Allowed is the one authorization function. Every check passes through it. There are no

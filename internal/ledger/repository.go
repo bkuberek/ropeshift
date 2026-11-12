@@ -130,7 +130,8 @@ type Repository struct {
 	DefaultBranch string `json:"default_branch,omitempty"`
 	// BaseBranch is the branch lanes start from. Empty follows the default branch.
 	BaseBranch string `json:"base_branch,omitempty"`
-	// ForgeBinding names the forge account and repository pull requests open against. Empty is none yet.
+	// ForgeBinding names the repository pull requests open against, as HOST/OWNER/REPO (ADR-0020). Empty is
+	// none yet, and review target pull_request takes it from a remote on a forge.
 	ForgeBinding string      `json:"forge_binding,omitempty"`
 	MergeMethod  MergeMethod `json:"merge_method"`
 	// MergeAuthority is how much of each change the person decides after the review (FR-MERGE-3). Empty
@@ -214,6 +215,11 @@ func (r Repository) Validate() error {
 	}
 	if r.BaseBranch != "" {
 		if err := CheckBranch(r.BaseBranch); err != nil {
+			return err
+		}
+	}
+	if r.ForgeBinding != "" {
+		if _, err := ParseForgeBinding(r.ForgeBinding); err != nil {
 			return err
 		}
 	}

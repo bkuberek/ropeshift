@@ -209,6 +209,21 @@ func (w Worktrees) Push(ctx context.Context, path, remote, ref string) error {
 	return err
 }
 
+// PushBranch sends a branch to the remote a push of it would take, under its own name. It runs no
+// repository hook and never forces, so a remote whose branch moved refuses it.
+func (w Worktrees) PushBranch(ctx context.Context, repository, branch string) error {
+	git := w.git(repository)
+	remote, err := remoteOf(ctx, git, branch)
+	if err != nil {
+		return err
+	}
+	if remote == "" {
+		return fmt.Errorf("%w: pushing %s", ports.ErrNoRemote, branch)
+	}
+	_, err = git.Output(ctx, pushArguments(remote, lanes.HeadsRef(branch))...)
+	return err
+}
+
 // Fetch brings each ref the remote holds into this repository under its own name. A branch
 // checked out here is left alone, because git refuses that, and this worktree's branch is the
 // one a lane already holds.

@@ -146,3 +146,25 @@ func TestAMemberSessionCannotBeNamedToALane(t *testing.T) {
 		t.Fatalf("a tag: got %v, want ErrSessionVariable", err)
 	}
 }
+
+// TestALaneGetsNoForgeCredential is ADR-0020's guardrail: no profile names a forge token to a lane, and
+// gh in a lane reads its configuration from a directory ropeshift gives it, not the person's.
+func TestALaneGetsNoForgeCredential(t *testing.T) {
+	parent := map[string]string{
+		"PATH": "/usr/bin", "GH_TOKEN": "gh", "GITHUB_TOKEN": "g", "GH_ENTERPRISE_TOKEN": "e", "GITHUB_ENTERPRISE_TOKEN": "f",
+		"GH_CONFIG_DIR": "/home/someone/.config/gh",
+	}
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR"} {
+		_, err := BuildEnvironment(EnvironmentSpec{Lookup: lookupIn(parent), SecretRefs: []string{"env:" + name}})
+		if !errors.Is(err, ErrForgeCredential) {
+			t.Errorf("a reference to %s: got %v, want ErrForgeCredential", name, err)
+		}
+	}
+	got, err := BuildEnvironment(EnvironmentSpec{Lookup: lookupIn(parent), ForgeConfigDir: "/state/lanes/lane-1/gh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"GH_CONFIG_DIR=/state/lanes/lane-1/gh", "PATH=/usr/bin"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

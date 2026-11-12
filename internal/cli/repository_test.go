@@ -392,3 +392,29 @@ func TestRepositorySetNamesThePlanningRepository(t *testing.T) {
 		t.Errorf("--planning=false printed:\n%s", text)
 	}
 }
+
+// TestRepositorySetWarnsWhenNoWorkerHasGH is the choice ADR-0020 leaves at the setting: the control plane
+// cannot see a worker's gh when a member changes the review target, so the change stands with a warning,
+// and repository show says what each worker found. A remote on no forge needs a binding named.
+func TestRepositorySetWarnsWhenNoWorkerHasGH(t *testing.T) {
+	s := newSession(t)
+	s.detect(aRepositoryID, "main")
+	code, stdout, stderr := s.run("repository", "set", aRepositoryID[:8], "--review-target", "pull_request")
+	if code != cli.ExitOK || !strings.Contains(stderr, "warning: no worker has reported a working gh sign-in for example.invalid/acme/app") {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{"forge binding\texample.invalid/acme/app", "forge\t-\tno worker has reported gh for this repository yet"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("set printed no %q:\n%s", want, stdout)
+		}
+	}
+	if text := s.must("repository", "set", aRepositoryID[:8], "--forge-binding", "github.com/acme/app"); !strings.Contains(text, "forge binding\tgithub.com/acme/app") {
+		t.Errorf("a named binding:\n%s", text)
+	}
+	if code, _, stderr := s.run("repository", "set", aRepositoryID[:8], "--forge-binding", "acme/app"); code == cli.ExitOK || !strings.Contains(stderr, "HOST/OWNER/REPO") {
+		t.Errorf("a binding with no host: exit %d, stderr %q", code, stderr)
+	}
+	if _, _, stderr := s.run("repository", "set", aRepositoryID[:8], "--review-target", "branch"); stderr != "" {
+		t.Errorf("a branch review warned %q", stderr)
+	}
+}

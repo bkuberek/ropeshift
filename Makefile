@@ -7,8 +7,8 @@ TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
 # The PATH as it arrived, for the one layer that runs the real binary.
 REAL_PATH := $(PATH)
 
-# A `claude` that fails the run if anything executes it. The test layers put it first
-# on PATH, and fakeclaude goes in front of it where a test needs an agent.
+# A `claude` and a `gh` that fail the run if anything executes them. The test layers put them first
+# on PATH, and fakeclaude or fakegh goes in front where a test needs an agent or a forge.
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
@@ -23,7 +23,7 @@ format:
 
 # The mark the canary leaves stops a run after the tests that hid it.
 canary:
-	@test ! -e $(CANARY)/tripped || (echo "the claude canary ran" && rm $(CANARY)/tripped && exit 1)
+	@test ! -e $(CANARY)/tripped || (echo "a canary ran (claude or gh)" && rm $(CANARY)/tripped && exit 1)
 
 vet:
 	$(GO) vet ./...
@@ -105,7 +105,8 @@ linux-bundle:
 	$(BUNDLE_ENV) $(GO) build -trimpath -o "$(BUNDLE)/bin/ropeshiftd" ./cmd/ropeshiftd
 	$(BUNDLE_ENV) $(GO) build -trimpath -tags chaos -o "$(BUNDLE)/bin/ropeshift-chaos" ./cmd/ropeshift
 	$(BUNDLE_ENV) $(GO) build -trimpath -o "$(BUNDLE)/bin/fakeclaude" ./test/doubles/fakeclaude
-	cp test/doubles/canary/claude "$(BUNDLE)/bin/canary/claude"
+	$(BUNDLE_ENV) $(GO) build -trimpath -o "$(BUNDLE)/bin/fakegh" ./test/doubles/fakegh
+	cp test/doubles/canary/claude test/doubles/canary/gh "$(BUNDLE)/bin/canary/"
 	$(BUNDLE_ENV) $(GO) test -c -trimpath -tags service -o "$(BUNDLE)/tests/service.test" ./test/service
 	$(BUNDLE_ENV) $(GO) test -c -trimpath -o "$(BUNDLE)/tests/contract.test" ./test/contract
 	$(BUNDLE_ENV) $(GO) test -c -trimpath -o "$(BUNDLE)/tests/localauth.test" ./internal/adapters/localauth

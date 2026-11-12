@@ -79,6 +79,17 @@ func newInstall(t *testing.T) *install {
 	return in
 }
 
+// aForge puts the fake gh on the install's PATH right after the CLI double, before the canaries, so a
+// daemon that reads a forge reads the fake one, and returns where the fake keeps its forge. The CLI
+// double stays first, where a test changes what it plays.
+func (in *install) aForge() string {
+	in.t.Helper()
+	dir := doubles.InstallFakeGH(in.t)
+	claude, rest, _ := strings.Cut(in.path, string(os.PathListSeparator))
+	in.path = strings.Join([]string{claude, dir, rest}, string(os.PathListSeparator))
+	return dir
+}
+
 func (in *install) env() []string {
 	return []string{
 		"HOME=" + in.home, "PATH=" + in.path, "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state"),

@@ -38,6 +38,12 @@ const (
 	// HoldContinuedBranchMissing says the in-flight branch the work continues is on neither the repository's
 	// remote nor its checkout (ADR-0023).
 	HoldContinuedBranchMissing HoldReason = "continued_branch_missing"
+	// HoldPullRequestPending says a review waits for the worker to push the branch it judges and to open
+	// its pull request, with the commit under review as the pull request's head (ADR-0020).
+	HoldPullRequestPending HoldReason = "pull_request_pending"
+	// HoldForgeUnavailable says a review waits on a worker whose forge sign-in cannot run: `gh` is missing
+	// there, or `gh auth status` reports a problem.
+	HoldForgeUnavailable HoldReason = "forge_unavailable"
 )
 
 // StartHold is a reason a ready work order is not claimed, and what it waits for.

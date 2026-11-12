@@ -49,7 +49,12 @@ func (h *handler) replyRepository(ctx context.Context, w http.ResponseWriter, re
 		fail(w, err)
 		return
 	}
-	view := api.ViewOf(record, agreement)
+	forge, err := h.repositories.ForgeHealth(ctx, h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	view := api.ViewOf(record, agreement, forge)
 	view.PlanOfRecord = record.ID == plan
 	reply(w, http.StatusOK, view)
 }
@@ -107,9 +112,14 @@ func (h *handler) listRepositories(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	forge, err := h.repositories.ForgeHealth(r.Context(), h.Scope)
+	if err != nil {
+		fail(w, err)
+		return
+	}
 	list := api.RepositoryList{Repositories: make([]api.RepositoryView, 0, len(records))}
 	for _, record := range records {
-		view := api.ViewOf(record, agreement)
+		view := api.ViewOf(record, agreement, forge)
 		view.PlanOfRecord = record.ID == plan
 		list.Repositories = append(list.Repositories, view)
 	}
@@ -137,7 +147,7 @@ func (h *handler) changeRepository(w http.ResponseWriter, r *http.Request, actor
 	}
 	changed, err := h.repositories.Change(r.Context(), h.Scope, record.ID, control.RepositoryChange{
 		Name: in.Name, Base: in.Base, MergeMethod: in.MergeMethod, StartFrom: in.StartFrom, ReviewTarget: in.ReviewTarget, MergeAuthority: in.MergeAuthority,
-		Planning: in.Planning,
+		Planning: in.Planning, ForgeBinding: in.ForgeBinding,
 	}, actor)
 	if err != nil {
 		fail(w, err)

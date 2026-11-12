@@ -130,7 +130,7 @@ type Ops interface {
 	PolicyVersions(ctx context.Context, scope ledger.WorkspaceID) ([]authority.PolicyVersion, error)
 	Accept(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (workorders.State, error)
 	Rework(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) (workorders.State, error)
-	Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error)
+	Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.CheckSource, actor ledger.Actor) ([]string, error)
 	Standing(ctx context.Context, scope ledger.WorkspaceID, id string) (workorders.AcceptanceView, error)
 	BeginParking(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, wake parking.Draft, actor ledger.Actor) error
 	CommitParked(ctx context.Context, scope ledger.WorkspaceID, holder workorders.Holder, commit ledger.ParkedCommit, actor ledger.Actor) (string, error)

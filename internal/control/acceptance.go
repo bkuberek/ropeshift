@@ -72,6 +72,13 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	for _, review := range reviews {
 		view.Reviews = append(view.Reviews, workorders.ReviewLine{ID: review.ID, State: review.State, Attempt: review.ReviewsFence})
 	}
+	pr, err := tx.Forge().PullRequest(id)
+	switch {
+	case err == nil:
+		view.PullRequest = &pr.PullRequest
+	case !errors.Is(err, ports.ErrNotFound):
+		return workorders.AcceptanceView{}, err
+	}
 	return view, nil
 }
 
@@ -361,7 +368,7 @@ type awaiting struct {
 // evidence decides by itself. It is a tick: the list is read with no lock, the forge is read
 // outside every transaction, and each item is one transaction that reads again. A nil forge
 // means no independent source exists, which leaves a lane's checks to a member (D16). A forge that fails decides nothing about its item, and the rest go on.
-func (a *Acceptances) Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error) {
+func (a *Acceptances) Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.CheckSource, actor ledger.Actor) ([]string, error) {
 	waiting, err := a.waiting(ctx, scope)
 	if err != nil {
 		return nil, err
@@ -427,7 +434,7 @@ func attemptBranch(artifacts []ledger.Artifact, fence int64) ledger.Artifact {
 	return ledger.Artifact{}
 }
 
-func forgeChecks(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, item awaiting) ([]ports.ForgeCheck, error) {
+func forgeChecks(ctx context.Context, scope ledger.WorkspaceID, forge ports.CheckSource, item awaiting) ([]ports.ForgeCheck, error) {
 	if forge == nil || item.branch.Digest == "" {
 		return nil, nil
 	}
@@ -750,44 +757,51 @@ func afterLaneEnd(tx ports.WriteTx, ended workorders.WorkOrder, holder workorder
 		if err := closeReview(tx, ended.ID); err != nil {
 			return err
 		}
-		return settleReviewed(tx, ended)
+		if err := settleReviewed(tx, ended); err != nil {
+			return err
+		}
+		return requestVerdictComment(tx, ended, result, actor)
 	}
 	if result.Outcome != workorders.OutcomeCompleted {
 		return nil
 	}
-	return openReview(tx, ended, ended.Fence+1, actor)
+	review, made, err := openReview(tx, ended, ended.Fence+1, actor)
+	if err != nil || !made {
+		return err
+	}
+	return requestPublish(tx, ended, review, holder, actor)
 }
 
 // openReview makes the review of an attempt that completed at fence, and says nothing when the attempt
-// left no commit: there is nothing for a review to read.
-func openReview(tx ports.WriteTx, reviewed workorders.WorkOrder, fence int64, actor ledger.Actor) error {
+// left no commit: there is nothing for a review to read. It reports whether it made one.
+func openReview(tx ports.WriteTx, reviewed workorders.WorkOrder, fence int64, actor ledger.Actor) (workorders.WorkOrder, bool, error) {
 	if reviewed.Kind != workorders.KindChange && reviewed.Kind != workorders.KindRework {
-		return nil
+		return workorders.WorkOrder{}, false, nil
 	}
 	artifacts, err := tx.Evidence().Artifacts(reviewed.ID)
 	if err != nil {
-		return err
+		return workorders.WorkOrder{}, false, err
 	}
 	if attemptBranch(artifacts, fence).Digest == "" {
-		return nil
+		return workorders.WorkOrder{}, false, nil
 	}
 	id, err := newID(tx.Now())
 	if err != nil {
-		return err
+		return workorders.WorkOrder{}, false, err
 	}
 	review, err := workorders.NewReview(id, reviewed, fence)
 	if err != nil {
-		return err
+		return workorders.WorkOrder{}, false, err
 	}
 	if err := tx.WorkOrders().Insert(review); err != nil {
-		return err
+		return workorders.WorkOrder{}, false, err
 	}
 	event, err := workorders.CreatedEvent(review, actor)
 	if err != nil {
-		return err
+		return workorders.WorkOrder{}, false, err
 	}
 	_, err = tx.Append(event)
-	return err
+	return review, err == nil, err
 }
 
 // closeReview moves a review whose lane completed to `done`, by the edge every accepted work order takes.
@@ -834,7 +848,8 @@ func refuseOwnWork(tx ports.WriteTx, order workorders.WorkOrder, lane string) er
 }
 
 // reviewStart is where a review's lane begins: the commit the reviewed attempt ended at, on the branch it
-// left. Nothing of it comes from git, so it cannot move with a base branch.
+// left. Nothing of it comes from git, so it cannot move with a base branch. A commit that reaches review
+// through a pull request waits until the pull request is open with that commit as its head (ADR-0020).
 func reviewStart(tx ports.ReadTx, review workorders.WorkOrder) (workorders.Start, *workorders.StartHold, error) {
 	artifacts, err := tx.Evidence().Artifacts(review.Reviews)
 	if err != nil {
@@ -843,6 +858,10 @@ func reviewStart(tx ports.ReadTx, review workorders.WorkOrder) (workorders.Start
 	branch := attemptBranch(artifacts, review.ReviewsFence)
 	if branch.Digest == "" {
 		return workorders.Start{}, unavailable("the commit under review is not on record: %s left no branch at attempt %d", review.Reviews, review.ReviewsFence), nil
+	}
+	hold, err := pullRequestHold(tx.Forge(), tx.Workers(), review.Reviews, branch.Digest)
+	if err != nil || hold != nil {
+		return workorders.Start{}, hold, err
 	}
 	return workorders.Start{Ref: branch.URI, Commit: branch.Digest}, nil, nil
 }

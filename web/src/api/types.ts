@@ -477,6 +477,17 @@ export type SourceBinding = {
   problems?: { path: string; detail: string }[];
 };
 
+// What one worker last said of its gh sign-in for one repository whose review target needs the forge.
+export type ForgeLine = {
+  worker: string;
+  worker_name?: string;
+  repository: string;
+  repository_name?: string;
+  state: string;
+  detail?: string;
+  checked_at: number;
+};
+
 export type Fleet = { fleet_mode: string; wip_limit: number; lanes_per_repository: number; lanes_per_worker: number };
 
 export type Operations = Stamp & {
@@ -487,6 +498,7 @@ export type Operations = Stamp & {
   workers_fresh: number;
   waiting_for_a_person: number;
   sources: SourceBinding[];
+  forges?: ForgeLine[];
   measures: MeasureReport;
 };
 
