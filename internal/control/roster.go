@@ -338,3 +338,97 @@ func keepVersion(writer ports.RosterWriter, appendEvent func(ledger.EventDraft) 
 	})
 	return err
 }
+
+// pinAgent chooses the roster agent a claim's lane runs as and pins the roster it starts with (ADR-0025):
+// the agent the work order names, or the default mapping's, one implementation tier above the agent that
+// ran the work this attempt reworks. A work order whose agent the roster cannot give is not eligible.
+func pinAgent(tx ports.WriteTx, order workorders.WorkOrder, priorClaim string, claim *workorders.Claim) error {
+	view, err := ResolveIn(tx.Roster())
+	if err != nil {
+		return err
+	}
+	reworks, err := reworkedAgent(tx, order, priorClaim)
+	if err != nil {
+		return err
+	}
+	agent, err := view.Resolved.LaneAgent(roster.LaneWork{Kind: string(order.Kind), Size: order.Size, Named: order.Agent, Reworks: reworks})
+	if err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrIneligible, err)
+	}
+	claim.Agent = agent.Name
+	claim.Roster = workorders.RosterPin{Installation: view.Installation, Project: view.Project, Digest: view.Resolved.Digest}
+	return nil
+}
+
+// reworkedAgent is the agent that ran the work this attempt reworks: the attempt before it, when a review
+// or a member sent that attempt back, or the work a `rework` work order reworks. Empty means this attempt
+// reworks nothing, because a failed review is an actual failure and a crash is not.
+func reworkedAgent(tx ports.WriteTx, order workorders.WorkOrder, priorClaim string) (string, error) {
+	if priorClaim != "" {
+		prior, err := tx.Claims().Find(priorClaim)
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return "", err
+		}
+		note, err := tx.Evidence().Reworked(order.ID)
+		switch {
+		case err == nil && prior.Agent != "" && note.Attempt == prior.Fence:
+			return prior.Agent, nil
+		case err != nil && !errors.Is(err, ports.ErrNotFound):
+			return "", err
+		}
+	}
+	if order.Kind != workorders.KindRework || order.ReworkOf == "" {
+		return "", nil
+	}
+	of, err := tx.WorkOrders().Get(order.ReworkOf)
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && of.ClaimID == "") {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	ran, err := tx.Claims().Find(of.ClaimID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return "", nil
+	}
+	return ran.Agent, err
+}
+
+// pinnedRoster resolves the roster a claim pinned, which its lane renders on every start and resume. A
+// claim made before the roster pinned none, and its lane receives no agents.
+func pinnedRoster(reader ports.RosterReader, pin workorders.RosterPin) (*roster.Resolved, error) {
+	if pin.Digest == "" {
+		return nil, nil
+	}
+	layer := func(scope string, version int64) (roster.Layer, error) {
+		if version == 0 {
+			return roster.Layer{}, nil
+		}
+		found, err := reader.Version(scope, version)
+		return found.Body, err
+	}
+	installation, err := layer(roster.ScopeInstallation, pin.Installation)
+	if err != nil {
+		return nil, err
+	}
+	project, err := layer(roster.ScopeProject, pin.Project)
+	if err != nil {
+		return nil, err
+	}
+	resolved := roster.Resolve(installation, project)
+	return &resolved, nil
+}
+
+// agentProblem is why the definition of ready refuses a work order's agent, or empty when the roster gives
+// it: the agent it names, or the default mapping's for its kind and size, must be known and enabled.
+func agentProblem(reader ports.RosterReader, order workorders.WorkOrder) (string, error) {
+	view, err := ResolveIn(reader)
+	if err != nil {
+		return "", err
+	}
+	_, err = view.Resolved.DefaultAgent(string(order.Kind), order.Size, order.Agent)
+	if errors.Is(err, roster.ErrUnknownAgent) || errors.Is(err, roster.ErrDisabledAgent) {
+		return err.Error(), nil
+	}
+	return "", err
+}

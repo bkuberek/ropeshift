@@ -481,6 +481,7 @@ func Diff(a, b WorkOrder) []string {
 	note("needs", sameNeeds(a.Needs, b.Needs))
 	note("base", a.Base == b.Base)
 	note("continues", a.Continues == b.Continues)
+	note("agent", a.Agent == b.Agent)
 	note("contract_id", a.ContractID == b.ContractID)
 	note("contract_version", a.ContractVersion == b.ContractVersion)
 	note("fence", a.Fence == b.Fence)

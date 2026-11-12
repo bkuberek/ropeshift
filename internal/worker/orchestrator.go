@@ -13,6 +13,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -53,9 +54,9 @@ func (r *laneRun) repository(ctx context.Context) (string, error) {
 
 // writePrompt leaves what a session reads ahead of everything else where the driver reads it: a
 // lane's pack, or an orchestrator's role, which every generation reads the same.
-func (r *laneRun) writePrompt(ctx context.Context, worktree string) (string, error) {
+func (r *laneRun) writePrompt(ctx context.Context, worktree string, support roster.Support) (string, error) {
 	if !r.orchestrating() {
-		return r.writePack(ctx, worktree)
+		return r.writePack(ctx, worktree, support)
 	}
 	path := filepath.Join(r.rt.configDir(r.lease.Lane), roleFile)
 	if err := os.WriteFile(path, []byte(lanes.OrchestratorRole), 0o600); err != nil {

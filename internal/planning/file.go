@@ -96,6 +96,10 @@ type WorkOrderSpec struct {
 	// Continues names an in-flight branch this work finishes (ADR-0023). Its lane starts from that branch's
 	// tip on a branch of its own, and the branch itself never moves.
 	Continues string `toml:"continues" json:"continues,omitempty"`
+	// Agent names the roster agent this work's lane runs as, which the planning session proposes from the
+	// catalog in its context pack and plan approval covers (ADR-0025). Empty leaves it to the roster's
+	// default mapping.
+	Agent string `toml:"agent" json:"agent,omitempty"`
 }
 
 // ContractFile is the front matter of a contract file. Requirements at this level is the key list of

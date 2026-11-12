@@ -22,6 +22,8 @@ var RosterChecks = []Check{
 	{"RO3", "each change is a version with its event, and a revert records a new version", checkRosterHistory},
 	{"RO4", "an agent the default mapping or open work names cannot be disabled or removed", checkRosterInUse},
 	{"RO5", "a project transaction never writes the installation's layer", checkProjectWritesNoInstallationRoster},
+	{"RO6", "a claim pins the agent its lane runs as and the roster it starts with, which its lease carries", checkClaimPinsTheAgent},
+	{"RO7", "work whose agent the roster cannot give fails the definition of ready, naming the agent", checkUnknownAgentIsNotReady},
 }
 
 type rosterRig struct {
@@ -222,3 +224,77 @@ func oneProjectOf(r *Rig, store ports.Store) ports.Projects {
 }
 
 func containsText(text, part string) bool { return strings.Contains(text, part) }
+
+func checkClaimPinsTheAgent(r *Rig) error {
+	g := newRosterRig(r)
+	if _, err := g.set(g.project(), "heavy-implementation", map[string]string{"effort": roster.EffortMax}); err != nil {
+		return err
+	}
+	byDefault, err := r.Ready(g.store)
+	if err != nil {
+		return err
+	}
+	holder, err := r.Running(g.store, byDefault, "w1")
+	if err != nil {
+		return err
+	}
+	view, err := g.ops.View(r.Ctx, g.project())
+	if err != nil {
+		return err
+	}
+	var claim workorders.Claim
+	err = g.store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		claim, err = tx.Claims().Find(holder.ClaimID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	// The rig's work order is a medium change, which the default mapping gives the implementation agent.
+	if claim.Agent != "implementation" || claim.Roster.Digest != view.Resolved.Digest || claim.Roster.Project != 1 || claim.Roster.Installation != 0 {
+		return Violatedf("the claim pinned %q with %+v, and the roster reads %s", claim.Agent, claim.Roster, view.Resolved.Digest)
+	}
+	// The pin names versions, so a later change leaves what the lane started with readable as it was.
+	if _, err := g.set(g.project(), "implementation", map[string]string{"effort": roster.EffortHigh}); err != nil {
+		return err
+	}
+	return g.store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		pinned, err := tx.Roster().Version(roster.ScopeProject, claim.Roster.Project)
+		if err != nil {
+			return err
+		}
+		if again := roster.Resolve(roster.Layer{}, pinned.Body); again.Digest != claim.Roster.Digest {
+			return Violatedf("the pinned versions resolve to %s, and the claim says %s", again.Digest, claim.Roster.Digest)
+		}
+		return nil
+	})
+}
+
+func checkUnknownAgentIsNotReady(r *Rig) error {
+	store := r.Store()
+	order, err := r.NewOps(store).Create(r.Ctx, r.Scope, workorders.WorkOrder{
+		ID: r.ID("wo"), Kind: workorders.KindChange, Title: "Port the module", Agent: "ghost", MaxAttempts: defaultMaxAttempts,
+		Requirements: []string{"PAY-12"}, Needs: map[string]string{"driver": "claude-code"},
+	}, r.Actor)
+	if err != nil {
+		return err
+	}
+	ops := r.NewOps(store)
+	for _, trigger := range []workorders.Trigger{workorders.TriggerAccepted, workorders.TriggerContractSubmitted} {
+		if err := ops.Move(r.Ctx, r.Scope, order.ID, trigger, r.Actor); err != nil {
+			return err
+		}
+	}
+	result, err := control.NewReviews(store).Pass(r.Ctx, r.Scope, order.ID, theMember)
+	if err != nil {
+		return err
+	}
+	named := slices.ContainsFunc(result.Failures, func(f workorders.ReadyFailure) bool {
+		return f.Check == workorders.CheckAgent && strings.Contains(f.Detail, `"ghost"`)
+	})
+	if result.State == workorders.Ready || !named {
+		return Violatedf("work naming an unknown agent reached %s with failures %+v", result.State, result.Failures)
+	}
+	return nil
+}

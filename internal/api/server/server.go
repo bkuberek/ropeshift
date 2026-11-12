@@ -395,7 +395,7 @@ func (h *handler) createWorkOrder(w http.ResponseWriter, r *http.Request, actor 
 	record, err := h.workOrders.Record(r.Context(), h.Scope, control.LedgerWork{
 		Order: workorders.WorkOrder{
 			ID: in.ID, Kind: kind, Title: in.Title, RepositoryID: in.RepositoryID, Priority: in.Priority,
-			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs, Adopt: in.Adopt,
+			Size: in.Size, Requirements: in.Requirements, Needs: in.Needs, Adopt: in.Adopt, Agent: in.Agent,
 		},
 		Statement: in.Statement,
 		Criteria:  in.Criteria,

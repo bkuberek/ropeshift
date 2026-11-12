@@ -97,7 +97,7 @@ func CriterionPart(c Criterion) Part {
 }
 
 // WorkOrderPart is the part a work order makes of its contract. It reads what a person sees of the
-// work: its title, priority, size, and needs.
+// work: its title, priority, size, needs, and the agent its lane runs as.
 func WorkOrderPart(w WorkOrderSpec) Part {
 	needs := make([]string, 0, len(w.Needs))
 	for key, value := range w.Needs {
@@ -112,6 +112,9 @@ func WorkOrderPart(w WorkOrderSpec) Part {
 	}
 	if w.Continues != "" {
 		read = append(read, "continues="+w.Continues)
+	}
+	if w.Agent != "" {
+		read = append(read, "agent="+w.Agent)
 	}
 	return Part{Ref: "work_order:" + w.ID, Digest: ContentDigest(read...)}
 }
