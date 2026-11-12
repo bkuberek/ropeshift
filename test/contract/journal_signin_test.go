@@ -28,7 +28,7 @@ func TestJournalKeepsASignInWithWhatFollows(t *testing.T) {
 	ctx := t.Context()
 	want := lanes.SignInState{
 		Last:    lanes.UsageReading{Status: lanes.UsageRejected, ResetsAtMs: 5, Window: "five_hour", UsedPercent: 91, UsedKnown: true},
-		Limited: true, ResetAtMs: 5, Probe: "lane-1", ProbeAtMs: 9, Tries: 2, Hint: "Current session", HintRead: true, SignedOut: true,
+		Limited: true, ResetAtMs: 5, Probe: "lane-1", ProbeAtMs: 9, ProbeGeneration: 3, Tries: 2, Hint: "Current session", HintRead: true, SignedOut: true,
 	}
 	if err := j.SaveSignIn(ctx, want, eventOf(ledger.UploadWakeSignal)); err != nil {
 		t.Fatal(err)

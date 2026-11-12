@@ -147,10 +147,10 @@ func (r *laneRun) noteRetry(ctx context.Context, event ports.DriverEvent) {
 // reset to go by, this lane is the one that tries again. A probe that finds the limit still there
 // waits longer.
 func (r *laneRun) reachedLimit(ctx context.Context) {
-	lane, now := r.lease.Lane, r.w.clock.Now().UnixMilli()
+	lane, generation, now := r.lease.Lane, r.currentGeneration(), r.w.clock.Now().UnixMilli()
 	base := r.state.usageBackoff()
 	err := r.w.moveSignIn(ctx, func(state *lanes.SignInState) ([]ledger.UploadEvent, bool) {
-		return nil, state.Reach(lane, now, base)
+		return nil, state.Reach(lane, generation, now, base)
 	})
 	if err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", lane, err))
@@ -247,18 +247,19 @@ func (w *Worker) parkOnSignIn(ctx context.Context) {
 		return
 	}
 	for _, run := range runs {
-		if request, ok := parkRequestOf(w.sign, key, run.lease.Lane, now); ok {
+		if request, ok := parkRequestOf(w.sign, key, run.lease.Lane, run.currentGeneration(), now); ok {
 			run.parkReported(ctx, request)
 		}
 	}
 }
 
-// parkRequestOf says what one lane waits on. A probe whose time came is out finding the answer.
-func parkRequestOf(state lanes.SignInState, key, lane string, now int64) (lanes.ParkRequest, bool) {
+// parkRequestOf says what one lane waits on. A probe sent on is out finding the answer, and the one
+// that found the limit waits on its time even once that came, so its wake fires at once.
+func parkRequestOf(state lanes.SignInState, key, lane string, generation, now int64) (lanes.ParkRequest, bool) {
 	switch {
 	case state.SignedOut:
 		return lanes.ParkRequest{Trigger: lanes.ParkSignIn, Expr: lanes.SignInWake(key), SkipNarrative: true}, true
-	case lane == state.Probe && now >= state.ProbeAtMs:
+	case state.Probing(lane, generation, now):
 		return lanes.ParkRequest{}, false
 	case lane == state.Probe:
 		return lanes.ParkRequest{Trigger: lanes.ParkUsageLimit, Expr: lanes.UsageWake(key, state.ProbeAtMs), SkipNarrative: true}, true
