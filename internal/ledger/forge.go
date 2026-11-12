@@ -142,6 +142,10 @@ type DesiredPullRequest struct {
 	State       PullRequestState `json:"state"`
 	HeadCommit  string           `json:"head_commit"`
 	MergeCommit string           `json:"merge_commit,omitempty"`
+	// Mergeable and Checks are what the ledger holds of them, so a worker's first read reports a change in
+	// either, which a required check needs to reach the merge.
+	Mergeable string             `json:"mergeable,omitempty"`
+	Checks    []PullRequestCheck `json:"checks,omitempty"`
 }
 
 // DesiredForgeRepository is a repository whose review target needs the forge. A worker that keeps a

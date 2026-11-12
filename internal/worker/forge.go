@@ -134,7 +134,8 @@ func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPull
 	if seen.told != nil && sameRead(*seen.told, read) {
 		return
 	}
-	if seen.told == nil && read.State == watched.State && read.HeadCommit == watched.HeadCommit && read.MergeCommit == watched.MergeCommit {
+	if seen.told == nil && read.State == watched.State && read.HeadCommit == watched.HeadCommit && read.MergeCommit == watched.MergeCommit &&
+		read.Mergeable == watched.Mergeable && slices.Equal(read.Checks, watched.Checks) {
 		w.forgeLock.Lock()
 		seen.told = &read
 		w.forgeRead[key] = seen

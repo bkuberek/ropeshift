@@ -320,3 +320,36 @@ func TestAWorkerMergesAReviewedBranchWithGit(t *testing.T) {
 		t.Errorf("the worker merged %d times", len(again))
 	}
 }
+
+// TestAWorkersFirstReadReportsChecksTheLedgerLacks reads a watched pull request for the first time after CI
+// reported on it: the read differs from what the ledger holds in its checks alone, and the worker reports
+// it, because a required check gates the merge (FR-MERGE-2).
+func TestAWorkersFirstReadReportsChecksTheLedgerLacks(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	for len(f.forge.PullRequests()) == 0 {
+		f.converge(1)
+	}
+	reads := func() int {
+		count := 0
+		for _, call := range f.forge.Calls() {
+			if strings.HasPrefix(call, "read ") {
+				count++
+			}
+		}
+		return count
+	}
+	if reads() != 0 {
+		t.Fatalf("the worker read the pull request before CI reported: %v", f.forge.Calls())
+	}
+	number := f.forge.PullRequests()[0].Number
+	f.forge.SetChecks(number, ledger.PullRequestCheck{Name: "CI result", State: ledger.CheckFailed, Required: true})
+	f.converge(3)
+	if reads() == 0 {
+		t.Fatalf("the worker never read the pull request: %v", f.forge.Calls())
+	}
+	pr, err := f.pullRequest()
+	if err != nil || len(pr.Checks) != 1 || !pr.Checks[0].Required || pr.Checks[0].State != ledger.CheckFailed {
+		t.Fatalf("the ledger holds %+v: %v", pr, err)
+	}
+}

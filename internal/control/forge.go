@@ -465,7 +465,7 @@ func watched(tx ports.ReadTx, worker string, bindings map[string]string, state *
 		}
 		state.PullRequests = append(state.PullRequests, ledger.DesiredPullRequest{
 			WorkOrder: pr.WorkOrder, Repository: pr.Repository, Binding: bindings[pr.Repository], Number: pr.Number, State: pr.State,
-			HeadCommit: pr.HeadCommit, MergeCommit: pr.MergeCommit,
+			HeadCommit: pr.HeadCommit, MergeCommit: pr.MergeCommit, Mergeable: pr.Mergeable, Checks: pr.Checks,
 		})
 	}
 	return nil
