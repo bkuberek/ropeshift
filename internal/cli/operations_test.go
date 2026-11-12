@@ -139,6 +139,7 @@ var operations = map[string]string{
 // namedRoutes are the routes the source spells through a constant.
 var namedRoutes = map[string]string{
 	"api.EventsPath": "events", "api.RiskPath": "worker risk", "api.NeedsYouPath": "needs", "api.PanePath": "lane attach", "api.PaneInputPath": "lane attach",
+	"api.AuditPath": "audit", "api.MembersPath": "member list", "api.ImportUploadPath": "project import", "api.BackupDownloadPath": "backup", "api.InstallationBackupDownloadPath": "backup",
 }
 
 var (
