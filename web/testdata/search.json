@@ -1,0 +1,516 @@
+{
+  "as_of": 1790000964001,
+  "records": [
+    {
+      "id": "generated-1",
+      "kind": "work_order",
+      "state": "done",
+      "title": "Write the API client"
+    },
+    {
+      "id": "generated-2",
+      "kind": "work_order",
+      "state": "contract_review",
+      "title": "Build the planning core"
+    },
+    {
+      "id": "generated-3",
+      "kind": "work_order",
+      "state": "contract_review",
+      "title": "Build the approval page"
+    },
+    {
+      "id": "generated-4",
+      "kind": "work_order",
+      "state": "ready",
+      "title": "Write the guide"
+    },
+    {
+      "id": "generated-5",
+      "kind": "work_order",
+      "state": "canceled",
+      "title": "Review: Write the API client"
+    },
+    {
+      "id": "generated-6",
+      "kind": "work_order",
+      "state": "done",
+      "title": "Review: Trim the log"
+    },
+    {
+      "id": "generated-7",
+      "kind": "work_order",
+      "state": "done",
+      "title": "Review: Ship the first cut"
+    },
+    {
+      "id": "generated-8",
+      "kind": "work_order",
+      "state": "contract_review",
+      "title": "Show the critical path"
+    },
+    {
+      "id": "review-1",
+      "kind": "work_order",
+      "state": "ready",
+      "title": "Review Write the docs"
+    },
+    {
+      "id": "wo-accept",
+      "kind": "work_order",
+      "state": "acceptance",
+      "title": "Trim the log"
+    },
+    {
+      "id": "wo-approval",
+      "kind": "work_order",
+      "state": "running",
+      "title": "Tag the release"
+    },
+    {
+      "id": "wo-blocked",
+      "kind": "work_order",
+      "state": "blocked",
+      "title": "Move the archive"
+    },
+    {
+      "id": "wo-canceled",
+      "kind": "work_order",
+      "state": "canceled",
+      "title": "Drop the old plan"
+    },
+    {
+      "id": "wo-done",
+      "kind": "work_order",
+      "state": "done",
+      "title": "Ship the first cut"
+    },
+    {
+      "id": "wo-effect",
+      "kind": "work_order",
+      "state": "running",
+      "title": "Add the retry budget"
+    },
+    {
+      "id": "wo-failed",
+      "kind": "work_order",
+      "state": "failed",
+      "title": "Try the impossible"
+    },
+    {
+      "id": "wo-lapsed",
+      "kind": "work_order",
+      "state": "lapsed",
+      "title": "Rotate the keys"
+    },
+    {
+      "id": "wo-loose",
+      "kind": "work_order",
+      "state": "intake",
+      "title": "Not planned yet"
+    },
+    {
+      "id": "wo-parked",
+      "kind": "work_order",
+      "state": "parked",
+      "title": "Wait for the check"
+    },
+    {
+      "id": "wo-review",
+      "kind": "work_order",
+      "state": "contract_review",
+      "title": "Document the retry budget"
+    },
+    {
+      "id": "wo-running",
+      "kind": "work_order",
+      "state": "running",
+      "title": "Write the docs"
+    },
+    {
+      "id": "wo-stalled",
+      "kind": "work_order",
+      "state": "running",
+      "title": "Read the logs"
+    },
+    {
+      "id": "wo-tripped",
+      "kind": "work_order",
+      "state": "running",
+      "title": "Fix the flaky test"
+    },
+    {
+      "id": "lane-generated-1",
+      "kind": "lane",
+      "state": "ended",
+      "title": "generated-1"
+    },
+    {
+      "id": "lane-generated-6",
+      "kind": "lane",
+      "state": "ended",
+      "title": "generated-6"
+    },
+    {
+      "id": "lane-generated-7",
+      "kind": "lane",
+      "state": "ended",
+      "title": "generated-7"
+    },
+    {
+      "id": "lane-wo-accept",
+      "kind": "lane",
+      "state": "ended",
+      "title": "wo-accept"
+    },
+    {
+      "id": "lane-wo-approval",
+      "kind": "lane",
+      "state": "working",
+      "title": "wo-approval"
+    },
+    {
+      "id": "lane-wo-blocked",
+      "kind": "lane",
+      "state": "ended",
+      "title": "wo-blocked"
+    },
+    {
+      "id": "lane-wo-done",
+      "kind": "lane",
+      "state": "ended",
+      "title": "wo-done"
+    },
+    {
+      "id": "lane-wo-effect",
+      "kind": "lane",
+      "state": "working",
+      "title": "wo-effect"
+    },
+    {
+      "id": "lane-wo-failed",
+      "kind": "lane",
+      "state": "ended",
+      "title": "wo-failed"
+    },
+    {
+      "id": "lane-wo-lapsed",
+      "kind": "lane",
+      "state": "working",
+      "title": "wo-lapsed"
+    },
+    {
+      "id": "lane-wo-parked",
+      "kind": "lane",
+      "state": "parked",
+      "title": "wo-parked"
+    },
+    {
+      "id": "lane-wo-running",
+      "kind": "lane",
+      "state": "working",
+      "title": "wo-running"
+    },
+    {
+      "id": "lane-wo-stalled",
+      "kind": "lane",
+      "state": "working",
+      "title": "wo-stalled"
+    },
+    {
+      "id": "lane-wo-tripped",
+      "kind": "lane",
+      "state": "tripped",
+      "title": "wo-tripped"
+    },
+    {
+      "id": "generated-9",
+      "kind": "plan",
+      "state": "active",
+      "title": "The factory floor"
+    },
+    {
+      "id": "generated-10",
+      "kind": "plan",
+      "state": "active",
+      "title": "Rotate the keys"
+    },
+    {
+      "id": "generated-11",
+      "kind": "plan",
+      "state": "active",
+      "title": "Move the archive"
+    },
+    {
+      "id": "generated-12",
+      "kind": "plan",
+      "state": "active",
+      "title": "Add the retry budget"
+    },
+    {
+      "id": "generated-13",
+      "kind": "plan",
+      "state": "active",
+      "title": "Trim the log"
+    },
+    {
+      "id": "generated-14",
+      "kind": "plan",
+      "state": "active",
+      "title": "Tag the release"
+    },
+    {
+      "id": "generated-15",
+      "kind": "plan",
+      "state": "active",
+      "title": "Wait for the check"
+    },
+    {
+      "id": "generated-16",
+      "kind": "plan",
+      "state": "active",
+      "title": "Write the docs"
+    },
+    {
+      "id": "generated-17",
+      "kind": "plan",
+      "state": "active",
+      "title": "Read the logs"
+    },
+    {
+      "id": "generated-18",
+      "kind": "plan",
+      "state": "active",
+      "title": "Fix the flaky test"
+    },
+    {
+      "id": "generated-19",
+      "kind": "plan",
+      "state": "active",
+      "title": "Review Write the docs"
+    },
+    {
+      "id": "generated-20",
+      "kind": "plan",
+      "state": "active",
+      "title": "Ship the first cut"
+    },
+    {
+      "id": "generated-21",
+      "kind": "plan",
+      "state": "active",
+      "title": "Try the impossible"
+    },
+    {
+      "id": "generated-22",
+      "kind": "plan",
+      "state": "active",
+      "title": "Drop the old plan"
+    },
+    {
+      "id": "generated-23",
+      "kind": "plan",
+      "state": "active",
+      "title": "Document the retry budget"
+    },
+    {
+      "id": "generated-24",
+      "kind": "contract",
+      "title": "The API client"
+    },
+    {
+      "id": "generated-25",
+      "kind": "contract",
+      "title": "The planning core"
+    },
+    {
+      "id": "generated-26",
+      "kind": "contract",
+      "title": "The approval page"
+    },
+    {
+      "id": "generated-27",
+      "kind": "contract",
+      "title": "The newcomer guide"
+    },
+    {
+      "id": "generated-28",
+      "kind": "contract",
+      "title": "Rotate the keys"
+    },
+    {
+      "id": "generated-29",
+      "kind": "contract",
+      "title": "Move the archive"
+    },
+    {
+      "id": "generated-30",
+      "kind": "contract",
+      "title": "Add the retry budget"
+    },
+    {
+      "id": "generated-31",
+      "kind": "contract",
+      "title": "Trim the log"
+    },
+    {
+      "id": "generated-32",
+      "kind": "contract",
+      "title": "Tag the release"
+    },
+    {
+      "id": "generated-33",
+      "kind": "contract",
+      "title": "Wait for the check"
+    },
+    {
+      "id": "generated-34",
+      "kind": "contract",
+      "title": "Read the logs"
+    },
+    {
+      "id": "generated-35",
+      "kind": "contract",
+      "title": "Fix the flaky test"
+    },
+    {
+      "id": "generated-36",
+      "kind": "contract",
+      "title": "Write the docs"
+    },
+    {
+      "id": "generated-37",
+      "kind": "contract",
+      "title": "Review Write the docs"
+    },
+    {
+      "id": "generated-38",
+      "kind": "contract",
+      "title": "Ship the first cut"
+    },
+    {
+      "id": "generated-39",
+      "kind": "contract",
+      "title": "Try the impossible"
+    },
+    {
+      "id": "generated-40",
+      "kind": "contract",
+      "title": "Drop the old plan"
+    },
+    {
+      "id": "generated-41",
+      "kind": "contract",
+      "title": "Document the retry budget"
+    },
+    {
+      "id": "FAC-1",
+      "kind": "requirement",
+      "title": "A person approves a whole plan in one step."
+    },
+    {
+      "id": "FAC-2",
+      "kind": "requirement",
+      "title": "Shared work is built before the work that uses it."
+    },
+    {
+      "id": "FAC-3",
+      "kind": "requirement",
+      "title": "A person sees which work can run at the same time."
+    },
+    {
+      "id": "FAC-4",
+      "kind": "requirement",
+      "title": "A reviewer's verdict names each criterion."
+    },
+    {
+      "id": "FR-RETRY-1",
+      "kind": "requirement",
+      "title": "A lane must stop retrying at its budget."
+    },
+    {
+      "id": "FR-RETRY-2",
+      "kind": "requirement",
+      "title": "A person can read why <img src=x onerror=alert(1)><script>alert(2)</script> stopped."
+    },
+    {
+      "id": "decision-1",
+      "kind": "decision",
+      "state": "replaced",
+      "title": "Retry twice."
+    },
+    {
+      "id": "decision-2",
+      "kind": "decision",
+      "state": "replaced",
+      "title": "Retry three times."
+    },
+    {
+      "id": "decision-3",
+      "kind": "decision",
+      "state": "assumed",
+      "title": "Retry until the budget runs out."
+    },
+    {
+      "id": "question-1",
+      "kind": "question",
+      "state": "needs_human",
+      "title": "Should the budget hold across restarts?"
+    },
+    {
+      "id": "question-2",
+      "kind": "question",
+      "state": "needs_human",
+      "title": "May the <img src=x onerror=alert(1)><script>alert(2)</script> stay?"
+    },
+    {
+      "id": "question-review",
+      "kind": "question",
+      "state": "open",
+      "title": "Does the plan cover a restart?"
+    },
+    {
+      "id": "architecture:factory",
+      "kind": "document",
+      "state": "architecture",
+      "title": "How the factory is built"
+    },
+    {
+      "id": "milestone:build",
+      "kind": "document",
+      "state": "milestone",
+      "title": "Build the core"
+    },
+    {
+      "id": "milestone:guide",
+      "kind": "document",
+      "state": "milestone",
+      "title": "Guide a newcomer"
+    },
+    {
+      "id": "milestone:ship",
+      "kind": "document",
+      "state": "milestone",
+      "title": "Ship the approval page"
+    },
+    {
+      "id": "requirements:factory",
+      "kind": "document",
+      "state": "requirements",
+      "title": "What the factory must do"
+    },
+    {
+      "id": "spec:factory-api",
+      "kind": "document",
+      "state": "spec",
+      "title": "The factory API"
+    },
+    {
+      "id": "repository-1",
+      "kind": "repository",
+      "state": "active",
+      "title": "app"
+    }
+  ],
+  "revision": 339
+}

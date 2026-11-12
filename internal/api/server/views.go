@@ -41,6 +41,7 @@ func (h *handler) viewRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("GET "+api.ViewPath(name), func(w http.ResponseWriter, r *http.Request) { h.serveView(w, r, fill) })
 	}
 	mux.HandleFunc("GET "+api.ViewPath(api.ViewDocuments), h.serveDocuments)
+	mux.HandleFunc("GET "+api.ViewPath(api.ViewSearch), h.serveSearch)
 }
 
 // serveView reads one view in one read, so everything in it stands at one revision.
