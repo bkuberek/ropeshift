@@ -18,6 +18,7 @@ import (
 	"ropeshift.com/ropeshift/test/contract"
 	"ropeshift.com/ropeshift/test/doubles"
 	"ropeshift.com/ropeshift/test/gittest"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 func exists(pid int) bool { return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) }
@@ -330,8 +331,8 @@ func TestAWorkerRestartsASessionAfterItsShimDies(t *testing.T) {
 		return slices.Contains(eventTypes(in.events(t, id)), workorders.EventGenerationBound)
 	})
 
-	if err := syscall.Kill(state.ShimPID, syscall.SIGKILL); err != nil {
-		t.Fatal(err)
+	if sent, skipped := procs.Signal(state.ShimPID, syscall.SIGKILL, "lane-shim", filepath.Join(config, "shim-1")); !sent {
+		t.Fatalf("the shim %d was not killed: %q", state.ShimPID, skipped)
 	}
 	if err := os.WriteFile(filepath.Join(doubles.BinDir(in.path), "release"), nil, 0o600); err != nil {
 		t.Fatal(err)

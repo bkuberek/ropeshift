@@ -100,3 +100,31 @@ func TestSignalNeverSignalsTheInitProcess(t *testing.T) {
 		t.Error("process 1 was signaled")
 	}
 }
+
+// A process that has ended and waits to be collected holds its ID but runs nothing, so it is gone.
+func TestAnEndedProcessNobodyCollectedIsGone(t *testing.T) {
+	cmd := exec.Command("sleep", "76")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Wait() })
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for Alive(cmd.Process.Pid) && !errors.Is(commandErr(cmd.Process.Pid), ErrGone) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, err := Command(cmd.Process.Pid); !errors.Is(err, ErrGone) {
+		t.Errorf("the command of an ended process is %v", err)
+	}
+	if sent, skipped := Signal(cmd.Process.Pid, syscall.SIGKILL, "sleep"); sent || skipped != "" {
+		t.Errorf("sent %v, reason %q", sent, skipped)
+	}
+}
+
+func commandErr(pid int) error {
+	_, err := Command(pid)
+	return err
+}

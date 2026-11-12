@@ -17,12 +17,13 @@ import (
 var ErrGone = errors.New("no such process")
 
 // Command is the command line of the process holding an ID, with its arguments. It fails with
-// ErrGone when no process holds it.
+// ErrGone when no process holds it, and when the process has ended and waits to be collected, which
+// holds the ID and runs nothing.
 func Command(pid int) (string, error) {
 	if pid <= 1 {
 		return "", fmt.Errorf("process ID %d is not one a test records", pid)
 	}
-	out, err := exec.Command("ps", "-ww", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	out, err := exec.Command("ps", "-ww", "-o", "stat=", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 1 {
 		return "", ErrGone
@@ -30,8 +31,9 @@ func Command(pid int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	command := strings.TrimSpace(string(out))
-	if command == "" {
+	state, command, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
+	command = strings.TrimSpace(command)
+	if command == "" || strings.HasPrefix(state, "Z") {
 		return "", ErrGone
 	}
 	return command, nil
