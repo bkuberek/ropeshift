@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -39,6 +40,9 @@ type Worktrees struct {
 	fetchFail error
 	specs     []ports.WorktreeSpec
 	grown     int
+	// merges is every branch merge asked for, and mergeAs what each comes to while it is set.
+	merges  []ports.BranchMerge
+	mergeAs *ledger.MergeResult
 }
 
 // NewWorktrees returns an empty store.
@@ -333,7 +337,34 @@ func (w *Worktrees) PushBranch(_ context.Context, repository, branch string) err
 // DefaultBranch names the branch every fake repository lands on.
 func (w *Worktrees) DefaultBranch(context.Context, string) (string, error) { return "main", nil }
 
+// MergeBranch merges a branch into its base, as git would, or comes to what MergeAs set. A merge asked again
+// for the same reviewed commit finds the one it made.
+func (w *Worktrees) MergeBranch(_ context.Context, _ string, merge ports.BranchMerge) (ledger.MergeResult, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.merges = append(w.merges, merge)
+	if w.mergeAs != nil {
+		return *w.mergeAs, nil
+	}
+	return ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: "merge-of-" + merge.Commit, MergedAt: "2026-01-02T03:04:05Z"}, nil
+}
+
+// MergeAs makes every branch merge come to a result, and nil lets them merge again.
+func (w *Worktrees) MergeAs(result *ledger.MergeResult) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.mergeAs = result
+}
+
+// Merges lists every branch merge asked for, in order.
+func (w *Worktrees) Merges() []ports.BranchMerge {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.merges)
+}
+
 var (
-	_ ports.Worktrees   = (*Worktrees)(nil)
-	_ ports.ReviewTrees = (*Worktrees)(nil)
+	_ ports.Worktrees    = (*Worktrees)(nil)
+	_ ports.ReviewTrees  = (*Worktrees)(nil)
+	_ ports.BranchMerger = (*Worktrees)(nil)
 )

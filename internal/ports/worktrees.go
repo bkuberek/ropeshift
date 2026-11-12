@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // Worktree refusals.
@@ -100,4 +101,28 @@ type ReviewTrees interface {
 	// WriteContextFile leaves one more named file beside the pack, in the same directory and with the
 	// same rules, and returns its path. The name is a bare file name.
 	WriteContextFile(ctx context.Context, path, name, text string) (string, error)
+}
+
+// BranchMerge asks for one reviewed branch merged into its base with git (ADR-0020). The branch must still
+// be at Commit, the reviewed commit, and the merge lands on the base with Method.
+type BranchMerge struct {
+	Branch string
+	Base   string
+	Commit string
+	Method ledger.MergeMethod
+	// WorkOrder names the work the merge lands. The commit the merge makes on the base carries it and Commit
+	// as trailers, which is how a merge repeated after a crash finds the one it made.
+	WorkOrder string
+	// Title is the subject of the commit a merge or a squash makes.
+	Title string
+}
+
+// BranchMerger merges a reviewed branch into its base with git, in a temporary worktree detached at the
+// base's tip and never in the checkout: with a remote, it pushes the result to the base branch without
+// forcing; with none, it moves the local base branch only from the tip it merged onto, and never while a
+// worktree has the base checked out. A merge an earlier attempt landed answers merged. A conflict, a branch
+// no longer at the reviewed commit, and a push the remote refuses come back as merge outcomes; an error is
+// one a later attempt asks again, such as a base that moved while the merge ran.
+type BranchMerger interface {
+	MergeBranch(ctx context.Context, repository string, merge BranchMerge) (ledger.MergeResult, error)
 }
