@@ -164,9 +164,8 @@ func TestAReviewLaneReadsTheReviewedCommitAndLeavesNoBranch(t *testing.T) {
 	if got := repo.Git("for-each-ref", "refs/ropeshift"); got != "" {
 		t.Errorf("a review left refs of its own:\n%s", got)
 	}
-	if shown := in.lane("review-1"); !shown.Archived {
-		t.Errorf("the ledger does not know the worktree went: %+v", shown)
-	}
+	// The worker journals that the worktree went, and the ledger learns it from the worker's next upload.
+	in.waitFor("the ledger to know the review's worktree went", func() bool { return in.lane("review-1").Archived })
 }
 
 // aReviewLane replaces the lane the install's CLI double plays with one that reviews.
