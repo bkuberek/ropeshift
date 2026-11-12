@@ -14,7 +14,8 @@ import (
 )
 
 // proposablePlans lists the `plan` work orders whose lane ended with a branch nobody has accepted, and
-// that no request already asks about at that commit.
+// that no request already asks about at that commit. A branch whose head moved after intake read an earlier
+// commit of it is asked about again, at its new head.
 func (i *Intake) proposablePlans(ctx context.Context, scope ledger.WorkspaceID) ([]acceptedPlan, error) {
 	var out []acceptedPlan
 	err := i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
@@ -23,7 +24,7 @@ func (i *Intake) proposablePlans(ctx context.Context, scope ledger.WorkspaceID) 
 			return err
 		}
 		for _, row := range rows {
-			if row.Kind != workorders.KindPlan || row.State != workorders.Acceptance || row.PlanCommit != "" {
+			if row.Kind != workorders.KindPlan || row.State != workorders.Acceptance {
 				continue
 			}
 			artifacts, err := tx.Evidence().Artifacts(row.ID)
@@ -31,7 +32,7 @@ func (i *Intake) proposablePlans(ctx context.Context, scope ledger.WorkspaceID) 
 				return err
 			}
 			branch := attemptBranch(artifacts, row.Fence)
-			if branch.Digest == "" {
+			if branch.Digest == "" || branch.Digest == row.PlanCommit {
 				continue
 			}
 			asked, err := askedAbout(tx.Approvals(), row.ID, branch.Digest)

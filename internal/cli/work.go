@@ -174,7 +174,11 @@ func workDetailText(detail api.WorkDetail) string {
 		if record.Merged() {
 			merged = "merged as " + dashIfEmpty(shortCommit(record.MergedCommit))
 		}
-		fmt.Fprintf(&out, "approved\t%s\tby %s\tat %s\t%s\n", shortCommit(record.ApprovedCommit), approver, record.MergeAuthority, merged)
+		plan := ""
+		if record.Plan != "" {
+			plan = fmt.Sprintf("\tplan %s version %d", record.Plan, record.PlanVersion)
+		}
+		fmt.Fprintf(&out, "approved\t%s\tby %s\tat %s\t%s%s\n", shortCommit(record.ApprovedCommit), approver, record.MergeAuthority, merged, plan)
 	}
 	switch {
 	case detail.Why == "":

@@ -36,6 +36,17 @@ type forgeRig struct {
 }
 
 func newForgeRig(r *Rig, target ledger.ReviewTarget) (*forgeRig, error) {
+	return newForgeRigOf(r, target, func(repository string) control.LedgerWork {
+		return control.LedgerWork{
+			Order:     workorders.WorkOrder{ID: r.ID("wo"), Kind: workorders.KindChange, Title: "Add the retry budget", RepositoryID: repository, MaxAttempts: 2},
+			Statement: "Retry a failed payment within a budget.",
+			Criteria:  []planning.Criterion{{ID: "c1", Text: "A failed payment is retried"}, {ID: "c2", Text: "Each retry is logged"}},
+		}
+	})
+}
+
+// newForgeRigOf is a forge rig whose lane ran the work given, in the rig's repository, and ended with checks.
+func newForgeRigOf(r *Rig, target ledger.ReviewTarget, work func(repository string) control.LedgerWork, checks ...workorders.CheckResult) (*forgeRig, error) {
 	s := r.Store()
 	repository := r.ID("repo")
 	if _, err := r.detect(s, repository, forgeRemote, "main"); err != nil {
@@ -46,11 +57,7 @@ func newForgeRig(r *Rig, target ledger.ReviewTarget) (*forgeRig, error) {
 	}
 	ready := func(store ports.Store) (string, error) {
 		ops := r.NewOps(store)
-		order, err := ops.Record(r.Ctx, r.Scope, control.LedgerWork{
-			Order:     workorders.WorkOrder{ID: r.ID("wo"), Kind: workorders.KindChange, Title: "Add the retry budget", RepositoryID: repository, MaxAttempts: 2},
-			Statement: "Retry a failed payment within a budget.",
-			Criteria:  []planning.Criterion{{ID: "c1", Text: "A failed payment is retried"}, {ID: "c2", Text: "Each retry is logged"}},
-		}, r.Actor)
+		order, err := ops.Record(r.Ctx, r.Scope, work(repository), r.Actor)
 		if err != nil {
 			return "", err
 		}
@@ -62,7 +69,7 @@ func newForgeRig(r *Rig, target ledger.ReviewTarget) (*forgeRig, error) {
 		return nil, err
 	}
 	f := &forgeRig{statusRig: st, repository: repository, head: r.ID("commit")}
-	raw, err := json.Marshal(LaneFinished(f.head))
+	raw, err := json.Marshal(LaneFinished(f.head, checks...))
 	if err != nil {
 		return nil, err
 	}

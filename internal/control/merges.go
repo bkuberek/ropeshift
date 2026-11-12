@@ -26,12 +26,12 @@ func mergeID(workOrder, commit string, round int) string {
 	return fmt.Sprintf("merge:%s:%s:%d", workOrder, commit, round)
 }
 
-// mergesOnAccept says accepted work waits for a merge rather than ends: a change or a rework that left a
-// commit, in a repository whose merge authority has ropeshift merge, or that lands through a pull request, which
-// at person_merges the person merges (ADR-0020). Planning work, reviews, and a branch at person_merges end as
-// they always did.
+// mergesOnAccept says accepted work waits for a merge rather than ends: a change, a rework, or a planning branch
+// that left a commit, in a repository whose merge authority has ropeshift merge, or that lands through a pull
+// request, which at person_merges the person merges (ADR-0018, ADR-0020). Reviews, contract reviews, and a branch
+// at person_merges end as they always did.
 func mergesOnAccept(tx ports.WriteTx, order workorders.WorkOrder) (bool, error) {
-	if order.Kind != workorders.KindChange && order.Kind != workorders.KindRework {
+	if order.Kind != workorders.KindChange && order.Kind != workorders.KindRework && order.Kind != workorders.KindPlan {
 		return false, nil
 	}
 	record, err := tx.Repositories().Repository(order.RepositoryID)
@@ -67,6 +67,9 @@ type integrationFacts struct {
 	requests []authority.Approval
 	// worker is the worker that ran the lane that left the commit, which holds its branch.
 	worker string
+	// plan is what plan approval says of a planning branch, which merges on a member's plan approval and on
+	// nothing else (ADR-0018). It is nil for any other work.
+	plan *workorders.PlanStanding
 }
 
 func (f integrationFacts) commit() string { return f.branch.Digest }
@@ -155,9 +158,15 @@ func readIntegration(tx integrationReaders, order workorders.WorkOrder) (integra
 	if err != nil {
 		return f, err
 	}
+	if order.Kind == workorders.KindPlan {
+		f.plan = &workorders.PlanStanding{}
+	}
 	for _, request := range approvals {
-		if request.Kind == authority.KindMerge {
+		switch {
+		case request.Kind == authority.KindMerge:
 			f.requests = append(f.requests, request)
+		case request.Kind == authority.KindPlan && f.plan != nil && request.Open():
+			f.plan.Waiting = append(f.plan.Waiting, "plan "+request.Subject)
 		}
 	}
 	f.worker, err = laneWorker(tx, f.branch.Lane)
@@ -166,7 +175,7 @@ func readIntegration(tx integrationReaders, order workorders.WorkOrder) (integra
 
 // gateInput is what the integration rule reads of the facts.
 func (f integrationFacts) gateInput() workorders.GateInput {
-	in := workorders.GateInput{Authority: f.record.Level(), Target: f.record.Target(), Commit: f.commit(), Approved: f.approval != nil}
+	in := workorders.GateInput{Authority: f.record.Level(), Target: f.record.Target(), Commit: f.commit(), Approved: f.approval != nil, Plan: f.plan}
 	if f.pr != nil {
 		in.PullRequest = &f.pr.PullRequest
 	}
@@ -243,8 +252,9 @@ func integrate(tx ports.WriteTx, id string) error {
 	gate, request := f.waiting()
 	switch gate.Step {
 	case workorders.StepWait:
-		// At person_merges the person merges on the forge, so nobody is asked to approve a merge.
-		if f.record.Level() != ledger.PersonMerges && f.approval == nil && f.openRequest(authority.MergeApprove) == nil && request == nil {
+		// At person_merges the person merges on the forge, so nobody is asked to approve a merge, and the plan
+		// approval a planning branch waits for is the request a member already has.
+		if f.record.Level() != ledger.PersonMerges && f.plan == nil && f.approval == nil && f.openRequest(authority.MergeApprove) == nil && request == nil {
 			return raiseMerge(tx, f, authority.MergeApprove, "", "")
 		}
 		return nil
@@ -348,6 +358,19 @@ func raiseMerge(tx ports.WriteTx, f integrationFacts, subject, reason, request s
 // approveMerge records an approval of the reviewed commit for merge, once per commit: a later approval of the
 // same commit is the same approval, and a new commit needs its own.
 func approveMerge(tx ports.WriteTx, f integrationFacts, kind ledger.ApproverKind, by string, generation int64, actor ledger.Actor) error {
+	return recordApproval(tx, f, approvedMerge{IntegrationRecord: f.approvalBy(tx, kind, by), Generation: generation}, actor)
+}
+
+// approvedMerge is the payload of an approval for merge: the record, the review lane's generation when the
+// review approved, and the plan approval when a member's plan approval did.
+type approvedMerge struct {
+	ledger.IntegrationRecord
+	Generation   int64  `json:"generation,omitempty"`
+	PlanApproval string `json:"plan_approval,omitempty"`
+}
+
+// approvalBy is the record of an approval of the reviewed commit, by whom, at the level in force.
+func (f integrationFacts) approvalBy(tx ports.WriteTx, kind ledger.ApproverKind, by string) ledger.IntegrationRecord {
 	record := ledger.IntegrationRecord{
 		ID: ledger.IntegrationID(f.order.ID, f.commit()), WorkOrder: f.order.ID, ApprovedCommit: f.commit(), MergeAuthority: f.record.Level(),
 		ApprovedByKind: kind, ApprovedByID: by, ApprovedAt: tx.Now(),
@@ -355,14 +378,15 @@ func approveMerge(tx ports.WriteTx, f integrationFacts, kind ledger.ApproverKind
 	if f.pr != nil {
 		record.PullRequest = f.pr.Number
 	}
-	added, err := tx.Forge().InsertIntegration(record)
+	return record
+}
+
+// recordApproval keeps an approval for merge and its event, once per commit.
+func recordApproval(tx ports.WriteTx, f integrationFacts, approved approvedMerge, actor ledger.Actor) error {
+	added, err := tx.Forge().InsertIntegration(approved.IntegrationRecord)
 	if err != nil || !added {
 		return err
 	}
-	approved := struct {
-		ledger.IntegrationRecord
-		Generation int64 `json:"generation,omitempty"`
-	}{record, generation}
 	return appendIntegration(tx, ledger.EventIntegrationApproved, f.order.ID, approved, actor)
 }
 
@@ -396,6 +420,9 @@ func integrateAccepted(tx ports.WriteTx, id string, assessment workorders.Assess
 		return err
 	}
 	switch {
+	case f.plan != nil:
+		// A planning branch's approval is the member's plan approval, which intake records once it holds the
+		// plan the member approved (ADR-0018).
 	case authority.PartyOf(actor) == authority.PartyPerson:
 		err = approveMerge(tx, f, ledger.ApprovedByMember, actor.ID, 0, actor)
 	case review != "" && f.record.Level() == ledger.ReviewApproves:
@@ -508,8 +535,10 @@ func mergedOnForge(tx ports.WriteTx, f integrationFacts) error {
 
 // mergeReported keeps what a worker's merge came to (ADR-0020). A merge that landed records the merged commit
 // and ends the work. A conflict, or a branch behind a base that requires an up-to-date one, sends the work
-// back to rework on the same branch, whose next lane merges the current base into it. Anything else the forge
-// or git refused holds the work in `integrating` for a member, with why.
+// back to rework on the same branch, whose next lane merges the current base into it. A head that moved goes
+// back to acceptance at the new head: a pull request's, which is reviewed again, and a planning branch's,
+// whose plan needs its own approval (ADR-0018). Anything else the forge or git refused holds the work in
+// `integrating` for a member, with why.
 func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.ForgeReport, actor ledger.Actor) error {
 	if report.Merge == nil {
 		return fmt.Errorf("%w: a merge report says nothing of the merge", workorders.ErrInvalid)
@@ -550,7 +579,7 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 		return nil
 	case result.Outcome.Rework():
 		return reworkConflict(tx, f, request, result)
-	case result.Outcome == ledger.MergeStaleHead && f.record.Target() == ledger.ReviewOnPullRequest && result.Head != "" && result.Head != request.Commit:
+	case result.Outcome == ledger.MergeStaleHead && (f.record.Target() == ledger.ReviewOnPullRequest || f.plan != nil) && result.Head != "" && result.Head != request.Commit:
 		f.branch.Digest = current
 		return reviewAgain(tx, f, result.Head)
 	}
@@ -564,20 +593,23 @@ type headMoved struct {
 	Head        string `json:"head_commit"`
 }
 
-// reviewAgain sends work whose pull request's head moved past the reviewed commit back to review at the new
-// head (ADR-0020): the new head becomes the commit of the attempt, every merge request bound to the old head
-// is void, the work returns to acceptance, and a review of the new head opens. Verdicts and approvals bind to
-// the commit they judged, so nothing of the old head counts for the new one.
+// reviewAgain sends work whose head moved past the reviewed commit back to review at the new head (ADR-0020):
+// the new head becomes the commit of the attempt, every merge request bound to the old head is void, the work
+// returns to acceptance, and a review of the new head opens. Verdicts and approvals bind to the commit they
+// judged, so nothing of the old head counts for the new one. A planning branch has no review: intake asks for
+// the approval of the plan its new head holds (ADR-0018).
 func reviewAgain(tx ports.WriteTx, f integrationFacts, head string) error {
 	if head == "" || head == f.commit() {
 		return nil
 	}
-	if err := voidMergeRequests(tx, f.order.ID, "", fmt.Sprintf("the pull request's head moved to %s", short(head))); err != nil {
-		return err
-	}
-	branch := f.branch.URI
+	branch, where := f.branch.URI, "the pull request's head"
 	if f.pr != nil {
 		branch = f.pr.Branch
+	} else {
+		where = fmt.Sprintf("the head of branch %s", branch)
+	}
+	if err := voidMergeRequests(tx, f.order.ID, "", fmt.Sprintf("%s moved to %s", where, short(head))); err != nil {
+		return err
 	}
 	id, err := newID(tx.Now())
 	if err != nil {
@@ -596,7 +628,7 @@ func reviewAgain(tx ports.WriteTx, f integrationFacts, head string) error {
 	}
 	change := workorders.Change{
 		Trigger: workorders.TriggerHeadMoved, Payload: payload,
-		Reason: fmt.Sprintf("the pull request's head moved from the reviewed commit %s to %s", short(f.commit()), short(head)),
+		Reason: fmt.Sprintf("%s moved from the reviewed commit %s to %s", where, short(f.commit()), short(head)),
 	}
 	if err := leaveAcceptance(tx, f.order.ID, change, mergeActor, func() {}); err != nil {
 		return err

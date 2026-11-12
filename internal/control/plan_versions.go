@@ -29,8 +29,8 @@ type planFileRead struct {
 }
 
 // planOrigin says where a batch came from. A batch read from an accepted `plan` work order's commit
-// came from that work order's lane.
-type planOrigin struct{ workOrder string }
+// came from that work order's lane, at that commit.
+type planOrigin struct{ workOrder, commit string }
 
 // nativeIDs gives the ID a file gave a record, which a ref is made of, for a record of the ledger.
 type nativeIDs map[string]string
@@ -225,7 +225,7 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 		return false, err
 	}
 	if found {
-		return true, finishApproved(tx, next, approved)
+		return true, finishApproved(tx, next, approved, origin.commit)
 	}
 	return true, askForPlanApproval(tx, planAsk{
 		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,

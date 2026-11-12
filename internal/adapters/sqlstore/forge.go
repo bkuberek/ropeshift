@@ -14,7 +14,7 @@ const forgeRequestColumns = `id, kind, work_order_id, repository_id, worker_id, 
        method, attempt, state, outcome, detail, requested_at, reported_at`
 
 const integrationColumns = `id, work_order_id, pull_request, approved_commit, merge_authority, approved_by_kind, approved_by_id,
-       approved_at, merged_commit, merged_at`
+       approved_at, merged_commit, merged_at, plan_id, plan_version`
 
 const pullRequestColumns = `work_order_id, repository_id, worker_id, number, url, state, base, branch, head_commit, mergeable,
        merge_commit, merged_at, checks, read_at`
@@ -57,10 +57,10 @@ ON CONFLICT DO NOTHING`)
 	stmtInsertIntegration = define("forge.integration_insert",
 		`INSERT INTO integration_records
   (workspace_id, id, work_order_id, pull_request, approved_commit, merge_authority, approved_by_kind, approved_by_id, approved_at,
-   merged_commit, merged_at)
+   merged_commit, merged_at, plan_id, plan_version)
 VALUES
   (:workspace_id, :id, :work_order_id, :pull_request, :approved_commit, :merge_authority, :approved_by_kind, :approved_by_id,
-   :approved_at, :merged_commit, :merged_at)
+   :approved_at, :merged_commit, :merged_at, :plan_id, :plan_version)
 ON CONFLICT DO NOTHING`)
 
 	stmtIntegration = define("forge.integration_get",
@@ -196,7 +196,7 @@ func scanIntegration(row scanner) (ledger.IntegrationRecord, error) {
 	var r ledger.IntegrationRecord
 	var authority, kind string
 	err := row.Scan(&r.ID, &r.WorkOrder, &r.PullRequest, &r.ApprovedCommit, &authority, &kind, &r.ApprovedByID, &r.ApprovedAt,
-		&r.MergedCommit, &r.MergedAt)
+		&r.MergedCommit, &r.MergedAt, &r.Plan, &r.PlanVersion)
 	r.MergeAuthority, r.ApprovedByKind = ledger.MergeAuthority(authority), ledger.ApproverKind(kind)
 	return r, err
 }
@@ -234,7 +234,7 @@ func (t forgeTx) InsertIntegration(r ledger.IntegrationRecord) (bool, error) {
 	n, err := t.exec(stmtInsertIntegration, t.scoped(params{
 		"id": r.ID, "work_order_id": r.WorkOrder, "pull_request": r.PullRequest, "approved_commit": r.ApprovedCommit,
 		"merge_authority": string(r.MergeAuthority), "approved_by_kind": string(r.ApprovedByKind), "approved_by_id": r.ApprovedByID,
-		"approved_at": r.ApprovedAt, "merged_commit": r.MergedCommit, "merged_at": r.MergedAt,
+		"approved_at": r.ApprovedAt, "merged_commit": r.MergedCommit, "merged_at": r.MergedAt, "plan_id": r.Plan, "plan_version": r.PlanVersion,
 	}))
 	return n > 0, err
 }

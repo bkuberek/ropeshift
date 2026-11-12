@@ -216,6 +216,11 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 			if authority.PartyOf(actor) != authority.PartyPerson {
 				return workorders.ErrForbidden
 			}
+			if current.Kind == workorders.KindPlan {
+				// No review judges a planning branch, so an acceptance approves nothing of it: its plan
+				// approval is the only approval of its merge (ADR-0018).
+				return fmt.Errorf("%w: a planning branch merges on its plan approval; approve the plan with 'ropeshift plan approve'", workorders.ErrNotAcceptable)
+			}
 			if err := calibrateDecision(tx, current, workorders.DecisionAccept, "", actor); err != nil {
 				return err
 			}
@@ -788,9 +793,10 @@ func settleReviewed(tx ports.WriteTx, review workorders.WorkOrder) error {
 }
 
 // afterLaneEnd does what the end of a lane owes beyond moving its own work order, in the transaction that
-// moves it. A change or a rework that completed leaves a review of its commit. A review's lane leaves its
-// worktree to be taken away, whichever way it ended, and a review that completed is done: what it judged
-// is the reviewed work's to decide, and a review is not reviewed.
+// moves it. A change or a rework that completed leaves a review of its commit. A planning lane that completed
+// leaves its branch for its plan approval, which is its review, and through a pull request it is published.
+// A review's lane leaves its worktree to be taken away, whichever way it ended, and a review that completed is
+// done: what it judged is the reviewed work's to decide, and a review is not reviewed.
 func afterLaneEnd(tx ports.WriteTx, ended workorders.WorkOrder, holder workorders.Holder, result workorders.LaneResult, actor ledger.Actor) error {
 	if ended.Kind == workorders.KindReview {
 		if err := discardLane(tx, holder.Lane); err != nil {
@@ -809,6 +815,9 @@ func afterLaneEnd(tx ports.WriteTx, ended workorders.WorkOrder, holder workorder
 	}
 	if result.Outcome != workorders.OutcomeCompleted {
 		return nil
+	}
+	if ended.Kind == workorders.KindPlan {
+		return publishAttempt(tx, ended, ended.Fence+1, holder, actor)
 	}
 	review, made, err := openReview(tx, ended, ended.Fence+1, actor)
 	if err != nil || !made {
