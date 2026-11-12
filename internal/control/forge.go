@@ -426,6 +426,13 @@ func desiredForge(tx ports.ReadTx, worker string, state *ledger.DesiredState) er
 		return err
 	}
 	for _, r := range requests {
+		merges, err := mergeStillWanted(tx, r)
+		if err != nil {
+			return err
+		}
+		if !merges {
+			continue
+		}
 		state.Forge = append(state.Forge, ledger.DesiredForge{
 			ID: r.ID, Kind: r.Kind, WorkOrder: r.WorkOrder, Repository: r.Repository, Binding: r.Binding, Branch: r.Branch, Base: r.Base,
 			Commit: r.Commit, Number: r.Number, Title: r.Title, Body: r.Body, Method: r.Method, Attempt: r.Attempt,
@@ -443,6 +450,27 @@ func desiredForge(tx ports.ReadTx, worker string, state *ledger.DesiredState) er
 		}
 	}
 	return watched(tx, worker, bindings, state)
+}
+
+// mergeStillWanted says a forge request is still the worker's to run: every request but a merge is, and a
+// merge only while its work waits in `integrating` at the commit it asks to merge, so work a member sent back
+// or canceled meanwhile is never merged.
+func mergeStillWanted(tx ports.ReadTx, request ledger.ForgeRequest) (bool, error) {
+	if request.Kind != ledger.ForgeMerge {
+		return true, nil
+	}
+	order, err := tx.WorkOrders().Get(request.WorkOrder)
+	if err != nil {
+		return false, err
+	}
+	if order.State != workorders.Integrating {
+		return false, nil
+	}
+	artifacts, err := tx.Evidence().Artifacts(order.ID)
+	if err != nil {
+		return false, err
+	}
+	return attemptBranch(artifacts, order.Fence).Digest == request.Commit, nil
 }
 
 // watched lists the open pull requests a worker opened whose work is still open, which it reads for the

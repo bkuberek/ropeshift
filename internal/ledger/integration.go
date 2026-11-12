@@ -48,4 +48,6 @@ const (
 	EventIntegrationMerged = "integration.merged"
 	// EventIntegrationHeld records a merge that cannot go on without a member, with why.
 	EventIntegrationHeld = "integration.held"
+	// EventIntegrationReported records what a worker's merge came to, whatever it was.
+	EventIntegrationReported = "integration.reported"
 )

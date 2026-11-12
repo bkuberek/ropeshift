@@ -25,6 +25,7 @@ var MergeChecks = []Check{
 	{"MG6", "with review target branch the lane's worker is asked to merge the branch into the base, and the merge ends the work", checkBranchMerge},
 	{"MG7", "a failed check the base requires sends work waiting at person_merges back, and a check it does not require counts for nothing", checkRequiredChecksAreEvidence},
 	{"MG8", "a pull request the person merges on the forge while its merge waits ends the work, and the merge is recorded", checkForgeMergeWhileIntegrating},
+	{"MG9", "a merge asked of work a member sends back is offered no more, and a late refusal of it decides nothing", checkMergeOfWorkSentBack},
 }
 
 // newMergeRig is a forge rig whose repository merges at a level, with a method.
@@ -528,6 +529,37 @@ func checkForgeMergeWhileIntegrating(r *Rig) error {
 	}
 	if rows, err := f.mergeRequests(); err != nil || len(rows) != 1 || rows[0].State != authority.ApprovalVoid {
 		return Violatedf("the merge request after the forge's merge reads %+v: %v", rows, err)
+	}
+	return r.CheckProjection(f.store)
+}
+
+func checkMergeOfWorkSentBack(r *Rig) error {
+	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, "")
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	merge, err := f.oneMerge()
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(f.store).Rework(r.Ctx, r.Scope, f.grant.WorkOrder, "not what was asked", r.Actor); err != nil {
+		return err
+	}
+	if err := f.noMerge(); err != nil {
+		return err
+	}
+	// The worker had started it, and its refusal arrives after the work went back.
+	if err := f.mergeCame(merge, ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: "the base branch policy prohibits the merge"}); err != nil {
+		return err
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Ready); err != nil {
+		return err
+	}
+	if rows, err := f.mergeRequests(); err != nil || slices.ContainsFunc(rows, authority.Approval.Open) {
+		return Violatedf("a late refusal raised merge requests %+v: %v", rows, err)
 	}
 	return r.CheckProjection(f.store)
 }

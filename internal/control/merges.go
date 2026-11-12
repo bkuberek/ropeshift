@@ -505,6 +505,14 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 	if _, err := tx.Forge().FinishMerge(request.ID, request.Attempt, tx.Now(), result.Outcome, result.Detail); err != nil {
 		return err
 	}
+	reported := struct {
+		Request string `json:"request"`
+		Commit  string `json:"commit"`
+		ledger.MergeResult
+	}{request.ID, request.Commit, result}
+	if err := appendIntegration(tx, ledger.EventIntegrationReported, request.WorkOrder, reported, actor); err != nil {
+		return err
+	}
 	order, err := tx.WorkOrders().Get(request.WorkOrder)
 	if err != nil {
 		return err
@@ -513,11 +521,14 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 	if err != nil {
 		return err
 	}
+	// A merge that landed is recorded whatever the work did since. Any other answer is about the commit it
+	// tried, and work that left `integrating`, or moved to another commit, has nothing left to decide by it.
+	current := f.commit()
 	f.branch.Digest = request.Commit
 	switch {
 	case result.Outcome == ledger.MergeMerged:
 		return mergeLanded(tx, f, request, result, actor)
-	case order.State != workorders.Integrating || order.Fence != f.order.Fence:
+	case order.State != workorders.Integrating || current != request.Commit:
 		return nil
 	case result.Outcome.Rework():
 		return reworkConflict(tx, f, request, result)
