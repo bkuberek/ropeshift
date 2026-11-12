@@ -1,5 +1,7 @@
 package worker
 
+import "context"
+
 // MessageLabel starts the effect key of a message's one write.
 const MessageLabel = messageLabel
 
@@ -15,4 +17,12 @@ func (w *Worker) WakeWaiting() int {
 	w.wakeLock.Lock()
 	defer w.wakeLock.Unlock()
 	return len(w.wakes.Batch())
+}
+
+// Respawn is a pass that read a request for a lane's next generation, with the count it read. A pass reads
+// the journal and then acts, so a count can arrive after the run has acted on it.
+func (w *Worker) Respawn(ctx context.Context, lane string, asked int64) {
+	if run := w.runOf(lane); run != nil {
+		run.respawn(ctx, asked)
+	}
 }
