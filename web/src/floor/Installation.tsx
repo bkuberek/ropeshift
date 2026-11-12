@@ -75,12 +75,12 @@ export function WorkersPage({ live, projects, selected, after }: { live: Live; p
       />
       <div className="tab-body stack">
         {floors.failure ? <Banner tone="danger">{floors.view ? `This page is not current. ${floors.failure}` : floors.failure}</Banner> : null}
-        {!floors.view && !floors.failure ? (
+        {(!floors.view || projects.length === 0) && !floors.failure ? (
           <div className="panel">
             <SkeletonRows rows={4} />
           </div>
         ) : null}
-        {floors.view && workers.size === 0 ? (
+        {floors.view && projects.length > 0 && workers.size === 0 ? (
           <div className="panel">
             <EmptyState icon="server" title="No worker has connected">
               A worker joins with a join token, from a terminal on its own machine. Creating a join token from this page arrives in a later build; a terminal
@@ -238,7 +238,8 @@ function dollars(value: number): string {
 // this page yet, so that part says so and names the sources that will; the estimated cost per outcome
 // comes from the project's measures.
 export function UsagePage({ live, project, label }: { live: Live; project: string; label: string }) {
-  const operations = useView<Operations>(() => readView<Operations>("operations"), `usage:${project}`, live);
+  // An installation view's project comes from the list of projects, so it reads once that is known.
+  const operations = useView<Operations | null>(() => (project ? readView<Operations>("operations") : Promise.resolve(null)), `usage:${project}`, live);
   const now = useClock();
   const report = operations.view?.measures;
   const costs = Object.entries(report?.cost_per_outcome ?? {}).sort(([a], [b]) => a.localeCompare(b));

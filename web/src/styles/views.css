@@ -20,7 +20,7 @@
 .floor-table td .id,
 .kv .chip {
   display: inline-block;
-  max-width: 200px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

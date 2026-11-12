@@ -478,18 +478,24 @@
   }
 }
 
-/* A lane table narrowed by the dock drops its secondary columns: agent, generation, freshness. */
+/* A lane table in a narrow panel drops its secondary columns: liveness, reach, and resources, which the
+   lane's own page states. */
 .panel {
   container-type: inline-size;
 }
 
-@container (max-width: 860px) {
+@container (max-width: 1180px) {
   .floor-table th:nth-child(4),
   .floor-table td:nth-child(4),
+  .floor-table th:nth-child(7),
+  .floor-table td:nth-child(7) {
+    display: none;
+  }
+}
+
+@container (max-width: 900px) {
   .floor-table th:nth-child(5),
-  .floor-table td:nth-child(5),
-  .floor-table th:nth-child(8),
-  .floor-table td:nth-child(8) {
+  .floor-table td:nth-child(5) {
     display: none;
   }
 }

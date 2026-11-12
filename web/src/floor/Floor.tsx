@@ -46,8 +46,8 @@ function LaneActions({ row, after }: { row: Row; after: () => Promise<void> }) {
   };
   return (
     <span className="row-actions">
-      <Link to={addressOf("/lane", { id: row.lane.id })} className="btn btn-sm">
-        Open lane
+      <Link to={addressOf("/lane", { id: row.lane.id })} className="btn btn-sm" aria-label={`Open lane ${row.lane.id}`}>
+        Open
       </Link>
       {actions.length ? <Menu label={`Actions for lane ${row.lane.id}`} items={actions.map((action) => ({ label: `${actionWords[action]}…`, onSelect: () => setAct(action) }))} /> : null}
       <Dialog
@@ -93,10 +93,7 @@ function LaneTable({ rows, label, after }: { rows: Row[]; label: string; after: 
               Gen
             </th>
             <th scope="col" className="r">
-              Context
-            </th>
-            <th scope="col" className="r">
-              CPU · Mem
+              Context · CPU · Mem
             </th>
             <th scope="col">Freshness</th>
             <th scope="col" className="actions-cell">
@@ -138,10 +135,7 @@ function LaneTable({ rows, label, after }: { rows: Row[]; label: string; after: 
               <td data-label="Generation" className="r">
                 {row.lane.generation}
               </td>
-              <td data-label="Context" className="r">
-                <Absent>unavailable</Absent>
-              </td>
-              <td data-label="CPU · Mem" className="r">
+              <td data-label="Context · CPU · Mem" className="r">
                 <Absent>unavailable</Absent>
               </td>
               <td data-label="Freshness">
