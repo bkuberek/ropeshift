@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import type { Prefs } from "../admin/Settings";
 import { readView } from "../api/client";
-import type { Decisions as DecisionsView, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Roadmap as RoadmapView, Stamp } from "../api/types";
+import type { Decisions as DecisionsView, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Stamp } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { FloorPage } from "../floor/Floor";
@@ -17,7 +17,7 @@ import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
 import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
-import { Roadmap } from "../planning/Roadmap";
+import { RoadmapPage } from "../planning/Roadmap";
 import { Banner, EmptyState, SkeletonRows } from "../ui/display";
 import { Link } from "./route";
 import type { View } from "./routes";
@@ -166,7 +166,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
   const scope = scoped ? "project" : "installation";
   switch (view) {
     case "roadmap":
-      return <ViewPage<RoadmapView> name="roadmap" live={live} title="Roadmap" body={(read) => <Roadmap view={read} />} />;
+      return <RoadmapPage live={live} project={project} />;
     case "plans":
       return plansPage(live, param("plan"));
     case "planning":

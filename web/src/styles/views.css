@@ -515,12 +515,6 @@ p + .kv {
   font-weight: 500;
 }
 
-.chips > li.chip-critical {
-  color: var(--text);
-  border-color: var(--text);
-  font-weight: 600;
-}
-
 .list-rows,
 .record-list {
   display: flex;
@@ -638,10 +632,6 @@ a.list-row-title:hover {
   font-size: var(--fs-14);
   line-height: var(--lh-reading);
   max-width: 72ch;
-}
-
-.statement-page {
-  margin-bottom: var(--s-12);
 }
 
 .lineage {
@@ -766,23 +756,10 @@ details.older[open] > summary {
   margin-bottom: var(--s-2);
 }
 
-/* Roadmap and plans */
-.plan-map {
-  display: grid;
-  gap: var(--s-16);
-}
-
-.plan-part + .plan-part,
-.chips + .plan-part,
 .progress + .chips {
   margin-top: var(--s-16);
 }
 
-.chips + .plan-part {
-  margin-top: var(--s-16);
-}
-
-.plan-part-title,
 .version-title {
   font-size: var(--fs-12);
   line-height: var(--lh-12);
@@ -796,69 +773,14 @@ details.older[open] > summary {
 .milestones {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--r-6);
-  overflow: hidden;
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
 
-.milestone {
-  padding: var(--s-8) var(--s-12);
-  border-top: 1px solid var(--border);
-}
-
-.milestone:first-child {
-  border-top: 0;
-}
-
-.milestone-title {
-  font-weight: 500;
-}
-
-.milestone .progress,
 .list-row .progress {
   margin-top: var(--s-6);
   max-width: 420px;
-}
-
-.layers {
-  list-style: none;
-}
-
-.layer-title {
-  font-size: var(--fs-11);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-3);
-}
-
-.layer-works {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-6);
-}
-
-.layer-work {
-  border: 1px solid var(--border);
-  border-radius: var(--r-6);
-  background: var(--surface);
-  padding: var(--s-6) var(--s-8);
-  font-size: var(--fs-12);
-  line-height: var(--lh-12);
-}
-
-.layer-work-critical {
-  border-color: var(--text);
-  box-shadow: inset 2px 0 0 var(--text);
-}
-
-.layer-work-title {
-  font-weight: 500;
-  font-size: var(--fs-13);
-}
-
-.plan-waiting {
-  margin-top: var(--s-8);
 }
 
 .contract-work-title {
@@ -942,11 +864,6 @@ details.older[open] > summary {
   display: flex;
   flex-direction: column;
   gap: var(--s-8);
-}
-
-.trace-key {
-  font-family: var(--font-mono);
-  font-size: var(--fs-12);
 }
 
 /* Measures */
@@ -1262,4 +1179,30 @@ tr.selected td {
 .table.matrix td .id {
   display: inline;
   max-width: none;
+}
+
+/* ---------- Roadmap ---------- */
+.plan-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-12);
+  flex-wrap: wrap;
+}
+
+.plan-title {
+  font-size: var(--fs-14);
+}
+
+.layer-cards {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+
+.wo-card.legend {
+  display: inline-block;
+  padding: 0 var(--s-6);
 }
