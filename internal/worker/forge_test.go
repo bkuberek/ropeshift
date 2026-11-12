@@ -1,0 +1,168 @@
+package worker_test
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
+)
+
+var widgets = ledger.ForgeBinding{Host: "github.com", Owner: "acme", Repo: "widgets"}
+
+// forgeRig is a worker whose lane completes a change in a repository that reviews through pull requests,
+// with the fake forge and a remote to push to.
+type forgeRig struct {
+	*laneRig
+	forge     *fake.Forge
+	worktrees *fake.Worktrees
+}
+
+func newForgeRig(t *testing.T, before func(*fake.Forge, *fake.Worktrees)) *forgeRig {
+	t.Helper()
+	base := newRig(t)
+	repositories := control.NewRepositories(base.store)
+	if _, err := repositories.Detect(t.Context(), scope, control.DetectedRepository{ID: "repo-1", Remote: "git@github.com:acme/widgets.git", DefaultBranch: "main"}, member); err != nil {
+		t.Fatal(err)
+	}
+	target := ledger.ReviewOnPullRequest
+	if _, err := repositories.Change(t.Context(), scope, "repo-1", control.RepositoryChange{ReviewTarget: &target}, member); err != nil {
+		t.Fatal(err)
+	}
+	worktrees := fake.NewWorktrees()
+	worktrees.UseRemote("origin")
+	base.worktrees, base.repository = worktrees, "repo-1"
+	r := newLaneRigFor(t, base)
+	forge := &fake.Forge{}
+	r.config.Forge = forge
+	before(forge, worktrees)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return &forgeRig{laneRig: r, forge: forge, worktrees: worktrees}
+}
+
+// converge runs passes until the ledger has heard what each pass did.
+func (f *forgeRig) converge(passes int) {
+	f.t.Helper()
+	for range passes {
+		if err := f.subject.Converge(f.t.Context()); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+}
+
+func (f *forgeRig) review() workorders.WorkOrder {
+	f.t.Helper()
+	var out workorders.WorkOrder
+	err := f.store.Read(f.t.Context(), scope, func(tx ports.ReadTx) error {
+		reviews, err := tx.WorkOrders().ReviewsOf(f.id)
+		if len(reviews) != 1 {
+			f.t.Fatalf("%d reviews", len(reviews))
+		}
+		out = reviews[0]
+		return err
+	})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return out
+}
+
+func (f *forgeRig) pullRequest() (ledger.WorkPullRequest, error) {
+	var pr ledger.WorkPullRequest
+	err := f.store.Read(f.t.Context(), scope, func(tx ports.ReadTx) error {
+		var err error
+		pr, err = tx.Forge().PullRequest(f.id)
+		return err
+	})
+	return pr, err
+}
+
+// TestAWorkerPublishesALanesCommitBeforeItsReview is FR-MERGE-10 and FR-MERGE-12 on the worker: the worker that
+// ran the lane reads its forge sign-in, pushes the lane's branch, opens the pull request with the work
+// order's description, and the review it waited for is free to start.
+func TestAWorkerPublishesALanesCommitBeforeItsReview(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(*fake.Forge, *fake.Worktrees) {})
+	if held := f.review().StartHeld; held == nil || held.Reason != workorders.HoldPullRequestPending {
+		t.Fatalf("the review waits on %+v", held)
+	}
+	f.forge.Push(widgets, "lane/lane-1", "fake-head")
+	f.converge(3)
+	if pushed := f.worktrees.Pushed(); !slices.Contains(pushed, lanes.HeadsRef("lane/lane-1")) {
+		t.Errorf("the worker pushed %v", pushed)
+	}
+	prs := f.forge.PullRequests()
+	if len(prs) != 1 || prs[0].Branch != "lane/lane-1" || prs[0].Base != "main" {
+		t.Fatalf("the forge holds %+v", prs)
+	}
+	pr, err := f.pullRequest()
+	if err != nil || pr.Number != prs[0].Number || pr.HeadCommit != "fake-head" {
+		t.Fatalf("the ledger holds %+v: %v", pr, err)
+	}
+	if held := f.review().StartHeld; held != nil {
+		t.Errorf("the review is still held by %+v", held)
+	}
+	calls := f.forge.Calls()
+	if len(calls) < 2 || !strings.HasPrefix(calls[0], "health ") || !slices.Contains(calls, "open lane/lane-1") {
+		t.Errorf("the forge saw %v, and the sign-in is read before anything runs", calls)
+	}
+	// Nothing more is asked, and a later pass repeats nothing.
+	f.converge(2)
+	opens := 0
+	for _, call := range f.forge.Calls() {
+		if call == "open lane/lane-1" {
+			opens++
+		}
+	}
+	if opens != 1 {
+		t.Errorf("the pull request was opened %d times", opens)
+	}
+}
+
+// TestAWorkerWhoseGHCannotRunHoldsTheWork reads a sign-in with a problem as a health state of the
+// repository on this worker: the request waits, and the review says why.
+func TestAWorkerWhoseGHCannotRunHoldsTheWork(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) {
+		forge.SignOut(widgets.Host, "the token in keyring is invalid")
+	})
+	f.converge(3)
+	if pushed := f.worktrees.Pushed(); len(pushed) != 0 {
+		t.Errorf("a worker with no working sign-in pushed %v", pushed)
+	}
+	held := f.review().StartHeld
+	if held == nil || held.Reason != workorders.HoldForgeUnavailable || !strings.Contains(held.Detail, "the token in keyring is invalid") {
+		t.Fatalf("the review waits on %+v", held)
+	}
+	var health []ledger.ForgeHealth
+	err := f.store.Read(t.Context(), scope, func(tx ports.ReadTx) error {
+		var err error
+		health, err = tx.Forge().Health()
+		return err
+	})
+	if err != nil || len(health) != 1 || health[0].State != ledger.ForgeSignedOut || health[0].Repository != "repo-1" {
+		t.Fatalf("the health on record is %+v: %v", health, err)
+	}
+}
+
+// TestAFailedPushIsReportedAndTriedAgainLater keeps a refused push as a failed attempt with its reason.
+func TestAFailedPushIsReportedAndTriedAgainLater(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(_ *fake.Forge, worktrees *fake.Worktrees) { worktrees.RefusePushes(true) })
+	f.converge(3)
+	held := f.review().StartHeld
+	if held == nil || held.Reason != workorders.HoldPullRequestPending || !strings.Contains(held.Detail, fake.ErrPushRefused.Error()) {
+		t.Fatalf("the review waits on %+v", held)
+	}
+	if prs := f.forge.PullRequests(); len(prs) != 0 {
+		t.Errorf("a refused push opened %+v", prs)
+	}
+}

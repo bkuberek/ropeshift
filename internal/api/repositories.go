@@ -20,6 +20,19 @@ type RepositoryView struct {
 	// PlanOfRecord says the project plans in this repository: a member named it with Planning, or it is the
 	// project's only repository (ADR-0022).
 	PlanOfRecord bool `json:"plan_of_record,omitempty"`
+	// Forge is what each worker that keeps a checkout of the repository last said of its `gh` sign-in for
+	// it, which work that needs the forge waits on (ADR-0020).
+	Forge []ledger.ForgeHealth `json:"forge,omitempty"`
+}
+
+// ForgeReady says a worker has reported a working `gh` sign-in for the repository.
+func (v RepositoryView) ForgeReady() bool {
+	for _, health := range v.Forge {
+		if health.Healthy() {
+			return true
+		}
+	}
+	return false
 }
 
 // RepositoryList is every repository the workspace keeps a record of.
@@ -37,6 +50,9 @@ type RepositoryChange struct {
 	StartFrom   *ledger.StartFrom   `json:"start_from,omitempty"`
 	// ReviewTarget is where accepted work is reviewed and lands: branch or pull_request.
 	ReviewTarget *ledger.ReviewTarget `json:"review_target,omitempty"`
+	// ForgeBinding names the repository on its forge as HOST/OWNER/REPO, which pull_request needs. Empty
+	// takes it from a remote on a forge.
+	ForgeBinding *string `json:"forge_binding,omitempty"`
 	// MergeAuthority is how much of each change the person decides after the review.
 	MergeAuthority *ledger.MergeAuthority `json:"merge_authority,omitempty"`
 	// Planning names the repository the project's planning repository, and takes that from any other. False
@@ -85,10 +101,15 @@ func (r RepositoryAddReport) Refused() int {
 	return n
 }
 
-// ViewOf reads a record with the base it resolves to, and the review agreement of its repository when the
-// workspace has any to give.
-func ViewOf(record ledger.Repository, agreement measures.ReviewAgreement) RepositoryView {
+// ViewOf reads a record with the base it resolves to, the review agreement of its repository when the
+// workspace has any to give, and what each worker said of its forge sign-in there.
+func ViewOf(record ledger.Repository, agreement measures.ReviewAgreement, forge []ledger.ForgeHealth) RepositoryView {
 	view := RepositoryView{Repository: record, Base: record.Base()}
+	for _, health := range forge {
+		if health.Repository == record.ID {
+			view.Forge = append(view.Forge, health)
+		}
+	}
 	for _, repo := range agreement.Repositories {
 		if repo.Repository == record.ID {
 			view.ReviewAgreement = repo.AgreementPeriods

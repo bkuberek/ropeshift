@@ -56,11 +56,40 @@ func repositoryText(view api.RepositoryView) string {
 	fmt.Fprintf(&out, "forge binding\t%s\n", dashIfEmpty(view.ForgeBinding))
 	fmt.Fprintf(&out, "merge method\t%s\n", view.MergeMethod)
 	fmt.Fprintf(&out, "review target\t%s\n", view.Target())
+	out.WriteString(forgeText(view))
 	fmt.Fprintf(&out, "start from\t%s\n", view.StartFrom)
 	fmt.Fprintf(&out, "merge authority\t%s\n", view.Level())
 	fmt.Fprintf(&out, "review agreement, last 30 days\t%s\n", agreementText(view.ReviewAgreement.Last30Days))
 	fmt.Fprintf(&out, "review agreement, all time\t%s\n", agreementText(view.ReviewAgreement.AllTime))
 	return out.String()
+}
+
+// forgeText says what each worker that keeps a checkout of the repository last found of its `gh` sign-in for
+// it, one line each, and that none has spoken yet where the review target needs the forge.
+func forgeText(view api.RepositoryView) string {
+	var out strings.Builder
+	for _, health := range view.Forge {
+		line := fmt.Sprintf("forge\t%s\t%s", cmp.Or(health.WorkerName, health.Worker), health.State)
+		if health.Detail != "" {
+			line += "\t" + strings.Join(strings.Fields(health.Detail), " ")
+		}
+		out.WriteString(line + "\n")
+	}
+	if len(view.Forge) == 0 && view.Target() == ledger.ReviewOnPullRequest {
+		out.WriteString("forge\t-\tno worker has reported gh for this repository yet\n")
+	}
+	return out.String()
+}
+
+// forgeWarning is what a member hears when a change leaves a repository reviewing through pull requests and no
+// worker has said its `gh` works there. The control plane cannot see a worker's `gh` when the setting changes,
+// so the change stands, and the work that needs the forge waits with the reason until a worker reports one.
+func forgeWarning(view api.RepositoryView) string {
+	if view.Target() != ledger.ReviewOnPullRequest || view.ForgeReady() {
+		return ""
+	}
+	return fmt.Sprintf("ropeshift repository set: warning: no worker has reported a working gh sign-in for %s yet. A review waits as forge_unavailable or pull_request_pending until one does; repository show says what each worker found\n",
+		cmp.Or(view.ForgeBinding, cmp.Or(view.Name, view.ID)))
 }
 
 // planningText says whether the project plans in this repository, and why.
@@ -134,6 +163,7 @@ func (c *invocation) repositorySet(args []string) int {
 	method := set.String("merge-method", "", "how a pull request lands: merge, squash, or rebase")
 	start := set.String("start-from", "", "what dependent work starts from: merged or accepted")
 	target := set.String("review-target", "", "where accepted work is reviewed and lands: branch or pull_request")
+	binding := set.String("forge-binding", "", "the repository on its forge as HOST/OWNER/REPO, which pull_request needs; empty takes it from the remote")
 	authority := set.String("merge-authority", "", "how much of each change you decide after the review: person_merges, person_approves, or review_approves")
 	planning := set.Bool("planning", false, "make this the project's planning repository, which intake reads plan files from; --planning=false stops it")
 	positional, ok := c.parse(set, args)
@@ -171,6 +201,9 @@ func (c *invocation) repositorySet(args []string) int {
 		value := ledger.MergeAuthority(*authority)
 		change.MergeAuthority = &value
 	}
+	if given["forge-binding"] {
+		change.ForgeBinding = binding
+	}
 	if given["planning"] {
 		if *planning && len(positional) > 1 {
 			return c.usageError("a project has one planning repository, and this names %d", len(positional))
@@ -178,7 +211,7 @@ func (c *invocation) repositorySet(args []string) int {
 		change.Planning = planning
 	}
 	if len(given) == 0 {
-		return c.usageError("name a setting to change: --name, --base, --merge-method, --start-from, --review-target, --merge-authority, or --planning")
+		return c.usageError("name a setting to change: --name, --base, --merge-method, --start-from, --review-target, --forge-binding, --merge-authority, or --planning")
 	}
 	client, exit := c.projectClient()
 	if client == nil {
@@ -187,6 +220,9 @@ func (c *invocation) repositorySet(args []string) int {
 	defer client.Close()
 	if len(positional) == 1 {
 		view, err := client.SetRepository(c.ctx, positional[0], change)
+		if err == nil && (change.ReviewTarget != nil || change.ForgeBinding != nil) {
+			fmt.Fprint(c.stderr, forgeWarning(view))
+		}
 		return c.finish(err, view, func() string { return repositoryText(view) })
 	}
 	return c.setEach(client, positional, change)
@@ -213,6 +249,9 @@ func (c *invocation) setEach(client *api.ProjectClient, names []string, change a
 				code = failed
 			}
 			continue
+		}
+		if change.ReviewTarget != nil || change.ForgeBinding != nil {
+			fmt.Fprint(c.stderr, forgeWarning(view))
 		}
 		list.Repositories = append(list.Repositories, view)
 	}

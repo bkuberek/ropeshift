@@ -106,7 +106,7 @@ func checkDetectionKeepsMemberSettings(r *Rig) error {
 	}
 	squash := ledger.MergeSquash
 	pullRequest := ledger.ReviewOnPullRequest
-	if _, err := r.change(s, "repo-1", control.RepositoryChange{Base: text("release/1.2"), MergeMethod: &squash, ReviewTarget: &pullRequest}, r.Actor); err != nil {
+	if _, err := r.change(s, "repo-1", control.RepositoryChange{Base: text("release/1.2"), MergeMethod: &squash, ReviewTarget: &pullRequest, ForgeBinding: text("example.invalid/acme/app")}, r.Actor); err != nil {
 		return err
 	}
 	refreshed, err := r.detect(s, "repo-1", "git@example.invalid:acme/app.git", "trunk")

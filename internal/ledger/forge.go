@@ -67,8 +67,6 @@ const (
 	ForgePublish ForgeKind = "publish"
 	// ForgeComment posts a comment, such as a review's verdicts, on a pull request, once.
 	ForgeComment ForgeKind = "comment"
-	// ForgeRead reads a pull request's state, head commit, mergeability, and checks. It changes nothing.
-	ForgeRead ForgeKind = "read"
 )
 
 // ForgeRequestState says where a forge request stands. A failed attempt stays requested, with the

@@ -387,30 +387,12 @@ func sameHold(a, b *workorders.StartHold) bool {
 func (l *Leases) setHold(ctx context.Context, scope ledger.WorkspaceID, id string, want *workorders.StartHold, actor ledger.Actor) (bool, error) {
 	var changed bool
 	err := l.store.Write(ctx, scope, "claim.hold", func(tx ports.WriteTx) error {
-		changed = false
 		current, err := tx.WorkOrders().Get(id)
 		if err != nil {
 			return err
 		}
-		if current.State != workorders.Ready || sameHold(current.StartHeld, want) {
-			return nil
-		}
-		if err := tx.WorkOrders().Hold(id, want); err != nil {
-			return err
-		}
-		eventType := workorders.EventStartResolved
-		if want != nil {
-			eventType = workorders.EventStartHeld
-		}
-		event, err := workorders.ChangeEvent(eventType, id, workorders.Change{Hold: want}, actor)
-		if err != nil {
-			return err
-		}
-		if _, err = tx.Append(event); err != nil {
-			return err
-		}
-		changed = true
-		return nil
+		changed, err = holdIn(tx, current, want, actor)
+		return err
 	})
 	return changed, err
 }
@@ -418,13 +400,16 @@ func (l *Leases) setHold(ctx context.Context, scope ledger.WorkspaceID, id strin
 // RefreshStarts reads again what ready work waits for, so a person sees a reason before anyone claims
 // and sees it go once the merge is in. It looks at the ready work that has accepted work to wait for in
 // its repository, and at the work already held, and it fetches each base once for the whole pass. It
-// returns the work orders whose reason changed. It is a tick: the list is read with no lock, and each
-// change is one transaction that reads again.
+// returns the work orders whose reason changed. A held review reads again from the ledger alone, because
+// a review starts at the commit it judges. It is a tick: the list is read with no lock, and each change is
+// one transaction that reads again.
 func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error) {
-	if l.starts == nil {
-		return nil, nil
-	}
 	var inputs []startInput
+	type reviewWait struct {
+		id   string
+		hold *workorders.StartHold
+	}
+	var reviews []reviewWait
 	err := l.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		rows, err := tx.WorkOrders().List()
 		if err != nil {
@@ -432,6 +417,19 @@ func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, ac
 		}
 		for _, row := range rows {
 			if row.State != workorders.Ready || row.RepositoryID == "" || row.ResumeLaneID != "" {
+				continue
+			}
+			if row.Kind == workorders.KindReview {
+				if row.StartHeld != nil {
+					_, hold, err := reviewStart(tx, row)
+					if err != nil {
+						return err
+					}
+					reviews = append(reviews, reviewWait{id: row.ID, hold: hold})
+				}
+				continue
+			}
+			if l.starts == nil {
 				continue
 			}
 			in, err := startFacts(tx, row)
@@ -447,8 +445,17 @@ func (l *Leases) RefreshStarts(ctx context.Context, scope ledger.WorkspaceID, ac
 	if err != nil {
 		return nil, err
 	}
-	seen := newPass(scope)
 	var changed []string
+	for _, review := range reviews {
+		moved, err := l.setHold(ctx, scope, review.id, review.hold, actor)
+		if err != nil {
+			return changed, err
+		}
+		if moved {
+			changed = append(changed, review.id)
+		}
+	}
+	seen := newPass(scope)
 	for _, in := range inputs {
 		_, hold := l.starts.decide(ctx, in, seen)
 		moved, err := l.setHold(ctx, scope, in.order.ID, hold, actor)

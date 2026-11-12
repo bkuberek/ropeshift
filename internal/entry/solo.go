@@ -22,6 +22,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/checkouts"
 	"ropeshift.com/ropeshift/internal/adapters/claudecode"
 	"ropeshift.com/ropeshift/internal/adapters/clock"
+	"ropeshift.com/ropeshift/internal/adapters/ghcli"
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/adapters/hookrun"
 	"ropeshift.com/ropeshift/internal/adapters/inventory"
@@ -78,6 +79,9 @@ type soloOptions struct {
 	batchTick  time.Duration
 	wakeTick   time.Duration
 	notifyTick time.Duration
+	// forgeTick is how often the worker reads each repository's forge sign-in and the pull requests it
+	// watches, and how long a failed forge request waits before its next attempt.
+	forgeTick time.Duration
 	// telemetryTick is how often the ledger is read into spans, and the emitter flushes at twice it.
 	telemetryTick time.Duration
 	leaseTTL      time.Duration
@@ -120,6 +124,7 @@ func soloFlags(opts *soloOptions) *flag.FlagSet {
 	flags.DurationVar(&opts.batchTick, "batch-tick", 5*time.Second, "how often closed batches reach members")
 	flags.DurationVar(&opts.wakeTick, "wake-tick", time.Second, "how often due wakes are evaluated")
 	flags.DurationVar(&opts.notifyTick, "notify-tick", 30*time.Second, "how often members are told what waits")
+	flags.DurationVar(&opts.forgeTick, "forge-tick", time.Minute, "how often the worker reads gh's sign-in and watched pull requests")
 	flags.DurationVar(&opts.telemetryTick, "telemetry-tick", defaultSpansEvery, "how often the ledger is read into spans and metrics")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
@@ -486,6 +491,9 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		RunDir:     paths.RunDir,
 		Override:   override,
 		Inventory:  inventory.Git{},
+		// gh runs with the daemon's own environment, where the person's sign-in is (ADR-0020).
+		Forge:      ghcli.Forge{},
+		ForgeEvery: opts.forgeTick,
 	}, terminal, nil
 }
 

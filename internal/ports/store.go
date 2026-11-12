@@ -102,6 +102,8 @@ type ReadTx interface {
 	Effects() EffectReader
 	// Repositories reads the record of each repository.
 	Repositories() RepositoryReader
+	// Forge reads forge requests, pull requests, and each worker's forge health.
+	Forge() ForgeReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 }
@@ -164,10 +166,47 @@ type WriteTx interface {
 	Repositories() RepositoryWriter
 	// Recoveries keeps the record of recovery acts.
 	Recoveries() RecoveryWriter
+	// Forge reads and writes forge requests, pull requests, and each worker's forge health.
+	Forge() ForgeWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
 	Index(kind, id, text string) error
+}
+
+// ForgeReader reads what the control plane asked workers to do on a forge, the pull request each work order
+// lands through, and what each worker said of its forge sign-in (ADR-0020).
+type ForgeReader interface {
+	// Request returns one forge request, or ErrNotFound.
+	Request(id string) (ledger.ForgeRequest, error)
+	// RequestsFor lists what one worker has been asked and has not reported done, oldest first.
+	RequestsFor(worker string) ([]ledger.ForgeRequest, error)
+	// RequestsOf lists every request of one work order, oldest first.
+	RequestsOf(workOrder string) ([]ledger.ForgeRequest, error)
+	// PullRequest returns the pull request a work order lands through, or ErrNotFound.
+	PullRequest(workOrder string) (ledger.WorkPullRequest, error)
+	// PullRequests lists every work order's pull request, by work order.
+	PullRequests() ([]ledger.WorkPullRequest, error)
+	// Health lists what each worker last said of its forge sign-in, by repository and worker.
+	Health() ([]ledger.ForgeHealth, error)
+}
+
+// ForgeWriter writes them. Each write that answers a worker compares the attempt it answers, so a stale
+// report changes nothing.
+type ForgeWriter interface {
+	ForgeReader
+	// InsertRequest keeps a new request, and reports false for an ID that exists.
+	InsertRequest(ledger.ForgeRequest) (bool, error)
+	// FailRequest keeps why an attempt failed and offers the next one, if the request is still requested
+	// at that attempt.
+	FailRequest(id string, attempt int64, detail string) (bool, error)
+	// FinishRequest marks a request done at an attempt, if it is still requested at that attempt.
+	FinishRequest(id string, attempt int64, at int64) (bool, error)
+	// SavePullRequest keeps what a worker read of a work order's pull request, replacing what it held.
+	SavePullRequest(ledger.WorkPullRequest) error
+	// SaveHealth keeps what a worker said of its sign-in for a repository when the state or its detail
+	// changed, and reports whether it did. The same word again writes nothing.
+	SaveHealth(ledger.ForgeHealth) (bool, error)
 }
 
 // RecoveryWriter keeps every recovery act that ran or was refused (ADR-0014).

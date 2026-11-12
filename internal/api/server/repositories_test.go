@@ -3,6 +3,7 @@ package server_test
 import (
 	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -44,7 +45,7 @@ func TestAMemberReadsAndChangesARepository(t *testing.T) {
 		t.Errorf("the change left %+v", changed)
 	}
 	shown, err := d.Client.Repository(t.Context(), aRepository)
-	if err != nil || shown != changed {
+	if err != nil || !reflect.DeepEqual(shown, changed) {
 		t.Errorf("show reads %+v: %v", shown, err)
 	}
 	// Empty follows the default branch again.

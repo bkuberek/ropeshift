@@ -79,6 +79,15 @@ func newInstall(t *testing.T) *install {
 	return in
 }
 
+// aForge puts the fake gh first on the install's PATH, so a daemon that reads a forge reads the fake one,
+// and returns where the fake keeps its forge.
+func (in *install) aForge() string {
+	in.t.Helper()
+	dir := doubles.InstallFakeGH(in.t)
+	in.path = dir + string(os.PathListSeparator) + in.path
+	return dir
+}
+
 func (in *install) env() []string {
 	return []string{
 		"HOME=" + in.home, "PATH=" + in.path, "XDG_RUNTIME_DIR=" + filepath.Join(in.home, "xdg-run"), "XDG_STATE_HOME=" + filepath.Join(in.home, "xdg-state"),

@@ -182,7 +182,7 @@ Everything else still asks, and the request waits for a member:
 
 A review lane only reads: it cannot edit a file with a tool, commit, push, or move a branch.
 
-No lane gets a forge credential. Its session starts without `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, or `GITHUB_ENTERPRISE_TOKEN`, with `GH_CONFIG_DIR` pointed at an empty directory of its own, so a `gh` it runs finds no sign-in ([gh environment](https://cli.github.com/manual/gh_help_environment)). A profile whose `secret_ref` names one of those variables is refused, and the lane does not start. Pushes and pull requests are the worker's own steps, never the agent's. Like every lane guardrail, this is not a sandbox.
+No lane gets a forge credential. Its session starts without `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, or `GITHUB_ENTERPRISE_TOKEN`, with `GH_CONFIG_DIR` pointed at an empty directory of its own, so a `gh` it runs finds no sign-in ([gh environment](https://cli.github.com/manual/gh_help_environment)). A profile whose `secret_ref` names one of those variables is refused, and the lane does not start. Pushes and pull requests are the worker's own steps, never the agent's: see [Review through pull requests](#review-through-pull-requests). Like every lane guardrail, this is not a sandbox.
 
 Two keys in the `[agent]` table of a profile control this:
 
@@ -246,6 +246,20 @@ ropeshift repository set 3f2a1b0 --merge-authority review_approves
 - A criterion the review could not judge waits for you, unless a passing check from the forge covers it. A check the lane reported about its own work never does.
 
 You can accept or send back the work at any time, with `ropeshift work accept` or `ropeshift work rework`, and doing so cancels a review that is still open. An orchestrator has no tool to accept work: the review is the second reader.
+
+### Review through pull requests
+
+By default a review reads the lane's branch on this machine, and nothing is pushed. A repository on GitHub can instead review each change through a pull request, so your team sees it while it is reviewed:
+
+```sh
+ropeshift repository set widgets --review-target pull_request
+```
+
+This needs the [GitHub CLI](https://cli.github.com/), `gh`, installed on the machine whose worker keeps the repository's checkout, on the daemon's `PATH`, and signed in to the repository's host with `gh auth login`, which you run yourself. Ropeshift never signs in, never reads or stores the token, and runs `gh` under your own sign-in. The repository needs a forge binding, `HOST/OWNER/REPO`, which ropeshift takes from a remote such as `git@github.com:acme/widgets.git`; for any other remote, name it with `--forge-binding github.com/acme/widgets`.
+
+The setting takes effect even when no worker has `gh` yet, because the worker's `gh` is not something the control plane can see when you change the setting, and `repository set` warns you instead. Each worker that keeps a checkout of the repository reads `gh auth status --hostname <host>` for it once a minute, or as often as `--forge-tick` says, and `ropeshift repository show` and the Operations page of the web UI show what it found: `ok`, `signed_out` with what `gh` said, or `missing`.
+
+When a `change` or `rework` lane completes with a commit, the worker that ran it, never the agent, pushes the lane's branch to the repository's remote and opens a pull request against the work order's base, with the work order, its contract, and its criteria in the description. A push never forces and runs no repository hook. The review waits, ready but held, as `pull_request_pending` until the pull request is open with the lane's commit as its head, and as `forge_unavailable` while that worker's `gh` is missing or signed out. A push or pull request that fails, such as one branch protection refuses, is tried again after the same interval, and `ropeshift work show` on the review says why it waits. Then the review reads the pull request's head commit.
 
 ### Claude subscriptions and automated use
 

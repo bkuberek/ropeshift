@@ -410,7 +410,7 @@ func (w *Workers) Desired(ctx context.Context, request ledger.DesiredRequest) (l
 }
 
 // desiredIn adds what one project asks of a worker: the leases it holds there, the worktrees to remove,
-// the effects a person decided, and the woken work it may claim.
+// the effects a person decided, what it is asked of a forge, and the woken work it may claim.
 func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error {
 	held, err := tx.WorkOrders().HeldBy(worker)
 	if err != nil {
@@ -433,6 +433,9 @@ func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error
 		return err
 	}
 	state.Effects = append(state.Effects, effects...)
+	if err := desiredForge(tx, worker, state); err != nil {
+		return err
+	}
 	woken, err := wokenFor(tx, worker)
 	state.Woken = append(state.Woken, woken...)
 	return err
@@ -798,6 +801,10 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return signalUpload(tx, worker, e, stamp)
 	case ledger.UploadDriverQualified:
 		return qualifiedUpload(tx, worker, id, e)
+	case ledger.UploadForgeReported:
+		return forgeReported(tx, worker, id, e)
+	case ledger.UploadForgeHealth:
+		return forgeHealthReported(tx, worker, id, e)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {

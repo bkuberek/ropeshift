@@ -13,6 +13,8 @@ var (
 	ErrWorktreeDirty = errors.New("the worktree has uncommitted work")
 	// ErrWorktreeConflict means the path or the branch belongs to something else.
 	ErrWorktreeConflict = errors.New("the path or branch is taken")
+	// ErrNoRemote means a repository has no remote to push to.
+	ErrNoRemote = errors.New("the repository has no remote")
 )
 
 // WorktreeSpec asks for one lane's worktree. An empty Base starts the branch at the
@@ -70,6 +72,10 @@ type Worktrees interface {
 	Snapshot(ctx context.Context, path, ref string) (string, error)
 	// Push sends one ref to a remote under the same name, and never forces.
 	Push(ctx context.Context, path, remote, ref string) error
+	// PushBranch sends a branch of a repository to its remote under the same name: the branch's
+	// upstream, else origin, else the first remote. It never forces and runs no repository hook, and a
+	// repository with no remote is ErrNoRemote.
+	PushBranch(ctx context.Context, repository, branch string) error
 	// Fetch brings refs a remote holds into a repository under the same names, so a lane can
 	// go on from work another machine pushed. A repository with no remote, and a ref the remote
 	// does not hold, are done: a worktree then starts from what this machine has.

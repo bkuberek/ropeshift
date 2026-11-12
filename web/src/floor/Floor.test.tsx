@@ -583,6 +583,33 @@ describe("operations", () => {
     expect(sources.textContent).toContain("plans/bad.md");
   });
 
+  it("states each worker's gh sign-in for a repository that reviews through pull requests", async () => {
+    serving<Operations>("operations", (view) => {
+      view.forges = [
+        { worker: "worker-1", worker_name: "solo", repository: "repo-1", repository_name: "widgets", state: "signed_out", detail: "the token in keyring is invalid", checked_at: 1 },
+        { worker: "worker-1", worker_name: "solo", repository: "repo-2", state: "ok", checked_at: 1 },
+      ];
+    });
+    openPage("/operations");
+    const forge = await screen.findByRole("region", { name: "Forge sign-in" });
+    const rows = within(forge).getAllByRole("listitem").filter((item) => item.classList.contains("row"));
+    expect(rows).toHaveLength(2);
+    const [signedOut, ok] = rows.map((row) => row.textContent ?? "");
+    expect(signedOut).toContain("widgets");
+    expect(signedOut).toContain("Signed out");
+    expect(signedOut).toContain("solo");
+    expect(signedOut).toContain("the token in keyring is invalid");
+    expect(ok).toContain("repo-2");
+    expect(ok).toContain("Ok");
+  });
+
+  it("leaves the forge out where no repository needs it", async () => {
+    serveViews();
+    openPage("/operations");
+    await screen.findByRole("region", { name: "Sources" });
+    expect(screen.queryByRole("region", { name: "Forge sign-in" })).toBeNull();
+  });
+
   it("shows the north star beside the overturn rate and rework", async () => {
     serveViews();
     openPage("/operations");

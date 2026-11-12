@@ -421,7 +421,16 @@ type Operations struct {
 	Fresh      int64                      `json:"workers_fresh"`
 	Waiting    int64                      `json:"waiting_for_a_person"`
 	Sources    []planning.SourceBinding   `json:"sources"`
-	Measures   measures.Report            `json:"measures"`
+	// Forges is what each worker last said of its `gh` sign-in for each repository that needs the forge,
+	// which work waits on when it cannot run (ADR-0020).
+	Forges   []ForgeLine     `json:"forges,omitempty"`
+	Measures measures.Report `json:"measures"`
+}
+
+// ForgeLine is one worker's forge sign-in for one repository, with the name the project calls it.
+type ForgeLine struct {
+	ledger.ForgeHealth
+	RepositoryName string `json:"repository_name,omitempty"`
 }
 
 // ReadView reads one read model into out. An empty category does not filter.

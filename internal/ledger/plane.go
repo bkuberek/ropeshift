@@ -418,6 +418,11 @@ type DesiredState struct {
 	MaxRespawnsPerDay int64 `json:"max_respawns_per_day,omitempty"`
 	// Effects are what a person decided of this worker's unknown effects and it has not acted on.
 	Effects []DesiredEffect `json:"effects,omitempty"`
+	// Forge is what this worker is asked to do on a forge and has not reported done (ADR-0020).
+	Forge []DesiredForge `json:"forge,omitempty"`
+	// ForgeRepositories are the repositories whose review target needs the forge, for this worker to report
+	// its forge sign-in's health in each it keeps a checkout of.
+	ForgeRepositories []DesiredForgeRepository `json:"forge_repositories,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.

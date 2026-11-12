@@ -162,6 +162,7 @@ func TestALaneStartsFromWhatTheRemoteHolds(t *testing.T) {
 // default branch from git, a member changes the rest, and a lane's own credential changes nothing.
 func TestARepositoryRecordIsReadAndChangedByAMember(t *testing.T) {
 	in := newInstall(t)
+	in.aForge()
 	repo := gittest.New(t)
 	repo.Commit("contract.md", contract.ContractText("alpha", "Alpha", "Add the retry budget."))
 	d := in.start("--intake-tick", "20ms", "--source", repo.Dir)
@@ -178,7 +179,8 @@ func TestARepositoryRecordIsReadAndChangedByAMember(t *testing.T) {
 	if record.DefaultBranch != "main" || record.Base != "main" || record.MergeMethod != ledger.MergeCommit || record.StartFrom != ledger.StartFromMerged || record.Target() != ledger.ReviewOnBranch {
 		t.Fatalf("the record reads %+v", record)
 	}
-	in.must("repository", "set", record.ID[:8], "--base", "release/1.2", "--review-target", "pull_request")
+	// The repository has no remote, so review through pull requests needs its binding named.
+	in.must("repository", "set", record.ID[:8], "--base", "release/1.2", "--review-target", "pull_request", "--forge-binding", "github.com/acme/widgets")
 	var shown api.RepositoryView
 	if err := json.Unmarshal([]byte(in.must("repository", "show", record.ID, "--json")), &shown); err != nil {
 		t.Fatal(err)

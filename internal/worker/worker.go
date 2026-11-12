@@ -94,6 +94,13 @@ type Worker struct {
 	life     context.Context
 	// probes holds the probe goroutine, which Wait also waits for.
 	probes sync.WaitGroup
+
+	// forgeLock guards what this process knows of the forge: each repository's sign-in, the requests whose
+	// report is journaled, and when each request last failed.
+	forgeLock     sync.Mutex
+	forgeHealth   map[string]forgeHealthSeen
+	forgeReported map[string]bool
+	forgeFailed   map[string]time.Time
 }
 
 // New returns a worker that has not started.

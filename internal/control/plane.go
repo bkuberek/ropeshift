@@ -346,6 +346,14 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			woken.Project = name
 			state.Woken = append(state.Woken, woken)
 		}
+		for _, request := range part.Forge {
+			request.Project = name
+			state.Forge = append(state.Forge, request)
+		}
+		for _, repository := range part.ForgeRepositories {
+			repository.Project = name
+			state.ForgeRepositories = append(state.ForgeRepositories, repository)
+		}
 	}
 	return state, nil
 }
