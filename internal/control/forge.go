@@ -580,9 +580,12 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 		if err != nil {
 			return "", err
 		}
-		if record.Level() == ledger.ReviewApproves {
+		switch record.Level() {
+		case ledger.ReviewApproves:
 			out.WriteString("\nThe review approved the work at review_approves: ropeshift merges this commit once every check the base requires is green on it.\n")
-		} else {
+		case ledger.PersonMerges:
+			out.WriteString("\nThe review passed every criterion. At person_merges you merge this pull request yourself, and ropeshift ends the work when it reads your merge.\n")
+		default:
 			fmt.Fprintf(&out, "\nThe review passed every criterion. At %s, the merge of this commit waits for a member's approval.\n", record.Level())
 		}
 	default:

@@ -68,8 +68,9 @@ func (in *install) revOf(eventType, subject string) int64 {
 // claude, the fake gh, and a bare repository as the remote: nothing reaches GitHub. A change lane completes,
 // and the worker pushes its branch and opens the pull request before the review starts. The review's
 // verdicts reach the pull request as a comment, a failed one sends the work to rework, and the rework
-// pushes to the same branch, which moves the same pull request. The person merges it in the forge, and the
-// integration tick ends the work. No lane ever sees a forge credential.
+// pushes to the same branch, which moves the same pull request. Accepted at person_merges, the work waits in
+// integrating, the person merges it in the forge, and the read of that merge ends the work. No lane ever sees a
+// forge credential.
 func TestAChangeIsReviewedThroughItsPullRequest(t *testing.T) {
 	in := newInstall(t)
 	in.aLaneThatCommits()
@@ -155,11 +156,11 @@ func TestAChangeIsReviewedThroughItsPullRequest(t *testing.T) {
 		return len(pr.Comments) == 2
 	})
 	pr, _ = pullRequestIn(t, gh)
-	if !strings.Contains(pr.Comments[1], passed.ID) || !strings.Contains(pr.Comments[1], secondHead[:8]) || !strings.Contains(pr.Comments[1], "waits for a member") {
+	if !strings.Contains(pr.Comments[1], passed.ID) || !strings.Contains(pr.Comments[1], secondHead[:8]) || !strings.Contains(pr.Comments[1], "you merge this pull request yourself") {
 		t.Errorf("the second comment reads:\n%s", pr.Comments[1])
 	}
 	view := in.acceptance(first)
-	if view.State != workorders.Acceptance || len(view.Verdicts) != 1 || view.Verdicts[0].Commit != secondHead || view.Verdicts[0].Review != passed.ID {
+	if view.State != workorders.Integrating || len(view.Verdicts) != 1 || view.Verdicts[0].Commit != secondHead || view.Verdicts[0].Review != passed.ID {
 		t.Fatalf("at person_merges the work reads %+v", view)
 	}
 	if detail := in.detail(first); detail.PullRequest == nil || detail.PullRequest.Number != pr.Number || detail.PullRequest.HeadCommit != secondHead {
@@ -175,8 +176,8 @@ func TestAChangeIsReviewedThroughItsPullRequest(t *testing.T) {
 	if merges := in.eventsOf(ledger.EventPullRequestMerged, first); len(merges) != 1 || merges[0].ActorKind != "worker" {
 		t.Errorf("the merge on record: %+v", merges)
 	}
-	if accepted := in.eventsOf("work_order.acceptance_passed", first); len(accepted) != 1 || accepted[0].ActorID != "integration-tick" {
-		t.Errorf("the acceptance on record: %+v", accepted)
+	if ended := in.eventsOf("work_order.merged", first); len(ended) != 1 || ended[0].ActorID != "forge" {
+		t.Errorf("the merge that ended the work on record: %+v", ended)
 	}
 
 	// The worker ran gh under the person's sign-in, with the commands the adapter runs, and never signed in.

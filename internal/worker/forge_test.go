@@ -202,8 +202,8 @@ func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
 	if len(comments) != 1 || !strings.Contains(comments[0], "It works as the criterion says.") || !strings.Contains(comments[0], "**pass**") {
 		t.Fatalf("the pull request holds the comments %q", comments)
 	}
-	if f.row().State != workorders.Acceptance {
-		t.Fatalf("the work reads %s, and waits for the person at person_merges", f.row().State)
+	if f.row().State != workorders.Integrating {
+		t.Fatalf("the work reads %s, and waits in integrating for the person's merge at person_merges", f.row().State)
 	}
 	f.forge.MergeByPerson(number, "merge-commit")
 	f.clock.Advance(2 * time.Minute)
@@ -212,9 +212,10 @@ func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
 	if err != nil || pr.State != ledger.PullRequestMerged || pr.MergeCommit != "merge-commit" {
 		t.Fatalf("the ledger holds %+v: %v", pr, err)
 	}
+	// The read of the person's merge ends the work, and the tick finds nothing left to do.
 	moved, err := control.NewIntegrations(f.store).Settle(ctx, scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "integration-tick"})
-	if err != nil || len(moved) != 1 || f.row().State != workorders.Done {
-		t.Fatalf("the merge ended %v, and the work reads %s: %v", moved, f.row().State, err)
+	if err != nil || len(moved) != 0 || f.row().State != workorders.Done {
+		t.Fatalf("the tick ended %v, and the work reads %s: %v", moved, f.row().State, err)
 	}
 }
 

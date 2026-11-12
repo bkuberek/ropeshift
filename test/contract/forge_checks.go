@@ -3,6 +3,7 @@ package contract
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/control"
@@ -366,7 +367,7 @@ func checkForgeNeedsBinding(r *Rig) error {
 var ForgeMergeChecks = []Check{
 	{"FG7", "a review's verdicts are asked of the worker that opened the pull request, as one comment bound to the commit", checkForgeVerdictComment},
 	{"FG8", "the worker that opened a pull request watches it while its work is open, and a read that changes nothing writes nothing", checkForgeWatch},
-	{"FG9", "at person_merges a merge the person made ends the work, by the integration tick, and a closed pull request ends nothing", checkForgeMergeEndsWork},
+	{"FG9", "at person_merges accepted work waits in integrating, a merge the person made ends it, and a closed pull request ends nothing", checkForgeMergeEndsWork},
 	{"FG10", "rework publishes the same branch again, the same pull request moves to the new head, and its review waits for it", checkForgeReworkUpdatesThePullRequest},
 }
 
@@ -379,12 +380,17 @@ func (f *forgeRig) reviewed(verdicts ...workorders.CriterionVerdict) (workorders
 	return f.judge(verdicts...)
 }
 
-// judge runs the review with these verdicts on another worker's lane.
+// judge runs the open review with these verdicts on another worker's lane.
 func (f *forgeRig) judge(verdicts ...workorders.CriterionVerdict) (workorders.WorkOrder, error) {
-	review, err := f.review()
+	reviews, err := f.r.reviewsOf(f.store, f.grant.WorkOrder)
 	if err != nil {
 		return workorders.WorkOrder{}, err
 	}
+	open := slices.IndexFunc(reviews, workorders.WorkOrder.OpenReview)
+	if open < 0 {
+		return workorders.WorkOrder{}, Violatedf("%s has no open review among %+v", f.grant.WorkOrder, reviews)
+	}
+	review := reviews[open]
 	holder, err := f.r.Running(f.store, review.ID, "reviewer")
 	if err != nil {
 		return workorders.WorkOrder{}, err
@@ -433,7 +439,7 @@ func checkForgeVerdictComment(r *Rig) error {
 	if comment.Kind != ledger.ForgeComment || comment.Number != 7 || comment.Commit != f.head || comment.Binding != "github.com/acme/widgets" || comment.ID != "comment:"+review.ID {
 		return Violatedf("the worker is asked %+v", comment)
 	}
-	for _, want := range []string{review.ID, f.head[:8], "`c1`", "pass", "Each failed payment is retried.", "pay/retry.go:12", "`c2`", "Each retry logs a line.", "waits for a member"} {
+	for _, want := range []string{review.ID, f.head[:8], "`c1`", "pass", "Each failed payment is retried.", "pay/retry.go:12", "`c2`", "Each retry logs a line.", "you merge this pull request yourself"} {
 		if !strings.Contains(comment.Body, want) {
 			return Violatedf("the comment leaves out %q:\n%s", want, comment.Body)
 		}
@@ -510,7 +516,8 @@ func checkForgeMergeEndsWork(r *Rig) error {
 	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
 		return err
 	}
-	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Acceptance); err != nil {
+	// Accepted through its pull request, the work waits in integrating for the person's merge.
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Integrating); err != nil {
 		return err
 	}
 	if moved, err := f.integrate(); err != nil || len(moved) != 0 {
@@ -524,25 +531,25 @@ func checkForgeMergeEndsWork(r *Rig) error {
 	if moved, err := f.integrate(); err != nil || len(moved) != 0 {
 		return Violatedf("a closed pull request ended %v: %v", moved, err)
 	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Integrating); err != nil {
+		return err
+	}
+	// The read of the person's merge ends the work in the transaction that records it.
 	merged := closed
 	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.ID("merge"), "2026-01-02T03:04:05Z"
 	if err := f.read(merged); err != nil {
 		return err
 	}
-	moved, err := f.integrate()
-	if err != nil || len(moved) != 1 || moved[0] != f.grant.WorkOrder {
-		return Violatedf("the merge ended %v: %v", moved, err)
-	}
 	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {
 		return err
 	}
-	count, event, err := r.eventsAbout(f.store, f.grant.WorkOrder, workorders.EventType(workorders.TriggerAcceptancePassed))
+	count, event, err := r.eventsAbout(f.store, f.grant.WorkOrder, workorders.EventType(workorders.TriggerMerged))
 	var change workorders.Change
 	if err == nil {
 		err = json.Unmarshal(event.Data, &change)
 	}
-	if err != nil || count != 1 || event.Actor.ID != "integration-tick" || !strings.Contains(string(change.Payload), merged.MergeCommit) {
-		return Violatedf("%d acceptances, the last %+v: %v", count, event, err)
+	if err != nil || count != 1 || event.Actor.ID != "forge" || !strings.Contains(string(change.Payload), merged.MergeCommit) {
+		return Violatedf("%d merges ending the work, the last %+v: %v", count, event, err)
 	}
 	if count, _, err := r.eventsAbout(f.store, f.grant.WorkOrder, ledger.EventPullRequestMerged); err != nil || count != 1 {
 		return Violatedf("%d merges on record: %v", count, err)

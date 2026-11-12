@@ -51,7 +51,7 @@ func TestAPullRequestMergesOnlyAtTheReviewedHeadWithItsRequiredChecksGreen(t *te
 		{"nothing required", openAt(reviewedCommit), StepMerge, ""},
 		{"a required check failed", openAt(reviewedCommit, required("CI result", ledger.CheckFailed), required("unit", ledger.CheckPending)), StepRework, "CI result"},
 		{"a required check pending", openAt(reviewedCommit, required("CI result", ledger.CheckPassed), required("unit", ledger.CheckPending)), StepWait, "unit"},
-		{"a head that moved", openAt("2222222222222222222222222222222222222222", required("CI result", ledger.CheckPassed)), StepHold, "22222222"},
+		{"a head that moved", openAt("2222222222222222222222222222222222222222", required("CI result", ledger.CheckPassed)), StepReview, "22222222"},
 		{"closed", &ledger.PullRequest{Number: 7, State: ledger.PullRequestClosed, HeadCommit: reviewedCommit}, StepHold, "closed"},
 		{"merged", &ledger.PullRequest{Number: 7, State: ledger.PullRequestMerged, HeadCommit: reviewedCommit, MergeCommit: "m"}, StepMerged, ""},
 	}
@@ -74,5 +74,43 @@ func TestAMergedPullRequestEndsTheWorkWhoeverMergedIt(t *testing.T) {
 	merged := &ledger.PullRequest{Number: 7, State: ledger.PullRequestMerged, HeadCommit: reviewedCommit, MergeCommit: "m"}
 	if gate := MergeGate(GateInput{Authority: ledger.PersonApproves, Target: ledger.ReviewOnPullRequest, Commit: reviewedCommit, PullRequest: merged}); gate.Step != StepMerged {
 		t.Errorf("a pull request the person merged before approving: %+v", gate)
+	}
+}
+
+// TestAMovedHeadIsReviewedAgain sends a pull request whose head moved past the reviewed commit back to review
+// at the new head, whatever the level and whether or not anyone approved the old one (ADR-0020): an approval
+// binds to the commit it approved, and ropeshift merges only a commit a review judged.
+func TestAMovedHeadIsReviewedAgain(t *testing.T) {
+	moved := "3333333333333333333333333333333333333333"
+	for _, level := range []ledger.MergeAuthority{ledger.PersonMerges, ledger.PersonApproves, ledger.ReviewApproves} {
+		for _, approved := range []bool{false, true} {
+			gate := MergeGate(GateInput{Authority: level, Target: ledger.ReviewOnPullRequest, Commit: reviewedCommit, Approved: approved, PullRequest: openAt(moved)})
+			if gate.Step != StepReview || gate.Head != moved {
+				t.Errorf("at %s, approved %v, a moved head: %+v", level, approved, gate)
+			}
+		}
+	}
+}
+
+// TestAtPersonMergesThePersonMergesThePullRequest never merges at person_merges: accepted work waits for the
+// person's merge on the forge, which ends it, while a failed required check still sends it back and a closed
+// pull request waits for the person.
+func TestAtPersonMergesThePersonMergesThePullRequest(t *testing.T) {
+	in := func(pr *ledger.PullRequest, approved bool) Gate {
+		return MergeGate(GateInput{Authority: ledger.PersonMerges, Target: ledger.ReviewOnPullRequest, Commit: reviewedCommit, Approved: approved, PullRequest: pr})
+	}
+	for _, approved := range []bool{false, true} {
+		if gate := in(openAt(reviewedCommit, required("CI result", ledger.CheckPassed)), approved); gate.Step != StepWait || !strings.Contains(gate.Why, "#7") {
+			t.Errorf("approved %v, green: %+v", approved, gate)
+		}
+	}
+	if gate := in(openAt(reviewedCommit, required("CI result", ledger.CheckFailed)), false); gate.Step != StepRework {
+		t.Errorf("a failed required check: %+v", gate)
+	}
+	if gate := in(&ledger.PullRequest{Number: 7, State: ledger.PullRequestClosed, HeadCommit: reviewedCommit}, false); gate.Step != StepWait || !strings.Contains(gate.Why, "closed") {
+		t.Errorf("a closed pull request: %+v", gate)
+	}
+	if gate := in(&ledger.PullRequest{Number: 7, State: ledger.PullRequestMerged, HeadCommit: reviewedCommit}, false); gate.Step != StepMerged {
+		t.Errorf("the person's merge: %+v", gate)
 	}
 }

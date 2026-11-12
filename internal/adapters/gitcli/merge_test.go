@@ -210,3 +210,30 @@ func TestABranchMergesIntoALocalBaseOnlyWhenNothingHasItCheckedOut(t *testing.T)
 		t.Errorf("a repeat came to %+v", again)
 	}
 }
+
+// TestAReviewOfAHeadOnlyTheRemoteHoldsFetchesIt makes a review's worktree detached at a commit someone pushed
+// to the pull request's branch from another clone: the checkout fetches it from the remote first, because a
+// moved head is reviewed again (ADR-0020).
+func TestAReviewOfAHeadOnlyTheRemoteHoldsFetchesIt(t *testing.T) {
+	r := newMergeRig(t, true)
+	clone := filepath.Join(t.TempDir(), "clone")
+	r.repo.Git("clone", "--quiet", "--branch", laneBranch, r.bare, clone)
+	if err := os.WriteFile(filepath.Join(clone, "pushed.txt"), []byte("someone else's line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.repo.Git("-C", clone, "add", "pushed.txt")
+	r.repo.Git("-C", clone, "commit", "--quiet", "-m", "someone else's push")
+	r.repo.Git("-C", clone, "push", "--quiet", "origin", laneBranch)
+	pushed := r.repo.Git("-C", clone, "rev-parse", "HEAD")
+	path := filepath.Join(t.TempDir(), "review")
+	tree, err := r.merger.Create(t.Context(), ports.WorktreeSpec{Repository: r.repo.Dir, Path: path, Base: pushed, Detached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.Head != pushed {
+		t.Errorf("the review's worktree is at %s, want %s", tree.Head, pushed)
+	}
+	if got := r.repo.Git("rev-parse", "refs/heads/"+laneBranch); got != r.head {
+		t.Errorf("fetching moved the checkout's branch to %s", got)
+	}
+}

@@ -101,6 +101,7 @@ type attemptStanding struct {
 	// rounds is how many reviews have judged this work order, whichever attempt they read.
 	rounds    int64
 	authority ledger.MergeAuthority
+	target    ledger.ReviewTarget
 	judgement workorders.Judgement
 }
 
@@ -115,7 +116,7 @@ func readAttempt(planned ports.PlanningReader, evidence ports.EvidenceReader, re
 	if err != nil {
 		return attemptStanding{}, err
 	}
-	at := attemptStanding{assessment: workorders.Assess(criteria, rows), authority: ledger.PersonMerges}
+	at := attemptStanding{assessment: workorders.Assess(criteria, rows), authority: ledger.PersonMerges, target: ledger.ReviewOnBranch}
 	artifacts, err := evidence.Artifacts(w.ID)
 	if err != nil {
 		return attemptStanding{}, err
@@ -137,13 +138,13 @@ func readAttempt(planned ports.PlanningReader, evidence ports.EvidenceReader, re
 		record, err := repositories.Repository(w.RepositoryID)
 		switch {
 		case err == nil:
-			at.authority = record.Level()
+			at.authority, at.target = record.Level(), record.Target()
 		case !errors.Is(err, ports.ErrNotFound):
 			return attemptStanding{}, err
 		}
 	}
 	at.judgement = workorders.Judge(workorders.JudgeInput{
-		Criteria: criteria, Verdicts: at.verdicts, Assessment: at.assessment, Authority: at.authority, Rounds: at.rounds, MaxRounds: bound,
+		Criteria: criteria, Verdicts: at.verdicts, Assessment: at.assessment, Authority: at.authority, Target: at.target, Rounds: at.rounds, MaxRounds: bound,
 	})
 	return at, nil
 }
@@ -465,15 +466,17 @@ func (a *Acceptances) waiting(ctx context.Context, scope ledger.WorkspaceID) ([]
 	return out, err
 }
 
-// attemptBranch finds the branch one attempt left. An attempt with none has no commit a forge
+// attemptBranch finds the branch one attempt left, at its latest commit: the lane's, or the head its pull
+// request moved to since, which is reviewed again (ADR-0020). An attempt with none has no commit a forge
 // could have run on.
 func attemptBranch(artifacts []ledger.Artifact, fence int64) ledger.Artifact {
+	var found ledger.Artifact
 	for _, artifact := range artifacts {
 		if artifact.Kind == ledger.ArtifactBranch && artifact.Fence == fence {
-			return artifact
+			found = artifact
 		}
 	}
-	return ledger.Artifact{}
+	return found
 }
 
 func forgeChecks(ctx context.Context, scope ledger.WorkspaceID, forge ports.CheckSource, item awaiting) ([]ports.ForgeCheck, error) {

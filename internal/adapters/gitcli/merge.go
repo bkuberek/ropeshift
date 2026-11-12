@@ -87,7 +87,7 @@ func (w Worktrees) MergeBranch(ctx context.Context, repository string, merge por
 		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Detail: fmt.Sprintf("branch %s is gone, and the reviewed commit was %s", merge.Branch, merge.Commit)}, nil
 	}
 	if branch != merge.Commit {
-		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Detail: fmt.Sprintf("branch %s is at %s, not the reviewed commit %s", merge.Branch, branch, merge.Commit)}, nil
+		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Head: branch, Detail: fmt.Sprintf("branch %s is at %s, not the reviewed commit %s", merge.Branch, branch, merge.Commit)}, nil
 	}
 	if remote == "" {
 		if holder, err := checkedOut(ctx, git, merge.Base); err != nil || holder != "" {

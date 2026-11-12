@@ -338,7 +338,7 @@ func (s mergeStateOf) settled(head string) (ledger.MergeResult, bool) {
 	case s.State == "CLOSED":
 		return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: "the pull request is closed"}, true
 	case s.HeadRefOid != head:
-		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Detail: fmt.Sprintf("the pull request's head is %s, not the reviewed commit %s", s.HeadRefOid, head)}, true
+		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Head: s.HeadRefOid, Detail: fmt.Sprintf("the pull request's head is %s, not the reviewed commit %s", s.HeadRefOid, head)}, true
 	case s.Mergeable == "CONFLICTING" || s.MergeStateStatus == "DIRTY":
 		return ledger.MergeResult{Outcome: ledger.MergeConflict, Detail: "the merge commit cannot be cleanly created"}, true
 	case s.MergeStateStatus == "BEHIND":

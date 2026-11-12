@@ -208,10 +208,10 @@ func TestRopeshiftMergesThePullRequestTheReviewApproved(t *testing.T) {
 }
 
 // TestAMemberApprovesTheMergeOfAPullRequest is B3b's exit at person_approves. The review passes, and the
-// merge waits for a member's approval bound to the reviewed commit. Someone pushes to the pull request's
-// branch before the member approves, so the head is not the reviewed commit, and ropeshift refuses to merge
-// it and holds the work for the member, with why. Once the push is taken back, the member's retry merges the
-// reviewed commit, and the approval names the member.
+// merge waits for a member's approval bound to the reviewed commit. Someone pushes to the pull request's branch
+// before the member approves, so the head is not the reviewed commit: the approval of the old head is void, and
+// the new head goes back to review (ADR-0020). The review passes the new head, and the member's approval of
+// that commit merges it.
 func TestAMemberApprovesTheMergeOfAPullRequest(t *testing.T) {
 	in := newInstall(t)
 	in.aLaneThatCommits()
@@ -230,39 +230,38 @@ func TestAMemberApprovesTheMergeOfAPullRequest(t *testing.T) {
 		t.Errorf("approval show reads:\n%s", text)
 	}
 
-	// Someone else's push moves the head, and the member's approval cannot merge it.
+	// Someone else's push moves the head: the old head's approval is void, and the new head is reviewed again.
 	tree := repo.Git("rev-parse", head+"^{tree}")
 	moved := repo.Git("commit-tree", tree, "-p", head, "-m", "someone else's push")
 	repo.Git("push", "--quiet", "origin", moved+":refs/heads/lane/lane-1")
-	in.waitFor("the ledger to read the moved head", func() bool {
-		pr := in.detail(first).PullRequest
-		return pr != nil && pr.HeadCommit == moved
+	in.waitFor("the moved head to go back to review", func() bool {
+		view := in.acceptance(first)
+		return view.State == workorders.Acceptance && len(view.Reviews) == 2
 	})
-	in.must("approval", "approve", approve.ID, "--digest", head)
-	held := in.mergeRequest(first, authority.MergeHeld)
-	if held.SubjectDigest != head || !strings.Contains(held.Summary, moved[:8]) {
-		t.Fatalf("the held merge reads %+v", held)
+	if code, _, stderr := in.run("approval", "approve", approve.ID, "--digest", head); code == 0 {
+		t.Fatalf("the approval of the old head still decided: %s", stderr)
 	}
-	if state := in.show(first).State; state != workorders.Integrating {
-		t.Errorf("a moved head left the work %s", state)
+	if moves := in.eventsOf("work_order.head_moved", first); len(moves) != 1 {
+		t.Errorf("the move back to review on record: %+v", moves)
 	}
 	if calls := mergeCalls(t, gh); len(calls) != 0 {
-		t.Fatalf("a head other than the reviewed commit merged: %q", calls)
+		t.Fatalf("a head no review judged merged: %q", calls)
 	}
 
-	// The push is taken back, and the member's retry merges the reviewed commit.
-	repo.Git("push", "--quiet", "--force", "origin", head+":refs/heads/lane/lane-1")
-	in.waitFor("the ledger to read the reviewed head again", func() bool {
-		pr := in.detail(first).PullRequest
-		return pr != nil && pr.HeadCommit == head
-	})
-	in.must("approval", "approve", held.ID, "--digest", head)
+	// The new head passes its review, and the member's approval of it merges it.
+	in.judgeThroughPR(first, "claim-3", "review-2", reviewSays("pass", passedReason, "work.txt:1"))
+	in.waitFor("the work to wait for its merge again", func() bool { return in.show(first).State == workorders.Integrating })
+	again := in.mergeRequest(first, authority.MergeApprove)
+	if again.SubjectDigest != moved {
+		t.Fatalf("the new merge request binds to %s, want %s", again.SubjectDigest, moved)
+	}
+	in.must("approval", "approve", again.ID, "--digest", moved)
 	in.waitFor("the merge to end the work", func() bool { return in.show(first).State == workorders.Done })
-	if calls := mergeCalls(t, gh); len(calls) != 1 || !slices.Contains(calls[0], head) || !slices.Contains(calls[0], "--merge") {
+	if calls := mergeCalls(t, gh); len(calls) != 1 || !slices.Contains(calls[0], moved) || !slices.Contains(calls[0], "--merge") {
 		t.Fatalf("the worker's gh merged %q", calls)
 	}
 	view := in.acceptance(first)
-	if len(view.Integrations) != 1 || view.Integrations[0].ApprovedByKind != ledger.ApprovedByMember || view.Integrations[0].ApprovedCommit != head || !view.Integrations[0].Merged() {
+	if len(view.Integrations) != 1 || view.Integrations[0].ApprovedByKind != ledger.ApprovedByMember || view.Integrations[0].ApprovedCommit != moved || !view.Integrations[0].Merged() {
 		t.Errorf("the approvals read %+v", view.Integrations)
 	}
 }

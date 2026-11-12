@@ -206,3 +206,16 @@ func TestTheDefaultBoundOnReviewRounds(t *testing.T) {
 		t.Errorf("round 3 of 3 by default: %q", got.Settlement)
 	}
 }
+
+// TestAPassedPullRequestIsAcceptedAtEveryLevel accepts work whose every criterion passed through a pull
+// request at person_merges too: accepted work there waits in integrating for the person's merge on the
+// forge, and only a branch at person_merges waits for a member's acceptance (architecture.md, acceptance).
+func TestAPassedPullRequestIsAcceptedAtEveryLevel(t *testing.T) {
+	pass := recorded("rv-1", 3, "abc", said("c1", VerdictPass))
+	for target, want := range map[ledger.ReviewTarget]Settlement{ledger.ReviewOnPullRequest: SettleAccept, ledger.ReviewOnBranch: SettleMember, "": SettleMember} {
+		got := Judge(JudgeInput{Criteria: []string{"c1"}, Verdicts: pass, Assessment: Assessment{Needs: NeedMember}, Authority: ledger.PersonMerges, Target: target, Rounds: 1, MaxRounds: 3})
+		if got.Settlement != want {
+			t.Errorf("at person_merges with target %q: %q, want %q", target, got.Settlement, want)
+		}
+	}
+}

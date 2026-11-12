@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -20,12 +21,15 @@ var MergeChecks = []Check{
 	{"MG1", "at review_approves the review's pass approves the commit, and the worker is asked to merge it with the method once its required checks are green", checkMergeAfterTheReview},
 	{"MG2", "a required check that fails on the reviewed commit sends the work back, naming it, and nothing merges", checkRequiredCheckFailsTheMerge},
 	{"MG3", "at person_approves only a member approves the merge, bound to the reviewed commit, and the approval asks for it", checkMemberApprovesTheMerge},
-	{"MG4", "a merge refused for a moved head or by the forge waits for a member, who retries it or sends the work back", checkRefusedMergeWaits},
+	{"MG4", "a merge the forge refuses waits for a member, who retries it or sends the work back", checkRefusedMergeWaits},
 	{"MG5", "a conflict sends the work back to rework on the same branch, with the conflict in its brief", checkConflictReworksTheBranch},
 	{"MG6", "with review target branch the lane's worker is asked to merge the branch into the base, and the merge ends the work", checkBranchMerge},
-	{"MG7", "a failed check the base requires sends work waiting at person_merges back, and a check it does not require counts for nothing", checkRequiredChecksAreEvidence},
+	{"MG7", "a failed check the base requires is evidence that sends work waiting in acceptance back, and a check it does not require counts for nothing", checkRequiredChecksAreEvidence},
 	{"MG8", "a pull request the person merges on the forge while its merge waits ends the work, and the merge is recorded", checkForgeMergeWhileIntegrating},
 	{"MG9", "a merge asked of work a member sends back is offered no more, and a late refusal of it decides nothing", checkMergeOfWorkSentBack},
+	{"MG10", "a merge refused because the head moved sends the work back to review at the new head, and voids what the old head had", checkStaleMergeReviewsTheNewHead},
+	{"MG11", "a read whose head moved past the reviewed commit sends work in integrating back to review, and voids the member's open approval", checkMovedHeadVoidsTheApproval},
+	{"MG12", "at person_merges accepted work through a pull request waits in integrating for the person's merge, which ropeshift never makes", checkPersonMergesWaitsInIntegrating},
 }
 
 // newMergeRig is a forge rig whose repository merges at a level, with a method.
@@ -338,7 +342,7 @@ func checkRefusedMergeWaits(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if err := f.mergeCame(first, ledger.MergeResult{Outcome: ledger.MergeStaleHead, Detail: "the pull request's head is 2222, not the reviewed commit"}); err != nil {
+	if err := f.mergeCame(first, ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: "the base branch requires 2222 approving reviews"}); err != nil {
 		return err
 	}
 	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Integrating); err != nil {
@@ -463,7 +467,9 @@ func checkRequiredChecksAreEvidence(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+	// A criterion the review could not judge holds the work in acceptance for a member.
+	cannot := workorders.CriterionVerdict{Criterion: "c2", Verdict: workorders.VerdictCannotJudge, Reasons: "No log to read.", Citations: []string{"pay/retry.go:9"}}
+	if _, err := f.reviewed(passes("c1", "ok"), cannot); err != nil {
 		return err
 	}
 	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Acceptance); err != nil {
@@ -562,4 +568,165 @@ func checkMergeOfWorkSentBack(r *Rig) error {
 		return Violatedf("a late refusal raised merge requests %+v: %v", rows, err)
 	}
 	return r.CheckProjection(f.store)
+}
+
+// moved pushes a new head to the rig's pull request on the forge, as someone's push leaves it, and returns it.
+func (f *forgeRig) movedHead() string { return f.r.ID("moved") }
+
+// reviewsNow lists the rig's reviews, oldest first.
+func (f *forgeRig) reviewsNow() ([]workorders.WorkOrder, error) {
+	return f.r.reviewsOf(f.store, f.grant.WorkOrder)
+}
+
+// reviewedAgainAt says the work went back to acceptance with a new open review of a head, whose attempt's
+// commit is now that head, and that no verdict on the old head counts any more.
+func (f *forgeRig) reviewedAgainAt(head string, reviews int) error {
+	if err := f.r.stateIs(f.store, f.grant.WorkOrder, workorders.Acceptance); err != nil {
+		return err
+	}
+	all, err := f.reviewsNow()
+	if err != nil || len(all) != reviews {
+		return Violatedf("reviews %+v: %v", all, err)
+	}
+	latest := all[len(all)-1]
+	if latest.State != workorders.Ready || latest.StartHeld != nil {
+		return Violatedf("the new review reads %s, held by %+v", latest.State, latest.StartHeld)
+	}
+	view, err := f.standing()
+	if err != nil {
+		return err
+	}
+	if len(view.Verdicts) != 0 {
+		return Violatedf("verdicts on the old head still count: %+v", view.Verdicts)
+	}
+	found := false
+	for _, artifact := range view.Artifacts {
+		found = found || (artifact.Kind == ledger.ArtifactBranch && artifact.Digest == head)
+	}
+	if !found {
+		return Violatedf("the attempt's commits %+v leave out the new head %s", view.Artifacts, head)
+	}
+	count, event, err := f.r.eventsAbout(f.store, f.grant.WorkOrder, workorders.EventType(workorders.TriggerHeadMoved))
+	var change workorders.Change
+	if err == nil {
+		err = json.Unmarshal(event.Data, &change)
+	}
+	if err != nil || count != 1 || !strings.Contains(string(change.Payload), head) {
+		return Violatedf("%d moves back to review, the last %s: %v", count, event.Data, err)
+	}
+	return nil
+}
+
+func checkStaleMergeReviewsTheNewHead(r *Rig) error {
+	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.ReviewApproves, "")
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	first, err := f.oneMerge()
+	if err != nil {
+		return err
+	}
+	moved := f.movedHead()
+	if err := f.mergeCame(first, ledger.MergeResult{Outcome: ledger.MergeStaleHead, Head: moved, Detail: "the pull request's head moved"}); err != nil {
+		return err
+	}
+	if err := f.reviewedAgainAt(moved, 2); err != nil {
+		return err
+	}
+	if err := f.noMerge(); err != nil {
+		return err
+	}
+	if rows, err := f.mergeRequests(); err != nil || slices.ContainsFunc(rows, authority.Approval.Open) {
+		return Violatedf("merge requests stay open: %+v: %v", rows, err)
+	}
+	// The new head is reviewed and passes, and that commit is what merges.
+	f.head = moved
+	if err := f.read(f.pullRequestAt(moved)); err != nil {
+		return err
+	}
+	if _, err := f.judge(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	again, err := f.oneMerge()
+	if err != nil || again.Commit != moved {
+		return Violatedf("after the new review the worker is asked %+v: %v", again, err)
+	}
+	if err := f.mergeCame(again, ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: r.ID("merged")}); err != nil {
+		return err
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {
+		return err
+	}
+	view, err := f.standing()
+	if err != nil || len(view.Integrations) != 2 || view.Integrations[0].Merged() || !view.Integrations[1].Merged() || view.Integrations[1].ApprovedCommit != moved {
+		return Violatedf("the approvals read %+v: %v", view.Integrations, err)
+	}
+	return r.CheckProjection(f.store)
+}
+
+func checkMovedHeadVoidsTheApproval(r *Rig) error {
+	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonApproves, "")
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	approve, err := f.openMergeRequest(authority.MergeApprove)
+	if err != nil {
+		return err
+	}
+	moved := f.movedHead()
+	if err := f.read(f.pullRequestAt(moved)); err != nil {
+		return err
+	}
+	if err := f.reviewedAgainAt(moved, 2); err != nil {
+		return err
+	}
+	if _, err := f.decide(approve, f.head, true, "", r.Actor); !errors.Is(err, authority.ErrApprovalClosed) {
+		return Violatedf("approving the merge of the old head: %v", err)
+	}
+	if err := f.noMerge(); err != nil {
+		return err
+	}
+	return r.CheckProjection(f.store)
+}
+
+func checkPersonMergesWaitsInIntegrating(r *Rig) error {
+	f, err := newMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonMerges, "")
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Integrating); err != nil {
+		return err
+	}
+	// Green, the work waits for the person's merge: ropeshift asks for no merge, and no member's approval.
+	if err := f.read(f.pullRequestAt(f.head, requiredCheck("CI result", ledger.CheckPassed))); err != nil {
+		return err
+	}
+	if _, err := f.integrate(); err != nil {
+		return err
+	}
+	if err := f.noMerge(); err != nil {
+		return err
+	}
+	if rows, err := f.mergeRequests(); err != nil || len(rows) != 0 {
+		return Violatedf("person_merges raised merge requests %+v: %v", rows, err)
+	}
+	if view, err := f.standing(); err != nil || !strings.Contains(view.Why, "merge pull request #7 yourself") {
+		return Violatedf("the work waits on %q: %v", view.Why, err)
+	}
+	// The person merges on the forge, and the work is done.
+	merged := f.pullRequestAt(f.head, requiredCheck("CI result", ledger.CheckPassed))
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.ID("merged"), "2026-11-11T12:00:00Z"
+	if err := f.read(merged); err != nil {
+		return err
+	}
+	return r.stateIs(f.store, f.grant.WorkOrder, workorders.Done)
 }

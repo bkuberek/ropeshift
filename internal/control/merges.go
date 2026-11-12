@@ -26,9 +26,10 @@ func mergeID(workOrder, commit string, round int) string {
 	return fmt.Sprintf("merge:%s:%s:%d", workOrder, commit, round)
 }
 
-// mergesOnAccept says accepted work merges rather than ends: a change or a rework that left a commit, in a
-// repository whose merge authority has ropeshift merge (ADR-0020). Planning work, reviews, and work at
-// person_merges end as they always did.
+// mergesOnAccept says accepted work waits for a merge rather than ends: a change or a rework that left a
+// commit, in a repository whose merge authority has ropeshift merge, or that lands through a pull request, which
+// at person_merges the person merges (ADR-0020). Planning work, reviews, and a branch at person_merges end as
+// they always did.
 func mergesOnAccept(tx ports.WriteTx, order workorders.WorkOrder) (bool, error) {
 	if order.Kind != workorders.KindChange && order.Kind != workorders.KindRework {
 		return false, nil
@@ -40,7 +41,7 @@ func mergesOnAccept(tx ports.WriteTx, order workorders.WorkOrder) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	if record.Level() == ledger.PersonMerges {
+	if record.Level() == ledger.PersonMerges && record.Target() != ledger.ReviewOnPullRequest {
 		return false, nil
 	}
 	artifacts, err := tx.Evidence().Artifacts(order.ID)
@@ -209,6 +210,8 @@ func (f integrationFacts) waiting() (workorders.Gate, *ledger.ForgeRequest) {
 			return workorders.Gate{Step: workorders.StepWait, Why: fmt.Sprintf("attempt %d to merge %s failed: %s", last.Attempt-1, short(f.commit()), last.Detail)}, last
 		case last.State == ledger.ForgeRequested:
 			return workorders.Gate{Step: workorders.StepWait, Why: fmt.Sprintf("the worker is merging %s into %s", short(f.commit()), f.base)}, last
+		// A pull request whose head moved is reviewed again, which the rule decides from the head on record.
+		case last.Outcome == ledger.MergeStaleHead && f.record.Target() == ledger.ReviewOnPullRequest:
 		case last.Outcome != ledger.MergeMerged && !last.Outcome.Rework() && !f.retried(*last):
 			return workorders.Gate{Step: workorders.StepHold, Why: fmt.Sprintf("the merge of %s was refused: %s", short(f.commit()), last.Detail)}, last
 		}
@@ -240,10 +243,13 @@ func integrate(tx ports.WriteTx, id string) error {
 	gate, request := f.waiting()
 	switch gate.Step {
 	case workorders.StepWait:
-		if f.approval == nil && f.openRequest(authority.MergeApprove) == nil && request == nil {
+		// At person_merges the person merges on the forge, so nobody is asked to approve a merge.
+		if f.record.Level() != ledger.PersonMerges && f.approval == nil && f.openRequest(authority.MergeApprove) == nil && request == nil {
 			return raiseMerge(tx, f, authority.MergeApprove, "", "")
 		}
 		return nil
+	case workorders.StepReview:
+		return reviewAgain(tx, f, gate.Head)
 	case workorders.StepHold:
 		if f.openRequest(authority.MergeHeld) != nil {
 			return nil
@@ -484,6 +490,18 @@ func mergedOnForge(tx ports.WriteTx, f integrationFacts) error {
 	} else if _, err := tx.Forge().InsertIntegration(record); err != nil {
 		return err
 	}
+	// A merge the person made with no approval on record is the person's decision after the review, which
+	// counts as accepting the work, as a member's acceptance does (ADR-0019).
+	if f.approval == nil && f.record.Level().PersonDecides() {
+		at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), f.order)
+		if err != nil {
+			return err
+		}
+		reason := fmt.Sprintf("merged pull request #%d on the forge", pr.Number)
+		if err := recordCalibration(tx, f.order, at, workorders.DecisionAccept, workorders.SourceDecision, reason, ledger.Actor{}); err != nil {
+			return err
+		}
+	}
 	record.MergedCommit, record.MergedAt = pr.MergeCommit, tx.Now()
 	return finishMerge(tx, f, record, mergedWork{URL: pr.URL, ForgeMerged: pr.MergedAt}, forgeActor)
 }
@@ -532,8 +550,63 @@ func mergeReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledger.
 		return nil
 	case result.Outcome.Rework():
 		return reworkConflict(tx, f, request, result)
+	case result.Outcome == ledger.MergeStaleHead && f.record.Target() == ledger.ReviewOnPullRequest && result.Head != "" && result.Head != request.Commit:
+		f.branch.Digest = current
+		return reviewAgain(tx, f, result.Head)
 	}
 	return integrate(tx, order.ID)
+}
+
+// headMoved is the payload of a move back to review: the pull request, the reviewed commit, and its new head.
+type headMoved struct {
+	PullRequest int64  `json:"pull_request,omitempty"`
+	Reviewed    string `json:"reviewed_commit"`
+	Head        string `json:"head_commit"`
+}
+
+// reviewAgain sends work whose pull request's head moved past the reviewed commit back to review at the new
+// head (ADR-0020): the new head becomes the commit of the attempt, every merge request bound to the old head
+// is void, the work returns to acceptance, and a review of the new head opens. Verdicts and approvals bind to
+// the commit they judged, so nothing of the old head counts for the new one.
+func reviewAgain(tx ports.WriteTx, f integrationFacts, head string) error {
+	if head == "" || head == f.commit() {
+		return nil
+	}
+	if err := voidMergeRequests(tx, f.order.ID, "", fmt.Sprintf("the pull request's head moved to %s", short(head))); err != nil {
+		return err
+	}
+	branch := f.branch.URI
+	if f.pr != nil {
+		branch = f.pr.Branch
+	}
+	id, err := newID(tx.Now())
+	if err != nil {
+		return err
+	}
+	if err := tx.Lanes().AddArtifact(ledger.Artifact{ID: id, Lane: f.branch.Lane, Kind: ledger.ArtifactBranch, URI: branch, Digest: head, Fence: f.order.Fence}); err != nil {
+		return err
+	}
+	moved := headMoved{Reviewed: f.commit(), Head: head}
+	if f.pr != nil {
+		moved.PullRequest = f.pr.Number
+	}
+	payload, err := json.Marshal(moved)
+	if err != nil {
+		return err
+	}
+	change := workorders.Change{
+		Trigger: workorders.TriggerHeadMoved, Payload: payload,
+		Reason: fmt.Sprintf("the pull request's head moved from the reviewed commit %s to %s", short(f.commit()), short(head)),
+	}
+	if err := leaveAcceptance(tx, f.order.ID, change, mergeActor, func() {}); err != nil {
+		return err
+	}
+	order, err := tx.WorkOrders().Get(f.order.ID)
+	if err != nil {
+		return err
+	}
+	_, _, err = openReview(tx, order, order.Fence, mergeActor)
+	return err
 }
 
 // mergeLanded records a merge the worker made, under the approval of the commit it merged.

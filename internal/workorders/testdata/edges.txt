@@ -21,6 +21,7 @@ acceptance rework ready
 acceptance integrating integrating
 integrating merged done
 integrating rework ready
+integrating head_moved acceptance
 running lane_blocked blocked
 blocked replan planning
 blocked resolved ready

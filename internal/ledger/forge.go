@@ -290,13 +290,15 @@ const (
 func (o MergeOutcome) Rework() bool { return o == MergeConflict || o == MergeBehind }
 
 // MergeResult is what one merge came to. A merge that landed names the commit it made on the base, and one
-// that did not says why, with the files that conflict when git can name them.
+// that did not says why, with the files that conflict when git can name them, and for a stale head the head
+// it found instead.
 type MergeResult struct {
 	Outcome     MergeOutcome `json:"outcome"`
 	MergeCommit string       `json:"merge_commit,omitempty"`
 	MergedAt    string       `json:"merged_at,omitempty"`
 	Detail      string       `json:"detail,omitempty"`
 	Files       []string     `json:"files,omitempty"`
+	Head        string       `json:"head,omitempty"`
 }
 
 // ForgeHealthReport is what a worker found of its forge sign-in for one repository.

@@ -187,9 +187,9 @@ func TestAMergeNamesTheReviewedHead(t *testing.T) {
 func TestAMergeTheForgeRefusesSaysWhy(t *testing.T) {
 	t.Run("a head that moved", func(t *testing.T) {
 		forge, repo, gh, _ := fixture(t)
-		ref, _, before := opened(t, forge, repo, gh)
+		ref, head, before := opened(t, forge, repo, gh)
 		result, err := forge.Merge(t.Context(), ref, strings.Repeat("a", 40), ledger.MergeCommit)
-		if err != nil || result.Outcome != ledger.MergeStaleHead || !strings.Contains(result.Detail, "aaaaaaaa") {
+		if err != nil || result.Outcome != ledger.MergeStaleHead || !strings.Contains(result.Detail, "aaaaaaaa") || result.Head != head {
 			t.Fatalf("merge %+v: %v", result, err)
 		}
 		if got := argsOf(doubles.FakeGHCalls(t, gh))[before:]; len(got) != 1 || got[0][1] != "view" {

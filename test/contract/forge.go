@@ -51,7 +51,7 @@ func RunForge(t *testing.T, fresh func(*testing.T) ForgeRig) {
 		{"a comment is posted once per key", checkPRCommentOnce},
 		{"a check the base requires is marked on the head", checkPRRequiredChecks},
 		{"a merge at the head lands with the method, and a repeat merges nothing twice", checkPRMerges},
-		{"a merge at a head that moved is refused as stale, and merges nothing", checkPRMergeStale},
+		{"a merge at a head that moved is refused as stale with the head it found, and merges nothing", checkPRMergeStale},
 		{"a merge that conflicts is refused as a conflict, and merges nothing", checkPRMergeConflict},
 		{"a merge the base's protection refuses is a refusal with what the forge said", checkPRMergeProtected},
 		{"a sign-in that works is healthy", checkForgeHealthy},
@@ -234,8 +234,8 @@ func checkPRMerges(t *testing.T, ctx context.Context, rig ForgeRig) {
 func checkPRMergeStale(t *testing.T, ctx context.Context, rig ForgeRig) {
 	reviewed := rig.Push(t, "ropeshift/wo-1")
 	pr := openPR(t, ctx, rig, "ropeshift/wo-1")
-	rig.Push(t, "ropeshift/wo-1")
-	if result := mergePR(t, ctx, rig, pr.Number, reviewed, ledger.MergeCommit); result.Outcome != ledger.MergeStaleHead || result.Detail == "" {
+	moved := rig.Push(t, "ropeshift/wo-1")
+	if result := mergePR(t, ctx, rig, pr.Number, reviewed, ledger.MergeCommit); result.Outcome != ledger.MergeStaleHead || result.Detail == "" || result.Head != moved {
 		t.Errorf("a merge at the old head came to %+v", result)
 	}
 	if read := readPR(t, ctx, rig, pr.Number); read.State != ledger.PullRequestOpen {

@@ -335,7 +335,7 @@ func (f *Forge) Merge(_ context.Context, ref ports.PullRequestRef, head string, 
 	case pr.State != ledger.PullRequestOpen:
 		return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: fmt.Sprintf("the pull request is %s", pr.State)}, nil
 	case pr.HeadCommit != head:
-		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Detail: fmt.Sprintf("the pull request's head is %s, not the reviewed commit %s", pr.HeadCommit, head)}, nil
+		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Head: pr.HeadCommit, Detail: fmt.Sprintf("the pull request's head is %s, not the reviewed commit %s", pr.HeadCommit, head)}, nil
 	case held.refusal != nil:
 		return *held.refusal, nil
 	}
