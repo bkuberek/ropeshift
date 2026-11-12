@@ -96,11 +96,12 @@ type Worker struct {
 	probes sync.WaitGroup
 
 	// forgeLock guards what this process knows of the forge: each repository's sign-in, the requests whose
-	// report is journaled, and when each request last failed.
+	// report is journaled, when each request last failed, and each watched pull request's last read.
 	forgeLock     sync.Mutex
 	forgeHealth   map[string]forgeHealthSeen
 	forgeReported map[string]bool
 	forgeFailed   map[string]time.Time
+	forgeRead     map[string]forgeReadSeen
 }
 
 // New returns a worker that has not started.

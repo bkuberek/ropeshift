@@ -122,6 +122,19 @@ type DesiredForge struct {
 	Attempt    int64     `json:"attempt"`
 }
 
+// DesiredPullRequest is a pull request a worker watches for the ledger, as the ledger last heard of it. The
+// worker reads it now and then, and reports it only when what it reads differs.
+type DesiredPullRequest struct {
+	Project     string           `json:"project,omitempty"`
+	WorkOrder   string           `json:"work_order"`
+	Repository  string           `json:"repository"`
+	Binding     string           `json:"binding"`
+	Number      int64            `json:"number"`
+	State       PullRequestState `json:"state"`
+	HeadCommit  string           `json:"head_commit"`
+	MergeCommit string           `json:"merge_commit,omitempty"`
+}
+
 // DesiredForgeRepository is a repository whose review target needs the forge. A worker that keeps a
 // checkout of it reports its forge sign-in's health there.
 type DesiredForgeRepository struct {
@@ -216,7 +229,16 @@ const (
 	UploadForgeReported = "forge_reported"
 	// UploadForgeHealth carries a ForgeHealthReport.
 	UploadForgeHealth = "forge_health"
+	// UploadPullRequestRead carries a PullRequestReport.
+	UploadPullRequestRead = "pull_request_read"
 )
+
+// PullRequestReport is what a worker read of a pull request it watches, which differs from what the ledger
+// last heard.
+type PullRequestReport struct {
+	WorkOrder   string      `json:"work_order"`
+	PullRequest PullRequest `json:"pull_request"`
+}
 
 // ForgeReport is how one attempt at a forge request came out. A failed attempt carries why, and a
 // publish or a read that worked carries the pull request.
@@ -247,6 +269,8 @@ const (
 	EventForgeHealth = "forge.health"
 	// EventPullRequestOpened records a pull request a worker opened or found open, at its head commit.
 	EventPullRequestOpened = "pull_request.opened"
+	// EventPullRequestUpdated records a pull request a worker read with a new head, mergeability, or checks.
+	EventPullRequestUpdated = "pull_request.updated"
 	// EventPullRequestCommented records a comment a worker posted.
 	EventPullRequestCommented = "pull_request.commented"
 	// EventPullRequestMerged records a merge a worker read, whoever made it.

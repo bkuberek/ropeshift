@@ -450,4 +450,7 @@ type WorkDetail struct {
 	JudgedBy []workorders.ReviewLine `json:"judged_by,omitempty"`
 	Verdicts []workorders.Verdict    `json:"verdicts,omitempty"`
 	Why      string                  `json:"why,omitempty"`
+	// PullRequest is the pull request the work lands through, when its repository reviews through pull
+	// requests.
+	PullRequest *ledger.PullRequest `json:"pull_request,omitempty"`
 }

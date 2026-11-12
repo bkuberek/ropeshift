@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
@@ -73,6 +74,90 @@ func (w *Worker) tendForge(ctx context.Context) {
 			w.runForge(ctx, request)
 		})
 	}
+	for _, watched := range state.PullRequests {
+		if !w.readDue(watched) {
+			continue
+		}
+		w.goForge(ctx, "read/"+forgeKey(watched.Project, watched.WorkOrder), func(ctx context.Context) {
+			w.readPullRequest(ctx, watched)
+		})
+	}
+}
+
+// readDue paces the reads of one watched pull request, and holds them while the repository's sign-in this
+// worker found cannot run.
+func (w *Worker) readDue(watched ledger.DesiredPullRequest) bool {
+	w.forgeLock.Lock()
+	defer w.forgeLock.Unlock()
+	seen, ok := w.forgeHealth[forgeKey(watched.Project, watched.Repository)]
+	if !ok || seen.found.State != ledger.ForgeHealthy {
+		return false
+	}
+	last, read := w.forgeRead[forgeKey(watched.Project, watched.WorkOrder)]
+	return !read || w.clock.Now().Sub(last.at) >= w.config.Lanes.forgeEvery()
+}
+
+// forgeReadSeen is when a worker last read a watched pull request, and what it last told the ledger of it.
+type forgeReadSeen struct {
+	at   time.Time
+	told *ledger.PullRequest
+}
+
+// readPullRequest reads one pull request this worker watches for the ledger, and reports it when it differs
+// from what the ledger last heard: a merge, a close, a head the forge now shows, or new checks.
+func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPullRequest) {
+	rt := w.config.Lanes
+	key := forgeKey(watched.Project, watched.WorkOrder)
+	w.forgeLock.Lock()
+	if w.forgeRead == nil {
+		w.forgeRead = map[string]forgeReadSeen{}
+	}
+	seen := w.forgeRead[key]
+	seen.at = w.clock.Now()
+	w.forgeRead[key] = seen
+	w.forgeLock.Unlock()
+	dir, err := rt.Repository(ctx, watched.Project, watched.Repository)
+	if err != nil {
+		return
+	}
+	binding, err := ledger.ParseForgeBinding(watched.Binding)
+	if err != nil {
+		return
+	}
+	read, err := rt.Forge.PullRequest(ctx, ports.PullRequestRef{Repo: ports.ForgeRepo{Dir: dir, Binding: binding}, Number: watched.Number})
+	if err != nil {
+		w.config.Report(fmt.Errorf("pull request %d of %s: %w", watched.Number, watched.WorkOrder, err))
+		w.recheckHealth(watched.Project, watched.Repository)
+		return
+	}
+	if seen.told != nil && sameRead(*seen.told, read) {
+		return
+	}
+	if seen.told == nil && read.State == watched.State && read.HeadCommit == watched.HeadCommit && read.MergeCommit == watched.MergeCommit {
+		w.forgeLock.Lock()
+		seen.told = &read
+		w.forgeRead[key] = seen
+		w.forgeLock.Unlock()
+		return
+	}
+	payload, err := json.Marshal(ledger.PullRequestReport{WorkOrder: watched.WorkOrder, PullRequest: read})
+	if err == nil {
+		_, err = w.Record(ctx, w.event(ledger.UploadPullRequestRead, lanes.Record{Project: watched.Project, WorkOrder: watched.WorkOrder}, payload))
+	}
+	if err != nil {
+		w.config.Report(fmt.Errorf("pull request %d of %s: %w", watched.Number, watched.WorkOrder, err))
+		return
+	}
+	w.forgeLock.Lock()
+	defer w.forgeLock.Unlock()
+	seen.told = &read
+	w.forgeRead[key] = seen
+}
+
+// sameRead compares what a read of a pull request can change.
+func sameRead(a, b ledger.PullRequest) bool {
+	return a.State == b.State && a.HeadCommit == b.HeadCommit && a.Mergeable == b.Mergeable && a.MergeCommit == b.MergeCommit &&
+		a.MergedAt == b.MergedAt && a.Base == b.Base && slices.Equal(a.Checks, b.Checks)
 }
 
 // goForge runs one forge step on a goroutine the lanes' wait covers, and none while another runs the same.
@@ -236,6 +321,12 @@ func (w *Worker) performForge(ctx context.Context, request ledger.DesiredForge) 
 	case ledger.ForgePublish:
 		pr, err := w.publish(ctx, request, repo)
 		return &pr, err
+	case ledger.ForgeComment:
+		comment := lanes.Effect{Key: forgeAttemptKey(request) + "/comment", Kind: lanes.EffectComment, Target: fmt.Sprint(request.Number)}
+		_, err := w.forgeBracket(ctx, comment, func() (string, error) {
+			return "", rt.Forge.Comment(ctx, ports.PullRequestRef{Repo: repo, Number: request.Number}, request.ID, request.Body)
+		})
+		return nil, err
 	}
 	return nil, fmt.Errorf("this worker runs no forge request of kind %s", request.Kind)
 }

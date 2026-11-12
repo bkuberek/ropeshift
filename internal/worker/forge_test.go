@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/control"
@@ -164,5 +165,55 @@ func TestAFailedPushIsReportedAndTriedAgainLater(t *testing.T) {
 	}
 	if prs := f.forge.PullRequests(); len(prs) != 0 {
 		t.Errorf("a refused push opened %+v", prs)
+	}
+}
+
+// TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge is FR-REVIEW-9 and FR-MERGE-9 on the worker: the review's
+// verdicts reach the pull request as one comment, the worker watches the pull request, and the merge the person
+// makes on the forge comes back, so the integration tick ends the work.
+func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	f.converge(3)
+	review := f.review()
+	if review.StartHeld != nil {
+		t.Fatalf("the review waits on %+v", review.StartHeld)
+	}
+	ctx := t.Context()
+	leases := control.NewLeases(f.store)
+	grant, err := leases.Claim(ctx, scope, workorders.ClaimRequest{WorkOrder: review.ID, ClaimID: "claim-review", Worker: "reviewer", TTLMs: 60_000}, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := leases.StartLane(ctx, scope, grant.Lease, "review-lane", member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{
+		{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It works as the criterion says.", Citations: []string{"main.go:3"}},
+	}}}
+	holder := workorders.Holder{Lease: grant.Lease, Lane: "review-lane", Generation: generation}
+	if err := leases.EndLane(ctx, scope, holder, result, ledger.Actor{Kind: ledger.ActorLane, ID: "review-lane"}); err != nil {
+		t.Fatal(err)
+	}
+	f.converge(2)
+	number := f.forge.PullRequests()[0].Number
+	comments := f.forge.Comments(number)
+	if len(comments) != 1 || !strings.Contains(comments[0], "It works as the criterion says.") || !strings.Contains(comments[0], "**pass**") {
+		t.Fatalf("the pull request holds the comments %q", comments)
+	}
+	if f.row().State != workorders.Acceptance {
+		t.Fatalf("the work reads %s, and waits for the person at person_merges", f.row().State)
+	}
+	f.forge.Merge(number, "merge-commit")
+	f.clock.Advance(2 * time.Minute)
+	f.converge(2)
+	pr, err := f.pullRequest()
+	if err != nil || pr.State != ledger.PullRequestMerged || pr.MergeCommit != "merge-commit" {
+		t.Fatalf("the ledger holds %+v: %v", pr, err)
+	}
+	moved, err := control.NewIntegrations(f.store).Settle(ctx, scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "integration-tick"})
+	if err != nil || len(moved) != 1 || f.row().State != workorders.Done {
+		t.Fatalf("the merge ended %v, and the work reads %s: %v", moved, f.row().State, err)
 	}
 }

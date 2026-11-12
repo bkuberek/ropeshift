@@ -72,6 +72,13 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	for _, review := range reviews {
 		view.Reviews = append(view.Reviews, workorders.ReviewLine{ID: review.ID, State: review.State, Attempt: review.ReviewsFence})
 	}
+	pr, err := tx.Forge().PullRequest(id)
+	switch {
+	case err == nil:
+		view.PullRequest = &pr.PullRequest
+	case !errors.Is(err, ports.ErrNotFound):
+		return workorders.AcceptanceView{}, err
+	}
 	return view, nil
 }
 
@@ -750,7 +757,10 @@ func afterLaneEnd(tx ports.WriteTx, ended workorders.WorkOrder, holder workorder
 		if err := closeReview(tx, ended.ID); err != nil {
 			return err
 		}
-		return settleReviewed(tx, ended)
+		if err := settleReviewed(tx, ended); err != nil {
+			return err
+		}
+		return requestVerdictComment(tx, ended, result, actor)
 	}
 	if result.Outcome != workorders.OutcomeCompleted {
 		return nil

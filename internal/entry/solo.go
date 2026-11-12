@@ -756,6 +756,12 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			_, err := control.NewAcceptances(store).Settle(ctx, p.ID, nil, tickActor("acceptance-tick"))
 			return err
 		}),
+		// A pull request a person merged ends its work at the levels where the person merges. The worker that
+		// opened it reads it, and this records what the read found (ADR-0020).
+		tick("integration", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewIntegrations(store).Settle(ctx, p.ID, tickActor("integration-tick"))
+			return err
+		}),
 		tick("intake", opts.intakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			var failed []error
 			intake := control.NewIntake(store).Telling(windows).Checking(soloStarts(opts, kept))

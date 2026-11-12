@@ -423,6 +423,8 @@ type DesiredState struct {
 	// ForgeRepositories are the repositories whose review target needs the forge, for this worker to report
 	// its forge sign-in's health in each it keeps a checkout of.
 	ForgeRepositories []DesiredForgeRepository `json:"forge_repositories,omitempty"`
+	// PullRequests are the pull requests this worker opened whose work is still open, for it to watch.
+	PullRequests []DesiredPullRequest `json:"pull_requests,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.

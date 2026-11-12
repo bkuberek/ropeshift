@@ -351,3 +351,284 @@ func checkForgeNeedsBinding(r *Rig) error {
 	}
 	return nil
 }
+
+// ForgeMergeChecks are the steps after a pull request opens (FR-REVIEW-9, FR-MERGE-9, FR-MERGE-10): the
+// verdicts go on the pull request as a comment, rework updates the same pull request, the worker watches it,
+// and at person_merges the integration tick ends the work the person merged.
+var ForgeMergeChecks = []Check{
+	{"FG7", "a review's verdicts are asked of the worker that opened the pull request, as one comment bound to the commit", checkForgeVerdictComment},
+	{"FG8", "the worker that opened a pull request watches it while its work is open, and a read that changes nothing writes nothing", checkForgeWatch},
+	{"FG9", "at person_merges a merge the person made ends the work, by the integration tick, and a closed pull request ends nothing", checkForgeMergeEndsWork},
+	{"FG10", "rework publishes the same branch again, the same pull request moves to the new head, and its review waits for it", checkForgeReworkUpdatesThePullRequest},
+}
+
+// reviewed has the rig's worker report the pull request open at the commit under review, and runs the review
+// with these verdicts on another worker's lane.
+func (f *forgeRig) reviewed(verdicts ...workorders.CriterionVerdict) (workorders.WorkOrder, error) {
+	if err := f.report(f.opened(1, f.head)); err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	review, err := f.review()
+	if err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	holder, err := f.r.Running(f.store, review.ID, "reviewer")
+	if err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	result := laneResult(workorders.OutcomeCompleted, "")
+	result.Verdicts = verdicts
+	if err := f.r.NewOps(f.store).EndLane(f.r.Ctx, f.r.Scope, holder, result, f.r.worker("reviewer")); err != nil {
+		return workorders.WorkOrder{}, err
+	}
+	return review, nil
+}
+
+func passes(criterion, reasons string) workorders.CriterionVerdict {
+	return workorders.CriterionVerdict{Criterion: criterion, Verdict: workorders.VerdictPass, Reasons: reasons, Citations: []string{"pay/retry.go:12"}}
+}
+
+func (f *forgeRig) read(pr ledger.PullRequest) error {
+	reply, err := f.forgeUpload(f.auth, f.epoch, ledger.UploadPullRequestRead, ledger.PullRequestReport{WorkOrder: f.grant.WorkOrder, PullRequest: pr})
+	if err == nil && len(reply.Rejected) != 0 {
+		return Violatedf("a read was refused: %+v", reply.Rejected)
+	}
+	return err
+}
+
+func (f *forgeRig) integrate() ([]string, error) {
+	return control.NewIntegrations(f.store).Settle(f.r.Ctx, f.r.Scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "integration-tick"})
+}
+
+func checkForgeVerdictComment(r *Rig) error {
+	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
+	if err != nil {
+		return err
+	}
+	review, err := f.reviewed(passes("c1", "Each failed payment is retried."), passes("c2", "Each retry logs a line."))
+	if err != nil {
+		return err
+	}
+	desired, err := f.desired()
+	if err != nil {
+		return err
+	}
+	if len(desired.Forge) != 1 {
+		return Violatedf("after the review the worker is asked %+v, want one comment", desired.Forge)
+	}
+	comment := desired.Forge[0]
+	if comment.Kind != ledger.ForgeComment || comment.Number != 7 || comment.Commit != f.head || comment.Binding != "github.com/acme/widgets" || comment.ID != "comment:"+review.ID {
+		return Violatedf("the worker is asked %+v", comment)
+	}
+	for _, want := range []string{review.ID, f.head[:8], "`c1`", "pass", "Each failed payment is retried.", "pay/retry.go:12", "`c2`", "Each retry logs a line.", "waits for a member"} {
+		if !strings.Contains(comment.Body, want) {
+			return Violatedf("the comment leaves out %q:\n%s", want, comment.Body)
+		}
+	}
+	if err := f.report(ledger.ForgeReport{Request: comment.ID, Attempt: 1}); err != nil {
+		return err
+	}
+	if count, _, err := r.eventsAbout(f.store, f.grant.WorkOrder, ledger.EventPullRequestCommented); err != nil || count != 1 {
+		return Violatedf("%d comments on record: %v", count, err)
+	}
+	// The verdicts stay in the ledger, bound to the commit, as they always were.
+	view, err := r.NewOps(f.store).Standing(r.Ctx, r.Scope, f.grant.WorkOrder)
+	if err != nil || len(view.Verdicts) != 2 || view.Verdicts[0].Commit != f.head {
+		return Violatedf("the verdicts on record are %+v: %v", view.Verdicts, err)
+	}
+	return nil
+}
+
+func checkForgeWatch(r *Rig) error {
+	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	desired, err := f.desired()
+	if err != nil {
+		return err
+	}
+	if len(desired.PullRequests) != 1 {
+		return Violatedf("the worker watches %+v", desired.PullRequests)
+	}
+	watched := desired.PullRequests[0]
+	if watched.WorkOrder != f.grant.WorkOrder || watched.Number != 7 || watched.Binding != "github.com/acme/widgets" || watched.HeadCommit != f.head || watched.State != ledger.PullRequestOpen {
+		return Violatedf("the worker watches %+v", watched)
+	}
+	before, err := r.Revision(f.store, r.Scope)
+	if err != nil {
+		return err
+	}
+	same := f.opened(1, f.head).PullRequest
+	if err := f.read(*same); err != nil {
+		return err
+	}
+	if after, err := r.Revision(f.store, r.Scope); err != nil || after != before {
+		return Violatedf("a read that changed nothing moved the revision from %d to %d: %v", before, after, err)
+	}
+	checked := *same
+	checked.Checks = []ledger.PullRequestCheck{{Name: "unit", State: ledger.CheckPassed}}
+	if err := f.read(checked); err != nil {
+		return err
+	}
+	if count, _, err := r.eventsAbout(f.store, f.grant.WorkOrder, ledger.EventPullRequestUpdated); err != nil || count != 1 {
+		return Violatedf("%d updates on record: %v", count, err)
+	}
+	// Another worker's read is refused.
+	other, err := newStatusRig(r)
+	if err != nil {
+		return err
+	}
+	reply, err := f.forgeUpload(other.auth, other.epoch, ledger.UploadPullRequestRead, ledger.PullRequestReport{WorkOrder: f.grant.WorkOrder, PullRequest: checked})
+	if err != nil || len(reply.Rejected) != 1 || reply.Rejected[0].Status != ledger.UploadInvalid {
+		return Violatedf("a stranger's read was answered %+v: %v", reply.Rejected, err)
+	}
+	return nil
+}
+
+func checkForgeMergeEndsWork(r *Rig) error {
+	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
+	if err != nil {
+		return err
+	}
+	if _, err := f.reviewed(passes("c1", "ok"), passes("c2", "ok")); err != nil {
+		return err
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Acceptance); err != nil {
+		return err
+	}
+	if moved, err := f.integrate(); err != nil || len(moved) != 0 {
+		return Violatedf("an open pull request ended %v: %v", moved, err)
+	}
+	closed := *f.opened(1, f.head).PullRequest
+	closed.State = ledger.PullRequestClosed
+	if err := f.read(closed); err != nil {
+		return err
+	}
+	if moved, err := f.integrate(); err != nil || len(moved) != 0 {
+		return Violatedf("a closed pull request ended %v: %v", moved, err)
+	}
+	merged := closed
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, r.ID("merge"), "2026-01-02T03:04:05Z"
+	if err := f.read(merged); err != nil {
+		return err
+	}
+	moved, err := f.integrate()
+	if err != nil || len(moved) != 1 || moved[0] != f.grant.WorkOrder {
+		return Violatedf("the merge ended %v: %v", moved, err)
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Done); err != nil {
+		return err
+	}
+	count, event, err := r.eventsAbout(f.store, f.grant.WorkOrder, workorders.EventType(workorders.TriggerAcceptancePassed))
+	var change workorders.Change
+	if err == nil {
+		err = json.Unmarshal(event.Data, &change)
+	}
+	if err != nil || count != 1 || event.Actor.ID != "integration-tick" || !strings.Contains(string(change.Payload), merged.MergeCommit) {
+		return Violatedf("%d acceptances, the last %+v: %v", count, event, err)
+	}
+	if count, _, err := r.eventsAbout(f.store, f.grant.WorkOrder, ledger.EventPullRequestMerged); err != nil || count != 1 {
+		return Violatedf("%d merges on record: %v", count, err)
+	}
+	// The person's merge counts as accepting after the review's pass (ADR-0019).
+	var calibrations []workorders.Calibration
+	err = f.store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		calibrations, err = tx.Evidence().Calibrations()
+		return err
+	})
+	if err != nil || len(calibrations) != 1 || calibrations[0].Decision != workorders.DecisionAccept || calibrations[0].Agreement != workorders.AgreementAgree ||
+		calibrations[0].Commit != f.head || !strings.Contains(calibrations[0].Reason, "#7") {
+		return Violatedf("the calibrations on record are %+v: %v", calibrations, err)
+	}
+	if desired, err := f.desired(); err != nil || len(desired.PullRequests) != 0 {
+		return Violatedf("done work is still watched: %+v: %v", desired.PullRequests, err)
+	}
+	if moved, err := f.integrate(); err != nil || len(moved) != 0 {
+		return Violatedf("a second tick ended %v: %v", moved, err)
+	}
+	return r.CheckProjection(f.store)
+}
+
+func checkForgeReworkUpdatesThePullRequest(r *Rig) error {
+	f, err := newForgeRig(r, ledger.ReviewOnPullRequest)
+	if err != nil {
+		return err
+	}
+	failed := workorders.CriterionVerdict{Criterion: "c1", Verdict: workorders.VerdictFail, Reasons: "No retry.", Citations: []string{"pay/retry.go:3"}}
+	if _, err := f.reviewed(failed, passes("c2", "ok")); err != nil {
+		return err
+	}
+	if err := r.stateIs(f.store, f.grant.WorkOrder, workorders.Ready); err != nil {
+		return err
+	}
+	comment, err := f.publish()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(comment.Body, "No retry.") || !strings.Contains(comment.Body, "goes back for rework") {
+		return Violatedf("the comment of a failed review reads:\n%s", comment.Body)
+	}
+	if err := f.report(ledger.ForgeReport{Request: comment.ID, Attempt: 1}); err != nil {
+		return err
+	}
+	// The next attempt runs on this worker again and completes with a new commit on the same branch.
+	f.grant, err = f.plane.Claim(r.Ctx, f.auth, workorders.ClaimRequest{WorkOrder: f.grant.WorkOrder, ClaimID: r.ID("claim"), TTLMs: TTLMs})
+	if err != nil {
+		return err
+	}
+	f.lane = r.ID("lane")
+	ops := r.NewOps(f.store)
+	if _, err := ops.Dispatch(r.Ctx, r.Scope, f.grant.WorkOrder, f.lane, r.Actor); err != nil {
+		return err
+	}
+	if _, err := ops.StartLane(r.Ctx, r.Scope, f.grant.Lease, f.lane, r.Actor); err != nil {
+		return err
+	}
+	again := r.ID("commit")
+	raw, err := json.Marshal(LaneFinished(again))
+	if err != nil {
+		return err
+	}
+	if reply, err := f.upload(ledger.UploadLaneEnded, raw); err != nil || len(reply.Rejected) != 0 {
+		return Violatedf("the second lane's end was refused: %+v, %v", reply.Rejected, err)
+	}
+	publish, err := f.publish()
+	if err != nil {
+		return err
+	}
+	if publish.Kind != ledger.ForgePublish || publish.Branch != branchName || publish.Commit != again || publish.ID != "publish:"+f.grant.WorkOrder+":"+again {
+		return Violatedf("the rework asks %+v", publish)
+	}
+	reviews, err := r.reviewsOf(f.store, f.grant.WorkOrder)
+	if err != nil || len(reviews) != 2 {
+		return Violatedf("reviews %+v: %v", reviews, err)
+	}
+	latest := reviews[1]
+	if latest.StartHeld == nil || latest.StartHeld.Reason != workorders.HoldPullRequestPending || !strings.Contains(latest.StartHeld.Detail, "waiting for worker w to push "+branchName) {
+		return Violatedf("the new review waits on %+v", latest.StartHeld)
+	}
+	// The worker finds the same pull request, now at the new head.
+	f.head = again
+	if err := f.report(f.opened(1, again)); err != nil {
+		return err
+	}
+	reviews, err = r.reviewsOf(f.store, f.grant.WorkOrder)
+	if err != nil || reviews[1].StartHeld != nil {
+		return Violatedf("the new review is still held: %+v: %v", reviews, err)
+	}
+	var pr ledger.WorkPullRequest
+	err = f.store.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		pr, err = tx.Forge().PullRequest(f.grant.WorkOrder)
+		return err
+	})
+	if err != nil || pr.Number != 7 || pr.HeadCommit != again {
+		return Violatedf("the pull request on record is %+v: %v", pr, err)
+	}
+	return nil
+}

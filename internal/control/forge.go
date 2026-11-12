@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -267,6 +268,13 @@ func forgeReported(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	switch request.Kind {
 	case ledger.ForgePublish:
 		return publishReported(tx, request, report, id, e.OccurredAt, actor)
+	case ledger.ForgeComment:
+		commented := struct {
+			Request string `json:"request"`
+			Number  int64  `json:"number"`
+			Commit  string `json:"commit"`
+		}{request.ID, request.Number, request.Commit}
+		return appendForgeAs(tx, id, e.OccurredAt, ledger.EventPullRequestCommented, request.WorkOrder, commented, actor)
 	}
 	return fmt.Errorf("%w: a forge request of kind %s", workorders.ErrInvalid, request.Kind)
 }
@@ -376,10 +384,163 @@ func desiredForge(tx ports.ReadTx, worker string, state *ledger.DesiredState) er
 	if err != nil {
 		return err
 	}
+	bindings := map[string]string{}
 	for _, record := range records {
+		bindings[record.ID] = record.ForgeBinding
 		if !record.Removed() && record.Target() == ledger.ReviewOnPullRequest && record.ForgeBinding != "" {
 			state.ForgeRepositories = append(state.ForgeRepositories, ledger.DesiredForgeRepository{Repository: record.ID, Binding: record.ForgeBinding})
 		}
 	}
+	return watched(tx, worker, bindings, state)
+}
+
+// watched lists the open pull requests a worker opened whose work is still open, which it reads for the
+// ledger: for a merge the person makes, and for a head the forge shows a moment after a push.
+func watched(tx ports.ReadTx, worker string, bindings map[string]string, state *ledger.DesiredState) error {
+	prs, err := tx.Forge().PullRequests()
+	if err != nil {
+		return err
+	}
+	for _, pr := range prs {
+		if pr.Worker != worker || pr.State != ledger.PullRequestOpen || bindings[pr.Repository] == "" {
+			continue
+		}
+		order, err := tx.WorkOrders().Get(pr.WorkOrder)
+		if err != nil {
+			return err
+		}
+		if workorders.Terminal(order.State) {
+			continue
+		}
+		state.PullRequests = append(state.PullRequests, ledger.DesiredPullRequest{
+			WorkOrder: pr.WorkOrder, Repository: pr.Repository, Binding: bindings[pr.Repository], Number: pr.Number, State: pr.State,
+			HeadCommit: pr.HeadCommit, MergeCommit: pr.MergeCommit,
+		})
+	}
 	return nil
+}
+
+// commentID keys the comment of one review, so a review's end stored twice asks once.
+func commentID(review string) string { return "comment:" + review }
+
+// requestVerdictComment asks the worker that opened the reviewed work's pull request to post the review's
+// verdicts on it as a comment (FR-REVIEW-9), in the transaction that ends the review. The ledger keeps the
+// verdicts as it always does. A review of a commit that reached review on its branch asks for nothing.
+func requestVerdictComment(tx ports.WriteTx, review workorders.WorkOrder, result workorders.LaneResult, actor ledger.Actor) error {
+	if result.Outcome != workorders.OutcomeCompleted || len(result.Verdicts) == 0 {
+		return nil
+	}
+	artifacts, err := tx.Evidence().Artifacts(review.Reviews)
+	if err != nil {
+		return err
+	}
+	commit := attemptBranch(artifacts, review.ReviewsFence).Digest
+	publish, found, err := publishOf(tx.Forge(), review.Reviews, commit)
+	if err != nil || !found {
+		return err
+	}
+	pr, err := tx.Forge().PullRequest(review.Reviews)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	body, err := verdictBody(tx, review, commit, result.Verdicts)
+	if err != nil {
+		return err
+	}
+	request := ledger.ForgeRequest{
+		ID: commentID(review.ID), Kind: ledger.ForgeComment, WorkOrder: review.Reviews, Repository: publish.Repository, Worker: pr.Worker,
+		Binding: publish.Binding, Branch: pr.Branch, Base: pr.Base, Commit: commit, Number: pr.Number, Body: body, RequestedAt: tx.Now(),
+	}
+	first, err := tx.Forge().InsertRequest(request)
+	if err != nil || !first {
+		return err
+	}
+	return appendForge(tx, ledger.EventForgeRequested, review.Reviews, request, actor)
+}
+
+// verdictBody writes a review's verdicts as a pull request comment: each criterion with its verdict, its
+// reasons, and its citations, the commit they bind to, and where the verdicts left the work.
+func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, verdicts []workorders.CriterionVerdict) (string, error) {
+	texts := map[string]string{}
+	if review.ContractVersion != 0 {
+		contract, err := tx.Planning().Contract(review.ContractID, review.ContractVersion)
+		if err != nil {
+			return "", err
+		}
+		for _, criterion := range contract.Criteria {
+			texts[criterion.ID] = criterion.Text
+		}
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "**Ropeshift review `%s`** of commit `%s`\n\n", review.ID, short(commit))
+	for _, v := range verdicts {
+		fmt.Fprintf(&out, "- `%s` **%s**", v.Criterion, v.Verdict)
+		if text := texts[v.Criterion]; text != "" {
+			fmt.Fprintf(&out, " (%s)", text)
+		}
+		fmt.Fprintf(&out, ": %s", strings.Join(strings.Fields(v.Reasons), " "))
+		if len(v.Citations) > 0 {
+			fmt.Fprintf(&out, " Cites %s.", "`"+strings.Join(v.Citations, "`, `")+"`")
+		}
+		out.WriteString("\n")
+	}
+	reviewed, err := tx.WorkOrders().Get(review.Reviews)
+	if err != nil {
+		return "", err
+	}
+	switch reviewed.State {
+	case workorders.Ready, workorders.ContractReview:
+		out.WriteString("\nThe work goes back for rework on this branch, and its next commit is reviewed again.\n")
+	case workorders.Done:
+		out.WriteString("\nThe review accepted the work at the repository's merge authority.\n")
+	default:
+		out.WriteString("\nThe work waits for a member's decision. These verdicts bind to this commit only; a new commit voids them.\n")
+	}
+	return out.String(), nil
+}
+
+// pullRequestRead keeps what the worker that opened a pull request read of it, when it differs from what the
+// ledger holds: a merge or a close, a new head, a change in mergeability or checks. A read that changes
+// nothing writes nothing, and the integration tick decides what a merge ends.
+func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	var report ledger.PullRequestReport
+	if err := json.Unmarshal(e.Payload, &report); err != nil {
+		return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
+	}
+	held, err := tx.Forge().PullRequest(report.WorkOrder)
+	if err != nil {
+		return err
+	}
+	read := report.PullRequest
+	if held.Worker != worker || held.Number != read.Number {
+		return fmt.Errorf("%w: pull request %d of %s is not this worker's to read", workorders.ErrInvalid, read.Number, report.WorkOrder)
+	}
+	if samePullRequest(held.PullRequest, read) {
+		return nil
+	}
+	if err := tx.Forge().SavePullRequest(ledger.WorkPullRequest{
+		PullRequest: read, WorkOrder: held.WorkOrder, Repository: held.Repository, Worker: held.Worker, ReadAt: tx.Now(),
+	}); err != nil {
+		return err
+	}
+	eventType := ledger.EventPullRequestUpdated
+	switch {
+	case read.State == ledger.PullRequestMerged && held.State != ledger.PullRequestMerged:
+		eventType = ledger.EventPullRequestMerged
+	case read.State == ledger.PullRequestClosed && held.State != ledger.PullRequestClosed:
+		eventType = ledger.EventPullRequestClosed
+	}
+	if err := appendForgeAs(tx, id, e.OccurredAt, eventType, held.WorkOrder, read, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}); err != nil {
+		return err
+	}
+	return refreshReviewHolds(tx, held.WorkOrder)
+}
+
+// samePullRequest compares what a read can change.
+func samePullRequest(a, b ledger.PullRequest) bool {
+	return a.State == b.State && a.HeadCommit == b.HeadCommit && a.Mergeable == b.Mergeable && a.MergeCommit == b.MergeCommit &&
+		a.MergedAt == b.MergedAt && a.Base == b.Base && slices.Equal(a.Checks, b.Checks)
 }

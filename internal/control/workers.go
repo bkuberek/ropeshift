@@ -805,6 +805,8 @@ func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) erro
 		return forgeReported(tx, worker, id, e)
 	case ledger.UploadForgeHealth:
 		return forgeHealthReported(tx, worker, id, e)
+	case ledger.UploadPullRequestRead:
+		return pullRequestRead(tx, worker, id, e)
 	case ledger.UploadLaneEnded:
 		var result workorders.LaneResult
 		if err := json.Unmarshal(e.Payload, &result); err != nil {
