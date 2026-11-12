@@ -188,8 +188,9 @@ func (in *install) waitReady(d *daemon) {
 	socket := in.paths().ControlSocket()
 	client := api.NewUnixClient(socket)
 	defer client.Close()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	bounds := exitWaits
+	bounds.poll = 10 * time.Millisecond
+	answered, why := bounds.await(func() bool {
 		select {
 		case err := <-d.exited:
 			in.t.Fatalf("the daemon exited: %v\n%s", err, d.stderr.String())
@@ -197,13 +198,12 @@ func (in *install) waitReady(d *daemon) {
 		}
 		_, err := client.Health(in.t.Context())
 		var refused *api.Error
-		if err == nil || errors.As(err, &refused) {
-			in.signIn(client)
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+		return err == nil || errors.As(err, &refused)
+	})
+	if !answered {
+		in.t.Fatalf("no answer at %s: the wait %s%s", socket, why, d.stderr.String())
 	}
-	in.t.Fatalf("no answer at %s\n%s", socket, d.stderr.String())
+	in.signIn(client)
 }
 
 // signIn holds one session for the whole install, which outlives a restart of the daemon.
@@ -258,16 +258,12 @@ func (in *install) show(id string) workorders.WorkOrder {
 	return row
 }
 
+// waitFor waits for the daemon to get where done says, within exitWaits.
 func (in *install) waitFor(what string, done func() bool) {
 	in.t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		if done() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	if happened, why := exitWaits.await(done); !happened {
+		in.t.Fatalf("%s did not happen: the wait %s%s%s", what, why, in.productState(), in.daemonOutput())
 	}
-	in.t.Fatalf("%s did not happen\n%s%s", what, in.productState(), in.daemonOutput())
 }
 
 // stderrTailLines bounds what a failed wait prints of each daemon's stderr.

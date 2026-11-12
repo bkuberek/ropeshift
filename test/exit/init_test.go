@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -135,17 +134,15 @@ func TestInitOnEmptyMachine(t *testing.T) {
 	in.member = true
 	d := in.start("--intake-tick", "20ms", "--source", repo.Dir)
 	in.waitReady(d)
-	deadline := time.Now().Add(30 * time.Second)
-	for {
+	var listed string
+	taken, why := exitWaits.await(func() bool {
 		code, stdout, _ := in.run("work", "list")
-		if code == 0 && strings.Contains(stdout, "contract_review") && strings.Contains(stdout, "says how to run the tests") {
-			break
-		}
-		if time.Now().After(deadline) {
-			_, sources, _ := in.run("source", "list")
-			t.Fatalf("intake took no work order from the sample:\n%s\nsources:\n%s", stdout, sources)
-		}
-		time.Sleep(20 * time.Millisecond)
+		listed = stdout
+		return code == 0 && strings.Contains(stdout, "contract_review") && strings.Contains(stdout, "says how to run the tests")
+	})
+	if !taken {
+		_, sources, _ := in.run("source", "list")
+		t.Fatalf("intake took no work order from the sample: the wait %s%s\nsources:\n%s", why, listed, sources)
 	}
 	if workers := in.workers(); len(workers) != 1 {
 		t.Errorf("%d workers after three runs and a start", len(workers))
