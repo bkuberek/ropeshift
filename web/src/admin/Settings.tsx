@@ -25,12 +25,14 @@ import type { Theme } from "../app/theme";
 import { Until } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
 import { Absent, Banner, Panel, Refusal, TableRegion } from "../ui/display";
+import { Diff } from "../ui/Diff";
+import { lineDiff } from "../ui/diff";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
-import { lineDiff, newID, nextVersion, policies, policyBody, settingsOf } from "./logic";
+import { newID, nextVersion, policies, policyBody, settingsOf } from "./logic";
 import type { DelegationClass, PolicyKind, PolicyValue, PolicyValues } from "./logic";
-import { dateOf, Diff, Reading, SaveBar, saveDownload, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
+import { dateOf, Reading, SaveBar, saveDownload, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 export type Prefs = { theme: Theme; setTheme: (theme: Theme) => void; singleKeys: boolean; setSingleKeys: (on: boolean) => void };
 

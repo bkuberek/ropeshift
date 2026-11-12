@@ -7,10 +7,12 @@ import { addressOf, go, Link } from "../app/route";
 import { Page } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
 import { Badge, Banner, EmptyState, Panel, Refusal, TableRegion } from "../ui/display";
+import { Diff } from "../ui/Diff";
+import { lineDiff } from "../ui/diff";
 import { Field, Select } from "../ui/forms";
 import { Dialog, useToast } from "../ui/overlays";
-import { agentLines, changedFields, lineDiff } from "./logic";
-import { dateOf, Diff, Reading, SaveBar, sourceWords, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
+import { agentLines, changedFields } from "./logic";
+import { dateOf, Reading, SaveBar, sourceWords, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
 const kinds = ["lookup", "explore", "analysis", "reasoning", "mechanical", "implementation", "review"];
 const accesses = ["read_only", "writing"];
