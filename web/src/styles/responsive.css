@@ -538,6 +538,16 @@
   .layers {
     padding-bottom: var(--s-8);
   }
+
+  /* A panel's title keeps a line of its own when more stands in its head than fits beside it. */
+  .panel-head {
+    flex-wrap: wrap;
+  }
+
+  .panel-head h2,
+  .panel-head h3 {
+    flex: 1 1 12ch;
+  }
 }
 
 /* Below the wide layout the decision comes first, so the button that decides is not at the end of a long page. */
