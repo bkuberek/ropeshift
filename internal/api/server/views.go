@@ -797,19 +797,26 @@ func unresolved(tx ports.ReadTx, filter ports.RecordFilter) ([]questions.Questio
 	}
 }
 
-// waitingPlanVersions names, for each plan, the newest of its versions whose approval waits for a member.
-func waitingPlanVersions(tx ports.ReadTx) (map[string]int64, error) {
+// planVersionStandings names, for each plan, the newest of its versions whose approval waits for a member and
+// the newest a member approved.
+func planVersionStandings(tx ports.ReadTx) (waiting, approved map[string]int64, err error) {
 	approvals, err := tx.Approvals().All()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	waiting := map[string]int64{}
+	waiting, approved = map[string]int64{}, map[string]int64{}
 	for _, approval := range approvals {
-		if approval.Kind == authority.KindPlan && approval.Open() && approval.PlanVersion > waiting[approval.Plan] {
+		if approval.Kind != authority.KindPlan {
+			continue
+		}
+		if approval.Open() && approval.PlanVersion > waiting[approval.Plan] {
 			waiting[approval.Plan] = approval.PlanVersion
 		}
+		if approval.State == authority.ApprovalApproved && approval.PlanVersion > approved[approval.Plan] {
+			approved[approval.Plan] = approval.PlanVersion
+		}
 	}
-	return waiting, nil
+	return waiting, approved, nil
 }
 
 func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
@@ -829,7 +836,7 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	if err != nil {
 		return nil, err
 	}
-	waiting, err := waitingPlanVersions(tx)
+	waiting, approved, err := planVersionStandings(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -853,7 +860,7 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	for _, plan := range plans {
 		detail := api.PlanDetail{
 			Plan: plan, Contracts: []api.ContractHistory{}, Reviews: []api.PlanReview{}, WorkOrders: []workorders.WorkOrder{},
-			PendingVersion: waiting[plan.ID],
+			PendingVersion: waiting[plan.ID], ApprovedVersion: approved[plan.ID],
 		}
 		if plan.GoalID != "" {
 			goal, err := tx.Planning().Goal(plan.GoalID)

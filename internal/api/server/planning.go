@@ -1,11 +1,13 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -68,7 +70,16 @@ func (h *handler) reviewPlan(w http.ResponseWriter, r *http.Request, actor ledge
 }
 
 func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
-	view := api.PlanView{Contracts: []planning.Contract{}, WorkOrders: []workorders.WorkOrder{}}
+	var wanted int64
+	if raw := r.URL.Query().Get("version"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 1 {
+			invalid(w, "a version is a whole number from 1")
+			return
+		}
+		wanted = parsed
+	}
+	view := api.PlanView{Contracts: []planning.Contract{}, WorkOrders: []workorders.WorkOrder{}, Versions: []api.PlanVersionLine{}}
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		plan, err := tx.Planning().Plan(r.PathValue("id"))
 		if err != nil {
@@ -85,7 +96,13 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 		if err := fillPlan(tx, &view); err != nil {
 			return err
 		}
-		view.Approval, err = planApprovalView(tx, plan.ID)
+		if view.Versions, err = planVersions(tx, plan.ID); err != nil {
+			return err
+		}
+		if wanted != 0 && !slices.ContainsFunc(view.Versions, func(line api.PlanVersionLine) bool { return line.Version == wanted }) {
+			return fmt.Errorf("plan %s has no version %d: %w", plan.ID, wanted, ports.ErrNotFound)
+		}
+		view.Approval, err = planApprovalView(tx, plan.ID, wanted)
 		return err
 	})
 	if err != nil {
@@ -95,19 +112,32 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, view)
 }
 
-// planApprovalView reads the request to approve a plan: the one waiting, or else the newest, with the
-// version it is about. A plan nobody has asked about has none.
-func planApprovalView(tx ports.ReadTx, plan string) (*api.PlanApprovalView, error) {
+// betterApproval says whether a request stands in for another of the same plan: the one waiting, or else
+// the one of the newer version, or else the one raised later.
+func betterApproval(a, than authority.Approval) bool {
+	switch {
+	case a.Open() != than.Open():
+		return a.Open()
+	case a.PlanVersion != than.PlanVersion:
+		return a.PlanVersion > than.PlanVersion
+	}
+	return a.RaisedAt > than.RaisedAt
+}
+
+// planApprovalView reads the request to approve a plan: the one waiting, or else the newest, or, for a
+// version asked for by number, that version's, with the version it is about. A plan nobody has asked about
+// has none.
+func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanApprovalView, error) {
 	rows, err := tx.Approvals().All()
 	if err != nil {
 		return nil, err
 	}
 	var chosen *authority.Approval
 	for i := range rows {
-		if rows[i].Kind != authority.KindPlan || rows[i].Plan != plan {
+		if rows[i].Kind != authority.KindPlan || rows[i].Plan != plan || (wanted != 0 && rows[i].PlanVersion != wanted) {
 			continue
 		}
-		if chosen == nil || (rows[i].Open() && !chosen.Open()) || (rows[i].Open() == chosen.Open() && rows[i].PlanVersion > chosen.PlanVersion) {
+		if chosen == nil || betterApproval(rows[i], *chosen) {
 			chosen = &rows[i]
 		}
 	}
@@ -121,6 +151,48 @@ func planApprovalView(tx ports.ReadTx, plan string) (*api.PlanApprovalView, erro
 	}
 	view.Records, view.Drafts = version.Records, version.Decisions
 	return view, nil
+}
+
+// planVersions lists the versions a plan has, newest first: those the ledger holds and those a request
+// names, each with the request that stands for it.
+func planVersions(tx ports.ReadTx, plan string) ([]api.PlanVersionLine, error) {
+	held, err := tx.Planning().PlanVersions()
+	if err != nil {
+		return nil, err
+	}
+	lines := map[int64]*api.PlanVersionLine{}
+	for _, version := range held {
+		if version.PlanID == plan {
+			lines[version.Version] = &api.PlanVersionLine{Version: version.Version, Digest: version.Digest}
+		}
+	}
+	rows, err := tx.Approvals().All()
+	if err != nil {
+		return nil, err
+	}
+	standing := map[int64]authority.Approval{}
+	for _, row := range rows {
+		if row.Kind != authority.KindPlan || row.Plan != plan {
+			continue
+		}
+		if was, seen := standing[row.PlanVersion]; !seen || betterApproval(row, was) {
+			standing[row.PlanVersion] = row
+		}
+	}
+	for version, row := range standing {
+		line := lines[version]
+		if line == nil {
+			line = &api.PlanVersionLine{Version: version}
+			lines[version] = line
+		}
+		line.Approval, line.State = row.ID, row.State
+	}
+	out := make([]api.PlanVersionLine, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, *line)
+	}
+	slices.SortFunc(out, func(a, b api.PlanVersionLine) int { return cmp.Compare(b.Version, a.Version) })
+	return out, nil
 }
 
 // fillPlan adds each contract's newest version and its work orders. Versions arrive in

@@ -320,6 +320,10 @@ func TestPlansNameTheirMilestonesTheirContractsKeysAndAVersionThatWaits(t *testi
 	if plan.PendingVersion != 0 {
 		t.Errorf("an approved plan says version %d waits", plan.PendingVersion)
 	}
+	approved := plan.ApprovedVersion
+	if approved == 0 {
+		t.Error("an approved plan names no approved version")
+	}
 
 	project.Change()
 	var needs api.NeedsYou
@@ -332,8 +336,12 @@ func TestPlansNameTheirMilestonesTheirContractsKeysAndAVersionThatWaits(t *testi
 			waiting = item.PlanApproval.Version
 		}
 	}
-	if got := plansRow(t, d, apitest.FactoryPlanTitle).PendingVersion; waiting == 0 || got != waiting {
-		t.Errorf("the plan says version %d waits, and Needs you asks about version %d", got, waiting)
+	row := plansRow(t, d, apitest.FactoryPlanTitle)
+	if waiting == 0 || row.PendingVersion != waiting {
+		t.Errorf("the plan says version %d waits, and Needs you asks about version %d", row.PendingVersion, waiting)
+	}
+	if row.ApprovedVersion != approved {
+		t.Errorf("a version that waits changes the approved version from %d to %d", approved, row.ApprovedVersion)
 	}
 }
 
