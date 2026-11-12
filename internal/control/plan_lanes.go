@@ -204,7 +204,7 @@ func reviewsUnderWay(orders ports.WorkOrderReader) (map[string]bool, error) {
 // PlanSource opens a repository at one commit, for what an accepted plan left there.
 type PlanSource func(ctx context.Context, repository, commit string) (ports.WorkSource, error)
 
-// acceptedPlan is a `plan` work order whose files intake has not read.
+// acceptedPlan is a `plan` work order whose files intake has not read at its branch's commit.
 type acceptedPlan struct {
 	order  workorders.WorkOrder
 	commit string
@@ -220,15 +220,17 @@ func (i *Intake) acceptedPlans(ctx context.Context, scope ledger.WorkspaceID) ([
 			return err
 		}
 		for _, row := range rows {
-			accepted := row.State == workorders.Done || (takesInUnaccepted() && row.State == workorders.Acceptance)
-			if row.Kind != workorders.KindPlan || !accepted || row.PlanCommit != "" {
+			// Accepted planning work waits in `integrating` for its merge where ropeshift merges it (ADR-0020),
+			// and intake reads the approved commit first, so its records exist before any merge (ADR-0018).
+			accepted := row.State == workorders.Done || row.State == workorders.Integrating || (takesInUnaccepted() && row.State == workorders.Acceptance)
+			if row.Kind != workorders.KindPlan || !accepted {
 				continue
 			}
 			artifacts, err := tx.Evidence().Artifacts(row.ID)
 			if err != nil {
 				return err
 			}
-			if branch := attemptBranch(artifacts, row.Fence); branch.Digest != "" {
+			if branch := attemptBranch(artifacts, row.Fence); branch.Digest != "" && branch.Digest != row.PlanCommit {
 				out = append(out, acceptedPlan{order: row, commit: branch.Digest})
 			}
 		}
@@ -282,7 +284,7 @@ func (i *Intake) takeIn(ctx context.Context, scope ledger.WorkspaceID, plan acce
 	if batch, err = i.offPlan(ctx, scope, description.Instance, batch); err != nil {
 		return err
 	}
-	report, err := i.record(ctx, scope, source, batch, planOrigin{workOrder: plan.order.ID})
+	report, err := i.record(ctx, scope, source, batch, planOrigin{workOrder: plan.order.ID, commit: plan.commit})
 	if err != nil {
 		return err
 	}

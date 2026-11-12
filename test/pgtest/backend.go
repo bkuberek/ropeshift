@@ -123,7 +123,8 @@ var ProjectBackend = contract.Backend{Name: "postgres-project", Fresh: func(t te
 			if err != nil {
 				t.Fatal(err)
 			}
-			installation := sqlstore.NewInstallation(installationDB, Dialect{}, sqlstore.Options{Schema: InstallationSchema})
+			// The installation reads the same shifted clock, because a run window it holds ends by that time.
+			installation := sqlstore.NewInstallation(installationDB, contract.ShiftedDialect{Dialect: Dialect{}, Offset: offset}, sqlstore.Options{Schema: InstallationSchema})
 			t.Cleanup(func() { _ = installation.Close() })
 			if err := installation.Migrate(t.Context()); err != nil {
 				t.Fatal(err)

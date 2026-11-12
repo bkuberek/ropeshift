@@ -114,3 +114,50 @@ func TestAtPersonMergesThePersonMergesThePullRequest(t *testing.T) {
 		t.Errorf("the person's merge: %+v", gate)
 	}
 }
+
+// TestAPlanningBranchMergesOnItsPlanApproval holds a planning branch until a member's plan approval binds to
+// its commit, and never asks for a merge approval of its own (ADR-0018, ADR-0020): the plan approval is the
+// merge approval. A plan on the branch whose approval no member decided holds the merge, even once another
+// plan on it was approved.
+func TestAPlanningBranchMergesOnItsPlanApproval(t *testing.T) {
+	for _, level := range []ledger.MergeAuthority{ledger.PersonApproves, ledger.ReviewApproves} {
+		for _, target := range []ledger.ReviewTarget{ledger.ReviewOnBranch, ledger.ReviewOnPullRequest} {
+			in := GateInput{Authority: level, Target: target, Commit: reviewedCommit, Plan: &PlanStanding{}, PullRequest: openAt(reviewedCommit)}
+			gate := MergeGate(in)
+			if gate.Step != StepWait || !strings.Contains(gate.Why, "plan approval") || !strings.Contains(gate.Why, reviewedCommit[:8]) {
+				t.Errorf("at %s on %s with no plan approval: %+v", level, target, gate)
+			}
+			in.Plan.Waiting = []string{"plan budget version 2"}
+			if gate := MergeGate(in); gate.Step != StepWait || !strings.Contains(gate.Why, "plan budget version 2") {
+				t.Errorf("at %s on %s with a plan waiting: %+v", level, target, gate)
+			}
+			in.Approved = true
+			if gate := MergeGate(in); gate.Step != StepWait || !strings.Contains(gate.Why, "plan budget version 2") {
+				t.Errorf("at %s on %s, approved with another plan waiting: %+v", level, target, gate)
+			}
+			in.Plan.Waiting = nil
+			if gate := MergeGate(in); gate.Step != StepMerge {
+				t.Errorf("at %s on %s, approved: %+v", level, target, gate)
+			}
+		}
+	}
+}
+
+// TestAPlanningPullRequestFollowsItsPullRequest reads a planning branch's pull request as any other's: a head
+// that moved goes back to acceptance at the new head, whose plan needs its own approval, and the person's merge
+// on the forge ends the work, approved or not. At person_merges the person merges it.
+func TestAPlanningPullRequestFollowsItsPullRequest(t *testing.T) {
+	moved := "3333333333333333333333333333333333333333"
+	in := GateInput{Authority: ledger.ReviewApproves, Target: ledger.ReviewOnPullRequest, Commit: reviewedCommit, Approved: true, Plan: &PlanStanding{}, PullRequest: openAt(moved)}
+	if gate := MergeGate(in); gate.Step != StepReview || gate.Head != moved {
+		t.Errorf("a moved head: %+v", gate)
+	}
+	in.Approved, in.PullRequest = false, &ledger.PullRequest{Number: 7, State: ledger.PullRequestMerged, HeadCommit: reviewedCommit, MergeCommit: "m"}
+	if gate := MergeGate(in); gate.Step != StepMerged {
+		t.Errorf("a planning pull request the person merged: %+v", gate)
+	}
+	in.Authority, in.Approved, in.PullRequest = ledger.PersonMerges, true, openAt(reviewedCommit)
+	if gate := MergeGate(in); gate.Step != StepWait || !strings.Contains(gate.Why, "#7") {
+		t.Errorf("at person_merges: %+v", gate)
+	}
+}

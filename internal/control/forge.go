@@ -25,6 +25,14 @@ func publishID(workOrder, commit string) string { return "publish:" + workOrder 
 // request is open with the commit under review as its head. A repository that reviews branches, a record
 // with no forge binding, and a base nobody named ask for nothing, and the review starts as it always did.
 func requestPublish(tx ports.WriteTx, reviewed, review workorders.WorkOrder, holder workorders.Holder, actor ledger.Actor) error {
+	return publishAttempt(tx, reviewed, review.ReviewsFence, holder, actor)
+}
+
+// publishAttempt asks the worker that ran a lane to push the branch its attempt at fence left and open the pull
+// request of it, when the repository reviews through pull requests. A planning branch is published the same
+// way when its lane ends, with no review to hold: the person reads it beside its plan approval, which is its
+// review, and ropeshift merges it after that approval (ADR-0018, ADR-0020).
+func publishAttempt(tx ports.WriteTx, reviewed workorders.WorkOrder, fence int64, holder workorders.Holder, actor ledger.Actor) error {
 	record, err := tx.Repositories().Repository(reviewed.RepositoryID)
 	if errors.Is(err, ports.ErrNotFound) {
 		return nil
@@ -40,7 +48,10 @@ func requestPublish(tx ports.WriteTx, reviewed, review workorders.WorkOrder, hol
 	if err != nil {
 		return err
 	}
-	branch := attemptBranch(artifacts, review.ReviewsFence)
+	branch := attemptBranch(artifacts, fence)
+	if branch.Digest == "" {
+		return nil
+	}
 	claim, err := tx.Claims().Find(holder.ClaimID)
 	if err != nil {
 		return err
@@ -84,6 +95,13 @@ func pullRequestBody(planned ports.PlanningReader, w workorders.WorkOrder) (stri
 				fmt.Fprintf(&out, "- `%s`: %s\n", criterion.ID, criterion.Text)
 			}
 		}
+	}
+	if w.Kind == workorders.KindPlan {
+		out.WriteString("\nThe ropeshift worker pushed this branch and opened this pull request. The branch holds a plan, which no review agent judges: " +
+			"a member's plan approval in ropeshift is its review, bound to the commit it approved. At person_approves and review_approves " +
+			"that approval merges this pull request at the approved head; at person_merges you merge it yourself. A head that moves needs " +
+			"a new plan approval.\n")
+		return out.String(), nil
 	}
 	out.WriteString("\nThe ropeshift worker pushed this branch and opened this pull request. The review agent's verdicts are posted here as comments, each bound to the commit it judged.\n")
 	return out.String(), nil
