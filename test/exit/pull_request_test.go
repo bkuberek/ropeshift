@@ -173,10 +173,10 @@ func TestAChangeIsReviewedThroughItsPullRequest(t *testing.T) {
 		merged.State, merged.Head, merged.MergeCommit, merged.MergedAt = "MERGED", secondHead, strings.Repeat("e", 40), "2026-11-11T12:00:00Z"
 	})
 	in.waitFor("the merge to end the work", func() bool { return in.show(first).State == workorders.Done })
-	if merges := in.eventsOf(ledger.EventPullRequestMerged, first); len(merges) != 1 || merges[0].ActorKind != "worker" {
+	if merges := in.eventsAppear(ledger.EventPullRequestMerged, first, 1); len(merges) != 1 || merges[0].ActorKind != "worker" {
 		t.Errorf("the merge on record: %+v", merges)
 	}
-	if ended := in.eventsOf("work_order.merged", first); len(ended) != 1 || ended[0].ActorID != "forge" {
+	if ended := in.eventsAppear("work_order.merged", first, 1); len(ended) != 1 || ended[0].ActorID != "forge" {
 		t.Errorf("the merge that ended the work on record: %+v", ended)
 	}
 

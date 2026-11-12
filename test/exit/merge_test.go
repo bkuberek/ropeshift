@@ -2,12 +2,16 @@ package exit
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -39,11 +43,26 @@ func (in *install) mergingInstall(t *testing.T, repo *gittest.Repo, set ...strin
 	t.Helper()
 	d := in.start("--intake-tick", "20ms", "--heartbeat", "30ms", "--lease-tick", "20ms", "--forge-tick", "100ms", "--source", repo.Dir)
 	t.Cleanup(d.stop)
+	// A failed run says what the daemon said, which git and gh processes ran, and where its goroutines
+	// stood, which is what a lane that never concludes needs to be read.
 	t.Cleanup(func() {
-		if t.Failed() {
-			logged := d.stderr.String()
-			t.Logf("the daemon said:\n%s", logged[max(0, len(logged)-6000):])
+		if !t.Failed() {
+			return
 		}
+		ps, _ := exec.Command("ps", "-eo", "pid,ppid,etime,command").Output()
+		for line := range strings.Lines(string(ps)) {
+			if strings.Contains(line, " git ") || strings.Contains(line, "/gh ") || strings.Contains(line, "claude") || strings.Contains(line, "shim") {
+				t.Logf("running: %s", strings.TrimSpace(line)[:min(300, len(strings.TrimSpace(line)))])
+			}
+		}
+		for _, args := range [][]string{{"approval", "list"}, {"lane", "show", "lane-1"}} {
+			_, out, errText := in.run(args...)
+			t.Logf("%s:\n%s%s", strings.Join(args, " "), out, errText)
+		}
+		_ = d.cmd.Process.Signal(syscall.SIGQUIT)
+		time.Sleep(2 * time.Second)
+		logged := d.stderr.String()
+		t.Logf("the daemon said:\n%s", logged[max(0, len(logged)-60000):])
 	})
 	in.waitReady(d)
 	in.waitFor("the worker's session", func() bool { return len(in.workers()) == 1 })
@@ -148,7 +167,7 @@ func TestRopeshiftMergesThePullRequestTheReviewApproved(t *testing.T) {
 	in.checksAre(gh, first, pr.Number, firstHead, []string{"CI result"}, ciResult("COMPLETED", "FAILURE"))
 	in.judgeThroughPR(first, "claim-2", "review-1", reviewSays("pass", passedReason, "work.txt:1"))
 	in.waitFor("the work to go back for its required check", func() bool { return in.show(first).State == workorders.Ready })
-	if sent := in.eventsOf("work_order.rework", first); len(sent) != 1 || sent[0].ActorID != "integration" {
+	if sent := in.eventsAppear("work_order.rework", first, 1); len(sent) != 1 || sent[0].ActorID != "integration" {
 		t.Errorf("the rework on record: %+v", sent)
 	}
 	if calls := mergeCalls(t, gh); len(calls) != 0 {
@@ -202,9 +221,22 @@ func TestRopeshiftMergesThePullRequestTheReviewApproved(t *testing.T) {
 		record.MergeAuthority != ledger.ReviewApproves || record.PullRequest != pr.Number || !strings.HasPrefix(record.ApprovedByID, "review-2") {
 		t.Errorf("the approval reads %+v", record)
 	}
-	if events := in.eventsOf(ledger.EventIntegrationMerged, first); len(events) != 1 || events[0].SubjectKind != ledger.SubjectIntegration {
+	if events := in.eventsAppear(ledger.EventIntegrationMerged, first, 1); len(events) != 1 || events[0].SubjectKind != ledger.SubjectIntegration {
 		t.Errorf("the merge on record: %+v", events)
 	}
+}
+
+// eventsAppear waits until the ledger's stream holds at least count events of a type about a subject, and
+// returns them. One read of the stream ends after a few seconds whatever it has, so a read just after the
+// transaction that wrote an event can end before that event arrives.
+func (in *install) eventsAppear(eventType, subject string, count int) []api.StreamEvent {
+	in.t.Helper()
+	var found []api.StreamEvent
+	in.waitFor(fmt.Sprintf("%d %s events about %s", count, eventType, subject), func() bool {
+		found = in.eventsOf(eventType, subject)
+		return len(found) >= count
+	})
+	return found
 }
 
 // TestAMemberApprovesTheMergeOfAPullRequest is B3b's exit at person_approves. The review passes, and the
@@ -241,7 +273,7 @@ func TestAMemberApprovesTheMergeOfAPullRequest(t *testing.T) {
 	if code, _, stderr := in.run("approval", "approve", approve.ID, "--digest", head); code == 0 {
 		t.Fatalf("the approval of the old head still decided: %s", stderr)
 	}
-	if moves := in.eventsOf("work_order.head_moved", first); len(moves) != 1 {
+	if moves := in.eventsAppear("work_order.head_moved", first, 1); len(moves) != 1 {
 		t.Errorf("the move back to review on record: %+v", moves)
 	}
 	if calls := mergeCalls(t, gh); len(calls) != 0 {
