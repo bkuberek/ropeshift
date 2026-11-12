@@ -38,6 +38,10 @@ type AgentSettings struct {
 	// and an ask rule outranks the allow rules a lane that writes holds (FR-LANE-19). A gate only
 	// adds requests.
 	Gates []string `toml:"gates" json:"gates"`
+	// Classes maps each capability class of the agent roster to a model of this profile's driver
+	// (ADR-0025). Only the built-in and the user's layers set it, because a repository's or a lane's
+	// layer, which a plan or an agent can edit, must not make a cheap agent expensive.
+	Classes map[string]string `toml:"classes" json:"classes,omitempty"`
 }
 
 // RoleThresholds is the context policy of one role.

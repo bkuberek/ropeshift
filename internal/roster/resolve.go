@@ -71,6 +71,9 @@ func Resolve(installation, project Layer) Resolved {
 	return base().with(installation, SourceInstallation).with(project, SourceProject)
 }
 
+// ResolveOver folds one more layer over a resolved roster, as a change reads its result.
+func ResolveOver(below Resolved, layer Layer) Resolved { return below.with(layer, "") }
+
 // base is the built-in roster on its own.
 func base() Resolved {
 	out := Resolved{Guide: Guide, GuideSource: SourceBuiltin, Defaults: BuiltinDefaults()}

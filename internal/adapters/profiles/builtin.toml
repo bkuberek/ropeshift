@@ -9,6 +9,15 @@ effort = "high"
 permission_mode = "default"
 instructions_file = "AGENTS.md"
 
+# The model each capability class of the agent roster runs on this driver (ADR-0025). A driver with fewer
+# tiers than classes maps two classes to one model, and the effort still separates them. Only the user's
+# layer may change it.
+[agent.classes]
+small = "haiku"
+standard = "sonnet"
+large = "opus"
+frontier = "opus"
+
 [context]
 min_headroom_tokens = 40000
 pack_budget_tokens = 20000

@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -91,6 +92,10 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	}
 	if profile.Telemetry.WorkerSettings() != below.Telemetry.WorkerSettings() {
 		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change the worker's telemetry store or export", lanes.ErrBadProfile)
+	}
+	// What each class of agent costs is the user's choice alone (FR-AGENT-2).
+	if !maps.Equal(profile.Agent.Classes, below.Agent.Classes) {
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change [agent.classes]", lanes.ErrBadProfile)
 	}
 	// A push sends work off this machine, which is the user's choice alone. A worker reads it
 	// with no lane's layers, because a removal can come long after a lane's lease went.

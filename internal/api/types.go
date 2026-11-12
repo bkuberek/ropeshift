@@ -66,6 +66,9 @@ const (
 	CodeProjectArchived = "project_archived"
 	// CodeAlreadyPlanned refuses to adopt a project that already has an approved plan (ADR-0023).
 	CodeAlreadyPlanned = "already_planned"
+	// CodeRosterConflict refuses a roster change that conflicts with what the roster holds: an agent it
+	// already holds, a reset of nothing, or an agent something still names (ADR-0025).
+	CodeRosterConflict = "roster_conflict"
 )
 
 // ErrorBody is every error response.

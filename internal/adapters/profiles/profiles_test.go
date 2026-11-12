@@ -270,3 +270,36 @@ func TestNoLayerChoosesABypassMode(t *testing.T) {
 		t.Errorf("a layer resolved on its own chose bypass: %v", err)
 	}
 }
+
+// TestTheClassMappingIsTheUsersAlone is FR-AGENT-2: the built-in layer maps every capability class to a
+// model, the user's layer may change that, and no repository or lane layer may, because a file a plan or
+// an agent can edit must not make a cheap agent expensive.
+func TestTheClassMappingIsTheUsersAlone(t *testing.T) {
+	const cheaper = "[agent.classes]\nfrontier = \"sonnet\"\n"
+	tests := []struct {
+		name, user, repository, lane string
+		refused                      bool
+		frontier                     string
+	}{
+		{name: "the built-in mapping", frontier: "opus"},
+		{name: "a user changes a class", user: cheaper, frontier: "sonnet"},
+		{name: "a repository cannot", repository: cheaper, refused: true},
+		{name: "a lane cannot", lane: cheaper, refused: true},
+		{name: "a repository may say what is already so", user: cheaper, repository: cheaper, frontier: "sonnet"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := ResolveLayers(tt.user, tt.repository, tt.lane)
+			if (err != nil) != tt.refused {
+				t.Fatalf("error %v, want refused=%v", err, tt.refused)
+			}
+			if err != nil {
+				return
+			}
+			if profile.Agent.Classes["frontier"] != tt.frontier || profile.Agent.Classes["small"] != "haiku" ||
+				profile.Agent.Classes["standard"] != "sonnet" || profile.Agent.Classes["large"] != "opus" {
+				t.Errorf("classes %v", profile.Agent.Classes)
+			}
+		})
+	}
+}

@@ -103,6 +103,10 @@ const (
 	// installation (ADR-0021). A project holds every record of a product, so no agent has this, and no row
 	// below may ever grant it.
 	ActionManageProject Action = "project.manage"
+	// ActionChangeRoster changes the agent roster or its routing guide (ADR-0025). It is a consent
+	// operation: a delegate may prepare one, and only a member's decision runs it, so no row below may ever
+	// grant it.
+	ActionChangeRoster Action = "roster.change"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -115,7 +119,7 @@ func Actions() []Action {
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator, ActionRetryWork,
 		ActionRecover, ActionPassRecovery, ActionDecideRecovery,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
-		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge,
+		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge, ActionChangeRoster,
 	}
 }
 
