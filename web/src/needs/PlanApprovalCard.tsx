@@ -1,10 +1,16 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 
 import { decideApproval } from "../api/client";
 import type { Adoption, ContractDifference, Difference, FileChange, PartDifference, PlanApprovalNeed } from "../api/types";
 import { addressOf, Link } from "../app/route";
-import { Fact, words } from "../parts/parts";
+import { words } from "../parts/parts";
+import { Button } from "../ui/controls";
+import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
+import { approvalStates } from "../floor/states";
+import { Digest, Fact, Facts, Refusal, StateBadge } from "../ui/display";
+import { Field } from "../ui/forms";
+import type { Frame } from "./frame";
 import { useAct } from "./useAct";
 
 // What a plan holds, in the order a person reads a plan, and each kind's name for one and for many.
@@ -76,15 +82,7 @@ function ContractLine({ contract }: { contract: ContractDifference }) {
 }
 
 function Part({ title, children }: { title: string; children: ReactNode }) {
-  const heading = useId();
-  return (
-    <section className="card-part" aria-labelledby={heading}>
-      <h3 className="card-part-title" id={heading}>
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
+  return <DecisionSection title={title}>{children}</DecisionSection>;
 }
 
 // Changes says how this version differs from the one a member approved last, record by record, and for
@@ -94,8 +92,8 @@ function Changes({ difference }: { difference: Difference }) {
   const none = !difference.added?.length && !difference.changed?.length && !difference.removed?.length;
   return (
     <Part title={base === 0 ? "A first version" : `Since version ${base}`}>
-      {base === 0 ? <p className="quiet">Nothing was approved before, so every record is new.</p> : null}
-      {base !== 0 && none ? <p className="quiet">No record differs from version {base}.</p> : null}
+      {base === 0 ? <p className="muted">Nothing was approved before, so every record is new.</p> : null}
+      {base !== 0 && none ? <p className="muted">No record differs from version {base}.</p> : null}
       {none ? null : (
         <ul className="difference">
           <Refs label="Added" refs={difference.added} />
@@ -127,7 +125,7 @@ function Records({ title, rows }: { title: string; rows: { key: string; label: s
           ))}
         </ul>
       ) : (
-        <p className="quiet">Nothing.</p>
+        <p className="muted">Nothing.</p>
       )}
     </Part>
   );
@@ -171,7 +169,7 @@ function AdoptionGroups({ adoption }: { adoption: Adoption }) {
       <Records title="What is left out" rows={adoption.left_out.map((left) => ({ key: left.ref, label: left.ref, text: left.reason }))} />
       <Part title="What the branch changes">
         {adoption.changes_unread ? (
-          <p className="quiet">The changes could not be read: {adoption.changes_unread}</p>
+          <p className="muted">The changes could not be read: {adoption.changes_unread}</p>
         ) : adoption.changes.length ? (
           <ul className="links">
             {adoption.changes.map((change) => (
@@ -181,7 +179,7 @@ function AdoptionGroups({ adoption }: { adoption: Adoption }) {
             ))}
           </ul>
         ) : (
-          <p className="quiet">Nothing.</p>
+          <p className="muted">Nothing.</p>
         )}
       </Part>
     </>
@@ -190,38 +188,61 @@ function AdoptionGroups({ adoption }: { adoption: Adoption }) {
 
 // A plan is approved as one step: the digest sent is the one on this page, so a version that changed
 // since this read is refused, and approving decides every draft with the member as the one who decided.
-export function PlanApprovalCard({ id, need, after }: { id: string; need: PlanApprovalNeed; after: () => Promise<void> }) {
+export function PlanApprovalCard({ id, need, after, frame }: { id: string; need: PlanApprovalNeed; after: () => Promise<void>; frame: Frame }) {
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
   const approval = need.approval;
   const decide = (allow: boolean) => act(() => decideApproval(id, approval.subject_digest, allow, reason.trim()));
   const holds = holdings(need.counts);
   return (
-    <div className="card-body">
-      <p className="lead">
+    <DecisionCard
+      kind={{ icon: "plan", name: "Plan approval" }}
+      project={frame.project}
+      title={frame.title}
+      provenance={frame.provenance}
+      state={<StateBadge table={approvalStates} state={approval.state || "pending"} />}
+      binding={
+        <>
+          Bound to plan digest <Digest value={approval.subject_digest} />. A new version needs its own approval.
+        </>
+      }
+      actions={
+        <>
+          <Button disabled={busy} onClick={() => void decide(false)}>
+            Deny
+          </Button>
+          <Button variant="primary" loading={busy} disabled={busy} onClick={() => void decide(true)}>
+            Approve this plan
+          </Button>
+        </>
+      }
+    >
+      <p>
         Approving it decides each draft decision as yours, and passes the contract review of the work it covers, which then needs no
         review of its own.
       </p>
-      <dl className="facts">
+      <Facts>
         <Fact name="Requested by" mono>
           {need.requested_by}
         </Fact>
         <Fact name="Version">{need.version}</Fact>
-        <Fact name="Digest" mono>
-          <span title={approval.subject_digest}>{approval.subject_digest.slice(0, 16)}</span>
+        <Fact name="Digest">
+          <Digest value={approval.subject_digest} length={16} />
         </Fact>
-      </dl>
+        {holds.length ? (
+          <Fact name="Holds">
+            <ul className="inline-list" aria-label="What it holds">
+              {holds.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </Fact>
+        ) : null}
+      </Facts>
       {approval.plan_id ? (
         <p>
           <Link to={addressOf("/plans", { plan: approval.plan_id })}>Read the plan</Link>
         </p>
-      ) : null}
-      {holds.length ? (
-        <ul className="tags" aria-label="What it holds">
-          {holds.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
       ) : null}
       {need.adoption ? <AdoptionGroups adoption={need.adoption} /> : null}
       <Changes difference={need.difference} />
@@ -232,31 +253,18 @@ export function PlanApprovalCard({ id, need, after }: { id: string; need: PlanAp
               <li key={draft.id} className="draft">
                 <p className="question-text">{draft.question}</p>
                 <p>{draft.answer}</p>
-                {draft.rationale ? <p className="quiet">{draft.rationale}</p> : null}
+                {draft.rationale ? <p className="muted">{draft.rationale}</p> : null}
               </li>
             ))}
           </ol>
         ) : (
-          <p className="quiet">It drafts no decision.</p>
+          <p className="muted">It drafts no decision.</p>
         )}
       </Part>
-      <label className="field">
-        <span className="field-label">Reason, which the plan's author reads (optional)</span>
-        <input type="text" value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} />
-      </label>
-      {failure ? (
-        <p className="refusal" role="alert">
-          {failure}
-        </p>
-      ) : null}
-      <div className="actions">
-        <button className="button button-strong" type="button" disabled={busy} onClick={() => void decide(true)}>
-          Approve this plan
-        </button>
-        <button className="button" type="button" disabled={busy} onClick={() => void decide(false)}>
-          Deny
-        </button>
-      </div>
-    </div>
+      <Field label="Reason, which the plan's author reads (optional)">
+        <input className="input" type="text" autoComplete="off" value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} />
+      </Field>
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </DecisionCard>
   );
 }

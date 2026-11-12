@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { splitProject } from "../app/route";
 import { ApiError, followEvents, readNeedsYou } from "./client";
 import type { NeedsYou } from "./types";
 
@@ -27,20 +26,22 @@ const reopenMs = 2000;
 const otherProjectsMs = 5000;
 
 // revisionOf is where the page's own project stood in a read, which its stream follows on from.
-function revisionOf(view: NeedsYou): number {
-  const shown = splitProject(window.location.pathname).project;
+function revisionOf(view: NeedsYou, shown: string): number {
   return view.projects?.find((project) => project.name === shown)?.revision ?? view.revision;
 }
 
-export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSession: () => Promise<void>; forget: () => void } {
+// useNeedsYou reads the combined Needs you, and follows the stream of the project the page shows, which
+// tells every view of it to read again.
+export function useNeedsYou(project: string): Read & { reload: () => Promise<void>; checkSession: () => Promise<void>; forget: () => void } {
   const [read, setRead] = useState<Read>({ view: null, readAt: 0, failure: "", needsSession: false, connection: "connecting", heard: 0 });
-  const revision = useRef<number | null>(null);
+  // last is the newest read, which says where each project's ledger stood, so a stream opens after it.
+  const last = useRef<NeedsYou | null>(null);
 
   // checkSession reads this view alone, which is how a view that was refused learns why.
   const checkSession = useCallback(async () => {
     try {
       const view = await readNeedsYou();
-      revision.current = revisionOf(view);
+      last.current = view;
       setRead((was) => ({ ...was, view, readAt: Date.now(), failure: "", needsSession: false }));
     } catch (error) {
       const refused = error instanceof ApiError ? error : new ApiError(0, "unavailable", String(error));
@@ -60,7 +61,7 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSessio
   // A session that ran out keeps the page behind a sign-in, for whoever comes back to finish. Signing
   // out says the opposite, so nothing of the ledger stays in the page.
   const forget = useCallback(() => {
-    revision.current = null;
+    last.current = null;
     setRead((was) => ({ ...was, view: null, needsSession: true, failure: "", connection: "connecting" }));
   }, []);
 
@@ -68,7 +69,7 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSessio
     void checkSession();
   }, [checkSession]);
 
-  const ready = read.view !== null && !read.needsSession;
+  const ready = read.view !== null && !read.needsSession && project !== "";
   useEffect(() => {
     if (!ready) {
       return;
@@ -90,7 +91,7 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSessio
       void reload();
     };
     const open = () => {
-      source = followEvents(revision.current ?? 0);
+      source = followEvents(last.current ? revisionOf(last.current, project) : 0, project);
       source.addEventListener("ledger", () => {
         const now = Date.now();
         firstHeard = firstHeard === 0 ? now : firstHeard;
@@ -113,7 +114,7 @@ export function useNeedsYou(): Read & { reload: () => Promise<void>; checkSessio
       clearTimeout(reopening);
       source.close();
     };
-  }, [ready, reload]);
+  }, [ready, reload, project]);
 
   return { ...read, reload, checkSession, forget };
 }

@@ -14,14 +14,14 @@ const homes: DocumentKind[] = ["requirements", "spec", "design", "other"];
 
 function DocumentRows({ documents }: { documents: DocumentRow[] }) {
   return (
-    <ol className="rows" role="list">
+    <ol className="list-rows" role="list">
       {documents.map((document) => (
-        <li key={`${document.instance}:${document.path}`} className="row">
-          <Link className="row-title" to={addressOf("/document", { path: document.path, instance: document.instance })}>
+        <li key={`${document.instance}:${document.path}`} className="list-row">
+          <Link className="list-row-title" to={addressOf("/documents", { path: document.path, instance: document.instance })}>
             {document.title}
           </Link>
-          <p className="mono quiet">{document.path}</p>
-          <ul className="tags" aria-label="Kind">
+          <p className="mono muted">{document.path}</p>
+          <ul className="chips" aria-label="Kind">
             <li>{kindWord(document.kind)}</li>
           </ul>
         </li>
@@ -54,12 +54,12 @@ export function DocumentList({ view, kind, empty }: { view: View; kind: Document
 
 function RequirementRow({ requirement }: { requirement: Requirement }) {
   return (
-    <li className="row">
-      <Link className="row-title mono" to={addressOf("/requirements", { key: requirement.key })}>
+    <li className="list-row">
+      <Link className="list-row-title mono" to={addressOf("/documents", { kind: "requirements", key: requirement.key })}>
         {requirement.key}
       </Link>
       <p>{requirement.text}</p>
-      <ul className="tags">
+      <ul className="chips">
         <li>Version {requirement.version}</li>
         {requirement.source ? <li className="mono">{requirement.source}</li> : null}
       </ul>
@@ -79,7 +79,7 @@ export function Requirements({ view }: { view: View }) {
   return (
     <>
       {view.requirements.length ? (
-        <ol className="rows" role="list">
+        <ol className="list-rows" role="list">
           {view.requirements.map((requirement) => (
             <RequirementRow key={requirement.key} requirement={requirement} />
           ))}
@@ -102,10 +102,10 @@ export function OneRequirement({ requirement }: { requirement: Requirement }) {
   return (
     <>
       <p className="back">
-        <Link to="/requirements">All requirements</Link>
+        <Link to="/documents?kind=requirements">All requirements</Link>
       </p>
       <p className="statement statement-page">{requirement.text}</p>
-      <dl className="facts facts-page">
+      <dl className="kv facts-page">
         <Fact name="Version">{requirement.version}</Fact>
         {requirement.source ? (
           <Fact name="Source" mono>
@@ -129,19 +129,19 @@ function Versions({ reference, current, still }: { reference: DocumentRef; curre
         Versions
       </h2>
       {read.view ? (
-        <ol className="rows" role="list">
+        <ol className="list-rows" role="list">
           {read.view.versions.map(({ version, digest }) => (
-            <li key={version} className="row">
+            <li key={version} className="list-row">
               {version === current ? (
                 <p className="mono" aria-current="true">
                   {version} (this one)
                 </p>
               ) : (
-                <Link className="mono" to={addressOf("/document", { ...reference, version })}>
+                <Link className="mono" to={addressOf("/documents", { ...reference, version })}>
                   {version}
                 </Link>
               )}
-              <p className="mono quiet">{digest}</p>
+              <p className="mono muted">{digest}</p>
             </li>
           ))}
         </ol>
@@ -167,7 +167,7 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
       <Page title="No such document">
         {failure}
         <p className="back">
-          <Link to="/documents">Other documents</Link>
+          <Link to="/documents">All documents</Link>
         </p>
       </Page>
     );
@@ -177,7 +177,7 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
       {failure}
       {document ? (
         <>
-          <dl className="facts facts-page">
+          <dl className="kv facts-page">
             <Fact name="Kind">{kindWord(document.kind)}</Fact>
             <Fact name="Path" mono>
               {document.path}
@@ -199,7 +199,7 @@ export function DocumentPage({ reference, live }: { reference: DocumentRef; live
           <Versions reference={reference} current={document.version} still={still} />
         </>
       ) : failure ? null : (
-        <p className="quiet">Reading.</p>
+        <p className="muted">Reading.</p>
       )}
     </Page>
   );

@@ -28,12 +28,14 @@ const (
 	ViewCompleted  = "completed"
 	ViewShopFloor  = "shop-floor"
 	ViewOperations = "operations"
+	// ViewSearch is the project's records a person finds by ID or title, which the command palette reads.
+	ViewSearch = "search"
 )
 
 // Views lists every read model, in the design's order.
 var Views = []string{
 	ViewNeedsYou, ViewRoadmap, ViewPlans, ViewDocuments, ViewDecisions, ViewQuestions, ViewInProgress,
-	ViewOnHold, ViewStuck, ViewCompleted, ViewShopFloor, ViewOperations,
+	ViewOnHold, ViewStuck, ViewCompleted, ViewShopFloor, ViewOperations, ViewSearch,
 }
 
 // ViewPath is where a read model is served.
@@ -440,6 +442,58 @@ func (c *ProjectClient) ReadView(ctx context.Context, name, category string, out
 		path += "?category=" + url.QueryEscape(category)
 	}
 	return c.do(ctx, http.MethodGet, path, nil, out)
+}
+
+// The kinds of record the search finds, in the order a list of them reads.
+const (
+	SearchWorkOrder   = "work_order"
+	SearchLane        = "lane"
+	SearchPlan        = "plan"
+	SearchContract    = "contract"
+	SearchRequirement = "requirement"
+	SearchDecision    = "decision"
+	SearchQuestion    = "question"
+	SearchDocument    = "document"
+	SearchRepository  = "repository"
+)
+
+// SearchKinds lists every kind the search finds, in order.
+var SearchKinds = []string{
+	SearchWorkOrder, SearchLane, SearchPlan, SearchContract, SearchRequirement, SearchDecision, SearchQuestion,
+	SearchDocument, SearchRepository,
+}
+
+// SearchLimit is how many records a search with words returns when it names no limit. A search with no
+// words lists every record, which is what a command line reads.
+const SearchLimit = 20
+
+// SearchRecord is one record a search found: its kind, its ID, what it is called, and the state it stands in.
+type SearchRecord struct {
+	Kind  string `json:"kind"`
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	State string `json:"state,omitempty"`
+}
+
+// Search is the records of one project whose ID or title holds every word of a query, in any order and
+// any case: an exact ID first, then an ID that begins with the words, then words that begin a word of the
+// title, then the rest. More says a limit cut the list.
+type Search struct {
+	Stamp
+	Query   string         `json:"query,omitempty"`
+	Records []SearchRecord `json:"records"`
+	More    bool           `json:"more,omitempty"`
+}
+
+// Search reads the search read model. The query names q, the words; category, one kind; and limit.
+func (c *ProjectClient) Search(ctx context.Context, query url.Values) (Search, error) {
+	path := ViewPath(ViewSearch)
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	var out Search
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
 }
 
 // WorkDetail is a work order with how its review stands: the reviews it has had, the verdicts that speak for

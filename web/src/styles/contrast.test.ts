@@ -2,67 +2,106 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { contrast, palette, themes } from "./palette";
+
 const tokens = readFileSync("src/styles/tokens.css", "utf8");
+const { light, dark, darkBySystem } = themes(tokens);
 
-// sections are the two themes as the file declares them, so a test reads what ships.
-function palette(block: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [, name, value] of block.matchAll(/--(\w+):\s*(#[0-9a-f]{6});/g)) {
-    if (name && value) {
-      out[name] = value;
-    }
-  }
-  return out;
-}
+// Text needs 4.5:1, and a control's boundary or a meaningful graphic 3:1 (WCAG 2.2, 1.4.3 and 1.4.11).
+const text = 4.5;
+const boundary = 3;
 
-const light = palette(tokens.slice(0, tokens.indexOf("@media (min-width: 40rem)")));
-const dark = palette(tokens.slice(tokens.indexOf(":root[data-theme=\"dark\"]")));
-const darkBySystem = palette(tokens.slice(tokens.indexOf("prefers-color-scheme: dark"), tokens.indexOf(":root[data-theme=\"dark\"]")));
+const tones = ["active", "success", "warning", "danger"];
+const targets = ["target-assistant", "target-orchestrator", "target-planning", "target-lane"];
 
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
-  const [r, g, b] = channels.map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)) as [number, number, number];
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-const text = ["ink", "muted", "marker", "refuse"];
-const surfaces = ["ground", "lane"];
+// The pairs the design names, each with what it needs. Every one holds in both themes.
+const pairs: [string, string, number][] = [
+  ["text", "bg", text],
+  ["text", "surface", text],
+  ["text", "surface-2", text],
+  ["text", "surface-3", text],
+  ["text", "hover", text],
+  ["text", "selected", text],
+  ["text-2", "bg", text],
+  ["text-2", "surface", text],
+  ["text-2", "surface-2", text],
+  ["text-2", "surface-3", text],
+  ["text-2", "hover", text],
+  ["text-2", "selected", text],
+  ["text-3", "bg", text],
+  ["text-3", "surface", text],
+  ["text-3", "surface-2", text],
+  ["text-3", "surface-3", text],
+  ["text-3", "hover", text],
+  ["text-3", "selected", text],
+  ["on-ink", "ink", text],
+  ["on-danger", "danger", text],
+  ["border-strong", "surface", boundary],
+  ["border-strong", "surface-2", boundary],
+  ["border-strong", "bg", boundary],
+  ["focus", "bg", boundary],
+  ["focus", "surface", boundary],
+  ["focus", "surface-2", boundary],
+  ["neutral", "neutral-bg", text],
+  ...tones.map((tone): [string, string, number] => [tone, `${tone}-bg`, text]),
+  ...targets.map((target): [string, string, number] => [target, `${target}-bg`, text]),
+  // A tone or a target colours words and edges on a plain surface too: a warning's value in a table, a
+  // condition chip's outline, a target chip's edge.
+  ...[...tones, ...targets, "neutral"].flatMap((foreground): [string, string, number][] => [
+    [foreground, "surface", text],
+    [foreground, "bg", text],
+    [foreground, "surface-2", text],
+  ]),
+];
 
 describe.each([
   ["light", light],
   ["dark", dark],
   ["dark by the system", darkBySystem],
 ])("the %s theme", (_name, theme) => {
-  it("declares every color", () => {
-    for (const name of [...text, ...surfaces, "hemp"]) {
-      expect(theme[name], name).toMatch(/^#/);
+  it("declares every color the pairs name", () => {
+    for (const [foreground, background] of pairs) {
+      expect(theme[foreground], foreground).toMatch(/^#[0-9a-f]{6}$/);
+      expect(theme[background], background).toMatch(/^#[0-9a-f]{6}$/);
     }
   });
 
-  it.each(text.flatMap((foreground) => surfaces.map((surface) => [foreground, surface] as const)))("%s on %s meets AA for text", (foreground, surface) => {
-    expect(contrast(theme[foreground] ?? "", theme[surface] ?? "")).toBeGreaterThanOrEqual(4.5);
+  it.each(pairs)("%s on %s reaches %d:1", (foreground, background, needs) => {
+    expect(contrast(theme[foreground] ?? "", theme[background] ?? "")).toBeGreaterThanOrEqual(needs);
   });
 
-  it("gives a filled button's text AA", () => {
-    expect(contrast(theme.ground ?? "", theme.ink ?? "")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(theme.ground ?? "", theme.marker ?? "")).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it("draws the strand and the focus ring where a person can see them", () => {
-    for (const surface of surfaces) {
-      expect(contrast(theme.hemp ?? "", theme[surface] ?? "")).toBeGreaterThanOrEqual(3);
-      expect(contrast(theme.marker ?? "", theme[surface] ?? "")).toBeGreaterThanOrEqual(3);
-    }
+  it("keeps the terminal pane dark in both themes, with its text readable on it", () => {
+    expect(theme["terminal-bg"]).toBe("#0b0d10");
+    expect(contrast(theme["terminal-text"] ?? "", theme["terminal-bg"] ?? "")).toBeGreaterThanOrEqual(text);
   });
 });
 
 describe("the two dark declarations", () => {
   it("are one palette", () => {
     expect(darkBySystem).toEqual(dark);
+  });
+});
+
+describe("the measurement", () => {
+  // The design's own figures, which the formula must reproduce.
+  it.each([
+    ["#15181c", "#f5f6f8", 16.47],
+    ["#e7e9ec", "#0c0e11", 15.89],
+    ["#7a828e", "#ffffff", 3.88],
+    ["#ffffff", "#bf2a2f", 5.85],
+  ])("%s on %s is %d:1", (foreground, background, ratio) => {
+    expect(contrast(foreground, background)).toBeCloseTo(ratio, 2);
+  });
+
+  it("reads a theme's colors as the file declares them", () => {
+    expect(palette("--text: #15181c;\n  --scrim: rgb(0 0 0 / 0.6);")).toEqual({ text: "#15181c" });
+  });
+});
+
+describe("the website", () => {
+  it("lends the application none of its typefaces or colors", () => {
+    for (const name of ["Big Shoulders", "Source Serif", "--ground", "--hemp", "--marker", "#14302f", "#12302e"]) {
+      expect(tokens).not.toContain(name);
+    }
   });
 });

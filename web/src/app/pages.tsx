@@ -1,37 +1,25 @@
-import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 import { readView } from "../api/client";
-import type {
-  Completed as CompletedView,
-  Decisions as DecisionsView,
-  Documents,
-  InProgress as InProgressView,
-  OnHold as OnHoldView,
-  Operations as OperationsView,
-  Plans,
-  Questions,
-  Roadmap as RoadmapView,
-  ShopFloor as ShopFloorView,
-  Stamp,
-  Stuck as StuckView,
-} from "../api/types";
+import type { Decisions as DecisionsView, DocumentKind, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Roadmap as RoadmapView, Stamp } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
+import { FloorPage } from "../floor/Floor";
+import { UsagePage, WorkersPage } from "../floor/Installation";
 import { Operations } from "../floor/Operations";
-import { ShopFloor } from "../floor/ShopFloor";
-import { workLabel } from "../floor/states";
-import { Completed, InProgress, OnHold, Stuck } from "../floor/Work";
+import { WorkOrderPage, WorkOrdersPage } from "../floor/WorkOrders";
 import { LanePage } from "../lanes/LanePane";
 import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentList, DocumentPage, OneRequirement, Requirements } from "../planning/Documents";
-import { RecordedPage } from "../planning/Recorded";
 import { OpenQuestions } from "../planning/OpenQuestions";
 import { PlanList, PlanPage } from "../planning/Plans";
+import { RecordedPage } from "../planning/Recorded";
 import { Roadmap } from "../planning/Roadmap";
-import { Link } from "./route";
-import type { Route } from "./route";
+import { LinkTabs } from "../ui/controls";
+import { Banner, EmptyState, SkeletonRows } from "../ui/display";
+import { addressOf, Link } from "./route";
+import type { View } from "./routes";
 
 // A document list runs git for each file, so a page that follows the stream reads it this seldom.
 const documentsGapMs = 30_000;
@@ -43,98 +31,102 @@ type Spec<T> = {
   gapMs?: number;
   title: string | ((view: T | null) => string);
   note?: (view: T) => string;
+  crumbs?: ReactNode;
+  // above stands between the title and the view's body, such as its tabs.
+  above?: ReactNode;
   body: (view: T) => ReactNode;
 };
 
 // ViewPage follows one read model. The title stands from the first moment, so a person who moved here
-// has somewhere for focus to land before the data arrives.
-function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, note, body }: Spec<T>) {
+// has somewhere for focus to land, and skeleton rows stand where the body will be. A failed read shows
+// in place of the body, and a view that has data keeps it under a banner that says it is not current.
+function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, note, crumbs, above, body }: Spec<T>) {
   const read = useView<T>(() => readView<T>(name, category), `${name}?${category}`, live, gapMs);
   const now = useClock();
   const view = read.view;
   return (
-    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined}>
-      {read.failure ? (
-        <p className="refusal" role="alert">
-          {read.failure}
-        </p>
-      ) : null}
-      {view ? (
-        <ViewTime.Provider value={{ asOf: view.as_of, elapsed: Math.max(0, now - read.readAt) }}>
-          <div aria-busy={read.busy}>{body(view)}</div>
-          <StampLine stamp={view} />
-        </ViewTime.Provider>
-      ) : null}
-      {!view && !read.failure ? <p className="quiet">Reading.</p> : null}
+    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined} crumbs={crumbs}>
+      {above}
+      <div className={above ? "tab-body" : undefined}>
+        {read.failure ? <Banner tone="danger">{view ? `What this view shows is not current. ${read.failure}` : read.failure}</Banner> : null}
+        {view ? (
+          <ViewTime.Provider value={{ asOf: view.as_of, elapsed: Math.max(0, now - read.readAt) }}>
+            <div className="view-body stack" aria-busy={read.busy}>
+              {body(view)}
+            </div>
+            <StampLine stamp={view} />
+          </ViewTime.Provider>
+        ) : null}
+        {!view && !read.failure ? (
+          <div className="panel">
+            <SkeletonRows rows={5} />
+          </div>
+        ) : null}
+      </div>
     </Page>
   );
 }
 
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
-// tally counts a view's work orders by state, in the order given and any other state after, and leaves
-// out a state that holds none, so a count says what it counts: "1 running, 1 claimed".
-function tally(orders: { work_order: { state: string } }[], order: string[], none: string): string {
-  const counts = new Map<string, number>();
-  for (const { work_order } of orders) {
-    counts.set(work_order.state, (counts.get(work_order.state) ?? 0) + 1);
+const documentKinds: { kind: DocumentKind; label: string; empty: string }[] = [
+  { kind: "requirements", label: "Requirements", empty: "No requirements yet." },
+  { kind: "spec", label: "Specs", empty: "No specs yet." },
+  { kind: "design", label: "Designs", empty: "No designs yet." },
+  { kind: "other", label: "Other", empty: "No other documents yet." },
+];
+
+function documentsPage(live: Live, params: URLSearchParams) {
+  const param = (name: string) => params.get(name) ?? "";
+  if (param("id")) {
+    return <RecordedPage id={param("id")} version={param("version")} live={live} />;
   }
-  const states = [...order.filter((state) => counts.has(state)), ...[...counts.keys()].filter((state) => !order.includes(state))];
-  return states.length ? states.map((state) => `${counts.get(state)} ${workLabel(state).toLowerCase()}`).join(", ") : none;
-}
-
-// A page's name for the browser. It holds no record's text, so a tab title never carries an agent's words.
-const titles: Record<string, string> = {
-  "/": "Needs you",
-  "/roadmap": "Roadmap",
-  "/plans": "Plans",
-  "/requirements": "Requirements",
-  "/specs": "Specs",
-  "/designs": "Designs",
-  "/documents": "Other documents",
-  "/document": "Document",
-  "/decisions": "Decisions",
-  "/questions": "Open questions",
-  "/in-progress": "In progress",
-  "/on-hold": "On hold",
-  "/stuck": "Stuck",
-  "/completed": "Completed",
-  "/shop-floor": "Shop floor",
-  "/operations": "Operations",
-  "/lane": "Lane",
-};
-
-export function useDocumentTitle(path: string): void {
-  useEffect(() => {
-    document.title = `${titles[path] ?? "No such view"} - ropeshift`;
-  }, [path]);
-}
-
-function documentPage(live: Live, title: string, kind: "spec" | "design" | "other", empty: string) {
-  return <ViewPage<Documents> name="documents" live={live} gapMs={documentsGapMs} title={title} body={(view) => <DocumentList view={view} kind={kind} empty={empty} />} />;
-}
-
-function requirementsPage(live: Live, key: string) {
-  const find = (view: Documents | null) => view?.requirements.find((requirement) => requirement.key === key);
-  if (!key) {
-    return <ViewPage<Documents> name="documents" live={live} gapMs={documentsGapMs} title="Requirements" body={(view) => <Requirements view={view} />} />;
+  if (param("path")) {
+    return <DocumentPage reference={{ path: param("path"), instance: param("instance"), version: param("version") }} live={live} />;
   }
+  const kind = documentKinds.find((row) => row.kind === param("kind"))?.kind ?? "requirements";
+  const key = param("key");
+  const tabs = (
+    <LinkTabs
+      label="Kinds"
+      tabs={documentKinds.map((row) => ({ to: addressOf("/documents", { kind: row.kind }), label: row.label, current: row.kind === kind && !key }))}
+    />
+  );
+  if (kind === "requirements" && key) {
+    const find = (view: Documents | null) => view?.requirements.find((requirement) => requirement.key === key);
+    return (
+      <ViewPage<Documents>
+        name="documents"
+        live={live}
+        gapMs={documentsGapMs}
+        title={(view) => (view === null || find(view) ? key : "No such requirement")}
+        crumbs={
+          <>
+            <Link to="/documents?kind=requirements">Requirements</Link>
+            <span aria-hidden="true">›</span>
+            <span>{key}</span>
+          </>
+        }
+        body={(view) => {
+          const requirement = find(view);
+          return requirement ? (
+            <OneRequirement requirement={requirement} />
+          ) : (
+            <EmptyState icon="trace" title="No requirement with that key" action={<Link to="/documents?kind=requirements">All requirements</Link>} />
+          );
+        }}
+      />
+    );
+  }
+  const spec = documentKinds.find((row) => row.kind === kind);
   return (
     <ViewPage<Documents>
       name="documents"
       live={live}
       gapMs={documentsGapMs}
-      title={(view) => (view === null || find(view) ? key : "No such requirement")}
-      body={(view) => {
-        const requirement = find(view);
-        return requirement ? (
-          <OneRequirement requirement={requirement} />
-        ) : (
-          <p className="back">
-            <Link to="/requirements">All requirements</Link>
-          </p>
-        );
-      }}
+      title="Documents"
+      above={tabs}
+      body={(view) => (kind === "requirements" ? <Requirements view={view} /> : <DocumentList view={view} kind={kind} empty={spec?.empty ?? "None yet."} />)}
     />
   );
 }
@@ -149,95 +141,81 @@ function plansPage(live: Live, id: string) {
       name="plans"
       live={live}
       title={(view) => (view === null ? "Plan" : (find(view)?.plan.title ?? "No such plan"))}
+      crumbs={
+        <>
+          <Link to="/plans">Plans</Link>
+          <span aria-hidden="true">›</span>
+          <span>{id}</span>
+        </>
+      }
       body={(view) => {
         const detail = find(view);
-        return detail ? (
-          <PlanPage detail={detail} />
-        ) : (
-          <p className="back">
-            <Link to="/plans">All plans</Link>
-          </p>
-        );
+        return detail ? <PlanPage detail={detail} /> : <EmptyState icon="plan" title="No plan with that ID" action={<Link to="/plans">All plans</Link>} />;
       }}
     />
   );
 }
 
-function decisionsPage(live: Live, id: string) {
-  return (
-    <ViewPage<DecisionsView>
-      name="decisions"
-      live={live}
-      title={(view) => (!id ? "Decisions" : view === null || view.decisions.some((row) => row.id === id) ? id : "No such decision")}
-      note={(view) => (id ? "" : count(view.decisions.length, "decision"))}
-      body={(view) => <Decisions view={view} selected={id} />}
-    />
-  );
-}
-
-function questionsPage(live: Live, category: string, id: string) {
-  return (
-    <ViewPage<Questions>
-      name="questions"
-      live={live}
-      category={category}
-      title="Open questions"
-      note={(view) => `${view.questions.length} open`}
-      body={(view) => <OpenQuestions view={view} category={category} selected={id} />}
-    />
-  );
-}
+type PageProps = { view: View; project: string; params: URLSearchParams; live: Live; after: () => Promise<void>; needs: NeedsYou; projects: Project[] };
 
 // PageFor shows the view an address names. Needs you is not here, because it stays mounted behind every
 // other view, so a half-written answer survives a look elsewhere.
-export function PageFor({ route, live, after }: { route: Route; live: Live; after: () => Promise<void> }) {
-  const { path, params } = route;
+export function PageFor({ view, project, params, live, after, needs, projects }: PageProps) {
   const param = (name: string) => params.get(name) ?? "";
-  switch (path) {
-    case "/roadmap":
-      return <ViewPage<RoadmapView> name="roadmap" live={live} title="Roadmap" body={(view) => <Roadmap view={view} />} />;
-    case "/plans":
+  const label = projects.find((row) => row.name === project)?.display_name || project;
+  switch (view) {
+    case "roadmap":
+      return <ViewPage<RoadmapView> name="roadmap" live={live} title="Roadmap" body={(read) => <Roadmap view={read} />} />;
+    case "plans":
       return plansPage(live, param("plan"));
-    case "/requirements":
-      return requirementsPage(live, param("key"));
-    case "/specs":
-      return documentPage(live, "Specs", "spec", "No specs yet.");
-    case "/designs":
-      return documentPage(live, "Designs", "design", "No designs yet.");
-    case "/documents":
-      return documentPage(live, "Other documents", "other", "No other documents yet.");
-    case "/document":
-      // A planning document the ledger recorded is named by its reference, and a file by its path.
-      return param("id") ? (
-        <RecordedPage id={param("id")} version={param("version")} live={live} />
-      ) : (
-        <DocumentPage reference={{ path: param("path"), instance: param("instance"), version: param("version") }} live={live} />
-      );
-    case "/decisions":
-      return decisionsPage(live, param("id"));
-    case "/questions":
-      return questionsPage(live, param("category"), param("id"));
-    case "/in-progress":
-      return <ViewPage<InProgressView> name="in-progress" live={live} title="In progress" note={(view) => tally(view.items, ["running", "claimed"], "0 running")} body={(view) => <InProgress view={view} />} />;
-    case "/on-hold":
-      return <ViewPage<OnHoldView> name="on-hold" live={live} title="On hold" note={(view) => `${view.items.length} parked`} body={(view) => <OnHold view={view} />} />;
-    case "/stuck":
-      return <ViewPage<StuckView> name="stuck" live={live} title="Stuck" note={(view) => `${view.items.length} stopped`} body={(view) => <Stuck view={view} after={after} />} />;
-    case "/completed":
-      return <ViewPage<CompletedView> name="completed" live={live} title="Completed" note={(view) => tally(view.items, ["done", "failed", "canceled", "acceptance", "integrating"], "0 ended")} body={(view) => <Completed view={view} />} />;
-    case "/shop-floor":
-      return <ViewPage<ShopFloorView> name="shop-floor" live={live} title="Shop floor" note={(view) => count(view.lanes.length, "lane")} body={(view) => <ShopFloor view={view} />} />;
-    case "/operations":
-      return <ViewPage<OperationsView> name="operations" live={live} title="Operations" body={(view) => <Operations view={view} />} />;
-    case "/lane":
-      return <LanePage key={param("id")} id={param("id")} live={live} />;
-    default:
+    case "documents":
+      return documentsPage(live, params);
+    case "decisions":
       return (
-        <Page title="No such view">
-          <p className="back">
-            <Link to="/">Back to Needs you</Link>
-          </p>
-        </Page>
+        <ViewPage<DecisionsView>
+          name="decisions"
+          live={live}
+          title={(read) => (!param("id") ? "Decisions" : read === null || read.decisions.some((row) => row.id === param("id")) ? param("id") : "No such decision")}
+          note={(read) => (param("id") ? "" : count(read.decisions.length, "decision"))}
+          body={(read) => <Decisions view={read} selected={param("id")} />}
+        />
       );
+    case "questions":
+      return (
+        <ViewPage<Questions>
+          name="questions"
+          live={live}
+          category={param("category")}
+          title="Open questions"
+          note={(read) => `${read.questions.length} open`}
+          body={(read) => <OpenQuestions view={read} category={param("category")} selected={param("id")} />}
+        />
+      );
+    case "work":
+      return <WorkOrdersPage live={live} group={param("group")} />;
+    case "work-order":
+      return <WorkOrderPage key={param("id")} live={live} id={param("id")} tab={param("tab")} needs={needs} after={after} />;
+    case "floor":
+      return <FloorPage live={live} project={project} projects={projects} show={param("show")} after={after} />;
+    case "lane":
+      return <LanePage key={param("id")} id={param("id")} live={live} />;
+    case "measures":
+      return <ViewPage<OperationsView> name="operations" live={live} title="Measures" note={() => "The fleet, the counts by state, the sources, and the product measures, from the ledger."} body={(read) => <Operations view={read} />} />;
+    case "workers":
+      return <WorkersPage live={live} projects={projects} selected={param("worker")} after={after} />;
+    case "usage":
+      return <UsagePage live={live} project={project} label={label} />;
+    case "needs-you":
+      return null;
   }
+}
+
+export function NoSuchView() {
+  return (
+    <Page title="No such view">
+      <div className="panel">
+        <EmptyState icon="info" title="This address holds no view" action={<Link to="/needs-you">Back to Needs you</Link>} />
+      </div>
+    </Page>
+  );
 }

@@ -83,6 +83,7 @@ describe("signing in", () => {
       return undefined;
     });
     render(<App />);
+    await userEvent.click(await screen.findByRole("link", { name: /2 questions/ }));
     const somethingElse = (await screen.findAllByRole("radio", { name: "Something else" }))[0];
     if (!somethingElse) {
       throw new Error("no such choice");
@@ -104,6 +105,7 @@ describe("a session's token", () => {
     document.cookie = "ropeshift_csrf=token-from-cookie";
     const sent = serveApi((call) => (call.method === "GET" ? { status: 200, body: goldenNeedsYou() } : { status: 200 }));
     render(<App />);
+    await userEvent.click(await screen.findByRole("link", { name: /^Allow / }));
     await userEvent.click(await screen.findByRole("button", { name: "Allow this one call" }));
     await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
     expect(sent.find((call) => call.method === "POST")?.csrf).toBe("token-from-cookie");
@@ -122,7 +124,8 @@ describe("signing out", () => {
       return live ? { status: 200, body: goldenNeedsYou() } : refusal(401, "session_required");
     });
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Account" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
     expect(sent.some((call) => call.path === "/v1/sessions/end")).toBe(true);
     await waitFor(() => expect(FakeEvents.opened.every((source) => source.closed)).toBe(true));
@@ -146,12 +149,17 @@ describe("the stream", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Needs you" });
     await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
-    const reads = sent.length;
+    const needsReads = () => sent.filter((call) => call.url === needsYou).length;
+    await waitFor(() => expect(sent.some((call) => call.path === "/v1/views/shop-floor")).toBe(true));
+    const reads = needsReads();
+    const views = sent.length - reads;
     const stream = FakeEvents.opened[0];
     stream?.emit();
     stream?.emit();
     stream?.emit();
-    await waitFor(() => expect(sent.length).toBe(reads + 1));
+    await waitFor(() => expect(needsReads()).toBe(reads + 1));
+    // The status bar's floor reads once for the burst too, and nothing reads twice.
+    await waitFor(() => expect(sent.length - needsReads()).toBe(views + 1));
   });
 
   it("says when it is live and when it is not", async () => {

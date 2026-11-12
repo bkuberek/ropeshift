@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, ProjectList, RecordedRead, WorkAction } from "./types";
+import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, ProjectList, RecordedRead, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -15,10 +15,18 @@ function documentQuery({ path, instance, version }: DocumentRef): URLSearchParam
 // acting names the project an item of the combined Needs you acts in, while its change is sent.
 let acting = "";
 
+// current is the project an installation view reads, whose address names none: the project the page
+// chose for its switch.
+let current = "";
+
+export function setCurrentProject(name: string): void {
+  current = name;
+}
+
 // project is the route of one project's records, as the API names it: the project an item names while it
-// acts, or else the project the page shows, which its address names.
+// acts, or else the project the page shows, which its address names, or else the one the page chose.
 function project(rest: string): string {
-  return `/v1/projects/${encodeURIComponent(acting || splitProject(window.location.pathname).project)}${rest}`;
+  return `/v1/projects/${encodeURIComponent(acting || splitProject(window.location.pathname).project || current)}${rest}`;
 }
 
 // inProjectOf sends a change to the project an item belongs to. A path is built when its call starts, so
@@ -39,9 +47,10 @@ export const paths = {
   signIn: "/v1/sessions",
   signOut: "/v1/sessions/end",
   projects: "/v1/projects",
-  events: () => project("/events"),
+  events: (name = "") => (name ? `/v1/projects/${encodeURIComponent(name)}/events` : project("/events")),
   needsYou: () => "/v1/needs-you",
   view: (name: string, category = "") => project(`/views/${encodeURIComponent(name)}${category ? `?${new URLSearchParams({ category })}` : ""}`),
+  search: (words: string) => project(`/views/search?${new URLSearchParams({ q: words })}`),
   documentRead: (ref: DocumentRef) => project(`/documents/read?${documentQuery(ref)}`),
   documentVersions: (ref: DocumentRef) => project(`/documents/versions?${documentQuery(ref)}`),
   documentRecorded: (id: string, version = "") => project(`/documents/recorded?${new URLSearchParams(version ? { id, version } : { id })}`),
@@ -186,9 +195,15 @@ export function startOrchestrator(worker: string): Promise<unknown> {
   return call("PUT", paths.orchestrator(worker), { desired_state: "running" });
 }
 
-// The stream every open page follows. A browser's own reconnect names the last revision it saw.
-export function followEvents(after: number): EventSource {
-  return new EventSource(`${paths.events()}?after=${after}`);
+// searchRecords reads the project's records whose ID or title holds every word, for the command palette.
+export function searchRecords(words: string): Promise<Search> {
+  return call("GET", paths.search(words));
+}
+
+// The stream every open page follows, of the project it shows. A browser's own reconnect names the last
+// revision it saw.
+export function followEvents(after: number, name = ""): EventSource {
+  return new EventSource(`${paths.events(name)}?after=${after}`);
 }
 
 // followPane streams a lane's pane: a snapshot of its screen each time it changes, and the lane's state

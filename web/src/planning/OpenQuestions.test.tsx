@@ -38,7 +38,7 @@ describe("the open questions", () => {
     serveViews();
     openPage("/questions");
     const card = await screen.findByRole("article", { name: "Should the budget hold across restarts?" });
-    expect(within(card).getByRole("link", { name: "Answer in Needs you" }).getAttribute("href")).toBe(here("/"));
+    expect(within(card).getByRole("link", { name: "Answer in Needs you" }).getAttribute("href")).toBe("/needs-you?kind=decisions");
   });
 
   it("offers no answer for a question nobody has brought to a person", async () => {

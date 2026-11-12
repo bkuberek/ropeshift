@@ -1,23 +1,20 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { actOnWork, startOrchestrator, workActions } from "../api/client";
 import type { OrchestratorAction, WorkAction, WorkNeed } from "../api/types";
-import { Freshness } from "../floor/LaneFacts";
-import { laneLabel } from "../floor/states";
+import { Link } from "../app/route";
 import { onlyAPerson, readWake, WakeWords } from "../floor/WakeWords";
-import { Id } from "../parts/parts";
 import { Verdicts } from "../parts/Verdicts";
+import type { ButtonVariant } from "../ui/controls";
+import { Button } from "../ui/controls";
+import { DecisionCard } from "../ui/DecisionCard";
+import { ConditionChip, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Refusal, TargetChip, WorkBadge } from "../ui/display";
+import { Field } from "../ui/forms";
+import type { Frame } from "./frame";
+import { kindOf } from "./kinds";
 import { useAct } from "./useAct";
 
-export const workLabels: Record<string, string> = {
-  acceptance: "Accept",
-  blocked: "Blocked",
-  human_resume: "Parked",
-  lapsed: "Lapsed",
-  long_parked: "Long parked",
-  stalled: "Stalled",
-  tripped: "Tripped",
-};
+export { workLabels } from "./kinds";
 
 const reasonWords: Record<string, string> = {
   lapsed: "Its worker stopped renewing its lease, and it may come back.",
@@ -34,7 +31,7 @@ const orchestratorWords: Record<string, string> = {
   stalled: "This orchestrator shows no progress. Questions wait until it runs.",
 };
 
-const actionWords: Record<WorkAction | OrchestratorAction, string> = {
+export const actionWords: Record<WorkAction | OrchestratorAction, string> = {
   reassign: "End this claim",
   resolve: "Back to ready",
   replan: "Back to planning",
@@ -47,6 +44,16 @@ const actionWords: Record<WorkAction | OrchestratorAction, string> = {
   start_orchestrator: "Start it again",
 };
 
+// The act a card leads with is its primary button, which stands last; canceling never leads.
+const leading: (WorkAction | OrchestratorAction)[] = ["accept", "resume", "reset", "start_orchestrator", "respawn", "resolve"];
+
+function variantOf(action: WorkAction | OrchestratorAction, primary: WorkAction | OrchestratorAction | undefined): ButtonVariant {
+  if (action === primary) {
+    return "primary";
+  }
+  return action === "cancel" ? "danger-outline" : "secondary";
+}
+
 // Lead says why work waits. A parked lane that waits on more than a person says what, such as the
 // question it asked, so a person can answer that instead of resuming it, and resume stays the way past.
 function Lead({ work }: { work: WorkNeed }) {
@@ -56,27 +63,29 @@ function Lead({ work }: { work: WorkNeed }) {
   if (!wake || !term || onlyAPerson(term)) {
     return (
       <>
-        <p className="lead">{said}</p>
-        {work.standing?.why ? <p className="quiet">It waits because {work.standing.why}.</p> : null}
+        <p>{said}</p>
+        {work.standing?.why ? <p className="muted">It waits because {work.standing.why}.</p> : null}
       </>
     );
   }
   return (
     <>
-      <p className="lead">
+      <p>
         {work.reason === "human_resume" ? "Its lane is parked" : `${said} It waits`} <WakeWords expression={wake.expression} word="until" capital={false} />.
       </p>
-      {work.actions.includes("resume") ? <p className="quiet">Resume lets it go on now, without waiting.</p> : null}
+      {work.actions.includes("resume") ? <p className="muted">Resume lets it go on now, without waiting.</p> : null}
     </>
   );
 }
 
 // Some answers change who owns work, so they say why. Those ask only after the press, and an action
 // that needs no words goes in one press.
-export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; after: () => Promise<void> }) {
+// inPage is a card on its own work order's page, which shows the review in a tab and needs no link to itself.
+export function WorkCard({ id, work, after, frame, inPage = false }: { id: string; work: WorkNeed; after: () => Promise<void>; frame: Frame; inPage?: boolean }) {
   const [asking, setAsking] = useState<WorkAction | null>(null);
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
+  const form = useId();
   const workOrder = work.work_order?.id ?? id;
   const send = async (action: WorkAction, words: string) => {
     if (await act(() => actOnWork(workOrder, action, words))) {
@@ -93,84 +102,89 @@ export function WorkCard({ id, work, after }: { id: string; work: WorkNeed; afte
       void send(action, "");
     }
   };
+  const primary = leading.find((action) => work.actions.includes(action));
+  const ordered = [...work.actions.filter((action) => action === "cancel"), ...work.actions.filter((action) => action !== "cancel" && action !== primary), ...(primary ? [primary] : [])];
   return (
-    <div className="card-body">
+    <DecisionCard
+      kind={kindOf({ kind: "work", work, id, since: 0 })}
+      project={frame.project}
+      title={frame.title}
+      provenance={frame.provenance}
+      state={work.work_order && !inPage ? <WorkBadge state={work.work_order.state} /> : undefined}
+      actions={
+        asking ? (
+          <>
+            <Button disabled={busy} onClick={() => setAsking(null)}>
+              Cancel
+            </Button>
+            <Button variant={asking === "cancel" ? "danger" : "primary"} type="submit" form={form} disabled={busy || reason.trim() === ""}>
+              {actionWords[asking]}
+            </Button>
+          </>
+        ) : (
+          ordered.map((action) => (
+            <Button key={action} variant={variantOf(action, primary)} disabled={busy} onClick={() => press(action)}>
+              {actionWords[action]}
+            </Button>
+          ))
+        )
+      }
+    >
       <Lead work={work} />
-      {work.standing ? <Verdicts standing={work.standing} /> : null}
+      {work.standing && !inPage ? <Verdicts standing={work.standing} /> : null}
       {work.orchestrator ? (
-        <dl className="facts">
-          <div>
-            <dt>Worker</dt>
-            <dd>
-              <Id value={work.orchestrator.worker_id} />
-            </dd>
-          </div>
-        </dl>
+        <Facts>
+          <Fact name="Orchestrator">
+            <TargetChip kind="orchestrator" small>
+              Orchestrator · {work.orchestrator.worker_id}
+            </TargetChip>
+          </Fact>
+          <Fact name="Worker">
+            <Id value={work.orchestrator.worker_id} />
+          </Fact>
+        </Facts>
+      ) : null}
+      {work.work_order && !inPage ? (
+        <p className="small">
+          <Link to={`/work-order?id=${encodeURIComponent(work.work_order.id)}`}>Open work order {work.work_order.id}</Link>
+        </p>
       ) : null}
       {work.lane ? (
-        <dl className="facts">
-          <div>
-            <dt>Lane</dt>
-            <dd>
-              <Id value={work.lane.id} />
-            </dd>
-          </div>
-          <div>
-            <dt>State</dt>
-            <dd>
-              {laneLabel(work.lane.actual_state)}
-              <Freshness freshness={work.lane.freshness} at={work.lane.as_of} />
-            </dd>
-          </div>
+        <Facts>
+          <Fact name="Lane">
+            <Id value={work.lane.id} />
+          </Fact>
+          <Fact name="State">
+            <span className="row-tight">
+              <LaneBadge state={work.lane.actual_state} />
+              {(work.lane.conditions ?? []).map((condition) => (
+                <ConditionChip key={condition} name={condition} />
+              ))}
+              <Freshness kind={freshnessOf(work.lane.freshness)} at={work.lane.as_of} source="the lane's worker" />
+            </span>
+          </Fact>
           {work.detail ? (
-            <div>
-              <dt>Lane said</dt>
-              <dd className="mono">{work.detail}</dd>
-            </div>
+            <Fact name="Lane said" mono>
+              {work.detail}
+            </Fact>
           ) : null}
-        </dl>
+        </Facts>
       ) : null}
       {asking ? (
         <form
+          id={form}
           className="reason"
           onSubmit={(event) => {
             event.preventDefault();
             void send(asking, reason.trim());
           }}
         >
-          <label className="field">
-            <span className="field-label">Why</span>
-            <input type="text" value={reason} disabled={busy} required autoFocus onChange={(event) => setReason(event.target.value)} />
-          </label>
-          <div className="actions">
-            <button className="button button-strong" type="submit" disabled={busy || reason.trim() === ""}>
-              {actionWords[asking]}
-            </button>
-            <button className="button" type="button" disabled={busy} onClick={() => setAsking(null)}>
-              Cancel
-            </button>
-          </div>
+          <Field label="Why (required)">
+            <textarea className="textarea" rows={2} autoComplete="off" value={reason} disabled={busy} required autoFocus onChange={(event) => setReason(event.target.value)} />
+          </Field>
         </form>
-      ) : (
-        <div className="actions">
-          {work.actions.map((action) => (
-            <button
-              key={action}
-              className="button"
-              type="button"
-              disabled={busy}
-              onClick={() => press(action)}
-            >
-              {actionWords[action]}
-            </button>
-          ))}
-        </div>
-      )}
-      {failure ? (
-        <p className="refusal" role="alert">
-          {failure}
-        </p>
       ) : null}
-    </div>
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </DecisionCard>
   );
 }

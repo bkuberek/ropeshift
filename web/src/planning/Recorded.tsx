@@ -52,17 +52,17 @@ export function reviewWords(version: RecordedVersion): string {
   }
 }
 
-export const recordedAddress = (id: string, version?: number) => addressOf("/document", { id, version: version ? String(version) : undefined });
+export const recordedAddress = (id: string, version?: number) => addressOf("/documents", { id, version: version ? String(version) : undefined });
 
 function RecordedRow({ document, showKind }: { document: RecordedDocument; showKind: boolean }) {
   const newest = document.versions[0];
   return (
-    <li className="row">
-      <Link className="row-title" to={recordedAddress(document.id)}>
+    <li className="list-row">
+      <Link className="list-row-title" to={recordedAddress(document.id)}>
         {document.title || document.id}
       </Link>
-      {document.path ? <p className="mono quiet">{document.path}</p> : null}
-      <ul className="tags">
+      {document.path ? <p className="mono muted">{document.path}</p> : null}
+      <ul className="chips">
         {showKind ? <li>{kindWord(document.kind)}</li> : null}
         {newest ? <li>Version {newest.version}</li> : null}
         {newest ? <li className={`review review-${newest.review}`}>{reviewWords(newest)}</li> : null}
@@ -73,7 +73,7 @@ function RecordedRow({ document, showKind }: { document: RecordedDocument; showK
 
 export function RecordedRows({ documents, showKind = false }: { documents: RecordedDocument[]; showKind?: boolean }) {
   return (
-    <ol className="rows" role="list">
+    <ol className="list-rows" role="list">
       {documents.map((document) => (
         <RecordedRow key={document.id} document={document} showKind={showKind} />
       ))}
@@ -131,7 +131,7 @@ function Criterion({ criterion }: { criterion: TracedCriterion }) {
       <p>
         <span className="mono">{criterion.criterion}</span> {criterion.text}
       </p>
-      <p className="quiet trace-verdict">No review verdict yet</p>
+      <p className="muted trace-verdict">No review verdict yet</p>
     </li>
   );
 }
@@ -151,15 +151,15 @@ function Contract({ row, requirement, plan }: { row: TracedContract; requirement
         ))}
       </ul>
       {row.work.length ? (
-        <ul className="tags" aria-label={`Work orders of ${title}`}>
+        <ul className="chips" aria-label={`Work orders of ${title}`}>
           {row.work.map((order) => (
             <li key={order.id}>
-              {order.title || order.id}: <span className="tag-strong">{workLabel(order.state)}</span>
+              {order.title || order.id}: <span className="chip-strong">{workLabel(order.state)}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="quiet">No work carries it yet.</p>
+        <p className="muted">No work carries it yet.</p>
       )}
     </li>
   );
@@ -170,7 +170,7 @@ function Contract({ row, requirement, plan }: { row: TracedContract; requirement
 function Met({ trace }: { trace: RequirementTrace }) {
   return (
     <>
-      <p className="tag-strong">Met by existing code</p>
+      <p className="chip-strong">Met by existing code</p>
       {trace.evidence?.length ? (
         <ul className="trace-evidence" aria-label={`Evidence that the code meets ${trace.key}`}>
           {trace.evidence.map((cited) => (
@@ -198,7 +198,7 @@ function Trace({ trace, plan }: { trace: RequirementTrace; plan: string }) {
           ))}
         </ul>
       ) : met ? null : (
-        <p className="quiet">No criterion serves it yet.</p>
+        <p className="muted">No criterion serves it yet.</p>
       )}
     </li>
   );
@@ -227,22 +227,22 @@ function Versions({ document, current }: { document: RecordedDocument; current: 
       <h2 className="group-title" id={heading}>
         Versions
       </h2>
-      <ol className="rows" role="list">
+      <ol className="list-rows" role="list">
         {document.versions.map((version) => (
-          <li key={version.version} className="row">
+          <li key={version.version} className="list-row">
             {version.version === current ? (
               <p aria-current="true">Version {version.version} (this one)</p>
             ) : (
               <Link to={recordedAddress(document.id, version.version)}>Version {version.version}</Link>
             )}
-            <ul className="tags">
+            <ul className="chips">
               <li className={`review review-${version.review}`}>{reviewWords(version)}</li>
               <li>
                 Recorded <Ago at={version.recorded_at} />
               </li>
             </ul>
-            {version.source ? <p className="mono quiet">{version.source}</p> : null}
-            <p className="mono quiet">{version.digest}</p>
+            {version.source ? <p className="mono muted">{version.source}</p> : null}
+            <p className="mono muted">{version.digest}</p>
           </li>
         ))}
       </ol>
@@ -267,7 +267,7 @@ export function RecordedPage({ id, version, live }: { id: string; version: strin
       <Page title="No such document">
         {failure}
         <p className="back">
-          <Link to="/documents">Other documents</Link>
+          <Link to="/documents">All documents</Link>
         </p>
       </Page>
     );
@@ -277,7 +277,7 @@ export function RecordedPage({ id, version, live }: { id: string; version: strin
       {failure}
       {shown ? (
         <ViewTime.Provider value={{ asOf: shown.as_of, elapsed: Math.max(0, now - read.readAt) }}>
-          <dl className="facts facts-page">
+          <dl className="kv facts-page">
             <Fact name="Kind">{kindWord(shown.document.kind)}</Fact>
             {shown.plan ? (
               <Fact name="Plan">
@@ -304,7 +304,7 @@ export function RecordedPage({ id, version, live }: { id: string; version: strin
           <Versions document={shown.document} current={shown.version.version} />
         </ViewTime.Provider>
       ) : failure ? null : (
-        <p className="quiet">Reading.</p>
+        <p className="muted">Reading.</p>
       )}
     </Page>
   );

@@ -4152,6 +4152,662 @@
       ],
       "revision": 363
     },
+    "search": {
+      "as_of": 1790000133001,
+      "records": [
+        {
+          "id": "wl-backoff",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in backoff"
+        },
+        {
+          "id": "wl-briefing",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in briefing"
+        },
+        {
+          "id": "wl-compacting",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in compacting"
+        },
+        {
+          "id": "wl-ended",
+          "kind": "work_order",
+          "state": "acceptance",
+          "title": "A lane in ended"
+        },
+        {
+          "id": "wl-handing_off",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in handing_off"
+        },
+        {
+          "id": "wl-idle",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in idle"
+        },
+        {
+          "id": "wl-needs_decision",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in needs_decision"
+        },
+        {
+          "id": "wl-parked",
+          "kind": "work_order",
+          "state": "parked",
+          "title": "A lane in parked"
+        },
+        {
+          "id": "wl-parking",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in parking"
+        },
+        {
+          "id": "wl-pending",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in pending"
+        },
+        {
+          "id": "wl-provisioning",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in provisioning"
+        },
+        {
+          "id": "wl-retiring",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in retiring"
+        },
+        {
+          "id": "wl-starting",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in starting"
+        },
+        {
+          "id": "wl-tripped",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in tripped"
+        },
+        {
+          "id": "wl-working",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane in working"
+        },
+        {
+          "id": "wo-running",
+          "kind": "work_order",
+          "state": "running",
+          "title": "A lane works on this"
+        },
+        {
+          "id": "wo-integrating",
+          "kind": "work_order",
+          "state": "integrating",
+          "title": "Accepted and waiting to merge"
+        },
+        {
+          "id": "wo-done",
+          "kind": "work_order",
+          "state": "done",
+          "title": "Accepted by a member"
+        },
+        {
+          "id": "wo-canceled",
+          "kind": "work_order",
+          "state": "canceled",
+          "title": "Called off"
+        },
+        {
+          "id": "wo-claimed",
+          "kind": "work_order",
+          "state": "claimed",
+          "title": "Claimed with no lane yet"
+        },
+        {
+          "id": "wo-acceptance",
+          "kind": "work_order",
+          "state": "acceptance",
+          "title": "Finished and waiting for a word"
+        },
+        {
+          "id": "wo-lapsed",
+          "kind": "work_order",
+          "state": "lapsed",
+          "title": "Its worker went quiet"
+        },
+        {
+          "id": "wo-failed",
+          "kind": "work_order",
+          "state": "failed",
+          "title": "Out of attempts"
+        },
+        {
+          "id": "wo-parked",
+          "kind": "work_order",
+          "state": "parked",
+          "title": "Parked until a person says go"
+        },
+        {
+          "id": "wo-ready",
+          "kind": "work_order",
+          "state": "ready",
+          "title": "Ready for a worker"
+        },
+        {
+          "id": "generated-2",
+          "kind": "work_order",
+          "state": "ready",
+          "title": "Review: A lane in ended"
+        },
+        {
+          "id": "generated-11",
+          "kind": "work_order",
+          "state": "canceled",
+          "title": "Review: Accepted and waiting to merge"
+        },
+        {
+          "id": "generated-8",
+          "kind": "work_order",
+          "state": "canceled",
+          "title": "Review: Accepted by a member"
+        },
+        {
+          "id": "generated-14",
+          "kind": "work_order",
+          "state": "ready",
+          "title": "Review: Finished and waiting for a word"
+        },
+        {
+          "id": "wo-planning",
+          "kind": "work_order",
+          "state": "planning",
+          "title": "Sent back to planning"
+        },
+        {
+          "id": "wo-blocked",
+          "kind": "work_order",
+          "state": "blocked",
+          "title": "Stopped by a lane"
+        },
+        {
+          "id": "wo-contract_review",
+          "kind": "work_order",
+          "state": "contract_review",
+          "title": "Waiting for a contract review"
+        },
+        {
+          "id": "wo-intake",
+          "kind": "work_order",
+          "state": "intake",
+          "title": "Waiting for intake"
+        },
+        {
+          "id": "lane-wl-backoff",
+          "kind": "lane",
+          "state": "backoff",
+          "title": "A lane in backoff"
+        },
+        {
+          "id": "lane-wl-briefing",
+          "kind": "lane",
+          "state": "briefing",
+          "title": "A lane in briefing"
+        },
+        {
+          "id": "lane-wl-compacting",
+          "kind": "lane",
+          "state": "compacting",
+          "title": "A lane in compacting"
+        },
+        {
+          "id": "lane-wl-ended",
+          "kind": "lane",
+          "state": "ended",
+          "title": "A lane in ended"
+        },
+        {
+          "id": "lane-wl-handing_off",
+          "kind": "lane",
+          "state": "handing_off",
+          "title": "A lane in handing_off"
+        },
+        {
+          "id": "lane-wl-idle",
+          "kind": "lane",
+          "state": "idle",
+          "title": "A lane in idle"
+        },
+        {
+          "id": "lane-wl-needs_decision",
+          "kind": "lane",
+          "state": "needs_decision",
+          "title": "A lane in needs_decision"
+        },
+        {
+          "id": "lane-wl-parked",
+          "kind": "lane",
+          "state": "parked",
+          "title": "A lane in parked"
+        },
+        {
+          "id": "lane-wl-parking",
+          "kind": "lane",
+          "state": "parking",
+          "title": "A lane in parking"
+        },
+        {
+          "id": "lane-wl-pending",
+          "kind": "lane",
+          "state": "pending",
+          "title": "A lane in pending"
+        },
+        {
+          "id": "lane-wl-provisioning",
+          "kind": "lane",
+          "state": "provisioning",
+          "title": "A lane in provisioning"
+        },
+        {
+          "id": "lane-wl-retiring",
+          "kind": "lane",
+          "state": "retiring",
+          "title": "A lane in retiring"
+        },
+        {
+          "id": "lane-wl-starting",
+          "kind": "lane",
+          "state": "starting",
+          "title": "A lane in starting"
+        },
+        {
+          "id": "lane-wl-tripped",
+          "kind": "lane",
+          "state": "tripped",
+          "title": "A lane in tripped"
+        },
+        {
+          "id": "lane-wl-working",
+          "kind": "lane",
+          "state": "working",
+          "title": "A lane in working"
+        },
+        {
+          "id": "lane-wo-running",
+          "kind": "lane",
+          "state": "working",
+          "title": "A lane works on this"
+        },
+        {
+          "id": "lane-wo-integrating",
+          "kind": "lane",
+          "state": "ended",
+          "title": "Accepted and waiting to merge"
+        },
+        {
+          "id": "lane-wo-done",
+          "kind": "lane",
+          "state": "ended",
+          "title": "Accepted by a member"
+        },
+        {
+          "id": "lane-wo-acceptance",
+          "kind": "lane",
+          "state": "ended",
+          "title": "Finished and waiting for a word"
+        },
+        {
+          "id": "lane-wo-lapsed",
+          "kind": "lane",
+          "state": "working",
+          "title": "Its worker went quiet"
+        },
+        {
+          "id": "lane-wo-failed",
+          "kind": "lane",
+          "state": "ended",
+          "title": "Out of attempts"
+        },
+        {
+          "id": "lane-wo-parked",
+          "kind": "lane",
+          "state": "parked",
+          "title": "Parked until a person says go"
+        },
+        {
+          "id": "lane-wo-blocked",
+          "kind": "lane",
+          "state": "ended",
+          "title": "Stopped by a lane"
+        },
+        {
+          "id": "generated-38",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in backoff"
+        },
+        {
+          "id": "generated-39",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in briefing"
+        },
+        {
+          "id": "generated-40",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in compacting"
+        },
+        {
+          "id": "generated-41",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in ended"
+        },
+        {
+          "id": "generated-42",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in handing_off"
+        },
+        {
+          "id": "generated-43",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in idle"
+        },
+        {
+          "id": "generated-44",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in needs_decision"
+        },
+        {
+          "id": "generated-45",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in parked"
+        },
+        {
+          "id": "generated-46",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in parking"
+        },
+        {
+          "id": "generated-47",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in pending"
+        },
+        {
+          "id": "generated-48",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in provisioning"
+        },
+        {
+          "id": "generated-49",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in retiring"
+        },
+        {
+          "id": "generated-50",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in starting"
+        },
+        {
+          "id": "generated-51",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in tripped"
+        },
+        {
+          "id": "generated-52",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane in working"
+        },
+        {
+          "id": "generated-53",
+          "kind": "plan",
+          "state": "active",
+          "title": "A lane works on this"
+        },
+        {
+          "id": "generated-54",
+          "kind": "plan",
+          "state": "active",
+          "title": "Accepted and waiting to merge"
+        },
+        {
+          "id": "generated-55",
+          "kind": "plan",
+          "state": "active",
+          "title": "Accepted by a member"
+        },
+        {
+          "id": "generated-56",
+          "kind": "plan",
+          "state": "active",
+          "title": "Called off"
+        },
+        {
+          "id": "generated-57",
+          "kind": "plan",
+          "state": "active",
+          "title": "Claimed with no lane yet"
+        },
+        {
+          "id": "generated-58",
+          "kind": "plan",
+          "state": "active",
+          "title": "Finished and waiting for a word"
+        },
+        {
+          "id": "generated-59",
+          "kind": "plan",
+          "state": "active",
+          "title": "Its worker went quiet"
+        },
+        {
+          "id": "generated-60",
+          "kind": "plan",
+          "state": "active",
+          "title": "Out of attempts"
+        },
+        {
+          "id": "generated-61",
+          "kind": "plan",
+          "state": "active",
+          "title": "Parked until a person says go"
+        },
+        {
+          "id": "generated-63",
+          "kind": "plan",
+          "state": "active",
+          "title": "Ready for a worker"
+        },
+        {
+          "id": "generated-65",
+          "kind": "plan",
+          "state": "active",
+          "title": "Sent back to planning"
+        },
+        {
+          "id": "generated-66",
+          "kind": "plan",
+          "state": "active",
+          "title": "Stopped by a lane"
+        },
+        {
+          "id": "generated-32",
+          "kind": "plan",
+          "state": "active",
+          "title": "Waiting for a contract review"
+        },
+        {
+          "id": "generated-26",
+          "kind": "contract",
+          "title": "A lane in backoff"
+        },
+        {
+          "id": "generated-18",
+          "kind": "contract",
+          "title": "A lane in briefing"
+        },
+        {
+          "id": "generated-19",
+          "kind": "contract",
+          "title": "A lane in compacting"
+        },
+        {
+          "id": "generated-3",
+          "kind": "contract",
+          "title": "A lane in ended"
+        },
+        {
+          "id": "generated-27",
+          "kind": "contract",
+          "title": "A lane in handing_off"
+        },
+        {
+          "id": "generated-20",
+          "kind": "contract",
+          "title": "A lane in idle"
+        },
+        {
+          "id": "generated-21",
+          "kind": "contract",
+          "title": "A lane in needs_decision"
+        },
+        {
+          "id": "generated-37",
+          "kind": "contract",
+          "title": "A lane in parked"
+        },
+        {
+          "id": "generated-28",
+          "kind": "contract",
+          "title": "A lane in parking"
+        },
+        {
+          "id": "generated-22",
+          "kind": "contract",
+          "title": "A lane in pending"
+        },
+        {
+          "id": "generated-23",
+          "kind": "contract",
+          "title": "A lane in provisioning"
+        },
+        {
+          "id": "generated-29",
+          "kind": "contract",
+          "title": "A lane in retiring"
+        },
+        {
+          "id": "generated-24",
+          "kind": "contract",
+          "title": "A lane in starting"
+        },
+        {
+          "id": "generated-30",
+          "kind": "contract",
+          "title": "A lane in tripped"
+        },
+        {
+          "id": "generated-25",
+          "kind": "contract",
+          "title": "A lane in working"
+        },
+        {
+          "id": "generated-17",
+          "kind": "contract",
+          "title": "A lane works on this"
+        },
+        {
+          "id": "generated-12",
+          "kind": "contract",
+          "title": "Accepted and waiting to merge"
+        },
+        {
+          "id": "generated-9",
+          "kind": "contract",
+          "title": "Accepted by a member"
+        },
+        {
+          "id": "generated-4",
+          "kind": "contract",
+          "title": "Called off"
+        },
+        {
+          "id": "generated-16",
+          "kind": "contract",
+          "title": "Claimed with no lane yet"
+        },
+        {
+          "id": "generated-15",
+          "kind": "contract",
+          "title": "Finished and waiting for a word"
+        },
+        {
+          "id": "generated-31",
+          "kind": "contract",
+          "title": "Its worker went quiet"
+        },
+        {
+          "id": "generated-6",
+          "kind": "contract",
+          "title": "Out of attempts"
+        },
+        {
+          "id": "generated-34",
+          "kind": "contract",
+          "title": "Parked until a person says go"
+        },
+        {
+          "id": "generated-62",
+          "kind": "contract",
+          "title": "Ready for a worker"
+        },
+        {
+          "id": "generated-64",
+          "kind": "contract",
+          "title": "Sent back to planning"
+        },
+        {
+          "id": "generated-36",
+          "kind": "contract",
+          "title": "Stopped by a lane"
+        },
+        {
+          "id": "generated-33",
+          "kind": "contract",
+          "title": "Waiting for a contract review"
+        },
+        {
+          "id": "repository-merges",
+          "kind": "repository",
+          "state": "active",
+          "title": "app"
+        }
+      ],
+      "revision": 363
+    },
     "shop-floor": {
       "as_of": 1790000133001,
       "lanes": [

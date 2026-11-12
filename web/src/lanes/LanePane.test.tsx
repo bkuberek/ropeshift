@@ -38,7 +38,7 @@ function serve(answer?: (sent: Sent) => { status: number; body?: unknown } | und
 }
 
 async function opened() {
-  await screen.findByRole("heading", { level: 1, name: "Lane" });
+  await screen.findByRole("heading", { level: 1, name: /^Lane / });
   await waitFor(() => paneStream());
   return paneStream();
 }
@@ -206,7 +206,8 @@ describe("a planning session's work order", () => {
     }
     serveViews((call) => (call.path.startsWith("/v1/views/on-hold") ? { status: 200, body: held } : undefined));
     openPage("/on-hold");
-    await screen.findByRole("heading", { level: 1, name: "On hold" });
+    await screen.findByRole("heading", { level: 1, name: "Work orders" });
+    await screen.findByRole("table");
     expect(screen.queryByRole("link", { name: "Open the planning session" })).toBeNull();
   });
 });

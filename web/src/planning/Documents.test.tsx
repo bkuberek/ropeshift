@@ -6,7 +6,7 @@ import type { DocumentKind, DocumentRow, Documents, RecordedRead } from "../api/
 import { openPage } from "../opening";
 import { golden, here, refusal, serveViews } from "../testing";
 
-const specLink = here("/document?path=docs%2Fspecs%2Fretry.md&instance=memory");
+const specLink = here("/documents?path=docs%2Fspecs%2Fretry.md&instance=memory");
 
 function serve(change: (view: Documents) => void) {
   const view = golden<Documents>("documents");
@@ -18,7 +18,8 @@ describe("the document lists", () => {
   it("lists specs on their own, each linked to its reading", async () => {
     serveViews();
     openPage("/specs");
-    expect(await screen.findByRole("heading", { level: 1, name: "Specs" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Documents" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Specs" }).getAttribute("aria-current")).toBe("page");
     const link = await screen.findByRole("link", { name: "The retry spec" });
     expect(link.getAttribute("href")).toBe(specLink);
     expect(screen.queryByRole("link", { name: "The retry budget" })).toBeNull();
@@ -33,7 +34,7 @@ describe("the document lists", () => {
 
   it("lists every other document, so none goes missing", async () => {
     serveViews();
-    openPage("/documents");
+    openPage("/documents?kind=other");
     expect(await screen.findByRole("link", { name: "Notes from the first run" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "The retry spec" })).toBeNull();
   });
@@ -45,7 +46,7 @@ describe("the document lists", () => {
       notes.kind = "runbook" as DocumentKind;
     }
     serveViews((call) => (call.path.startsWith("/v1/views/documents") ? { status: 200, body: view } : undefined));
-    openPage("/documents");
+    openPage("/documents?kind=other");
     expect(await screen.findByRole("link", { name: "Notes from the first run" })).toBeTruthy();
   });
 
@@ -81,7 +82,7 @@ describe("requirements", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "FR-RETRY-1" })).toBeTruthy();
     expect(await screen.findByText("A lane must stop retrying at its budget.")).toBeTruthy();
     expect(screen.queryByText("FR-RETRY-2")).toBeNull();
-    expect(screen.getByRole("link", { name: "All requirements" }).getAttribute("href")).toBe(here("/requirements"));
+    expect(screen.getByRole("link", { name: "All requirements" }).getAttribute("href")).toBe(here("/documents?kind=requirements"));
   });
 
   it("says so when a contract names a requirement nobody recorded", async () => {
@@ -161,14 +162,15 @@ describe("reading a document", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Document" })).toBeTruthy();
   });
 
-  it("says so when the address names no document", async () => {
+  it("opens the list of documents from the old address that names no document", async () => {
     serveViews();
     openPage("/document");
-    expect(await screen.findByRole("heading", { level: 1, name: "No such document" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Documents" })).toBeTruthy();
+    expect(window.location.pathname).toBe(here("/documents"));
   });
 });
 
-const recordedLink = here("/document?id=spec%3Afactory-api");
+const recordedLink = here("/documents?id=spec%3Afactory-api");
 
 describe("the documents a plan recorded", () => {
   it("lists a plan's specs from the ledger, each with its version and where it stands in review", async () => {
@@ -194,7 +196,7 @@ describe("the documents a plan recorded", () => {
 
   it("says the kind of each of the repository's other files", async () => {
     serveViews();
-    openPage("/documents");
+    openPage("/documents?kind=other");
     const files = await screen.findByRole("region", { name: "Other repository files" });
     const row = within(files).getByRole("link", { name: "Notes from the first run" }).closest("li");
     expect(within(row as HTMLElement).getByRole("list", { name: "Kind" }).textContent).toBe("Document");
@@ -213,7 +215,7 @@ describe("the documents a plan recorded", () => {
         }
       }
     });
-    openPage("/documents");
+    openPage("/documents?kind=other");
     await screen.findByRole("region", { name: "Other repository files" });
     for (const path of ["goals/reliable.md", "plans/factory.md", "contracts/client.md"]) {
       expect(screen.queryByRole("link", { name: path })).toBeNull();
@@ -244,7 +246,7 @@ describe("the documents a plan recorded", () => {
 
   it("puts milestones with the other documents, and says an approved version is approved", async () => {
     serveViews();
-    openPage("/documents");
+    openPage("/documents?kind=other");
     const plan = await screen.findByRole("region", { name: "The factory floor" });
     const row = within(plan).getByRole("link", { name: "Build the core" }).closest("li");
     expect(row?.textContent).toContain("Approved with plan version 5");
@@ -268,7 +270,7 @@ describe("the documents a plan recorded", () => {
     openPage("/requirements");
     const holding = await screen.findByRole("region", { name: "Documents that hold them" });
     expect(within(holding).getByRole("link", { name: "What the factory must do" }).getAttribute("href")).toBe(
-      here("/document?id=requirements%3Afactory"),
+      here("/documents?id=requirements%3Afactory"),
     );
     expect(within(holding).getByRole("link", { name: "What retries must do" })).toBeTruthy();
   });

@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 
 import type { GoalProgress, MilestoneProgress, PlannedWork, PlanProgress, Roadmap as View } from "../api/types";
 import { addressOf, Link } from "../app/route";
-import { stateCounts, workLabel } from "../floor/states";
-import { Bar, plural, Section, words } from "../parts/parts";
+import { milestoneStates, stateCounts, workLabel } from "../floor/states";
+import { Bar, plural, Section } from "../parts/parts";
+import { StateBadge } from "../ui/display";
 
 // StateCounts says how a plan's work stands, state by state.
 export function StateCounts({ states }: { states: Record<string, number> }) {
   return (
-    <ul className="tags" aria-label="Work by state">
+    <ul className="chips" aria-label="Work by state">
       {stateCounts(states).map(([state, count]) => (
         <li key={state}>
           {workLabel(state)} {count}
@@ -18,14 +19,6 @@ export function StateCounts({ states }: { states: Record<string, number> }) {
     </ul>
   );
 }
-
-const milestoneWords: Record<string, string> = {
-  not_started: "Not started",
-  waiting: "Waiting",
-  in_progress: "In progress",
-  done: "Done",
-  existing: "Exists",
-};
 
 // Part is one labelled list of a plan's map. Its heading names the list, so a screen reader finds each
 // list by what it holds.
@@ -48,13 +41,13 @@ function Milestone({ milestone, titleOf }: { milestone: MilestoneProgress; title
   const said = `${milestone.done} of ${milestone.total} done`;
   return (
     <li className={`milestone milestone-${milestone.state}`}>
-      <p className="milestone-title">{title}</p>
-      <ul className="tags">
-        <li className="tag-strong">{milestoneWords[milestone.state] ?? words(milestone.state)}</li>
-        <li>{milestone.total === 0 ? (milestone.existing ? "Delivered by existing code" : "No work yet") : said}</li>
-      </ul>
+      <p className="milestone-title row">
+        <span>{title}</span>
+        <StateBadge table={milestoneStates} state={milestone.state} />
+        <span className="small muted">{milestone.total === 0 ? (milestone.existing ? "Delivered by existing code" : "No work yet") : said}</span>
+      </p>
       {milestone.total === 0 ? null : <Bar done={milestone.done} total={milestone.total} label={`${title}: ${said}`} />}
-      {milestone.depends_on.length ? <p className="quiet">After {milestone.depends_on.map(titleOf).join(", ")}</p> : null}
+      {milestone.depends_on.length ? <p className="muted">After {milestone.depends_on.map(titleOf).join(", ")}</p> : null}
       {milestone.exit_criteria.length ? (
         <ul className="criteria" aria-label="Exit criteria">
           {milestone.exit_criteria.map((criterion) => (
@@ -71,9 +64,9 @@ function LayerWork({ work, critical }: { work: PlannedWork; critical: boolean })
   return (
     <li className={critical ? "layer-work layer-work-critical" : "layer-work"}>
       <span className="layer-work-title">{work.title || work.id}</span>
-      <ul className="tags">
+      <ul className="chips">
         <li>{workLabel(work.state)}</li>
-        {critical ? <li className="tag-critical">On the critical path</li> : null}
+        {critical ? <li className="chip-critical">On the critical path</li> : null}
       </ul>
     </li>
   );
@@ -119,13 +112,13 @@ function PlanMap({ row }: { row: PlanProgress }) {
               <li key={id}>{workOf(id).title || id}</li>
             ))}
           </Part>
-          <p className="quiet">
+          <p className="muted">
             {plural(row.critical_path.work_orders.length, "work order")}, {plural(row.critical_path.weight, "size point")} left on the critical path
           </p>
-          <p className="quiet">A size point is what a work order's size counts for: small 1, medium 2, large 3.</p>
+          <p className="muted">A size point is what a work order's size counts for: small 1, medium 2, large 3.</p>
         </>
       ) : (
-        <p className="quiet">Nothing is left on the critical path.</p>
+        <p className="muted">Nothing is left on the critical path.</p>
       )}
     </div>
   );
@@ -134,16 +127,16 @@ function PlanMap({ row }: { row: PlanProgress }) {
 function PlanRow({ row }: { row: PlanProgress }) {
   const said = `${row.done} of ${row.total} done`;
   return (
-    <li className="row">
-      <Link className="row-title" to={addressOf("/plans", { plan: row.plan.id })}>
+    <li className="list-row">
+      <Link className="list-row-title" to={addressOf("/plans", { plan: row.plan.id })}>
         {row.plan.title}
       </Link>
       {row.total === 0 ? (
-        <p className="quiet">No work yet</p>
+        <p className="muted">No work yet</p>
       ) : (
-        <div className="row-progress">
+        <div className="list-row-progress">
           <Bar done={row.done} total={row.total} label={`${row.plan.title}: ${said}`} />
-          <p className="quiet">{said}</p>
+          <p className="muted">{said}</p>
         </div>
       )}
       <StateCounts states={row.states} />
@@ -163,7 +156,7 @@ function Goal({ group }: { group: GoalProgress }) {
           ))}
         </ul>
       ) : null}
-      <ol className="rows" role="list">
+      <ol className="list-rows" role="list">
         {group.plans.map((row) => (
           <PlanRow key={row.plan.id} row={row} />
         ))}

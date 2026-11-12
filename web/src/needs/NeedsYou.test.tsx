@@ -5,16 +5,30 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { goldenNeedsYou, here, refusal, serveApi } from "../testing";
+import { CurrentProject } from "../app/route";
+import { goldenNeedsYou, here, refusal, serveApi, testProject } from "../testing";
 import type { NeedItem, NeedsYou as View, QuestionItem } from "../api/types";
 import { NeedsYou } from "./NeedsYou";
 import { waitLabel, waitWords } from "./wait";
 
 const hostile = `<img src=x onerror=alert(1)><script>alert(2)</script>`;
 
-function show(view: View = goldenNeedsYou(), after: () => Promise<void> = async () => {}) {
-  return render(<NeedsYou view={view} readAt={Date.now()} after={after} />);
+type Pick = NeedItem["kind"] | ((item: NeedItem) => boolean);
+
+// show renders Needs you. pick opens one item, as its address does, so its card is the one shown.
+function show(view: View = goldenNeedsYou(), after: () => Promise<void> = async () => {}, pick?: Pick) {
+  const item = pick ? view.items.find(typeof pick === "function" ? pick : (row) => row.kind === pick) : undefined;
+  if (item) {
+    window.history.replaceState(null, "", `${here("/")}?item=${encodeURIComponent(`${item.kind}:${item.id}`)}`);
+  }
+  return render(
+    <CurrentProject.Provider value={testProject}>
+      <NeedsYou view={view} readAt={Date.now()} after={after} />
+    </CurrentProject.Provider>,
+  );
 }
+
+const plainApproval = (item: NeedItem) => item.kind === "approval" && item.approval.kind !== "recovery";
 
 function itemOf<K extends NeedItem["kind"]>(view: View, kind: K): Extract<NeedItem, { kind: K }> {
   const found = view.items.find((item) => item.kind === kind);
@@ -27,23 +41,72 @@ function itemOf<K extends NeedItem["kind"]>(view: View, kind: K): Extract<NeedIt
 // item matches the label that leads a line of a difference, such as "Added".
 const item = (label: string) => (_: string, element: Element | null) => element?.tagName === "LI" && (element.firstChild?.textContent ?? "") === label;
 
-function cardNamed(name: RegExp) {
+// cardNamed opens the item whose title matches, as a person does from the list, and returns its card.
+async function cardNamed(name: RegExp) {
+  const link = screen.getAllByRole("link").find((element) => element.classList.contains("item") && name.test(element.querySelector(".item-title")?.textContent ?? ""));
+  if (link && link.getAttribute("aria-current") !== "true") {
+    await userEvent.click(link);
+  }
   return screen.getByRole("article", { name });
 }
 
 describe("the queue", () => {
-  it("keeps the server's order, the longest wait first", () => {
+  it("keeps the server's order, the longest wait first", async () => {
     const view = goldenNeedsYou();
     show(view);
-    const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-    expect(headings).toHaveLength(view.items.length);
-    expect(headings[0]).toBe("Rotate the keys");
-    expect(headings[1]).toBe("Move the archive");
+    const titles = within(screen.getByRole("list", { name: "Waiting items" }))
+      .getAllByRole("link")
+      .map((link) => link.querySelector(".item-title")?.textContent);
+    expect(titles).toHaveLength(view.items.length);
+    expect(titles[0]).toBe("Rotate the keys");
+    expect(titles[1]).toBe("Move the archive");
     const since = view.items.map((item) => item.since);
     expect(since).toEqual([...since].sort((a, b) => a - b));
   });
 
-  it("states how long each thing has waited, for eyes and for a screen reader", () => {
+  it("opens the first item's decision card beside the list", async () => {
+    show();
+    const first = within(screen.getByRole("list", { name: "Waiting items" })).getAllByRole("link")[0];
+    expect(first?.getAttribute("aria-current")).toBe("true");
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByRole("article", { name: "Rotate the keys" })).toBeTruthy();
+  });
+
+  it("opens the card a person chooses, and keeps the others' drafts", async () => {
+    show();
+    await userEvent.click(await cardNamed(/questions/));
+    const somethingElse = screen.getAllByRole("radio", { name: "Something else" })[0];
+    if (!somethingElse) {
+      throw new Error("no such choice");
+    }
+    await userEvent.click(somethingElse);
+    await userEvent.type(screen.getByRole("textbox", { name: "Your answer" }), "Half of a thought");
+    await cardNamed(/Rotate the keys/);
+    expect(screen.queryByRole("textbox", { name: "Your answer" })).toBeNull();
+    await cardNamed(/questions/);
+    expect((screen.getByRole("textbox", { name: "Your answer" }) as HTMLTextAreaElement).value).toBe("Half of a thought");
+  });
+
+  it("narrows the list to one kind, with a count for each", async () => {
+    show();
+    const stuck = screen.getByRole("button", { name: /^Stuck/ });
+    await userEvent.click(stuck);
+    await waitFor(() => expect(stuck.getAttribute("aria-pressed")).toBe("true"));
+    const titles = within(screen.getByRole("list", { name: "Waiting items" }))
+      .getAllByRole("link")
+      .map((link) => link.querySelector(".item-title")?.textContent);
+    expect(titles).toContain("Rotate the keys");
+    expect(titles).not.toContain("Did it happen?");
+    expect(stuck.textContent).toBe(`Stuck${titles.length}`);
+  });
+
+  it("says the decided tab has no source yet, and never draws an empty list as done", async () => {
+    show();
+    await userEvent.click(screen.getByRole("tab", { name: "Decided" }));
+    expect(await screen.findByText("Decided requests are not shown yet")).toBeTruthy();
+  });
+
+  it("states how long each thing has waited, for eyes and for a screen reader", async () => {
     const view = goldenNeedsYou();
     show(view);
     const first = view.items[0];
@@ -59,20 +122,27 @@ describe("the queue", () => {
     expect(within(article).getByText(waitWords(waited))).toBeTruthy();
   });
 
-  it("says plainly when nothing waits", () => {
+  it("says plainly when nothing waits", async () => {
     show({ ...goldenNeedsYou(), items: [] });
     expect(screen.getByText("Nothing is waiting.")).toBeTruthy();
     expect(screen.queryByRole("list")).toBeNull();
   });
 
-  it("keeps keyboard focus in the page when an answered item leaves", () => {
+  it("keeps an answered item in place, marked resolved, with focus on its resolution", async () => {
     const view = goldenNeedsYou();
     const { rerender } = show(view);
-    rerender(<NeedsYou view={{ ...view, items: view.items.slice(1) }} readAt={Date.now()} after={async () => {}} />);
-    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+    rerender(
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: view.items.slice(1) }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>,
+    );
+    await waitFor(() => expect(document.activeElement?.textContent).toContain("no longer waits"));
+    const first = within(screen.getByRole("list", { name: "Waiting items" })).getAllByRole("link")[0];
+    expect(first?.textContent).toContain("Rotate the keys");
+    expect(first?.textContent).toContain("Resolved elsewhere");
   });
 
-  it("leaves a page that just opened at its start, so the skip link comes first", () => {
+  it("leaves a page that just opened at its start, so the skip link comes first", async () => {
     show();
     expect(document.activeElement).toBe(document.body);
   });
@@ -80,13 +150,17 @@ describe("the queue", () => {
   it("leaves focus alone when a person is somewhere else in the page", async () => {
     const view = goldenNeedsYou();
     const { rerender } = show(view);
-    const field = screen.getAllByRole("radio")[0];
-    field?.focus();
-    rerender(<NeedsYou view={{ ...view, items: view.items.slice(1) }} readAt={Date.now()} after={async () => {}} />);
-    expect(document.activeElement).toBe(field);
+    const chip = screen.getByRole("button", { name: /^Decisions/ });
+    chip.focus();
+    rerender(
+      <CurrentProject.Provider value={testProject}>
+        <NeedsYou view={{ ...view, items: view.items.slice(1) }} readAt={Date.now()} after={async () => {}} />
+      </CurrentProject.Provider>,
+    );
+    expect(document.activeElement).toBe(chip);
   });
 
-  it("gives every item a heading it is labelled by", () => {
+  it("gives every item a heading it is labelled by", async () => {
     show();
     for (const article of screen.getAllByRole("article")) {
       expect(article.getAttribute("aria-labelledby")).toBeTruthy();
@@ -103,11 +177,11 @@ describe("waits", () => {
     [3_660_000, "1h 1m"],
     [86_400_000, "1d"],
     [90_000_000, "1d 1h"],
-  ])("%d ms reads %s", (ms, label) => {
+  ])("%d ms reads %s", async (ms, label) => {
     expect(waitLabel(ms)).toBe(label);
   });
 
-  it("reads in words", () => {
+  it("reads in words", async () => {
     expect(waitWords(3_660_000)).toBe("waiting 1 hour 1 minute");
     expect(waitWords(90_000_000)).toBe("waiting 1 day 1 hour");
     expect(waitWords(1_000)).toBe("waiting since just now");
@@ -124,7 +198,7 @@ describe("a batch of questions", () => {
     const { view, item } = batchView();
     const sent = serveApi(() => ({ status: 201 }));
     const after = vi.fn(async () => {});
-    show(view, after);
+    show(view, after, "questions");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
     await waitFor(() => expect(sent).toHaveLength(2));
     expect(sent.map((call) => call.path)).toEqual(item.batch.items.map((question) => `/v1/questions/${question.id}/answer`));
@@ -142,7 +216,7 @@ describe("a batch of questions", () => {
     });
     const sent = serveApi(() => ({ status: 201 }));
     const after = vi.fn(() => held);
-    show(view, after);
+    show(view, after, "questions");
     const button = screen.getByRole("button", { name: "Send 2 answers" });
     await userEvent.dblClick(button);
     await userEvent.click(button);
@@ -158,7 +232,7 @@ describe("a batch of questions", () => {
       calls += 1;
       return calls === 1 ? refusal(503, "unavailable", "The store is busy.") : { status: 201 };
     });
-    show(view);
+    show(view, undefined, "questions");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
     expect(await screen.findByRole("alert")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
@@ -170,7 +244,7 @@ describe("a batch of questions", () => {
   it("takes a question someone else answered first as answered", async () => {
     const { view } = batchView();
     serveApi(() => refusal(409, "resolved", "This question already has its answer."));
-    show(view);
+    show(view, undefined, "questions");
     await userEvent.click(screen.getByRole("button", { name: "Send 2 answers" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
@@ -178,7 +252,7 @@ describe("a batch of questions", () => {
   it("lets a member answer in their own words", async () => {
     const { view, item } = batchView();
     const sent = serveApi(() => ({ status: 201 }));
-    show(view);
+    show(view, undefined, "questions");
     const first = item.batch.items[0];
     if (!first) {
       throw new Error("empty batch");
@@ -199,7 +273,7 @@ describe("a batch of questions", () => {
     }
     first.escalation_reason = "one_way";
     const sent = serveApi(() => ({ status: 201 }));
-    show(view);
+    show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
     for (const radio of within(group).getAllByRole("radio")) {
       expect((radio as HTMLInputElement).checked).toBe(false);
@@ -230,7 +304,7 @@ describe("a batch of questions", () => {
       throw new Error("empty batch");
     }
     Object.assign(first, change);
-    show(view);
+    show(view, undefined, "questions");
     const counted = item.batch.items.filter((question) => countedAsShown(screen.getByRole("group", { name: question.text }), question)).length;
     const button = screen.getByRole("button", { name: /^Send \d.* answers$/ });
     const count = item.batch.items.length;
@@ -246,7 +320,7 @@ describe("a batch of questions", () => {
     }
     first.recommendation = "Keep the budget, capped at three";
     const sent = serveApi(() => ({ status: 201 }));
-    show(view);
+    show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
     const own = within(group).getByRole("radio", { name: /^Something else/ }) as HTMLInputElement;
     expect(own.checked).toBe(true);
@@ -265,7 +339,7 @@ describe("a batch of questions", () => {
     }
     first.escalation_reason = "one_way";
     first.recommendation = "Keep the budget, capped at three";
-    show(view);
+    show(view, undefined, "questions");
     const group = screen.getByRole("group", { name: first.text });
     for (const radio of within(group).getAllByRole("radio")) {
       expect((radio as HTMLInputElement).checked).toBe(false);
@@ -276,7 +350,7 @@ describe("a batch of questions", () => {
     expect(screen.getByRole("button", { name: "Send 2 answers" })).toBeTruthy();
   });
 
-  it("says one answer in the singular", () => {
+  it("says one answer in the singular", async () => {
     const { view, item } = batchView();
     const first = item.batch.items[0];
     if (!first) {
@@ -284,13 +358,13 @@ describe("a batch of questions", () => {
     }
     first.escalation_reason = "one_way";
     item.batch.items = [first];
-    show(view);
+    show(view, undefined, "questions");
     expect(screen.getByRole("button", { name: "Send 0 of 1 answer" })).toBeTruthy();
   });
 
-  it("marks what is recommended and what blocks work", () => {
+  it("marks what is recommended and what blocks work", async () => {
     const { view, item } = batchView();
-    show(view);
+    show(view, undefined, "questions");
     const first = item.batch.items[0];
     if (!first) {
       throw new Error("empty batch");
@@ -306,7 +380,7 @@ describe("an approval", () => {
     const view = goldenNeedsYou();
     const { approval } = itemOf(view, "approval");
     const sent = serveApi(() => ({ status: 200 }));
-    show(view);
+    show(view, undefined, plainApproval);
     await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(approval.subject_digest).not.toBe("");
@@ -320,8 +394,8 @@ describe("an approval", () => {
   it("sends a denial with its reason", async () => {
     const view = goldenNeedsYou();
     const sent = serveApi(() => ({ status: 200 }));
-    show(view);
-    const card = cardNamed(/^Allow /);
+    show(view, undefined, plainApproval);
+    const card = await cardNamed(/^Allow /);
     await userEvent.type(within(card).getByRole("textbox", { name: /Reason/ }), "Tag it by hand.");
     await userEvent.click(within(card).getByRole("button", { name: "Deny" }));
     await waitFor(() => expect(sent).toHaveLength(1));
@@ -332,16 +406,16 @@ describe("an approval", () => {
     const view = goldenNeedsYou();
     const after = vi.fn(async () => {});
     serveApi(() => refusal(409, "stale_digest", "This request no longer matches what you read."));
-    show(view, after);
+    show(view, after, plainApproval);
     await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
     expect((await screen.findByRole("alert")).textContent).toContain("no longer matches");
     expect(after).toHaveBeenCalled();
   });
 
-  it("shows what will run as text", () => {
+  it("shows what will run as text", async () => {
     const view = goldenNeedsYou();
     const { approval } = itemOf(view, "approval");
-    show(view);
+    show(view, undefined, plainApproval);
     expect(screen.getAllByText(approval.command ?? approval.summary).length).toBeGreaterThan(0);
   });
 });
@@ -374,12 +448,12 @@ describe("a recovery request", () => {
     return { ...view, items: [{ ...rest, id: request.id, approval: request }] };
   }
 
-  it("says what the orchestrator asks, why, and the limit it went past, as text", () => {
+  it("says what the orchestrator asks, why, and the limit it went past, as text", async () => {
     show(recoveryView());
-    const card = cardNamed(/^Let the orchestrator retry wo-failed\?/);
+    const card = await cardNamed(/^Let the orchestrator retry wo-failed\?/);
     expect(within(card).getByText(`the network came back ${hostile}`)).toBeTruthy();
     expect(within(card).getByText("the work order used 1 of max_attempts 1")).toBeTruthy();
-    expect(within(card).getByText("Recovery")).toBeTruthy();
+    expect(within(card).getByText("Recovery request")).toBeTruthy();
     expect(document.querySelector("img")).toBeNull();
   });
 
@@ -399,24 +473,24 @@ describe("an unknown effect", () => {
     const view = goldenNeedsYou();
     const { effect } = itemOf(view, "effect");
     const sent = serveApi(() => ({ status: 200 }));
-    show(view);
-    const card = cardNamed(/Did it happen/);
+    show(view, undefined, "effect");
+    const card = await cardNamed(/Did it happen/);
     expect(within(card).getByText(effect.key)).toBeTruthy();
     await userEvent.click(within(card).getByRole("button", { name: "Run it again" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ path: `/v1/effects/${encodeURIComponent(effect.id)}/decide`, body: { outcome: "retry" } });
   });
 
-  it("warns that a retry may repeat it", () => {
-    show();
-    expect(within(cardNamed(/Did it happen/)).getByText(/may repeat it/)).toBeTruthy();
+  it("warns that a retry may repeat it", async () => {
+    show(undefined, undefined, "effect");
+    expect(within(await cardNamed(/Did it happen/)).getByText(/may repeat it/)).toBeTruthy();
   });
 
-  it("drops what the server no longer offers", () => {
+  it("drops what the server no longer offers", async () => {
     const view = goldenNeedsYou();
     itemOf(view, "effect").effect.offers = ["happened", "not_happened"];
-    show(view);
-    const card = cardNamed(/Did it happen/);
+    show(view, undefined, "effect");
+    const card = await cardNamed(/Did it happen/);
     expect(within(card).queryByRole("button", { name: "Run it again" })).toBeNull();
     expect(within(card).queryByText(/may repeat it/)).toBeNull();
     expect(within(card).getByRole("button", { name: "It did not happen" })).toBeTruthy();
@@ -427,7 +501,7 @@ describe("waiting work", () => {
   it("runs an action that needs no words in one press", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     show();
-    await userEvent.click(within(cardNamed(/Fix the flaky test/)).getByRole("button", { name: "Reset the breaker" }));
+    await userEvent.click(within(await cardNamed(/Fix the flaky test/)).getByRole("button", { name: "Reset the breaker" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-tripped/lane-reset" });
   });
@@ -435,12 +509,12 @@ describe("waiting work", () => {
   it("asks why before an action that changes who owns work", async () => {
     const sent = serveApi(() => ({ status: 204 }));
     show();
-    const card = cardNamed(/Rotate the keys/);
+    const card = await cardNamed(/Rotate the keys/);
     await userEvent.click(within(card).getByRole("button", { name: "End this claim" }));
     expect(sent).toHaveLength(0);
     const confirm = within(card).getByRole("button", { name: "End this claim" });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.type(within(card).getByRole("textbox", { name: "Why" }), "The worker is gone.");
+    await userEvent.type(within(card).getByRole("textbox", { name: "Why (required)" }), "The worker is gone.");
     await userEvent.click(confirm);
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ path: "/v1/work-orders/wo-lapsed/reassign", body: { reason: "The worker is gone." } });
@@ -449,10 +523,10 @@ describe("waiting work", () => {
   it("cancels work only once a person says why", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     show();
-    const card = cardNamed(/Move the archive/);
+    const card = await cardNamed(/Move the archive/);
     await userEvent.click(within(card).getByRole("button", { name: "Cancel this work" }));
     expect(sent).toHaveLength(0);
-    await userEvent.type(within(card).getByRole("textbox", { name: "Why" }), "The plan changed.");
+    await userEvent.type(within(card).getByRole("textbox", { name: "Why (required)" }), "The plan changed.");
     await userEvent.click(within(card).getByRole("button", { name: "Cancel this work" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-blocked/cancel", body: { reason: "The plan changed." } });
@@ -476,7 +550,7 @@ describe("waiting work", () => {
   it("names the question a parked lane waits for, and keeps resume as the way past it", async () => {
     const sent = serveApi(() => ({ status: 200 }));
     show();
-    const card = cardNamed(/Wait for the check/);
+    const card = await cardNamed(/Wait for the check/);
     const lead = within(card).getByText(/^Its lane is parked/);
     expect(lead.textContent).toBe("Its lane is parked until question question-1 is answered, or until a person resumes it.");
     expect(within(lead).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe(here("/questions?id=question-1"));
@@ -486,7 +560,7 @@ describe("waiting work", () => {
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-parked/lane-resume" });
   });
 
-  it("says a lane only a person can move waits for a person", () => {
+  it("says a lane only a person can move waits for a person", async () => {
     const view = goldenNeedsYou();
     const parked = view.items.find((item) => item.kind === "work" && item.work.reason === "human_resume");
     if (parked?.kind !== "work" || !parked.work.wakes?.[0]) {
@@ -494,14 +568,14 @@ describe("waiting work", () => {
     }
     parked.work.wakes[0].expression = `{"human_resume":true}`;
     show(view);
-    const card = cardNamed(/Wait for the check/);
+    const card = await cardNamed(/Wait for the check/);
     expect(within(card).getByText("Its lane is parked until a person says go.")).toBeTruthy();
     expect(within(card).queryByText(/without waiting/)).toBeNull();
   });
 
-  it("shows the review's verdict for each criterion, in words, with its reasons and citations", () => {
+  it("shows the review's verdict for each criterion, in words, with its reasons and citations", async () => {
     show();
-    const card = cardNamed(/Trim the log/);
+    const card = await cardNamed(/Trim the log/);
     const review = within(card).getByRole("region", { name: "What the review found" });
     expect(within(review).getByText("c1")).toBeTruthy();
     expect(within(review).getByText("Cannot judge")).toBeTruthy();
@@ -514,7 +588,7 @@ describe("waiting work", () => {
     expect(within(card).getByRole("button", { name: "Send back for rework" })).toBeTruthy();
   });
 
-  it("says a verdict in text for every kind, never by colour alone", () => {
+  it("says a verdict in text for every kind, never by colour alone", async () => {
     const view = goldenNeedsYou();
     const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
     if (accept?.kind !== "work" || !accept.work.standing) {
@@ -530,7 +604,7 @@ describe("waiting work", () => {
       { ...base, criterion: "c3", verdict: "cannot_judge", reasons: "no test runs here", citations: undefined },
     ];
     show(view);
-    const review = within(cardNamed(/Trim the log/)).getByRole("region", { name: "What the review found" });
+    const review = within(await cardNamed(/Trim the log/)).getByRole("region", { name: "What the review found" });
     for (const word of ["Pass", "Fail", "Cannot judge"]) {
       expect(within(review).getByText(word)).toBeTruthy();
     }
@@ -538,7 +612,7 @@ describe("waiting work", () => {
     expect(within(review).getByText("nothing is logged")).toBeTruthy();
   });
 
-  it("keeps a review's words from becoming markup", () => {
+  it("keeps a review's words from becoming markup", async () => {
     const view = goldenNeedsYou();
     const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
     const verdict = accept?.kind === "work" ? accept.work.standing?.verdicts?.[0] : undefined;
@@ -548,13 +622,13 @@ describe("waiting work", () => {
     verdict.reasons = hostile;
     verdict.citations = [hostile];
     show(view);
-    const card = cardNamed(/Trim the log/);
+    const card = await cardNamed(/Trim the log/);
     expect(card.querySelector("img")).toBeNull();
     expect(card.querySelector("script")).toBeNull();
     expect(within(card).getAllByText(hostile).length).toBeGreaterThan(0);
   });
 
-  it("says a review that failed or is still open gave no verdict, and that the person decides without it", () => {
+  it("says a review that failed or is still open gave no verdict, and that the person decides without it", async () => {
     for (const [state, words] of [
       ["failed", /The review of this work failed/],
       ["running", /A review of this work has not ended/],
@@ -568,12 +642,12 @@ describe("waiting work", () => {
       delete standing.verdicts;
       standing.reviews[0].state = state;
       const { unmount } = show(view);
-      expect(within(within(cardNamed(/Trim the log/)).getByRole("region", { name: "What the review found" })).getByText(words)).toBeTruthy();
+      expect(within(within(await cardNamed(/Trim the log/)).getByRole("region", { name: "What the review found" })).getByText(words)).toBeTruthy();
       unmount();
     }
   });
 
-  it("says nothing of a review when work was never reviewed", () => {
+  it("says nothing of a review when work was never reviewed", async () => {
     const view = goldenNeedsYou();
     const accept = view.items.find((item) => item.kind === "work" && item.work.reason === "acceptance");
     if (accept?.kind !== "work" || !accept.work.standing) {
@@ -582,18 +656,18 @@ describe("waiting work", () => {
     delete accept.work.standing.verdicts;
     delete accept.work.standing.why;
     show(view);
-    expect(within(cardNamed(/Trim the log/)).queryByRole("region", { name: "What the review found" })).toBeNull();
+    expect(within(await cardNamed(/Trim the log/)).queryByRole("region", { name: "What the review found" })).toBeNull();
   });
 
-  it("offers both ways out of blocked", () => {
+  it("offers both ways out of blocked", async () => {
     show();
-    const card = cardNamed(/Move the archive/);
+    const card = await cardNamed(/Move the archive/);
     expect(within(card).getByRole("button", { name: "Back to ready" })).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Back to planning" })).toBeTruthy();
     expect(within(card).getByText("no_outcome")).toBeTruthy();
   });
 
-  it("keeps each ID on one line, whole in its title", () => {
+  it("keeps each ID on one line, whole in its title", async () => {
     const view = goldenNeedsYou();
     const { approval } = itemOf(view, "approval");
     const { effect } = itemOf(view, "effect");
@@ -606,7 +680,7 @@ describe("waiting work", () => {
       [/Did it happen/, effect.worker_id],
     ] as const;
     for (const [card, id] of ids) {
-      const shown = within(cardNamed(card)).getAllByText(id);
+      const shown = within(await cardNamed(card)).getAllByText(id);
       for (const element of shown) {
         expect(element.classList.contains("id"), id).toBe(true);
         expect(element.getAttribute("title")).toBe(id);
@@ -614,10 +688,11 @@ describe("waiting work", () => {
     }
   });
 
-  it("keeps a last reported value apart from an observed one", () => {
+  it("keeps a last reported value apart from an observed one", async () => {
     const view = goldenNeedsYou();
     show(view);
-    expect(screen.getAllByText(/^Last reported/).length + screen.getAllByText(/^Observed/).length).toBeGreaterThan(0);
+    const card = await cardNamed(/Rotate the keys/);
+    expect(within(card).queryAllByText(/^Last reported/).length + within(card).queryAllByText(/^Observed/).length).toBeGreaterThan(0);
   });
 });
 
@@ -628,10 +703,10 @@ describe("a plan approval", () => {
   };
   const card = () => cardNamed(/^Approve The factory floor/);
 
-  it("names the plan, its version, who asked, and what it holds", () => {
+  it("names the plan, its version, who asked, and what it holds", async () => {
     const { view, item } = planView();
-    show(view);
-    const shown = card();
+    show(view, undefined, "plan_approval");
+    const shown = (await card());
     expect(within(shown).getByRole("heading", { level: 2 }).textContent).toBe("Approve The factory floor, version 6?");
     expect(within(shown).getByText("system:intake")).toBeTruthy();
     const holds = within(shown).getByRole("list", { name: "What it holds" });
@@ -645,9 +720,9 @@ describe("a plan approval", () => {
     );
   });
 
-  it("shows how it differs from the version a member approved", () => {
-    show();
-    const difference = within(card()).getByRole("region", { name: "Since version 5" });
+  it("shows how it differs from the version a member approved", async () => {
+    show(undefined, undefined, "plan_approval");
+    const difference = within((await card())).getByRole("region", { name: "Since version 5" });
     expect(within(difference).getByText(item("Added")).textContent).toContain("architecture:factory");
     const changed = within(difference).getByText(item("Changed")).textContent;
     for (const ref of ["contract:core", "contract:ui", "plan:factory", "spec:factory-api"]) {
@@ -660,39 +735,39 @@ describe("a plan approval", () => {
     expect(within(difference).getByRole("listitem", { name: "contract:ui" }).textContent).toContain("Work orders added: ui-2");
   });
 
-  it("says a first version has nothing to differ from", () => {
+  it("says a first version has nothing to differ from", async () => {
     const { view, item: need } = planView();
     need.plan_approval.difference = { base: 0, added: ["plan:factory", "spec:factory-api"] };
-    show(view);
-    const difference = within(card()).getByRole("region", { name: "A first version" });
+    show(view, undefined, "plan_approval");
+    const difference = within((await card())).getByRole("region", { name: "A first version" });
     expect(difference.textContent).toContain("Nothing was approved before");
     expect(within(difference).getByText(item("Added")).textContent).toContain("spec:factory-api");
   });
 
-  it("says when a version changes nothing a member approved", () => {
+  it("says when a version changes nothing a member approved", async () => {
     const { view, item: need } = planView();
     need.plan_approval.difference = { base: 5 };
-    show(view);
-    expect(within(card()).getByText("No record differs from version 5.")).toBeTruthy();
+    show(view, undefined, "plan_approval");
+    expect(within((await card())).getByText("No record differs from version 5.")).toBeTruthy();
   });
 
-  it("lists each answer it drafts, which approving it decides", () => {
-    show();
-    const drafts = within(card()).getByRole("list", { name: "Draft decisions" });
+  it("lists each answer it drafts, which approving it decides", async () => {
+    show(undefined, undefined, "plan_approval");
+    const drafts = within((await card())).getByRole("list", { name: "Draft decisions" });
     const rows = within(drafts).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
     expect(rows[0]?.textContent).toContain("Which agent CLI runs the first lanes?");
     expect(rows[0]?.textContent).toContain("The one already installed on the machine.");
     expect(rows[0]?.textContent).toContain("It needs no new sign-in.");
-    expect(within(card()).getByText(/decides each draft decision as yours/)).toBeTruthy();
+    expect(within((await card())).getByText(/decides each draft decision as yours/)).toBeTruthy();
   });
 
   it("approves with the digest this page read", async () => {
     const { view, item: need } = planView();
     const sent = serveApi(() => ({ status: 200 }));
     const after = vi.fn(async () => {});
-    show(view, after);
-    await userEvent.click(within(card()).getByRole("button", { name: "Approve this plan" }));
+    show(view, after, "plan_approval");
+    await userEvent.click(within((await card())).getByRole("button", { name: "Approve this plan" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({
       method: "POST",
@@ -704,21 +779,21 @@ describe("a plan approval", () => {
 
   it("denies with a reason", async () => {
     const sent = serveApi(() => ({ status: 200 }));
-    show();
-    await userEvent.type(within(card()).getByRole("textbox", { name: /Reason/ }), "Split the core first.");
-    await userEvent.click(within(card()).getByRole("button", { name: "Deny" }));
+    show(undefined, undefined, "plan_approval");
+    await userEvent.type(within((await card())).getByRole("textbox", { name: /Reason/ }), "Split the core first.");
+    await userEvent.click(within((await card())).getByRole("button", { name: "Deny" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]?.body).toMatchObject({ allow: false, reason: "Split the core first." });
   });
 
   it("says so when the plan changed since this read", async () => {
     serveApi(() => refusal(409, "stale_digest", "This request no longer matches what you read."));
-    show();
-    await userEvent.click(within(card()).getByRole("button", { name: "Approve this plan" }));
-    expect((await within(card()).findByRole("alert")).textContent).toContain("no longer matches");
+    show(undefined, undefined, "plan_approval");
+    await userEvent.click(within((await card())).getByRole("button", { name: "Approve this plan" }));
+    expect((await within((await card())).findByRole("alert")).textContent).toContain("no longer matches");
   });
 
-  it("groups an adopted plan, with each claim's evidence and every file its branch changed", () => {
+  it("groups an adopted plan, with each claim's evidence and every file its branch changed", async () => {
     const { view, item: need } = planView();
     need.plan_approval.adoption = {
       exists: [
@@ -734,16 +809,16 @@ describe("a plan approval", () => {
         { status: "added", path: "plans/plan.md" },
       ],
     };
-    show(view);
-    const exists = within(card()).getByRole("region", { name: "What exists" });
+    show(view, undefined, "plan_approval");
+    const exists = within((await card())).getByRole("region", { name: "What exists" });
     expect(within(exists).getByRole("listitem", { name: "requirement:SHOP-1" }).textContent).toContain("shop:client_test.go");
     expect(within(exists).getByRole("listitem", { name: "contract:client" }).textContent).toContain("requirement:SHOP-1");
-    const continues = within(card()).getByRole("region", { name: "What continues" });
+    const continues = within((await card())).getByRole("region", { name: "What continues" });
     expect(continues.textContent).toContain("feature/retry");
     expect(continues.textContent).toContain("retry-finish");
-    expect(within(card()).getByRole("region", { name: "What is new" }).textContent).toContain("retry-docs");
-    expect(within(card()).getByRole("region", { name: "What is left out" }).textContent).toContain("An abandoned experiment");
-    const changes = within(card()).getByRole("region", { name: "What the branch changes" });
+    expect(within((await card())).getByRole("region", { name: "What is new" }).textContent).toContain("retry-docs");
+    expect(within((await card())).getByRole("region", { name: "What is left out" }).textContent).toContain("An abandoned experiment");
+    const changes = within((await card())).getByRole("region", { name: "What the branch changes" });
     const files = within(changes).getAllByRole("listitem");
     expect(files.map((file) => file.textContent)).toEqual([
       "changed docs/requirements.md",
@@ -752,28 +827,28 @@ describe("a plan approval", () => {
     ]);
   });
 
-  it("says a group of an adopted plan holds nothing, and why its changes could not be read", () => {
+  it("says a group of an adopted plan holds nothing, and why its changes could not be read", async () => {
     const { view, item: need } = planView();
     need.plan_approval.adoption = { exists: [], continues: [], new: [], left_out: [], changes: [], changes_unread: "the lane recorded no commit its branch began at" };
-    show(view);
-    expect(within(card()).getByRole("region", { name: "What is left out" }).textContent).toContain("Nothing.");
-    expect(within(card()).getByRole("region", { name: "What the branch changes" }).textContent).toContain("the lane recorded no commit its branch began at");
+    show(view, undefined, "plan_approval");
+    expect(within((await card())).getByRole("region", { name: "What is left out" }).textContent).toContain("Nothing.");
+    expect(within((await card())).getByRole("region", { name: "What the branch changes" }).textContent).toContain("the lane recorded no commit its branch began at");
   });
 
-  it("shows no groups for a plan that adopts nothing", () => {
-    show();
-    expect(within(card()).queryByRole("region", { name: "What exists" })).toBeNull();
+  it("shows no groups for a plan that adopts nothing", async () => {
+    show(undefined, undefined, "plan_approval");
+    expect(within((await card())).queryByRole("region", { name: "What exists" })).toBeNull();
   });
 });
 
 describe("a contract review", () => {
   const card = () => cardNamed(/^Document the retry budget/);
 
-  it("names the work and its contract, and leads to the contract", () => {
+  it("names the work and its contract, and leads to the contract", async () => {
     const view = goldenNeedsYou();
     const { contract_review: review } = itemOf(view, "contract_review");
-    show(view);
-    const shown = card();
+    show(view, undefined, "contract_review");
+    const shown = (await card());
     expect(within(shown).getByText(/no plan approval covers it/)).toBeTruthy();
     expect(within(shown).getByText("Document the retry budget, version 1")).toBeTruthy();
     expect(within(shown).getAllByText("wo-review")[0]?.classList.contains("id")).toBe(true);
@@ -782,20 +857,20 @@ describe("a contract review", () => {
 
   it("passes the review in one press", async () => {
     const sent = serveApi(() => ({ status: 200, body: { state: "ready" } }));
-    show();
-    await userEvent.click(within(card()).getByRole("button", { name: "Pass the review" }));
+    show(undefined, undefined, "contract_review");
+    await userEvent.click(within((await card())).getByRole("button", { name: "Pass the review" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-review/review" });
   });
 
   it("sends work back to planning only once a person says why", async () => {
     const sent = serveApi(() => ({ status: 204 }));
-    show();
-    await userEvent.click(within(card()).getByRole("button", { name: "Send back to planning" }));
+    show(undefined, undefined, "contract_review");
+    await userEvent.click(within((await card())).getByRole("button", { name: "Send back to planning" }));
     expect(sent).toHaveLength(0);
-    const confirm = within(card()).getByRole("button", { name: "Send back to planning" });
+    const confirm = within((await card())).getByRole("button", { name: "Send back to planning" });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.type(within(card()).getByRole("textbox", { name: "Why" }), "The criteria are vague.");
+    await userEvent.type(within((await card())).getByRole("textbox", { name: "Why (required)" }), "The criteria are vague.");
     await userEvent.click(confirm);
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/work-orders/wo-review/send-back", body: { reason: "The criteria are vague." } });
@@ -803,21 +878,21 @@ describe("a contract review", () => {
 
   it("says what the server refused", async () => {
     serveApi(() => refusal(409, "conflict", "The work order moved on."));
-    show();
-    await userEvent.click(within(card()).getByRole("button", { name: "Pass the review" }));
-    expect((await within(card()).findByRole("alert")).textContent).toContain("moved on");
+    show(undefined, undefined, "contract_review");
+    await userEvent.click(within((await card())).getByRole("button", { name: "Pass the review" }));
+    expect((await within((await card())).findByRole("alert")).textContent).toContain("moved on");
   });
 
-  it("names no contract a plan does not hold", () => {
+  it("names no contract a plan does not hold", async () => {
     const view = goldenNeedsYou();
     itemOf(view, "contract_review").contract_review.plan = "";
-    show(view);
-    expect(within(card()).queryByRole("link", { name: "Read the contract" })).toBeNull();
+    show(view, undefined, "contract_review");
+    expect(within((await card())).queryByRole("link", { name: "Read the contract" })).toBeNull();
   });
 });
 
 describe("text from outside", () => {
-  it("stays text, whatever it says", () => {
+  it("stays text, whatever it says", async () => {
     const view = goldenNeedsYou();
     const { batch } = itemOf(view, "questions");
     const question = batch.items.find((item) => item.text.includes(hostile));
@@ -829,7 +904,7 @@ describe("text from outside", () => {
     expect(container.innerHTML).not.toContain("<img");
   });
 
-  it.each(["summary", "command", "path", "lane_id"] as const)("stays text in an approval's %s", (field) => {
+  it.each(["summary", "command", "path", "lane_id"] as const)("stays text in an approval's %s", async (field) => {
     const view = goldenNeedsYou();
     itemOf(view, "approval").approval[field] = hostile;
     const { container } = show(view);
@@ -837,17 +912,17 @@ describe("text from outside", () => {
     expect(container.textContent).toContain(hostile);
   });
 
-  it("stays text in a plan's draft decisions", () => {
+  it("stays text in a plan's draft decisions", async () => {
     const view = goldenNeedsYou();
     const drafts = itemOf(view, "plan_approval").plan_approval.drafts;
     expect(drafts.some((draft) => draft.answer.includes(hostile))).toBe(true);
     const { container } = show(view);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
-    expect(cardNamed(/^Approve The factory floor/).textContent).toContain(hostile);
+    expect((await cardNamed(/^Approve The factory floor/)).textContent).toContain(hostile);
   });
 
-  it.each(["key", "target", "lane_id", "worker_id"] as const)("stays text in an effect's %s", (field) => {
+  it.each(["key", "target", "lane_id", "worker_id"] as const)("stays text in an effect's %s", async (field) => {
     const view = goldenNeedsYou();
     itemOf(view, "effect").effect[field] = hostile;
     const { container } = show(view);
@@ -855,7 +930,7 @@ describe("text from outside", () => {
     expect(container.textContent).toContain(hostile);
   });
 
-  it("is a rule of the source: no page builds HTML from a string", () => {
+  it("is a rule of the source: no page builds HTML from a string", async () => {
     const source = (dir: string): string[] =>
       readdirSync(dir).flatMap((name: string) => {
         const path = join(dir, name);
@@ -878,13 +953,14 @@ describe("the combined view", () => {
     return view;
   }
 
-  it("labels each item with its project", () => {
+  it("labels each item with its project", async () => {
     const view = twoProjects();
     show(view);
-    const articles = screen.getAllByRole("article");
-    expect(articles).toHaveLength(view.items.length);
-    expect(within(articles[0] as HTMLElement).getByText("default")).toBeTruthy();
-    expect(within(articles[1] as HTMLElement).getByText("Beta product")).toBeTruthy();
+    const items = within(screen.getByRole("list", { name: "Waiting items" })).getAllByRole("link");
+    expect(items).toHaveLength(view.items.length);
+    expect(within(items[0] as HTMLElement).getByText("default")).toBeTruthy();
+    expect(within(items[1] as HTMLElement).getByText("Beta product")).toBeTruthy();
+    expect(screen.getByRole("article").textContent).toContain("default");
   });
 
   it("acts on an item in its own project, whichever project the page shows", async () => {
@@ -892,7 +968,7 @@ describe("the combined view", () => {
     const { approval } = itemOf(view, "approval");
     const project = view.items.find((item) => item.kind === "approval")?.project?.name;
     const sent = serveApi(() => ({ status: 200 }));
-    show(view);
+    show(view, undefined, plainApproval);
     await userEvent.click(screen.getByRole("button", { name: "Allow this one call" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toMatchObject({ method: "POST", project, path: `/v1/approvals/${approval.id}/decide` });

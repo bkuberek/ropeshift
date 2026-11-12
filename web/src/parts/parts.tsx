@@ -62,23 +62,29 @@ export function Lasted({ at, ended = false }: { at: number; ended?: boolean }) {
   );
 }
 
-// Page is a view's heading, which stands while its data comes and goes, so focus stays on it.
-export function Page({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+// Page is a view's heading, which stands while its data comes and goes, so focus stays on it: a
+// breadcrumb, the title, one line under it, and the view's actions on the right.
+export function Page({ title, note, actions, crumbs, children }: { title: ReactNode; note?: ReactNode; actions?: ReactNode; crumbs?: ReactNode; children: ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useArrivalFocus(heading);
   return (
-    <>
-      <div className="summary">
-        <h1 className={title.length > 18 ? "title title-long" : "title"} ref={heading} tabIndex={-1}>
-          {title}
-        </h1>
-        {note ? <p className="count">{note}</p> : null}
+    <div className="screen">
+      <div className="page-head">
+        <div className="page-head-text">
+          {crumbs ? <nav className="crumbs" aria-label="Breadcrumb">{crumbs}</nav> : null}
+          <h1 ref={heading} tabIndex={-1}>
+            {title}
+          </h1>
+          {note ? <p className="page-note">{note}</p> : null}
+        </div>
+        {actions ? <div className="page-actions">{actions}</div> : null}
       </div>
       {children}
-    </>
+    </div>
   );
 }
 
+// StampLine says which revision a view read, and how long ago.
 export function StampLine({ stamp }: { stamp: Stamp }) {
   return (
     <p className="stamp">
@@ -103,7 +109,7 @@ export function Bar({ done, total, label }: { done: number; total: number; label
   const share = total > 0 ? Math.min(Math.max(done, 0), total) / total : 0;
   return (
     <div
-      className="bar"
+      className="progress"
       role="progressbar"
       aria-label={label}
       aria-valuemin={0}
@@ -111,7 +117,7 @@ export function Bar({ done, total, label }: { done: number; total: number; label
       aria-valuenow={done}
       aria-valuetext={`${done} of ${total} done`}
     >
-      <span className="bar-done" style={{ width: `${Math.round(share * 1000) / 10}%` }} />
+      <i style={{ width: `${Math.round(share * 1000) / 10}%` }} />
     </div>
   );
 }
@@ -121,19 +127,18 @@ export const plural = (count: number, noun: string) => `${count} ${noun}${count 
 
 export function Fact({ name, mono = false, children }: { name: string; mono?: boolean; children: ReactNode }) {
   return (
-    <div>
+    <div className="kv-row">
       <dt>{name}</dt>
       <dd className={mono ? "mono" : undefined}>{children}</dd>
     </div>
   );
 }
 
-// LongFact is a fact too long for a column, such as a source or a digest. It stands in a list of its own
-// with one fact on each line, and an identifier too long for the line ends in an ellipsis with the whole
-// of it in the page for a copy and in its title.
+// LongFact is a fact too long for a column, such as a source or a digest. An identifier too long for the
+// line ends in an ellipsis with the whole of it in the page for a copy and in its title.
 export function LongFact({ name, value }: { name: string; value: string }) {
   return (
-    <div>
+    <div className="kv-row">
       <dt>{name}</dt>
       <dd>
         <Id value={value} />
@@ -142,38 +147,39 @@ export function LongFact({ name, value }: { name: string; value: string }) {
   );
 }
 
-// Section is a part of a view a screen reader can jump to.
-export function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
+// Section is a part of a view a screen reader can jump to: a panel with its title.
+export function Section({ title, actions, children }: { title: ReactNode; actions?: ReactNode; children: ReactNode }) {
   const heading = useId();
   return (
-    <section className="group" aria-labelledby={heading}>
-      <h2 className="group-title" id={heading}>
-        {title}
-      </h2>
-      {children}
+    <section className="panel group" aria-labelledby={heading}>
+      <div className="panel-head">
+        <h2 id={heading}>{title}</h2>
+        {actions}
+      </div>
+      <div className="panel-body">{children}</div>
     </section>
   );
 }
 
-// Line is one row of a lane of work: what stands at the end of its rung, and a card.
+// Line is one record in a list: what stands at its side, its kind, its title, and what it holds.
 export function Line({ side, kind, title, plain = false, children }: {
   side?: ReactNode;
   kind: ReactNode;
   title: ReactNode;
-  // plain draws no rung, which is for a line no person can do anything about.
+  // plain marks a record no person can do anything about.
   plain?: boolean;
   children?: ReactNode;
 }) {
   const heading = useId();
   return (
-    <li className={plain ? "need need-plain" : "need"}>
+    <li className={plain ? "record record-plain" : "record"}>
       <article aria-labelledby={heading}>
-        <div className="wait">
+        <div className="record-side">
+          <span className="record-kind overline">{kind}</span>
           {side}
-          <span className="wait-kind">{kind}</span>
         </div>
-        <div className="card">
-          <h2 className="card-title" id={heading}>
+        <div className="record-body">
+          <h2 className="record-title" id={heading}>
             {title}
           </h2>
           {children}

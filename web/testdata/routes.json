@@ -183,5 +183,10 @@
     "method": "GET",
     "pattern": "/v1/projects/{project}/views/operations",
     "command": "view operations"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/views/search",
+    "command": "view search"
   }
 ]

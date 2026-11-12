@@ -11,7 +11,7 @@ function docsPlan(view: Roadmap) {
 }
 
 // doneShare is how much of a bar its done part fills.
-const doneShare = (bar: HTMLElement) => bar.querySelector<HTMLElement>(".bar-done")?.style.width;
+const doneShare = (bar: HTMLElement) => bar.querySelector<HTMLElement>("i")?.style.width;
 
 function serve(change: (view: Roadmap) => void) {
   const view = golden<Roadmap>("roadmap");
@@ -121,7 +121,7 @@ describe("a plan's milestones and work", () => {
   it("lists milestones in priority order, each with its state and progress", async () => {
     const goal = await factory();
     const milestones = itemsOf(within(goal).getByRole("list", { name: "Milestones" }));
-    expect(milestones.map((item) => item.querySelector(".milestone-title")?.textContent)).toEqual([
+    expect(milestones.map((item) => item.querySelector(".milestone-title > span")?.textContent)).toEqual([
       "Build the core",
       "Ship the approval page",
       "Guide a newcomer",
@@ -158,7 +158,7 @@ describe("a plan's milestones and work", () => {
     openPage("/roadmap");
     const goal = await screen.findByRole("region", { name: "Run the factory" });
     const milestones = itemsOf(within(goal).getByRole("list", { name: "Milestones" }));
-    expect(milestones[2]?.textContent).toContain("Exists");
+    expect(milestones[2]?.textContent).toContain("Existing");
     expect(milestones[2]?.textContent).toContain("Delivered by existing code");
     expect(within(milestones[2] as HTMLElement).queryByRole("progressbar")).toBeNull();
   });

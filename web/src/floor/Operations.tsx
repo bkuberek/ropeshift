@@ -8,7 +8,7 @@ const cap = (limit: number) => (limit === 0 ? "No limit" : String(limit));
 
 function Counts({ caption, rows, label }: { caption: string; rows: [string, number][]; label: (state: string) => string }) {
   return (
-    <table className="counts">
+    <table className="table counts">
       <caption>{caption}</caption>
       <tbody>
         {rows.map(([state, count]) => (
@@ -24,16 +24,16 @@ function Counts({ caption, rows, label }: { caption: string; rows: [string, numb
 
 function Source({ source }: { source: SourceBinding }) {
   return (
-    <li className="row">
-      <p className="row-title">{source.adapter}</p>
-      <ul className="tags">
-        <li className="tag-strong">{words(source.health)}</li>
+    <li className="list-row">
+      <p className="list-row-title">{source.adapter}</p>
+      <ul className="chips">
+        <li className="chip-strong">{words(source.health)}</li>
         <li>{words(source.port)}</li>
         <li>
           <Id value={source.instance} />
         </li>
       </ul>
-      {source.detail ? <p className="mono quiet">{source.detail}</p> : null}
+      {source.detail ? <p className="mono muted">{source.detail}</p> : null}
       {source.problems?.length ? (
         <ul className="criteria" aria-label="What it could not read">
           {source.problems.map((problem) => (
@@ -50,13 +50,13 @@ function Source({ source }: { source: SourceBinding }) {
 // Forge is one worker's gh sign-in for one repository: work that needs the forge waits while it cannot run.
 function Forge({ line }: { line: ForgeLine }) {
   return (
-    <li className="row">
-      <p className="row-title">{line.repository_name || line.repository}</p>
-      <ul className="tags">
-        <li className="tag-strong">{words(line.state)}</li>
+    <li className="list-row">
+      <p className="list-row-title">{line.repository_name || line.repository}</p>
+      <ul className="chips">
+        <li className="chip-strong">{words(line.state)}</li>
         <li>{line.worker_name || line.worker}</li>
       </ul>
-      {line.detail ? <p className="mono quiet">{line.detail}</p> : null}
+      {line.detail ? <p className="mono muted">{line.detail}</p> : null}
     </li>
   );
 }
@@ -66,10 +66,10 @@ export function Operations({ view }: { view: View }) {
   return (
     <>
       <Section title="Fleet">
-        <dl className="facts">
+        <dl className="kv">
           <Fact name="Mode">{words(fleet.fleet_mode)}</Fact>
           <Fact name="Waiting for a person">
-            <Link to="/">{view.waiting_for_a_person}</Link>
+            <Link to="/needs-you">{view.waiting_for_a_person}</Link>
           </Fact>
           <Fact name="Workers">
             {view.workers_fresh} of {view.workers} observed
@@ -83,23 +83,23 @@ export function Operations({ view }: { view: View }) {
         <Counts caption="Work orders by state" rows={everyCount(workStates, view.work_orders)} label={workLabel} />
         <Counts caption="Lanes by state" rows={everyCount(laneStates, view.lanes)} label={laneLabel} />
       </div>
-      <p className="quiet tables-note">
-        Lanes count by each lane's last state, fresh or not, and <Link to="/shop-floor">the shop floor</Link> says which is which.
+      <p className="muted tables-note">
+        Lanes count by each lane's last state, fresh or not, and <Link to="/floor">the floor</Link> says which is which.
       </p>
       <Section title="Sources">
         {view.sources.length ? (
-          <ul className="rows">
+          <ul className="list-rows">
             {view.sources.map((source) => (
               <Source key={source.id} source={source} />
             ))}
           </ul>
         ) : (
-          <p className="quiet">No source is bound.</p>
+          <p className="muted">No source is bound.</p>
         )}
       </Section>
       {view.forges?.length ? (
         <Section title="Forge sign-in">
-          <ul className="rows">
+          <ul className="list-rows">
             {view.forges.map((line) => (
               <Forge key={line.worker + "/" + line.repository} line={line} />
             ))}
