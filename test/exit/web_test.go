@@ -21,17 +21,22 @@ import (
 // webURL reads the address the daemon says it serves, which a test asked it to choose.
 func (d *daemon) webURL(t *testing.T) string {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	bounds := exitWaits
+	bounds.poll = 10 * time.Millisecond
+	var address string
+	named, why := bounds.await(func() bool {
 		for line := range strings.Lines(d.stdout.String()) {
-			if address, found := strings.CutPrefix(strings.TrimSpace(line), "ropeshiftd: web "); found {
-				return address
+			if found, ok := strings.CutPrefix(strings.TrimSpace(line), "ropeshiftd: web "); ok {
+				address = found
+				return true
 			}
 		}
-		time.Sleep(10 * time.Millisecond)
+		return false
+	})
+	if !named {
+		t.Fatalf("the daemon never named its web address: the wait %s%s", why, d.stdout.String())
 	}
-	t.Fatalf("the daemon never named its web address: %s", d.stdout.String())
-	return ""
+	return address
 }
 
 func webCall(t *testing.T, method, url string, body any, cookies []*http.Cookie, headers map[string]string) (*http.Response, []byte) {
@@ -144,12 +149,10 @@ func TestAWebPortInUseLeavesTheDaemonRunning(t *testing.T) {
 	in := newInstall(t)
 	d := in.start("--web", "127.0.0.1:"+strconv.Itoa(busy.Addr().(*net.TCPAddr).Port))
 	in.waitReady(d)
-	deadline := time.Now().Add(30 * time.Second)
-	for !strings.Contains(d.stderr.String(), "web:") {
-		if time.Now().After(deadline) {
-			t.Fatalf("nothing said the UI is off: %q", d.stderr.String())
-		}
-		time.Sleep(10 * time.Millisecond)
+	bounds := exitWaits
+	bounds.poll = 10 * time.Millisecond
+	if said, why := bounds.await(func() bool { return strings.Contains(d.stderr.String(), "web:") }); !said {
+		t.Fatalf("nothing said the UI is off: the wait %s%q", why, d.stderr.String())
 	}
 }
 
