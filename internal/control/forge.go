@@ -318,7 +318,54 @@ func publishReported(tx ports.WriteTx, request ledger.ForgeRequest, report ledge
 	if err := appendForgeAs(tx, id, at, ledger.EventPullRequestOpened, request.WorkOrder, opened, actor); err != nil {
 		return err
 	}
+	if err := keepPullRequestBranch(tx, request); err != nil {
+		return err
+	}
 	return refreshReviewHolds(tx, request.WorkOrder)
+}
+
+// keepPullRequestBranch has the work keep the branch its pull request opened from, so a rework continues it
+// and its push moves the same pull request (ADR-0020). The lane that left the commit has ended, and the
+// remote now holds what its worktree held, so its worktree is taken away, which frees the branch for the
+// next attempt's worktree.
+func keepPullRequestBranch(tx ports.WriteTx, request ledger.ForgeRequest) error {
+	order, err := tx.WorkOrders().Get(request.WorkOrder)
+	if err != nil {
+		return err
+	}
+	if order.Branch != request.Branch {
+		if err := tx.WorkOrders().KeepBranch(order.ID, request.Branch); err != nil {
+			return err
+		}
+		event, err := workorders.ChangeEvent(workorders.EventBranchKept, order.ID, workorders.Change{Branch: request.Branch}, forgeActor)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Append(event); err != nil {
+			return err
+		}
+	}
+	artifacts, err := tx.Evidence().Artifacts(order.ID)
+	if err != nil {
+		return err
+	}
+	for _, artifact := range artifacts {
+		if artifact.Kind != ledger.ArtifactBranch || artifact.Digest != request.Commit || artifact.Lane == "" {
+			continue
+		}
+		ended, err := LaneEnded(tx.Lanes(), artifact.Lane)
+		if err != nil || !ended {
+			return err
+		}
+		if err := tx.Lanes().RequestArchive(artifact.Lane, false); err != nil {
+			return err
+		}
+		_, err = tx.Append(ledger.EventDraft{
+			Type: ledger.EventLaneArchiveRequested, Actor: forgeActor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: artifact.Lane},
+		})
+		return err
+	}
+	return nil
 }
 
 // forgeHealthReported keeps what a worker found of its forge sign-in for a repository. A change appends an

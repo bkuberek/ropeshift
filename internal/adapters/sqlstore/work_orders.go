@@ -106,6 +106,9 @@ VALUES
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	// stmtResolveRepository targets work at the repository that took the name its contract gave.
+	stmtKeepBranch = define("work_order.keep_branch",
+		`UPDATE work_orders SET branch = :branch WHERE workspace_id = :workspace_id AND id = :id`)
+
 	stmtResolveRepository = define("work_order.resolve_repository",
 		`UPDATE work_orders SET repository_id = :repository_id, unknown_repository = NULL
  WHERE workspace_id = :workspace_id AND id = :id`)
@@ -225,6 +228,11 @@ func (t workOrderTx) Pin(id string, version int64) error {
 	_, err := t.exec(stmtPinWorkOrder, params{
 		"workspace_id": string(t.scope), "id": id, "version": version,
 	})
+	return err
+}
+
+func (t workOrderTx) KeepBranch(id, branch string) error {
+	_, err := t.exec(stmtKeepBranch, params{"workspace_id": string(t.scope), "id": id, "branch": nullText(branch)})
 	return err
 }
 

@@ -205,6 +205,8 @@ type Change struct {
 	Hold *StartHold `json:"hold,omitempty"`
 	// RepositoryID is the repository a name its contract gave came to name, on EventRepositoryResolved.
 	RepositoryID string `json:"repository_id,omitempty"`
+	// Branch is the branch the work keeps for its next attempts, on EventBranchKept.
+	Branch string `json:"branch,omitempty"`
 }
 
 // EventType names the event of a transition.
@@ -225,6 +227,10 @@ const EventContractPinned = "work_order.contract_pinned"
 // EventRepositoryResolved records that a repository took the name an unstarted work order's contract gave,
 // so the work targets it. It changes no state.
 const EventRepositoryResolved = "work_order.repository_resolved"
+
+// EventBranchKept records that work keeps a branch for its next attempts: the branch its pull request
+// opened from, which rework continues so the same pull request moves (ADR-0020). It changes no state.
+const EventBranchKept = "work_order.branch_kept"
 
 // EventPlanTakenIn records that intake read an accepted plan's commit, which changes no state.
 const EventPlanTakenIn = "work_order.plan_taken_in"
@@ -355,6 +361,10 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 	}
 	if e.Type == EventRepositoryResolved {
 		current.RepositoryID, current.UnknownRepository = change.RepositoryID, ""
+		return current, nil
+	}
+	if e.Type == EventBranchKept {
+		current.Branch = change.Branch
 		return current, nil
 	}
 	if e.Type == EventStartHeld {

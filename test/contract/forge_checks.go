@@ -216,6 +216,14 @@ func checkForgeReportReleases(r *Rig) error {
 	if desired, err := f.desired(); err != nil || len(desired.Forge) != 0 {
 		return Violatedf("the worker is still asked %+v: %v", desired.Forge, err)
 	}
+	// The work keeps the pull request's branch for a rework to continue, and the ended lane's worktree goes,
+	// which frees that branch.
+	if work, err := r.WorkOrder(f.store, f.grant.WorkOrder); err != nil || work.Branch != branchName {
+		return Violatedf("the work keeps branch %q: %v", work.Branch, err)
+	}
+	if count, event, err := r.eventsAbout(f.store, f.lane, ledger.EventLaneArchiveRequested); err != nil || count != 1 || event.Actor.ID != "forge" {
+		return Violatedf("%d archive requests for the lane, the last by %+v: %v", count, event.Actor, err)
+	}
 	// The same attempt again, and an older one, change nothing.
 	before, err := r.Revision(f.store, r.Scope)
 	if err != nil {

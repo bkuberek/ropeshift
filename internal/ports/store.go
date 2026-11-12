@@ -258,6 +258,8 @@ type WorkOrderWriter interface {
 	Pin(id string, version int64) error
 	// ResolveRepository targets work at the repository that took the name its contract gave.
 	ResolveRepository(id, repository string) error
+	// KeepBranch has work keep a branch for its next attempts.
+	KeepBranch(id, branch string) error
 	// Hold records why ready work is not claimed, and nil takes the reason back.
 	Hold(id string, hold *workorders.StartHold) error
 }
