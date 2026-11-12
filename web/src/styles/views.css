@@ -1193,3 +1193,73 @@ details.older[open] > summary {
 .outline-title {
   margin-bottom: var(--s-4);
 }
+
+/* ---------- Documents and traceability ---------- */
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.tree-title {
+  padding: var(--s-12) var(--s-8) var(--s-4);
+}
+
+.tree-title:first-child {
+  padding-top: 0;
+}
+
+.tree-none {
+  padding: 0 var(--s-8);
+}
+
+.reqs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--s-12);
+}
+
+.req a.id {
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.req a.id:hover {
+  text-decoration: underline;
+}
+
+.doc-meta {
+  margin-bottom: var(--s-8);
+}
+
+.doc-facts {
+  margin-bottom: var(--s-12);
+}
+
+.compare {
+  margin-bottom: var(--s-12);
+}
+
+.trace-gap {
+  color: var(--warning);
+}
+
+.trace-panel .trace {
+  max-width: 100%;
+}
+
+tr.selected td {
+  background: var(--selected);
+}
+
+/* The traceability matrix wraps a requirement's text, which runs long. */
+.table.matrix td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.table.matrix td .id {
+  display: inline;
+  max-width: none;
+}

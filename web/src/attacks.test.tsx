@@ -76,7 +76,7 @@ describe("markup in what a person reads", () => {
 
   it("stays text in a requirement", async () => {
     serveViews();
-    openPage("/requirements");
+    openPage("/documents?kind=requirements&key=FR-RETRY-2");
     expect((await screen.findByText(/^A person can read why/)).textContent).toContain(hostile);
     expect(document.querySelector("main img, main script")).toBeNull();
   });
@@ -128,12 +128,19 @@ describe("markup in an address", () => {
   it.each([
     ["a plan", `/plans?plan=${encoded}`, "No such plan"],
     ["a decision", `/decisions?id=${encoded}`, "No such decision"],
-    ["a requirement", `/requirements?key=${encoded}`, "No such requirement"],
   ])("stays out of the page as %s", async (_name, path, heading) => {
     serveViews();
     openPage(path);
     expect(await screen.findByRole("heading", { level: 1, name: heading })).toBeTruthy();
     expect(screen.getByRole("main").querySelectorAll("img, script")).toHaveLength(0);
+  });
+
+  it("stays out of the page as a requirement", async () => {
+    serveViews();
+    openPage(`/traceability?key=${encoded}`);
+    expect(await screen.findByText(/^No requirement .* is recorded\.$/)).toBeTruthy();
+    expect(screen.getByRole("main").querySelectorAll("img, script")).toHaveLength(0);
+    expect(screen.getByRole("main").textContent).toContain(hostile);
   });
 
   it("reaches the server only as a query value", async () => {

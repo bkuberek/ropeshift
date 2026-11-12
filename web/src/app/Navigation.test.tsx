@@ -209,7 +209,8 @@ describe("a view on the stream", () => {
   it("reads a document once, because nothing on the stream changes it", async () => {
     const sent = serveViews();
     openPage("/document?path=docs%2Fspecs%2Fretry.md");
-    await screen.findByRole("heading", { level: 1, name: "The retry spec" });
+    await screen.findByRole("heading", { level: 2, name: "The retry spec" });
+    await screen.findByRole("combobox", { name: "Version" });
     await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
     FakeEvents.opened[0]?.emit();
     await new Promise((resolve) => setTimeout(resolve, 150));
