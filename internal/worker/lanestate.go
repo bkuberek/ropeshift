@@ -359,6 +359,8 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 	case ports.EventSessionBound:
 		r.progressed()
 		r.signal(ctx, lanes.OnActivity)
+	case ports.EventAgentUsage:
+		r.measureAgent(event.Agent, event.Tokens)
 	case ports.EventUsage:
 		r.progressed()
 		_, waiting, _ := s.compactionAsked()

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/doubles"
@@ -45,6 +46,8 @@ const startsAgents = `{
   "turns": [[
     {"init": true},
     {"tool": "Agent", "agent": "explore", "ruled": true},
+    {"emit": {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_explore", "name": "Agent", "input": {"subagent_type": "explore"}}], "usage": {"input_tokens": 4}}}},
+    {"emit": {"type": "assistant", "parent_tool_use_id": "toolu_explore", "message": {"content": [], "usage": {"input_tokens": 120, "output_tokens": 30}}}},
     {"tool": "Write", "file": "notes.md", "within": "explore", "ruled": true},
     {"tool": "Write", "file": "notes.md", "within": "implementation", "ruled": true},
     {"tool": "Bash", "command": "git add -A && git commit -q -m work", "within": "implementation", "ruled": true},
@@ -57,8 +60,8 @@ const startsAgents = `{
 // TestALaneRunsAsItsPlannedAgentAndHandsWorkToTheRoster is the phase 3 exit criterion for the roster on the
 // real binary: a change lane whose plan gave its work order an agent runs as that agent, on the model its
 // class maps to and with its effort, receives the resolved roster through --agents with nothing written to
-// the person's agent configuration or the worktree, has a read-only agent's edit refused, and asks a
-// member before it starts a per-use agent.
+// the person's agent configuration or the worktree, has a read-only agent's edit refused, asks a member
+// before it starts a per-use agent, and shows the tokens a subagent spent under that agent's name.
 func TestALaneRunsAsItsPlannedAgentAndHandsWorkToTheRoster(t *testing.T) {
 	in := newInstall(t)
 	repo := gittest.New(t)
@@ -94,6 +97,15 @@ func TestALaneRunsAsItsPlannedAgentAndHandsWorkToTheRoster(t *testing.T) {
 	in.must("approval", "approve", asked.ID, "--digest", asked.SubjectDigest, "--reason", "The work needs it.")
 	in.waitFor("the lane's outcome", func() bool { return in.show(id).State == workorders.Acceptance })
 
+	var usage api.LaneTelemetryList
+	in.waitFor("the explore agent's tokens", func() bool {
+		if err := json.Unmarshal([]byte(in.must("telemetry", "lanes", "--json")), &usage); err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(usage.Lanes, func(lane api.LaneTelemetry) bool {
+			return lane.Lane == "lane-1" && lane.Agents["explore"]["input"] == 120 && lane.Agents["explore"]["output"] == 30
+		})
+	})
 	if refused := logged(t, dir, "agent_refused"); !slices.Equal(refused, []string{"explore Write notes.md"}) {
 		t.Errorf("the CLI refused %q", refused)
 	}

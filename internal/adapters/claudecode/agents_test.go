@@ -177,3 +177,28 @@ func TestPreflightRefusesARenderingTheCLIWouldRefuse(t *testing.T) {
 		t.Errorf("preflight passed %q: %v", agent.Name, report.Problems)
 	}
 }
+
+// TestSubagentUsageNamesTheRosterAgent is FR-AGENT-12: an Agent call names the agent it starts, and the
+// usage of a message whose parent is that call counts toward that agent. A message whose parent no call
+// in this stream named stays the session's own.
+func TestSubagentUsageNamesTheRosterAgent(t *testing.T) {
+	s := &session{events: make(chan ports.DriverEvent, 8)}
+	for _, line := range []string{
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"x"},{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"explore","prompt":"p"}}],"usage":{"input_tokens":9}}}`,
+		`{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"content":[],"usage":{"input_tokens":120,"output_tokens":30,"cache_read_input_tokens":7}}}`,
+		`{"type":"assistant","parent_tool_use_id":"toolu_gone","message":{"content":[],"usage":{"input_tokens":5}}}`,
+	} {
+		s.take([]byte(line), 1)
+	}
+	close(s.events)
+	var agents []ports.DriverEvent
+	for event := range s.events {
+		if event.Kind == ports.EventAgentUsage {
+			agents = append(agents, event)
+		}
+	}
+	if len(agents) != 1 || agents[0].Agent != "explore" || agents[0].Tokens == nil || agents[0].Tokens.InputTokens != 120 ||
+		agents[0].Tokens.OutputTokens != 30 || agents[0].Tokens.CacheReadTokens != 7 {
+		t.Fatalf("agent usage %+v", agents)
+	}
+}

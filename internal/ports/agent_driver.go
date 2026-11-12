@@ -286,6 +286,9 @@ const (
 	EventSessionBound EventKind = "session_bound"
 	// EventUsage carries the context of one API call.
 	EventUsage EventKind = "usage"
+	// EventAgentUsage carries the tokens of one message a roster agent spent, where the driver reports
+	// which agent spent them (FR-AGENT-12). They count toward the lane, under the agent's name.
+	EventAgentUsage EventKind = "agent_usage"
 	// EventTurnEnded carries how a turn ended, which is the only signal a turn is
 	// over. An exit code cannot say, because a stopped turn exits 0.
 	EventTurnEnded EventKind = "turn_ended"
@@ -355,6 +358,9 @@ type DriverEvent struct {
 	Usage *lanes.UsageReading
 	// Attempt counts an EventRetry's tries.
 	Attempt int64
+	// Agent names the roster agent an EventAgentUsage counts toward, and Tokens what it spent.
+	Agent  string
+	Tokens *lanes.Usage
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64
