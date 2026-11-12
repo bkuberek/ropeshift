@@ -21,6 +21,7 @@ import (
 func (h *handler) planningRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/plans", h.listPlans)
 	mux.HandleFunc("GET /v1/plans/{id}", h.showPlan)
+	mux.HandleFunc("GET /v1/lanes/{id}/outline", h.laneOutline)
 	mux.HandleFunc("POST /v1/plans/{id}/reviews", h.member(h.reviewPlan))
 	mux.HandleFunc("GET /v1/requirements", h.listRequirements)
 	mux.HandleFunc("GET /v1/requirements/{key}", h.showRequirement)

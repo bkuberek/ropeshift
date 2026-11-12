@@ -294,6 +294,18 @@ func TestGoldenAdoptedApproval(t *testing.T) {
 	holdsGolden(t, "approval-adopted", steady(pretty(t, shown)))
 }
 
+// TestGoldenOutline writes the outline of a planning session as the planning pane reads it.
+func TestGoldenOutline(t *testing.T) {
+	d, w, _ := aPlanningSession(t)
+	askedBy(t, w, "question-blocking", "Hourly or daily?", true)
+	outline, err := d.Client.Outline(t.Context(), outlineLane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "outline", steady(pretty(t, outline)))
+	holdsGolden(t, "outline-unread", pretty(t, api.PlanOutline{Unread: "the lane recorded no commit its branch began at"}))
+}
+
 // TestGoldenWebRoutes writes the closed list of what the web listener serves, so a web test can hold
 // the application's own client to it.
 func TestGoldenWebRoutes(t *testing.T) {

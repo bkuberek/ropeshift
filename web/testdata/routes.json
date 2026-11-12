@@ -326,6 +326,11 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/projects/{project}/lanes/{id}/outline",
+    "command": "lane outline"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/projects/{project}/sources",
     "command": "source list"
   },
