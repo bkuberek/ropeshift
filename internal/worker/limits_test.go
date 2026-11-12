@@ -562,6 +562,53 @@ func TestAWriteThatFailedEndsNoLimit(t *testing.T) {
 	}
 }
 
+// shutParking is a journal that cannot take a parking while it is shut.
+type shutParking struct {
+	ports.Journal
+	shut atomic.Bool
+}
+
+func (j *shutParking) BeginParking(ctx context.Context, lane string, parking lanes.ParkProgress, handoff lanes.HandoffProgress, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	if j.shut.Load() {
+		return ledger.UploadEvent{}, errors.New("the disk is full")
+	}
+	return j.Journal.BeginParking(ctx, lane, parking, handoff, event)
+}
+
+// TestAProbeThatNeverParkedParksPastItsTime is a limit kept with no lane parked yet, as a kill
+// right after it leaves one, found again only once the probe's time came. Nothing sent that lane
+// to find out, so it parks as well, or the limit would never end and every lane would wait for good.
+func TestAProbeThatNeverParkedParksPastItsTime(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &shutParking{Journal: base.journal}
+	journal.shut.Store(true)
+	base.workerJournal = journal
+	var r *limitRig
+	r = fleetOn(t, base, 2, limitProfile, func(spec ports.SessionSpec) fake.DriverScript {
+		switch {
+		case spec.Generation == 1 && spec.Lane == "lane-1":
+			return r.limitOnceAllStart()
+		case spec.Generation == 1:
+			return atRest()
+		}
+		return finishes(r.laneRig)
+	})
+	r.start()
+	var kept lanes.SignInState
+	r.eventually("the limit kept", func(ledger.LaneView) bool {
+		state, err := base.journal.SignIn(t.Context())
+		kept = state
+		return err == nil && state.Limited
+	})
+	r.passTime(t, lanes.DefaultUsageBackoff+time.Second)
+	journal.shut.Store(false)
+	r.awaitOrders(t, workorders.Acceptance)
+	if wake := r.wake(t, "lane-1", 1); wake.Expr != lanes.UsageWake(r.key(), kept.ProbeAtMs) {
+		t.Errorf("the probe waited on %s", wake.Expr)
+	}
+}
+
 // TestAProbeThatEndsReleasesTheOthers: nothing else would ever wake them.
 func TestAProbeThatEndsReleasesTheOthers(t *testing.T) {
 	t.Parallel()

@@ -34,9 +34,11 @@ const (
 	sabotageForgetsLimit = "a limit no journal holds"
 )
 
-// limitChaosProfile asks little of a session that cannot answer, and keeps a probe's wait short,
-// because a crash run keeps real time.
-const limitChaosProfile = "[lifecycle]\nhandoff_timeout = \"300ms\"\nmax_restarts = 0\nusage_backoff = \"150ms\"\n"
+// limitChaosBackoff is a probe's first wait, short because a crash run keeps real time.
+const limitChaosBackoff = 150 * time.Millisecond
+
+// limitChaosProfile asks little of a session that cannot answer, and keeps a probe's wait short.
+var limitChaosProfile = fmt.Sprintf("[lifecycle]\nhandoff_timeout = \"300ms\"\nmax_restarts = 0\nusage_backoff = %q\n", limitChaosBackoff.String())
 
 func applyLimitVariant(variant string) {
 	switch variant {
@@ -235,8 +237,17 @@ func limitCase(name string, steps ...string) crashCase {
 	return crashCase{name: name, op: "worker.limit", steps: steps, prepare: limitSpec, settled: limitedOut}
 }
 
+// probeCameDue holds the retry back until the probe's time came, as a slow restart does. The lane
+// that found the limit was never parked, so nothing sent it to find out, and it still has to park.
+func probeCameDue(*world, childSpec) error {
+	time.Sleep(2 * limitChaosBackoff)
+	return nil
+}
+
 func limitCases() []crashCase {
-	return []crashCase{limitCase("a limit on two lanes", "noted", "signaled")}
+	late := limitCase("a limit whose probe came due in a restart", "noted")
+	late.between = probeCameDue
+	return []crashCase{limitCase("a limit on two lanes", "noted", "signaled"), late}
 }
 
 func limitVariants() []variant {

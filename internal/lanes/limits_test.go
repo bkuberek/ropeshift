@@ -111,8 +111,9 @@ func TestASignInWakeWaitsOnOneFact(t *testing.T) {
 // TestReachingALimit is what one lane's word does to a sign-in, in every case that can arrive.
 func TestReachingALimit(t *testing.T) {
 	const now, base = int64(1_000_000), 5 * time.Minute
+	const generation = int64(2)
 	reset := lanes.UsageReading{ResetsAtMs: now + 60_000}
-	probing := lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: now - 1, Tries: 1, Hint: "kept", HintRead: true}
+	probing := lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: now - 1, ProbeGeneration: 1, Tries: 1, Hint: "kept", HintRead: true}
 	waiting := probing
 	waiting.ProbeAtMs = now + 1
 	known := lanes.SignInState{Limited: true, ResetAtMs: now + 60_000, Last: reset}
@@ -128,10 +129,11 @@ func TestReachingALimit(t *testing.T) {
 			lanes.SignInState{Last: reset}, "lane-1", true, lanes.SignInState{Last: reset, Limited: true, ResetAtMs: now + 60_000},
 		},
 		"the first word, with none": {
-			lanes.SignInState{}, "lane-1", true, lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: backoff(0)},
+			lanes.SignInState{}, "lane-1", true, lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: backoff(0), ProbeGeneration: generation},
 		},
 		"the first word, with a time gone by": {
-			pastItsTime, "lane-1", true, lanes.SignInState{Last: pastItsTime.Last, Limited: true, Probe: "lane-1", ProbeAtMs: backoff(0)},
+			pastItsTime, "lane-1", true,
+			lanes.SignInState{Last: pastItsTime.Last, Limited: true, Probe: "lane-1", ProbeAtMs: backoff(0), ProbeGeneration: generation},
 		},
 		"another lane on a known reset":      {known, "lane-2", false, known},
 		"another lane while one probes":      {waiting, "lane-2", false, waiting},
@@ -139,11 +141,11 @@ func TestReachingALimit(t *testing.T) {
 		"the same word heard twice":          {waiting, "lane-1", false, waiting},
 		"the probe finds it still there": {
 			probing, "lane-1", true,
-			lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: backoff(2), Tries: 2, Hint: "kept", HintRead: true},
+			lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: backoff(2), ProbeGeneration: generation, Tries: 2, Hint: "kept", HintRead: true},
 		},
 	} {
 		got := tt.state
-		if changed := got.Reach(tt.lane, now, base); changed != tt.changed || got != tt.want {
+		if changed := got.Reach(tt.lane, generation, now, base); changed != tt.changed || got != tt.want {
 			t.Errorf("%s: changed %v\ngot  %+v\nwant %+v", name, changed, got, tt.want)
 		}
 	}
@@ -165,6 +167,32 @@ func TestOnlyTheProbeSaysALimitPassed(t *testing.T) {
 		"a limit with a known end": {lanes.SignInState{Limited: true, ResetAtMs: now}, "lane-1", now, false},
 	} {
 		if got := tt.state.Passed(tt.lane, tt.nowMs); got != tt.want {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}
+
+// TestOnlyAProbeSentOnIsOutFindingOut keeps the generation that found a limit from passing for the
+// one sent to find out, however late a pass finds it: nothing would ever park it, or end the limit.
+func TestOnlyAProbeSentOnIsOutFindingOut(t *testing.T) {
+	const now = int64(1_000_000)
+	probing := lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: now, ProbeGeneration: 1}
+	for name, tt := range map[string]struct {
+		state      lanes.SignInState
+		lane       string
+		generation int64
+		nowMs      int64
+		want       bool
+	}{
+		"the probe sent on, at its time":           {probing, "lane-1", 2, now, true},
+		"the probe sent on, before it":             {probing, "lane-1", 2, now - 1, false},
+		"the generation that found it, past it":    {probing, "lane-1", 1, now + 1, false},
+		"another lane":                             {probing, "lane-2", 2, now, false},
+		"a state kept with no generation":          {lanes.SignInState{Limited: true, Probe: "lane-1", ProbeAtMs: now}, "lane-1", 1, now, true},
+		"no limit at all":                          {lanes.SignInState{Probe: "lane-1"}, "lane-1", 2, now, false},
+		"a limit with a known end, and no probing": {lanes.SignInState{Limited: true, ResetAtMs: now}, "lane-1", 2, now, false},
+	} {
+		if got := tt.state.Probing(tt.lane, tt.generation, tt.nowMs); got != tt.want {
 			t.Errorf("%s: %v", name, got)
 		}
 	}
