@@ -145,9 +145,23 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if row.Kind == authority.KindRecovery && !authority.Allowed(actor, authority.ActionDecideRecovery) {
 			return workorders.ErrForbidden
 		}
+		if row.Kind == authority.KindMerge && !authority.Allowed(actor, authority.ActionDecideMerge) {
+			return workorders.ErrForbidden
+		}
 		if row.Repeats(decision, actor) {
 			record = row
 			return nil
+		}
+		if row.Kind == authority.KindMerge && row.Open() {
+			moved, err := mergeMoved(tx, row)
+			if err != nil {
+				return err
+			}
+			if moved {
+				record, voided = row, true
+				record.State, record.Reason = authority.ApprovalVoid, "its subject changed"
+				return noteApproval(tx, record, row.State, approvalExpiry)
+			}
 		}
 		if row.Kind == authority.KindRecovery && row.Open() {
 			moved, err := recoveryMoved(tx, row)
@@ -178,6 +192,12 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		}
 		if record.Kind == authority.KindRecovery && record.State == authority.ApprovalApproved {
 			return grantRecovery(tx, record, actor)
+		}
+		if record.Kind == authority.KindMerge && record.State == authority.ApprovalApproved {
+			return grantMerge(tx, record, actor)
+		}
+		if record.Kind == authority.KindMerge && record.State == authority.ApprovalDenied {
+			return denyMerge(tx, record, actor)
 		}
 		return nil
 	})
@@ -333,13 +353,14 @@ func expireApprovals(tx ports.WriteTx, workOrder string) error {
 
 func expireApproval(tx ports.WriteTx, row authority.Approval) error {
 	// A plan approval waits for a member and not for a session, so nothing returns to a lane when its
-	// work order ends, and no time runs out on it. A recovery request's subject moved when its lane ended.
+	// work order ends, and no time runs out on it. A recovery request's subject moved when its lane ended, and
+	// so did a merge request's.
 	if !row.Live() || row.Kind == authority.KindPlan {
 		return nil
 	}
 	next := row
 	next.State = authority.ApprovalExpired
-	if row.Kind == authority.KindRecovery {
+	if row.Kind == authority.KindRecovery || row.Kind == authority.KindMerge {
 		next.State, next.Reason = authority.ApprovalVoid, "its subject changed"
 	}
 	return noteApproval(tx, next, row.State, approvalExpiry)

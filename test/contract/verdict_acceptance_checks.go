@@ -23,7 +23,7 @@ var VerdictAcceptanceChecks = []Check{
 	{"VA2", "a review that leaves a criterion out, or judges one the contract lacks, is refused and changes nothing", checkIncompleteReviewIsRefused},
 	{"VA3", "a lane that is not a review cannot report verdicts", checkOnlyAReviewReportsVerdicts},
 	{"VA4", "a failed criterion sends the work back by rule, citing the review, and the reasons reach the next attempt", checkFailSendsWorkBack},
-	{"VA5", "work whose every criterion passed is accepted by the review at review_approves and waits for a member below it", checkPassAcceptsAtReviewApproves},
+	{"VA5", "work whose every criterion passed is accepted for merge, approved by the review at review_approves and waiting for a member's approval at person_approves, and waits for a member at person_merges", checkPassAcceptsAtReviewApproves},
 	{"VA6", "a criterion the review could not judge waits for a member unless a passing forge check covers it", checkCannotJudgeWaits},
 	{"VA7", "past the bound on review rounds a failed review waits for a member with its verdicts", checkReviewRoundsAreBounded},
 	{"VA8", "a verdict on another attempt or another commit decides nothing", checkStaleVerdictsDecideNothing},
@@ -327,14 +327,14 @@ func checkPassAcceptsAtReviewApproves(r *Rig) error {
 		level ledger.MergeAuthority
 		want  workorders.State
 	}{
-		{ledger.ReviewApproves, workorders.Done},
-		{ledger.PersonApproves, workorders.Acceptance},
+		{ledger.ReviewApproves, workorders.Integrating},
+		{ledger.PersonApproves, workorders.Integrating},
 		{ledger.PersonMerges, workorders.Acceptance},
 	} {
 		if err := r.atLevel(s, tt.level); err != nil {
 			return err
 		}
-		id, _, err := r.judged(s, criterionOne, criterionTwo)
+		id, head, err := r.judged(s, criterionOne, criterionTwo)
 		if err != nil {
 			return err
 		}
@@ -348,27 +348,43 @@ func checkPassAcceptsAtReviewApproves(r *Rig) error {
 		if err := r.stateIs(s, id, tt.want); err != nil {
 			return Violatedf("at %s: %v", tt.level, err)
 		}
-		count, event, err := r.eventsAbout(s, id, workorders.EventType(workorders.TriggerAcceptancePassed))
+		count, event, err := r.eventsAbout(s, id, workorders.EventType(workorders.TriggerIntegrating))
 		if err != nil {
 			return err
 		}
-		if tt.want == workorders.Done && (count != 1 || event.Actor != reviewer) {
-			return Violatedf("at %s %d acceptances, the last by %+v, want one by %+v", tt.level, count, event.Actor, reviewer)
+		view, err := r.verdictsCounted(s, id)
+		if err != nil {
+			return err
 		}
-		if tt.want == workorders.Acceptance && count != 0 {
-			return Violatedf("at %s the work was accepted without a member", tt.level)
-		}
-		if tt.want == workorders.Acceptance {
+		switch tt.level {
+		case ledger.ReviewApproves:
+			// The review's pass is the approval, recorded with the review lane and the commit it judged.
+			if count != 1 || event.Actor != reviewer {
+				return Violatedf("at %s %d acceptances, the last by %+v, want one by %+v", tt.level, count, event.Actor, reviewer)
+			}
+			if len(view.Integrations) != 1 || view.Integrations[0].ApprovedByKind != ledger.ApprovedByReview || view.Integrations[0].ApprovedCommit != head ||
+				view.Integrations[0].ApprovedByID == "" || view.Integrations[0].MergeAuthority != ledger.ReviewApproves {
+				return Violatedf("at %s the approvals read %+v", tt.level, view.Integrations)
+			}
+		case ledger.PersonApproves:
+			// The merge waits for a member, whose acceptance approves it.
+			if count != 1 || len(view.Integrations) != 0 || view.Why == "" {
+				return Violatedf("at %s the work moved %d times, with approvals %+v, waiting on %q", tt.level, count, view.Integrations, view.Why)
+			}
+			if state, err := r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.Actor); err != nil || state != workorders.Integrating {
+				return Violatedf("a member approving the merge: %v, %v", state, err)
+			}
+			view, err = r.verdictsCounted(s, id)
+			if err != nil || len(view.Integrations) != 1 || view.Integrations[0].ApprovedByKind != ledger.ApprovedByMember || view.Integrations[0].ApprovedByID != r.Actor.ID {
+				return Violatedf("after a member's approval the approvals read %+v: %v", view.Integrations, err)
+			}
+		case ledger.PersonMerges:
 			// It waits with the verdicts a member reads, and a member's word still accepts it.
-			view, err := r.verdictsCounted(s, id)
-			if err != nil {
-				return err
+			if count != 0 {
+				return Violatedf("at %s the work was accepted without a member", tt.level)
 			}
-			if len(view.Verdicts) != 2 || view.Authority != tt.level {
+			if len(view.Verdicts) != 2 || view.Authority != tt.level || view.Why == "" {
 				return Violatedf("at %s the standing reads %+v", tt.level, view)
-			}
-			if view.Why == "" {
-				return Violatedf("at %s the standing does not say what the work waits for", tt.level)
 			}
 			if state, err := r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.Actor); err != nil || state != workorders.Done {
 				return Violatedf("a member accepting reviewed work: %v, %v", state, err)
@@ -426,7 +442,7 @@ func checkCannotJudgeWaits(r *Rig) error {
 	if err != nil || !slices.Equal(moved, []string{covered}) {
 		return Violatedf("a tick with a covering forge result moved %v: %v", moved, err)
 	}
-	if err := r.stateIs(s, covered, workorders.Done); err != nil {
+	if err := r.stateIs(s, covered, workorders.Integrating); err != nil {
 		return err
 	}
 
@@ -695,7 +711,7 @@ func checkReviewWithoutVerdictsLeavesTheEvidence(r *Rig) error {
 
 func checkReviewIsNotCompletedWork(r *Rig) error {
 	s := r.Store()
-	if err := r.atLevel(s, ledger.ReviewApproves); err != nil {
+	if err := r.atLevel(s, ledger.PersonMerges); err != nil {
 		return err
 	}
 	id, _, err := r.judged(s, criterionOne)
@@ -705,8 +721,8 @@ func checkReviewIsNotCompletedWork(r *Rig) error {
 	if err := r.reviewSays(s, id, say(criterionOne, workorders.VerdictPass)); err != nil {
 		return err
 	}
-	if err := r.stateIs(s, id, workorders.Done); err != nil {
-		return err
+	if state, err := r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.Actor); err != nil || state != workorders.Done {
+		return Violatedf("a member accepting reviewed work: %v, %v", state, err)
 	}
 	review, err := r.theReview(s, id)
 	if err != nil {

@@ -21,7 +21,14 @@ const (
 	ActionAcceptReviewed Action = "acceptance.reviewed"
 	// ActionRecordMerge ends work a person merged on the forge, at a level where the person merges
 	// (ADR-0020). The control plane takes it by rule, from what a worker read, and nobody else does.
-	ActionRecordMerge    Action = "integration.record_merge"
+	ActionRecordMerge Action = "integration.record_merge"
+	// ActionMerge asks a worker to merge accepted work at its reviewed commit, which only the integration
+	// rule does (ADR-0020): the control plane by rule, or a member's decision through it. No MCP tool merges,
+	// so no orchestrator or lane has this, and no row below grants it to one.
+	ActionMerge Action = "integration.merge"
+	// ActionDecideMerge decides a merge request: the approval of a reviewed commit at person_approves, or a
+	// merge the forge or git refused. Merging is the person's to allow, so no row below may ever grant it.
+	ActionDecideMerge    Action = "integration.decide"
 	ActionAddCategory    Action = "category.add"
 	ActionAnswerQuestion Action = "question.answer"
 	ActionArchiveLane    Action = "lane.archive"
@@ -115,7 +122,7 @@ func Actions() []Action {
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator, ActionRetryWork,
 		ActionRecover, ActionPassRecovery, ActionDecideRecovery,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
-		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge,
+		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge,
 	}
 }
 
@@ -127,7 +134,7 @@ var granted = map[ledger.ActorKind]map[Action]bool{
 		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRecover: true, ActionRespawnLane: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},
-	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true, ActionRecordMerge: true},
+	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true, ActionRecordMerge: true, ActionMerge: true},
 }
 
 // Allowed is the one authorization function. Every check passes through it. There are no

@@ -18,6 +18,7 @@ export const workStates: Record<string, WorkMeaning> = {
   parked: { label: "Parked", home: "on-hold" },
   lapsed: { label: "Lapsed", home: "stuck" },
   acceptance: { label: "Waiting for acceptance", home: "completed" },
+  integrating: { label: "Waiting to merge", home: "completed" },
   blocked: { label: "Blocked", home: "stuck" },
   done: { label: "Done", home: "completed" },
   failed: { label: "Failed", home: "completed" },

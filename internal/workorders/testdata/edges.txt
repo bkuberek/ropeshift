@@ -18,6 +18,9 @@ lapsed takeover ready
 running lane_completed acceptance
 acceptance acceptance_passed done
 acceptance rework ready
+acceptance integrating integrating
+integrating merged done
+integrating rework ready
 running lane_blocked blocked
 blocked replan planning
 blocked resolved ready

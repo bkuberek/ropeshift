@@ -118,7 +118,9 @@ func (in *install) judge(order, claim, lane, fixture string) workorders.WorkOrde
 // the work goes back by rule, and the next attempt's first prompt carries what the review found. That
 // attempt completes, a new review passes it, and at person_merges, the default, the work waits in Needs you
 // with the verdict. Raised to review_approves, a second piece of work whose review passes every criterion is
-// accepted by the review itself, the audit says so, and so is the first, which waited for a member.
+// accepted for merge by the review itself, the audit says so, and so is the first, which waited for a member.
+// The checkout has the base branch checked out, so ropeshift holds each merge for the member, with why,
+// rather than move the base under them.
 func TestAReviewsVerdictsSettleTheWorkAtTheMergeAuthority(t *testing.T) {
 	in := newInstall(t)
 	in.aLaneThatCommits()
@@ -201,14 +203,20 @@ func TestAReviewsVerdictsSettleTheWorkAtTheMergeAuthority(t *testing.T) {
 	in.startLane(second, "claim-5", "lane-3")
 	in.waitFor("the second work's outcome", func() bool { return in.show(second).State == workorders.Acceptance })
 	approved := in.judge(second, "claim-6", "review-3", reviewSays("pass", passedReason, "work.txt:1"))
-	in.waitFor("the review to accept the work", func() bool { return in.show(second).State == workorders.Done })
-	if accepted := in.eventsOf("work_order.acceptance_passed", second); len(accepted) != 1 || accepted[0].ActorKind != "system" || accepted[0].ActorID != "review" {
+	in.waitFor("the review to accept the work for merge", func() bool { return in.show(second).State == workorders.Integrating })
+	if accepted := in.eventsOf("work_order.integrating", second); len(accepted) != 1 || accepted[0].ActorKind != "system" || accepted[0].ActorID != "review" {
 		t.Errorf("the second work was not accepted once, by the review's rule: %+v", accepted)
 	}
 	if state := in.show(approved.ID).State; state != workorders.Done {
 		t.Errorf("the review that approved reads %s", state)
 	}
+	in.waitFor("the merge held for the member", func() bool {
+		return strings.Contains(in.must("work", "show", second), "checked out")
+	})
+	if state := in.show(second).State; state != workorders.Integrating {
+		t.Errorf("a merge into a checked-out base left the work %s", state)
+	}
 	// The tick reads the level whenever it settles waiting work, so the first work, which waited for a member
 	// with every criterion passed, is accepted by the same rule now that the member has raised the level.
-	in.waitFor("the review to accept what already waited", func() bool { return in.show(first).State == workorders.Done })
+	in.waitFor("the review to accept what already waited", func() bool { return in.show(first).State == workorders.Integrating })
 }

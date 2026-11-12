@@ -13,9 +13,10 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
-// Integrations holds the integration step: how reviewed work reaches its base (ADR-0020). Merging at the
-// levels where ropeshift merges comes in a later step. What is here is the person's own merge: at a level
-// where the person merges, a pull request the worker read as merged ends the work it landed.
+// Integrations holds the integration step: how reviewed work reaches its base (ADR-0020). At the levels
+// where ropeshift merges, accepted work waits in `integrating` until the integration rule lets a worker merge
+// its reviewed commit; at a level where the person merges, a pull request the worker read as merged ends the
+// work it landed.
 type Integrations struct {
 	store ports.Store
 }
@@ -43,15 +44,25 @@ type mergedPullRequest struct {
 // Settle records each merge a person made of work that waits for a member at a level where the person
 // decides, and moves that work to `done` (FR-MERGE-9). The merge is the person's decision, made on the forge
 // after the verdicts were posted there, so it writes the calibration record a member's acceptance writes
-// (ADR-0019), naming no member, because the forge's account is not one. It is a tick: the list is read with
-// no lock, only work still in acceptance is visited, and each item is one transaction that reads again. It
-// returns the work orders it ended.
+// (ADR-0019), naming no member, because the forge's account is not one. Then it runs the integration step
+// for each work order in `integrating`, which every event the rule reads runs too, so the tick only catches
+// what those missed. It is a tick: the list is read with no lock, and each item is one transaction that
+// reads again. It returns the work orders it ended.
 func (i *Integrations) Settle(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) ([]string, error) {
-	if !authority.Allowed(actor, authority.ActionRecordMerge) {
+	if !authority.Allowed(actor, authority.ActionRecordMerge) || !authority.Allowed(actor, authority.ActionMerge) {
 		return nil, workorders.ErrForbidden
 	}
-	var merged []string
+	var merged, integrating []string
 	err := i.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		orders, err := tx.WorkOrders().List()
+		if err != nil {
+			return err
+		}
+		for _, order := range orders {
+			if order.State == workorders.Integrating {
+				integrating = append(integrating, order.ID)
+			}
+		}
 		prs, err := tx.Forge().PullRequests()
 		if err != nil {
 			return err
@@ -85,7 +96,31 @@ func (i *Integrations) Settle(ctx context.Context, scope ledger.WorkspaceID, act
 			moved = append(moved, id)
 		}
 	}
+	for _, id := range integrating {
+		ended, err := i.step(ctx, scope, id)
+		if err != nil {
+			failed = append(failed, fmt.Errorf("work order %s: %w", id, err))
+			continue
+		}
+		if ended {
+			moved = append(moved, id)
+		}
+	}
 	return moved, errors.Join(failed...)
+}
+
+// step runs the integration step for one work order, and reports whether it ended the work.
+func (i *Integrations) step(ctx context.Context, scope ledger.WorkspaceID, id string) (bool, error) {
+	ended := false
+	err := i.store.Write(ctx, scope, "integration.step", func(tx ports.WriteTx) error {
+		if err := integrate(tx, id); err != nil {
+			return err
+		}
+		order, err := tx.WorkOrders().Get(id)
+		ended = err == nil && order.State == workorders.Done
+		return err
+	})
+	return ended, err
 }
 
 func (i *Integrations) settle(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (bool, error) {
@@ -120,6 +155,9 @@ func (i *Integrations) settle(ctx context.Context, scope ledger.WorkspaceID, id 
 		if err := recordCalibration(tx, current, at, workorders.DecisionAccept, workorders.SourceDecision, reason, ledger.Actor{}); err != nil {
 			return err
 		}
+		if err := recordPersonsMerge(tx, current, pr, at.authority); err != nil {
+			return err
+		}
 		change := workorders.Change{Trigger: workorders.TriggerAcceptancePassed, Payload: payload}
 		if err := leaveAcceptance(tx, id, change, actor, func() {}); err != nil {
 			return err
@@ -134,4 +172,18 @@ func (i *Integrations) settle(ctx context.Context, scope ledger.WorkspaceID, id 
 		return nil
 	})
 	return ended, err
+}
+
+// recordPersonsMerge keeps the person's merge on the forge as an approval and its merge (FR-MERGE-6): the
+// person approved the head they merged, on the forge, under an account the ledger does not know.
+func recordPersonsMerge(tx ports.WriteTx, order workorders.WorkOrder, pr ledger.WorkPullRequest, level ledger.MergeAuthority) error {
+	record := ledger.IntegrationRecord{
+		ID: ledger.IntegrationID(order.ID, pr.HeadCommit), WorkOrder: order.ID, PullRequest: pr.Number, ApprovedCommit: pr.HeadCommit,
+		MergeAuthority: level, ApprovedByKind: ledger.ApprovedByForge, ApprovedAt: tx.Now(), MergedCommit: pr.MergeCommit, MergedAt: tx.Now(),
+	}
+	added, err := tx.Forge().InsertIntegration(record)
+	if err != nil || !added {
+		return err
+	}
+	return appendIntegration(tx, ledger.EventIntegrationMerged, order.ID, mergedWork{Record: record, URL: pr.URL, ForgeMerged: pr.MergedAt}, forgeActor)
 }

@@ -376,6 +376,11 @@ func (f *forgeRig) reviewed(verdicts ...workorders.CriterionVerdict) (workorders
 	if err := f.report(f.opened(1, f.head)); err != nil {
 		return workorders.WorkOrder{}, err
 	}
+	return f.judge(verdicts...)
+}
+
+// judge runs the review with these verdicts on another worker's lane.
+func (f *forgeRig) judge(verdicts ...workorders.CriterionVerdict) (workorders.WorkOrder, error) {
 	review, err := f.review()
 	if err != nil {
 		return workorders.WorkOrder{}, err
@@ -541,6 +546,12 @@ func checkForgeMergeEndsWork(r *Rig) error {
 	}
 	if count, _, err := r.eventsAbout(f.store, f.grant.WorkOrder, ledger.EventPullRequestMerged); err != nil || count != 1 {
 		return Violatedf("%d merges on record: %v", count, err)
+	}
+	// The person's merge is an approval on the forge and its merge (FR-MERGE-6).
+	view, err := r.NewOps(f.store).Standing(r.Ctx, r.Scope, f.grant.WorkOrder)
+	if err != nil || len(view.Integrations) != 1 || view.Integrations[0].ApprovedByKind != ledger.ApprovedByForge ||
+		view.Integrations[0].MergedCommit != merged.MergeCommit || view.Integrations[0].ApprovedCommit != f.head || view.Integrations[0].MergeAuthority != ledger.PersonMerges {
+		return Violatedf("the approvals read %+v: %v", view.Integrations, err)
 	}
 	// The person's merge counts as accepting after the review's pass (ADR-0019).
 	var calibrations []workorders.Calibration

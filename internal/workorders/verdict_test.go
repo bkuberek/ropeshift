@@ -153,7 +153,7 @@ func TestWhatVerdictsDecide(t *testing.T) {
 		{"no verdict decides nothing", nil, unchecked, ledger.ReviewApproves, 0, SettleNone, nil},
 		{"every pass accepts at review_approves", pass, unchecked, ledger.ReviewApproves, 1, SettleAccept, nil},
 		{"every pass waits for a member at person_merges", pass, unchecked, ledger.PersonMerges, 1, SettleMember, nil},
-		{"every pass waits for a member at person_approves", pass, unchecked, ledger.PersonApproves, 1, SettleMember, nil},
+		{"every pass is accepted at person_approves, where its merge waits for a member", pass, unchecked, ledger.PersonApproves, 1, SettleAccept, nil},
 		{"a record with no level is person_merges", pass, unchecked, "", 1, SettleMember, nil},
 		{"a fail sends the work back at every level", []CriterionVerdict{said("c1", VerdictPass), said("c2", VerdictFail)}, unchecked, ledger.PersonMerges, 1, SettleRework, []string{"c2"}},
 		{"a fail sends the work back at review_approves", []CriterionVerdict{said("c1", VerdictFail), said("c2", VerdictFail)}, unchecked, ledger.ReviewApproves, 2, SettleRework, []string{"c1", "c2"}},

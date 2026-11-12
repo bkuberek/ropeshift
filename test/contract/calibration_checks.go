@@ -133,7 +133,8 @@ func checkMemberDecisionIsCalibrated(r *Rig) error {
 			writes = append(writes, op)
 		}
 	})
-	if state, err := r.NewOps(stepped).Accept(r.Ctx, r.Scope, accepted, r.Actor); err != nil || state != workorders.Done {
+	// At person_approves accepted work waits in integrating, and the member's acceptance approves its merge.
+	if state, err := r.NewOps(stepped).Accept(r.Ctx, r.Scope, accepted, r.Actor); err != nil || state != workorders.Integrating {
 		return Violatedf("a member accepting: %v, %v", state, err)
 	}
 	if !slices.Equal(writes, []string{"acceptance.accept"}) {
@@ -255,7 +256,7 @@ func checkOnlyMembersAfterVerdictsAreCalibrated(r *Rig) error {
 	if err := r.reviewSays(s, byRule, say(criterionOne, workorders.VerdictPass)); err != nil {
 		return err
 	}
-	if err := r.stateIs(s, byRule, workorders.Done); err != nil {
+	if err := r.stateIs(s, byRule, workorders.Integrating); err != nil {
 		return err
 	}
 	// Nor is a rework by rule after a failed criterion.
@@ -332,7 +333,8 @@ func checkLaterDefectIsCalibrated(r *Rig) error {
 	if err := r.reviewSays(s, done, say(criterionOne, workorders.VerdictPass)); err != nil {
 		return err
 	}
-	if err := r.stateIs(s, done, workorders.Done); err != nil {
+	// Accepted at review_approves, the work waits for its merge, which is as approved as merged work.
+	if err := r.stateIs(s, done, workorders.Integrating); err != nil {
 		return err
 	}
 	review, err := r.theReview(s, done)

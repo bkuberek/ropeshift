@@ -224,7 +224,7 @@ export function PageFor({ route, live, after }: { route: Route; live: Live; afte
     case "/stuck":
       return <ViewPage<StuckView> name="stuck" live={live} title="Stuck" note={(view) => `${view.items.length} stopped`} body={(view) => <Stuck view={view} after={after} />} />;
     case "/completed":
-      return <ViewPage<CompletedView> name="completed" live={live} title="Completed" note={(view) => tally(view.items, ["done", "failed", "canceled", "acceptance"], "0 ended")} body={(view) => <Completed view={view} />} />;
+      return <ViewPage<CompletedView> name="completed" live={live} title="Completed" note={(view) => tally(view.items, ["done", "failed", "canceled", "acceptance", "integrating"], "0 ended")} body={(view) => <Completed view={view} />} />;
     case "/shop-floor":
       return <ViewPage<ShopFloorView> name="shop-floor" live={live} title="Shop floor" note={(view) => count(view.lanes.length, "lane")} body={(view) => <ShopFloor view={view} />} />;
     case "/operations":

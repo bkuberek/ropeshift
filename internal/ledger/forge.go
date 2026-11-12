@@ -103,11 +103,13 @@ type ForgeRequest struct {
 	// Method is how a merge lands on its base.
 	Method MergeMethod `json:"method,omitempty"`
 	// Attempt counts the attempts the control plane has offered, from 1, and names the worker's effect.
-	Attempt     int64             `json:"attempt"`
-	State       ForgeRequestState `json:"state"`
-	Detail      string            `json:"detail,omitempty"`
-	RequestedAt int64             `json:"requested_at"`
-	ReportedAt  int64             `json:"reported_at,omitempty"`
+	Attempt int64             `json:"attempt"`
+	State   ForgeRequestState `json:"state"`
+	// Outcome is what a merge that ran came to, once it is done.
+	Outcome     MergeOutcome `json:"outcome,omitempty"`
+	Detail      string       `json:"detail,omitempty"`
+	RequestedAt int64        `json:"requested_at"`
+	ReportedAt  int64        `json:"reported_at,omitempty"`
 }
 
 // DesiredForge is a forge request a worker has not reported on. The control plane offers it until one

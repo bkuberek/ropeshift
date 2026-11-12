@@ -1,4 +1,4 @@
-import type { Completed as CompletedView, CompletedWork, HeldLane, InProgress as InProgressView, OnHold as OnHoldView, Stuck as StuckView, WorkLine, WorkOrder } from "../api/types";
+import type { Completed as CompletedView, CompletedWork, HeldLane, Standing, InProgress as InProgressView, OnHold as OnHoldView, Stuck as StuckView, WorkLine, WorkOrder } from "../api/types";
 import { addressOf, Link } from "../app/route";
 import { workLabels, WorkCard } from "../needs/WorkCard";
 import { Fact, Id, Lasted, Line, Until, words } from "../parts/parts";
@@ -185,6 +185,7 @@ function Ended({ line }: { line: CompletedWork }) {
             ))}
           </ul>
         ) : null}
+        <Merges standing={standing} merging={order.state === "integrating"} />
         {order.state === "acceptance" ? (
           <p>
             <Link to="/">Decide in Needs you</Link>
@@ -192,6 +193,31 @@ function Ended({ line }: { line: CompletedWork }) {
         ) : null}
       </div>
     </Line>
+  );
+}
+
+// Merges lists who approved each reviewed commit for merge, at which level, and what landed, and for work
+// waiting to merge, what the merge waits on.
+function Merges({ standing, merging }: { standing: Standing; merging: boolean }) {
+  const records = standing.integrations ?? [];
+  if (!records.length && !(merging && standing.why)) {
+    return null;
+  }
+  return (
+    <ul className="criteria" aria-label="Merge">
+      {records.map((record) => (
+        <li key={record.id}>
+          <span className="mono">{record.approved_commit.slice(0, 8)}</span> approved by {words(record.approved_by_kind)}
+          {record.approved_by_id ? <span className="mono"> {record.approved_by_id}</span> : null} at {words(record.merge_authority)}
+          {record.merged_at ? (
+            <span>
+              , merged{record.merged_commit ? <span className="mono"> {record.merged_commit.slice(0, 8)}</span> : null}
+            </span>
+          ) : null}
+        </li>
+      ))}
+      {merging && standing.why ? <li>The merge waits: {standing.why}.</li> : null}
+    </ul>
   );
 }
 

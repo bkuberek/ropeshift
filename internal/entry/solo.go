@@ -750,14 +750,16 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
 			return err
 		}),
-		// No release ships a check source yet, so a lane's checks wait for a second principal (D16).
-		// The tick still sends back work with a failed check.
+		// The checks a pull request's base requires are the check source: a worker reads them on the head, and
+		// a failed one sends the work back (FR-MERGE-2). A lane's own checks still wait for a second principal
+		// (D16), and the tick still sends back work with a failed check.
 		tick("acceptance", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
-			_, err := control.NewAcceptances(store).Settle(ctx, p.ID, nil, tickActor("acceptance-tick"))
+			_, err := control.NewAcceptances(store).Settle(ctx, p.ID, control.PullRequestChecks{Store: store}, tickActor("acceptance-tick"))
 			return err
 		}),
-		// A pull request a person merged ends its work at the levels where the person merges. The worker that
-		// opened it reads it, and this records what the read found (ADR-0020).
+		// The integration step: a pull request a person merged ends its work at the levels where the person
+		// merges, and at the levels where ropeshift merges, accepted work is merged once the integration rule
+		// allows it (ADR-0020). The worker that opened a pull request reads it, and this acts on what it found.
 		tick("integration", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			_, err := control.NewIntegrations(store).Settle(ctx, p.ID, tickActor("integration-tick"))
 			return err

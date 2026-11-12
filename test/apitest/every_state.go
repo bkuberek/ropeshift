@@ -6,6 +6,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -40,8 +41,9 @@ var WorkWalks = map[workorders.State]func(*World, string){
 	workorders.Blocked: func(w *World, id string) {
 		w.Running(id, "Stopped by a lane").End(workorders.OutcomeBlocked, "no_outcome")
 	},
-	workorders.Done:   (*World).accepted,
-	workorders.Failed: func(w *World, id string) { w.Running(id, "Out of attempts").End(workorders.OutcomeFailed, "crashed") },
+	workorders.Integrating: (*World).integrating,
+	workorders.Done:        (*World).accepted,
+	workorders.Failed:      func(w *World, id string) { w.Running(id, "Out of attempts").End(workorders.OutcomeFailed, "crashed") },
 	workorders.Canceled: func(w *World, id string) {
 		w.Recorded(id, "Called off")
 		w.Cancel(id)
@@ -68,6 +70,30 @@ func (w *World) claimed(id string) {
 func (w *World) accepted(id string) {
 	w.t.Helper()
 	w.Running(id, "Accepted by a member").End(workorders.OutcomeCompleted, "")
+	if _, err := w.Daemon.Client.Accept(w.ctx, id); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// MergingRepository is a world's repository where ropeshift merges, at person_approves.
+const MergingRepository = "repository-merges"
+
+// integrating is work a member accepted in a repository where ropeshift merges, whose merge the worker that
+// ran its lane has been asked for and has not reported.
+func (w *World) integrating(id string) {
+	w.t.Helper()
+	w.Repository(MergingRepository, ledger.PersonApproves)
+	work := control.LedgerWork{
+		Order:     workorders.WorkOrder{ID: id, Kind: workorders.KindChange, Title: "Accepted and waiting to merge", MaxAttempts: 1, RepositoryID: MergingRepository},
+		Statement: "Merge what was accepted.", Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}},
+	}
+	if _, err := control.NewWorkOrders(w.Daemon.Store).Record(w.ctx, Scope, work, worldMember); err != nil {
+		w.t.Fatal(err)
+	}
+	if _, err := control.NewReviews(w.Daemon.Store).Pass(w.ctx, Scope, id, worldMember); err != nil {
+		w.t.Fatal(err)
+	}
+	w.Run(id).End(workorders.OutcomeCompleted, "")
 	if _, err := w.Daemon.Client.Accept(w.ctx, id); err != nil {
 		w.t.Fatal(err)
 	}

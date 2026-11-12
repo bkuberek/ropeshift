@@ -32,6 +32,9 @@ type dependencyWork struct {
 	// Branch is the branch its lane left, and Commit the commit a member accepted on it.
 	Branch string
 	Commit string
+	// Merged is the commit ropeshift's merge of it made on the base, when ropeshift merged it. A squash or a
+	// rebase leaves the base without Commit, so the base holds the work when it holds this one.
+	Merged string
 }
 
 // startInput is the ledger's side of a decision.
@@ -107,7 +110,17 @@ func startFacts(tx ports.ReadTx, order workorders.WorkOrder) (startInput, error)
 			return in, err
 		}
 		if branch := attemptBranch(artifacts, dependency.Fence); branch.Digest != "" {
-			in.dependencies = append(in.dependencies, dependencyWork{WorkOrder: dependency.ID, Branch: branch.URI, Commit: branch.Digest})
+			work := dependencyWork{WorkOrder: dependency.ID, Branch: branch.URI, Commit: branch.Digest}
+			records, err := tx.Forge().Integrations(dependency.ID)
+			if err != nil {
+				return in, err
+			}
+			for _, record := range records {
+				if record.Merged() && record.ApprovedCommit == branch.Digest && record.MergedCommit != "" {
+					work.Merged = record.MergedCommit
+				}
+			}
+			in.dependencies = append(in.dependencies, work)
 		}
 	}
 	slices.SortFunc(in.dependencies, func(a, b dependencyWork) int { return strings.Compare(a.WorkOrder, b.WorkOrder) })
@@ -263,9 +276,10 @@ func (s *Starts) continuedStart(ctx context.Context, path string, tip ports.Base
 // base, which holds them.
 func (s *Starts) mergedStart(ctx context.Context, path string, tip ports.BaseTip, dependencies []dependencyWork) (workorders.Start, *workorders.StartHold) {
 	for _, dependency := range dependencies {
-		merged, err := s.Bases.Contains(ctx, path, dependency.Commit, tip.Commit)
+		landed := cmp.Or(dependency.Merged, dependency.Commit)
+		merged, err := s.Bases.Contains(ctx, path, landed, tip.Commit)
 		if err != nil {
-			return workorders.Start{}, unavailable("reading whether %s is in %s: %v", short(dependency.Commit), tip.Ref, err)
+			return workorders.Start{}, unavailable("reading whether %s is in %s: %v", short(landed), tip.Ref, err)
 		}
 		if !merged {
 			return workorders.Start{}, &workorders.StartHold{

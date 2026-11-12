@@ -189,6 +189,10 @@ type ForgeReader interface {
 	PullRequests() ([]ledger.WorkPullRequest, error)
 	// Health lists what each worker last said of its forge sign-in, by repository and worker.
 	Health() ([]ledger.ForgeHealth, error)
+	// Integration returns one approval of a reviewed commit for merge, or ErrNotFound.
+	Integration(id string) (ledger.IntegrationRecord, error)
+	// Integrations lists a work order's approvals for merge, oldest first.
+	Integrations(workOrder string) ([]ledger.IntegrationRecord, error)
 }
 
 // ForgeWriter writes them. Each write that answers a worker compares the attempt it answers, so a stale
@@ -202,6 +206,13 @@ type ForgeWriter interface {
 	FailRequest(id string, attempt int64, detail string) (bool, error)
 	// FinishRequest marks a request done at an attempt, if it is still requested at that attempt.
 	FinishRequest(id string, attempt int64, at int64) (bool, error)
+	// FinishMerge marks a merge request done at an attempt with what the merge came to and why, if it is
+	// still requested at that attempt.
+	FinishMerge(id string, attempt, at int64, outcome ledger.MergeOutcome, detail string) (bool, error)
+	// InsertIntegration keeps an approval for merge, and reports false for an ID that exists.
+	InsertIntegration(ledger.IntegrationRecord) (bool, error)
+	// RecordMerge keeps the commit an approved merge made, once: a record already merged keeps its own.
+	RecordMerge(id, commit string, at int64) (bool, error)
 	// SavePullRequest keeps what a worker read of a work order's pull request, replacing what it held.
 	SavePullRequest(ledger.WorkPullRequest) error
 	// SaveHealth keeps what a worker said of its sign-in for a repository when the state or its detail

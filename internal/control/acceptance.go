@@ -69,6 +69,17 @@ func StandingIn(tx ports.ReadTx, id string) (workorders.AcceptanceView, error) {
 	if current.State == workorders.Acceptance {
 		view.Why = at.judgement.Why
 	}
+	if view.Integrations, err = tx.Forge().Integrations(id); err != nil {
+		return workorders.AcceptanceView{}, err
+	}
+	if current.State == workorders.Integrating {
+		f, err := readIntegration(readersIn(tx), current)
+		if err != nil {
+			return workorders.AcceptanceView{}, err
+		}
+		gate, _ := f.waiting()
+		view.Why = gate.Why
+	}
 	for _, review := range reviews {
 		view.Reviews = append(view.Reviews, workorders.ReviewLine{ID: review.ID, State: review.State, Attempt: review.ReviewsFence})
 	}
@@ -179,7 +190,8 @@ func acceptAction(needs workorders.Need) authority.Action {
 
 // Accept moves accepted work to `done`, once the caller may answer for what the evidence
 // leaves open. A failed check cannot be accepted, whoever asks. A repeated acceptance changes
-// nothing, and ropeshift does not merge: a branch artifact ends the work (D17).
+// nothing. In a repository where ropeshift merges, accepted work moves to `integrating` instead,
+// and a member's acceptance approves the merge of its reviewed commit (ADR-0020).
 func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id string, actor ledger.Actor) (workorders.State, error) {
 	state := workorders.Done
 	err := a.store.Write(ctx, scope, "acceptance.accept", func(tx ports.WriteTx) error {
@@ -197,6 +209,17 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		if current.State == workorders.Done {
 			return nil
 		}
+		if current.State == workorders.Integrating {
+			// Accepted work waits for its merge, and a member's acceptance of it approves the merge.
+			state = workorders.Integrating
+			if authority.PartyOf(actor) != authority.PartyPerson {
+				return workorders.ErrForbidden
+			}
+			if err := calibrateDecision(tx, current, workorders.DecisionAccept, "", actor); err != nil {
+				return err
+			}
+			return approveIntegrating(tx, current, actor)
+		}
 		if len(assessment.Failed) != 0 {
 			return fmt.Errorf("%w: %s", workorders.ErrNotAcceptable, strings.Join(assessment.Failed, ", "))
 		}
@@ -206,7 +229,12 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		if err := calibrateDecision(tx, current, workorders.DecisionAccept, "", actor); err != nil {
 			return err
 		}
-		return accept(tx, id, assessment, actor, func() { crashpoint.Hit("acceptance.accept", "moved") })
+		if err := accept(tx, id, assessment, actor, func() { crashpoint.Hit("acceptance.accept", "moved") }); err != nil {
+			return err
+		}
+		moved, err := tx.WorkOrders().Get(id)
+		state = moved.State
+		return err
 	})
 	if err != nil {
 		return "", err
@@ -226,6 +254,17 @@ type acceptedOn struct {
 }
 
 func acceptCiting(tx ports.WriteTx, id string, assessment workorders.Assessment, review string, actor ledger.Actor, moved func()) error {
+	order, err := tx.WorkOrders().Get(id)
+	if err != nil {
+		return err
+	}
+	merges, err := mergesOnAccept(tx, order)
+	if err != nil {
+		return err
+	}
+	if merges {
+		return integrateAccepted(tx, id, assessment, review, actor, moved)
+	}
 	payload, err := json.Marshal(acceptedOn{Assessment: assessment, Review: review})
 	if err != nil {
 		return err
@@ -335,6 +374,9 @@ func reworkFor(tx ports.WriteTx, id string, note workorders.ReworkNote, failed [
 		}
 	}
 	if err := leaveAcceptance(tx, id, change, actor, moved); err != nil {
+		return "", err
+	}
+	if err := voidMergeRequests(tx, id, "", "the work went back for rework"); err != nil {
 		return "", err
 	}
 	note.WorkOrder, note.Attempt = id, current.Fence
@@ -647,11 +689,11 @@ func recordCalibration(tx ports.WriteTx, current workorders.WorkOrder, at attemp
 	return err
 }
 
-// calibrateLaterDefect keeps a defect found in work that was accepted after a pass as a disagreement with
-// that verdict, bound to the same commit digest. Work the review did not pass, or no review judged, has no
+// calibrateLaterDefect keeps a defect found in work that was accepted after a pass, merged or waiting for its
+// merge, as a disagreement with that verdict, bound to the same commit digest. Work the review did not pass, or no review judged, has no
 // approval to have been wrong about.
 func calibrateLaterDefect(tx ports.WriteTx, done workorders.WorkOrder, reason string, actor ledger.Actor) error {
-	if done.State != workorders.Done || authority.PartyOf(actor) != authority.PartyPerson {
+	if (done.State != workorders.Done && done.State != workorders.Integrating) || authority.PartyOf(actor) != authority.PartyPerson {
 		return nil
 	}
 	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), done)

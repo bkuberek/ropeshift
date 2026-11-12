@@ -151,7 +151,7 @@ func (c *invocation) workShow(args []string) int {
 	if err != nil {
 		return c.finish(err, row, nil)
 	}
-	detail := api.WorkDetail{WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest}
+	detail := api.WorkDetail{WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest, Integrations: view.Integrations}
 	return c.finish(nil, detail, func() string { return workDetailText(detail) })
 }
 
@@ -164,7 +164,22 @@ func workDetailText(detail api.WorkDetail) string {
 	}
 	out.WriteString(reviewLines(detail.JudgedBy))
 	out.WriteString(verdictLines(detail.Verdicts))
-	if detail.Why != "" {
+	for _, record := range detail.Integrations {
+		approver := string(record.ApprovedByKind)
+		if record.ApprovedByID != "" {
+			approver += " " + record.ApprovedByID
+		}
+		merged := "not merged"
+		if record.Merged() {
+			merged = "merged as " + dashIfEmpty(shortCommit(record.MergedCommit))
+		}
+		fmt.Fprintf(&out, "approved\t%s\tby %s\tat %s\t%s\n", shortCommit(record.ApprovedCommit), approver, record.MergeAuthority, merged)
+	}
+	switch {
+	case detail.Why == "":
+	case detail.State == workorders.Integrating:
+		fmt.Fprintf(&out, "waiting\tto merge: %s\n", oneLine(detail.Why))
+	default:
 		fmt.Fprintf(&out, "waiting\tfor a member: %s\n", oneLine(detail.Why))
 	}
 	return out.String()

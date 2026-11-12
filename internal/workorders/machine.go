@@ -27,6 +27,11 @@ const (
 	TriggerTakeover          Trigger = "takeover"
 	TriggerLaneCompleted     Trigger = "lane_completed"
 	TriggerAcceptancePassed  Trigger = "acceptance_passed"
+	// TriggerIntegrating moves accepted work whose repository has ropeshift merge it to `integrating`, where
+	// the merge waits on its merge authority level and its required checks (ADR-0020).
+	TriggerIntegrating Trigger = "integrating"
+	// TriggerMerged ends work whose reviewed commit landed on its base.
+	TriggerMerged            Trigger = "merged"
 	TriggerRework            Trigger = "rework"
 	TriggerLaneBlocked       Trigger = "lane_blocked"
 	TriggerReplan            Trigger = "replan"
@@ -71,6 +76,9 @@ var edges = []Transition{
 	{Running, TriggerLaneCompleted, Acceptance, true},
 	{Acceptance, TriggerAcceptancePassed, Done, false},
 	{Acceptance, TriggerRework, Ready, false},
+	{Acceptance, TriggerIntegrating, Integrating, false},
+	{Integrating, TriggerMerged, Done, false},
+	{Integrating, TriggerRework, Ready, false},
 	{Running, TriggerLaneBlocked, Blocked, true},
 	{Blocked, TriggerReplan, Planning, false},
 	{Blocked, TriggerResolved, Ready, false},
@@ -89,7 +97,7 @@ var earlierEdges = map[edgeKey]Transition{
 func States() []State {
 	return []State{
 		Intake, Planning, ContractReview, Ready, Claimed, Running, Parked,
-		Lapsed, Acceptance, Blocked, Done, Failed, Canceled,
+		Lapsed, Acceptance, Integrating, Blocked, Done, Failed, Canceled,
 	}
 }
 
@@ -150,9 +158,10 @@ func Taken(from State, trigger Trigger) (Transition, bool) {
 	return edge, ok
 }
 
-// LeavesAcceptance reports the edges that end a lane's work, which answer to its evidence.
+// LeavesAcceptance reports the edges that end a lane's work, which answer to its evidence, and the edges of
+// the merge that follows it, which answer to the integration step.
 func LeavesAcceptance(trigger Trigger) bool {
-	return trigger == TriggerAcceptancePassed || trigger == TriggerRework
+	return trigger == TriggerAcceptancePassed || trigger == TriggerRework || trigger == TriggerIntegrating || trigger == TriggerMerged
 }
 
 // TakesNewVersion reports a state whose work has not started, so a new contract version can

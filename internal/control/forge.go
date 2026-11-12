@@ -262,12 +262,16 @@ func forgeReported(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 		}
 		return refreshReviewHolds(tx, request.WorkOrder)
 	}
-	if _, err := tx.Forge().FinishRequest(request.ID, request.Attempt, tx.Now()); err != nil {
-		return err
+	if request.Kind != ledger.ForgeMerge {
+		if _, err := tx.Forge().FinishRequest(request.ID, request.Attempt, tx.Now()); err != nil {
+			return err
+		}
 	}
 	switch request.Kind {
 	case ledger.ForgePublish:
 		return publishReported(tx, request, report, id, e.OccurredAt, actor)
+	case ledger.ForgeMerge:
+		return mergeReported(tx, request, report, actor)
 	case ledger.ForgeComment:
 		commented := struct {
 			Request string `json:"request"`
@@ -424,7 +428,7 @@ func desiredForge(tx ports.ReadTx, worker string, state *ledger.DesiredState) er
 	for _, r := range requests {
 		state.Forge = append(state.Forge, ledger.DesiredForge{
 			ID: r.ID, Kind: r.Kind, WorkOrder: r.WorkOrder, Repository: r.Repository, Binding: r.Binding, Branch: r.Branch, Base: r.Base,
-			Commit: r.Commit, Number: r.Number, Title: r.Title, Body: r.Body, Attempt: r.Attempt,
+			Commit: r.Commit, Number: r.Number, Title: r.Title, Body: r.Body, Method: r.Method, Attempt: r.Attempt,
 		})
 	}
 	records, err := tx.Repositories().Repositories()
@@ -543,6 +547,16 @@ func verdictBody(tx ports.WriteTx, review workorders.WorkOrder, commit string, v
 		out.WriteString("\nThe work goes back for rework on this branch, and its next commit is reviewed again.\n")
 	case workorders.Done:
 		out.WriteString("\nThe review accepted the work at the repository's merge authority.\n")
+	case workorders.Integrating:
+		record, err := tx.Repositories().Repository(reviewed.RepositoryID)
+		if err != nil {
+			return "", err
+		}
+		if record.Level() == ledger.ReviewApproves {
+			out.WriteString("\nThe review approved the work at review_approves: ropeshift merges this commit once every check the base requires is green on it.\n")
+		} else {
+			fmt.Fprintf(&out, "\nThe review passed every criterion. At %s, the merge of this commit waits for a member's approval.\n", record.Level())
+		}
 	default:
 		out.WriteString("\nThe work waits for a member's decision. These verdicts bind to this commit only; a new commit voids them.\n")
 	}
@@ -583,7 +597,12 @@ func pullRequestRead(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) 
 	if err := appendForgeAs(tx, id, e.OccurredAt, eventType, held.WorkOrder, read, ledger.Actor{Kind: ledger.ActorWorker, ID: worker}); err != nil {
 		return err
 	}
-	return refreshReviewHolds(tx, held.WorkOrder)
+	if err := refreshReviewHolds(tx, held.WorkOrder); err != nil {
+		return err
+	}
+	// A required check that turned green, a head that moved, or a merge on the forge is what the integration
+	// rule reads, so the step runs at once rather than at the next tick.
+	return integrate(tx, held.WorkOrder)
 }
 
 // samePullRequest compares what a read can change.

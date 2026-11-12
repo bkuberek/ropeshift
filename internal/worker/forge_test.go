@@ -217,3 +217,106 @@ func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
 		t.Fatalf("the merge ended %v, and the work reads %s: %v", moved, f.row().State, err)
 	}
 }
+
+// passReview runs the rig's review on a lane of another worker, which passes the one criterion.
+func (f *forgeRig) passReview() {
+	f.t.Helper()
+	ctx := f.t.Context()
+	review := f.review()
+	leases := control.NewLeases(f.store)
+	grant, err := leases.Claim(ctx, scope, workorders.ClaimRequest{WorkOrder: review.ID, ClaimID: "claim-review", Worker: "reviewer", TTLMs: 60_000}, member)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	generation, err := leases.StartLane(ctx, scope, grant.Lease, "review-lane", member)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{
+		{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It works as the criterion says.", Citations: []string{"main.go:3"}},
+	}}}
+	holder := workorders.Holder{Lease: grant.Lease, Lane: "review-lane", Generation: generation}
+	if err := leases.EndLane(ctx, scope, holder, result, ledger.Actor{Kind: ledger.ActorLane, ID: "review-lane"}); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// TestAWorkerMergesAtTheReviewedHeadOnce is FR-MERGE-5 and FR-MERGE-12 on the worker: at review_approves,
+// once the review passes, the worker that opened the pull request merges it at the reviewed head with the
+// repository's merge method, as one recorded effect, and the merge it reports ends the work. Later passes
+// merge nothing again.
+func TestAWorkerMergesAtTheReviewedHeadOnce(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	level, method := ledger.ReviewApproves, ledger.MergeSquash
+	if _, err := control.NewRepositories(f.store).Change(t.Context(), scope, "repo-1", control.RepositoryChange{MergeAuthority: &level, MergeMethod: &method}, member); err != nil {
+		t.Fatal(err)
+	}
+	f.converge(3)
+	f.passReview()
+	if f.row().State != workorders.Integrating {
+		t.Fatalf("the reviewed work reads %s", f.row().State)
+	}
+	f.converge(3)
+	if f.row().State != workorders.Done {
+		t.Fatalf("after the merge the work reads %s", f.row().State)
+	}
+	number := f.forge.PullRequests()[0].Number
+	if got := f.forge.MergedWith(number); got != ledger.MergeSquash {
+		t.Errorf("the forge merged with %q", got)
+	}
+	f.clock.Advance(2 * time.Minute)
+	f.converge(3)
+	merges := 0
+	for _, call := range f.forge.Calls() {
+		if strings.HasPrefix(call, "merge ") {
+			merges++
+		}
+	}
+	if merges != 1 {
+		t.Errorf("the worker merged %d times: %v", merges, f.forge.Calls())
+	}
+	pr, err := f.pullRequest()
+	if err != nil || pr.State != ledger.PullRequestMerged || pr.HeadCommit != "fake-head" {
+		t.Errorf("the ledger holds %+v: %v", pr, err)
+	}
+}
+
+// TestAWorkerMergesAReviewedBranchWithGit is FR-MERGE-11 on the worker: with review target `branch` at
+// review_approves, the worker that ran the lane merges the reviewed branch into its base with git, with no
+// forge, as one recorded effect, and the merge it reports ends the work.
+func TestAWorkerMergesAReviewedBranchWithGit(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	repositories := control.NewRepositories(base.store)
+	if _, err := repositories.Detect(t.Context(), scope, control.DetectedRepository{ID: "repo-1", DefaultBranch: "main"}, member); err != nil {
+		t.Fatal(err)
+	}
+	level := ledger.ReviewApproves
+	if _, err := repositories.Change(t.Context(), scope, "repo-1", control.RepositoryChange{MergeAuthority: &level}, member); err != nil {
+		t.Fatal(err)
+	}
+	worktrees := fake.NewWorktrees()
+	base.worktrees, base.repository = worktrees, "repo-1"
+	r := newLaneRigFor(t, base)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	f := &forgeRig{laneRig: r, worktrees: worktrees}
+	f.converge(2)
+	f.passReview()
+	if f.row().State != workorders.Integrating {
+		t.Fatalf("the reviewed work reads %s", f.row().State)
+	}
+	f.converge(3)
+	if f.row().State != workorders.Done {
+		t.Fatalf("after the merge the work reads %s", f.row().State)
+	}
+	merges := worktrees.Merges()
+	if len(merges) != 1 || merges[0].Base != "main" || merges[0].Branch != "lane/lane-1" || merges[0].Method != ledger.MergeCommit || merges[0].WorkOrder != f.id {
+		t.Fatalf("the worker merged %+v", merges)
+	}
+	f.clock.Advance(2 * time.Minute)
+	f.converge(2)
+	if again := worktrees.Merges(); len(again) != 1 {
+		t.Errorf("the worker merged %d times", len(again))
+	}
+}
