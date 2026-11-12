@@ -475,7 +475,7 @@ type mergedWork struct {
 // finishMerge records the merge of the approved commit and moves the work to `done`, as every accepted work
 // order ends: plan reviews it passes, and what waits on it wakes.
 func finishMerge(tx ports.WriteTx, f integrationFacts, record ledger.IntegrationRecord, merged mergedWork, actor ledger.Actor) error {
-	if _, err := tx.Forge().RecordMerge(record.ID, record.MergedCommit, record.MergedAt); err != nil {
+	if _, err := tx.Forge().RecordMerge(record.ID, record.PullRequest, record.MergedCommit, record.MergedAt); err != nil {
 		return err
 	}
 	merged.Record = record
@@ -528,6 +528,10 @@ func mergedOnForge(tx ports.WriteTx, f integrationFacts) error {
 		if err := recordCalibration(tx, f.order, at, workorders.DecisionAccept, workorders.SourceDecision, reason, ledger.Actor{}); err != nil {
 			return err
 		}
+	}
+	// An approval given before the pull request was on record names none; the merge names the one it merged.
+	if record.PullRequest == 0 {
+		record.PullRequest = pr.Number
 	}
 	record.MergedCommit, record.MergedAt = pr.MergeCommit, tx.Now()
 	return finishMerge(tx, f, record, mergedWork{URL: pr.URL, ForgeMerged: pr.MergedAt}, forgeActor)
@@ -653,6 +657,10 @@ func mergeLanded(tx ports.WriteTx, f integrationFacts, request ledger.ForgeReque
 		if err := tx.Forge().SavePullRequest(pr); err != nil {
 			return err
 		}
+	}
+	// An approval given before the pull request was on record names none; the merge names the one it went through.
+	if record.PullRequest == 0 {
+		record.PullRequest = request.Number
 	}
 	record.MergedCommit, record.MergedAt = result.MergeCommit, tx.Now()
 	merged := mergedWork{Method: request.Method, ForgeMerged: result.MergedAt}
