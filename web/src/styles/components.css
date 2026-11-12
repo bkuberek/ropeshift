@@ -1435,6 +1435,7 @@ details.disclosure > summary {
   cursor: pointer;
   list-style: none;
   display: inline-flex;
+  min-height: 24px;
   align-items: center;
   gap: 4px;
   font-size: var(--fs-12);

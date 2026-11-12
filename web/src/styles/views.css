@@ -659,6 +659,9 @@ a.list-row-title:hover {
 
 details.older > summary {
   cursor: pointer;
+  /* WCAG 2.2 target size: at least 24px tall whatever the platform's font metrics. */
+  min-height: 24px;
+  line-height: 24px;
   font-size: var(--fs-12);
   font-weight: 500;
   color: var(--text-2);
