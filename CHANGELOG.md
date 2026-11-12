@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.1.0-alpha.11](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.10...v0.1.0-alpha.11) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* failed work with attempts left stays failed until an orchestrator or a member retries it.
+
+### Features
+
+* add a versioned recovery policy that only a member publishes ([14ff3ce](https://github.com/bkuberek/ropeshift/commit/14ff3ce8e674c861231609e265209e2dffad493c))
+* give the orchestrator recovery tools held to the recovery policy ([415807b](https://github.com/bkuberek/ropeshift/commit/415807b77946b3e44b1d93b1c9f0f3a8d928c269))
+* give work that names no bound the recovery policy's attempts ([b7933a5](https://github.com/bkuberek/ropeshift/commit/b7933a5f7f9ad5f183752ebcff777d7c607256bc))
+* leave failed work failed until a retry, and let a member retry it ([db3c3bd](https://github.com/bkuberek/ropeshift/commit/db3c3bd99a6e47d8c39b236912054d8bab1f6ae3))
+* let a breaker reset clear only the crash window, and say when a lane's day stopped it ([1c50a69](https://github.com/bkuberek/ropeshift/commit/1c50a69c09db2f0934a79325f74b00181e97c0b9))
+* let a writing lane edit, create, and delete files in its worktree with no prompt ([9fcc0b2](https://github.com/bkuberek/ropeshift/commit/9fcc0b2100abf05f69cedd151bc836cc01049ee3))
+* refuse a permission-bypass mode in every profile layer and at a session's start ([f01a739](https://github.com/bkuberek/ropeshift/commit/f01a73972fed2314d42c0af2bdd045a2053adc94))
+* show a recovery request in Needs you, the CLI, and top, with its reason and limit ([c5603d5](https://github.com/bkuberek/ropeshift/commit/c5603d500af1fa198bec7800016004f934c8fc04))
+
+### Notes
+
+* A writing lane now edits, creates, and deletes files inside its own worktree, and commits there, with no approval request. Every push and every action your profile gates still asks, in every mode; writes outside the worktree, force pushes, and pushes to the default branch or a continued branch are refused. The hook keeps `rm`, `mkdir`, and `mv` inside the worktree and refuses a path through a symlink. Note that a commit runs the repository's own commit hooks; a profile can gate `git commit` if you want to approve each one.
+* A permission-bypass mode is refused in every profile layer, including your own, and at a session's start and resume.
+* The orchestrator recovers stuck work within a new `[recovery_policy]`: it restarts a stalled lane, resets a lane's breaker within a daily bound, retries failed work that has attempts left (`max_attempts`, default 3), and sends blocked work back to planning, each with a reason. Anything outside the policy becomes a `recovery` request in Needs you; approving it runs the action as you. `ropeshift lane reset`, `work retry`, and `work replan` give you the same actions.
+* **Behavior change:** a failed lane no longer sends its work back to ready on its own. The work stays `failed` until the orchestrator or you retry it or send it to replanning. A lane stopped by its daily restart cap shows `day_capped`, and only a member's reset overrides it.
+* This release adds database migrations `0048` and `0049`, and the worker journal's migration `0020`. They run on the first start.
+
 ## [0.1.0-alpha.10](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.9...v0.1.0-alpha.10) (2026-11-11)
 
 
