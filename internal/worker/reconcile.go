@@ -441,6 +441,11 @@ func (rt *LaneRuntime) configDir(lane string) string {
 	return filepath.Join(rt.StateDir, "lanes", lane)
 }
 
+// forgeConfigDir is the empty directory a lane's `gh` reads its configuration from.
+func (rt *LaneRuntime) forgeConfigDir(lane string) string {
+	return filepath.Join(rt.configDir(lane), "gh")
+}
+
 func (rt *LaneRuntime) tempDir(lane string) string {
 	if rt.RunDir == "" {
 		return ""

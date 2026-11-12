@@ -44,6 +44,9 @@ type LaneRequest struct {
 	// Private says this session has no work: Repository is a directory of its own, with no
 	// worktree in it, no ports, and no hook of a repository's to run.
 	Private bool
+	// ForgeConfigDir is where the session's `gh` reads its configuration. Prepare empties it first, so
+	// the person's sign-in is never there for an agent to use (ADR-0020). Empty sets nothing.
+	ForgeConfigDir string
 }
 
 // PreparedLane is everything a lane starts from, and nothing it inherited.
@@ -100,7 +103,12 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 			return PreparedLane{}, err
 		}
 	}
-	environment, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: lookup, SecretRefs: refs, Tags: request.Tags, Allocation: allocation})
+	if err := emptyDir(request.ForgeConfigDir); err != nil {
+		return PreparedLane{}, err
+	}
+	environment, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{
+		Lookup: lookup, SecretRefs: refs, Tags: request.Tags, Allocation: allocation, ForgeConfigDir: request.ForgeConfigDir,
+	})
 	if err != nil {
 		return PreparedLane{}, err
 	}
@@ -123,6 +131,17 @@ func (p Provisioner) Prepare(ctx context.Context, request LaneRequest) (Prepared
 		branch = ""
 	}
 	return PreparedLane{Worktree: worktree, Environment: environment, Profile: profile, ProfileDigest: digest, DefaultBranch: branch}, nil
+}
+
+// emptyDir leaves a directory that exists and holds nothing, whatever an earlier generation wrote there.
+func emptyDir(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o700)
 }
 
 // hookTimeout bounds a lane's setup, which a stuck script must not hold forever.

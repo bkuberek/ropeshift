@@ -399,3 +399,47 @@ func TestARestartAccountsForALaneAndDoesNotStartItAgain(t *testing.T) {
 		t.Errorf("outcome %+v", change)
 	}
 }
+
+// TestALaneStartsWithNoForgeCredential is ADR-0020's guardrail on a lane the worker spawns: a forge token in
+// the worker's own environment does not reach it, and gh in it reads an empty configuration directory of
+// the lane's own, so the person's sign-in is not there to use.
+func TestALaneStartsWithNoForgeCredential(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	parent := map[string]string{"PATH": "/usr/bin", "GH_TOKEN": "gh", "GITHUB_TOKEN": "g", "GH_CONFIG_DIR": "/home/someone/.config/gh"}
+	r.config.Provisioner.Lookup = func(name string) (string, bool) {
+		value, ok := parent[name]
+		return value, ok
+	}
+	stale := filepath.Join(r.dir, "lanes", "lane-1", "gh")
+	if err := os.MkdirAll(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "hosts.yml"), []byte("github.com:\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	specs := r.driver.Specs()
+	if len(specs) != 1 {
+		t.Fatalf("%d sessions", len(specs))
+	}
+	var configDir string
+	for _, entry := range specs[0].Env {
+		name, value, _ := strings.Cut(entry, "=")
+		switch name {
+		case "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN":
+			t.Errorf("%s reached the lane", name)
+		case "GH_CONFIG_DIR":
+			configDir = value
+		}
+	}
+	if configDir != stale {
+		t.Fatalf("GH_CONFIG_DIR is %q, want %q", configDir, stale)
+	}
+	if entries, err := os.ReadDir(configDir); err != nil || len(entries) != 0 {
+		t.Errorf("the lane's gh configuration holds %v: %v", entries, err)
+	}
+}

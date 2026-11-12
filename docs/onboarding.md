@@ -182,6 +182,8 @@ Everything else still asks, and the request waits for a member:
 
 A review lane only reads: it cannot edit a file with a tool, commit, push, or move a branch.
 
+No lane gets a forge credential. Its session starts without `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, or `GITHUB_ENTERPRISE_TOKEN`, with `GH_CONFIG_DIR` pointed at an empty directory of its own, so a `gh` it runs finds no sign-in ([gh environment](https://cli.github.com/manual/gh_help_environment)). A profile whose `secret_ref` names one of those variables is refused, and the lane does not start. Pushes and pull requests are the worker's own steps, never the agent's. Like every lane guardrail, this is not a sandbox.
+
 Two keys in the `[agent]` table of a profile control this:
 
 ```toml

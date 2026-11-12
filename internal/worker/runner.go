@@ -569,7 +569,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	prepared, err := r.rt.Provisioner.Prepare(ctx, LaneRequest{
 		Lane: r.lease.Lane, Repository: repository, Branch: r.lease.Branch, Base: r.begins(), Overrides: r.lease.Overrides, Fetch: r.fetchNames(), Private: r.orchestrating(),
-		Detached: r.reviewing(),
+		Detached: r.reviewing(), ForgeConfigDir: r.rt.forgeConfigDir(r.lease.Lane),
 		Allocate: func(settings lanes.ResourceSettings) (lanes.Allocation, error) { return r.allocate(ctx, settings) },
 		RunHook:  func(target string, perform func() error) error { return r.runHook(ctx, target, perform) },
 		Tags: map[string]string{
