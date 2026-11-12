@@ -146,3 +146,24 @@ func TestOnlyAMemberRegistersARepository(t *testing.T) {
 		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 }
+
+// An orchestrator recovers stuck work only through a recovery act its policy bounds. Retrying outside one,
+// deciding a recovery request, and resetting a breaker outright stay a member's (ADR-0014).
+func TestAnOrchestratorRecoversOnlyWithinItsPolicy(t *testing.T) {
+	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "w1"}
+	if !authority.Allowed(orchestrator, authority.ActionRecover) {
+		t.Error("an orchestrator cannot take a recovery act")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		for _, action := range []authority.Action{authority.ActionDecideRecovery, authority.ActionPassRecovery, authority.ActionRetryWork, authority.ActionResetLane} {
+			if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, action) {
+				t.Errorf("%s may %s", kind, action)
+			}
+		}
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionRecover) {
+			t.Errorf("%s may take a recovery act", kind)
+		}
+	}
+}

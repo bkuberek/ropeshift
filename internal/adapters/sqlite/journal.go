@@ -280,7 +280,7 @@ ON CONFLICT (id) DO UPDATE SET body = ?1`, string(body))
 	return err
 }
 
-const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen, owner, project`
+const laneColumns = `id, work_order, claim, fence, generation, state, token_digest, worktree, branch, report, session_id, progress, actual, resume_session, resets_seen, guard, handoff, parking, blocking, run_mode, compact_from, process_generation, respawns_seen, owner, project, window_resets_seen`
 
 func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var lane lanes.Record
@@ -288,7 +288,7 @@ func scanLane(row interface{ Scan(...any) error }) (lanes.Record, error) {
 	var progress, guard, handoff, parking, blocking []byte
 	err := row.Scan(&lane.ID, &lane.WorkOrder, &lane.ClaimID, &lane.Fence, &lane.Generation, &lane.State,
 		&digest, &lane.Worktree, &lane.Branch, &lane.Report, &lane.SessionID, &progress, &lane.Actual,
-		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen, &lane.Owner, &lane.Project)
+		&lane.ResumeSession, &lane.ResetsSeen, &guard, &handoff, &parking, &blocking, &lane.RunMode, &lane.CompactFrom, &lane.Process, &lane.RespawnsSeen, &lane.Owner, &lane.Project, &lane.WindowResetsSeen)
 	if err != nil {
 		return lane, err
 	}
@@ -683,6 +683,24 @@ func (j *Journal) ClearRestarts(ctx context.Context, lane string, resets int64) 
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET resets_seen = ?2 WHERE id = ?1`, lane, resets); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ClearWindow turns a lane's crash charges into charges its day still counts and its window does not, for
+// an orchestrator's reset, and keeps the reset's number. What the day counted it counts still, so no reset
+// of this kind overrides the day's verdict.
+func (j *Journal) ClearWindow(ctx context.Context, lane string, windowResets int64) error {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE lane_restarts SET planned = 1 WHERE lane = ?1`, lane); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE lanes SET window_resets_seen = ?2 WHERE id = ?1`, lane, windowResets); err != nil {
 		return err
 	}
 	return tx.Commit()

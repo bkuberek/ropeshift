@@ -346,6 +346,54 @@ describe("an approval", () => {
   });
 });
 
+describe("a recovery request", () => {
+  function recoveryView(): View {
+    const view = goldenNeedsYou();
+    const { approval, ...rest } = itemOf(view, "approval");
+    const request = {
+      ...approval,
+      id: "recovery-1",
+      kind: "recovery",
+      lane_id: "",
+      work_order_id: "wo-failed",
+      subject: "work_retry",
+      subject_digest: "sha256:subject",
+      input: '{"reason":"the network came back","work_order":"wo-failed"}',
+      command: "",
+      summary: "work_retry on work order wo-failed",
+      requested_by: "orchestrator:w1",
+      detail: JSON.stringify({
+        act: "work_retry",
+        work_order_id: "wo-failed",
+        reason: `the network came back ${hostile}`,
+        check: "max_attempts",
+        limit: "the work order used 1 of max_attempts 1",
+        policy_version: 1,
+      }),
+    };
+    return { ...view, items: [{ ...rest, id: request.id, approval: request }] };
+  }
+
+  it("says what the orchestrator asks, why, and the limit it went past, as text", () => {
+    show(recoveryView());
+    const card = cardNamed(/^Let the orchestrator retry wo-failed\?/);
+    expect(within(card).getByText(`the network came back ${hostile}`)).toBeTruthy();
+    expect(within(card).getByText("the work order used 1 of max_attempts 1")).toBeTruthy();
+    expect(within(card).getByText("Recovery")).toBeTruthy();
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  it("runs the act on approval, and declines it with the digest it read", async () => {
+    const sent = serveApi(() => ({ status: 200 }));
+    show(recoveryView());
+    await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await userEvent.click(screen.getByRole("button", { name: "Decline" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[0]).toMatchObject({ method: "POST", path: "/v1/approvals/recovery-1/decide", body: { digest: "sha256:subject", allow: true } });
+    expect(sent[1]?.body).toMatchObject({ digest: "sha256:subject", allow: false });
+  });
+});
+
 describe("an unknown effect", () => {
   it("offers what the server offers, and sends what a person says", async () => {
     const view = goldenNeedsYou();

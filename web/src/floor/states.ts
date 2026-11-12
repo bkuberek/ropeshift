@@ -54,6 +54,7 @@ export const conditionWords: Record<string, string> = {
   degraded_mode: "Degraded mode",
   unpushed_work: "Unpushed work",
   drifted: "Drifted",
+  day_capped: "Day's generations used",
 };
 
 // workLabel says a state to a person. A state this build has no words for still shows, as its own name.

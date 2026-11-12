@@ -67,6 +67,8 @@ type laneState struct {
 	// later handoff has both, because it is what this generation was told.
 	handoffLimit    time.Duration
 	handoffDegraded bool
+	// dayCapped says the breaker's last verdict found the lane's day full.
+	dayCapped bool
 	// askLimit is how long a lane rests on a blocking question, and drainLimit how long a
 	// draining fleet lets a turn run.
 	askLimit time.Duration
@@ -468,6 +470,7 @@ func (r *laneRun) status(ctx context.Context) ledger.LaneStatus {
 		WaitDeclared: now.Before(s.waitUntil), PastDeadline: r.lease.Deadline != 0 && now.UnixMilli() > r.lease.Deadline,
 		ContextTokens: s.context, WarnTokens: s.policy.WarnTokens, BriefUnconfirmed: s.unconfirmed, Degraded: s.degraded,
 		UnpushedWork: s.unpushed, HandoffDegraded: s.handoffDegraded, PackOversized: s.policy.Oversized(s.baseline),
+		DayCapped: s.dayCapped,
 	}
 	out := ledger.LaneStatus{
 		ActualState: string(state), Liveness: string(liveness),

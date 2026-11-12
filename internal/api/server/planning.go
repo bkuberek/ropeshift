@@ -25,6 +25,7 @@ func (h *handler) planningRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/work-orders/{id}/send-back", h.member(h.sendBack))
 	mux.HandleFunc("POST /v1/work-orders/{id}/resolve", h.member(h.unblock(workorders.TriggerResolved)))
 	mux.HandleFunc("POST /v1/work-orders/{id}/replan", h.member(h.unblock(workorders.TriggerReplan)))
+	mux.HandleFunc("POST /v1/work-orders/{id}/retry", h.member(h.retryWork))
 	mux.HandleFunc("GET /v1/documents", h.listDocuments)
 	mux.HandleFunc("GET /v1/documents/read", h.readDocument)
 	mux.HandleFunc("GET /v1/documents/versions", h.documentVersions)
@@ -219,6 +220,20 @@ func (h *handler) unblock(trigger workorders.Trigger) func(http.ResponseWriter, 
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// retryWork is a member's retry of failed work, with why.
+func (h *handler) retryWork(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	var in api.Retry
+	if !decode(w, r, &in) {
+		return
+	}
+	state, err := h.recoveries.Retry(r.Context(), h.Scope, r.PathValue("id"), in.Reason, actor)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.Retried{WorkOrder: r.PathValue("id"), State: state})
 }
 
 func documentBody(d ports.KnowledgeDocument) api.Document {

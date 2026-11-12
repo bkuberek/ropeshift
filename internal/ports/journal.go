@@ -138,6 +138,9 @@ type Journal interface {
 	Restarts(ctx context.Context, lane string) ([]lanes.Restart, error)
 	// ClearRestarts drops a lane's charges and keeps how many resets it has acted on.
 	ClearRestarts(ctx context.Context, lane string, resets int64) error
+	// ClearWindow takes a lane's crash charges out of its breaker's window and leaves them on its day, and
+	// keeps how many window resets it has acted on.
+	ClearWindow(ctx context.Context, lane string, windowResets int64) error
 	// SaveGuard keeps how the last stop left a lane's worktree.
 	SaveGuard(ctx context.Context, lane string, result lanes.GuardResult) error
 	// MarkArchived records that a lane's worktree went, and stores that event, together,

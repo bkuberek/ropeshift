@@ -64,6 +64,31 @@ func readLanePolicy(body string) (authority.LanePolicyDraft, error) {
 	return authority.LanePolicyDraft{Body: body, Policy: file.LanePolicy}, nil
 }
 
+// recoveryPolicyTable is the table a recovery policy's body holds.
+const recoveryPolicyTable = "recovery_policy"
+
+// recoveryPolicyKeys are the settings a recovery policy must state. A switch left out would allow or
+// refuse an act nobody chose.
+var recoveryPolicyKeys = []string{"version", "restart_stalled", "max_breaker_resets_per_day", "retry_failed", "replan_blocked", "max_attempts"}
+
+// readRecoveryPolicy reads a body whose table is `recovery_policy`, on the same terms as a lane policy.
+func readRecoveryPolicy(body string) (authority.RecoveryPolicyDraft, error) {
+	var file authority.RecoveryPolicyFile
+	meta, err := toml.Decode(body, &file)
+	if err != nil {
+		return authority.RecoveryPolicyDraft{}, fmt.Errorf("%w: %v", authority.ErrBadRecoveryPolicy, err)
+	}
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		return authority.RecoveryPolicyDraft{}, fmt.Errorf("%w: unknown setting %s", authority.ErrBadRecoveryPolicy, unknown[0])
+	}
+	for _, key := range recoveryPolicyKeys {
+		if !meta.IsDefined(recoveryPolicyTable, key) {
+			return authority.RecoveryPolicyDraft{}, fmt.Errorf("%w: a recovery policy states %s", authority.ErrBadRecoveryPolicy, key)
+		}
+	}
+	return authority.RecoveryPolicyDraft{Body: body, Policy: file.RecoveryPolicy}, nil
+}
+
 // holdsLanePolicy says a body is a lane policy, which the table it names decides.
 func holdsLanePolicy(body string) bool { return holdsTable(body, lanePolicyTable) }
 
@@ -141,6 +166,19 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 		reply(w, http.StatusCreated, record)
 		return
 	}
+	if holdsTable(in.Body, recoveryPolicyTable) {
+		draft, err := readRecoveryPolicy(in.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record, err = h.recoveries.PublishRecoveryPolicy(r.Context(), h.Scope, draft, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, http.StatusCreated, record)
+		return
+	}
 	if holdsLanePolicy(in.Body) {
 		draft, err := readLanePolicy(in.Body)
 		if err != nil {
@@ -181,6 +219,9 @@ func (h *handler) policyVersions(r *http.Request) ([]authority.PolicyVersion, er
 	}
 	if r.URL.Query().Get("kind") == string(authority.PolicyLane) {
 		return h.questions.LanePolicyVersions(r.Context(), h.Scope)
+	}
+	if r.URL.Query().Get("kind") == string(authority.PolicyRecovery) {
+		return h.recoveries.RecoveryPolicyVersions(r.Context(), h.Scope)
 	}
 	return h.questions.PolicyVersions(r.Context(), h.Scope)
 }

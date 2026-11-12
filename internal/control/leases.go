@@ -764,7 +764,11 @@ func endLane(tx ports.WriteTx, holder workorders.Holder, result workorders.LaneR
 	if generation != holder.Generation {
 		return fenced(tx, holder.WorkOrder)
 	}
-	ending, err := workorders.EndOf(current, result.Outcome)
+	byDefault, err := defaultAttempts(tx.Policies())
+	if err != nil {
+		return err
+	}
+	ending, err := workorders.EndOf(current, result.Outcome, byDefault)
 	if err != nil {
 		return err
 	}
@@ -1051,14 +1055,28 @@ func (l *Leases) ResetLane(ctx context.Context, scope ledger.WorkspaceID, workOr
 		if claim.Lane == "" {
 			return fmt.Errorf("%w: work order %s runs no lane", workorders.ErrIllegalMove, workOrder)
 		}
-		if _, err := tx.Lanes().Reset(claim.Lane); err != nil {
-			return err
-		}
-		_, err = tx.Append(ledger.EventDraft{
-			Type: ledger.EventLaneReset, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: claim.Lane},
-		})
-		return err
+		return resetLane(tx, workOrder, claim.Lane, actor)
 	})
+}
+
+// resetLane counts one reset of a lane's breaker. A member's clears every charge and overrides the day's
+// verdict. An orchestrator's clears the crash window and leaves the day, so no reset an orchestrator makes
+// overrides the daily cap (ADR-0014).
+func resetLane(tx ports.WriteTx, workOrder, lane string, actor ledger.Actor) error {
+	if err := voidRecoveries(tx, workOrder); err != nil {
+		return err
+	}
+	reset := tx.Lanes().Reset
+	if !authority.Allowed(actor, authority.ActionResetLane) {
+		reset = tx.Lanes().ResetWindow
+	}
+	if _, err := reset(lane); err != nil {
+		return err
+	}
+	_, err := tx.Append(ledger.EventDraft{
+		Type: ledger.EventLaneReset, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: lane},
+	})
+	return err
 }
 
 // RespawnLane asks for the next generation of a work order's running lane (FR-LANE-10). A person
@@ -1079,27 +1097,36 @@ func (l *Leases) RespawnLane(ctx context.Context, scope ledger.WorkspaceID, work
 		if err != nil {
 			return err
 		}
-		if !authority.Allowed(actor, authority.ActionPassAutonomy) {
-			record, err := tx.Workers().Find(claim.Worker)
-			if err != nil {
-				return err
-			}
-			facts, err := readAutonomy(tx.Policies(), tx.Workers(), record, tx.Now())
-			if err != nil {
-				return err
-			}
-			if err := withinRespawns(tx.Lanes(), claim.Lane, facts, tx.Now()); err != nil {
-				return err
-			}
-		}
-		if err := tx.Lanes().Respawn(claim.Lane); err != nil {
+		return respawnLane(tx, claim, actor)
+	})
+}
+
+// respawnLane asks for the next generation of a claim's lane. Anyone but a member is held to the respawns
+// its worker's level allows.
+func respawnLane(tx ports.WriteTx, claim workorders.Claim, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionPassAutonomy) {
+		record, err := tx.Workers().Find(claim.Worker)
+		if err != nil {
 			return err
 		}
-		_, err = tx.Append(ledger.EventDraft{
-			Type: ledger.EventLaneRespawn, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: claim.Lane},
-		})
+		facts, err := readAutonomy(tx.Policies(), tx.Workers(), record, tx.Now())
+		if err != nil {
+			return err
+		}
+		if err := withinRespawns(tx.Lanes(), claim.Lane, facts, tx.Now()); err != nil {
+			return err
+		}
+	}
+	if err := voidRecoveries(tx, claim.WorkOrder); err != nil {
 		return err
+	}
+	if err := tx.Lanes().Respawn(claim.Lane); err != nil {
+		return err
+	}
+	_, err := tx.Append(ledger.EventDraft{
+		Type: ledger.EventLaneRespawn, Actor: actor, Subject: ledger.Subject{Kind: ledger.SubjectLane, ID: claim.Lane},
 	})
+	return err
 }
 
 // ArchiveLane asks the worker that ran a lane to take its worktree away. Only a member can

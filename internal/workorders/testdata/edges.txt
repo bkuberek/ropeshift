@@ -21,5 +21,6 @@ acceptance rework ready
 running lane_blocked blocked
 blocked replan planning
 blocked resolved ready
-running lane_failed_retry ready
+running lane_failed failed
 running attempts_exhausted failed
+failed retried ready

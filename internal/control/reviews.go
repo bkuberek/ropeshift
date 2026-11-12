@@ -114,32 +114,41 @@ func (r *Reviews) Unblock(ctx context.Context, scope ledger.WorkspaceID, id stri
 		if err != nil {
 			return err
 		}
-		edge, err := workorders.Move(current, trigger)
-		if err != nil {
-			return err
-		}
-		if edge.From != workorders.Blocked {
-			return workorders.ErrIllegalMove
-		}
-		won, err := tx.WorkOrders().Move(id, edge.From, edge.To)
-		if err != nil {
-			return err
-		}
-		if !won {
-			return workorders.ErrIllegalMove
-		}
-		if trigger == workorders.TriggerReplan {
-			if err := tx.WorkOrders().Reviewed(id, ""); err != nil {
-				return err
-			}
-		}
-		event, err := workorders.ChangeEvent(workorders.EventType(edge.Trigger), id, workorders.Change{Trigger: edge.Trigger, Reason: reason}, actor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Append(event)
-		return err
+		return unblock(tx, current, workorders.Change{Trigger: trigger, Reason: reason}, actor)
 	})
+}
+
+// unblock moves blocked work by the change's trigger, and keeps the change. A replan voids the review of
+// the version the work was on, because its contract must pass review again.
+func unblock(tx ports.WriteTx, current workorders.WorkOrder, change workorders.Change, actor ledger.Actor) error {
+	edge, err := workorders.Move(current, change.Trigger)
+	if err != nil {
+		return err
+	}
+	if edge.From != workorders.Blocked {
+		return workorders.ErrIllegalMove
+	}
+	won, err := tx.WorkOrders().Move(current.ID, edge.From, edge.To)
+	if err != nil {
+		return err
+	}
+	if !won {
+		return workorders.ErrIllegalMove
+	}
+	if change.Trigger == workorders.TriggerReplan {
+		if err := tx.WorkOrders().Reviewed(current.ID, ""); err != nil {
+			return err
+		}
+	}
+	if err := voidRecoveries(tx, current.ID); err != nil {
+		return err
+	}
+	event, err := workorders.ChangeEvent(workorders.EventType(edge.Trigger), current.ID, change, actor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(event)
+	return err
 }
 
 func recordReview(tx ports.WriteTx, id string, actor ledger.Actor) error {

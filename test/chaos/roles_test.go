@@ -555,8 +555,8 @@ func (c *child) readyWorkOrders() ([]string, error) {
 	return ready, nil
 }
 
-// maintain stands for the control plane's lease tick and a member resolving what
-// lapsed.
+// maintain stands for the control plane's lease tick, a member resolving what lapsed, and a retry of
+// what failed, which nothing makes on its own (ADR-0014).
 func (c *child) maintain() error {
 	if _, err := c.ops.Sweep(c.ctx, c.scope, c.member()); err != nil {
 		return err
@@ -566,12 +566,17 @@ func (c *child) maintain() error {
 		return err
 	}
 	for _, row := range rows {
-		if row.State != workorders.Lapsed {
-			continue
-		}
-		err := c.ops.Reassign(c.ctx, c.scope, row.ID, "maintain", c.member())
-		if err != nil && !errors.Is(err, workorders.ErrNotLapsed) {
-			return err
+		switch row.State {
+		case workorders.Lapsed:
+			err := c.ops.Reassign(c.ctx, c.scope, row.ID, "maintain", c.member())
+			if err != nil && !errors.Is(err, workorders.ErrNotLapsed) {
+				return err
+			}
+		case workorders.Failed:
+			_, err := control.NewRecoveries(c.store).Retry(c.ctx, c.scope, row.ID, "maintain", c.member())
+			if err != nil && !errors.Is(err, workorders.ErrIllegalMove) {
+				return err
+			}
 		}
 	}
 	return nil
@@ -658,7 +663,7 @@ func (c *child) work(grant workorders.Grant) error {
 	}
 	// A running work order has no release, so half the time this holder walks away,
 	// and its lease expires and a member resolves it. The other half its lane fails,
-	// which moves the fence and returns the work order to `ready`.
+	// which moves the fence and leaves the work order `failed` until maintain retries it.
 	if c.rng.IntN(2) == 0 {
 		result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeFailed, Reason: workorders.ReasonCrashed}}
 		if err := c.ops.EndLane(c.ctx, c.scope, holder, result, c.actor); err != nil {

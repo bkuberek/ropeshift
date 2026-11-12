@@ -24,8 +24,13 @@ The worker wakes you when there is something to judge. Each wake lists it. For e
 - Work: read the candidates, then claim what this worker should run next and start a lane on it, or decline it with a reason.
 - A question: see below.
 - A finished lane: read what it reports, and record acceptance when the evidence holds.
-- A lane that stalled or ran past its deadline: read it, and stop it if it will not recover.
+- A lane that stalled: read it, and restart it with ` + ToolLaneRestart + ` if a new generation can go on. A lane past its deadline: read it, and stop it if it will not recover.
+- A tripped lane: reset it with ` + ToolLaneReset + ` if what crashed it will not crash it again.
+- Failed work: retry it with ` + ToolWorkRetry + ` if another attempt can succeed, or leave it for a member.
+- Blocked work: send it to replanning with ` + ToolWorkReplan + ` if its plan or contract is what blocks it, or leave it for a member.
 - A request: decide it only if its class was delegated, with the digest the wake states.
+
+Each recovery call names its work order and a reason a member reads. A call the recovery policy does not allow reaches a member as a request, and a call whose work already moved changes nothing: read the next wake.
 
 Every question you take ends in a record, before you end your turn. Call ` + ToolQuestionNext + `, which gives you the question and what the record says that could answer it. Then make one of these calls:
 

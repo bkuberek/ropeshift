@@ -132,8 +132,34 @@ func (w *Workers) orchestrate(ctx context.Context, verb string, call ledger.Orch
 			return nil, err
 		}
 		return w.questions.Rule(ctx, w.scope, call.Question, ruling, actor)
+	case ledger.VerbRestart, ledger.VerbReset, ledger.VerbRetry, ledger.VerbReplan:
+		return w.recover(ctx, recoveryActs[verb], call, actor)
 	}
 	return nil, fmt.Errorf("%w: no such act: %q", workorders.ErrInvalid, verb)
+}
+
+// recoveryActs are the recovery act each verb takes.
+var recoveryActs = map[string]authority.RecoveryAct{
+	ledger.VerbRestart: authority.RecoverRestart, ledger.VerbReset: authority.RecoverReset,
+	ledger.VerbRetry: authority.RecoverRetry, ledger.VerbReplan: authority.RecoverReplan,
+}
+
+// recover takes one recovery act for this worker's orchestrator, which is held to its level as a stop is,
+// and to the recovery policy in force. The record names the generation its session is in.
+func (w *Workers) recover(ctx context.Context, act authority.RecoveryAct, call ledger.OrchestratorCall, actor ledger.Actor) (RecoveryResult, error) {
+	if err := w.heldToStanding(ctx, actor.ID, authority.AutonomyStanding.MayWork); err != nil {
+		return RecoveryResult{}, err
+	}
+	var generation int64
+	err := w.store.Read(ctx, w.scope, func(tx ports.ReadTx) error {
+		row, err := tx.Workers().Orchestrator(actor.ID)
+		generation = row.Generation
+		return err
+	})
+	if err != nil {
+		return RecoveryResult{}, err
+	}
+	return w.recoveries.Recover(ctx, w.scope, RecoveryCall{Act: act, WorkOrder: call.WorkOrder, Reason: call.Reason}, actor, generation)
 }
 
 // heldToStanding refuses an act this worker's level does not leave its orchestrator. A start reads

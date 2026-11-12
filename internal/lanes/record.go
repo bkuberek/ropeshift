@@ -44,8 +44,10 @@ type Record struct {
 	CompactFrom ActualState
 	// ResumeSession is the session a restarted generation continues.
 	ResumeSession string
-	// ResetsSeen is how many human resets of the breaker this worker has acted on.
-	ResetsSeen int64
+	// ResetsSeen is how many human resets of the breaker this worker has acted on, and WindowResetsSeen how
+	// many resets of its window alone, which an orchestrator makes.
+	ResetsSeen       int64
+	WindowResetsSeen int64
 	// Guard is how the last stop left the worktree.
 	Guard GuardResult
 	// Handoff is how far the lane's last handoff got. Once its generation began, its

@@ -551,6 +551,14 @@ VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :fence, :now)`)
 	stmtLaneResets = define("lane.resets",
 		`SELECT resets FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
 
+	stmtLaneWindowResets = define("lane.window_resets",
+		`SELECT window_resets FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtLaneWindowReset = define("lane.window_reset",
+		`UPDATE lanes SET window_resets = window_resets + 1
+ WHERE workspace_id = :workspace_id AND id = :id
+RETURNING window_resets`)
+
 	stmtLaneRespawns = define("lane.respawns",
 		`SELECT respawns FROM lanes WHERE workspace_id = :workspace_id AND id = :id`)
 
@@ -852,6 +860,34 @@ func (t laneTx) Respawns(lane string) (int64, error) {
 func (t laneTx) Respawn(lane string) error {
 	_, err := t.exec(stmtLaneRespawn, params{"workspace_id": string(t.scope), "id": lane})
 	return err
+}
+
+func (t laneTx) WindowResets(lane string) (int64, error) {
+	return t.count(stmtLaneWindowResets, lane)
+}
+
+func (t laneTx) ResetWindow(lane string) (int64, error) {
+	resets, err := t.count(stmtLaneWindowReset, lane)
+	if err == nil {
+		t.changed = true
+	}
+	return resets, err
+}
+
+// count reads one number a statement returns for a lane.
+func (t laneTx) count(st *statement, lane string) (int64, error) {
+	row, err := t.row(st, params{"workspace_id": string(t.scope), "id": lane})
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	if err := row.Scan(&n); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("lane %s: %w", lane, ports.ErrNotFound)
+		}
+		return 0, err
+	}
+	return n, nil
 }
 
 func (t laneTx) Reset(lane string) (int64, error) {

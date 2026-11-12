@@ -85,6 +85,8 @@ type Workers struct {
 	leases  *Leases
 	// questions records what a lane asks.
 	questions *Questions
+	// recoveries takes an orchestrator's recovery acts.
+	recoveries *Recoveries
 }
 
 // NewWorkers returns the plane over a Store, for one workspace.
@@ -100,7 +102,8 @@ func NewWorkers(store ports.Store, scope ledger.WorkspaceID, options WorkerOptio
 	}
 	return &Workers{
 		store: store, scope: scope, options: options, leases: NewLeases(store).Budgeted(options.PackTokens).Starting(options.Starts),
-		questions: NewQuestions(store, options.Batches).Telling(options.Windows).Budgeted(options.PackTokens),
+		questions:  NewQuestions(store, options.Batches).Telling(options.Windows).Budgeted(options.PackTokens),
+		recoveries: NewRecoveries(store),
 	}
 }
 
@@ -550,6 +553,11 @@ func desiredLease(tx ports.ReadTx, row workorders.WorkOrder) (ledger.DesiredLeas
 		return lease, err
 	}
 	lease.Resets = resets
+	windowResets, err := tx.Lanes().WindowResets(claim.Lane)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return lease, err
+	}
+	lease.WindowResets = windowResets
 	respawns, err := tx.Lanes().Respawns(claim.Lane)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return lease, err

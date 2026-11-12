@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -160,6 +161,10 @@ func what(item api.NeedItem) string {
 	switch {
 	case item.Batch != nil:
 		return strconv.Itoa(len(item.Batch.Items)) + " to answer"
+	case item.Approval != nil && item.Approval.Kind == authority.KindRecovery:
+		detail := authority.RecoveryDetailOf(*item.Approval)
+		return fmt.Sprintf("the orchestrator asks to %s %s: %s; outside the policy: %s",
+			clean(item.Approval.Subject), clean(item.Approval.WorkOrder), clean(detail.Reason), clean(detail.Limit))
 	case item.Approval != nil:
 		return "lane " + clean(item.Approval.Lane) + " asks about " + clean(item.Approval.Subject)
 	case item.Effect != nil:

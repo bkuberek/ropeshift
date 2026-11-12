@@ -391,7 +391,11 @@ func (t *readTx) Events(after int64, limit int) ([]ledger.Event, error) {
 }
 
 func (t *readTx) EventsAbout(subject ledger.Subject) ([]ledger.Event, error) {
-	rows, err := t.rows(stmtEventsAbout, params{"workspace_id": string(t.scope), "subject_kind": subject.Kind, "subject_id": subject.ID})
+	return eventsAbout(t.session, t.scope, subject)
+}
+
+func eventsAbout(se *session, scope ledger.WorkspaceID, subject ledger.Subject) ([]ledger.Event, error) {
+	rows, err := se.rows(stmtEventsAbout, params{"workspace_id": string(scope), "subject_kind": subject.Kind, "subject_id": subject.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -502,6 +506,10 @@ func (t *writeTx) SaveFleet(mode ledger.FleetMode, caps ledger.Caps) error {
 
 func (t *writeTx) Events(after int64, limit int) ([]ledger.Event, error) {
 	return listEvents(t.session, t.scope, after, limit)
+}
+
+func (t *writeTx) EventsAbout(subject ledger.Subject) ([]ledger.Event, error) {
+	return eventsAbout(t.session, t.scope, subject)
 }
 
 func (t *writeTx) Event(id string) (ledger.Event, error) {

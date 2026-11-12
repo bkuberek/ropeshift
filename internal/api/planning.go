@@ -84,6 +84,25 @@ func (c *ProjectClient) Replan(ctx context.Context, id string, in Unblock) error
 	return c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/replan", in, nil)
 }
 
+// Retry is why a member retries failed work. A member is held to no recovery policy, so work with no
+// attempts left gets one more.
+type Retry struct {
+	Reason string `json:"reason"`
+}
+
+// Retried is where retried work stands, which is `ready`.
+type Retried struct {
+	WorkOrder string           `json:"work_order"`
+	State     workorders.State `json:"state"`
+}
+
+// Retry returns failed work to ready.
+func (c *ProjectClient) Retry(ctx context.Context, id string, in Retry) (Retried, error) {
+	var out Retried
+	err := c.do(ctx, http.MethodPost, "/v1/work-orders/"+url.PathEscape(id)+"/retry", in, &out)
+	return out, err
+}
+
 // Document is one document at one version. A list leaves Body empty.
 type Document struct {
 	Adapter  string `json:"adapter"`

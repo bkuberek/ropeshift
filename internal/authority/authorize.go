@@ -54,6 +54,21 @@ const (
 	ActionTakeQuestion  Action = "question.take"
 	// ActionUnblock takes work out of `blocked`, where a lane left it because no answer would help.
 	ActionUnblock Action = "work_order.unblock"
+	// ActionRetryWork returns failed work to `ready` with no recovery policy to hold it, and adds an attempt
+	// when none is left. An orchestrator retries only through a recovery act, which its policy bounds, so no
+	// row below may ever grant this. For a delegate (ADR-0024) a retry with attempts left is operational,
+	// and one with none left is consent.
+	ActionRetryWork Action = "work_order.retry"
+	// ActionRecover is an orchestrator's recovery act (FR-ORCH-8): restarting a stalled lane, resetting a
+	// tripped breaker's window, retrying failed work, or replanning blocked work. Each is held to the
+	// recovery policy in force, and one outside it raises a request only a member decides.
+	ActionRecover Action = "recovery.act"
+	// ActionPassRecovery takes a recovery act with no recovery policy to hold it, which bounds orchestrators
+	// and not members, so no row below may ever grant it.
+	ActionPassRecovery Action = "recovery.pass"
+	// ActionDecideRecovery decides a recovery request. It was outside the policy that bounds every
+	// orchestrator, so no row below may ever grant it. For a delegate (ADR-0024) it is consent.
+	ActionDecideRecovery Action = "recovery.decide"
 	// ActionDecideApproval decides a request. An orchestrator reaches only what a member delegated.
 	ActionDecideApproval Action = "approval.decide"
 	// ActionApprovePlan approves a plan version. A plan sets scope, and scope stays with a person, so
@@ -94,7 +109,8 @@ func Actions() []Action {
 		ActionArchiveLane, ActionCancelWork, ActionChangeFleet, ActionCreateJoinToken, ActionDecideUnbound, ActionDismissQuestion,
 		ActionDispatchLane, ActionForceArchive, ActionOverturn, ActionPassReview, ActionPublishPolicy,
 		ActionReassign, ActionRecordDecision, ActionResetLane, ActionRespawnLane, ActionResumeLane, ActionRework, ActionSendBack,
-		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator,
+		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator, ActionRetryWork,
+		ActionRecover, ActionPassRecovery, ActionDecideRecovery,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionManageProject,
 	}
@@ -105,7 +121,7 @@ func Actions() []Action {
 var granted = map[ledger.ActorKind]map[Action]bool{
 	ledger.ActorOrchestrator: {
 		ActionAddPackItem: true, ActionArchiveLane: true, ActionDecideApproval: true, ActionDismissQuestion: true,
-		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRespawnLane: true,
+		ActionDispatchLane: true, ActionReassign: true, ActionRecordDecision: true, ActionRecover: true, ActionRespawnLane: true,
 		ActionSendBack: true, ActionSendMessage: true, ActionTakeQuestion: true,
 	},
 	ledger.ActorSystem: {ActionAccept: true, ActionAcceptReviewed: true, ActionCreateJoinToken: true, ActionRework: true},

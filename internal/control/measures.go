@@ -182,9 +182,10 @@ func (h *historian) read(e ledger.Event) {
 	}
 }
 
-// forcedTriggers are the moves only a person can make, each one an interruption: ending a lapsed
-// holder's ownership, and taking work out of `blocked`.
-var forcedTriggers = []workorders.Trigger{workorders.TriggerTakeover, workorders.TriggerResolved, workorders.TriggerReplan}
+// forcedTriggers are the moves that interrupt a person when a person makes them: ending a lapsed holder's
+// ownership, taking work out of `blocked`, and retrying failed work. An orchestrator's replan or retry
+// interrupts nobody.
+var forcedTriggers = []workorders.Trigger{workorders.TriggerTakeover, workorders.TriggerResolved, workorders.TriggerReplan, workorders.TriggerRetried}
 
 func (h *historian) workOrder(e ledger.Event, member bool) {
 	id := e.Subject.ID
@@ -214,7 +215,7 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 			h.interrupted(e, measures.InterruptionForced, e.ID)
 		}
 		switch change.Trigger {
-		case workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailedRetry, workorders.TriggerAttemptsExhausted:
+		case workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailed, workorders.TriggerLaneFailedRetry, workorders.TriggerAttemptsExhausted:
 			h.laneResult(string(workorders.KindReview), e.RecordedAt, change.Payload)
 		}
 		return
@@ -233,7 +234,7 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 	if member && slices.Contains(forcedTriggers, change.Trigger) {
 		h.interrupted(e, measures.InterruptionForced, e.ID)
 	}
-	edge, ok := workorders.Next(workorders.State(order.State), change.Trigger)
+	edge, ok := workorders.Taken(workorders.State(order.State), change.Trigger)
 	if !ok {
 		return
 	}
@@ -250,7 +251,7 @@ func (h *historian) workOrder(e ledger.Event, member bool) {
 			h.history.Parks = append(h.history.Parks, measures.Park{Trigger: WakeTrigger(change.Reason), ParkedAt: parked, WokenAt: e.RecordedAt})
 			delete(h.parking, id)
 		}
-	case workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailedRetry, workorders.TriggerAttemptsExhausted:
+	case workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailed, workorders.TriggerLaneFailedRetry, workorders.TriggerAttemptsExhausted:
 		h.laneResult(order.Kind, e.RecordedAt, change.Payload)
 	case workorders.TriggerTakeover:
 		// A holder whose ownership a person ended never reports what its lane spent.

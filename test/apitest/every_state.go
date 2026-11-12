@@ -85,9 +85,14 @@ func (w *World) laneIn(state lanes.ActualState, turn int) {
 		lane.Park(lanes.HumanWake())
 	default:
 		reach := string(EveryReach[turn%len(EveryReach)])
+		conditions := []string{string(lanes.EveryCondition[turn%len(lanes.EveryCondition)])}
+		// Only a tripped lane says its day stopped it.
+		if state == lanes.Tripped {
+			conditions = append(conditions, string(lanes.DayCapped))
+		}
 		lane.Status(ledger.LaneStatus{
 			ActualState: string(state), Liveness: string(EveryLiveness[turn%len(EveryLiveness)]), ModelReach: reach, LedgerReach: reach,
-			Conditions: []string{string(lanes.EveryCondition[turn%len(lanes.EveryCondition)])},
+			Conditions: conditions,
 		})
 	}
 }

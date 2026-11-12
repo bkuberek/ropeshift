@@ -130,19 +130,35 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		return authority.Approval{}, workorders.ErrForbidden
 	}
 	var record authority.Approval
+	var voided bool
 	err := a.store.Write(ctx, scope, opApprovalDecide, func(tx ports.WriteTx) error {
 		row, err := tx.Approvals().Approval(decision.ID)
 		if err != nil {
 			return err
 		}
 		// A plan sets scope, so only a member decides one: an orchestrator reaches a request through the
-		// delegation policy, and no policy reaches this.
+		// delegation policy, and no policy reaches this. A recovery act was outside the policy every
+		// orchestrator is held to, so only a member decides that too.
 		if row.Kind == authority.KindPlan && !authority.Allowed(actor, authority.ActionApprovePlan) {
+			return workorders.ErrForbidden
+		}
+		if row.Kind == authority.KindRecovery && !authority.Allowed(actor, authority.ActionDecideRecovery) {
 			return workorders.ErrForbidden
 		}
 		if row.Repeats(decision, actor) {
 			record = row
 			return nil
+		}
+		if row.Kind == authority.KindRecovery && row.Open() {
+			moved, err := recoveryMoved(tx, row)
+			if err != nil {
+				return err
+			}
+			if moved {
+				record, voided = row, true
+				record.State, record.Reason = authority.ApprovalVoid, "its subject changed"
+				return noteApproval(tx, record, row.State, approvalExpiry)
+			}
 		}
 		version, err := delegationVersion(tx)
 		if err != nil {
@@ -160,10 +176,16 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if record.Kind == authority.KindPlan && record.State == authority.ApprovalApproved {
 			return approvePlan(tx, record, actor)
 		}
+		if record.Kind == authority.KindRecovery && record.State == authority.ApprovalApproved {
+			return grantRecovery(tx, record, actor)
+		}
 		return nil
 	})
 	if err != nil {
 		return authority.Approval{}, err
+	}
+	if voided {
+		return record, fmt.Errorf("%w: its subject changed, so it is void", authority.ErrApprovalClosed)
 	}
 	return record, nil
 }
@@ -311,12 +333,15 @@ func expireApprovals(tx ports.WriteTx, workOrder string) error {
 
 func expireApproval(tx ports.WriteTx, row authority.Approval) error {
 	// A plan approval waits for a member and not for a session, so nothing returns to a lane when its
-	// work order ends, and no time runs out on it.
+	// work order ends, and no time runs out on it. A recovery request's subject moved when its lane ended.
 	if !row.Live() || row.Kind == authority.KindPlan {
 		return nil
 	}
 	next := row
 	next.State = authority.ApprovalExpired
+	if row.Kind == authority.KindRecovery {
+		next.State, next.Reason = authority.ApprovalVoid, "its subject changed"
+	}
 	return noteApproval(tx, next, row.State, approvalExpiry)
 }
 

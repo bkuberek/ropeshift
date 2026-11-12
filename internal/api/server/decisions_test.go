@@ -413,3 +413,71 @@ func TestOverturnNeedsASession(t *testing.T) {
 	_, err = anonymous.PublishPolicy(t.Context(), sevenBody)
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeSessionRequired)
 }
+
+// A new workspace runs on the built-in recovery policy, and what a member publishes is what a store holds in
+// force. An orchestrator is held to it, so only a member's session reaches the route.
+func TestARecoveryPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
+	daemon := apitest.Start(t)
+	ctx := t.Context()
+	before, err := daemon.Client.PoliciesOf(ctx, authority.PolicyRecovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || before[0].Version != 1 || before[0].Body != authority.BuiltInRecoveryPolicyBody {
+		t.Fatalf("a new workspace reviews %+v", before)
+	}
+	body := strings.Replace(strings.Replace(authority.BuiltInRecoveryPolicyBody, "version = 1", "version = 2", 1), "retry_failed = true", "retry_failed = false", 1)
+	published, err := daemon.Client.PublishPolicy(ctx, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Kind != authority.PolicyRecovery || published.Version != 2 {
+		t.Fatalf("published %+v", published)
+	}
+	read, err := daemon.Client.PolicyOf(ctx, authority.PolicyRecovery, 2)
+	if err != nil || read.Digest != published.Digest {
+		t.Fatalf("read %+v: %v", read, err)
+	}
+	var inForce authority.RecoveryPolicy
+	err = daemon.Store.Read(ctx, apitest.Scope, func(tx ports.ReadTx) error {
+		version, err := tx.Policies().InForce(authority.PolicyRecovery)
+		if err != nil {
+			return err
+		}
+		inForce, err = authority.ReadRecoveryPolicy(version)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (authority.RecoveryPolicy{Version: 2, RestartStalled: true, MaxBreakerResetsPerDay: 2, ReplanBlocked: true, MaxAttempts: 3}); inForce != want {
+		t.Errorf("in force %+v, want %+v", inForce, want)
+	}
+	if _, err := daemon.Client.PublishPolicy(ctx, body); err != nil {
+		t.Errorf("the same body again is a retry: %v", err)
+	}
+}
+
+func TestARecoveryPolicyBodyMustBeComplete(t *testing.T) {
+	daemon := apitest.Start(t)
+	base := strings.Replace(authority.BuiltInRecoveryPolicyBody, "version = 1", "version = 2", 1)
+	tests := []struct{ name, body string }{
+		{"a misspelled key", strings.Replace(base, "retry_failed", "retry_fails", 1)},
+		{"no restart switch", strings.Replace(base, "restart_stalled = true\n", "", 1)},
+		{"no reset bound", strings.Replace(base, "max_breaker_resets_per_day = 2\n", "", 1)},
+		{"no retry switch", strings.Replace(base, "retry_failed = true\n", "", 1)},
+		{"no replan switch", strings.Replace(base, "replan_blocked = true\n", "", 1)},
+		{"no version", strings.Replace(base, "version = 2\n", "", 1)},
+		{"a bound below zero", strings.Replace(base, "= 2\nretry", "= -1\nretry", 1)},
+		{"no default attempts", strings.Replace(base, "max_attempts = 3\n", "", 1)},
+		{"no attempt at all", strings.Replace(base, "max_attempts = 3", "max_attempts = 0", 1)},
+		{"a version that is not newer", authority.BuiltInRecoveryPolicyBody + "# a changed body\n"},
+		{"a key stated twice", base + "max_attempts = 4\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := daemon.Client.PublishPolicy(t.Context(), tt.body)
+			refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+		})
+	}
+}

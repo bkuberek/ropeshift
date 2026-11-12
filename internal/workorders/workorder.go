@@ -194,7 +194,9 @@ type Change struct {
 	Reason     string  `json:"reason,omitempty"`
 	Outcome    Outcome `json:"outcome,omitempty"`
 	Attempts   int64   `json:"attempts,omitempty"`
-	Payload    []byte  `json:"payload,omitempty"`
+	// MaxAttempts is the bound a retry moved to, when a member's retry added an attempt.
+	MaxAttempts int64  `json:"max_attempts,omitempty"`
+	Payload     []byte `json:"payload,omitempty"`
 	// ContractVersion is the version a pin moved to.
 	ContractVersion int64 `json:"contract_version,omitempty"`
 	// PlanCommit is the commit intake read for an accepted plan.
@@ -375,7 +377,7 @@ func apply(current WorkOrder, known bool, e ledger.Event) (WorkOrder, error) {
 		}
 		return current, nil
 	}
-	edge, ok := Next(current.State, change.Trigger)
+	edge, ok := Taken(current.State, change.Trigger)
 	if !ok {
 		return current, fmt.Errorf("%w: %s from %s", ErrInvalid, change.Trigger, current.State)
 	}
@@ -402,7 +404,7 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 			return w, fmt.Errorf("%w: ownership ended at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
 		}
 		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
-	case TriggerLaneCompleted, TriggerLaneBlocked, TriggerLaneFailedRetry, TriggerAttemptsExhausted:
+	case TriggerLaneCompleted, TriggerLaneBlocked, TriggerLaneFailed, TriggerLaneFailedRetry, TriggerAttemptsExhausted:
 		if change.Fence <= w.Fence {
 			return w, fmt.Errorf("%w: a lane ended at fence %d after fence %d", ErrInvalid, change.Fence, w.Fence)
 		}
@@ -415,6 +417,8 @@ func applyEdge(w WorkOrder, edge Transition, change Change) (WorkOrder, error) {
 		w.Fence, w.ClaimID, w.LeaseWorker, w.LeaseUntil = change.Fence, "", "", 0
 	case TriggerWakeFired:
 		w.ResumeLaneID = change.Lane
+	case TriggerRetried:
+		w.MaxAttempts = max(w.MaxAttempts, change.MaxAttempts)
 	case TriggerContractChange:
 		w.ReviewedBy = ""
 	case TriggerCanceled:

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -42,5 +43,23 @@ func TestAnAcceptanceLineSaysWhatTheReviewFound(t *testing.T) {
 	}
 	if line := what(api.NeedItem{Kind: api.NeedWork, Work: &api.WorkNeed{Reason: api.ReasonAcceptance}}); strings.Contains(line, "review:") {
 		t.Errorf("work with no standing: %q", line)
+	}
+}
+
+// A recovery request says which act the orchestrator asked for, on which work, why, and the limit it went
+// past, so a person at a terminal reads what approving it does.
+func TestARecoveryLineSaysWhatItAsksAndWhy(t *testing.T) {
+	detail := `{"act":"work_retry","work_order_id":"wo-1","reason":"the network came back","check":"max_attempts","limit":"the work order used 1 of max_attempts 1","policy_version":1}`
+	item := api.NeedItem{Kind: api.NeedApproval, ID: "recovery-1", Approval: &authority.Approval{
+		ID: "recovery-1", Kind: authority.KindRecovery, WorkOrder: "wo-1", Subject: "work_retry", RequestedBy: "orchestrator:w1", Detail: detail,
+	}}
+	line := what(item)
+	for _, want := range []string{"work_retry", "wo-1", "the network came back", "the work order used 1 of max_attempts 1"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the line %q does not say %q", line, want)
+		}
+	}
+	if strings.Contains(line, "lane  asks") {
+		t.Errorf("a recovery request reads as a lane's: %q", line)
 	}
 }

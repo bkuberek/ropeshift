@@ -101,10 +101,12 @@ func laneAttrs(workOrder, lane string, generation int64) []ports.Attribute {
 
 // laneEndTriggers end a lane with an outcome.
 var laneEndTriggers = []workorders.Trigger{
-	workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailedRetry, workorders.TriggerAttemptsExhausted,
+	workorders.TriggerLaneCompleted, workorders.TriggerLaneBlocked, workorders.TriggerLaneFailed, workorders.TriggerLaneFailedRetry,
+	workorders.TriggerAttemptsExhausted,
 }
 
-// terminalTriggers end a work order.
+// terminalTriggers end a work order. A failed lane that leaves attempts ends no span, because the work
+// order's span goes on across the retry that usually follows.
 var terminalTriggers = map[workorders.Trigger]workorders.State{
 	workorders.TriggerAcceptancePassed: workorders.Done, workorders.TriggerAttemptsExhausted: workorders.Failed,
 	workorders.TriggerCanceled: workorders.Canceled,

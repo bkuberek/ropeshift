@@ -31,10 +31,15 @@ const (
 	TriggerLaneBlocked       Trigger = "lane_blocked"
 	TriggerReplan            Trigger = "replan"
 	TriggerResolved          Trigger = "resolved"
-	TriggerLaneFailedRetry   Trigger = "lane_failed_retry"
+	TriggerLaneFailed        Trigger = "lane_failed"
 	TriggerAttemptsExhausted Trigger = "attempts_exhausted"
+	TriggerRetried           Trigger = "retried"
 	TriggerCanceled          Trigger = "canceled"
 )
+
+// TriggerLaneFailedRetry is a failed lane returning its work to `ready` on its own, which a build before
+// retries were judged recorded (ADR-0014). Nothing takes it now, and a replay still reads it.
+const TriggerLaneFailedRetry Trigger = "lane_failed_retry"
 
 // Transition is one edge of the state machine. A leased edge changes who holds the
 // work order, so only a lease use case may take it: the fence must move or be
@@ -69,8 +74,15 @@ var edges = []Transition{
 	{Running, TriggerLaneBlocked, Blocked, true},
 	{Blocked, TriggerReplan, Planning, false},
 	{Blocked, TriggerResolved, Ready, false},
-	{Running, TriggerLaneFailedRetry, Ready, true},
+	{Running, TriggerLaneFailed, Failed, true},
 	{Running, TriggerAttemptsExhausted, Failed, true},
+	{Failed, TriggerRetried, Ready, false},
+}
+
+// earlierEdges are edges a ledger an earlier build wrote can hold, which nothing takes now. A replay reads
+// them, so a projection rebuilt from such a ledger is the one that build kept.
+var earlierEdges = map[edgeKey]Transition{
+	{Running, TriggerLaneFailedRetry}: {Running, TriggerLaneFailedRetry, Ready, true},
 }
 
 // States lists every state.
@@ -81,7 +93,9 @@ func States() []State {
 	}
 }
 
-// Terminal reports a state nothing leaves.
+// Terminal reports a state where work ends: no lane, tick, or cancel moves it. The one way out of an end
+// is a retry of `failed` work, which an orchestrator judges within its recovery policy or a member makes,
+// so a failed lane never spends its attempts unseen (ADR-0014).
 func Terminal(s State) bool {
 	return s == Done || s == Failed || s == Canceled
 }
@@ -123,6 +137,16 @@ func Transitions() []Transition {
 // Next returns the edge a trigger takes from a state.
 func Next(from State, trigger Trigger) (Transition, bool) {
 	edge, ok := table[edgeKey{from, trigger}]
+	return edge, ok
+}
+
+// Taken returns the edge a recorded trigger took from a state: the table's, or one a ledger an earlier
+// build wrote can hold. A reader of history uses it, and nothing that moves work does.
+func Taken(from State, trigger Trigger) (Transition, bool) {
+	if edge, ok := Next(from, trigger); ok {
+		return edge, true
+	}
+	edge, ok := earlierEdges[edgeKey{from, trigger}]
 	return edge, ok
 }
 

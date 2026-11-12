@@ -266,6 +266,32 @@ func (c *invocation) unblock(args []string, move func(*api.ProjectClient, contex
 	}{id, to}, func() string { return id + "\t" + to + "\n" })
 }
 
+// workRetry returns failed work to ready, with why. A member's retry of work with no attempts left adds
+// one.
+func (c *invocation) workRetry(args []string) int {
+	set := c.flags()
+	var request api.Retry
+	set.StringVar(&request.Reason, "reason", "", "why another attempt can succeed")
+	positional, ok := c.parse(set, args)
+	if !ok {
+		return ExitUsage
+	}
+	id, ok := c.oneID(positional)
+	if !ok {
+		return ExitUsage
+	}
+	if request.Reason == "" {
+		return c.usageError("--reason is required")
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	retried, err := client.Retry(c.ctx, id, request)
+	return c.finish(err, retried, func() string { return retried.WorkOrder + "\t" + string(retried.State) + "\n" })
+}
+
 func (c *invocation) workSendBack(args []string) int {
 	set := c.flags()
 	var request api.SendBack

@@ -53,11 +53,45 @@ func TestEveryNonTerminalStateCanCancel(t *testing.T) {
 	}
 }
 
-func TestTerminalStatesHaveNoExit(t *testing.T) {
+// TestOnlyARetryLeavesAnEnd holds the one way out of an end: a retry of failed work, which an
+// orchestrator judges within its policy or a member makes. Nothing leaves `done` or `canceled`, and no
+// lane's end, tick, or cancel leaves `failed`.
+func TestOnlyARetryLeavesAnEnd(t *testing.T) {
 	for _, e := range Transitions() {
-		if Terminal(e.From) {
+		if Terminal(e.From) && (e.From != Failed || e.Trigger != TriggerRetried || e.To != Ready || e.Leased) {
 			t.Errorf("edge leaves terminal state: %+v", e)
 		}
+	}
+	if _, ok := Next(Failed, TriggerRetried); !ok {
+		t.Error("failed work has no retry")
+	}
+}
+
+// A failed lane leaves its work failed whether or not attempts remain, so a retry is always judged
+// (ADR-0014). Only whether attempts remain tells the two edges apart.
+func TestAFailedLaneLeavesItsWorkFailed(t *testing.T) {
+	tests := []struct {
+		name                         string
+		attempts, allowed, byDefault int64
+		trigger                      Trigger
+	}{
+		{"attempts remain", 0, 3, 1, TriggerLaneFailed},
+		{"the second of three", 1, 3, 1, TriggerLaneFailed},
+		{"the last attempt", 2, 3, 5, TriggerAttemptsExhausted},
+		{"no bound named, and the default allows one", 0, 0, 1, TriggerAttemptsExhausted},
+		{"no bound named, and the default allows three", 1, 0, 3, TriggerLaneFailed},
+		{"no bound named, and the default's last attempt", 2, 0, 3, TriggerAttemptsExhausted},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ending, err := EndOf(WorkOrder{State: Running, Attempts: tt.attempts, MaxAttempts: tt.allowed}, OutcomeFailed, tt.byDefault)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ending.To != Failed || ending.Trigger != tt.trigger || ending.Attempts != tt.attempts+1 {
+				t.Errorf("ending %+v", ending)
+			}
+		})
 	}
 }
 
@@ -140,7 +174,7 @@ func TestGeneratedSequences(t *testing.T) {
 			if !ok {
 				continue
 			}
-			if Terminal(state) {
+			if Terminal(state) && trigger != TriggerRetried {
 				t.Fatalf("%s left terminal state %s", trigger, state)
 			}
 			if edge.From != state || edge.Trigger != trigger {

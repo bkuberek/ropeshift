@@ -119,6 +119,8 @@ type WriteTx interface {
 	// Event returns the event with a client-generated ID, or ErrNotFound. It is how
 	// a retry finds its first attempt.
 	Event(id string) (ledger.Event, error)
+	// EventsAbout returns every event about one subject, in order.
+	EventsAbout(subject ledger.Subject) ([]ledger.Event, error)
 	// Append adds one event, which takes its own revision.
 	Append(ledger.EventDraft) (ledger.Event, error)
 	// SaveFleet replaces a workspace's fleet mode and caps.
@@ -160,10 +162,21 @@ type WriteTx interface {
 	Effects() EffectWriter
 	// Repositories reads and writes the record of each repository.
 	Repositories() RepositoryWriter
+	// Recoveries keeps the record of recovery acts.
+	Recoveries() RecoveryWriter
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
 	Index(kind, id, text string) error
+}
+
+// RecoveryWriter keeps every recovery act that ran or was refused (ADR-0014).
+type RecoveryWriter interface {
+	// Record keeps one act.
+	Record(authority.RecoveryRecord) error
+	// Done counts the acts of one kind that principals of one kind took on a work order after a time, which
+	// is how the policy bounds an orchestrator's breaker resets in a day.
+	Done(workOrder string, act authority.RecoveryAct, by ledger.ActorKind, since int64) (int64, error)
 }
 
 // WorkOrderReader reads the work order projection.
@@ -195,6 +208,9 @@ type WorkOrderWriter interface {
 	// Move is a compare-and-set on the state of an unleased work order. It
 	// reports whether the row matched.
 	Move(id string, from, to workorders.State) (bool, error)
+	// Retry returns failed work to `ready` with the attempts it now allows, and reports whether the row
+	// was still failed.
+	Retry(id string, maxAttempts int64) (bool, error)
 	// Reviewed records who passed a work order's review. An empty member voids it.
 	Reviewed(id, member string) error
 	// TakenIn records the commit intake read for an accepted `plan` work order.
@@ -274,6 +290,8 @@ type LaneReader interface {
 	Rows() ([]ledger.LaneRow, error)
 	// Resets returns how many times a lane's breaker was reset, or ErrNotFound.
 	Resets(lane string) (int64, error)
+	// WindowResets returns how many times an orchestrator reset a lane's breaker window, or ErrNotFound.
+	WindowResets(lane string) (int64, error)
 	// Respawns returns how many times someone asked for a lane's next generation.
 	Respawns(lane string) (int64, error)
 	// Artifacts lists what a lane left, oldest first.
@@ -324,6 +342,8 @@ type LaneWriter interface {
 	WantPark(lane, reason string) error
 	// Reset counts one human reset of a lane's breaker and returns the count.
 	Reset(lane string) (int64, error)
+	// ResetWindow counts one orchestrator's reset of a lane's breaker window and returns the count.
+	ResetWindow(lane string) (int64, error)
 	// Respawn counts one request for a lane's next generation.
 	Respawn(lane string) error
 	// Guarded keeps how a stop left a worktree. Work no remote holds withdraws a request

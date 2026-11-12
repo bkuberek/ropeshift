@@ -74,9 +74,11 @@ type Ending struct {
 	Attempts int64
 }
 
-// EndOf follows the outcome table. A failed lane returns to `ready` while attempts
-// remain, and a work order with no attempts left fails.
-func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
+// EndOf follows the outcome table. A failed lane leaves its work `failed` whether or not attempts
+// remain, and the trigger says which: a retry is judged by an orchestrator or made by a member, so a
+// crash that repeats does not spend every attempt unseen (ADR-0014). byDefault is the attempts a work
+// order gets when it names no bound, which the recovery policy in force states.
+func EndOf(w WorkOrder, outcome Outcome, byDefault int64) (Ending, error) {
 	switch outcome {
 	case OutcomeCompleted:
 		return Ending{TriggerLaneCompleted, Acceptance, w.Attempts}, nil
@@ -84,8 +86,8 @@ func EndOf(w WorkOrder, outcome Outcome) (Ending, error) {
 		return Ending{TriggerLaneBlocked, Blocked, w.Attempts}, nil
 	case OutcomeFailed:
 		attempts := w.Attempts + 1
-		if attempts < w.MaxAttempts {
-			return Ending{TriggerLaneFailedRetry, Ready, attempts}, nil
+		if attempts < w.AttemptBound(byDefault) {
+			return Ending{TriggerLaneFailed, Failed, attempts}, nil
 		}
 		return Ending{TriggerAttemptsExhausted, Failed, attempts}, nil
 	}
@@ -109,4 +111,17 @@ type LaneResult struct {
 	OutputTokens     int64   `json:"output_tokens,omitempty"`
 	// Settings are what the lane ran on, for the experience record of a lane that never bound.
 	Settings *measures.Settings `json:"settings,omitempty"`
+}
+
+// AttemptsLeft says a failed work order may run again without a member adding an attempt, where byDefault
+// is the attempts a work order that names no bound gets.
+func (w WorkOrder) AttemptsLeft(byDefault int64) bool { return w.Attempts < w.AttemptBound(byDefault) }
+
+// AttemptBound is how many attempts a work order allows: its own bound, or byDefault when it names none,
+// and one when neither names any.
+func (w WorkOrder) AttemptBound(byDefault int64) int64 {
+	if w.MaxAttempts > 0 {
+		return w.MaxAttempts
+	}
+	return max(byDefault, 1)
 }

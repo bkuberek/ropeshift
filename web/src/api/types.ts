@@ -37,6 +37,20 @@ export type Approval = {
   // A plan approval names the plan and the version it is bound to.
   plan_id?: string;
   plan_version?: number;
+  // detail is JSON a member reads beyond the summary: a recovery request's is a RecoveryDetail.
+  detail?: string;
+};
+
+// RecoveryDetail is what an orchestrator asked to do outside its recovery policy, why, and the limit it
+// went past.
+export type RecoveryDetail = {
+  act: string;
+  work_order_id: string;
+  lane_id?: string;
+  reason: string;
+  check: string;
+  limit: string;
+  policy_version: number;
 };
 
 export type EffectOutcome = "happened" | "not_happened" | "retry";

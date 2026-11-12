@@ -76,12 +76,25 @@ const (
 // tool to accept work: acceptance rests on a review's verdicts and on forge checks (ADR-0014).
 const ToolWorkDecline = "work_decline"
 
+// The Recovery group: an orchestrator recovers stuck work within the recovery policy, and an act outside it
+// reaches a member (FR-ORCH-8). None is a takeover.
+const (
+	ToolLaneRestart = "lane_restart"
+	ToolLaneReset   = "lane_reset"
+	ToolWorkRetry   = "work_retry"
+	ToolWorkReplan  = "work_replan"
+)
+
+// RecoveryTools are the Recovery group.
+var RecoveryTools = []string{ToolLaneRestart, ToolLaneReset, ToolWorkRetry, ToolWorkReplan}
+
 // OrchestratorTools is what `ropeshift mcp` lists for an orchestrator's token, and all of them. More
 // tools raise prompt cost and widen authority, so a further one needs a need a trial named (ADR-0014).
 var OrchestratorTools = []string{
 	ToolContextGet, ToolDecisionSearch, ToolRequirementGet, ToolQuestionSearch,
 	ToolWorkCandidates, ToolWorkClaim, ToolLaneStart, ToolLaneStop,
 	ToolQuestionNext, ToolQuestionAttach, ToolDecisionRecord, ToolQuestionEscalate,
+	ToolLaneRestart, ToolLaneReset, ToolWorkRetry, ToolWorkReplan,
 	ToolWorkDecline, ToolApprovalDecide,
 }
 
@@ -123,6 +136,8 @@ const (
 	CodeAlreadyReported = "already_reported"
 	CodeUnavailable     = "unavailable"
 	CodeFenced          = "fenced"
+	// CodeConflict refuses a recovery act whose subject another actor already moved, which records nothing.
+	CodeConflict = "conflict"
 )
 
 // Request is one line on the worker socket. The token proves which process is
