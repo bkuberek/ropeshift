@@ -218,8 +218,9 @@ type ForgeWriter interface {
 	FinishMerge(id string, attempt, at int64, outcome ledger.MergeOutcome, detail string) (bool, error)
 	// InsertIntegration keeps an approval for merge, and reports false for an ID that exists.
 	InsertIntegration(ledger.IntegrationRecord) (bool, error)
-	// RecordMerge keeps the commit an approved merge made, once: a record already merged keeps its own.
-	RecordMerge(id, commit string, at int64) (bool, error)
+	// RecordMerge keeps the commit an approved merge made, once: a record already merged keeps its own. It
+	// also names the pull request the merge went through when the record names none yet.
+	RecordMerge(id string, pullRequest int64, commit string, at int64) (bool, error)
 	// SavePullRequest keeps what a worker read of a work order's pull request, replacing what it held.
 	SavePullRequest(ledger.WorkPullRequest) error
 	// SaveHealth keeps what a worker said of its sign-in for a repository when the state or its detail

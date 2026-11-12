@@ -72,7 +72,9 @@ ON CONFLICT DO NOTHING`)
  ORDER BY approved_at, id`)
 
 	stmtRecordMerge = define("forge.integration_merged",
-		`UPDATE integration_records SET merged_commit = :merged_commit, merged_at = :merged_at
+		`UPDATE integration_records
+ SET pull_request = CASE WHEN pull_request = 0 THEN :pull_request ELSE pull_request END,
+     merged_commit = :merged_commit, merged_at = :merged_at
  WHERE workspace_id = :workspace_id AND id = :id AND merged_at = 0`)
 
 	stmtSavePullRequest = define("forge.pull_request_save",
@@ -239,8 +241,8 @@ func (t forgeTx) InsertIntegration(r ledger.IntegrationRecord) (bool, error) {
 	return n > 0, err
 }
 
-func (t forgeTx) RecordMerge(id, commit string, at int64) (bool, error) {
-	n, err := t.exec(stmtRecordMerge, t.scoped(params{"id": id, "merged_commit": commit, "merged_at": at}))
+func (t forgeTx) RecordMerge(id string, pullRequest int64, commit string, at int64) (bool, error) {
+	n, err := t.exec(stmtRecordMerge, t.scoped(params{"id": id, "pull_request": pullRequest, "merged_commit": commit, "merged_at": at}))
 	return n > 0, err
 }
 
