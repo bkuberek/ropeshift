@@ -153,7 +153,7 @@ func TestWhatVerdictsDecide(t *testing.T) {
 		{"no verdict decides nothing", nil, unchecked, ledger.ReviewApproves, 0, SettleNone, nil},
 		{"every pass accepts at review_approves", pass, unchecked, ledger.ReviewApproves, 1, SettleAccept, nil},
 		{"every pass waits for a member at person_merges", pass, unchecked, ledger.PersonMerges, 1, SettleMember, nil},
-		{"every pass waits for a member at person_approves", pass, unchecked, ledger.PersonApproves, 1, SettleMember, nil},
+		{"every pass is accepted at person_approves, where its merge waits for a member", pass, unchecked, ledger.PersonApproves, 1, SettleAccept, nil},
 		{"a record with no level is person_merges", pass, unchecked, "", 1, SettleMember, nil},
 		{"a fail sends the work back at every level", []CriterionVerdict{said("c1", VerdictPass), said("c2", VerdictFail)}, unchecked, ledger.PersonMerges, 1, SettleRework, []string{"c2"}},
 		{"a fail sends the work back at review_approves", []CriterionVerdict{said("c1", VerdictFail), said("c2", VerdictFail)}, unchecked, ledger.ReviewApproves, 2, SettleRework, []string{"c1", "c2"}},
@@ -204,5 +204,18 @@ func TestTheDefaultBoundOnReviewRounds(t *testing.T) {
 	}
 	if got := Judge(JudgeInput{Criteria: []string{"c1"}, Verdicts: fails, Assessment: Assessment{Needs: NeedMember}, Authority: ledger.PersonMerges, Rounds: 3}); got.Settlement != SettleMember {
 		t.Errorf("round 3 of 3 by default: %q", got.Settlement)
+	}
+}
+
+// TestAPassedPullRequestIsAcceptedAtEveryLevel accepts work whose every criterion passed through a pull
+// request at person_merges too: accepted work there waits in integrating for the person's merge on the
+// forge, and only a branch at person_merges waits for a member's acceptance (architecture.md, acceptance).
+func TestAPassedPullRequestIsAcceptedAtEveryLevel(t *testing.T) {
+	pass := recorded("rv-1", 3, "abc", said("c1", VerdictPass))
+	for target, want := range map[ledger.ReviewTarget]Settlement{ledger.ReviewOnPullRequest: SettleAccept, ledger.ReviewOnBranch: SettleMember, "": SettleMember} {
+		got := Judge(JudgeInput{Criteria: []string{"c1"}, Verdicts: pass, Assessment: Assessment{Needs: NeedMember}, Authority: ledger.PersonMerges, Target: target, Rounds: 1, MaxRounds: 3})
+		if got.Settlement != want {
+			t.Errorf("at person_merges with target %q: %q, want %q", target, got.Settlement, want)
+		}
 	}
 }

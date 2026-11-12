@@ -23,6 +23,9 @@ type forgePR struct {
 	pr       ledger.PullRequest
 	comments []string
 	keys     map[string]bool
+	// refusal is what a merge of it comes to while it is set, and method is how it was merged.
+	refusal *ledger.MergeResult
+	method  ledger.MergeMethod
 }
 
 // Forge is a forge held in memory, as the control plane reads its checks and as a worker runs it. A test
@@ -81,14 +84,39 @@ func (f *Forge) Push(binding ledger.ForgeBinding, branch, commit string) {
 	f.heads[headKey(binding.String(), branch)] = commit
 }
 
-// Merge merges a pull request at its head, as a person does on the forge, with a merge commit.
-func (f *Forge) Merge(number int64, mergeCommit string) {
+// MergeByPerson merges a pull request at its head, as a person does on the forge, with a merge commit.
+func (f *Forge) MergeByPerson(number int64, mergeCommit string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if held := f.find(number); held != nil {
 		held.pr.HeadCommit = f.heads[headKey(held.binding, held.pr.Branch)]
 		held.pr.State, held.pr.MergeCommit, held.pr.MergedAt = ledger.PullRequestMerged, mergeCommit, "2026-01-02T03:04:05Z"
 	}
+}
+
+// Refuse makes every merge of a pull request come to an outcome other than a merge, such as a conflict or
+// branch protection, with what the forge says of it. A nil result lets it merge again.
+func (f *Forge) Refuse(number int64, result *ledger.MergeResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if held := f.find(number); held != nil {
+		held.refusal = result
+		if result != nil && result.Outcome == ledger.MergeConflict {
+			held.pr.Mergeable = "CONFLICTING"
+		} else {
+			held.pr.Mergeable = "MERGEABLE"
+		}
+	}
+}
+
+// MergedWith says how a pull request was merged, or nothing while it is not.
+func (f *Forge) MergedWith(number int64) ledger.MergeMethod {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if held := f.find(number); held != nil {
+		return held.method
+	}
+	return ""
 }
 
 // Close closes a pull request with no merge.
@@ -281,4 +309,43 @@ func (f *Forge) Health(_ context.Context, repo ports.ForgeRepo) (ledger.ForgeHea
 		return report, nil
 	}
 	return ledger.ForgeHealthReport{State: ledger.ForgeHealthy}, nil
+}
+
+// Merge merges a pull request with a method while its head is the given commit, as the forge does for a
+// worker. A pull request merged at that head answers merged again, and what Refuse set comes back as the
+// refusal it names.
+func (f *Forge) Merge(_ context.Context, ref ports.PullRequestRef, head string, method ledger.MergeMethod) (ledger.MergeResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fmt.Sprintf("merge %d %s", ref.Number, method))
+	if err := f.usable(ref.Repo.Binding.Host); err != nil {
+		return ledger.MergeResult{}, err
+	}
+	if method != ledger.MergeCommit && method != ledger.MergeSquash && method != ledger.MergeRebase {
+		return ledger.MergeResult{}, fmt.Errorf("no forge merges with the method %q", method)
+	}
+	held := f.find(ref.Number)
+	if held == nil || held.binding != ref.Repo.Binding.String() {
+		return ledger.MergeResult{}, fmt.Errorf("pull request %d: %w", ref.Number, ports.ErrNotFound)
+	}
+	pr := f.current(held)
+	switch {
+	case pr.State == ledger.PullRequestMerged && pr.HeadCommit == head:
+		return ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: pr.MergeCommit, MergedAt: pr.MergedAt}, nil
+	case pr.State != ledger.PullRequestOpen:
+		return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: fmt.Sprintf("the pull request is %s", pr.State)}, nil
+	case pr.HeadCommit != head:
+		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Head: pr.HeadCommit, Detail: fmt.Sprintf("the pull request's head is %s, not the reviewed commit %s", pr.HeadCommit, head)}, nil
+	case held.refusal != nil:
+		return *held.refusal, nil
+	}
+	merges := 0
+	for _, other := range f.prs {
+		if other.pr.State == ledger.PullRequestMerged {
+			merges++
+		}
+	}
+	held.pr.HeadCommit, held.method = head, method
+	held.pr.State, held.pr.MergeCommit, held.pr.MergedAt = ledger.PullRequestMerged, fmt.Sprintf("%040x", 0xfeed0000+merges+1), "2026-01-02T03:04:05Z"
+	return ledger.MergeResult{Outcome: ledger.MergeMerged, MergeCommit: held.pr.MergeCommit, MergedAt: held.pr.MergedAt}, nil
 }

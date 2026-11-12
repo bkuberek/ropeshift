@@ -202,18 +202,155 @@ func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
 	if len(comments) != 1 || !strings.Contains(comments[0], "It works as the criterion says.") || !strings.Contains(comments[0], "**pass**") {
 		t.Fatalf("the pull request holds the comments %q", comments)
 	}
-	if f.row().State != workorders.Acceptance {
-		t.Fatalf("the work reads %s, and waits for the person at person_merges", f.row().State)
+	if f.row().State != workorders.Integrating {
+		t.Fatalf("the work reads %s, and waits in integrating for the person's merge at person_merges", f.row().State)
 	}
-	f.forge.Merge(number, "merge-commit")
+	f.forge.MergeByPerson(number, "merge-commit")
 	f.clock.Advance(2 * time.Minute)
 	f.converge(2)
 	pr, err := f.pullRequest()
 	if err != nil || pr.State != ledger.PullRequestMerged || pr.MergeCommit != "merge-commit" {
 		t.Fatalf("the ledger holds %+v: %v", pr, err)
 	}
+	// The read of the person's merge ends the work, and the tick finds nothing left to do.
 	moved, err := control.NewIntegrations(f.store).Settle(ctx, scope, ledger.Actor{Kind: ledger.ActorSystem, ID: "integration-tick"})
-	if err != nil || len(moved) != 1 || f.row().State != workorders.Done {
-		t.Fatalf("the merge ended %v, and the work reads %s: %v", moved, f.row().State, err)
+	if err != nil || len(moved) != 0 || f.row().State != workorders.Done {
+		t.Fatalf("the tick ended %v, and the work reads %s: %v", moved, f.row().State, err)
+	}
+}
+
+// passReview runs the rig's review on a lane of another worker, which passes the one criterion.
+func (f *forgeRig) passReview() {
+	f.t.Helper()
+	ctx := f.t.Context()
+	review := f.review()
+	leases := control.NewLeases(f.store)
+	grant, err := leases.Claim(ctx, scope, workorders.ClaimRequest{WorkOrder: review.ID, ClaimID: "claim-review", Worker: "reviewer", TTLMs: 60_000}, member)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	generation, err := leases.StartLane(ctx, scope, grant.Lease, "review-lane", member)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	result := workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{
+		{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It works as the criterion says.", Citations: []string{"main.go:3"}},
+	}}}
+	holder := workorders.Holder{Lease: grant.Lease, Lane: "review-lane", Generation: generation}
+	if err := leases.EndLane(ctx, scope, holder, result, ledger.Actor{Kind: ledger.ActorLane, ID: "review-lane"}); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// TestAWorkerMergesAtTheReviewedHeadOnce is FR-MERGE-5 and FR-MERGE-12 on the worker: at review_approves,
+// once the review passes, the worker that opened the pull request merges it at the reviewed head with the
+// repository's merge method, as one recorded effect, and the merge it reports ends the work. Later passes
+// merge nothing again.
+func TestAWorkerMergesAtTheReviewedHeadOnce(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	level, method := ledger.ReviewApproves, ledger.MergeSquash
+	if _, err := control.NewRepositories(f.store).Change(t.Context(), scope, "repo-1", control.RepositoryChange{MergeAuthority: &level, MergeMethod: &method}, member); err != nil {
+		t.Fatal(err)
+	}
+	f.converge(3)
+	f.passReview()
+	if f.row().State != workorders.Integrating {
+		t.Fatalf("the reviewed work reads %s", f.row().State)
+	}
+	f.converge(3)
+	if f.row().State != workorders.Done {
+		t.Fatalf("after the merge the work reads %s", f.row().State)
+	}
+	number := f.forge.PullRequests()[0].Number
+	if got := f.forge.MergedWith(number); got != ledger.MergeSquash {
+		t.Errorf("the forge merged with %q", got)
+	}
+	f.clock.Advance(2 * time.Minute)
+	f.converge(3)
+	merges := 0
+	for _, call := range f.forge.Calls() {
+		if strings.HasPrefix(call, "merge ") {
+			merges++
+		}
+	}
+	if merges != 1 {
+		t.Errorf("the worker merged %d times: %v", merges, f.forge.Calls())
+	}
+	pr, err := f.pullRequest()
+	if err != nil || pr.State != ledger.PullRequestMerged || pr.HeadCommit != "fake-head" {
+		t.Errorf("the ledger holds %+v: %v", pr, err)
+	}
+}
+
+// TestAWorkerMergesAReviewedBranchWithGit is FR-MERGE-11 on the worker: with review target `branch` at
+// review_approves, the worker that ran the lane merges the reviewed branch into its base with git, with no
+// forge, as one recorded effect, and the merge it reports ends the work.
+func TestAWorkerMergesAReviewedBranchWithGit(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	repositories := control.NewRepositories(base.store)
+	if _, err := repositories.Detect(t.Context(), scope, control.DetectedRepository{ID: "repo-1", DefaultBranch: "main"}, member); err != nil {
+		t.Fatal(err)
+	}
+	level := ledger.ReviewApproves
+	if _, err := repositories.Change(t.Context(), scope, "repo-1", control.RepositoryChange{MergeAuthority: &level}, member); err != nil {
+		t.Fatal(err)
+	}
+	worktrees := fake.NewWorktrees()
+	base.worktrees, base.repository = worktrees, "repo-1"
+	r := newLaneRigFor(t, base)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	f := &forgeRig{laneRig: r, worktrees: worktrees}
+	f.converge(2)
+	f.passReview()
+	if f.row().State != workorders.Integrating {
+		t.Fatalf("the reviewed work reads %s", f.row().State)
+	}
+	f.converge(3)
+	if f.row().State != workorders.Done {
+		t.Fatalf("after the merge the work reads %s", f.row().State)
+	}
+	merges := worktrees.Merges()
+	if len(merges) != 1 || merges[0].Base != "main" || merges[0].Branch != "lane/lane-1" || merges[0].Method != ledger.MergeCommit || merges[0].WorkOrder != f.id {
+		t.Fatalf("the worker merged %+v", merges)
+	}
+	f.clock.Advance(2 * time.Minute)
+	f.converge(2)
+	if again := worktrees.Merges(); len(again) != 1 {
+		t.Errorf("the worker merged %d times", len(again))
+	}
+}
+
+// TestAWorkersFirstReadReportsChecksTheLedgerLacks reads a watched pull request for the first time after CI
+// reported on it: the read differs from what the ledger holds in its checks alone, and the worker reports
+// it, because a required check gates the merge (FR-MERGE-2).
+func TestAWorkersFirstReadReportsChecksTheLedgerLacks(t *testing.T) {
+	t.Parallel()
+	f := newForgeRig(t, func(forge *fake.Forge, _ *fake.Worktrees) { forge.Push(widgets, "lane/lane-1", "fake-head") })
+	for len(f.forge.PullRequests()) == 0 {
+		f.converge(1)
+	}
+	reads := func() int {
+		count := 0
+		for _, call := range f.forge.Calls() {
+			if strings.HasPrefix(call, "read ") {
+				count++
+			}
+		}
+		return count
+	}
+	if reads() != 0 {
+		t.Fatalf("the worker read the pull request before CI reported: %v", f.forge.Calls())
+	}
+	number := f.forge.PullRequests()[0].Number
+	f.forge.SetChecks(number, ledger.PullRequestCheck{Name: "CI result", State: ledger.CheckFailed, Required: true})
+	f.converge(3)
+	if reads() == 0 {
+		t.Fatalf("the worker never read the pull request: %v", f.forge.Calls())
+	}
+	pr, err := f.pullRequest()
+	if err != nil || len(pr.Checks) != 1 || !pr.Checks[0].Required || pr.Checks[0].State != ledger.CheckFailed {
+		t.Fatalf("the ledger holds %+v: %v", pr, err)
 	}
 }

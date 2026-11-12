@@ -148,6 +148,9 @@ func (w Worktrees) Create(ctx context.Context, spec ports.WorktreeSpec) (ports.W
 	args := []string{"worktree", "add", "--quiet"}
 	switch {
 	case spec.Detached:
+		if err := w.fetchMissing(ctx, repository, base); err != nil {
+			return ports.Worktree{}, err
+		}
 		args = append(args, "--detach", spec.Path, base)
 	default:
 		if _, err := repository.Commit(ctx, "refs/heads/"+spec.Branch); err == nil {
@@ -339,3 +342,19 @@ var (
 	_ ports.Worktrees   = Worktrees{}
 	_ ports.ReviewTrees = Worktrees{}
 )
+
+// fetchMissing brings a commit this repository does not hold from its remote, which a review needs when the
+// head it reads was pushed from another clone. It fetches the remote's branches into their remote-tracking
+// refs, so no branch of the checkout moves. A commit the repository holds, or a repository with no remote,
+// needs nothing.
+func (w Worktrees) fetchMissing(ctx context.Context, repository Git, commit string) error {
+	if _, err := repository.Commit(ctx, commit); err == nil {
+		return nil
+	}
+	remote, err := remoteOf(ctx, repository, "")
+	if err != nil || remote == "" {
+		return err
+	}
+	_, err = repository.Output(ctx, "fetch", "--quiet", "--no-tags", remote)
+	return err
+}

@@ -453,4 +453,6 @@ type WorkDetail struct {
 	// PullRequest is the pull request the work lands through, when its repository reviews through pull
 	// requests.
 	PullRequest *ledger.PullRequest `json:"pull_request,omitempty"`
+	// Integrations are the approvals of its reviewed commits for merge, and the merges that followed them.
+	Integrations []ledger.IntegrationRecord `json:"integrations,omitempty"`
 }

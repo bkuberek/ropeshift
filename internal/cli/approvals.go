@@ -59,8 +59,21 @@ func (c *invocation) approvalShow(args []string) int {
 
 // approvalSubject says what a request is about: the plan version a plan approval covers, which no lane
 // asked for, the recovery act an orchestrator asked for, with why and the limit of the policy it went past,
-// or the lane that asked.
+// the merge a member approves or decides, or the lane that asked.
 func approvalSubject(row authority.Approval) string {
+	if row.Kind == authority.KindMerge {
+		detail := authority.MergeDetailOf(row)
+		subject := fmt.Sprintf("merge: work order %s, commit %s, at %s", row.WorkOrder, row.SubjectDigest, detail.Authority)
+		if detail.PullRequest != 0 {
+			subject += fmt.Sprintf("\npull request: #%d %s", detail.PullRequest, detail.URL)
+		} else {
+			subject += fmt.Sprintf("\nbranch: %s into %s", detail.Branch, detail.Base)
+		}
+		if detail.Reason != "" {
+			subject += "\nheld: " + detail.Reason
+		}
+		return subject
+	}
 	if row.Kind == authority.KindRecovery {
 		detail := authority.RecoveryDetailOf(row)
 		subject := fmt.Sprintf("recovery: %s of work order %s", row.Subject, row.WorkOrder)

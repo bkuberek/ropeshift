@@ -38,10 +38,13 @@ const (
 	Parked         State = "parked"
 	Lapsed         State = "lapsed"
 	Acceptance     State = "acceptance"
-	Blocked        State = "blocked"
-	Done           State = "done"
-	Failed         State = "failed"
-	Canceled       State = "canceled"
+	// Integrating is accepted work whose merge is pending: on a member's approval, on the required checks,
+	// or on a member after a merge the forge or git refused (ADR-0020).
+	Integrating State = "integrating"
+	Blocked     State = "blocked"
+	Done        State = "done"
+	Failed      State = "failed"
+	Canceled    State = "canceled"
 )
 
 // SubjectKind is the event subject kind of a work order.
@@ -107,9 +110,9 @@ type WorkOrder struct {
 	StartHeld *StartHold `json:"start_held,omitempty"`
 }
 
-// Completed reports a state past its lane's work: the work is waiting for acceptance or was
-// accepted.
-func (s State) Completed() bool { return s == Acceptance || s == Done }
+// Completed reports a state past its lane's work: the work is waiting for acceptance, was accepted and
+// waits for its merge, or was accepted.
+func (s State) Completed() bool { return s == Acceptance || s == Integrating || s == Done }
 
 // OpenReview reports a review that has not ended. The work it judges waits for it.
 func (w WorkOrder) OpenReview() bool { return w.Kind == KindReview && !Terminal(w.State) }

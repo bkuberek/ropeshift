@@ -188,8 +188,10 @@ type JudgeInput struct {
 	Verdicts []Verdict
 	// Assessment is what the attempt's check results say.
 	Assessment Assessment
-	// Authority is the repository's merge authority, which an unset record reads as the default.
+	// Authority is the repository's merge authority, which an unset record reads as the default, and Target
+	// its review target.
 	Authority ledger.MergeAuthority
+	Target    ledger.ReviewTarget
 	// Rounds is how many reviews of this work order gave verdicts, this one included, and MaxRounds bounds
 	// them. A bound below one is the default.
 	Rounds, MaxRounds int64
@@ -206,9 +208,11 @@ type Judgement struct {
 
 // Judge reads one attempt's verdicts against its checks (ADR-0019). A failed criterion or a failed check
 // sends the work back, until the rounds are used up and a person reads it. When nothing failed, work
-// whose every criterion passed is accepted only at review_approves, and below that it waits for the
-// member whose word the level keeps. A criterion the review could not judge waits for a member unless a
-// passing forge check covers it. A lane's own check never covers one, because it is the lane's word.
+// whose every criterion passed is accepted at the levels where ropeshift merges, and through a pull request at
+// every level, where its merge then follows the level (ADR-0020); a branch at person_merges waits for the
+// member who merges it. A criterion the
+// review could not judge waits for a member unless a passing forge check covers it. A lane's own check
+// never covers one, because it is the lane's word.
 func Judge(in JudgeInput) Judgement {
 	if len(in.Verdicts) == 0 {
 		return Judgement{}
@@ -234,7 +238,7 @@ func Judge(in JudgeInput) Judgement {
 			return Judgement{Settlement: SettleMember, Why: "the review could not judge criterion " + v.Criterion}
 		}
 	}
-	if len(in.Criteria) == 0 || in.Authority.PersonDecides() {
+	if len(in.Criteria) == 0 || ((in.Authority == ledger.PersonMerges || in.Authority == "") && in.Target != ledger.ReviewOnPullRequest) {
 		return Judgement{Settlement: SettleMember, Why: "the review passed every criterion, and this repository leaves the decision to you"}
 	}
 	return Judgement{Settlement: SettleAccept}

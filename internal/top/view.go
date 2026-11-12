@@ -161,6 +161,12 @@ func what(item api.NeedItem) string {
 	switch {
 	case item.Batch != nil:
 		return strconv.Itoa(len(item.Batch.Items)) + " to answer"
+	case item.Approval != nil && item.Approval.Kind == authority.KindMerge:
+		detail := authority.MergeDetailOf(*item.Approval)
+		if item.Approval.Subject == authority.MergeHeld {
+			return fmt.Sprintf("the merge of %s is held: %s", clean(item.Approval.WorkOrder), clean(detail.Reason))
+		}
+		return fmt.Sprintf("approve the merge of %s at %s", clean(item.Approval.WorkOrder), clean(item.Approval.SubjectDigest))
 	case item.Approval != nil && item.Approval.Kind == authority.KindRecovery:
 		detail := authority.RecoveryDetailOf(*item.Approval)
 		return fmt.Sprintf("the orchestrator asks to %s %s: %s; outside the policy: %s",

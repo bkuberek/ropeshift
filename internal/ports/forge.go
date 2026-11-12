@@ -35,13 +35,19 @@ type PullRequestRef struct {
 
 // Forge is a forge as a worker runs it (ADR-0020): the control plane requests each operation as a
 // recorded effect, and the worker runs it here, in the repository's checkout, under the person's own
-// sign-in. Nothing here signs in, reads a token, or stores one. Merging lands in a later step.
+// sign-in. Nothing here signs in, reads a token, or stores one.
 type Forge interface {
 	// OpenPullRequest opens the pull request for a branch, or returns the one that is open, so a repeat
 	// after a crash opens nothing twice.
 	OpenPullRequest(ctx context.Context, spec PullRequestSpec) (ledger.PullRequest, error)
-	// PullRequest reads a pull request's state, head commit, mergeability, and the checks on its head.
+	// PullRequest reads a pull request's state, head commit, mergeability, and the checks on its head, each
+	// marked when the base branch's protection requires it.
 	PullRequest(ctx context.Context, ref PullRequestRef) (ledger.PullRequest, error)
+	// Merge merges a pull request with a merge method only while its head is the given commit, and never
+	// past branch protection. It reads the pull request first, so a pull request an earlier attempt merged
+	// at that head answers merged and merges nothing twice. A refusal is a result, with the outcome that says
+	// why; an error is a forge that could not answer, which a later attempt asks again.
+	Merge(ctx context.Context, ref PullRequestRef, head string, method ledger.MergeMethod) (ledger.MergeResult, error)
 	// Comment posts a comment on a pull request once per key: a comment that already carries the key is
 	// not posted again, so a repeat after a crash posts nothing twice.
 	Comment(ctx context.Context, ref PullRequestRef, key, body string) error

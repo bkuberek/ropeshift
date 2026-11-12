@@ -35,6 +35,18 @@ const (
 	// work order and lane it starts from. It belongs to a work order, and only a member decides it
 	// (FR-ORCH-8, ADR-0014).
 	KindRecovery = "recovery"
+	// KindMerge covers the merge of a work order's reviewed commit: its digest is that commit, so a new
+	// commit voids it. It belongs to a work order and no lane, and only a member decides it (ADR-0020).
+	KindMerge = "merge"
+)
+
+// The subjects of a merge request.
+const (
+	// MergeApprove asks a member to approve the merge of a reviewed commit, at person_approves.
+	MergeApprove = "approve"
+	// MergeHeld asks a member to decide a merge that cannot go on: the forge or git refused it, or the pull
+	// request moved past the reviewed commit. Approving tries the merge again, and denying sends the work back.
+	MergeHeld = "held"
 )
 
 // How an approval's outcome reached its session.
@@ -139,9 +151,11 @@ type Decision struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// MembersOnly says only a member decides a request: a plan sets scope, and a recovery act was outside the
-// policy that bounds every orchestrator, so no delegation reaches either.
-func (a Approval) MembersOnly() bool { return a.Kind == KindPlan || a.Kind == KindRecovery }
+// MembersOnly says only a member decides a request: a plan sets scope, a recovery act was outside the policy
+// that bounds every orchestrator, and a merge is the person's to allow, so no delegation reaches any of them.
+func (a Approval) MembersOnly() bool {
+	return a.Kind == KindPlan || a.Kind == KindRecovery || a.Kind == KindMerge
+}
 
 // Open says a request still waits on a decision.
 func (a Approval) Open() bool { return a.State == ApprovalPending }
@@ -155,15 +169,17 @@ func (a Approval) Decided() bool { return a.State != ApprovalPending }
 // Validate refuses a request that binds to nothing.
 func (a Approval) Validate() error {
 	switch {
-	case a.ID == "" || a.Subject == "" || (a.Lane == "" && a.Kind != KindPlan && a.Kind != KindRecovery):
+	case a.ID == "" || a.Subject == "" || (a.Lane == "" && a.Kind != KindPlan && a.Kind != KindRecovery && a.Kind != KindMerge):
 		return fmt.Errorf("%w: it names no lane or subject", ErrBadApproval)
 	case a.Kind == KindRecovery && (a.WorkOrder == "" || !KnownRecoveryAct(RecoveryAct(a.Subject))):
 		return fmt.Errorf("%w: a recovery request names a work order and a recovery act", ErrBadApproval)
+	case a.Kind == KindMerge && (a.WorkOrder == "" || a.Lane != "" || (a.Subject != MergeApprove && a.Subject != MergeHeld)):
+		return fmt.Errorf("%w: a merge request names a work order, no lane, and what it asks", ErrBadApproval)
 	case a.SubjectDigest == "":
 		return fmt.Errorf("%w: it binds to no digest", ErrBadApproval)
 	case a.RequestedBy == "":
 		return fmt.Errorf("%w: it names no requester", ErrBadApproval)
-	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract && a.Kind != KindPlan && a.Kind != KindRecovery:
+	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract && a.Kind != KindPlan && a.Kind != KindRecovery && a.Kind != KindMerge:
 		return fmt.Errorf("%w: kind %q", ErrBadApproval, a.Kind)
 	case a.Kind == KindToolCall && a.SubjectDigest != LandingDigest(a.Subject, a.Input, a.Path):
 		return fmt.Errorf("%w: its digest does not cover its tool call", ErrBadApproval)
@@ -654,4 +670,28 @@ func ReadDelegation(version PolicyVersion) (DelegationPolicy, error) {
 		return DelegationPolicy{}, err
 	}
 	return policy, nil
+}
+
+// MergeDetail is what a member reads of a merge request beyond its summary: the work, the reviewed commit and
+// where it lands, the level in force, and for a held merge, why it stopped and the merge request it answers.
+type MergeDetail struct {
+	WorkOrder   string                `json:"work_order_id"`
+	Commit      string                `json:"commit"`
+	Branch      string                `json:"branch,omitempty"`
+	Base        string                `json:"base,omitempty"`
+	PullRequest int64                 `json:"pull_request,omitempty"`
+	URL         string                `json:"url,omitempty"`
+	Method      ledger.MergeMethod    `json:"method,omitempty"`
+	Authority   ledger.MergeAuthority `json:"merge_authority"`
+	Reason      string                `json:"reason,omitempty"`
+	Request     string                `json:"request,omitempty"`
+}
+
+// MergeDetailOf reads a merge request's detail. Any other request reads as nothing.
+func MergeDetailOf(a Approval) MergeDetail {
+	var detail MergeDetail
+	if a.Kind == KindMerge {
+		_ = json.Unmarshal([]byte(a.Detail), &detail)
+	}
+	return detail
 }

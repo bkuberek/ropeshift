@@ -35,7 +35,10 @@ type Check struct {
 }
 
 // PullRequest is one pull request on the fake forge. An open one's head is whatever the remote holds for
-// its branch, and Head keeps the commit it had when it stopped being open.
+// its branch, and Head keeps the commit it had when it stopped being open. Its mergeability is what a merge
+// of its head into its base on the remote would give, unless Mergeable names one, and its merge state
+// follows from that and its required checks, unless MergeState names one, such as BLOCKED for a base whose
+// protection refuses the merge. Required names the checks the base's protection requires.
 type PullRequest struct {
 	Number      int64    `json:"number"`
 	Repo        string   `json:"repo"`
@@ -49,6 +52,11 @@ type PullRequest struct {
 	MergedAt    string   `json:"merged_at,omitempty"`
 	Comments    []string `json:"comments,omitempty"`
 	Checks      []Check  `json:"checks,omitempty"`
+	Mergeable   string   `json:"mergeable,omitempty"`
+	MergeState  string   `json:"merge_state,omitempty"`
+	Required    []string `json:"required,omitempty"`
+	// MergeMethod is the flag the merge that merged it named.
+	MergeMethod string `json:"merge_method,omitempty"`
 }
 
 // State is the whole fake forge.

@@ -39,13 +39,17 @@ const (
 	EffectPullRequest EffectKind = "pull_request"
 	// EffectComment posts a comment on a pull request.
 	EffectComment EffectKind = "comment"
+	// EffectMerge merges accepted work at its reviewed commit: a pull request through the forge, or a branch
+	// into its base with git.
+	EffectMerge EffectKind = "merge"
 )
 
 // Forge says this effect is a forge request's. Each is safe to run again after a crash, because a push
-// never forces, an open finds the pull request already open, and a comment carries a key the forge is
-// read for first, so the worker that runs them runs one again rather than asking a person.
+// never forces, an open finds the pull request already open, a comment carries a key the forge is read for
+// first, and a merge reads whether the reviewed commit already landed before it merges, so the worker that
+// runs them runs one again rather than asking a person.
 func (k EffectKind) Forge() bool {
-	return k == EffectPush || k == EffectPullRequest || k == EffectComment
+	return k == EffectPush || k == EffectPullRequest || k == EffectComment || k == EffectMerge
 }
 
 // Observable says a restart can look for this effect. Nothing shows whether a session

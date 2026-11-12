@@ -55,6 +55,17 @@ func (r *Rig) inState(s ports.Store, state workorders.State) (workorders.WorkOrd
 				return order, err
 			}
 		}
+	case workorders.Integrating:
+		// Accepted work merges at person_approves, and waits in integrating for a member's approval.
+		if err := r.atLevel(s, ledger.PersonApproves); err != nil {
+			return workorders.WorkOrder{}, err
+		}
+		if id, _, err = r.judged(s, criterionOne); err != nil {
+			return workorders.WorkOrder{}, err
+		}
+		if err := r.reviewSays(s, id, say(criterionOne, workorders.VerdictPass)); err != nil {
+			return workorders.WorkOrder{}, err
+		}
 	case workorders.Parked:
 		now, err := r.Clock(s)
 		if err != nil {

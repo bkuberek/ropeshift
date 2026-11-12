@@ -19,8 +19,14 @@ type ForgeRig struct {
 	Push func(t *testing.T, branch string) string
 	// Merge merges a pull request as a person does, and returns the merge commit.
 	Merge func(t *testing.T, number int64) string
-	// SetChecks says what CI reports on a pull request's head.
+	// SetChecks says what CI reports on a pull request's head, and which checks the base requires.
 	SetChecks func(t *testing.T, number int64, checks ...ledger.PullRequestCheck)
+	// Conflict makes a pull request's merge conflict with its base and returns its head then, and Protect has
+	// the base's protection refuse it.
+	Conflict func(t *testing.T, number int64) string
+	Protect  func(t *testing.T, number int64)
+	// MergedWith says how a pull request was merged, or nothing while it is not.
+	MergedWith func(t *testing.T, number int64) ledger.MergeMethod
 	// Comments lists what was posted on a pull request, in order.
 	Comments func(t *testing.T, number int64) []string
 	// SignOut breaks the sign-in for the binding's host, with what the CLI says of it.
@@ -43,6 +49,11 @@ func RunForge(t *testing.T, fresh func(*testing.T) ForgeRig) {
 		{"a merge a person made reads as merged with its merge commit", checkPRReadsMerge},
 		{"the checks on the head come back by name with their states", checkPRChecks},
 		{"a comment is posted once per key", checkPRCommentOnce},
+		{"a check the base requires is marked on the head", checkPRRequiredChecks},
+		{"a merge at the head lands with the method, and a repeat merges nothing twice", checkPRMerges},
+		{"a merge at a head that moved is refused as stale with the head it found, and merges nothing", checkPRMergeStale},
+		{"a merge that conflicts is refused as a conflict, and merges nothing", checkPRMergeConflict},
+		{"a merge the base's protection refuses is a refusal with what the forge said", checkPRMergeProtected},
 		{"a sign-in that works is healthy", checkForgeHealthy},
 		{"a sign-in with a problem says so", checkForgeSignedOut},
 		{"no CLI reads as missing, and an operation is unavailable", checkForgeMissing},
@@ -176,5 +187,82 @@ func checkForgeMissing(t *testing.T, ctx context.Context, rig ForgeRig) {
 	_, err = missing.OpenPullRequest(ctx, ports.PullRequestSpec{Repo: rig.Repo, Base: "main", Branch: "ropeshift/wo-1", Title: "t", Body: "b"})
 	if !errors.Is(err, ports.ErrForgeUnavailable) {
 		t.Errorf("an open with no CLI: %v", err)
+	}
+}
+
+func checkPRRequiredChecks(t *testing.T, ctx context.Context, rig ForgeRig) {
+	rig.Push(t, "ropeshift/wo-1")
+	pr := openPR(t, ctx, rig, "ropeshift/wo-1")
+	want := []ledger.PullRequestCheck{
+		{Name: "lint", State: ledger.CheckPassed, DetailsURI: "https://ci.example/lint"},
+		{Name: "unit", State: ledger.CheckFailed, DetailsURI: "https://ci.example/unit", Required: true},
+	}
+	rig.SetChecks(t, pr.Number, want...)
+	if got := readPR(t, ctx, rig, pr.Number).Checks; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("checks %+v", got)
+	}
+}
+
+func mergePR(t *testing.T, ctx context.Context, rig ForgeRig, number int64, head string, method ledger.MergeMethod) ledger.MergeResult {
+	t.Helper()
+	result, err := rig.Forge.Merge(ctx, ports.PullRequestRef{Repo: rig.Repo, Number: number}, head, method)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func checkPRMerges(t *testing.T, ctx context.Context, rig ForgeRig) {
+	head := rig.Push(t, "ropeshift/wo-1")
+	pr := openPR(t, ctx, rig, "ropeshift/wo-1")
+	merged := mergePR(t, ctx, rig, pr.Number, head, ledger.MergeSquash)
+	if merged.Outcome != ledger.MergeMerged || merged.MergeCommit == "" || merged.MergedAt == "" {
+		t.Fatalf("merged %+v", merged)
+	}
+	if again := mergePR(t, ctx, rig, pr.Number, head, ledger.MergeSquash); again.Outcome != ledger.MergeMerged || again.MergeCommit != merged.MergeCommit {
+		t.Errorf("a repeat came to %+v, after %+v", again, merged)
+	}
+	read := readPR(t, ctx, rig, pr.Number)
+	if read.State != ledger.PullRequestMerged || read.HeadCommit != head || read.MergeCommit != merged.MergeCommit {
+		t.Errorf("read %+v", read)
+	}
+	if method := rig.MergedWith(t, pr.Number); method != ledger.MergeSquash {
+		t.Errorf("merged with %q", method)
+	}
+}
+
+func checkPRMergeStale(t *testing.T, ctx context.Context, rig ForgeRig) {
+	reviewed := rig.Push(t, "ropeshift/wo-1")
+	pr := openPR(t, ctx, rig, "ropeshift/wo-1")
+	moved := rig.Push(t, "ropeshift/wo-1")
+	if result := mergePR(t, ctx, rig, pr.Number, reviewed, ledger.MergeCommit); result.Outcome != ledger.MergeStaleHead || result.Detail == "" || result.Head != moved {
+		t.Errorf("a merge at the old head came to %+v", result)
+	}
+	if read := readPR(t, ctx, rig, pr.Number); read.State != ledger.PullRequestOpen {
+		t.Errorf("a stale merge left %+v", read)
+	}
+}
+
+func checkPRMergeConflict(t *testing.T, ctx context.Context, rig ForgeRig) {
+	rig.Push(t, "ropeshift/wo-1")
+	pr := openPR(t, ctx, rig, "ropeshift/wo-1")
+	head := rig.Conflict(t, pr.Number)
+	if result := mergePR(t, ctx, rig, pr.Number, head, ledger.MergeCommit); result.Outcome != ledger.MergeConflict {
+		t.Errorf("a conflicting merge came to %+v", result)
+	}
+	if read := readPR(t, ctx, rig, pr.Number); read.State != ledger.PullRequestOpen {
+		t.Errorf("a conflicting merge left %+v", read)
+	}
+}
+
+func checkPRMergeProtected(t *testing.T, ctx context.Context, rig ForgeRig) {
+	head := rig.Push(t, "ropeshift/wo-1")
+	pr := openPR(t, ctx, rig, "ropeshift/wo-1")
+	rig.Protect(t, pr.Number)
+	if result := mergePR(t, ctx, rig, pr.Number, head, ledger.MergeCommit); result.Outcome != ledger.MergeRefused || result.Detail == "" {
+		t.Errorf("a protected merge came to %+v", result)
+	}
+	if read := readPR(t, ctx, rig, pr.Number); read.State != ledger.PullRequestOpen {
+		t.Errorf("a protected merge left %+v", read)
 	}
 }

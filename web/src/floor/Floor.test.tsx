@@ -377,6 +377,45 @@ describe("completed", () => {
     expect(within(await line("Ship the first cut")).queryByRole("link", { name: "Decide in Needs you" })).toBeNull();
   });
 
+  it("states who approved each merge, at which level, what landed, and what a merge still waits on", async () => {
+    serving<Completed>("completed", (view) => {
+      const first = view.items[0];
+      if (!first) {
+        throw new Error("the golden view lists no completed work");
+      }
+      const waiting = structuredClone(first);
+      waiting.work_order = { ...waiting.work_order, id: "wo-merging", title: "Merge the retry budget", state: "integrating" };
+      waiting.standing = {
+        ...waiting.standing,
+        state: "integrating",
+        why: "required checks are still running on 1111aaaa: CI result",
+        integrations: [
+          { id: "i1", work_order_id: "wo-merging", approved_commit: "1111aaaa2222", merge_authority: "review_approves", approved_by_kind: "review", approved_by_id: "lane-r/1", approved_at: 1 },
+        ],
+      };
+      const merged = structuredClone(first);
+      merged.work_order = { ...merged.work_order, id: "wo-merged", title: "Merged by a member", state: "done" };
+      merged.standing = {
+        ...merged.standing,
+        integrations: [
+          { id: "i2", work_order_id: "wo-merged", approved_commit: "3333bbbb4444", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "dana", approved_at: 1, merged_commit: "5555cccc6666", merged_at: 2 },
+        ],
+      };
+      view.items = [waiting, merged];
+    });
+    openPage("/completed");
+    expect(await screen.findByText("1 done, 1 waiting to merge")).toBeTruthy();
+    const waiting = within(await line("Merge the retry budget")).getByRole("list", { name: "Merge" });
+    expect(waiting.textContent).toContain("1111aaaa");
+    expect(waiting.textContent).toContain("lane-r/1");
+    expect(waiting.textContent).toContain("The merge waits: required checks are still running on 1111aaaa: CI result.");
+    expect(waiting.textContent).not.toContain("merged");
+    const merged = within(await line("Merged by a member")).getByRole("list", { name: "Merge" });
+    expect(merged.textContent).toContain("dana");
+    expect(merged.textContent).toContain("merged 5555cccc");
+    expect(merged.textContent).not.toContain("The merge waits");
+  });
+
   it("says so when nothing has ended", async () => {
     serving<Completed>("completed", (view) => {
       view.items = [];

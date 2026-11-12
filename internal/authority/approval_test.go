@@ -711,6 +711,32 @@ func TestOnlyAMemberDecidesARecoveryRequest(t *testing.T) {
 	}
 }
 
+// A merge request belongs to a work order and to no lane: it binds to the reviewed commit, and only a member
+// decides it, because no orchestrator or lane may merge (ADR-0020).
+func TestAMergeRequestIsAMembersOnWorkAlone(t *testing.T) {
+	request := authority.Approval{
+		ID: "m1", WorkOrder: "wo-1", Kind: authority.KindMerge, Subject: authority.MergeApprove, SubjectDigest: "1111111111111111111111111111111111111111",
+		RequestedBy: "system:integration", State: authority.ApprovalPending,
+	}
+	if err := request.Validate(); err != nil {
+		t.Errorf("a merge request: %v", err)
+	}
+	noWork, withLane, unknown := request, request, request
+	noWork.WorkOrder, withLane.Lane, unknown.Subject = "", "lane-1", "push"
+	for name, bad := range map[string]authority.Approval{"no work order": noWork, "a lane": withLane, "a subject nobody named": unknown} {
+		if err := bad.Validate(); !errors.Is(err, authority.ErrBadApproval) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	decision := authority.Decision{ID: "m1", Digest: request.SubjectDigest, Allow: true}
+	if _, err := request.Decide(decision, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "w1"}, 1, 5); !errors.Is(err, authority.ErrDeciderKind) {
+		t.Errorf("an orchestrator decided a merge: %v", err)
+	}
+	if decided, err := request.Decide(decision, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, 1, 5); err != nil || decided.State != authority.ApprovalApproved {
+		t.Errorf("a member's decision: %+v, %v", decided, err)
+	}
+}
+
 // TestAnAgentClassReachesOnlyTheAgentItNames is FR-AGENT-11: an orchestrator decides a per-use agent's
 // start only under a class that names that agent, and the agent comes from the call's own input.
 func TestAnAgentClassReachesOnlyTheAgentItNames(t *testing.T) {

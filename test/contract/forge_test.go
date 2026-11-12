@@ -41,14 +41,27 @@ func TestForgeContractOnTheFake(t *testing.T) {
 			},
 			Merge: func(_ *testing.T, number int64) string {
 				merge := strings.Repeat("m", 40)
-				forge.Merge(number, merge)
+				forge.MergeByPerson(number, merge)
 				return merge
 			},
 			SetChecks: func(_ *testing.T, number int64, checks ...ledger.PullRequestCheck) {
 				forge.SetChecks(number, checks...)
 			},
-			Comments: func(_ *testing.T, number int64) []string { return forge.Comments(number) },
-			SignOut:  func(_ *testing.T, detail string) { forge.SignOut(contractBinding.Host, detail) },
+			Conflict: func(_ *testing.T, number int64) string {
+				forge.Refuse(number, &ledger.MergeResult{Outcome: ledger.MergeConflict, Detail: "the merge commit cannot be cleanly created"})
+				for _, pr := range forge.PullRequests() {
+					if pr.Number == number {
+						return pr.HeadCommit
+					}
+				}
+				return ""
+			},
+			Protect: func(_ *testing.T, number int64) {
+				forge.Refuse(number, &ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: "the base branch policy prohibits the merge"})
+			},
+			MergedWith: func(_ *testing.T, number int64) ledger.MergeMethod { return forge.MergedWith(number) },
+			Comments:   func(_ *testing.T, number int64) []string { return forge.Comments(number) },
+			SignOut:    func(_ *testing.T, detail string) { forge.SignOut(contractBinding.Host, detail) },
 			Missing: func(*testing.T) ports.Forge {
 				forge.Remove()
 				return forge
@@ -93,7 +106,33 @@ func TestForgeContractOnGH(t *testing.T) {
 				return merge
 			},
 			SetChecks: func(t *testing.T, number int64, checks ...ledger.PullRequestCheck) {
-				edit(t, number, func(pr *ghstate.PullRequest) { pr.Checks = ghChecks(checks) })
+				edit(t, number, func(pr *ghstate.PullRequest) {
+					pr.Checks, pr.Required = ghChecks(checks), nil
+					for _, check := range checks {
+						if check.Required {
+							pr.Required = append(pr.Required, check.Name)
+						}
+					}
+				})
+			},
+			Conflict: func(t *testing.T, number int64) string {
+				// The base and the branch each add the same file with lines of their own.
+				state := doubles.FakeGH(t, gh)
+				branch := state.Find(number).Branch
+				repo.Commit("conflict.txt", "the base's line\n")
+				repo.Git("push", "--quiet", "origin", "main")
+				repo.Git("switch", "--quiet", branch)
+				head := repo.Commit("conflict.txt", "the branch's line\n")
+				repo.Git("push", "--quiet", "origin", branch)
+				repo.Git("switch", "--quiet", "main")
+				return head
+			},
+			Protect: func(t *testing.T, number int64) {
+				edit(t, number, func(pr *ghstate.PullRequest) { pr.MergeState = "BLOCKED" })
+			},
+			MergedWith: func(t *testing.T, number int64) ledger.MergeMethod {
+				state := doubles.FakeGH(t, gh)
+				return ledger.MergeMethod(state.Find(number).MergeMethod)
 			},
 			Comments: func(t *testing.T, number int64) []string {
 				state := doubles.FakeGH(t, gh)

@@ -437,6 +437,21 @@ export type Verdict = {
 
 export type ReviewLine = { id: string; state: string; attempt: number };
 
+// One approval of a reviewed commit for merge, and the merge that followed it: who approved, at which merge
+// authority level, and what landed.
+export type IntegrationRecord = {
+  id: string;
+  work_order_id: string;
+  pull_request?: number;
+  approved_commit: string;
+  merge_authority: string;
+  approved_by_kind: string;
+  approved_by_id: string;
+  approved_at: number;
+  merged_commit?: string;
+  merged_at?: number;
+};
+
 export type Standing = {
   work_order_id: string;
   state: string;
@@ -450,6 +465,7 @@ export type Standing = {
   rounds?: number;
   authority?: string;
   why?: string;
+  integrations?: IntegrationRecord[];
 };
 
 export type CompletedWork = { work_order: WorkOrder; standing: Standing; since: number; reason?: string };

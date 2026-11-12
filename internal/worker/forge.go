@@ -48,10 +48,11 @@ func forgeKey(project, id string) string { return project + "\x00" + id }
 
 // tendForge runs what the control plane asks of this worker on a forge (ADR-0020): it reads its sign-in
 // for each repository that reviews through pull requests and that it keeps a checkout of, and runs each
-// forge request it has not reported. Each runs on a goroutine of its own, so a slow forge holds no lane.
+// forge request it has not reported, among them a branch merge, which needs no forge. Each runs on a
+// goroutine of its own, so a slow forge holds no lane.
 func (w *Worker) tendForge(ctx context.Context) {
 	rt := w.config.Lanes
-	if rt == nil || rt.Forge == nil {
+	if rt == nil {
 		return
 	}
 	state, err := w.desired(ctx)
@@ -60,14 +61,14 @@ func (w *Worker) tendForge(ctx context.Context) {
 		return
 	}
 	for _, repository := range state.ForgeRepositories {
-		if w.healthDue(repository) {
+		if rt.Forge != nil && w.healthDue(repository) {
 			w.goForge(ctx, "health/"+forgeKey(repository.Project, repository.Repository), func(ctx context.Context) {
 				w.checkForgeHealth(ctx, repository)
 			})
 		}
 	}
 	for _, request := range state.Forge {
-		if !w.forgeDue(request) {
+		if (rt.Forge == nil && request.Binding != "") || !w.forgeDue(request) {
 			continue
 		}
 		w.goForge(ctx, "request/"+forgeKey(request.Project, request.ID), func(ctx context.Context) {
@@ -75,7 +76,7 @@ func (w *Worker) tendForge(ctx context.Context) {
 		})
 	}
 	for _, watched := range state.PullRequests {
-		if !w.readDue(watched) {
+		if rt.Forge == nil || !w.readDue(watched) {
 			continue
 		}
 		w.goForge(ctx, "read/"+forgeKey(watched.Project, watched.WorkOrder), func(ctx context.Context) {
@@ -133,7 +134,8 @@ func (w *Worker) readPullRequest(ctx context.Context, watched ledger.DesiredPull
 	if seen.told != nil && sameRead(*seen.told, read) {
 		return
 	}
-	if seen.told == nil && read.State == watched.State && read.HeadCommit == watched.HeadCommit && read.MergeCommit == watched.MergeCommit {
+	if seen.told == nil && read.State == watched.State && read.HeadCommit == watched.HeadCommit && read.MergeCommit == watched.MergeCommit &&
+		read.Mergeable == watched.Mergeable && slices.Equal(read.Checks, watched.Checks) {
 		w.forgeLock.Lock()
 		seen.told = &read
 		w.forgeRead[key] = seen
@@ -190,6 +192,10 @@ func (w *Worker) forgeDue(request ledger.DesiredForge) bool {
 	}
 	if failed, ok := w.forgeFailed[forgeKey(request.Project, request.ID)]; ok && w.clock.Now().Sub(failed) < w.config.Lanes.forgeEvery() {
 		return false
+	}
+	// A branch merge names no binding, because it runs git and no forge.
+	if request.Binding == "" {
+		return true
 	}
 	seen, ok := w.forgeHealth[forgeKey(request.Project, request.Repository)]
 	return ok && seen.found.State == ledger.ForgeHealthy
@@ -273,13 +279,13 @@ func (w *Worker) recheckHealth(project, repository string) {
 // runForge runs one attempt at a forge request and journals its report. A failure is a report too, which
 // the ledger keeps with the request before it offers the next attempt.
 func (w *Worker) runForge(ctx context.Context, request ledger.DesiredForge) {
-	report := ledger.ForgeReport{Request: request.ID, Attempt: request.Attempt}
-	pr, err := w.performForge(ctx, request)
+	report, err := w.performForge(ctx, request)
+	report.Request, report.Attempt = request.ID, request.Attempt
 	if errors.Is(err, errForgeBusy) {
 		return
 	}
 	if err != nil {
-		report.Failed, report.Detail = true, err.Error()
+		report.Failed, report.Detail, report.PullRequest, report.Merge = true, err.Error(), nil, nil
 		w.forgeLock.Lock()
 		if w.forgeFailed == nil {
 			w.forgeFailed = map[string]time.Time{}
@@ -287,8 +293,6 @@ func (w *Worker) runForge(ctx context.Context, request ledger.DesiredForge) {
 		w.forgeFailed[forgeKey(request.Project, request.ID)] = w.clock.Now()
 		w.forgeLock.Unlock()
 		w.recheckHealth(request.Project, request.Repository)
-	} else if pr != nil {
-		report.PullRequest = pr
 	}
 	payload, err := json.Marshal(report)
 	if err == nil {
@@ -306,29 +310,76 @@ func (w *Worker) runForge(ctx context.Context, request ledger.DesiredForge) {
 	w.forgeReported[forgeAttemptKey(request)] = true
 }
 
-func (w *Worker) performForge(ctx context.Context, request ledger.DesiredForge) (*ledger.PullRequest, error) {
+// performForge runs one forge request and returns what its report carries beyond the request it answers.
+func (w *Worker) performForge(ctx context.Context, request ledger.DesiredForge) (ledger.ForgeReport, error) {
 	rt := w.config.Lanes
 	dir, err := rt.Repository(ctx, request.Project, request.Repository)
 	if err != nil {
-		return nil, err
+		return ledger.ForgeReport{}, err
+	}
+	if request.Kind == ledger.ForgeMerge && request.Binding == "" {
+		return w.mergeBranch(ctx, request, dir)
 	}
 	binding, err := ledger.ParseForgeBinding(request.Binding)
 	if err != nil {
-		return nil, err
+		return ledger.ForgeReport{}, err
 	}
 	repo := ports.ForgeRepo{Dir: dir, Binding: binding}
 	switch request.Kind {
 	case ledger.ForgePublish:
 		pr, err := w.publish(ctx, request, repo)
-		return &pr, err
+		return ledger.ForgeReport{PullRequest: &pr}, err
 	case ledger.ForgeComment:
 		comment := lanes.Effect{Key: forgeAttemptKey(request) + "/comment", Kind: lanes.EffectComment, Target: fmt.Sprint(request.Number)}
 		_, err := w.forgeBracket(ctx, comment, func() (string, error) {
 			return "", rt.Forge.Comment(ctx, ports.PullRequestRef{Repo: repo, Number: request.Number}, request.ID, request.Body)
 		})
-		return nil, err
+		return ledger.ForgeReport{}, err
+	case ledger.ForgeMerge:
+		merge := lanes.Effect{Key: forgeAttemptKey(request) + "/merge", Kind: lanes.EffectMerge, Target: fmt.Sprint(request.Number)}
+		result, err := w.mergeBracket(ctx, merge, func() (ledger.MergeResult, error) {
+			return rt.Forge.Merge(ctx, ports.PullRequestRef{Repo: repo, Number: request.Number}, request.Commit, request.Method)
+		})
+		return ledger.ForgeReport{Merge: &result}, err
 	}
-	return nil, fmt.Errorf("this worker runs no forge request of kind %s", request.Kind)
+	return ledger.ForgeReport{}, fmt.Errorf("this worker runs no forge request of kind %s", request.Kind)
+}
+
+// mergeBranch merges a reviewed branch into its base with git, in the repository's checkout here, as one
+// recorded effect: review target `branch` has no forge, and the worker that ran the lane holds the branch.
+func (w *Worker) mergeBranch(ctx context.Context, request ledger.DesiredForge, dir string) (ledger.ForgeReport, error) {
+	merger, ok := w.config.Lanes.Provisioner.Worktrees.(ports.BranchMerger)
+	if !ok {
+		return ledger.ForgeReport{}, errors.New("this worker's worktrees cannot merge a branch")
+	}
+	merge := lanes.Effect{Key: forgeAttemptKey(request) + "/merge", Kind: lanes.EffectMerge, Target: request.Branch}
+	result, err := w.mergeBracket(ctx, merge, func() (ledger.MergeResult, error) {
+		return merger.MergeBranch(ctx, dir, ports.BranchMerge{
+			Branch: request.Branch, Base: request.Base, Commit: request.Commit, Method: request.Method, WorkOrder: request.WorkOrder, Title: request.Title,
+		})
+	})
+	return ledger.ForgeReport{Merge: &result}, err
+}
+
+// mergeBracket performs a merge as a recorded effect, keeping what it came to with the record, so a repeat
+// finds the result and merges nothing twice.
+func (w *Worker) mergeBracket(ctx context.Context, effect lanes.Effect, merge func() (ledger.MergeResult, error)) (ledger.MergeResult, error) {
+	recorded, err := w.forgeBracket(ctx, effect, func() (string, error) {
+		result, err := merge()
+		if err != nil {
+			return "", err
+		}
+		raw, err := json.Marshal(result)
+		return string(raw), err
+	})
+	if err != nil {
+		return ledger.MergeResult{}, err
+	}
+	var result ledger.MergeResult
+	if err := json.Unmarshal([]byte(recorded), &result); err != nil {
+		return ledger.MergeResult{}, fmt.Errorf("the merge on record: %w", err)
+	}
+	return result, nil
 }
 
 // publish pushes the branch, then opens its pull request, each a recorded effect under a key of the
