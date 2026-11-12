@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -103,6 +104,8 @@ type Approval struct {
 	// the call lands on disk, which a worker reads against the lane's worktree.
 	Command string `json:"command,omitempty"`
 	Path    string `json:"path,omitempty"`
+	// Agent is the subagent a call starts, which a delegation class may name (FR-AGENT-11).
+	Agent string `json:"agent,omitempty"`
 	// Summary is what a person reads, and it is built from Input, never from what a lane wrote.
 	Summary     string        `json:"summary"`
 	RequestedBy string        `json:"requested_by"`
@@ -164,10 +167,21 @@ func (a Approval) Validate() error {
 		return fmt.Errorf("%w: kind %q", ErrBadApproval, a.Kind)
 	case a.Kind == KindToolCall && a.SubjectDigest != LandingDigest(a.Subject, a.Input, a.Path):
 		return fmt.Errorf("%w: its digest does not cover its tool call", ErrBadApproval)
+	case a.Agent != "" && (a.Kind != KindToolCall || a.Agent != startedAgent(a.Subject, a.Input)):
+		return fmt.Errorf("%w: it names agent %q, which its call does not start", ErrBadApproval, a.Agent)
 	case a.Kind == KindPlan && (a.Lane != "" || a.Generation != 0 || a.Input != "" || a.Command != "" || a.Path != ""):
 		return fmt.Errorf("%w: a plan belongs to no lane and covers no tool call", ErrBadApproval)
 	}
 	return nil
+}
+
+// startedAgent is the subagent a call's input starts, read as ReadToolCall reads it.
+func startedAgent(tool, input string) string {
+	call, err := ReadToolCall(tool, []byte(input))
+	if err != nil {
+		return ""
+	}
+	return call.Agent
 }
 
 // Decide applies a decision. Each check repeats in the store where it can, and none reads anything
@@ -406,8 +420,14 @@ type ToolCall struct {
 	Seen    string
 	Command string
 	Path    string
+	// Agent is the subagent a call starts, which its `subagent_type` names (ADR-0025).
+	Agent   string
 	Summary string
 }
+
+// agentTools start a subagent. Claude Code renamed Task to Agent and keeps the old name as an alias
+// (https://code.claude.com/docs/en/sub-agents).
+var agentTools = []string{"Agent", "Task"}
 
 // Lands binds a call to where it lands, which only a worker can read. A reviewer reads that too when
 // it is not what the input says, because a call that names one path and lands on another must not
@@ -452,6 +472,10 @@ func ReadToolCall(tool string, raw []byte) (ToolCall, error) {
 	if call.Command != "" {
 		text = call.Command
 	}
+	if slices.Contains(agentTools, tool) {
+		call.Agent = field("subagent_type")
+		text = "start the " + call.Agent + " agent: " + canonical
+	}
 	if len(text) > maxSummary {
 		text = fmt.Sprintf("%s ... (%d more bytes, which the digest covers)", text[:maxSummary], len(text)-maxSummary)
 	}
@@ -495,6 +519,9 @@ type DelegationClass struct {
 	Tool          string `toml:"tool" json:"tool"`
 	CommandPrefix string `toml:"command_prefix,omitempty" json:"command_prefix,omitempty"`
 	Path          string `toml:"path,omitempty" json:"path,omitempty"`
+	// Agent names the one subagent an `Agent` class covers the start of, such as a per-use roster agent
+	// (FR-AGENT-11).
+	Agent string `toml:"agent,omitempty" json:"agent,omitempty"`
 }
 
 // shellMeta holds what makes a command more than one command, or more than what it reads as.
@@ -506,6 +533,9 @@ const shellMeta = ";&|<>$`\\\n\r(){}"
 func (c DelegationClass) covers(a Approval) bool {
 	if a.Kind != KindToolCall || a.Subject != c.Tool {
 		return false
+	}
+	if c.Agent != "" {
+		return a.Agent == c.Agent && a.Command == "" && a.Path == ""
 	}
 	if c.CommandPrefix != "" {
 		command := a.Command
@@ -560,8 +590,14 @@ func (p DelegationPolicy) Check() error {
 		return fmt.Errorf("%w: version %d", ErrBadLanePolicy, p.Version)
 	}
 	for _, class := range p.Classes {
+		if class.Agent != "" {
+			if !slices.Contains(agentTools, class.Tool) || class.CommandPrefix != "" || class.Path != "" {
+				return fmt.Errorf("%w: an agent class names the Agent tool and an agent, and nothing else: %+v", ErrBadLanePolicy, class)
+			}
+			continue
+		}
 		if class.Tool == "" || (class.CommandPrefix == "") == (class.Path == "") {
-			return fmt.Errorf("%w: a class names a tool and exactly one of a command prefix or a path: %+v", ErrBadLanePolicy, class)
+			return fmt.Errorf("%w: a class names a tool and exactly one of a command prefix, a path, or an agent: %+v", ErrBadLanePolicy, class)
 		}
 		if strings.ContainsAny(class.CommandPrefix, shellMeta) {
 			return fmt.Errorf("%w: a prefix holds shell syntax: %q", ErrBadLanePolicy, class.CommandPrefix)

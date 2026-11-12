@@ -357,7 +357,7 @@ func (r *laneRun) standingRequest(ctx context.Context, lane lanes.Record, call a
 	open := lanes.OpenApproval{ID: id, Lane: lane.ID, Generation: lane.Generation, Tool: call.Tool, Digest: call.Digest, Seen: call.Seen, DeadlineMs: deadline}
 	payload, err := json.Marshal(authority.Approval{
 		ID: id, Lane: lane.ID, WorkOrder: lane.WorkOrder, Generation: lane.Generation, Kind: authority.KindToolCall, Subject: call.Tool,
-		SubjectDigest: call.Digest, Input: call.Input, Command: call.Command, Path: call.Path, Summary: call.Summary,
+		SubjectDigest: call.Digest, Input: call.Input, Command: call.Command, Path: call.Path, Agent: call.Agent, Summary: call.Summary,
 		RequestedBy: authority.Principal(r.principal(lane)),
 	})
 	if err != nil {
