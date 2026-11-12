@@ -124,14 +124,18 @@ func TestToolsDependOnWhoTheTokenStandsFor(t *testing.T) {
 }
 
 // The numbers are the decision's (ADR-0014): more tools raise prompt cost and widen authority, so a
-// new one has to change this test.
+// new one has to change this test. The Recovery group added four to the orchestrator's 14 (FR-ORCH-8).
 func TestEachCallerSeesExactlyItsTools(t *testing.T) {
 	lane := []string{"lane_report", "lane_wait", "ask", "lane_handoff", "reply", "context_get", "decision_search", "requirement_get", "question_search"}
 	orchestrator := []string{
 		"context_get", "decision_search", "requirement_get", "question_search",
 		"work_candidates", "work_claim", "lane_start", "lane_stop",
 		"question_next", "question_attach", "decision_record", "question_escalate",
+		"lane_restart", "lane_reset", "work_retry", "work_replan",
 		"work_decline", "approval_decide",
+	}
+	if len(orchestrator) != 18 {
+		t.Fatalf("the decision names 18 orchestrator tools, and this lists %d", len(orchestrator))
 	}
 	if got := listed(t, &worker{}); !slices.Equal(got, lane) {
 		t.Errorf("a lane sees %d: %v", len(got), got)
@@ -416,5 +420,25 @@ func TestAnOrchestratorsToolsNameTheProject(t *testing.T) {
 		if properties, _ := tool.InputSchema["properties"].(map[string]any); properties["project"] != nil {
 			t.Errorf("a lane's %s names a project, and a lane reaches only its own", tool.Name)
 		}
+	}
+}
+
+// Each recovery tool names its project, its work order, and a reason, and none of them can be called
+// without all three (ADR-0014).
+func TestEveryRecoveryToolTakesAWorkOrderAndAReason(t *testing.T) {
+	w := &worker{owner: lanes.OwnerOrchestrator}
+	found := 0
+	for _, tool := range ask(t, w, "tools/list", map[string]any{}).Result.Tools {
+		if !slices.Contains(lanes.RecoveryTools, tool.Name) {
+			continue
+		}
+		found++
+		required, _ := tool.InputSchema["required"].([]any)
+		if fmt.Sprint(required) != "[project work_order reason]" {
+			t.Errorf("%s requires %v", tool.Name, required)
+		}
+	}
+	if found != len(lanes.RecoveryTools) {
+		t.Errorf("listed %d of %d recovery tools", found, len(lanes.RecoveryTools))
 	}
 }

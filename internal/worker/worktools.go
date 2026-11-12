@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -70,6 +71,8 @@ func (w *Worker) takeWork(ctx context.Context, lane lanes.Record, request lanes.
 		return lanes.Reply{OK: true, Work: result}
 	case errors.Is(err, workorders.ErrForbidden), errors.Is(err, questions.ErrOneWay):
 		return refused(lanes.CodeForbidden, err.Error())
+	case errors.Is(err, authority.ErrRecoveryMoved):
+		return refused(lanes.CodeConflict, err.Error())
 	}
 	return refused(lanes.CodeInvalid, err.Error())
 }
@@ -112,6 +115,14 @@ func (w *Worker) workTool(ctx context.Context, lane lanes.Record, tool string, a
 		return act(ledger.VerbStop)
 	case lanes.ToolWorkDecline:
 		return act(ledger.VerbDecline)
+	case lanes.ToolLaneRestart:
+		return act(ledger.VerbRestart)
+	case lanes.ToolLaneReset:
+		return act(ledger.VerbReset)
+	case lanes.ToolWorkRetry:
+		return act(ledger.VerbRetry)
+	case lanes.ToolWorkReplan:
+		return act(ledger.VerbReplan)
 	case lanes.ToolQuestionNext:
 		return act(ledger.VerbNext)
 	case lanes.ToolQuestionAttach:

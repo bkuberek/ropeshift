@@ -1,10 +1,15 @@
 package authority
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // PolicyRecovery bounds what an orchestrator may do to recover stuck work with no member (FR-ORCH-8). It
@@ -179,4 +184,79 @@ func (p RecoveryPolicy) Judge(f RecoveryFacts) (Refusal, bool) {
 		return refuse(CheckUnknownAct, fmt.Sprintf("%q is no recovery act", f.Act))
 	}
 	return Refusal{}, false
+}
+
+// ErrRecoveryMoved means the subject of a recovery act is no longer in the state the act starts from:
+// another actor moved it, so the act records nothing and its caller reads its digest again.
+var ErrRecoveryMoved = errors.New("another actor already moved this work, so nothing is recorded; read your digest again")
+
+// The results of a recovery act.
+const (
+	RecoveryDone    = "done"
+	RecoveryRefused = "refused"
+)
+
+// EventRecovery records a recovery act that ran or that the policy refused (ADR-0014).
+const EventRecovery = "recovery"
+
+// SubjectRecovery names a recovery record as the subject of its event.
+const SubjectRecovery = "recovery"
+
+// RecoveryRecord is one recovery act as the audit reads it: the act, its work order and lane, who asked
+// and in which generation of its session, the reason, the version of the recovery policy in force, and
+// the result. A refusal names the check that failed, the limit, and the request it raised.
+type RecoveryRecord struct {
+	ID         string      `json:"id"`
+	Act        RecoveryAct `json:"act"`
+	WorkOrder  string      `json:"work_order_id"`
+	Lane       string      `json:"lane_id,omitempty"`
+	Actor      string      `json:"actor"`
+	Generation int64       `json:"generation,omitempty"`
+	Reason     string      `json:"reason"`
+	// PolicyVersion is the version of the recovery policy in force, which bounds an orchestrator and not
+	// a member.
+	PolicyVersion int64  `json:"policy_version,omitempty"`
+	Result        string `json:"result"`
+	Check         string `json:"check,omitempty"`
+	Limit         string `json:"limit,omitempty"`
+	Approval      string `json:"approval_id,omitempty"`
+	At            int64  `json:"at"`
+}
+
+// RecoveryEvent is the event of a record.
+func RecoveryEvent(record RecoveryRecord, actor ledger.Actor) (ledger.EventDraft, error) {
+	data, err := json.Marshal(record)
+	if err != nil {
+		return ledger.EventDraft{}, err
+	}
+	return ledger.EventDraft{
+		Type: EventRecovery, Actor: actor, Subject: ledger.Subject{Kind: SubjectRecovery, ID: record.ID}, Data: data,
+	}, nil
+}
+
+// RecoveryDetail is what a member reads of a recovery request beyond its summary.
+type RecoveryDetail struct {
+	Act           RecoveryAct `json:"act"`
+	WorkOrder     string      `json:"work_order_id"`
+	Lane          string      `json:"lane_id,omitempty"`
+	Reason        string      `json:"reason"`
+	Check         string      `json:"check"`
+	Limit         string      `json:"limit"`
+	PolicyVersion int64       `json:"policy_version"`
+}
+
+// RecoveryDetailOf reads a recovery request's detail. Any other request reads as nothing.
+func RecoveryDetailOf(a Approval) RecoveryDetail {
+	var detail RecoveryDetail
+	if a.Kind == KindRecovery {
+		_ = json.Unmarshal([]byte(a.Detail), &detail)
+	}
+	return detail
+}
+
+// RecoveryDigest is the digest of a recovery act's subject: the act, and the parts of its work order and
+// lane any move changes. A request bound to it is void once the subject moves (FR-AUTH-2).
+func RecoveryDigest(act RecoveryAct, subject ...string) string {
+	sum := sha256.Sum256([]byte(string(act) + "\x00" + strings.Join(subject, "\x00")))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }

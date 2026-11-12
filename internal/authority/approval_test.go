@@ -670,3 +670,43 @@ func withState(a authority.Approval, state authority.ApprovalState) authority.Ap
 	a.State = state
 	return a
 }
+
+// A recovery request belongs to a work order, and its lane only when the act works on one. It names an
+// act this build knows.
+func TestARecoveryRequestNamesItsWorkAndItsAct(t *testing.T) {
+	base := authority.Approval{
+		ID: "r1", WorkOrder: "wo-1", Kind: authority.KindRecovery, Subject: string(authority.RecoverRetry),
+		SubjectDigest: authority.RecoveryDigest(authority.RecoverRetry, "wo-1", "failed"), RequestedBy: "orchestrator:w1",
+	}
+	if err := base.Validate(); err != nil {
+		t.Errorf("a retry request with no lane: %v", err)
+	}
+	noWork := base
+	noWork.WorkOrder = ""
+	takeover := base
+	takeover.Subject = "work_takeover"
+	for name, bad := range map[string]authority.Approval{"no work order": noWork, "an act nobody named": takeover} {
+		if err := bad.Validate(); !errors.Is(err, authority.ErrBadApproval) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A recovery act was outside the policy every orchestrator is held to, so no orchestrator decides one, its
+// own or another's, and a member does.
+func TestOnlyAMemberDecidesARecoveryRequest(t *testing.T) {
+	request := authority.Approval{
+		ID: "r1", WorkOrder: "wo-1", Kind: authority.KindRecovery, Subject: string(authority.RecoverReset),
+		SubjectDigest: "sha256:subject", RequestedBy: "orchestrator:w1", State: authority.ApprovalPending,
+	}
+	decision := authority.Decision{ID: "r1", Digest: "sha256:subject", Allow: true}
+	for _, actor := range []ledger.Actor{{Kind: ledger.ActorOrchestrator, ID: "w2"}, {Kind: ledger.ActorOrchestrator, ID: "w1"}} {
+		if _, err := request.Decide(decision, actor, 1, 5); !errors.Is(err, authority.ErrDeciderKind) {
+			t.Errorf("%s decided a recovery request: %v", actor.ID, err)
+		}
+	}
+	decided, err := request.Decide(decision, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, 1, 5)
+	if err != nil || decided.State != authority.ApprovalApproved {
+		t.Errorf("a member's decision: %+v, %v", decided, err)
+	}
+}

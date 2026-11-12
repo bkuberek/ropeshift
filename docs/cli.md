@@ -93,7 +93,7 @@ One worker per machine serves every active project, and one orchestrator per mac
 | `ropeshift policy publish --file F` | Publishes a new version of the policy its table names, `[decision_policy]`, `[lane_policy]`, `[delegation_policy]`, `[autonomy_policy]`, `[notify_policy]`, or `[recovery_policy]`. A body names its version, and it must be newer than the one in force. Only a member can |
 | `ropeshift approval list [--state S]` | Lists requests, each with what it asks and how it stands |
 | `ropeshift approval show <id>` | Shows one request: its call, the lane that asked or, for a plan approval, the plan and version, its digest, and how it stands. A request to approve an adopted plan also prints its groups as `plan show` does: what exists with its evidence, what continues, what is new, what is left out with each reason, and every file the adoption branch changed |
-| `ropeshift approval approve <id> --digest D [--reason R]` | Approves the one call a request names, and `--digest` says what you read. It also approves a plan version, the same as `plan approve`, and an orchestrator never can. See [authorization](authorization.md) |
+| `ropeshift approval approve <id> --digest D [--reason R]` | Approves the one call a request names, and `--digest` says what you read. It also approves a plan version, the same as `plan approve`, and a recovery request, which runs the act the orchestrator asked for as your decision. An orchestrator can approve neither. See [authorization](authorization.md) |
 | `ropeshift approval deny <id> --digest D [--reason R]` | Denies it |
 | `ropeshift effect list` | Lists the effects a crash left unknown that nothing can observe, such as an input to a session or a profile's hook, each with its worker, lane, and how it stands |
 | `ropeshift effect show <id>` | Shows one |
@@ -151,7 +151,7 @@ One worker per machine serves every active project, and one orchestrator per mac
 | `ropeshift worker window-open <id> [--for D] [--id I]` | Opens a run window, inside which an `attended` worker's orchestrator claims. It lasts 4 hours by default and 12 at most, and closes by itself. A worker holds one at a time |
 | `ropeshift worker window-close <id>` | Ends a run window. No lane stops, and work claimed but not started waits for the next window or a member |
 
-`ropeshift mcp` lists 9 tools for a lane and 15 for an orchestrator, by the token it runs with. `lane_stop` ends a stuck session and starts the lane's next generation, because canceling work is a member's.
+`ropeshift mcp` lists 9 tools for a lane and 18 for an orchestrator, by the token it runs with. `lane_stop` ends a stuck session and starts the lane's next generation, because canceling work is a member's. The orchestrator's `lane_restart`, `lane_reset`, `work_retry`, and `work_replan` recover stuck work within `[recovery_policy]`, and a call outside it raises a request a member decides. See [authorization](authorization.md#recovery).
 
 These commands are for ropeshift or an agent CLI to run, and a person does not need them:
 

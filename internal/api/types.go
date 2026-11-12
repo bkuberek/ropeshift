@@ -19,6 +19,8 @@ const (
 	CodeLapsed        = "lapsed"
 	CodeNotLapsed     = "not_lapsed"
 	CodeIllegalMove   = "illegal_move"
+	// CodeMoved refuses a recovery act whose subject another actor already moved, which records nothing.
+	CodeMoved = "moved"
 	// CodeUnpushedWork refuses a removal that could lose work no remote holds.
 	CodeUnpushedWork = "unpushed_work"
 	CodeUnavailable  = "unavailable"

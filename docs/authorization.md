@@ -7,7 +7,7 @@ Ropeshift's aim is that an agent cannot grant itself authority. This page says h
 | Principal | Proves itself with | Decides a request |
 |-----------|--------------------|-------------------|
 | Member | A session from a passphrase | Any request |
-| Orchestrator | A token for its session process, through its worker | Only a class a member delegated, and never its own |
+| Orchestrator | A token for its session process, through its worker | Only a class a member delegated, never its own, and never a plan or recovery request |
 | Lane | A token for its session process, through its worker | None |
 | Worker | The worker credential | None |
 
@@ -56,6 +56,9 @@ A session that comes back to an approved call hears that exact call first, with 
 | An orchestrator's token reaches no lane's tool | The worker socket, which refuses a report, a wait, an ask, and a reply from it |
 | Only a member starts an orchestrator | The route, which takes only a session, and the authorization function |
 | An orchestrator runs only what its worker holds | The control plane, which reads the lease before it starts or stops a lane |
+| An orchestrator recovers stuck work only within `[recovery_policy]`, and never by a takeover | The control plane, which checks the policy in force in the transaction that acts, and the authorization function, which gives no agent a member's retry, reset, or takeover |
+| Only a member decides a recovery request | The authorization function, the domain, and a database check on the decider's kind |
+| An orchestrator's breaker reset never overrides a lane's daily cap | The control plane, which refuses a reset of a lane that reads `day_capped`, and the worker, which keeps on the day what such a reset clears from the window |
 | An orchestrator cannot cite a record of another project | The plane, which runs each call in the ledger of the project it names, where an ID of another project does not resolve |
 | Only a member opens a window or acknowledges the risk | The route, which takes only a session, the authorization function, and a database check on the opener's and the acknowledger's kind |
 | A claim no member made follows the level and the window | The claim's transaction, which reads both as it grants |
@@ -100,6 +103,32 @@ path = "docs/**"
 ```
 
 A class names a tool and exactly one of a command prefix or a path, and a call that carries the other field goes to a member. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A prefix admits any arguments, so declare only a command whose arguments cannot start something else: `go test -exec` can. A class reads where a call lands, inside the lane's worktree, so a link a lane made under `docs/` leads nowhere a class covers. A path with a `..` in it goes to a member, because a tool reads that off the text and the disk may disagree, and so does a file with a second name, which could lie anywhere. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
+
+## Recovery
+
+An orchestrator recovers stuck work with no member, within a versioned `[recovery_policy]` that only a member publishes. The built-in version is this one:
+
+```toml
+[recovery_policy]
+version = 1
+restart_stalled = true
+max_breaker_resets_per_day = 2
+retry_failed = true
+replan_blocked = true
+```
+
+It has four tools for it, each with the project, the work order, and a reason that must not be empty:
+
+| Tool | Does | Within the policy when |
+|------|------|------------------------|
+| `lane_restart` | Ends a stalled lane's session and starts its next generation, which counts toward the lane's day | `restart_stalled` is true, and the lane runs on this orchestrator's machine |
+| `lane_reset` | Resets a tripped breaker, so the lane starts again | The lane runs on this orchestrator's machine, it does not read `day_capped`, and orchestrators reset this work order's breaker fewer than `max_breaker_resets_per_day` times in the last day |
+| `work_retry` | Returns failed work to `ready`, and the next lane reads why the last one failed and the reason | `retry_failed` is true, and the work has used fewer than its `max_attempts`, which is 1 when the work names none |
+| `work_replan` | Sends blocked work to `planning` with the reason and its lane's outcome, where its contract passes review again | `replan_blocked` is true |
+
+A call whose work order or lane is no longer stalled, tripped, failed, or blocked answers with a conflict and records nothing: another actor already moved it. A call outside the policy changes nothing. It raises an approval request of kind `recovery`, bound to the act, its arguments, the reason, and a digest of the work order and lane as they stood, and the call's answer names it. The request waits in Needs you with the reason and the limit it went past, and the same call again finds the same request. Only a member decides one: approving it runs the act as the member's decision, and a retry of work with no attempts left gets one more attempt. The request is void once its work order or lane moves.
+
+Every call that acts or is refused is a `recovery` event naming the act, the work order and its lane, the orchestrator and the generation of its session, the reason, the policy version in force, and the result. A failed lane leaves its work `failed` until someone retries it, so a crash that repeats does not spend every attempt unseen. The worker wakes its orchestrator for failed work with attempts left, blocked work, and a lane its window tripped. The policy bounds orchestrators and not members: `ropeshift lane respawn`, `ropeshift lane reset`, `ropeshift work retry`, and `ropeshift work replan` do the same as a member. A takeover is never a recovery act: the control plane's takeover policy or a member reassigns lapsed work.
 
 ## The limit of same-user isolation
 

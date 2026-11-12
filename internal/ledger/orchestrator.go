@@ -143,6 +143,12 @@ const (
 	WakeStalled  = "stalled_lane"
 	WakeOverdue  = "overdue_lane"
 	WakeApproval = "approval"
+	// WakeTripped is a lane whose breaker its window tripped, which a reset could start again.
+	WakeTripped = "tripped_lane"
+	// WakeFailed is failed work with attempts left, and WakeBlocked is blocked work. Each waits for a
+	// judged act: nothing retries or replans work on its own (ADR-0014).
+	WakeFailed  = "failed_work"
+	WakeBlocked = "blocked_work"
 )
 
 // WakeItem is one thing to judge. Stamp says how it stands, so an item that changed counts again and
@@ -189,6 +195,11 @@ const (
 	VerbResolve    = "resolve"
 	VerbMerge      = "merge"
 	VerbRule       = "rule"
+	// The recovery acts (ADR-0014), each held to the recovery policy in force.
+	VerbRestart = "restart"
+	VerbReset   = "reset"
+	VerbRetry   = "retry"
+	VerbReplan  = "replan"
 )
 
 // OrchestratorCall is one such act. Lane names the run it speaks for, so a call from a start that was

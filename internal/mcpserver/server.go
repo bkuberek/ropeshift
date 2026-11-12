@@ -341,6 +341,7 @@ func orchestratorTools() []any {
 		contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
 		workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
 		questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
+		laneRestartTool, laneResetTool, workRetryTool, workReplanTool,
 		workDeclineTool, approvalDecideTool,
 	}
 	tools := make([]any, 0, len(all))
@@ -399,6 +400,30 @@ var laneStopTool = objectTool(lanes.ToolLaneStop, "End a stuck lane's session. T
 
 var workDeclineTool = objectTool(lanes.ToolWorkDecline, "Pass on a work order, with why. It stays open for any other worker.",
 	map[string]any{"work_order": workOrderField, "reason": textField("Why this worker passes on it.")}, "work_order", "reason")
+
+// recoveryReason is the reason every recovery act takes, which a member reads in the audit and in any
+// request the act raises.
+var recoveryReason = textField("Why this recovers the work, which a member reads. It must not be empty.")
+
+// recoveryNote is what every recovery tool says of how it ends.
+const recoveryNote = " Within the recovery policy it runs. Outside it, it changes nothing and raises a request a member decides, " +
+	"which the answer names. If the work already moved, it changes nothing and says so: read the next wake."
+
+var laneRestartTool = objectTool(lanes.ToolLaneRestart, "Restart a stalled lane on this machine: the worker ends its session and starts "+
+	"its next generation, which counts toward the lane's day."+recoveryNote,
+	map[string]any{"work_order": workOrderField, "reason": recoveryReason}, "work_order", "reason")
+
+var laneResetTool = objectTool(lanes.ToolLaneReset, "Reset the breaker of a lane on this machine that crashes tripped, so it starts again. "+
+	"It never overrides the lane's daily cap on generations."+recoveryNote,
+	map[string]any{"work_order": workOrderField, "reason": recoveryReason}, "work_order", "reason")
+
+var workRetryTool = objectTool(lanes.ToolWorkRetry, "Retry failed work that has attempts left: it returns to ready, and the next lane "+
+	"reads why the last one failed and your reason."+recoveryNote,
+	map[string]any{"work_order": workOrderField, "reason": recoveryReason}, "work_order", "reason")
+
+var workReplanTool = objectTool(lanes.ToolWorkReplan, "Send blocked work back to planning, with why and what its lane reported. Its "+
+	"contract passes review again before it is ready."+recoveryNote,
+	map[string]any{"work_order": workOrderField, "reason": recoveryReason}, "work_order", "reason")
 
 var questionNextTool = objectTool(lanes.ToolQuestionNext, "Take the next question to work, with what the record holds that could answer it. "+
 	"A blocking question comes first. You hold it until you record its answer or your turn ends, and a turn that ends lets go of it. It answers nothing when no question is free.", map[string]any{})
@@ -478,7 +503,8 @@ func callTool(params json.RawMessage, call Caller) (any, *rpcError) {
 		}
 		return callDecide(request.Arguments, call), nil
 	case lanes.ToolWorkCandidates, lanes.ToolWorkClaim, lanes.ToolLaneStart, lanes.ToolLaneStop, lanes.ToolQuestionNext, lanes.ToolQuestionAttach,
-		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline:
+		lanes.ToolDecisionRecord, lanes.ToolQuestionEscalate, lanes.ToolWorkDecline,
+		lanes.ToolLaneRestart, lanes.ToolLaneReset, lanes.ToolWorkRetry, lanes.ToolWorkReplan:
 		if !orchestrating(call) {
 			return nil, &rpcError{Code: codeInvalidParams, Message: "no such tool: " + request.Name}
 		}

@@ -30,6 +30,10 @@ const (
 	// KindPlan covers one plan version's digest, which covers every record that names the plan. It
 	// belongs to a plan and not to a lane, and only a member decides it (FR-PLAN-9, FR-PLAN-12).
 	KindPlan = "plan"
+	// KindRecovery covers a recovery act an orchestrator's policy refused: the act, and the digest of the
+	// work order and lane it starts from. It belongs to a work order, and only a member decides it
+	// (FR-ORCH-8, ADR-0014).
+	KindRecovery = "recovery"
 )
 
 // How an approval's outcome reached its session.
@@ -132,6 +136,10 @@ type Decision struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// MembersOnly says only a member decides a request: a plan sets scope, and a recovery act was outside the
+// policy that bounds every orchestrator, so no delegation reaches either.
+func (a Approval) MembersOnly() bool { return a.Kind == KindPlan || a.Kind == KindRecovery }
+
 // Open says a request still waits on a decision.
 func (a Approval) Open() bool { return a.State == ApprovalPending }
 
@@ -144,13 +152,15 @@ func (a Approval) Decided() bool { return a.State != ApprovalPending }
 // Validate refuses a request that binds to nothing.
 func (a Approval) Validate() error {
 	switch {
-	case a.ID == "" || a.Subject == "" || (a.Lane == "" && a.Kind != KindPlan):
+	case a.ID == "" || a.Subject == "" || (a.Lane == "" && a.Kind != KindPlan && a.Kind != KindRecovery):
 		return fmt.Errorf("%w: it names no lane or subject", ErrBadApproval)
+	case a.Kind == KindRecovery && (a.WorkOrder == "" || !KnownRecoveryAct(RecoveryAct(a.Subject))):
+		return fmt.Errorf("%w: a recovery request names a work order and a recovery act", ErrBadApproval)
 	case a.SubjectDigest == "":
 		return fmt.Errorf("%w: it binds to no digest", ErrBadApproval)
 	case a.RequestedBy == "":
 		return fmt.Errorf("%w: it names no requester", ErrBadApproval)
-	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract && a.Kind != KindPlan:
+	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract && a.Kind != KindPlan && a.Kind != KindRecovery:
 		return fmt.Errorf("%w: kind %q", ErrBadApproval, a.Kind)
 	case a.Kind == KindToolCall && a.SubjectDigest != LandingDigest(a.Subject, a.Input, a.Path):
 		return fmt.Errorf("%w: its digest does not cover its tool call", ErrBadApproval)
@@ -163,7 +173,7 @@ func (a Approval) Validate() error {
 // Decide applies a decision. Each check repeats in the store where it can, and none reads anything
 // a lane wrote: the digest is the one a decider saw, and the principal is the one a session proved.
 func (a Approval) Decide(decision Decision, actor ledger.Actor, policy, at int64) (Approval, error) {
-	if actor.Kind != ledger.ActorMember && (actor.Kind != ledger.ActorOrchestrator || a.Kind == KindPlan) {
+	if actor.Kind != ledger.ActorMember && (actor.Kind != ledger.ActorOrchestrator || a.MembersOnly()) {
 		return a, fmt.Errorf("%w: %s", ErrDeciderKind, actor.Kind)
 	}
 	principal := Principal(actor)

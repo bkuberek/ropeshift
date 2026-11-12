@@ -66,9 +66,18 @@ func domainError(err error) error {
 		return authority.ErrApprovalClosed
 	case api.CodeNotFound:
 		return ports.ErrNotFound
+	case api.CodeMoved:
+		return movedError(detail.Message)
 	}
 	return err
 }
+
+// movedError is the server's word that a recovery act's subject moved, which reads as it said.
+type movedError string
+
+func (e movedError) Error() string { return string(e) }
+
+func (e movedError) Unwrap() error { return authority.ErrRecoveryMoved }
 
 // Register exchanges a join token for a credential.
 func (l *HTTP) Register(ctx context.Context, registration ledger.Registration) (ledger.WorkerCredential, error) {

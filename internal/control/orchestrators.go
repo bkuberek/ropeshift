@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -175,7 +177,7 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 		}
 		gather = append(gather, wakeQuestions)
 		if facts.standing.MayWork() {
-			gather = append(gather, wakeFinished, wakeLanes, wakeApprovals)
+			gather = append(gather, wakeFinished, wakeLanes, wakeStuckWork, wakeApprovals)
 		}
 		for _, read := range gather {
 			items, err := read(tx, worker)
@@ -333,6 +335,31 @@ func wakeLanes(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
 			case "overdue":
 				out = append(out, ledger.WakeItem{Kind: ledger.WakeOverdue, ID: row.ID, Stamp: row.Generation, Text: "lane " + row.ID + " on " + row.WorkOrder + " is past its deadline"})
 			}
+		}
+		// A lane its day tripped waits for a member, and a wake would only raise a request for one.
+		if row.Status.ActualState == string(lanes.Tripped) && !slices.Contains(row.Status.Conditions, string(lanes.DayCapped)) {
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeTripped, ID: row.WorkOrder, Stamp: row.Generation, Text: "lane " + row.ID + " on " + row.WorkOrder + " tripped its breaker"})
+		}
+	}
+	return out, nil
+}
+
+// wakeStuckWork is work that waits on a judged recovery act: failed work with attempts left, and blocked
+// work. Failed work with none left waits for a member, and a wake would only raise a request for one. Each
+// counts once for as long as it stands, since any move changes its fence.
+func wakeStuckWork(tx ports.ReadTx, _ string) ([]ledger.WakeItem, error) {
+	rows, err := tx.WorkOrders().List()
+	if err != nil {
+		return nil, err
+	}
+	var out []ledger.WakeItem
+	for _, row := range rows {
+		switch {
+		case row.State == workorders.Failed && row.AttemptsLeft():
+			text := fmt.Sprintf("%s failed, with %d of %d attempts used", row.Title, row.Attempts, row.AttemptBound())
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeFailed, ID: row.ID, Stamp: row.Fence, Text: text})
+		case row.State == workorders.Blocked:
+			out = append(out, ledger.WakeItem{Kind: ledger.WakeBlocked, ID: row.ID, Stamp: row.Fence, Text: row.Title + " is blocked"})
 		}
 	}
 	return out, nil
