@@ -154,7 +154,7 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
     );
 
     it(
-      "the command palette and the shortcut sheet meet WCAG 2.2 A and AA",
+      "the palette, the shortcut sheet, the project switcher, a menu, and a dialog meet WCAG 2.2 A and AA",
       async () => {
         const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
         await context.route(/\/v1\//, answer);
@@ -171,6 +171,17 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.keyboard.press("?");
         await page.getByRole("dialog", { name: "Keyboard shortcuts" }).waitFor();
         found.push(...(await audit(page)).map((violation) => `sheet ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("p");
+        await page.getByRole("dialog", { name: "Switch project" }).waitFor();
+        found.push(...(await audit(page)).map((violation) => `project switcher ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Actions for lane lane-wo-tripped" }).click();
+        await page.getByRole("menu").waitFor();
+        found.push(...(await audit(page)).map((violation) => `lane menu ${violation}`));
+        await page.getByRole("menuitem").first().click();
+        await page.getByRole("dialog").waitFor();
+        found.push(...(await audit(page)).map((violation) => `lane act dialog ${violation}`));
         await page.keyboard.press("Escape");
         if (size === "phone") {
           await page.getByRole("button", { name: "Views" }).click();
