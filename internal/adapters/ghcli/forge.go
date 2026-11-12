@@ -28,6 +28,14 @@ const Binary = "gh"
 // (https://cli.github.com/manual/gh_pr_view).
 const pullRequestFields = "number,url,state,baseRefName,headRefName,headRefOid,mergeable,mergedAt,mergeCommit,statusCheckRollup"
 
+// mergeFields are what a merge reads of a pull request before it merges and after, to say what the merge
+// came to: mergeStateStatus is DIRTY for a conflict and BEHIND for a branch an up-to-date base refuses.
+const mergeFields = "state,headRefOid,mergeable,mergeStateStatus,mergeCommit,mergedAt"
+
+// requiredFields are what a read asks `gh pr checks --required --json` for: the checks the base branch's
+// protection requires (https://cli.github.com/manual/gh_pr_checks).
+const requiredFields = "name,bucket,link"
+
 // maxDetail bounds what a failure's text carries into the ledger.
 const maxDetail = 2000
 
@@ -200,9 +208,11 @@ func numberOf(out []byte) (int64, error) {
 	return number, nil
 }
 
-// PullRequest reads one pull request with `gh pr view <number> --json`.
+// PullRequest reads one pull request with `gh pr view <number> --json`, then the checks the base branch
+// requires with `gh pr checks <number> --required`, which it marks on the head's checks.
 func (f Forge) PullRequest(ctx context.Context, ref ports.PullRequestRef) (ledger.PullRequest, error) {
-	out, err := f.run(ctx, ref.Repo.Dir, "pr", "view", strconv.FormatInt(ref.Number, 10), "--repo", ref.Repo.Binding.String(), "--json", pullRequestFields)
+	number, repo := strconv.FormatInt(ref.Number, 10), ref.Repo.Binding.String()
+	out, err := f.run(ctx, ref.Repo.Dir, "pr", "view", number, "--repo", repo, "--json", pullRequestFields)
 	if err != nil {
 		return ledger.PullRequest{}, err
 	}
@@ -210,7 +220,131 @@ func (f Forge) PullRequest(ctx context.Context, ref ports.PullRequestRef) (ledge
 	if err := json.Unmarshal(out, &read); err != nil {
 		return ledger.PullRequest{}, fmt.Errorf("reading gh pr view: %w", err)
 	}
-	return read.pullRequest(), nil
+	pr := read.pullRequest()
+	if pr.State != ledger.PullRequestOpen {
+		return pr, nil
+	}
+	required, err := f.required(ctx, ref.Repo.Dir, repo, number)
+	if err != nil {
+		return ledger.PullRequest{}, err
+	}
+	for i := range pr.Checks {
+		pr.Checks[i].Required = required[pr.Checks[i].Name]
+	}
+	return pr, nil
+}
+
+// required names the checks the base branch's protection requires of a pull request. gh refuses with "no
+// required checks reported" when there are none, and with "no checks reported" when nothing ran, and each
+// of those is an empty answer. With --json, gh exits 0 whatever the checks say.
+func (f Forge) required(ctx context.Context, dir, repo, number string) (map[string]bool, error) {
+	out, err := f.run(ctx, dir, "pr", "checks", number, "--repo", repo, "--required", "--json", requiredFields)
+	var failed *ghError
+	if errors.As(err, &failed) && strings.Contains(failed.stderr, "checks reported on the") {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var listed []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(out, &listed); err != nil {
+		return nil, fmt.Errorf("reading gh pr checks: %w", err)
+	}
+	names := make(map[string]bool, len(listed))
+	for _, check := range listed {
+		names[check.Name] = true
+	}
+	return names, nil
+}
+
+// methodFlags are the flags of `gh pr merge` that name each merge method.
+var methodFlags = map[ledger.MergeMethod]string{ledger.MergeCommit: "--merge", ledger.MergeSquash: "--squash", ledger.MergeRebase: "--rebase"}
+
+// Merge reads the pull request's merge state, and runs `gh pr merge <number> --match-head-commit <head>`
+// with the method's flag only when it is open at that head and merges cleanly, then reads it again to say
+// what the merge came to (https://cli.github.com/manual/gh_pr_merge). It never passes --admin, --auto, or
+// --delete-branch. A pull request merged at that head is a merge an earlier attempt made, and merges nothing
+// again. What gh refuses is a refusal with what it said; a gh that cannot run, or a read that fails, is an
+// error, which a later attempt asks again.
+func (f Forge) Merge(ctx context.Context, ref ports.PullRequestRef, head string, method ledger.MergeMethod) (ledger.MergeResult, error) {
+	flag, ok := methodFlags[method]
+	if !ok {
+		return ledger.MergeResult{}, fmt.Errorf("no forge merges with the method %q", method)
+	}
+	before, err := f.mergeState(ctx, ref)
+	if err != nil {
+		return ledger.MergeResult{}, err
+	}
+	if result, settled := before.settled(head); settled {
+		return result, nil
+	}
+	_, merged := f.run(ctx, ref.Repo.Dir, "pr", "merge", strconv.FormatInt(ref.Number, 10), "--repo", ref.Repo.Binding.String(), "--match-head-commit", head, flag)
+	var refused *ghError
+	if merged != nil && !errors.As(merged, &refused) {
+		return ledger.MergeResult{}, merged
+	}
+	after, err := f.mergeState(ctx, ref)
+	if err != nil {
+		return ledger.MergeResult{}, err
+	}
+	if result, settled := after.settled(head); settled {
+		return result, nil
+	}
+	if refused == nil {
+		return ledger.MergeResult{}, fmt.Errorf("gh merged pull request %d, which does not read as merged yet", ref.Number)
+	}
+	return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: cmp.Or(refused.stderr, refused.Error())}, nil
+}
+
+// mergeStateOf is a pull request as `gh pr view --json` writes the fields a merge reads.
+type mergeStateOf struct {
+	State            string `json:"state"`
+	HeadRefOid       string `json:"headRefOid"`
+	Mergeable        string `json:"mergeable"`
+	MergeStateStatus string `json:"mergeStateStatus"`
+	MergedAt         string `json:"mergedAt"`
+	MergeCommit      *struct {
+		Oid string `json:"oid"`
+	} `json:"mergeCommit"`
+}
+
+func (f Forge) mergeState(ctx context.Context, ref ports.PullRequestRef) (mergeStateOf, error) {
+	out, err := f.run(ctx, ref.Repo.Dir, "pr", "view", strconv.FormatInt(ref.Number, 10), "--repo", ref.Repo.Binding.String(), "--json", mergeFields)
+	if err != nil {
+		return mergeStateOf{}, err
+	}
+	var read mergeStateOf
+	if err := json.Unmarshal(out, &read); err != nil {
+		return mergeStateOf{}, fmt.Errorf("reading gh pr view: %w", err)
+	}
+	return read, nil
+}
+
+// settled says what a pull request's state answers for a merge at head with no merge run: merged at that
+// head, merged or closed otherwise, a head that moved, a conflict, or a branch behind its base. An open pull
+// request at head that merges cleanly answers nothing.
+func (s mergeStateOf) settled(head string) (ledger.MergeResult, bool) {
+	switch {
+	case s.State == "MERGED" && s.HeadRefOid == head:
+		result := ledger.MergeResult{Outcome: ledger.MergeMerged, MergedAt: s.MergedAt}
+		if s.MergeCommit != nil {
+			result.MergeCommit = s.MergeCommit.Oid
+		}
+		return result, true
+	case s.State == "MERGED":
+		return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: fmt.Sprintf("the pull request merged at %s, not at the reviewed commit %s", s.HeadRefOid, head)}, true
+	case s.State == "CLOSED":
+		return ledger.MergeResult{Outcome: ledger.MergeRefused, Detail: "the pull request is closed"}, true
+	case s.HeadRefOid != head:
+		return ledger.MergeResult{Outcome: ledger.MergeStaleHead, Detail: fmt.Sprintf("the pull request's head is %s, not the reviewed commit %s", s.HeadRefOid, head)}, true
+	case s.Mergeable == "CONFLICTING" || s.MergeStateStatus == "DIRTY":
+		return ledger.MergeResult{Outcome: ledger.MergeConflict, Detail: "the merge commit cannot be cleanly created"}, true
+	case s.MergeStateStatus == "BEHIND":
+		return ledger.MergeResult{Outcome: ledger.MergeBehind, Detail: "the head branch is not up to date with the base branch"}, true
+	}
+	return ledger.MergeResult{}, false
 }
 
 // Comment reads the pull request's comments first and posts with `gh pr comment --body-file` only when

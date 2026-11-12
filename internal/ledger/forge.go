@@ -67,6 +67,10 @@ const (
 	ForgePublish ForgeKind = "publish"
 	// ForgeComment posts a comment, such as a review's verdicts, on a pull request, once.
 	ForgeComment ForgeKind = "comment"
+	// ForgeMerge merges accepted work at its reviewed commit, with the repository's merge method: the pull
+	// request through the forge, only while its head is that commit, or, with review target `branch`, the
+	// lane's branch into the base with git, only while the branch is still at that commit.
+	ForgeMerge ForgeKind = "merge"
 )
 
 // ForgeRequestState says where a forge request stands. A failed attempt stays requested, with the
@@ -96,6 +100,8 @@ type ForgeRequest struct {
 	Number  int64  `json:"number,omitempty"`
 	Title   string `json:"title,omitempty"`
 	Body    string `json:"body,omitempty"`
+	// Method is how a merge lands on its base.
+	Method MergeMethod `json:"method,omitempty"`
 	// Attempt counts the attempts the control plane has offered, from 1, and names the worker's effect.
 	Attempt     int64             `json:"attempt"`
 	State       ForgeRequestState `json:"state"`
@@ -107,19 +113,20 @@ type ForgeRequest struct {
 // DesiredForge is a forge request a worker has not reported on. The control plane offers it until one
 // report lands.
 type DesiredForge struct {
-	Project    string    `json:"project,omitempty"`
-	ID         string    `json:"id"`
-	Kind       ForgeKind `json:"kind"`
-	WorkOrder  string    `json:"work_order"`
-	Repository string    `json:"repository"`
-	Binding    string    `json:"binding"`
-	Branch     string    `json:"branch,omitempty"`
-	Base       string    `json:"base,omitempty"`
-	Commit     string    `json:"commit,omitempty"`
-	Number     int64     `json:"number,omitempty"`
-	Title      string    `json:"title,omitempty"`
-	Body       string    `json:"body,omitempty"`
-	Attempt    int64     `json:"attempt"`
+	Project    string      `json:"project,omitempty"`
+	ID         string      `json:"id"`
+	Kind       ForgeKind   `json:"kind"`
+	WorkOrder  string      `json:"work_order"`
+	Repository string      `json:"repository"`
+	Binding    string      `json:"binding"`
+	Branch     string      `json:"branch,omitempty"`
+	Base       string      `json:"base,omitempty"`
+	Commit     string      `json:"commit,omitempty"`
+	Number     int64       `json:"number,omitempty"`
+	Title      string      `json:"title,omitempty"`
+	Body       string      `json:"body,omitempty"`
+	Method     MergeMethod `json:"method,omitempty"`
+	Attempt    int64       `json:"attempt"`
 }
 
 // DesiredPullRequest is a pull request a worker watches for the ledger, as the ledger last heard of it. The
@@ -163,11 +170,13 @@ const (
 	CheckFailed  ForgeCheckState = "failed"
 )
 
-// PullRequestCheck is one check a forge reports on a pull request's head commit.
+// PullRequestCheck is one check a forge reports on a pull request's head commit. Required says the base
+// branch's protection requires it, which makes it acceptance evidence and a gate on the merge (FR-MERGE-2).
 type PullRequestCheck struct {
 	Name       string          `json:"name"`
 	State      ForgeCheckState `json:"state"`
 	DetailsURI string          `json:"details_uri,omitempty"`
+	Required   bool            `json:"required,omitempty"`
 }
 
 // PullRequest is what a forge says of one pull request. Checks are those on HeadCommit, and count for no
@@ -240,14 +249,48 @@ type PullRequestReport struct {
 	PullRequest PullRequest `json:"pull_request"`
 }
 
-// ForgeReport is how one attempt at a forge request came out. A failed attempt carries why, and a
-// publish or a read that worked carries the pull request.
+// ForgeReport is how one attempt at a forge request came out. A failed attempt carries why, a publish or a
+// read that worked carries the pull request, and a merge that ran carries what became of it.
 type ForgeReport struct {
 	Request     string       `json:"request"`
 	Attempt     int64        `json:"attempt"`
 	Failed      bool         `json:"failed,omitempty"`
 	Detail      string       `json:"detail,omitempty"`
 	PullRequest *PullRequest `json:"pull_request,omitempty"`
+	Merge       *MergeResult `json:"merge,omitempty"`
+}
+
+// MergeOutcome is what a merge came to. Only MergeMerged landed anything; each other outcome is the
+// forge's or git's answer, which a later attempt of the same request would give again, so the control
+// plane decides what follows it rather than asking again.
+type MergeOutcome string
+
+// The outcomes of a merge.
+const (
+	// MergeMerged landed the reviewed commit on its base, now or by an earlier attempt.
+	MergeMerged MergeOutcome = "merged"
+	// MergeConflict means the branch does not merge cleanly into its base.
+	MergeConflict MergeOutcome = "conflict"
+	// MergeBehind means the base requires an up-to-date branch, and the branch is behind it.
+	MergeBehind MergeOutcome = "behind"
+	// MergeStaleHead means the pull request's head, or the branch's tip, is no longer the reviewed commit.
+	MergeStaleHead MergeOutcome = "stale_head"
+	// MergeRefused means the forge or the repository refused the merge for any other reason: branch
+	// protection, a closed pull request, or a base the person has checked out.
+	MergeRefused MergeOutcome = "refused"
+)
+
+// Rework reports an outcome the lane mends on the same branch, by merging the current base into it.
+func (o MergeOutcome) Rework() bool { return o == MergeConflict || o == MergeBehind }
+
+// MergeResult is what one merge came to. A merge that landed names the commit it made on the base, and one
+// that did not says why, with the files that conflict when git can name them.
+type MergeResult struct {
+	Outcome     MergeOutcome `json:"outcome"`
+	MergeCommit string       `json:"merge_commit,omitempty"`
+	MergedAt    string       `json:"merged_at,omitempty"`
+	Detail      string       `json:"detail,omitempty"`
+	Files       []string     `json:"files,omitempty"`
 }
 
 // ForgeHealthReport is what a worker found of its forge sign-in for one repository.

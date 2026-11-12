@@ -205,7 +205,7 @@ func TestAWorkerPostsTheVerdictsAndReadsThePersonsMerge(t *testing.T) {
 	if f.row().State != workorders.Acceptance {
 		t.Fatalf("the work reads %s, and waits for the person at person_merges", f.row().State)
 	}
-	f.forge.Merge(number, "merge-commit")
+	f.forge.MergeByPerson(number, "merge-commit")
 	f.clock.Advance(2 * time.Minute)
 	f.converge(2)
 	pr, err := f.pullRequest()
