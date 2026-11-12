@@ -131,3 +131,13 @@ func (r *Repo) Clone(name string) *Repo {
 	r.Git("clone", "--quiet", r.Dir, dir)
 	return &Repo{T: r.T, Dir: dir, Home: r.Home}
 }
+
+// RemoteHead reads the commit a remote holds for a ref, or nothing when it holds none.
+func (r *Repo) RemoteHead(remote, ref string) string {
+	r.T.Helper()
+	fields := strings.Fields(r.Git("ls-remote", remote, ref))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}

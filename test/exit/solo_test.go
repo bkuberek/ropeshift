@@ -79,12 +79,14 @@ func newInstall(t *testing.T) *install {
 	return in
 }
 
-// aForge puts the fake gh first on the install's PATH, so a daemon that reads a forge reads the fake one,
-// and returns where the fake keeps its forge.
+// aForge puts the fake gh on the install's PATH right after the CLI double, before the canaries, so a
+// daemon that reads a forge reads the fake one, and returns where the fake keeps its forge. The CLI
+// double stays first, where a test changes what it plays.
 func (in *install) aForge() string {
 	in.t.Helper()
 	dir := doubles.InstallFakeGH(in.t)
-	in.path = dir + string(os.PathListSeparator) + in.path
+	claude, rest, _ := strings.Cut(in.path, string(os.PathListSeparator))
+	in.path = strings.Join([]string{claude, dir, rest}, string(os.PathListSeparator))
 	return dir
 }
 
