@@ -35,6 +35,7 @@ import (
 	"ropeshift.com/ropeshift/internal/cli"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/exit/ptypair"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 // ResultFile is what the run leaves in its output directory.
@@ -347,9 +348,21 @@ func (r *run) endWhatRemains() {
 		if err != nil {
 			continue
 		}
-		for _, pid := range []int{state.ChildPID, state.ShimPID} {
-			if pid > 0 && syscall.Kill(pid, syscall.SIGKILL) == nil {
-				r.result.Left = append(r.result.Left, fmt.Sprintf("process %d from %s", pid, filepath.Base(dir)))
+		// An ID outlives its process, so each is ended only while the process holding it still names
+		// this lane: the shim by its name and its directory, the session by the lane's config directory.
+		for _, recorded := range []struct {
+			pid     int
+			markers []string
+		}{{state.ChildPID, []string{filepath.Dir(dir)}}, {state.ShimPID, []string{"lane-shim", dir}}} {
+			if recorded.pid <= 0 {
+				continue
+			}
+			sent, skipped := procs.Signal(recorded.pid, syscall.SIGKILL, recorded.markers...)
+			if skipped != "" {
+				fmt.Fprintln(os.Stderr, "firstrun:", skipped)
+			}
+			if sent {
+				r.result.Left = append(r.result.Left, fmt.Sprintf("process %d from %s", recorded.pid, filepath.Base(dir)))
 			}
 		}
 	}

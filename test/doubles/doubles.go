@@ -25,6 +25,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
 	"ropeshift.com/ropeshift/internal/adapters/tmux"
 	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/test/procs"
 )
 
 //go:embed fixtures/*.json
@@ -212,15 +213,12 @@ func reapProbes(dir string) {
 		if err != nil || pid <= 0 {
 			continue
 		}
-		out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
-		if err != nil || !strings.Contains(string(out), dir) {
-			continue
+		if sent, _ := procs.Signal(pid, syscall.SIGKILL, dir); sent {
+			held = append(held, pid)
 		}
-		_ = syscall.Kill(pid, syscall.SIGKILL)
-		held = append(held, pid)
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		alive := slices.DeleteFunc(slices.Clone(held), func(pid int) bool { return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) })
+		alive := slices.DeleteFunc(slices.Clone(held), func(pid int) bool { return !procs.Alive(pid) })
 		if len(alive) == 0 {
 			return
 		}
@@ -267,7 +265,10 @@ func SetFakeClaudeVersion(t testing.TB, path, version string) {
 
 // ReapShims stops what a generation's shim started, when a test ends, by the exact IDs
 // its state file names. A shim outlives its worker by design, so a test that fails with
-// a session running would otherwise leave both behind.
+// a session running would otherwise leave both behind. An ID outlives its process, so each
+// one is signaled only while its command line still names this generation: the shim by its
+// name and its directory, and the session by the config directory its files were handed from.
+// A process that does not is left alone, and the log says so.
 func ReapShims(t testing.TB, configDir string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -280,9 +281,15 @@ func ReapShims(t testing.TB, configDir string) {
 			if err != nil {
 				continue
 			}
-			for _, pid := range []int{state.ChildPID, state.ShimPID} {
-				if pid > 0 {
-					_ = syscall.Kill(pid, syscall.SIGKILL)
+			for _, recorded := range []struct {
+				pid     int
+				markers []string
+			}{{state.ChildPID, []string{configDir}}, {state.ShimPID, []string{"lane-shim", dir}}} {
+				if recorded.pid <= 0 {
+					continue
+				}
+				if _, skipped := procs.Signal(recorded.pid, syscall.SIGKILL, recorded.markers...); skipped != "" {
+					t.Log(skipped)
 				}
 			}
 		}
@@ -343,7 +350,7 @@ func NewTmux(t testing.TB) (*tmux.Terminal, func()) {
 		t.Fatal(err)
 	}
 	return terminal, func() {
-		endTmuxServer(socket, env)
+		endTmuxServer(socket, env, t.Logf)
 		_ = os.RemoveAll(dir)
 	}
 }
@@ -357,7 +364,7 @@ func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { endTmuxServer(socket, env) })
+	t.Cleanup(func() { endTmuxServer(socket, env, t.Logf) })
 	return terminal
 }
 
@@ -366,7 +373,7 @@ func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
 func EndTmuxOn(t testing.TB, socket string) {
 	t.Helper()
 	t.Cleanup(func() {
-		endTmuxServer(socket, []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket)})
+		endTmuxServer(socket, []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(socket)}, t.Logf)
 	})
 }
 
@@ -377,8 +384,9 @@ const tmuxExitWait = 5 * time.Second
 // endTmuxServer ends the server on a socket, if one runs there, and returns when the server and the
 // process of every pane it held have exited. kill-server returns before they do, and a pane's process
 // can still be writing into the test's directory. It signals only the process IDs it recorded first,
-// and leaves out a dead pane, whose process ID may belong to another process by now.
-func endTmuxServer(socket string, env []string) {
+// and only while each still runs the command it had when it was recorded, because the ID of a process
+// that exited may belong to another by now. A pane that is dead is left out of the record.
+func endTmuxServer(socket string, env []string, logf func(string, ...any)) {
 	binary, err := exec.LookPath(tmux.Binary)
 	if err != nil {
 		return
@@ -395,24 +403,44 @@ func endTmuxServer(socket string, env []string) {
 			pids = append(pids, pid)
 		}
 	}
+	recorded := recordProcesses(pids)
 	run("kill-server")
 	deadline := time.Now().Add(tmuxExitWait)
-	for time.Now().Before(deadline) && slices.ContainsFunc(pids, alive) {
+	for time.Now().Before(deadline) && slices.ContainsFunc(pids, procs.Alive) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	for _, pid := range pids {
-		if alive(pid) {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-		}
-	}
-	for time.Now().Before(deadline.Add(tmuxExitWait)) && slices.ContainsFunc(pids, alive) {
+	killRecorded(recorded, logf)
+	for time.Now().Before(deadline.Add(tmuxExitWait)) && slices.ContainsFunc(pids, procs.Alive) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-// alive says whether a process with this ID still exists.
-func alive(pid int) bool {
-	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+// recordedProcess is a process ID with the command it held when a test recorded it.
+type recordedProcess struct {
+	pid     int
+	command string
+}
+
+// recordProcesses reads what each ID holds now. An ID that holds nothing, or nothing that can be
+// read, is left out, because there is nothing to match it against later.
+func recordProcesses(pids []int) []recordedProcess {
+	var out []recordedProcess
+	for _, pid := range pids {
+		if command, err := procs.Command(pid); err == nil {
+			out = append(out, recordedProcess{pid: pid, command: command})
+		}
+	}
+	return out
+}
+
+// killRecorded ends each recorded process that still runs the command it was recorded with, and
+// says why it left any other alone.
+func killRecorded(recorded []recordedProcess, logf func(string, ...any)) {
+	for _, process := range recorded {
+		if _, skipped := procs.Signal(process.pid, syscall.SIGKILL, process.command); skipped != "" {
+			logf("%s", skipped)
+		}
+	}
 }
 
 // KillTmux closes one pane when a test ends, which ends a server with no other pane.
