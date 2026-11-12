@@ -16,7 +16,11 @@ const twoProjects = {
   },
 };
 
-const switcher = () => screen.findByRole("combobox", { name: "Project" });
+// switcher opens the project switcher, the button that names the current project.
+async function switcher() {
+  await userEvent.click(await screen.findByRole("button", { name: /^Project: / }));
+  return screen.findByRole("menu", { name: "Projects" });
+}
 
 describe("projects", () => {
   it("names the project in the address of every view and of every call", async () => {
@@ -44,8 +48,21 @@ describe("projects", () => {
   it("opens an address with no project on the one this browser showed last", async () => {
     serveViews(undefined, { projects: twoProjects });
     localStorage.setItem("ropeshift-project", "acme");
+    openPage("/floor");
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/acme/floor"));
+  });
+
+  it("opens Needs you, installation-wide, on the address that names nothing", async () => {
+    serveViews(undefined, { projects: twoProjects });
     openPage("/");
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/acme/"));
+    await waitFor(() => expect(window.location.pathname).toBe("/needs-you"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Needs you" })).toBeTruthy();
+  });
+
+  it("opens a project's own address on Needs you for that project", async () => {
+    serveViews(undefined, { projects: twoProjects });
+    openPage("/projects/acme/");
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/needs-you?project=acme"));
   });
 
   it("switches to the same view of another project, and reads that project's records", async () => {
@@ -53,11 +70,22 @@ describe("projects", () => {
     openPage("/projects/default/plans");
     await screen.findByRole("heading", { level: 1, name: "Plans" });
     const choose = await switcher();
-    expect(within(choose).getAllByRole("option").map((option) => option.textContent)).toEqual(["Default", "Acme", "old (archived)"]);
-    await userEvent.selectOptions(choose, "acme");
+    const rows = within(choose).getAllByRole("menuitemradio");
+    expect(rows.map((row) => row.textContent)).toEqual(["DDefault", "AAcme", "Ooldarchived, read-only"]);
+    expect(rows.map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+    await userEvent.click(within(choose).getByRole("menuitemradio", { name: /Acme/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/projects/acme/plans"));
     await waitFor(() => expect(sent.some((call) => call.project === "acme" && call.path === "/v1/views/plans")).toBe(true));
-    expect(((await switcher()) as HTMLSelectElement).value).toBe("acme");
+    expect(screen.getByRole("button", { name: /^Project: / }).textContent).toContain("Acme");
+  });
+
+  it("filters the projects by name", async () => {
+    serveViews(undefined, { projects: twoProjects });
+    openPage("/projects/default/plans");
+    await screen.findByRole("heading", { level: 1, name: "Plans" });
+    const choose = await switcher();
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter projects" }), "ac");
+    expect(within(choose).getAllByRole("menuitemradio").map((row) => row.textContent)).toEqual(["AAcme"]);
   });
 
   it("asks for a passphrase before it can list the projects", async () => {

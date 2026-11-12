@@ -14,8 +14,8 @@ describe("the views", () => {
     openPage("/");
     const names = within(await views()).getAllByRole("link").map((link) => link.textContent);
     expect(names).toEqual([
-      "Needs you 11 waiting", "Roadmap", "Plans", "Requirements", "Specs", "Designs", "Other documents", "Decisions", "Open questions",
-      "In progress", "On hold", "Stuck", "Completed", "Shop floor", "Operations",
+      "Needs you11 waiting", "Roadmap", "Plans", "Documents", "Decisions", "Open questions", "Work orders", "Floor", "Measures",
+      "Workers and resources", "Usage",
     ]);
   });
 
@@ -47,7 +47,7 @@ describe("the views", () => {
     await go("Roadmap");
     await screen.findByRole("heading", { level: 1, name: "Roadmap" });
     window.history.back();
-    await waitFor(() => expect(window.location.pathname).toBe(here("/")));
+    await waitFor(() => expect(window.location.pathname).toBe("/needs-you"));
     expect(await screen.findByRole("heading", { level: 1, name: "Needs you" })).toBeTruthy();
   });
 
@@ -85,7 +85,7 @@ describe("the views", () => {
     serveViews();
     openPage("/no-such-view");
     expect(await screen.findByRole("heading", { level: 1, name: "No such view" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Back to Needs you" }).getAttribute("href")).toBe(here("/"));
+    expect(screen.getByRole("link", { name: "Back to Needs you" }).getAttribute("href")).toBe("/needs-you");
   });
 
   it("leaves a modified click to the browser, which opens a new tab", async () => {
@@ -101,7 +101,7 @@ describe("the views", () => {
     fireEvent.click(link, { ctrlKey: true });
     document.removeEventListener("click", watch);
     expect(left).toBe(true);
-    expect(window.location.pathname).toBe(here("/"));
+    expect(window.location.pathname).toBe("/needs-you");
   });
 
   it("folds the list behind a button a phone can reach", async () => {
@@ -135,6 +135,7 @@ describe("what waits, from anywhere", () => {
   it("keeps a half-written answer when a person looks elsewhere and comes back", async () => {
     serveViews();
     openPage("/");
+    await userEvent.click(await screen.findByRole("link", { name: /2 questions/ }));
     const somethingElse = (await screen.findAllByRole("radio", { name: "Something else" }))[0];
     if (!somethingElse) {
       throw new Error("no such choice");
@@ -312,7 +313,8 @@ describe("a view and a session", () => {
     });
     openPage("/decisions");
     await screen.findByRole("article", { name: "Retry twice." });
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
     expect(document.body.textContent).not.toContain("Retry twice.");
     expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();

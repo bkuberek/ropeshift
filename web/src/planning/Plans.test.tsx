@@ -110,7 +110,7 @@ describe("one plan", () => {
     serveViews();
     await openPlan();
     const section = screen.getByRole("region", { name: "Version 3" });
-    expect(within(section).getByRole("link", { name: "FR-RETRY-1" }).getAttribute("href")).toBe(here("/requirements?key=FR-RETRY-1"));
+    expect(within(section).getByRole("link", { name: "FR-RETRY-1" }).getAttribute("href")).toBe(here("/documents?kind=requirements&key=FR-RETRY-1"));
     expect(within(section).getByRole("link", { name: "decision-2" }).getAttribute("href")).toBe(here("/decisions?id=decision-2"));
   });
 
@@ -151,7 +151,7 @@ describe("one plan", () => {
     serveViews();
     await openPlan();
     const work = screen.getByRole("region", { name: "Work" });
-    const row = within(work).getByText("wo-running").closest(".row");
+    const row = within(work).getByText("wo-running").closest(".list-row");
     expect(row?.textContent).toContain("Running");
   });
 
@@ -192,7 +192,7 @@ describe("a plan with milestones", () => {
     const page = screen.getByRole("article", { name: "The approval page" });
     const criteria = within(within(page).getByRole("region", { name: "Version 2" })).getByRole("list", { name: "Acceptance criteria" });
     const second = within(criteria).getByText(/The roadmap shows parallel work/).closest("li");
-    expect(within(second as HTMLElement).getByRole("link", { name: "FAC-3" }).getAttribute("href")).toBe(here("/requirements?key=FAC-3"));
+    expect(within(second as HTMLElement).getByRole("link", { name: "FAC-3" }).getAttribute("href")).toBe(here("/documents?kind=requirements&key=FAC-3"));
     expect(within(second as HTMLElement).queryByRole("link", { name: "FAC-1" })).toBeNull();
   });
 
@@ -210,7 +210,7 @@ describe("a plan with milestones", () => {
   it("gives each work order of the plan its size and milestone", async () => {
     await openFactory();
     const work = screen.getByRole("region", { name: "Work" });
-    const row = within(work).getByText("Build the planning core").closest(".row");
+    const row = within(work).getByText("Build the planning core").closest(".list-row");
     expect(row?.textContent).toContain("Size medium");
     expect(row?.textContent).toContain("In milestone Build the core");
   });
@@ -219,6 +219,6 @@ describe("a plan with milestones", () => {
     await openFactory();
     const waiting = screen.getByText(/^Version 6 waits for approval/);
     expect(waiting.textContent).toBe("Version 6 waits for approval in Needs you.");
-    expect(within(waiting).getByRole("link", { name: "Needs you" }).getAttribute("href")).toBe(here("/"));
+    expect(within(waiting).getByRole("link", { name: "Needs you" }).getAttribute("href")).toBe("/needs-you?kind=decisions");
   });
 });

@@ -25,9 +25,9 @@ export function Conditions({ conditions }: { conditions?: string[] }) {
     return null;
   }
   return (
-    <ul className="tags" aria-label="Conditions">
+    <ul className="chips" aria-label="Conditions">
       {conditions.map((condition) => (
-        <li key={condition} className="tag-strong">
+        <li key={condition} className="chip-strong">
           {conditionWords[condition] ?? condition}
         </li>
       ))}
@@ -40,7 +40,7 @@ export function Conditions({ conditions }: { conditions?: string[] }) {
 export function LaneFacts({ lane, named = true }: { lane: Lane; named?: boolean }) {
   return (
     <div className="lane-facts">
-      <dl className="facts">
+      <dl className="kv">
         {named ? (
           <Fact name="Lane">
             <Id value={lane.id} />

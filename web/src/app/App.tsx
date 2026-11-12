@@ -1,18 +1,27 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { signOut } from "../api/client";
-import type { Project } from "../api/types";
+import { readView, setCurrentProject, signOut } from "../api/client";
+import type { NeedItem, Project, ShopFloor } from "../api/types";
 import { useNeedsYou } from "../api/useNeedsYou";
 import { useProjects } from "../api/useProjects";
+import { useView } from "../api/useView";
+import { headingOf } from "../needs/kinds";
 import { NeedsYou } from "../needs/NeedsYou";
-import { Nav } from "./Nav";
-import { PageFor, useDocumentTitle } from "./pages";
-import { ArrivalsProvider, go, inProject, useRoute } from "./route";
+import { useClock } from "../parts/parts";
+import { Banner } from "../ui/display";
+import { ToastProvider } from "../ui/overlays";
+import { inField, idle, onMac, readKey } from "./keys";
+import { NoSuchView, PageFor } from "./pages";
+import type { Entry } from "./ranking";
+import { Palette } from "./Palette";
+import { recentRecords, useFlag } from "./prefs";
+import { ArrivalsProvider, CurrentProject, go, inProject, useRoute } from "./route";
+import type { View } from "./routes";
+import { goKeys, resolve, titleOf } from "./routes";
+import { addressOfView, Dock, navGroups, projectName, ProjectSwitcher, Sidebar, StatusBar, TopBar, useProjectSwitcher } from "./Shell";
+import { ShortcutSheet } from "./ShortcutSheet";
 import { SignIn } from "./SignIn";
-import { useTheme } from "./theme";
-
-const connectionWords = { connecting: "Connecting", live: "Live", reconnecting: "Reconnecting" };
-const themeWords = { system: "Theme: system", light: "Theme: light", dark: "Theme: dark" };
+import { themeWords, useTheme } from "./theme";
 
 // The project a browser showed last, so an address that names none opens on it again. Storage can be
 // missing or refused, and then the first active project opens.
@@ -40,142 +49,254 @@ function chosen(projects: Project[]): string {
   return (last ?? projects.find((project) => project.state === "active") ?? projects[0])?.name ?? "";
 }
 
-// App shows one project at a time, and its address names it. An address that names none moves to the
-// project the browser showed last, at the same view.
+function useDocumentTitle(view: View | null): void {
+  useEffect(() => {
+    document.title = `${view ? titleOf(view) : "No such view"} - ropeshift`;
+  }, [view]);
+}
+
+const keyOfView = Object.fromEntries(Object.entries(goKeys).map(([key, view]) => [view, `G ${key.toUpperCase()}`]));
+
+// moveInList moves focus to the next or the previous item of the list or table the view shows. A view
+// that selects as it moves, as Needs you does, takes the move itself.
+function moveInList(step: 1 | -1): void {
+  const handled = !window.dispatchEvent(new CustomEvent("ropeshift:move", { detail: step, cancelable: true }));
+  if (handled) {
+    return;
+  }
+  const items = [...document.querySelectorAll<HTMLElement>("#main [data-item]")].filter((item) => !item.closest("[hidden]"));
+  const at = items.findIndex((item) => item === document.activeElement || item.contains(document.activeElement));
+  items[at < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, at + step))]?.focus();
+}
+
+// focusPrimary moves focus to the open decision's primary button. It presses nothing.
+function focusPrimary(): void {
+  const buttons = [...document.querySelectorAll<HTMLElement>("#main .decision .decide .btn-primary, #main .decision .decide .btn")].filter((button) => !button.closest("[hidden]"));
+  buttons[0]?.focus();
+}
+
+// App is the shell around every view: the top bar, the sidebar, the content, the conversation dock, and
+// the status bar. Needs you stays mounted behind every other view, so an answer in progress survives a
+// look elsewhere, and every view stays mounted behind a sign-in.
 export function App() {
   const route = useRoute();
+  const resolved = resolve(route.pathname, route.search);
   const projects = useProjects();
+  const list = projects.list ?? [];
+  const project = route.project || route.params.get("project") || chosen(list);
+  setCurrentProject(project);
+  const needs = useNeedsYou(project);
   const { theme, nextTheme } = useTheme();
-  const choice = route.project ? "" : chosen(projects.list ?? []);
-  const query = route.params.toString();
-  useEffect(() => {
-    if (choice) {
-      go(inProject(choice, `${route.path}${query ? `?${query}` : ""}`), { replace: true, stay: true });
-    }
-  }, [choice, route.path, query]);
-  if (route.project) {
-    return (
-      <Workspace
-        key={route.project}
-        project={route.project}
-        projects={projects.list ?? []}
-        reloadProjects={projects.reload}
-        theme={themeWords[theme]}
-        nextTheme={nextTheme}
-      />
-    );
-  }
-  return (
-    <>
-      <header className="masthead">
-        <p className="wordmark">ropeshift</p>
-        <div className="masthead-tools">
-          <button className="link-button" type="button" onClick={nextTheme}>
-            {themeWords[theme]}
-          </button>
-        </div>
-      </header>
-      <main id="main" className="page" tabIndex={-1}>
-        {projects.failure ? (
-          <p className="refusal" role="alert">
-            {projects.failure}
-          </p>
-        ) : null}
-        {projects.needsSession ? <SignIn onSignedIn={projects.reload} /> : null}
-        {projects.list && projects.list.length === 0 ? <p className="quiet">This installation holds no project. Run ropeshift project create on a terminal.</p> : null}
-        {!projects.list && !projects.needsSession && !projects.failure ? <p className="quiet">Reading.</p> : null}
-      </main>
-    </>
-  );
-}
-
-// ProjectSwitch moves to the same view of another project. A view's selection names records of one
-// project, so it stays behind.
-function ProjectSwitch({ project, projects, path }: { project: string; projects: Project[]; path: string }) {
-  const known = projects.some((row) => row.name === project);
-  return (
-    <label className="project-switch">
-      <span className="visually-hidden">Project</span>
-      <select value={project} onChange={(event) => go(inProject(event.target.value, path))}>
-        {known ? null : <option value={project}>{project}</option>}
-        {projects.map((row) => (
-          <option key={row.name} value={row.name}>
-            {row.display_name || row.name}
-            {row.state === "archived" ? " (archived)" : ""}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-type WorkspaceProps = {
-  project: string;
-  projects: Project[];
-  reloadProjects: () => Promise<void>;
-  theme: string;
-  nextTheme: () => void;
-};
-
-// Workspace is one project's views, which an address names, behind the project's switch.
-function Workspace({ project, projects, reloadProjects, theme, nextTheme }: WorkspaceProps) {
-  const { view, readAt, failure, needsSession, connection, heard, reload, checkSession, forget } = useNeedsYou();
-  const route = useRoute();
   const opened = useRef(route.moves);
-  const signedIn = view !== null && !needsSession;
-  const atNeeds = route.path === "/";
-  useDocumentTitle(route.path);
-  useEffect(() => remember(project), [project]);
+  const mac = useMemo(onMac, []);
+  const [singleKeys, setSingleKeys] = useFlag("ropeshift-single-keys", true);
+  const [dockOpen, setDockOpen] = useFlag("ropeshift-dock", false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const switcher = useProjectSwitcher();
+  const keyState = useRef(idle);
+  const view = resolved.kind === "view" ? resolved.view : null;
+  const needsSession = projects.needsSession || needs.needsSession;
+  const signedIn = needs.view !== null && !needsSession;
+  const live = useMemo(() => ({ heard: needs.heard, checkSession: needs.checkSession }), [needs.heard, needs.checkSession]);
+  useDocumentTitle(resolved.kind === "view" || resolved.kind === "missing" ? view : "needs-you");
+
+  useEffect(() => {
+    if (route.project) {
+      remember(route.project);
+    }
+  }, [route.project]);
+
+  const query = route.search;
+  useEffect(() => {
+    if (resolved.kind === "redirect") {
+      go(resolved.to, { replace: true, stay: true });
+    } else if (resolved.kind === "pick-project" && project) {
+      go(inProject(project, `${resolved.path}${query}`), { replace: true, stay: true });
+    }
+  }, [resolved.kind, resolved.kind === "redirect" ? resolved.to : "", resolved.kind === "pick-project" ? resolved.path : "", project, query]);
+
+  const floor = useView<ShopFloor | null>(() => (project && signedIn ? readView<ShopFloor>("shop-floor") : Promise.resolve(null)), `status:${project}:${signedIn}`, live);
+  const now = useClock();
+
+  const signOutNow = useCallback(() => void signOut().then(needs.forget, needs.reload), [needs.forget, needs.reload]);
   const signedInAgain = async () => {
-    await reload();
-    await reloadProjects();
+    await needs.reload();
+    await projects.reload();
   };
+
+  useEffect(() => {
+    const listen = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !signedIn) {
+        return;
+      }
+      const read = readKey(
+        { key: event.key, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, inField: inField(event.target), mac },
+        keyState.current,
+        { singleKeys, now: Date.now() },
+      );
+      keyState.current = read.state;
+      const action = read.action;
+      if (read.handled) {
+        event.preventDefault();
+      }
+      if (!action) {
+        return;
+      }
+      const overlay = document.querySelector('[aria-modal="true"], .popover');
+      if (action.type === "palette") {
+        setPaletteOpen((was) => !was);
+        return;
+      }
+      if (overlay) {
+        return;
+      }
+      switch (action.type) {
+        case "sheet":
+          setSheetOpen(true);
+          break;
+        case "go":
+          go(addressOfView(action.view, project));
+          break;
+        case "projects":
+          switcher.setOpen(true);
+          break;
+        case "dock":
+          setDockOpen(!dockOpen);
+          break;
+        case "next":
+          moveInList(1);
+          break;
+        case "previous":
+          moveInList(-1);
+          break;
+        case "primary":
+          focusPrimary();
+          break;
+      }
+    };
+    window.addEventListener("keydown", listen);
+    return () => window.removeEventListener("keydown", listen);
+  }, [signedIn, singleKeys, mac, project, dockOpen, setDockOpen, switcher]);
+
+  const current = list.find((row) => row.name === project);
+  const label = projectName(current, project);
+  const items = needs.view?.items ?? [];
+  const sources = useMemo(() => {
+    const actions: Entry[] = [
+      ...items.slice(0, 5).map(
+        (item: NeedItem): Entry => ({
+          key: `decide:${item.kind}:${item.id}`,
+          group: "Actions",
+          title: `Decide: ${headingOf(item)}`,
+          icon: "inbox",
+          meta: projectName(item.project, item.project?.name ?? "") || "Needs you",
+          to: `/needs-you?item=${encodeURIComponent(`${item.kind}:${item.id}`)}&focus=primary`,
+        }),
+      ),
+      { key: "action:projects", group: "Actions", title: "Switch project", icon: "projects", meta: "P", run: () => switcher.setOpen(true) },
+      { key: "action:dock", group: "Actions", title: dockOpen ? "Close the conversation panel" : "Open the conversation panel", icon: "chat", meta: ".", run: () => setDockOpen(!dockOpen) },
+      { key: "action:theme", group: "Actions", title: `Switch theme (${themeWords[theme].replace("Theme: ", "now ")})`, icon: "theme", run: nextTheme },
+      { key: "action:sheet", group: "Actions", title: "Show keyboard shortcuts", icon: "keyboard", meta: "?", run: () => setSheetOpen(true) },
+      { key: "action:sign-out", group: "Actions", title: "Sign out", icon: "lock", run: signOutNow },
+    ];
+    const views: Entry[] = navGroups.flatMap((group) =>
+      group.items.map((item) => ({
+        key: `view:${item.view}`,
+        group: "Views" as const,
+        title: titleOf(item.view),
+        icon: item.icon,
+        meta: keyOfView[item.view],
+        to: addressOfView(item.view, project),
+        keywords: item.view === "floor" ? "shop floor lanes machines" : item.view === "measures" ? "operations" : item.view === "work" ? "in progress on hold stuck completed" : "",
+      })),
+    );
+    const recent: Entry[] = recentRecords()
+      .filter((row) => row.project === project)
+      .map((row) => ({ key: `recent:${row.kind}:${row.id}`, group: "Records", id: row.id, title: row.title, icon: "clock", to: row.to, meta: label }));
+    const others: Entry[] = list
+      .filter((row) => row.state === "active" && row.name !== project)
+      .map((row) => ({ key: `project:${row.name}`, group: "Projects", id: row.name, title: `Switch to ${projectName(row, row.name)}`, icon: "projects", to: inProject(row.name, resolved.kind === "view" && route.project ? route.path : "/roadmap") }));
+    return { actions, views, recent, projects: others };
+  }, [items, dockOpen, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path]);
+
+  const waiting = needs.view ? needs.view.items.length : null;
+  const shell = `app${navOpen ? " nav-open" : ""}${dockOpen && signedIn ? " dock-open" : ""}`;
+
   return (
-    <ArrivalsProvider value={route.moves - opened.current}>
-      <a className="skip-link" href="#main">
-        Skip to content
-      </a>
-      <header className="masthead">
-        <p className="wordmark">ropeshift</p>
-        <div className="masthead-tools">
-          {signedIn ? <ProjectSwitch project={project} projects={projects} path={route.path} /> : null}
-          {signedIn ? (
-            <p className={`status status-${connection}`} role="status">
-              {connectionWords[connection]}
-            </p>
-          ) : null}
-          <button className="link-button" type="button" onClick={nextTheme}>
-            {theme}
-          </button>
-          {signedIn ? (
-            <button className="link-button" type="button" onClick={() => void signOut().then(forget, reload)}>
-              Sign out
-            </button>
-          ) : null}
-        </div>
-      </header>
-      <div className="frame">
-        {signedIn ? <Nav path={route.path} waiting={view.items.length} /> : null}
-        <main id="main" className="page" tabIndex={-1}>
-          {failure ? (
-            <p className="refusal" role="alert">
-              {failure}
-            </p>
-          ) : null}
-          {needsSession ? <SignIn onSignedIn={signedInAgain} /> : null}
-          {/* The page stays mounted behind a sign-in, and the queue behind any other view, so answers in progress survive both. */}
-          <div hidden={needsSession}>
-            {view ? (
-              <>
-                <div hidden={!atNeeds}>
-                  <NeedsYou view={view} readAt={readAt} after={reload} active={atNeeds} />
-                </div>
-                {atNeeds ? null : <PageFor key={route.path} route={route} live={{ heard, checkSession }} after={reload} />}
-              </>
+    <ToastProvider>
+      <CurrentProject.Provider value={project}>
+        <ArrivalsProvider value={route.moves - opened.current}>
+          <div className={shell}>
+            <a className="skip-link" href="#main">
+              Skip to content
+            </a>
+            <TopBar
+              switcher={
+                <ProjectSwitcher
+                  project={project}
+                  projects={list}
+                  waiting={needs.view?.projects ?? []}
+                  path={route.project ? route.path : "/roadmap"}
+                  {...switcher}
+                />
+              }
+              waiting={waiting}
+              dockOpen={dockOpen}
+              onDock={() => setDockOpen(!dockOpen)}
+              onPalette={() => setPaletteOpen(true)}
+              theme={themeWords[theme]}
+              onTheme={nextTheme}
+              onSignOut={signedIn ? signOutNow : undefined}
+              navOpen={navOpen}
+              onNav={() => setNavOpen(!navOpen)}
+              mac={mac}
+            />
+            {signedIn ? (
+              <Sidebar
+                view={view}
+                project={project}
+                waiting={waiting}
+                theme={themeWords[theme]}
+                onTheme={nextTheme}
+                onSheet={() => setSheetOpen(true)}
+                open={navOpen}
+                onClose={() => setNavOpen(false)}
+              />
             ) : null}
+            <main id="main" className="main" tabIndex={-1}>
+              {projects.failure || needs.failure ? (
+                <div className="screen-banner">
+                  <Banner tone="danger">{projects.failure || needs.failure}</Banner>
+                </div>
+              ) : null}
+              {needsSession ? <SignIn onSignedIn={signedInAgain} /> : null}
+              {projects.list && projects.list.length === 0 && !needsSession ? (
+                <div className="screen">
+                  <h1 tabIndex={-1}>No project yet</h1>
+                  <p className="muted">This installation holds no project. Run ropeshift project create on a terminal.</p>
+                </div>
+              ) : null}
+              <div hidden={needsSession}>
+                {needs.view ? (
+                  <>
+                    <div hidden={view !== "needs-you"} className="screen-flush">
+                      <NeedsYou view={needs.view} readAt={needs.readAt} after={needs.reload} active={view === "needs-you"} />
+                    </div>
+                    {view && view !== "needs-you" ? <PageFor key={`${view}:${project}`} view={view} project={project} params={route.params} live={live} after={needs.reload} needs={needs.view} projects={list} /> : null}
+                    {resolved.kind === "missing" ? <NoSuchView /> : null}
+                  </>
+                ) : null}
+              </div>
+            </main>
+            {signedIn ? <Dock open={dockOpen} onClose={() => setDockOpen(false)} /> : null}
+            {signedIn ? <StatusBar connection={needs.connection} floor={floor.view} floorAgeMs={Math.max(0, now - floor.readAt)} project={project} /> : <footer className="statusbar" aria-label="Status" />}
           </div>
-        </main>
-      </div>
-    </ArrivalsProvider>
+          <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} project={project} projectLabel={label} sources={sources} />
+          <ShortcutSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} singleKeys={singleKeys} onSingleKeys={setSingleKeys} />
+        </ArrivalsProvider>
+      </CurrentProject.Provider>
+    </ToastProvider>
   );
 }

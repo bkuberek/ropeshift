@@ -11,12 +11,12 @@ function Ladder({ question }: { question: Question }) {
   return (
     <details className="older">
       <summary>How it got here</summary>
-      <ol className="rows" role="list">
+      <ol className="list-rows" role="list">
         {question.ladder_trace.map((step) => (
-          <li key={step.rung} className="row">
+          <li key={step.rung} className="list-row">
             <p>Rung {step.rung}</p>
-            {step.outcome ? <p className="quiet">{step.outcome}</p> : null}
-            {step.candidates?.length ? <p className="mono quiet">{step.candidates.join(", ")}</p> : null}
+            {step.outcome ? <p className="muted">{step.outcome}</p> : null}
+            {step.candidates?.length ? <p className="mono muted">{step.candidates.join(", ")}</p> : null}
           </li>
         ))}
       </ol>
@@ -27,9 +27,9 @@ function Ladder({ question }: { question: Question }) {
 function QuestionLine({ question }: { question: Question }) {
   return (
     <Line side={<span className="wait-word">{words(question.status, statusWords)}</span>} kind={`Rung ${question.rung}`} title={question.text} plain>
-      <div className="card-body">
-        <ul className="tags">
-          {question.blocking ? <li className="tag-strong">Blocking</li> : null}
+      <div className="panel-body">
+        <ul className="chips">
+          {question.blocking ? <li className="chip-strong">Blocking</li> : null}
           {question.categories?.map((category) => (
             <li key={category}>{words(category)}</li>
           ))}
@@ -44,7 +44,7 @@ function QuestionLine({ question }: { question: Question }) {
             ))}
           </ul>
         ) : null}
-        <dl className="facts">
+        <dl className="kv">
           {question.asked_by ? (
             <Fact name="Asked by">
               <Id value={question.asked_by} />
@@ -60,7 +60,9 @@ function QuestionLine({ question }: { question: Question }) {
         <Ladder question={question} />
         {question.status === "needs_human" ? (
           <p>
-            <Link to="/">Answer in Needs you</Link>
+            <Link to="/needs-you?kind=decisions" className="btn btn-sm">
+            Answer in Needs you
+          </Link>
           </p>
         ) : null}
       </div>
@@ -95,7 +97,7 @@ export function OpenQuestions({ view, category, selected }: { view: View; catego
         <Filters categories={view.categories} category={category} />
       )}
       {shown.length ? (
-        <ol className="queue queue-work" role="list">
+        <ol className="record-list queue-work" role="list">
           {shown.map((question) => (
             <QuestionLine key={question.id} question={question} />
           ))}

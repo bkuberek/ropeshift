@@ -29,14 +29,14 @@ function namesOf(detail: PlanDetail): Names {
 
 function WorkRows({ orders, names }: { orders: WorkOrder[]; names?: Names }) {
   return (
-    <ol className="rows" role="list">
+    <ol className="list-rows" role="list">
       {orders.map((order) => {
         const milestone = names?.milestoneOf(order);
         return (
-          <li key={order.id} className="row">
-            <p className="row-title">{order.title || order.id}</p>
-            <ul className="tags">
-              <li className="tag-strong">{workLabel(order.state)}</li>
+          <li key={order.id} className="list-row">
+            <p className="list-row-title">{order.title || order.id}</p>
+            <ul className="chips">
+              <li className="chip-strong">{workLabel(order.state)}</li>
               {order.size !== undefined ? <li>{sizeWords(order.size)}</li> : null}
               {milestone ? <li>In milestone {milestone}</li> : null}
               <li>
@@ -60,11 +60,11 @@ function countsOf(orders: WorkOrder[]): Record<string, number> {
 
 function PlanLine({ detail }: { detail: PlanDetail }) {
   return (
-    <li className="row">
-      <Link className="row-title" to={addressOf("/plans", { plan: detail.plan.id })}>
+    <li className="list-row">
+      <Link className="list-row-title" to={addressOf("/plans", { plan: detail.plan.id })}>
         {detail.plan.title}
       </Link>
-      <ul className="tags">
+      <ul className="chips">
         <li>{words(detail.plan.status)}</li>
         <li>{plural(detail.contracts.length, "contract")}</li>
         <li>{plural(detail.reviews.length, "review")}</li>
@@ -80,7 +80,7 @@ export function PlanList({ view }: { view: View }) {
   }
   return (
     <>
-      <ol className="rows" role="list">
+      <ol className="list-rows" role="list">
         {view.plans.map((detail) => (
           <PlanLine key={detail.plan.id} detail={detail} />
         ))}
@@ -97,12 +97,12 @@ export function PlanList({ view }: { view: View }) {
 // Requirements says which requirements a criterion serves, each linked to its page.
 function Requirements({ keys }: { keys: string[] }) {
   return (
-    <p className="quiet">
+    <p className="muted">
       Serves{" "}
       {keys.map((key, at) => (
         <Fragment key={key}>
           {at ? ", " : null}
-          <Link className="mono" to={addressOf("/requirements", { key })}>
+          <Link className="mono" to={addressOf("/documents", { kind: "requirements", key })}>
             {key}
           </Link>
         </Fragment>
@@ -131,7 +131,7 @@ function Version({ contract, names }: { contract: Contract; names: Names }) {
           ))}
         </ul>
       ) : null}
-      <dl className="facts">
+      <dl className="kv">
         <Fact name="Status">{words(contract.status)}</Fact>
         {contract.milestone ? <Fact name="Milestone">{names.milestone(contract.milestone)}</Fact> : null}
         {contract.shared ? <Fact name="Shared">Other contracts of this plan use it</Fact> : null}
@@ -141,7 +141,7 @@ function Version({ contract, names }: { contract: Contract; names: Names }) {
             <ul className="links">
               {contract.requirements.map((key) => (
                 <li key={key}>
-                  <Link className="mono" to={addressOf("/requirements", { key })}>
+                  <Link className="mono" to={addressOf("/documents", { kind: "requirements", key })}>
                     {key}
                   </Link>
                 </li>
@@ -181,7 +181,7 @@ function ContractWork({ title, orders }: { title: string; orders: WorkOrder[] })
       {orders.map((order) => (
         <li key={order.id}>
           <span className="contract-work-title">{order.title || order.id}</span>
-          <ul className="tags">
+          <ul className="chips">
             <li>{sizeWords(order.size ?? "")}</li>
           </ul>
         </li>
@@ -197,8 +197,8 @@ function History({ history, orders, names }: { history: ContractHistory; orders:
     return null;
   }
   return (
-    <article className="card" aria-labelledby={heading}>
-      <h3 className="card-title" id={heading}>
+    <article className="panel" aria-labelledby={heading}>
+      <h3 className="panel-title" id={heading}>
         {newest.title}
       </h3>
       <Version contract={newest} names={names} />
@@ -219,12 +219,12 @@ function Review({ review }: { review: PlanReview }) {
   const heading = useId();
   const order = review.work_order;
   return (
-    <article className="card" aria-labelledby={heading}>
-      <h3 className="card-title" id={heading}>
+    <article className="panel" aria-labelledby={heading}>
+      <h3 className="panel-title" id={heading}>
         {order.title || order.id}
       </h3>
-      <div className="card-body">
-        <dl className="facts">
+      <div className="panel-body">
+        <dl className="kv">
           <Fact name="State">{workLabel(order.state)}</Fact>
           <Fact name="Read" mono>
             {order.review_pins?.join(", ") || "Nothing recorded"}
@@ -239,7 +239,7 @@ function Review({ review }: { review: PlanReview }) {
             ))}
           </ul>
         ) : (
-          <p className="quiet">It left nothing open.</p>
+          <p className="muted">It left nothing open.</p>
         )}
       </div>
     </article>
@@ -253,7 +253,7 @@ export function PlanPage({ detail }: { detail: PlanDetail }) {
       <p className="back">
         <Link to="/plans">All plans</Link>
       </p>
-      <dl className="facts facts-page">
+      <dl className="kv facts-page">
         <Fact name="Status">{words(detail.plan.status)}</Fact>
         {detail.goal ? <Fact name="Goal">{detail.goal.title}</Fact> : null}
       </dl>
@@ -264,25 +264,25 @@ export function PlanPage({ detail }: { detail: PlanDetail }) {
       ) : null}
       {detail.pending_version ? (
         <p className="plan-waiting">
-          Version {detail.pending_version} waits for approval in <Link to="/">Needs you</Link>.
+          Version {detail.pending_version} waits for approval in <Link to="/needs-you?kind=decisions">Needs you</Link>.
         </p>
       ) : null}
       <Section title="Contracts">
         {detail.contracts.length ? (
           detail.contracts.map((history) => <History key={history.id} history={history} orders={detail.work_orders} names={names} />)
         ) : (
-          <p className="quiet">This plan holds no contract yet.</p>
+          <p className="muted">This plan holds no contract yet.</p>
         )}
       </Section>
       <Section title="Reviews">
         {detail.reviews.length ? (
           detail.reviews.map((review) => <Review key={review.work_order.id} review={review} />)
         ) : (
-          <p className="quiet">No review has run.</p>
+          <p className="muted">No review has run.</p>
         )}
       </Section>
       <Section title="Work">
-        {detail.work_orders.length ? <WorkRows orders={detail.work_orders} names={names} /> : <p className="quiet">This plan holds no work yet.</p>}
+        {detail.work_orders.length ? <WorkRows orders={detail.work_orders} names={names} /> : <p className="muted">This plan holds no work yet.</p>}
       </Section>
     </>
   );

@@ -1,6 +1,9 @@
 import { decideEffect } from "../api/client";
 import type { Effect, EffectOutcome } from "../api/types";
-import { Id } from "../parts/parts";
+import { Button } from "../ui/controls";
+import { DecisionCard } from "../ui/DecisionCard";
+import { Fact, Facts, Id, Refusal } from "../ui/display";
+import type { Frame } from "./frame";
 import { useAct } from "./useAct";
 
 const kindWords: Record<string, string> = {
@@ -14,58 +17,45 @@ const outcomeWords: Record<EffectOutcome, string> = {
   retry: "Run it again",
 };
 
+// The safe answers first, and running it again, which may repeat it, last.
+const outcomeOrder: EffectOutcome[] = ["not_happened", "happened", "retry"];
+
 // Only a person can say what became of this, and the server says which answers still mean something.
-export function EffectCard({ effect, after }: { effect: Effect; after: () => Promise<void> }) {
+export function EffectCard({ effect, after, frame }: { effect: Effect; after: () => Promise<void>; frame: Frame }) {
   const { act, busy, failure } = useAct(after);
+  const offers = outcomeOrder.filter((outcome) => effect.offers.includes(outcome));
   return (
-    <div className="card-body">
-      <p className="lead">
+    <DecisionCard
+      kind={{ icon: "bolt", name: "Uncertain effect" }}
+      project={frame.project}
+      title={frame.title}
+      provenance={frame.provenance}
+      binding={effect.offers.includes("retry") ? "Running it again may repeat it, if it did happen." : undefined}
+      actions={offers.map((outcome) => (
+        <Button key={outcome} disabled={busy} onClick={() => void act(() => decideEffect(effect.id, outcome, ""))}>
+          {outcomeWords[outcome]}
+        </Button>
+      ))}
+    >
+      <p>
         A crash cut off {kindWords[effect.kind] ?? effect.kind} on lane <span className="mono">{effect.lane_id}</span>, and nothing can show
         whether it took place.
       </p>
-      <dl className="facts">
-        <div>
-          <dt>Effect</dt>
-          <dd>
-            <Id value={effect.key} />
-          </dd>
-        </div>
+      <Facts>
+        <Fact name="Effect">
+          <Id value={effect.key} />
+        </Fact>
         {effect.target ? (
-          <div>
-            <dt>Target</dt>
-            <dd className="mono">{effect.target}</dd>
-          </div>
+          <Fact name="Target" mono>
+            {effect.target}
+          </Fact>
         ) : null}
-        <div>
-          <dt>Attempt</dt>
-          <dd>{effect.attempt}</dd>
-        </div>
-        <div>
-          <dt>Worker</dt>
-          <dd>
-            <Id value={effect.worker_id} />
-          </dd>
-        </div>
-      </dl>
-      {effect.offers.includes("retry") ? <p className="quiet">Running it again may repeat it, if it did happen.</p> : null}
-      {failure ? (
-        <p className="refusal" role="alert">
-          {failure}
-        </p>
-      ) : null}
-      <div className="actions">
-        {effect.offers.map((outcome) => (
-          <button
-            key={outcome}
-            className="button"
-            type="button"
-            disabled={busy}
-            onClick={() => void act(() => decideEffect(effect.id, outcome, ""))}
-          >
-            {outcomeWords[outcome]}
-          </button>
-        ))}
-      </div>
-    </div>
+        <Fact name="Attempt">{effect.attempt}</Fact>
+        <Fact name="Worker">
+          <Id value={effect.worker_id} />
+        </Fact>
+      </Facts>
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </DecisionCard>
   );
 }

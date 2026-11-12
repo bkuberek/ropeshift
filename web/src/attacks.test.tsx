@@ -10,13 +10,28 @@ import { serveViews } from "./testing";
 
 const hostile = `<img src=x onerror=alert(1)><script>alert(2)</script>`;
 
-// What no page may ever hold, whatever a record or a document says.
-const built = "img, script, iframe, object, embed, svg, style, link, meta, base, form[action]";
+// What no page may ever hold, whatever a record or a document says. The application draws its own icons
+// as inline SVG, which the test below holds to its own shapes.
+const built = "img, script, iframe, object, embed, style, link, meta, base, form[action], foreignObject, use, image";
 
 const pages = [
-  "/", "/roadmap", "/plans", "/requirements", "/specs", "/designs", "/documents", "/decisions", "/questions",
-  "/in-progress", "/on-hold", "/stuck", "/completed", "/shop-floor", "/operations",
+  "/needs-you", "/roadmap", "/plans", "/documents?kind=requirements", "/documents?kind=spec", "/documents?kind=design", "/documents?kind=other",
+  "/decisions", "/questions", "/work?group=open", "/work?group=in-progress", "/work?group=on-hold", "/work?group=stuck", "/work?group=review",
+  "/work?group=completed", "/work?group=all", "/work-order?id=wo-running", "/floor", "/lane?id=lane-wo-running", "/measures", "/usage", "/workers",
 ];
+
+// Every SVG in a page is one of the application's own icons or glyphs: hidden from assistive technology,
+// and drawn from shapes alone, with no text, link, or reference a record could carry.
+function ownDrawings(main: HTMLElement): void {
+  for (const svg of main.querySelectorAll("svg")) {
+    expect(svg.getAttribute("aria-hidden")).toBe("true");
+    expect(svg.classList.contains("i") || svg.classList.contains("glyph")).toBe(true);
+    for (const shape of svg.querySelectorAll("*")) {
+      expect(["path", "circle", "rect", "ellipse"]).toContain(shape.tagName.toLowerCase());
+    }
+    expect(svg.textContent).toBe("");
+  }
+}
 
 // Every link in the application is one it built itself, to one of its own addresses.
 function links(): string[] {
@@ -29,10 +44,16 @@ describe.each(pages)("the view at %s", (path) => {
   it("builds nothing from a record's text, and links only to itself", async () => {
     serveViews();
     openPage(path);
-    await waitFor(() => expect(screen.getByRole("main").querySelector("[aria-busy]") ?? screen.queryByRole("heading", { name: "Needs you" })).not.toBeNull());
+    // A view has read once its title stands and no skeleton holds its place.
+    await waitFor(() => {
+      const main = screen.getByRole("main");
+      expect(main.querySelector("h1")).not.toBeNull();
+      expect(main.querySelector(".skeleton-rows")).toBeNull();
+    });
     expect(screen.getByRole("main").querySelectorAll(built)).toHaveLength(0);
+    ownDrawings(screen.getByRole("main"));
     for (const href of links()) {
-      expect(href, href).toMatch(/^(\/projects\/[a-z0-9-]+\/[a-z-]*(\?[^#]*)?|#main)$/);
+      expect(href, href).toMatch(/^(\/projects\/[a-z0-9-]+\/[a-z-]*(\?[^#]*)?|\/(needs-you|workers|usage)(\?[^#]*)?|#main)$/);
     }
   });
 });

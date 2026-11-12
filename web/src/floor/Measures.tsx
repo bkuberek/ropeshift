@@ -69,10 +69,10 @@ function overturnedIn(a: Agreement, period: string): string {
 function AgreementFacts({ periods }: { periods: AgreementPeriods }) {
   const { last_30_days: last, all_time: all } = periods;
   if (all.decisions === 0) {
-    return <p className="quiet">No decision after a review yet.</p>;
+    return <p className="muted">No decision after a review yet.</p>;
   }
   return (
-    <dl className="facts">
+    <dl className="kv">
       <Fact name="Decisions after a review">{twice(`${last.decisions}`, `${all.decisions}`)}</Fact>
       <Fact name="You agreed with the review">{twice(agreedWith(last), agreedWith(all))}</Fact>
       <Fact name="Approvals you overturned">
@@ -90,7 +90,7 @@ export function ReviewAgreement({ report }: { report: MeasureReport }) {
   const { workspace, repositories } = report.review_agreement;
   return (
     <Section title="Review agreement">
-      <p className="quiet">
+      <p className="muted">
         How often you agreed with the review agent after it judged work, over the last 30 days and over all time. It is evidence for choosing a merge
         authority level, and ropeshift never changes a level itself.
       </p>
@@ -117,20 +117,20 @@ export function Measures({ report }: { report: MeasureReport }) {
   const costs = Object.entries(report.cost_per_outcome).sort(([a], [b]) => a.localeCompare(b));
   return (
     <Section title="Product measures">
-      <p className="quiet">From the ledger, over the last {report.window.name}. Work in progress is a count of now.</p>
+      <p className="muted">From the ledger, over the last {report.window.name}. Work in progress is a count of now.</p>
       <div role="group" aria-label="The north star and its counterweights">
-        <dl className="facts north-star">
+        <dl className="kv north-star">
           <Fact name="Interruptions per completed work order">{perCompleted(report.interruptions_per_completed)}</Fact>
           <Fact name="Overturn rate">{share(report.overturn_rate)}</Fact>
           <Fact name="Rework">{share(report.rework)}</Fact>
           <Fact name="Autonomous decision rate">{share(report.autonomous_decision_rate)}</Fact>
         </dl>
       </div>
-      <p className="quiet">
+      <p className="muted">
         Fewer interruptions mean more autonomy only while the overturn rate and rework hold steady. A rising overturn rate means agents guess instead of
         asking, and rising rework means assumptions cost more than questions would have.
       </p>
-      <dl className="facts">
+      <dl className="kv">
         <Fact name="Interruptions">
           {counted(kinds.batch ?? 0, "batch of questions", "batches of questions")}, {counted(kinds.approval ?? 0, "approval", "approvals")},{" "}
           {counted(kinds.forced ?? 0, "forced action", "forced actions")}
@@ -143,7 +143,7 @@ export function Measures({ report }: { report: MeasureReport }) {
         <Fact name="Flow time, intake to done">{spread(report.intake_to_done)}</Fact>
       </dl>
       <div className="tables">
-        <table className="counts">
+        <table className="table counts">
           <caption>Park time by trigger</caption>
           <tbody>
             {triggers.length ? (
@@ -160,7 +160,7 @@ export function Measures({ report }: { report: MeasureReport }) {
             )}
           </tbody>
         </table>
-        <table className="counts">
+        <table className="table counts">
           <caption>Cost per outcome</caption>
           <tbody>
             {costs.length ? (
@@ -183,7 +183,7 @@ export function Measures({ report }: { report: MeasureReport }) {
           </tbody>
         </table>
       </div>
-      <p className="quiet tables-note">Cost is what the agent reported, an estimate and a lower bound: a turn a kill stopped reports nothing.</p>
+      <p className="muted tables-note">Cost is what the agent reported, an estimate and a lower bound: a turn a kill stopped reports nothing.</p>
     </Section>
   );
 }

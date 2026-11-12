@@ -583,3 +583,9 @@ export type Project = {
 };
 
 export type ProjectList = { projects: Project[] };
+
+// SearchRecord is one record the project's search found: its kind, ID, title, and state.
+export type SearchRecord = { kind: string; id: string; title?: string; state?: string };
+
+// Search is the records whose ID or title holds every word of a query, ranked by the server.
+export type Search = Stamp & { query?: string; records: SearchRecord[]; more?: boolean };

@@ -23,7 +23,7 @@ describe("the decisions", () => {
     serveViews();
     openPage("/decisions");
     const card = await decision("Retry twice.");
-    const side = card.querySelector(".wait-kind") as HTMLElement;
+    const side = card.querySelector(".record-kind") as HTMLElement;
     const decidedBy = within(card).getByText("Decided by").closest("div") as HTMLElement;
     for (const [scope, id] of [
       [side, "decision-1"],

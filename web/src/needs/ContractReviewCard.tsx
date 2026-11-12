@@ -1,17 +1,22 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { passReview, sendBack } from "../api/client";
 import type { ContractReviewNeed } from "../api/types";
 import { addressOf, Link } from "../app/route";
-import { Fact, Id } from "../parts/parts";
+import { Button } from "../ui/controls";
+import { DecisionCard } from "../ui/DecisionCard";
+import { Fact, Facts, Id, Refusal, WorkBadge } from "../ui/display";
+import { Field } from "../ui/forms";
+import type { Frame } from "./frame";
 import { useAct } from "./useAct";
 
 // Work no plan approval covers waits for a member to pass its contract's review. Passing it goes in one
 // press, and sending the work back to planning says why, because the contract must change.
-export function ContractReviewCard({ review, after }: { review: ContractReviewNeed; after: () => Promise<void> }) {
+export function ContractReviewCard({ review, after, frame }: { review: ContractReviewNeed; after: () => Promise<void>; frame: Frame }) {
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
+  const form = useId();
   const id = review.work_order.id;
   const send = async () => {
     if (await act(() => sendBack(id, reason.trim()))) {
@@ -20,14 +25,42 @@ export function ContractReviewCard({ review, after }: { review: ContractReviewNe
     }
   };
   return (
-    <div className="card-body">
-      <p className="lead">Its contract waits for a member's review, because no plan approval covers it.</p>
-      <dl className="facts">
+    <DecisionCard
+      kind={{ icon: "review", name: "Contract review" }}
+      project={frame.project}
+      title={frame.title}
+      provenance={frame.provenance}
+      state={<WorkBadge state={review.work_order.state} />}
+      binding={`Bound to ${review.contract}, version ${review.version}.`}
+      actions={
+        asking ? (
+          <>
+            <Button disabled={busy} onClick={() => setAsking(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form={form} disabled={busy || reason.trim() === ""}>
+              Send back to planning
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button disabled={busy} onClick={() => setAsking(true)}>
+              Send back to planning
+            </Button>
+            <Button variant="primary" loading={busy} disabled={busy} onClick={() => void act(() => passReview(id))}>
+              Pass the review
+            </Button>
+          </>
+        )
+      }
+    >
+      <p>Its contract waits for a member's review, because no plan approval covers it.</p>
+      <Facts>
         <Fact name="Contract">{`${review.contract}, version ${review.version}`}</Fact>
         <Fact name="Work order">
           <Id value={id} />
         </Fact>
-      </dl>
+      </Facts>
       {review.plan ? (
         <p>
           <Link to={addressOf("/plans", { plan: review.plan })}>Read the contract</Link>
@@ -35,40 +68,19 @@ export function ContractReviewCard({ review, after }: { review: ContractReviewNe
       ) : null}
       {asking ? (
         <form
+          id={form}
           className="reason"
           onSubmit={(event) => {
             event.preventDefault();
             void send();
           }}
         >
-          <label className="field">
-            <span className="field-label">Why</span>
-            <input type="text" value={reason} disabled={busy} required autoFocus onChange={(event) => setReason(event.target.value)} />
-          </label>
-          <div className="actions">
-            <button className="button button-strong" type="submit" disabled={busy || reason.trim() === ""}>
-              Send back to planning
-            </button>
-            <button className="button" type="button" disabled={busy} onClick={() => setAsking(false)}>
-              Cancel
-            </button>
-          </div>
+          <Field label="Why (required)">
+            <textarea className="textarea" rows={2} autoComplete="off" value={reason} disabled={busy} required autoFocus onChange={(event) => setReason(event.target.value)} />
+          </Field>
         </form>
-      ) : (
-        <div className="actions">
-          <button className="button button-strong" type="button" disabled={busy} onClick={() => void act(() => passReview(id))}>
-            Pass the review
-          </button>
-          <button className="button" type="button" disabled={busy} onClick={() => setAsking(true)}>
-            Send back to planning
-          </button>
-        </div>
-      )}
-      {failure ? (
-        <p className="refusal" role="alert">
-          {failure}
-        </p>
       ) : null}
-    </div>
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </DecisionCard>
   );
 }

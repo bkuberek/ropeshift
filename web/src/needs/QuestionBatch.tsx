@@ -2,6 +2,11 @@ import { useId, useState } from "react";
 
 import { ApiError, answerQuestion } from "../api/client";
 import type { Batch, QuestionItem } from "../api/types";
+import { Button } from "../ui/controls";
+import { DecisionCard } from "../ui/DecisionCard";
+import { RecordChip, Refusal } from "../ui/display";
+import { Field } from "../ui/forms";
+import type { Frame } from "./frame";
 import { useAct } from "./useAct";
 
 const ownWords = "__own_words__";
@@ -43,10 +48,10 @@ function Choice({ name, value, checked, recommended, onPick, label }: {
   onPick: (value: string) => void;
 }) {
   return (
-    <label className={checked ? "choice choice-on" : "choice"}>
+    <label className="option">
       <input type="radio" name={name} value={value} checked={checked} onChange={() => onPick(value)} />
-      <span className="choice-text">{label}</span>
-      {recommended ? <span className="choice-note">Recommended</span> : null}
+      <span className="option-text">{label}</span>
+      {recommended ? <span className="reco-tag">Recommended</span> : null}
     </label>
   );
 }
@@ -62,10 +67,10 @@ function Question({ item, draft, onChange, disabled }: {
   return (
     <fieldset className="question" disabled={disabled}>
       <legend className="question-text">{item.text}</legend>
-      <div className="tags">
-        {item.blocking ? <span className="tag tag-strong">Blocks work</span> : null}
+      <div className="row-tight question-tags">
+        {item.blocking ? <span className="cond warn">Blocks work</span> : null}
         {(item.categories ?? []).map((category) => (
-          <span className="tag" key={category}>
+          <span className="cond" key={category}>
             {category}
           </span>
         ))}
@@ -92,21 +97,24 @@ function Question({ item, draft, onChange, disabled }: {
         />
       ) : null}
       {draft.choice === ownWords ? (
-        <label className="field">
-          <span className="field-label">Your answer</span>
-          <textarea rows={3} value={draft.words} onChange={(event) => onChange({ ...draft, words: event.target.value })} />
-        </label>
+        <Field label="Your answer">
+          <textarea className="textarea" rows={3} autoComplete="off" value={draft.words} onChange={(event) => onChange({ ...draft, words: event.target.value })} />
+        </Field>
       ) : null}
       {(item.citations ?? []).length > 0 ? (
-        <p className="quiet">
-          Considered: <span className="mono">{(item.citations ?? []).join(", ")}</span>
+        <p className="small muted question-cites">
+          Considered:{" "}
+          {(item.citations ?? []).map((citation) => (
+            <RecordChip key={citation} id={citation} />
+          ))}
         </p>
       ) : null}
     </fieldset>
   );
 }
 
-export function QuestionBatch({ batch, after }: { batch: Batch; after: () => Promise<void> }) {
+export function QuestionBatch({ batch, after, frame }: { batch: Batch; after: () => Promise<void>; frame: Frame }) {
+  const form = useId();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [leftover, setLeftover] = useState("");
   const { act, busy, failure } = useAct(after);
@@ -131,29 +139,33 @@ export function QuestionBatch({ batch, after }: { batch: Batch; after: () => Pro
       setLeftover(refused.join(" "));
     });
 
+  const label = ready.length === count ? (count === 1 ? "Send this answer" : `Send ${count} answers`) : `Send ${ready.length} of ${count} answer${count === 1 ? "" : "s"}`;
   return (
-    <form
-      className="card-body"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void send();
-      }}
+    <DecisionCard
+      kind={{ icon: "question", name: "Questions" }}
+      project={frame.project}
+      title={frame.title}
+      provenance={frame.provenance}
+      binding="Each answer is recorded once, as yours."
+      actions={
+        <Button variant="primary" type="submit" form={form} loading={busy} disabled={busy || ready.length === 0}>
+          {label}
+        </Button>
+      }
     >
-      {batch.items.map((item) => (
-        <div className="question-block" key={item.id}>
-          <Question item={item} draft={draftOf(item)} disabled={busy} onChange={(draft) => setDrafts((was) => ({ ...was, [item.id]: draft }))} />
-        </div>
-      ))}
-      {failure || leftover ? (
-        <p className="refusal" role="alert">
-          {failure || leftover}
-        </p>
-      ) : null}
-      <div className="actions">
-        <button className="button button-strong" type="submit" disabled={busy || ready.length === 0}>
-          {ready.length === count ? (count === 1 ? "Send this answer" : `Send ${count} answers`) : `Send ${ready.length} of ${count} answer${count === 1 ? "" : "s"}`}
-        </button>
-      </div>
-    </form>
+      <form
+        id={form}
+        className="questions"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send();
+        }}
+      >
+        {batch.items.map((item) => (
+          <Question key={item.id} item={item} draft={draftOf(item)} disabled={busy} onChange={(draft) => setDrafts((was) => ({ ...was, [item.id]: draft }))} />
+        ))}
+      </form>
+      {failure || leftover ? <Refusal>{failure || leftover}</Refusal> : null}
+    </DecisionCard>
   );
 }

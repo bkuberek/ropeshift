@@ -5,7 +5,7 @@ import type { AnchorHTMLAttributes, MouseEvent, ReactNode, RefObject } from "rea
 // application, so a link is an ordinary address and a person can send one. What a view selects stays
 // in the query, because a value with a dot in a path would read as a file. Every view belongs to one
 // project, whose name leads its address: /projects/{project}/{view}. Path is the view's part of it.
-export type Route = { project: string; path: string; params: URLSearchParams; moves: number };
+export type Route = { project: string; path: string; params: URLSearchParams; moves: number; pathname: string; search: string };
 
 const projectAddress = /^\/projects\/([^/]+)(\/.*)?$/;
 
@@ -24,9 +24,14 @@ export function inProject(project: string, to: string): string {
   return project ? `/projects/${encodeURIComponent(project)}${to}` : to;
 }
 
-// placed is where a link to a view goes: into the project the page shows, unless it names a project.
+// The installation's views, whose addresses name no project.
+const installationPaths = new Set(["/needs-you", "/workers", "/usage"]);
+
+// placed is where a link to a view goes: into the project the page shows, unless it names a project or
+// is a view of the installation.
 function placed(to: string, project = splitProject(window.location.pathname).project): string {
-  return projectAddress.test(to.split("?")[0] ?? "") ? to : inProject(project, to);
+  const path = to.split("?")[0] ?? "";
+  return projectAddress.test(path) || installationPaths.has(path) ? to : inProject(project, to);
 }
 
 type Place = { address: string; moves: number };
@@ -70,14 +75,15 @@ function subscribe(listener: () => void): () => void {
 
 // go moves to a view of the project the page shows, or to an address that names a project. replace takes
 // the place of the address the page is at, for a move no person asked for.
-export function go(to: string, { stay = false, replace = false } = {}): void {
+export function go(to: string, { stay = false, replace = false, project = "" } = {}): void {
+  const address = placed(to, splitProject(window.location.pathname).project || project);
   if (replace) {
-    window.history.replaceState(null, "", placed(to));
+    window.history.replaceState(null, "", address);
   } else {
-    window.history.pushState(null, "", placed(to));
+    window.history.pushState(null, "", address);
   }
   if (!stay) {
-    window.scrollTo(0, 0);
+    document.getElementById("main")?.scrollTo?.(0, 0);
   }
   arrive(!stay);
 }
@@ -85,7 +91,7 @@ export function go(to: string, { stay = false, replace = false } = {}): void {
 export function useRoute(): Route {
   const { address, moves } = useSyncExternalStore(subscribe, here);
   const url = new URL(address, window.location.origin);
-  return { ...splitProject(url.pathname), params: url.searchParams, moves };
+  return { ...splitProject(url.pathname), params: url.searchParams, moves, pathname: url.pathname, search: url.search };
 }
 
 const Arrivals = createContext(0);
@@ -93,6 +99,10 @@ const Arrivals = createContext(0);
 // ItemProject is the project an item of the combined Needs you belongs to: its changes and its links
 // reach that project, whichever project the page shows.
 export const ItemProject = createContext("");
+
+// CurrentProject is the project the switch shows, which a link from an installation view, whose address
+// names no project, goes into.
+export const CurrentProject = createContext("");
 
 export function ArrivalsProvider({ value, children }: { value: number; children: ReactNode }) {
   return <Arrivals.Provider value={value}>{children}</Arrivals.Provider>;
@@ -122,7 +132,8 @@ type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
 export function Link({ to: view, stay = false, onClick, children, ...rest }: LinkProps) {
   const { project } = useRoute();
   const item = useContext(ItemProject);
-  const to = placed(view, item || project);
+  const current = useContext(CurrentProject);
+  const to = placed(view, item || project || current);
   const follow = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {

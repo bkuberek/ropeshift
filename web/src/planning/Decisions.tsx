@@ -41,10 +41,10 @@ function Linked({ ids }: { ids: string[] }) {
 function DecisionLine({ decision }: { decision: Decision }) {
   return (
     <Line side={<span className="wait-word">{words(decision.status)}</span>} kind={<Id value={decision.id} />} title={decision.statement} plain>
-      <div className="card-body">
+      <div className="panel-body">
         {decision.rationale ? <p className="lead">{decision.rationale}</p> : null}
         {decision.lineage.length > 1 ? <Lineage decision={decision} /> : null}
-        <dl className="facts">
+        <dl className="kv">
           {decision.supersedes ? (
             <Fact name="Replaces">
               <Linked ids={[decision.supersedes]} />
@@ -103,7 +103,7 @@ export function Decisions({ view, selected }: { view: View; selected: string }) 
         </p>
       ) : null}
       {shown.length ? (
-        <ol className="queue queue-work" role="list">
+        <ol className="record-list queue-work" role="list">
           {shown.map((decision) => (
             <DecisionLine key={decision.id} decision={decision} />
           ))}

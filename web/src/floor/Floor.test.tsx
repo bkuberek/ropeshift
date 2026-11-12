@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { Completed, InProgress, OnHold, Operations, ShopFloor, Stuck } from "../api/types";
+import type { Completed, InProgress, Operations, ShopFloor, Stuck } from "../api/types";
 import { openPage } from "../opening";
 import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
 
@@ -12,10 +12,27 @@ function serving<T>(name: string, change: (view: T) => void) {
   return serveViews((call) => (call.path.startsWith(`/v1/views/${name}`) ? { status: 200, body: view } : undefined));
 }
 
-const line = (name: string) => screen.findByRole("article", { name });
+// row finds the table row that names a record, by its title or its ID.
+async function row(name: string): Promise<HTMLElement> {
+  return waitFor(
+    () => {
+    const found = screen.getAllByText(name).find((element) => element.closest("tr") && !element.closest("[hidden]"))?.closest("tr");
+    if (!found) {
+      throw new Error(`no row names ${name}`);
+    }
+    return found as HTMLElement;
+    },
+    { timeout: 3000 },
+  );
+}
 
-// An ID stays on one line and ends in an ellipsis when its column is too narrow (app.css, `.id`), so
-// the whole of it stands in its title, and in the page for a screen reader and a copy.
+const cell = (tr: HTMLElement, column: string) => tr.querySelector<HTMLElement>(`[data-label="${column}"]`);
+
+// card is the decision a work order waits on, beside its tabs.
+const card = () => screen.findByRole("complementary", { name: "Decision and facts" }).then((side) => within(side).getByRole("article"));
+
+// An ID stays on one line and ends in an ellipsis when its column is too narrow (`.id`), so the whole of
+// it stands in its title, and in the page for a screen reader and a copy.
 function heldWhole(scope: HTMLElement, id: string) {
   const shown = within(scope).getAllByText(id);
   for (const element of shown) {
@@ -25,67 +42,51 @@ function heldWhole(scope: HTMLElement, id: string) {
 }
 
 describe("a long ID", () => {
-  it("stays whole on one line in work in progress", async () => {
+  it("stays whole on one line among the work orders", async () => {
     serveViews();
-    openPage("/in-progress");
-    const card = await line("Write the docs");
-    for (const id of ["wo-running", "lane-wo-running", "worker-a"]) {
-      heldWhole(card, id);
+    openPage("/work?group=in-progress");
+    const tr = await row("Write the docs");
+    for (const id of ["wo-running", "lane-wo-running"]) {
+      heldWhole(tr, id);
     }
   });
 
-  it("stays whole on one line on the shop floor", async () => {
+  it("stays whole on one line on the floor", async () => {
     serveViews();
-    openPage("/shop-floor");
-    const workers = await screen.findByRole("region", { name: "Workers" });
-    for (const id of ["worker-a", "orchestrator-worker-a"]) {
-      heldWhole(workers, id);
-    }
-    const lanes = await screen.findByRole("region", { name: "Last reported lanes" });
+    openPage("/floor");
+    const tr = await row("lane-wo-running");
     for (const id of ["lane-wo-running", "wo-running"]) {
-      heldWhole(lanes, id);
+      heldWhole(tr, id);
     }
-  });
-
-  it("stays whole on one line where work stopped", async () => {
-    serveViews();
-    openPage("/stuck");
-    heldWhole(await line("Rotate the keys"), "wo-lapsed");
   });
 
   it("stays whole on one line among the sources", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     heldWhole(await screen.findByRole("region", { name: "Sources" }), "repository-1");
   });
 });
 
-describe("in progress", () => {
-  it("lists running work, the longest first, with what its lane is doing", async () => {
+describe("the work orders", () => {
+  it("opens on the open work, with a tab and a count for every group", async () => {
     serveViews();
-    openPage("/in-progress");
-    const rows = await screen.findAllByRole("article");
-    expect(rows[0]?.getAttribute("aria-labelledby")).toBeTruthy();
-    expect(within(rows[0] as HTMLElement).getByRole("heading", { level: 2 }).textContent).toBe("Add the retry budget");
-    const card = await line("Write the docs");
-    expect(within(card).getByText("wo-running")).toBeTruthy();
-    expect(within(card).getByText("lane-wo-running")).toBeTruthy();
-    expect(within(card).getByText("Working")).toBeTruthy();
+    openPage("/work");
+    const tabs = await screen.findByRole("navigation", { name: "Groups" });
+    await waitFor(() => expect(within(tabs).getAllByRole("link").map((link) => link.textContent?.replace(/\d+$/, ""))).toEqual(["Open", "In progress", "On hold", "Stuck", "Review and merge", "Completed", "All"]));
+    expect(within(tabs).getByRole("link", { name: /^Open/ }).getAttribute("aria-current")).toBe("page");
+    await waitFor(() => expect(within(tabs).getByRole("link", { name: /^In progress/ }).textContent).toMatch(/\d+$/));
   });
 
-  it("says how long each has run", async () => {
+  it("lists running work with its state, lane, and how long it has run", async () => {
     serveViews();
-    openPage("/in-progress");
-    const card = await line("Add the retry budget");
-    expect(card.textContent).toContain("10m");
-    expect(within(card).getByText("for 10 minutes")).toBeTruthy();
-  });
-
-  it("states a last reported value as last reported, with its age", async () => {
-    serveViews();
-    openPage("/in-progress");
-    const card = await line("Write the docs");
-    expect(within(card).getByText(/^Last reported/).textContent).toMatch(/4m ago/);
+    openPage("/work?group=in-progress");
+    const tr = await row("Write the docs");
+    expect(within(tr).getByText("wo-running")).toBeTruthy();
+    expect(within(tr).getByText("lane-wo-running")).toBeTruthy();
+    expect(within(tr).getByText("Running")).toBeTruthy();
+    const ran = await row("Add the retry budget");
+    expect(cell(ran, "In state")?.textContent).toContain("10m");
+    expect(within(ran).getByText("for 10 minutes")).toBeTruthy();
   });
 
   it("names claimed work that has no lane yet", async () => {
@@ -96,285 +97,129 @@ describe("in progress", () => {
         first.lane = undefined;
       }
     });
-    openPage("/in-progress");
-    const card = await line("Add the retry budget");
-    expect(within(card).getByText("Claimed")).toBeTruthy();
-    expect(within(card).getByText("No lane yet.")).toBeTruthy();
+    openPage("/work?group=in-progress");
+    const tr = await row("Add the retry budget");
+    expect(within(tr).getByText("Claimed")).toBeTruthy();
+    expect(cell(tr, "Lane")?.textContent).toBe("no lane");
   });
 
-  it("counts running work apart from work that is only claimed", async () => {
-    serving<InProgress>("in-progress", (view) => {
-      const first = view.items[0];
-      if (first) {
-        first.work_order.state = "claimed";
-        first.lane = undefined;
-      }
-    });
-    openPage("/in-progress");
-    expect(await screen.findByText("4 running, 1 claimed")).toBeTruthy();
-  });
-
-  it("says so when nothing runs", async () => {
-    serving<InProgress>("in-progress", (view) => {
-      view.items = [];
-    });
-    openPage("/in-progress");
-    expect(await screen.findByText("Nothing is in progress.")).toBeTruthy();
-  });
-});
-
-describe("on hold", () => {
-  it("says what each parked lane waits for", async () => {
+  it("says what each parked lane waits for, with a link to it", async () => {
     serveViews();
-    openPage("/on-hold");
-    const card = await line("Wait for the check");
-    const wakes = within(card).getByText("Wakes").closest("div");
-    expect(wakes?.textContent).toContain("When question question-1 is answered, or when a person resumes it");
-    expect(within(wakes as HTMLElement).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe(here("/questions?id=question-1"));
-    expect(card.textContent).not.toContain("any_of");
-    expect(within(card).getAllByText("Parked").length).toBeGreaterThan(0);
-    expect(within(card).getByText("wo-parked")).toBeTruthy();
-    expect(within(card).getByText("lane-wo-parked")).toBeTruthy();
+    openPage("/work?group=on-hold");
+    const tr = await row("Wait for the check");
+    expect(tr.textContent).toContain("When question question-1 is answered, or when a person resumes it");
+    expect(within(tr).getByRole("link", { name: "question-1" }).getAttribute("href")).toBe(here("/questions?id=question-1"));
+    expect(tr.textContent).not.toContain("any_of");
+    expect(within(tr).getAllByText("Parked").length).toBeGreaterThan(0);
   });
 
-  it("says when its next check falls", async () => {
-    serving<OnHold>("on-hold", (view) => {
-      const wake = view.items[0]?.wakes[0];
-      if (wake) {
-        wake.next_eval_at = view.as_of + 5 * 60_000;
-      }
-    });
-    openPage("/on-hold");
-    expect(within(await line("Wait for the check")).getByText("in 5m")).toBeTruthy();
-  });
-
-  it("says so when a parked lane's wake is gone", async () => {
-    serving<OnHold>("on-hold", (view) => {
-      if (view.items[0]) {
-        view.items[0].wakes = [];
-      }
-    });
-    openPage("/on-hold");
-    expect(within(await line("Wait for the check")).getByText("No wake is recorded.")).toBeTruthy();
-  });
-
-  it("says so when nothing is on hold", async () => {
-    serving<OnHold>("on-hold", (view) => {
-      view.items = [];
-    });
-    openPage("/on-hold");
-    expect(await screen.findByText("Nothing is on hold.")).toBeTruthy();
-  });
-});
-
-describe("stuck", () => {
-  it("lists what stopped, the longest stop first, and why", async () => {
+  it("lists what stopped, and why", async () => {
     serveViews();
-    openPage("/stuck");
-    const rows = await screen.findAllByRole("article");
-    expect(rows).toHaveLength(4);
-    const blocked = await line("Move the archive");
-    expect(within(blocked).getByText("Blocked")).toBeTruthy();
-    expect(within(blocked).getByText("no_outcome")).toBeTruthy();
+    openPage("/work?group=stuck");
+    const blocked = await row("Move the archive");
+    expect(within(blocked).getAllByText("Blocked").length).toBeGreaterThan(0);
     expect(within(blocked).getByText("wo-blocked")).toBeTruthy();
+    expect(await row("Rotate the keys")).toBeTruthy();
   });
 
-  it("takes an action through the API, as the member the session names", async () => {
-    document.cookie = "ropeshift_csrf=token-from-cookie";
-    const sent = serveViews((call) => (call.method === "POST" ? { status: 204 } : undefined));
-    openPage("/stuck");
-    await userEvent.click(within(await line("Fix the flaky test")).getByRole("button", { name: "Reset the breaker" }));
-    await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
-    const change = sent.find((call) => call.method === "POST");
-    expect(change?.path).toBe("/v1/work-orders/wo-tripped/lane-reset");
-    expect(change?.csrf).toBe("token-from-cookie");
-  });
-
-  it("asks why before it changes who owns work", async () => {
-    const sent = serveViews((call) => (call.method === "POST" ? { status: 204 } : undefined));
-    openPage("/stuck");
-    const card = await line("Rotate the keys");
-    await userEvent.click(within(card).getByRole("button", { name: "End this claim" }));
-    expect(sent.some((call) => call.method === "POST")).toBe(false);
-    await userEvent.type(within(card).getByRole("textbox", { name: "Why" }), "The worker is gone.");
-    await userEvent.click(within(card).getByRole("button", { name: "End this claim" }));
-    await waitFor(() => expect(sent.find((call) => call.method === "POST")?.body).toEqual({ reason: "The worker is gone." }));
-  });
-
-  it("reads again after an action", async () => {
-    const sent = serveViews((call) => (call.method === "POST" ? { status: 204 } : undefined));
-    openPage("/stuck");
-    const card = await line("Fix the flaky test");
-    const reads = sent.filter((call) => call.path === "/v1/views/stuck").length;
-    await userEvent.click(within(card).getByRole("button", { name: "Reset the breaker" }));
-    await waitFor(() => expect(sent.filter((call) => call.path === "/v1/views/stuck").length).toBeGreaterThan(reads));
-  });
-
-  it("says what the server refused, and leaves the line standing", async () => {
-    serveViews((call) => (call.method === "POST" ? refusal(409, "conflict", "A worker took it first.") : undefined));
-    openPage("/stuck");
-    const card = await line("Fix the flaky test");
-    await userEvent.click(within(card).getByRole("button", { name: "Reset the breaker" }));
-    expect((await within(card).findByRole("alert")).textContent).toBe("A worker took it first.");
-  });
-
-  // ATTACK: a page left open outlives its session, and the server is what refuses.
-  it("asks for a session when a change meets none, and changes nothing", async () => {
-    let live = true;
-    const sent = serveViews((call) => {
-      if (call.method === "POST") {
-        live = false;
-        return refusal(401, "session_required", "This needs a member's session.");
-      }
-      return live ? undefined : refusal(401, "session_required");
-    });
-    openPage("/stuck");
-    const card = await line("Fix the flaky test");
-    await userEvent.click(within(card).getByRole("button", { name: "Reset the breaker" }));
-    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
-    expect(sent.filter((call) => call.method === "POST")).toHaveLength(1);
-  });
-
-  it("offers no action where the server offers none, and draws no rung", async () => {
-    serving<Stuck>("stuck", (view) => {
-      if (view.items[0]) {
-        view.items[0].actions = [];
-      }
-    });
-    openPage("/stuck");
-    const card = await line("Rotate the keys");
-    expect(within(card).queryByRole("button")).toBeNull();
-    expect(card.closest("li")?.className).toContain("need-plain");
-  });
-
-  it("names a lane parked too long, the fifth of the design's list", async () => {
-    serving<Stuck>("stuck", (view) => {
-      const first = view.items[0];
-      if (first) {
-        first.reason = "long_parked";
-        first.actions = ["resume"];
-      }
-    });
-    openPage("/stuck");
-    const card = await line("Rotate the keys");
-    expect(within(card).getByText("Long parked")).toBeTruthy();
-    expect(within(card).getByText("Its lane has stayed parked for a long time.")).toBeTruthy();
-    expect(within(card).getByRole("button", { name: "Resume" })).toBeTruthy();
-  });
-
-  it("says what a lane parked too long waits for", async () => {
-    serving<Stuck>("stuck", (view) => {
-      const first = view.items[0];
-      if (first) {
-        first.reason = "long_parked";
-        first.actions = ["resume", "cancel"];
-        first.wakes = [{ id: "wake-1", expression: `{"any_of":[{"all_of":[{"question_answered":"q-signing-key"}]},{"human_resume":true}]}` }];
-      }
-    });
-    openPage("/stuck");
-    const card = await line("Rotate the keys");
-    expect(within(card).getByText(/^Its lane has stayed parked/).textContent).toBe(
-      "Its lane has stayed parked for a long time. It waits until question q-signing-key is answered, or until a person resumes it.",
-    );
-    expect(within(card).getByRole("link", { name: "q-signing-key" })).toBeTruthy();
-  });
-
-  it("says so when nothing is stuck", async () => {
-    serving<Stuck>("stuck", (view) => {
-      view.items = [];
-    });
-    openPage("/stuck");
-    expect(await screen.findByText("Nothing is stuck.")).toBeTruthy();
-  });
-});
-
-describe("completed", () => {
-  it("counts each way work ended apart from work that waits for acceptance", async () => {
+  it("lists every way work ended, each with its state", async () => {
     serveViews();
-    openPage("/completed");
-    expect(await screen.findByText("2 done, 1 failed, 1 canceled, 1 waiting for acceptance")).toBeTruthy();
+    openPage("/work?group=completed");
+    expect(within(await row("Drop the old plan")).getByText("Canceled")).toBeTruthy();
+    expect(within(await row("Try the impossible")).getAllByText("Failed").length).toBeGreaterThan(0);
+    expect(within(await row("Ship the first cut")).getByText("Done")).toBeTruthy();
+    expect(within(await row("Try the impossible")).getByText(/^It gave up on/)).toBeTruthy();
   });
 
-  it("lists every way work ended, the newest first", async () => {
+  it("keeps work that waits for acceptance or a merge in its own group", async () => {
     serveViews();
-    openPage("/completed");
-    const rows = await screen.findAllByRole("article");
-    expect(rows.map((row) => within(row).getByRole("heading", { level: 2 }).textContent)).toEqual([
-      "Drop the old plan", "Try the impossible", "Ship the first cut", "Trim the log", "Write the API client",
-    ]);
-    expect(within(await line("Drop the old plan")).getByText("Canceled")).toBeTruthy();
-    expect(within(await line("Try the impossible")).getAllByText("Failed").length).toBeGreaterThan(0);
-    expect(within(await line("Ship the first cut")).getByText("Done")).toBeTruthy();
-    expect(within(await line("Trim the log")).getByText("Waiting for acceptance")).toBeTruthy();
-  });
-
-  it("states what the lane said of the end", async () => {
-    serveViews();
-    openPage("/completed");
-    expect(within(await line("Try the impossible")).getByText(/^It gave up on/)).toBeTruthy();
-  });
-
-  it("states each check's result and where it came from", async () => {
-    serveViews();
-    openPage("/completed");
-    const failed = within(await line("Try the impossible")).getByRole("list", { name: "Checks" });
-    expect(failed.textContent).toContain("go vet");
-    expect(failed.textContent).toContain("Failed");
-    expect(failed.textContent).toContain("Lane");
-    const passed = within(await line("Ship the first cut")).getByRole("list", { name: "Checks" });
-    expect(passed.textContent).toContain("Passed");
-  });
-
-  it("states where each criterion stands", async () => {
-    serveViews();
-    openPage("/completed");
-    const criteria = within(await line("Try the impossible")).getByRole("list", { name: "Acceptance criteria" });
-    expect(criteria.textContent).toContain("c1");
-    expect(criteria.textContent).toContain("A check failed");
-  });
-
-  it("asks nobody for anything once work has ended", async () => {
-    serveViews();
-    openPage("/completed");
-    expect(within(await line("Drop the old plan")).getByRole("list", { name: "Acceptance criteria" }).textContent).toContain("No check covered it");
-    expect(within(await line("Ship the first cut")).getByRole("list", { name: "Acceptance criteria" }).textContent).toContain("Only the lane said so");
-    expect(within(await line("Trim the log")).getByRole("list", { name: "Acceptance criteria" }).textContent).toContain("Needs a member");
-  });
-
-  it("keeps what the review found with the work it judged", async () => {
-    serveViews();
-    openPage("/completed");
-    const review = within(await line("Trim the log")).getByRole("region", { name: "What the review found" });
-    expect(within(review).getByText("Cannot judge")).toBeTruthy();
-    expect(within(review).getByText("trim.go:30")).toBeTruthy();
-    // Work no review judged has nothing to show of one.
-    expect(within(await line("Try the impossible")).queryByRole("region", { name: "What the review found" })).toBeNull();
-    // Work a review passed shows it, beside the lane's own checks.
-    expect(within(await line("Ship the first cut")).getByRole("region", { name: "What the review found" }).textContent).toContain("Pass");
+    openPage("/work?group=review");
+    expect(within(await row("Trim the log")).getByText("Waiting for acceptance")).toBeTruthy();
   });
 
   it("counts the attempt that ended it, and never past the limit", async () => {
     serveViews();
-    openPage("/completed");
-    expect((await line("Try the impossible")).textContent).toContain("Attempt 1 of 1");
-    expect((await line("Try the impossible")).textContent).not.toContain("Attempt 2");
+    openPage("/work?group=completed");
+    const tr = await row("Try the impossible");
+    expect(cell(tr, "Attempt")?.textContent).toBe("1 of 1");
+  });
+
+  it.each([
+    ["open", "Nothing is open"],
+    ["in-progress", "Nothing is in progress."],
+    ["on-hold", "Nothing is on hold."],
+    ["stuck", "Nothing is stuck."],
+    ["review", "Nothing waits for acceptance or a merge."],
+    ["completed", "Nothing has ended yet."],
+  ])("says so when %s holds nothing", async (group, empty) => {
+    serveViews((call) => {
+      const view = /^\/v1\/views\/(plans|in-progress|on-hold|stuck|completed)/.exec(call.path)?.[1];
+      if (!view) {
+        return undefined;
+      }
+      return { status: 200, body: view === "plans" ? { as_of: 1, revision: 1, plans: [], unplanned: [] } : { as_of: 1, revision: 1, items: [] } };
+    });
+    openPage(`/work?group=${group}`);
+    expect(await screen.findByText(new RegExp(`^${empty.replace(".", "\\.")}`))).toBeTruthy();
+  });
+
+  it("links each work order to its own page", async () => {
+    serveViews();
+    openPage("/work?group=in-progress");
+    const link = within(await row("Write the docs")).getByRole("link", { name: "Write the docs" });
+    expect(link.getAttribute("href")).toBe(here("/work-order?id=wo-running"));
+  });
+});
+
+describe("a work order", () => {
+  it("heads with its ID, title, state, and lifecycle", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-running");
+    const title = await screen.findByRole("heading", { level: 1, name: /^wo-running/ });
+    expect(title.textContent).toContain("Write the docs");
+    const steps = screen.getByRole("list", { name: "Lifecycle" });
+    expect(within(steps).getByText("Running").closest("[aria-current]")?.getAttribute("aria-current")).toBe("step");
+    expect(within(steps).getByText("Ready").textContent).toBe("Ready");
+  });
+
+  it("says when no work order has the ID", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-nowhere");
+    expect(await screen.findByRole("heading", { level: 1, name: "No such work order" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "All work orders" }).getAttribute("href")).toBe(here("/work"));
+  });
+
+  it("keeps what the review found with the work it judged", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-accept");
+    const review = within(await screen.findByRole("tabpanel")).getByRole("region", { name: "What the review found" });
+    expect(within(review).getByText("Cannot judge")).toBeTruthy();
+    expect(within(review).getByText("trim.go:30")).toBeTruthy();
+  });
+
+  it("states where each criterion stands, and asks nobody for anything once work has ended", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-failed");
+    expect((await screen.findByRole("list", { name: "Acceptance criteria" })).textContent).toContain("A check failed");
+    expect(screen.queryByRole("complementary", { name: "Decision and facts" })?.querySelector("article")).toBeFalsy();
+  });
+
+  it("states each check's result and where it came from", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-failed&tab=checks");
+    const checks = await screen.findByRole("list", { name: "Checks" });
+    expect(checks.textContent).toContain("go vet");
+    expect(checks.textContent).toContain("Failed");
+    expect(checks.textContent).toContain("Lane");
   });
 
   it("states its artifacts as text, whatever an address says", async () => {
     serveViews();
-    openPage("/completed");
-    const card = await line("Ship the first cut");
-    const artifacts = within(card).getByRole("list", { name: "Artifacts" });
+    openPage("/work-order?id=wo-done&tab=checks");
+    const artifacts = await screen.findByRole("list", { name: "Artifacts" });
     expect(artifacts.textContent).toContain("lane/lane-wo-done");
     expect(artifacts.textContent).toContain("javascript:alert(3)");
     expect(artifacts.querySelector("a")).toBeNull();
-  });
-
-  it("sends work waiting for a word to where it is given", async () => {
-    serveViews();
-    openPage("/completed");
-    expect(within(await line("Trim the log")).getByRole("link", { name: "Decide in Needs you" }).getAttribute("href")).toBe(here("/"));
-    expect(within(await line("Ship the first cut")).queryByRole("link", { name: "Decide in Needs you" })).toBeNull();
   });
 
   it("states who approved each merge, at which level, what landed, and what a merge still waits on", async () => {
@@ -393,6 +238,22 @@ describe("completed", () => {
           { id: "i1", work_order_id: "wo-merging", approved_commit: "1111aaaa2222", merge_authority: "review_approves", approved_by_kind: "review", approved_by_id: "lane-r/1", approved_at: 1 },
         ],
       };
+      view.items = [waiting];
+    });
+    openPage("/work-order?id=wo-merging&tab=checks");
+    const waiting = await screen.findByRole("list", { name: "Merge" });
+    expect(waiting.textContent).toContain("1111aaaa");
+    expect(waiting.textContent).toContain("lane-r/1");
+    expect(waiting.textContent).toContain("The merge waits: required checks are still running on 1111aaaa: CI result.");
+    expect(waiting.textContent).not.toContain("merged");
+  });
+
+  it("states what a merge landed, and who approved it", async () => {
+    serving<Completed>("completed", (view) => {
+      const first = view.items[0];
+      if (!first) {
+        throw new Error("the golden view lists no completed work");
+      }
       const merged = structuredClone(first);
       merged.work_order = { ...merged.work_order, id: "wo-merged", title: "Merged by a member", state: "done" };
       merged.standing = {
@@ -401,91 +262,168 @@ describe("completed", () => {
           { id: "i2", work_order_id: "wo-merged", approved_commit: "3333bbbb4444", merge_authority: "person_approves", approved_by_kind: "member", approved_by_id: "dana", approved_at: 1, merged_commit: "5555cccc6666", merged_at: 2 },
         ],
       };
-      view.items = [waiting, merged];
+      view.items = [merged];
     });
-    openPage("/completed");
-    expect(await screen.findByText("1 done, 1 waiting to merge")).toBeTruthy();
-    const waiting = within(await line("Merge the retry budget")).getByRole("list", { name: "Merge" });
-    expect(waiting.textContent).toContain("1111aaaa");
-    expect(waiting.textContent).toContain("lane-r/1");
-    expect(waiting.textContent).toContain("The merge waits: required checks are still running on 1111aaaa: CI result.");
-    expect(waiting.textContent).not.toContain("merged");
-    const merged = within(await line("Merged by a member")).getByRole("list", { name: "Merge" });
+    openPage("/work-order?id=wo-merged&tab=checks");
+    const merged = await screen.findByRole("list", { name: "Merge" });
     expect(merged.textContent).toContain("dana");
     expect(merged.textContent).toContain("merged 5555cccc");
     expect(merged.textContent).not.toContain("The merge waits");
   });
 
-  it("says so when nothing has ended", async () => {
-    serving<Completed>("completed", (view) => {
-      view.items = [];
-    });
-    openPage("/completed");
-    expect(await screen.findByText("Nothing has ended yet.")).toBeTruthy();
+  it("says the diff and the audit are not served yet, rather than drawing nothing", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-running&tab=changes");
+    expect(await screen.findByText("The diff is not served to this page yet")).toBeTruthy();
+    await userEvent.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(await screen.findByText("The audit is not served to this page yet")).toBeTruthy();
+  });
+
+  it("moves between its tabs with the arrow keys", async () => {
+    serveViews();
+    openPage("/work-order?id=wo-running");
+    const review = await screen.findByRole("tab", { name: "Review" });
+    review.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Changes" }).getAttribute("aria-selected")).toBe("true"));
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Changes" }));
   });
 });
 
-describe("the shop floor", () => {
-  it("states each worker and how fresh its word is", async () => {
-    serveViews();
-    openPage("/shop-floor");
-    const workers = await screen.findByRole("region", { name: "Workers" });
-    const card = within(workers).getByRole("article", { name: "solo" });
-    expect(within(card).getByText("worker-a")).toBeTruthy();
-    expect(within(card).getByText(/^Last reported/)).toBeTruthy();
-    expect(within(card).getByText("Epoch").closest("div")?.textContent).toContain("1");
+describe("what stuck work waits on", () => {
+  it("takes an action through the API, as the member the session names", async () => {
+    document.cookie = "ropeshift_csrf=token-from-cookie";
+    const sent = serveViews((call) => (call.method === "POST" ? { status: 204 } : undefined));
+    openPage("/work-order?id=wo-tripped");
+    await userEvent.click(within(await card()).getByRole("button", { name: "Reset the breaker" }));
+    await waitFor(() => expect(sent.some((call) => call.method === "POST")).toBe(true));
+    const change = sent.find((call) => call.method === "POST");
+    expect(change?.path).toBe("/v1/work-orders/wo-tripped/lane-reset");
+    expect(change?.csrf).toBe("token-from-cookie");
   });
 
-  it("states a worker's freshness as the value it is, and not as a note beside one", async () => {
-    serving<ShopFloor>("shop-floor", (view) => {
-      const second = view.workers[0] ? { ...view.workers[0], worker: { ...view.workers[0].worker, id: "worker-b", name: "spare" } } : undefined;
-      if (view.workers[0] && second) {
-        view.workers[0].freshness = "observed";
-        view.workers.push(second);
+  it("asks why before it changes who owns work", async () => {
+    const sent = serveViews((call) => (call.method === "POST" ? { status: 204 } : undefined));
+    openPage("/work-order?id=wo-lapsed");
+    const decision = await card();
+    await userEvent.click(within(decision).getByRole("button", { name: "End this claim" }));
+    expect(sent.some((call) => call.method === "POST")).toBe(false);
+    await userEvent.type(within(decision).getByRole("textbox", { name: "Why (required)" }), "The worker is gone.");
+    await userEvent.click(within(decision).getByRole("button", { name: "End this claim" }));
+    await waitFor(() => expect(sent.find((call) => call.method === "POST")?.body).toEqual({ reason: "The worker is gone." }));
+  });
+
+  it("reads again after an action", async () => {
+    const sent = serveViews((call) => (call.method === "POST" ? { status: 204 } : undefined));
+    openPage("/work-order?id=wo-tripped");
+    const decision = await card();
+    const reads = sent.filter((call) => call.path === "/v1/needs-you").length;
+    await userEvent.click(within(decision).getByRole("button", { name: "Reset the breaker" }));
+    await waitFor(() => expect(sent.filter((call) => call.path === "/v1/needs-you").length).toBeGreaterThan(reads));
+  });
+
+  it("says what the server refused, and leaves the card standing", async () => {
+    serveViews((call) => (call.method === "POST" ? refusal(409, "conflict", "A worker took it first.") : undefined));
+    openPage("/work-order?id=wo-tripped");
+    const decision = await card();
+    await userEvent.click(within(decision).getByRole("button", { name: "Reset the breaker" }));
+    expect((await within(decision).findByRole("alert")).textContent).toBe("A worker took it first.");
+  });
+
+  // ATTACK: a page left open outlives its session, and the server is what refuses.
+  it("asks for a session when a change meets none, and changes nothing", async () => {
+    let live = true;
+    const sent = serveViews((call) => {
+      if (call.method === "POST") {
+        live = false;
+        return refusal(401, "session_required", "This needs a member's session.");
+      }
+      return live ? undefined : refusal(401, "session_required");
+    });
+    openPage("/work-order?id=wo-tripped");
+    await userEvent.click(within(await card()).getByRole("button", { name: "Reset the breaker" }));
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
+    expect(sent.filter((call) => call.method === "POST")).toHaveLength(1);
+  });
+
+  it("offers no action where the server offers none", async () => {
+    serving<Stuck>("stuck", (view) => {
+      for (const item of view.items) {
+        item.actions = [];
       }
     });
-    openPage("/shop-floor");
-    const workers = await screen.findByRole("region", { name: "Workers" });
-    for (const [name, said] of [
-      ["solo", "Observed"],
-      ["spare", "Last reported"],
-    ]) {
-      const seen = within(within(workers).getByRole("article", { name })).getByText("Seen").closest("div")?.querySelector("dd");
-      expect(seen?.textContent, name).toBe(said);
-      expect(seen?.querySelector(".fresh"), `${name} reads as an aside`).toBeNull();
+    openPage("/work-order?id=wo-lapsed");
+    await screen.findByRole("heading", { level: 1, name: /^wo-lapsed/ });
+    const decision = await card();
+    expect(within(decision).queryByRole("button")).toBeNull();
+  });
+
+  it("names a lane parked too long, the fifth of the design's list, and what it waits for", async () => {
+    serving<Stuck>("stuck", (view) => {
+      const first = view.items[0];
+      if (first) {
+        first.reason = "long_parked";
+        first.actions = ["resume", "cancel"];
+        first.wakes = [{ id: "wake-1", expression: `{"any_of":[{"all_of":[{"question_answered":"q-signing-key"}]},{"human_resume":true}]}` }];
+      }
+    });
+    openPage("/work-order?id=wo-lapsed");
+    const decision = await card();
+    expect(within(decision).getByText("Long parked")).toBeTruthy();
+    expect(within(decision).getByText(/^Its lane has stayed parked/).textContent).toBe(
+      "Its lane has stayed parked for a long time. It waits until question q-signing-key is answered, or until a person resumes it.",
+    );
+    expect(within(decision).getByRole("link", { name: "q-signing-key" })).toBeTruthy();
+    expect(within(decision).getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+});
+
+describe("the floor", () => {
+  it("shows one panel per machine, with its orchestrator and how fresh its word is", async () => {
+    serveViews();
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    expect(within(machine).getByText(/^Orchestrator/)).toBeTruthy();
+    expect(within(machine).getAllByText(/^Last reported/).length).toBeGreaterThan(0);
+  });
+
+  it("says a measure no source reports is unavailable, and never draws it as zero", async () => {
+    serveViews();
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    for (const measure of ["CPU", "Memory", "Disk free"]) {
+      expect(within(machine).getByText(measure).parentElement?.textContent).toBe(`${measure}unavailable`);
     }
+    expect(machine.textContent).not.toMatch(/\b0%/);
   });
 
-  it("names the work each lane runs", async () => {
+  it("names the work each lane runs, with its state, liveness, and freshness", async () => {
     serveViews();
-    openPage("/shop-floor");
-    const card = (await screen.findAllByText("lane-wo-running")).find((element) => element.closest("article"))?.closest("article");
-    expect(card?.textContent).toContain("Write the docs");
-    expect(card?.textContent).toContain("wo-running");
+    openPage("/floor");
+    const tr = await row("lane-wo-running");
+    expect(tr.textContent).toContain("Write the docs");
+    expect(tr.textContent).toContain("wo-running");
+    expect(cell(tr, "Freshness")?.textContent).toMatch(/^Last reported.*4m ago/);
+    expect(cell(tr, "Generation")?.textContent).toBe("1");
   });
 
-  it("states a worker's orchestrator, wanted and actual", async () => {
+  it("marks a last reported lane so it cannot pass for a live one", async () => {
     serveViews();
-    openPage("/shop-floor");
-    const workers = await screen.findByRole("region", { name: "Workers" });
-    const orchestrator = within(workers).getByRole("group", { name: "Orchestrator" });
-    expect(orchestrator.textContent).toContain("orchestrator-worker-a");
-    expect(within(orchestrator).getByText("Wanted").closest("div")?.textContent).toContain("Running");
-    expect(within(orchestrator).getByText("Actual").closest("div")?.textContent).toContain("Not reported");
+    openPage("/floor");
+    expect((await row("lane-wo-running")).className).toContain("row-reported");
   });
 
-  it("labels an orchestrator's state as its worker's word is labeled", async () => {
+  it("states an orchestrator's state in its chip", async () => {
     serving<ShopFloor>("shop-floor", (view) => {
       const orchestrator = view.workers[0]?.orchestrator;
       if (orchestrator) {
         orchestrator.actual_state = "working";
+        orchestrator.current_generation = 5;
       }
     });
-    openPage("/shop-floor");
-    const orchestrator = await screen.findByRole("group", { name: "Orchestrator" });
-    const actual = within(orchestrator).getByText("Actual").closest("div");
-    expect(actual?.textContent).toContain("Working");
-    expect(actual?.textContent).toContain("Last reported");
+    openPage("/floor");
+    const machine = await screen.findByRole("region", { name: "solo" });
+    expect(within(machine).getByText(/^Orchestrator/).textContent).toBe("Orchestrator · working · gen 5");
   });
 
   it("says when a worker runs no orchestrator", async () => {
@@ -494,52 +432,24 @@ describe("the shop floor", () => {
         view.workers[0].orchestrator = undefined;
       }
     });
-    openPage("/shop-floor");
-    expect(await screen.findByText("No orchestrator.")).toBeTruthy();
+    openPage("/floor");
+    expect(await screen.findByText("No orchestrator")).toBeTruthy();
   });
 
-  it("keeps observed lanes apart from last reported ones", async () => {
-    serveViews();
-    openPage("/shop-floor");
-    const observed = await screen.findByRole("region", { name: "Observed lanes" });
-    const reported = await screen.findByRole("region", { name: "Last reported lanes" });
-    const view = golden<ShopFloor>("shop-floor");
-    for (const lane of view.lanes) {
-      const side = lane.freshness === "observed" ? observed : reported;
-      expect(within(side).getByText(lane.id), lane.id).toBeTruthy();
+  it("offers a lane's act through a dialog that says what it does", async () => {
+    const sent = serveViews((call) => (call.method === "POST" ? { status: 204 } : undefined));
+    openPage("/floor");
+    const tripped = golden<Stuck>("stuck").items.find((item) => item.reason === "tripped");
+    if (!tripped?.lane) {
+      throw new Error("the golden stuck view holds no tripped lane");
     }
-  });
-
-  it("marks a last reported lane so it cannot pass for a live one", async () => {
-    serveViews();
-    openPage("/shop-floor");
-    const reported = await screen.findByRole("region", { name: "Last reported lanes" });
-    const card = within(reported).getByText("lane-wo-running").closest("article");
-    expect(card?.className).toContain("lane-old");
-    expect(reported.textContent).toContain("may no longer hold");
-  });
-
-  it("states how long ago each value came", async () => {
-    serveViews();
-    openPage("/shop-floor");
-    const card = (await screen.findByText("lane-wo-running")).closest("article");
-    expect(card?.textContent).toMatch(/Last reported.*4m ago/);
-  });
-
-  it("states a lane's generations", async () => {
-    serveViews();
-    openPage("/shop-floor");
-    const card = (await screen.findByText("lane-wo-running")).closest("article");
-    expect(within(card as HTMLElement).getByText("Generation").closest("div")?.textContent).toContain("1");
-  });
-
-  it("says so when no lane stands on one side", async () => {
-    serving<ShopFloor>("shop-floor", (view) => {
-      view.lanes = view.lanes.filter((lane) => lane.freshness === "observed");
-    });
-    openPage("/shop-floor");
-    const reported = await screen.findByRole("region", { name: "Last reported lanes" });
-    expect(within(reported).getByText("None.")).toBeTruthy();
+    const tr = await row(tripped.lane.id);
+    await userEvent.click(within(tr).getByRole("button", { name: `Actions for lane ${tripped.lane.id}` }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Reset the breaker…" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Closes the breaker");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reset the breaker" }));
+    await waitFor(() => expect(sent.find((call) => call.method === "POST")?.path).toBe(`/v1/work-orders/${tripped.work_order?.id}/lane-reset`));
   });
 
   it("says so when no worker has joined", async () => {
@@ -547,15 +457,26 @@ describe("the shop floor", () => {
       view.workers = [];
       view.lanes = [];
     });
-    openPage("/shop-floor");
-    expect(await screen.findByText("No worker has joined.")).toBeTruthy();
+    openPage("/floor");
+    expect(await screen.findByText("No worker has joined")).toBeTruthy();
+  });
+});
+
+describe("the lane", () => {
+  it("states its facts, freshness, and generation beside its pane", async () => {
+    serveViews((call) => (call.path.startsWith("/v1/panes/") ? refusal(404, "no_pane", "no pane") : undefined));
+    openPage("/lane?id=lane-wo-running");
+    const facts = await screen.findByRole("complementary", { name: "Lane facts" });
+    await waitFor(() => expect(within(facts).getByText("Generation").closest(".kv-row")?.textContent).toContain("1"));
+    expect(within(facts).getByText("Seen").closest(".kv-row")?.textContent).toMatch(/Last reported/);
+    expect(within(facts).getByRole("link", { name: "wo-running" }).getAttribute("href")).toBe(here("/work-order?id=wo-running"));
   });
 });
 
 describe("operations", () => {
   it("states the fleet's mode and its caps", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const fleet = await screen.findByRole("region", { name: "Fleet" });
     expect(within(fleet).getByText("Mode").closest("div")?.textContent).toContain("Run");
     expect(within(fleet).getByText("Work in progress").closest("div")?.textContent).toContain("No limit");
@@ -566,7 +487,7 @@ describe("operations", () => {
       view.fleet.wip_limit = 3;
       view.fleet.fleet_mode = "drain";
     });
-    openPage("/operations");
+    openPage("/measures");
     const fleet = await screen.findByRole("region", { name: "Fleet" });
     expect(within(fleet).getByText("Work in progress").closest("div")?.textContent).toContain("3");
     expect(within(fleet).getByText("Mode").closest("div")?.textContent).toContain("Drain");
@@ -574,23 +495,23 @@ describe("operations", () => {
 
   it("counts what waits for a person, and leads there", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const fleet = await screen.findByRole("region", { name: "Fleet" });
     const waiting = within(fleet).getByText("Waiting for a person").closest("div");
     expect(waiting?.textContent).toContain("11");
-    expect(within(waiting as HTMLElement).getByRole("link").getAttribute("href")).toBe(here("/"));
+    expect(within(waiting as HTMLElement).getByRole("link").getAttribute("href")).toBe("/needs-you");
   });
 
   it("counts workers against those it has heard from", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const fleet = await screen.findByRole("region", { name: "Fleet" });
     expect(within(fleet).getByText("Workers").closest("div")?.textContent).toContain("0 of 1 observed");
   });
 
   it("states a zero where a state holds nothing", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const table = await screen.findByRole("table", { name: "Work orders by state" });
     expect(within(table).getByRole("row", { name: "Claimed 0" })).toBeTruthy();
     expect(within(table).getByRole("row", { name: "Running 5" })).toBeTruthy();
@@ -598,23 +519,23 @@ describe("operations", () => {
 
   it("says a lane's count is last word, and where its freshness stands", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const note = await screen.findByText(/each lane's last state/);
-    expect(within(note).getByRole("link", { name: "the shop floor" }).getAttribute("href")).toBe(here("/shop-floor"));
+    expect(within(note).getByRole("link", { name: "the floor" }).getAttribute("href")).toBe(here("/floor"));
   });
 
   it("keeps a state this build has no words for in the count", async () => {
     serving<Operations>("operations", (view) => {
       view.work_orders.brand_new = 2;
     });
-    openPage("/operations");
+    openPage("/measures");
     const table = await screen.findByRole("table", { name: "Work orders by state" });
     expect(within(table).getByRole("row", { name: "brand_new 2" })).toBeTruthy();
   });
 
   it("states each source, its health, and what it could not read", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const sources = await screen.findByRole("region", { name: "Sources" });
     expect(sources.textContent).toContain("repofiles");
     expect(sources.textContent).toContain("repository-1");
@@ -629,9 +550,9 @@ describe("operations", () => {
         { worker: "worker-1", worker_name: "solo", repository: "repo-2", state: "ok", checked_at: 1 },
       ];
     });
-    openPage("/operations");
+    openPage("/measures");
     const forge = await screen.findByRole("region", { name: "Forge sign-in" });
-    const rows = within(forge).getAllByRole("listitem").filter((item) => item.classList.contains("row"));
+    const rows = within(forge).getAllByRole("listitem").filter((item) => item.classList.contains("list-row"));
     expect(rows).toHaveLength(2);
     const [signedOut, ok] = rows.map((row) => row.textContent ?? "");
     expect(signedOut).toContain("widgets");
@@ -644,14 +565,14 @@ describe("operations", () => {
 
   it("leaves the forge out where no repository needs it", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     await screen.findByRole("region", { name: "Sources" });
     expect(screen.queryByRole("region", { name: "Forge sign-in" })).toBeNull();
   });
 
   it("shows the north star beside the overturn rate and rework", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const measures = await screen.findByRole("region", { name: "Product measures" });
     const star = within(measures).getByRole("group", { name: "The north star and its counterweights" });
     const names = within(star)
@@ -667,7 +588,7 @@ describe("operations", () => {
     serving<Operations>("operations", (view) => {
       view.measures.interruptions_per_completed = { numerator: 3, denominator: 0, value: null };
     });
-    openPage("/operations");
+    openPage("/measures");
     const measures = await screen.findByRole("region", { name: "Product measures" });
     expect(within(measures).getByText("Interruptions per completed work order").closest("div")?.textContent).toContain("No data yet");
     expect(within(measures).getByText("Autonomous decision rate").closest("div")?.textContent).toContain("No data yet");
@@ -678,7 +599,7 @@ describe("operations", () => {
       view.measures.interruptions = 4;
       view.measures.interruptions_by_kind = { batch: 2, approval: 1, forced: 1 };
     });
-    openPage("/operations");
+    openPage("/measures");
     const measures = await screen.findByRole("region", { name: "Product measures" });
     expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toBe(
       "Interruptions2 batches of questions, 1 approval, 1 forced action",
@@ -690,7 +611,7 @@ describe("operations", () => {
       view.measures.interruptions = 1;
       view.measures.interruptions_by_kind = { batch: 1 };
     });
-    openPage("/operations");
+    openPage("/measures");
     const measures = await screen.findByRole("region", { name: "Product measures" });
     expect(within(measures).getByText("Interruptions").closest("div")?.textContent).toBe("Interruptions1 batch of questions, 0 approvals, 0 forced actions");
   });
@@ -715,7 +636,7 @@ describe("operations", () => {
         ],
       };
     });
-    openPage("/operations");
+    openPage("/measures");
     const section = await screen.findByRole("region", { name: "Review agreement" });
     const first = within(section).getByRole("group", { name: "Review agreement for repository-1" });
     expect(first.textContent).toContain("Merge authority: person approves, you approve each change and ropeshift lands it");
@@ -733,7 +654,7 @@ describe("operations", () => {
 
   it("reads review agreement from the ledger's own fixture", async () => {
     serveViews();
-    openPage("/operations");
+    openPage("/measures");
     const section = await screen.findByRole("region", { name: "Review agreement" });
     const repository = within(section).getByRole("group", { name: "Review agreement for repository-1" });
     expect(repository.textContent).toContain("Merge authority: person approves");
@@ -745,7 +666,7 @@ describe("operations", () => {
     serving<Operations>("operations", (view) => {
       view.measures.cost_per_outcome = { change: { total_usd: 3, done: 2, per_done_usd: 1.5, lower_bound: true } };
     });
-    openPage("/operations");
+    openPage("/measures");
     const table = await screen.findByRole("table", { name: "Cost per outcome" });
     expect(within(table).getByRole("row").textContent).toContain("at least $1.50 each, $3.00 over 2 done");
   });
@@ -757,7 +678,7 @@ describe("operations", () => {
         plan: { total_usd: 0.004, done: 1, per_done_usd: 0.004, lower_bound: false },
       };
     });
-    openPage("/operations");
+    openPage("/measures");
     const table = await screen.findByRole("table", { name: "Cost per outcome" });
     const [change, plan] = within(table).getAllByRole("row");
     expect(change?.textContent).toBe("Change$1.30 each, $2.60 over 2 done");
@@ -768,7 +689,7 @@ describe("operations", () => {
     serving<Operations>("operations", (view) => {
       view.measures.park_time = { answer: { count: 3, median_ms: 1_800_000, p95_ms: 7_200_000 } };
     });
-    openPage("/operations");
+    openPage("/measures");
     const table = await screen.findByRole("table", { name: "Park time by trigger" });
     expect(within(table).getByRole("row").textContent).toContain("median 30m, 95th percentile 2h, of 3");
   });
@@ -777,8 +698,8 @@ describe("operations", () => {
 describe("a work view on the stream", () => {
   it("reads again when something happens", async () => {
     const sent = serveViews();
-    openPage("/stuck");
-    await line("Fix the flaky test");
+    openPage("/work?group=stuck");
+    await row("Fix the flaky test");
     await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
     const reads = sent.filter((call) => call.path === "/v1/views/stuck").length;
     FakeEvents.opened[0]?.emit();

@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { Lane, Plans, ShopFloor } from "./api/types";
+import type { Lane, ShopFloor, Stuck } from "./api/types";
 import { conditionWords, laneStates, workStates } from "./floor/states";
 import { openPage } from "./opening";
 import { golden, serveViews } from "./testing";
@@ -21,7 +21,7 @@ type Fixture = {
 
 const fixture = golden<Fixture>("every-state");
 const floor = fixture.views["shop-floor"] as ShopFloor;
-const plans = fixture.views.plans as Plans;
+const stuck = fixture.views.stuck as Stuck;
 
 function serveFixture() {
   return serveViews((call) => {
@@ -30,26 +30,27 @@ function serveFixture() {
   });
 }
 
-// Where a person finds a work order in a state: a plan's own page for work that has one, the list of
-// work with no plan for work that has none, and otherwise the view the state's row names.
+// Where a person finds a work order in a state: the tab of Work orders its state's row names, or Stuck
+// when the server lists it as stuck, whatever its state.
 function homeOf(state: string): string {
-  const home = workStates[state]?.home;
-  if (home !== "plans") {
-    return `/${home}`;
-  }
-  const plan = plans.plans.find((row) => row.work_orders.some((order) => order.id === `wo-${state}`));
-  return plan ? `/plans?plan=${encodeURIComponent(plan.plan.id)}` : "/plans";
+  const listedStuck = stuck.items.some((item) => item.work_order?.id === `wo-${state}`);
+  return `/work?group=${listedStuck ? "stuck" : workStates[state]?.home}`;
 }
 
 // The queue stays mounted behind every view, so a row counts only if a person can see it.
 function rowOf(id: string): Promise<HTMLElement> {
   return waitFor(() => {
-    const row = screen.getAllByText(id).find((element) => !element.closest("[hidden]"))?.closest("article, .row");
+    const row = screen.getAllByText(id).find((element) => !element.closest("[hidden]"))?.closest("article, tr, .list-row");
     if (!row) {
       throw new Error(`${id} stands in no row a person can see`);
     }
     return row as HTMLElement;
   });
+}
+
+// cellOf reads one column of a table row, by the name the column gives each cell.
+function cellOf(row: HTMLElement, column: string): string {
+  return row.querySelector(`[data-label="${column}"]`)?.textContent ?? "";
 }
 
 const laneIn = (state: string): Lane => {
@@ -61,18 +62,30 @@ const laneIn = (state: string): Lane => {
 };
 
 describe("every work order state", () => {
-  it.each(fixture.work_order_states)("%s has words and a view that shows it", async (state) => {
+  it.each(fixture.work_order_states)("%s has words, a tone, a glyph, and a tab that shows it", async (state) => {
     const meaning = workStates[state];
     expect(meaning, `no row in workStates for ${state}`).toBeDefined();
     serveFixture();
     openPage(homeOf(state));
     const row = await rowOf(`wo-${state}`);
-    expect(within(row).getAllByText(meaning?.label ?? "").length).toBeGreaterThan(0);
+    const badge = within(row)
+      .getAllByText(meaning?.label ?? "")
+      .map((element) => element.closest(".badge"))
+      .find(Boolean);
+    expect(badge?.getAttribute("data-tone")).toBe(meaning?.tone);
+    expect(badge?.querySelector("svg")?.getAttribute("data-glyph")).toBe(meaning?.glyph);
+  });
+
+  it.each(fixture.work_order_states)("%s opens on its own work order page", async (state) => {
+    serveFixture();
+    openPage(`/work-order?id=wo-${state}`);
+    expect(await screen.findByRole("heading", { level: 1, name: new RegExp(`^wo-${state}`) })).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Lifecycle" })).getByText(workStates[state]?.label ?? state)).toBeTruthy();
   });
 
   it.each(fixture.work_order_states)("%s stands in the operations count", async (state) => {
     serveFixture();
-    openPage("/operations");
+    openPage("/measures");
     const table = await screen.findByRole("table", { name: "Work orders by state" });
     const row = within(table).getByRole("row", { name: new RegExp(`^${workStates[state]?.label ?? state} \\d+$`) });
     expect(row).toBeTruthy();
@@ -84,30 +97,30 @@ describe("every work order state", () => {
 });
 
 describe("every lane state", () => {
-  it.each(fixture.lane_states)("%s has words and stands on the shop floor", async (state) => {
+  it.each(fixture.lane_states)("%s has words, a tone, and a glyph, and stands on the floor", async (state) => {
     const meaning = laneStates[state];
     expect(meaning, `no row in laneStates for ${state}`).toBeDefined();
     serveFixture();
-    openPage("/shop-floor");
+    openPage("/floor");
     const row = await rowOf(`lane-wl-${state}`);
-    expect(within(row).getByText(meaning ?? "")).toBeTruthy();
+    const badge = within(row).getByText(meaning?.label ?? "").closest(".badge");
+    expect(badge?.getAttribute("data-tone")).toBe(meaning?.tone);
+    expect(badge?.querySelector("svg")?.getAttribute("data-glyph")).toBe(meaning?.glyph);
   });
 
   it.each(fixture.lane_states)("%s says how fresh it is", async (state) => {
     serveFixture();
-    openPage("/shop-floor");
+    openPage("/floor");
     const lane = laneIn(state);
-    const side = await screen.findByRole("region", { name: lane.freshness === "observed" ? "Observed lanes" : "Last reported lanes" });
     const row = await rowOf(lane.id);
-    expect(side.contains(row)).toBe(true);
-    expect(row.textContent).toContain(lane.freshness === "observed" ? "Observed" : "Last reported");
+    expect(cellOf(row, "Freshness")).toMatch(lane.freshness === "observed" ? /^Observed/ : /^Last reported/);
   });
 
   it.each(fixture.lane_states)("%s stands in the operations count", async (state) => {
     serveFixture();
-    openPage("/operations");
+    openPage("/measures");
     const table = await screen.findByRole("table", { name: "Lanes by state" });
-    const row = within(table).getByRole("row", { name: new RegExp(`^${laneStates[state] ?? state} \\d+$`) });
+    const row = within(table).getByRole("row", { name: new RegExp(`^${laneStates[state]?.label ?? state} \\d+$`) });
     expect(row).toBeTruthy();
   });
 
@@ -121,7 +134,7 @@ describe("what stands beside a lane's state", () => {
     const said = conditionWords[condition];
     expect(said, `no words for ${condition}`).toBeDefined();
     serveFixture();
-    openPage("/shop-floor");
+    openPage("/floor");
     const lane = floor.lanes.find((row) => row.conditions?.includes(condition));
     expect(lane, `no lane holds ${condition}`).toBeDefined();
     expect(within(await rowOf(lane?.id ?? "")).getByText(said ?? "")).toBeTruthy();
@@ -129,20 +142,20 @@ describe("what stands beside a lane's state", () => {
 
   it.each(fixture.liveness)("liveness %s shows on a lane", async (liveness) => {
     serveFixture();
-    openPage("/shop-floor");
+    openPage("/floor");
     const lane = floor.lanes.find((row) => row.liveness === liveness);
     expect(lane, `no lane reads ${liveness}`).toBeDefined();
     const row = await rowOf(lane?.id ?? "");
-    expect(within(row).getByText("Liveness").closest("div")?.textContent?.toLowerCase()).toContain(liveness);
+    expect(cellOf(row, "Liveness").toLowerCase().replaceAll(" ", "_")).toContain(liveness);
   });
 
   it.each(fixture.reach)("reach %s shows on a lane", async (reach) => {
     serveFixture();
-    openPage("/shop-floor");
+    openPage("/floor");
     const lane = floor.lanes.find((row) => row.model_reach === reach && row.freshness === "last_reported") ?? floor.lanes.find((row) => row.model_reach === reach);
     expect(lane, `no lane reads ${reach}`).toBeDefined();
     const row = await rowOf(lane?.id ?? "");
-    expect(within(row).getByText("Model").closest("div")?.textContent?.toLowerCase()).toContain(reach);
+    expect(cellOf(row, "Reach").toLowerCase().replaceAll(" ", "_")).toContain(`model_${reach}`);
   });
 
   it("holds both kinds of freshness in the fixture", () => {
