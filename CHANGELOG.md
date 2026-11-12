@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.1.0-alpha.12](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.11...v0.1.0-alpha.12) (2026-11-12)
+
+
+### Features
+
+* break a lane's tokens down by the roster agent that spent them ([4fe50a3](https://github.com/bkuberek/ropeshift/commit/4fe50a33f74c6d4dd5ec58acc70d15c1c7225309))
+* continue a pull request's branch in rework, so the same pull request moves ([df91e21](https://github.com/bkuberek/ropeshift/commit/df91e216f3fc056a97fcbf57016255eaa4903b78))
+* give the Forge port a GitHub adapter that runs gh on the worker ([4df5129](https://github.com/bkuberek/ropeshift/commit/4df51294d80a7a84c9af90feec588320a2d0db72))
+* keep roster versions per scope and change them with ropeshift agent, behind a member ([ca05dac](https://github.com/bkuberek/ropeshift/commit/ca05dace6d05a8f576e60685c2e2df716ac104f6))
+* let a delegation class name the per-use agent an orchestrator may approve ([4e09743](https://github.com/bkuberek/ropeshift/commit/4e09743a906aad9e4e382726594555d1aeef62ad))
+* merge a planning branch on its plan approval ([4cd4062](https://github.com/bkuberek/ropeshift/commit/4cd40624ffda6ea44231f5269f097ba20aa41c4e))
+* merge a pull request at its reviewed head and mark required checks in the gh adapter ([c32f87e](https://github.com/bkuberek/ropeshift/commit/c32f87e5f84938c3d28db162d03ebc6161ee39af))
+* merge a reviewed branch into its base with git, in a worktree of its own ([6617422](https://github.com/bkuberek/ropeshift/commit/6617422657ff5158ee9f385041c6836b1b42b84e))
+* merge accepted work at person_approves and review_approves, bound to the reviewed commit ([5121dea](https://github.com/bkuberek/ropeshift/commit/5121dea3e9998aaf2ff8df11392b39560064a9e2))
+* post review verdicts on the pull request and record the person's merge ([fae8b81](https://github.com/bkuberek/ropeshift/commit/fae8b81666a309239c70b16d9b7a17584404feed))
+* push each change and open its pull request before review with review_target pull_request ([4646af8](https://github.com/bkuberek/ropeshift/commit/4646af85eed9ab5ea96a11a34cc9dad4b9f6a3f4))
+* render a session's roster agents through Claude Code's --agents flag, inside its rules ([2eaf672](https://github.com/bkuberek/ropeshift/commit/2eaf672393a9d6f8d57ce98a790457c9ee71a2ef))
+* run each lane as its work order's roster agent, with the roster its claim pinned ([1309d51](https://github.com/bkuberek/ropeshift/commit/1309d515c8d03bde08e60b4b28bf201077fea2c2))
+* start every lane with no forge credential ([80a06ca](https://github.com/bkuberek/ropeshift/commit/80a06ca4ad9de76f46c79f1825aa7336dc8fe91a))
+* the agent roster's built-in agents, routing guide, resolution, and default mapping ([bd45abe](https://github.com/bkuberek/ropeshift/commit/bd45abe8a828754f997c4bbf9599d0215c915fa1))
+
+
+### Bug Fixes
+
+* decode a stream line's message only for assistant lines, so a user line with text content still parses ([68327b8](https://github.com/bkuberek/ropeshift/commit/68327b8e619368ac052bf2171cf88ffb40f96d9c))
+* offer no merge of work that left integrating, and ignore a late answer about another commit ([e57297b](https://github.com/bkuberek/ropeshift/commit/e57297b257541f28147605e3aac83ec5c7fc0a45))
+* report a watched pull request's checks and mergeability on the worker's first read ([61f7cba](https://github.com/bkuberek/ropeshift/commit/61f7cba737d5f5262e2684cd64eaf79dae245c4f))
+* review a pull request's moved head again, and hold accepted pull-request work in integrating at person_merges ([42bc8fb](https://github.com/bkuberek/ropeshift/commit/42bc8fbe335777c6efb0ff83c8ceed33e8fe56fa))
+
+### Notes
+
+* Ropeshift now closes the loop from review to merged code. Each repository has a review target: `branch` (the default) or `pull_request`. With `pull_request`, the worker pushes a finished lane's branch and opens its pull request before review, posts the review's verdicts on it, and rework continues the same branch so the same pull request moves. The `gh` CLI runs on the worker under your existing sign-in; ropeshift never signs in for you or reads the token, and lanes get no forge credential.
+* Accepted work enters a new `integrating` state and merges at the repository's merge authority level. At `review_approves`, ropeshift merges once every criterion passes on the reviewed commit and every required check is green, with `gh pr merge --match-head-commit`, so it never merges a commit the review did not see. At `person_approves`, a merge request bound to the reviewed commit waits for you in Needs you. At `person_merges`, you merge and ropeshift records it. With review target `branch`, ropeshift merges with git in a worktree of its own and pushes the base without force; a refused push waits for you with its reason.
+* A pull request whose head moved after review is reviewed again. A merge conflict, or a branch behind its base, becomes rework on the same branch. A red required check sends the work back naming the check; a pending one waits. Every approval and merge is recorded with who approved it, the level in force, and the commits.
+* An approved plan now merges its planning branch the same way, and approving an adoption merges the adoption branch, so the default branch changes only through that merge.
+* Ropeshift ships an agent roster: ten built-in agents with a routing guide and capability classes. `ropeshift agent` lists, shows, edits, overrides per project, shows history, and reverts, and every change needs a member. Each lane runs as its work order's agent, chosen by the planner or by a default mapping from the work's kind and size, and Claude Code lanes receive the roster through `--agents`, with nothing written to your agent configuration or the worktree.
+* **Behavior change:** lanes no longer all run on your profile's model. A medium change runs on the `standard` class (sonnet) at medium effort and a small one on the `small` class (haiku), as the default mapping says; set a work order's `agent`, or edit the roster, to change it.
+* This release adds database migrations `0050`, `0051`, `0060`, `0061`, and `0062`, and the installation database's migration `0005`. They run on the first start.
+
 ## [0.1.0-alpha.11](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.10...v0.1.0-alpha.11) (2026-11-12)
 
 
