@@ -7,6 +7,7 @@ import { ApprovalCard } from "./ApprovalCard";
 import { ContractReviewCard } from "./ContractReviewCard";
 import { EffectCard } from "./EffectCard";
 import { PlanApprovalCard } from "./PlanApprovalCard";
+import { RecoveryCard, recoveryHeading } from "./RecoveryCard";
 import { QuestionBatch } from "./QuestionBatch";
 import { waitLabel, waitWords } from "./wait";
 import { WorkCard, workLabels } from "./WorkCard";
@@ -18,7 +19,7 @@ function headingOf(item: NeedItem): string {
       return count === 1 ? "A question" : `${count} questions`;
     }
     case "approval":
-      return `Allow ${item.approval.subject}?`;
+      return item.approval.kind === "recovery" ? recoveryHeading(item.approval) : `Allow ${item.approval.subject}?`;
     case "effect":
       return "Did it happen?";
     case "work":
@@ -35,7 +36,7 @@ function kindOf(item: NeedItem): string {
     case "questions":
       return "Questions";
     case "approval":
-      return "Approval";
+      return item.approval.kind === "recovery" ? "Recovery" : "Approval";
     case "effect":
       return "Unknown effect";
     case "work":
@@ -52,7 +53,11 @@ function Card({ item, after }: { item: NeedItem; after: () => Promise<void> }) {
     case "questions":
       return <QuestionBatch batch={item.batch} after={after} />;
     case "approval":
-      return <ApprovalCard approval={item.approval} after={after} />;
+      return item.approval.kind === "recovery" ? (
+        <RecoveryCard approval={item.approval} after={after} />
+      ) : (
+        <ApprovalCard approval={item.approval} after={after} />
+      );
     case "effect":
       return <EffectCard effect={item.effect} after={after} />;
     case "work":

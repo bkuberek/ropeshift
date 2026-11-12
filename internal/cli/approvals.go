@@ -58,8 +58,17 @@ func (c *invocation) approvalShow(args []string) int {
 }
 
 // approvalSubject says what a request is about: the plan version a plan approval covers, which no lane
-// asked for, or the lane that asked.
+// asked for, the recovery act an orchestrator asked for, with why and the limit of the policy it went past,
+// or the lane that asked.
 func approvalSubject(row authority.Approval) string {
+	if row.Kind == authority.KindRecovery {
+		detail := authority.RecoveryDetailOf(row)
+		subject := fmt.Sprintf("recovery: %s of work order %s", row.Subject, row.WorkOrder)
+		if row.Lane != "" {
+			subject += ", lane " + row.Lane
+		}
+		return fmt.Sprintf("%s\nreason: %s\noutside recovery policy version %d: %s: %s", subject, detail.Reason, detail.PolicyVersion, detail.Check, detail.Limit)
+	}
 	if row.Kind != authority.KindPlan {
 		return "lane: " + row.Lane
 	}
