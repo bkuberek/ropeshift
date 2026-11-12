@@ -75,6 +75,12 @@ func newHookEnv(t *testing.T) hookEnv {
 
 func spoolLines(t *testing.T, path string) []lanes.HookEvent {
 	t.Helper()
+	return spoolLinesSealedWith(t, path, hookToken)
+}
+
+// spoolLinesSealedWith reads a spool whose lines a hook sealed with token.
+func spoolLinesSealedWith(t *testing.T, path, token string) []lanes.HookEvent {
+	t.Helper()
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -83,7 +89,7 @@ func spoolLines(t *testing.T, path string) []lanes.HookEvent {
 		t.Fatal(err)
 	}
 	var out []lanes.HookEvent
-	digestOf := func(string) (string, error) { return lanes.TokenDigest(hookToken), nil }
+	digestOf := func(string) (string, error) { return lanes.TokenDigest(token), nil }
 	for line := range bytes.SplitSeq(bytes.TrimSpace(raw), []byte("\n")) {
 		event, err := lanes.OpenHook(line, digestOf)
 		if err != nil {
