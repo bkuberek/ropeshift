@@ -29,6 +29,16 @@
 * report a watched pull request's checks and mergeability on the worker's first read ([61f7cba](https://github.com/bkuberek/ropeshift/commit/61f7cba737d5f5262e2684cd64eaf79dae245c4f))
 * review a pull request's moved head again, and hold accepted pull-request work in integrating at person_merges ([42bc8fb](https://github.com/bkuberek/ropeshift/commit/42bc8fbe335777c6efb0ff83c8ceed33e8fe56fa))
 
+### Notes
+
+* Ropeshift now closes the loop from review to merged code. Each repository has a review target: `branch` (the default) or `pull_request`. With `pull_request`, the worker pushes a finished lane's branch and opens its pull request before review, posts the review's verdicts on it, and rework continues the same branch so the same pull request moves. The `gh` CLI runs on the worker under your existing sign-in; ropeshift never signs in for you or reads the token, and lanes get no forge credential.
+* Accepted work enters a new `integrating` state and merges at the repository's merge authority level. At `review_approves`, ropeshift merges once every criterion passes on the reviewed commit and every required check is green, with `gh pr merge --match-head-commit`, so it never merges a commit the review did not see. At `person_approves`, a merge request bound to the reviewed commit waits for you in Needs you. At `person_merges`, you merge and ropeshift records it. With review target `branch`, ropeshift merges with git in a worktree of its own and pushes the base without force; a refused push waits for you with its reason.
+* A pull request whose head moved after review is reviewed again. A merge conflict, or a branch behind its base, becomes rework on the same branch. A red required check sends the work back naming the check; a pending one waits. Every approval and merge is recorded with who approved it, the level in force, and the commits.
+* An approved plan now merges its planning branch the same way, and approving an adoption merges the adoption branch, so the default branch changes only through that merge.
+* Ropeshift ships an agent roster: ten built-in agents with a routing guide and capability classes. `ropeshift agent` lists, shows, edits, overrides per project, shows history, and reverts, and every change needs a member. Each lane runs as its work order's agent, chosen by the planner or by a default mapping from the work's kind and size, and Claude Code lanes receive the roster through `--agents`, with nothing written to your agent configuration or the worktree.
+* **Behavior change:** lanes no longer all run on your profile's model. A medium change runs on the `standard` class (sonnet) at medium effort and a small one on the `small` class (haiku), as the default mapping says; set a work order's `agent`, or edit the roster, to change it.
+* This release adds database migrations `0050`, `0051`, `0060`, `0061`, and `0062`, and the installation database's migration `0005`. They run on the first start.
+
 ## [0.1.0-alpha.11](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.10...v0.1.0-alpha.11) (2026-11-12)
 
 
