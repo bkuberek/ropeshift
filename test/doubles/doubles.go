@@ -167,7 +167,7 @@ func Ropeshift(t testing.TB) string {
 // Main runs a package's tests and removes the double it built.
 func Main(m *testing.M) int {
 	code := m.Run()
-	for _, dir := range []string{built.dir, builtBinary.dir} {
+	for _, dir := range []string{built.dir, builtBinary.dir, builtGH.dir} {
 		if dir != "" {
 			_ = os.RemoveAll(dir)
 		}
@@ -437,7 +437,7 @@ func CanaryPath(t testing.TB) string {
 	}
 	t.Cleanup(func() {
 		if _, err := os.Stat(filepath.Join(dir, "tripped")); err == nil {
-			t.Errorf("the claude canary ran during this test")
+			t.Errorf("the claude or gh canary ran during this test")
 		}
 	})
 	return dir + string(os.PathListSeparator) + os.Getenv("PATH")

@@ -742,7 +742,7 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
 			return err
 		}),
-		// No release in phase 1 ships a Forge adapter, so a lane's checks wait for a second principal (D16).
+		// No release ships a check source yet, so a lane's checks wait for a second principal (D16).
 		// The tick still sends back work with a failed check.
 		tick("acceptance", opts.leaseTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			_, err := control.NewAcceptances(store).Settle(ctx, p.ID, nil, tickActor("acceptance-tick"))

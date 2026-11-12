@@ -361,7 +361,7 @@ type awaiting struct {
 // evidence decides by itself. It is a tick: the list is read with no lock, the forge is read
 // outside every transaction, and each item is one transaction that reads again. A nil forge
 // means no independent source exists, which leaves a lane's checks to a member (D16). A forge that fails decides nothing about its item, and the rest go on.
-func (a *Acceptances) Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, actor ledger.Actor) ([]string, error) {
+func (a *Acceptances) Settle(ctx context.Context, scope ledger.WorkspaceID, forge ports.CheckSource, actor ledger.Actor) ([]string, error) {
 	waiting, err := a.waiting(ctx, scope)
 	if err != nil {
 		return nil, err
@@ -427,7 +427,7 @@ func attemptBranch(artifacts []ledger.Artifact, fence int64) ledger.Artifact {
 	return ledger.Artifact{}
 }
 
-func forgeChecks(ctx context.Context, scope ledger.WorkspaceID, forge ports.Forge, item awaiting) ([]ports.ForgeCheck, error) {
+func forgeChecks(ctx context.Context, scope ledger.WorkspaceID, forge ports.CheckSource, item awaiting) ([]ports.ForgeCheck, error) {
 	if forge == nil || item.branch.Digest == "" {
 		return nil, nil
 	}
