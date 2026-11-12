@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.0-alpha.11](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.10...v0.1.0-alpha.11) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* failed work with attempts left stays failed until an orchestrator or a member retries it.
+
+### Features
+
+* add a versioned recovery policy that only a member publishes ([14ff3ce](https://github.com/bkuberek/ropeshift/commit/14ff3ce8e674c861231609e265209e2dffad493c))
+* give the orchestrator recovery tools held to the recovery policy ([415807b](https://github.com/bkuberek/ropeshift/commit/415807b77946b3e44b1d93b1c9f0f3a8d928c269))
+* give work that names no bound the recovery policy's attempts ([b7933a5](https://github.com/bkuberek/ropeshift/commit/b7933a5f7f9ad5f183752ebcff777d7c607256bc))
+* leave failed work failed until a retry, and let a member retry it ([db3c3bd](https://github.com/bkuberek/ropeshift/commit/db3c3bd99a6e47d8c39b236912054d8bab1f6ae3))
+* let a breaker reset clear only the crash window, and say when a lane's day stopped it ([1c50a69](https://github.com/bkuberek/ropeshift/commit/1c50a69c09db2f0934a79325f74b00181e97c0b9))
+* let a writing lane edit, create, and delete files in its worktree with no prompt ([9fcc0b2](https://github.com/bkuberek/ropeshift/commit/9fcc0b2100abf05f69cedd151bc836cc01049ee3))
+* refuse a permission-bypass mode in every profile layer and at a session's start ([f01a739](https://github.com/bkuberek/ropeshift/commit/f01a73972fed2314d42c0af2bdd045a2053adc94))
+* show a recovery request in Needs you, the CLI, and top, with its reason and limit ([c5603d5](https://github.com/bkuberek/ropeshift/commit/c5603d500af1fa198bec7800016004f934c8fc04))
+
 ## [0.1.0-alpha.10](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.9...v0.1.0-alpha.10) (2026-11-11)
 
 
