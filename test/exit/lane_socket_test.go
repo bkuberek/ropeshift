@@ -75,18 +75,64 @@ func (w *laneWorker) hooks(t *testing.T) []lanes.HookRecord {
 	return records
 }
 
+// postToolUse is the event toolPayload makes a hook send for lane-1 in generation 3.
+var postToolUse = lanes.HookEvent{Lane: "lane-1", Generation: 3, Subject: "toolu_1", Event: "PostToolUse"}
+
+// copiesOf counts the spool lines that are copies of want, and fails on any other line.
+func copiesOf(t *testing.T, lines []lanes.HookEvent, want lanes.HookEvent) int {
+	t.Helper()
+	copies := 0
+	for _, line := range lines {
+		if line.Lane != want.Lane || line.Generation != want.Generation || line.Subject != want.Subject || line.Event != want.Event {
+			t.Errorf("the spool holds an event that is not %s of %s: %+v", want.Event, want.Subject, line)
+			continue
+		}
+		copies++
+	}
+	return copies
+}
+
+// awaitHooks reads the worker's records until ready holds for them, and returns them.
+func (w *laneWorker) awaitHooks(t *testing.T, what string, ready func([]lanes.HookRecord) bool) []lanes.HookRecord {
+	t.Helper()
+	var records []lanes.HookRecord
+	if happened, why := exitWaits.await(func() bool {
+		records = w.hooks(t)
+		return ready(records)
+	}); !happened {
+		t.Fatalf("%s did not happen: records %+v, and the wait %s", what, records, why)
+	}
+	return records
+}
+
+// quietWindow is how long a test watches for a write that should never come. It is well past a
+// hook's hard deadline, so a write the worker started for a hook that has since exited has landed.
+const quietWindow = 500 * time.Millisecond
+
+// A hook delivers its event at least once: the worker has it before the ack, or the spool has it.
+// A hook that misses its ack under load spools an event the worker may also have, so the spool may
+// hold copies of the event and no other line, and a drain merges those copies by meaning.
+
 func TestHookReachesTheWorker(t *testing.T) {
 	env := newHookEnv(t)
 	w := newLaneWorker(t, env)
 	if run := runHook(t, env, "PostToolUse", toolPayload); run.exit != 0 || run.stdout != "" {
 		t.Fatalf("exit %d, stdout %q", run.exit, run.stdout)
 	}
-	if lines := spoolLines(t, env.spool); len(lines) != 0 {
-		t.Errorf("a delivered hook spooled: %+v", lines)
+	copies := copiesOf(t, spoolLines(t, env.spool), postToolUse)
+	if err := w.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
 	}
-	records := w.hooks(t)
-	if len(records) != 1 || records[0].Subject != "toolu_1" || records[0].Generation != 3 || records[0].Count != 1 {
-		t.Errorf("records %+v", records)
+	// The worker counts the socket call once at most and each spooled copy once, and at least one of
+	// them reached it. With no copy spooled, the ack means the one socket call did.
+	records := w.awaitHooks(t, "the event's record", func(records []lanes.HookRecord) bool {
+		return len(records) == 1 && records[0].Count >= 1
+	})
+	if got := records[0]; got.Subject != "toolu_1" || got.Generation != 3 || got.Count > int64(1+copies) {
+		t.Errorf("records %+v after %d spooled copies", records, copies)
+	}
+	if copies == 0 && records[0].Count != 1 {
+		t.Errorf("an acked hook was counted %d times: %+v", records[0].Count, records)
 	}
 }
 
@@ -99,19 +145,31 @@ func TestRepeatedEventMergesByMeaning(t *testing.T) {
 		runHook(t, env, "PostToolUse", toolPayload)
 	}
 	runHook(t, hookEnv{socket: env.socket + ".absent", spool: env.spool, token: env.token}, "PostToolUse", toolPayload)
+	copies := copiesOf(t, spoolLines(t, env.spool), postToolUse)
 	if err := w.subject.DrainSpool(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	records := w.hooks(t)
-	if len(records) != 1 || records[0].Count != 3 {
-		t.Errorf("records %+v", records)
+	// Each of the three hooks reached the worker at least once, and a hook counts twice only when it
+	// both reached the socket and spooled. All of them are one record.
+	records := w.awaitHooks(t, "the three deliveries merged", func(records []lanes.HookRecord) bool {
+		return len(records) == 1 && records[0].Count >= 3
+	})
+	if records[0].Count > int64(2+copies) {
+		t.Errorf("records %+v after %d spooled copies", records, copies)
 	}
 	runHook(t, env, "PostToolUse", strings.ReplaceAll(toolPayload, "toolu_1", "toolu_2"))
-	if records := w.hooks(t); len(records) != 2 {
-		t.Errorf("a second tool call merged into the first: %+v", records)
+	if err := w.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	records = w.awaitHooks(t, "the second tool call's record", func(records []lanes.HookRecord) bool { return len(records) >= 2 })
+	if len(records) != 2 {
+		t.Errorf("records %+v", records)
 	}
 }
 
+// A wrong token proves no lane. The worker refuses the call before it writes anything, and a hook
+// that missed the refusal spools its event sealed with that token, which a drain drops because the
+// seal is not the lane's. Either way the worker records nothing.
 func TestAWrongTokenRecordsNothing(t *testing.T) {
 	env := newHookEnv(t)
 	w := newLaneWorker(t, env)
@@ -120,11 +178,14 @@ func TestAWrongTokenRecordsNothing(t *testing.T) {
 	if run := runHook(t, stranger, "PostToolUse", toolPayload); run.exit != 0 {
 		t.Fatalf("exit %d", run.exit)
 	}
-	if records := w.hooks(t); len(records) != 0 {
-		t.Errorf("records %+v", records)
+	copiesOf(t, spoolLinesSealedWith(t, env.spool, stranger.token), postToolUse)
+	if err := w.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
 	}
-	if lines := spoolLines(t, env.spool); len(lines) != 0 {
-		t.Errorf("a refusal is an answer, and spools nothing: %+v", lines)
+	for end := time.Now().Add(quietWindow); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if records := w.hooks(t); len(records) != 0 {
+			t.Fatalf("records %+v", records)
+		}
 	}
 }
 
