@@ -69,10 +69,12 @@ function moveInList(step: 1 | -1): void {
   items[at < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, at + step))]?.focus();
 }
 
-// focusPrimary moves focus to the open decision's primary button. It presses nothing.
+// focusPrimary moves focus to the open decision's primary button, which stands last among its buttons.
+// It presses nothing.
 function focusPrimary(): void {
-  const buttons = [...document.querySelectorAll<HTMLElement>("#main .decision .decide .btn-primary, #main .decision .decide .btn")].filter((button) => !button.closest("[hidden]"));
-  buttons[0]?.focus();
+  const shown = (selector: string) => [...document.querySelectorAll<HTMLElement>(selector)].filter((button) => !button.closest("[hidden]"));
+  const buttons = shown("#main .decision .decide .btn");
+  (shown("#main .decision .decide .btn-primary")[0] ?? buttons[buttons.length - 1])?.focus();
 }
 
 // App is the shell around every view: the top bar, the sidebar, the content, the conversation dock, and
