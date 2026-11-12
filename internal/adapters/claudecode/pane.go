@@ -182,6 +182,7 @@ func (p Panes) Attach(ctx context.Context, lane string, generation int64) error 
 func paneEnv(spec ports.SessionSpec, use Use) []string {
 	env := append(withoutTelemetry(spec.Env), lanes.EnvPolicy+"="+policyPath(spec))
 	env = append(env, spec.Override.Env()...)
+	env = append(env, agentEnv(spec)...)
 	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}

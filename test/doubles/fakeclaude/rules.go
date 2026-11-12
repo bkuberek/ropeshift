@@ -27,7 +27,29 @@ func (s settings) rule(st step) ruling {
 	if slices.Contains(fileTools, st.Tool) {
 		return s.ruleFile(st.Tool, st.File)
 	}
+	if st.Tool == agentTool {
+		return s.ruleAgent(st.Agent)
+	}
 	return s.ruleCommand(st.Command)
+}
+
+// agentTool starts a subagent. A rule names one agent as `Agent(<name>)`, and `Task` is the tool's old
+// name, which rules still take (https://code.claude.com/docs/en/sub-agents).
+const agentTool = "Agent"
+
+// ruleAgent reads a subagent's start: a deny rule refuses it, an ask rule prompts, and with neither it
+// starts, as the CLI asks no permission to start one.
+func (s settings) ruleAgent(name string) ruling {
+	names := func(rules []string) bool {
+		return slices.Contains(rules, agentTool+"("+name+")") || slices.Contains(rules, "Task("+name+")") || slices.Contains(rules, agentTool)
+	}
+	switch {
+	case names(s.Permissions.Deny):
+		return ruleDenies
+	case names(s.Permissions.Ask):
+		return rulePrompts
+	}
+	return ruleAllows
 }
 
 // ruleCommand reads a shell command part by part, where the CLI splits one: every part must be

@@ -56,6 +56,10 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 		if err := checkEligible(tx, request, actor); err != nil {
 			return err
 		}
+		prior, err := tx.WorkOrders().Get(request.WorkOrder)
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
 		crashpoint.Hit("claim", "eligible")
 		won, err := tx.Leases().Grant(request)
 		if err != nil {
@@ -86,6 +90,11 @@ func (l *Leases) Claim(ctx context.Context, scope ledger.WorkspaceID, request wo
 			claim.BaseRef, claim.BaseCommit = start.Ref, start.Commit
 			claim.ContinuesRef, claim.ContinuesCommit = start.ContinuesRef, start.ContinuesCommit
 			claim.Reads = start.Reads
+		}
+		if claim.Agent == "" {
+			if err := pinAgent(tx, current, prior.ClaimID, &claim); err != nil {
+				return err
+			}
 		}
 		if err := l.pinPack(tx, current, &claim, actor); err != nil {
 			return err
@@ -136,6 +145,7 @@ func continuesLane(tx ports.WriteTx, order workorders.WorkOrder, claim *workorde
 	claim.BaseRef, claim.BaseCommit = last.BaseRef, last.BaseCommit
 	claim.ContinuesRef, claim.ContinuesCommit = last.ContinuesRef, last.ContinuesCommit
 	claim.Reads = last.Reads
+	claim.Agent, claim.Roster = last.Agent, last.Roster
 	return err
 }
 

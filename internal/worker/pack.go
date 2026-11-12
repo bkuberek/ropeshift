@@ -11,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -54,17 +55,28 @@ func (w *Worker) noteLedger(lane string, reach lanes.Reachability) {
 // writePack leaves the newest version this run has heard of in the worktree, and says where. A
 // lane that holds no pack starts as it would have. The text goes as the ledger holds it, so every
 // generation of one version reads the same bytes, which is what lets them share a cache.
-func (r *laneRun) writePack(ctx context.Context, worktree string) (string, error) {
+func (r *laneRun) writePack(ctx context.Context, worktree string, support roster.Support) (string, error) {
 	r.handleLock.Lock()
 	pack := r.pack
 	r.handleLock.Unlock()
-	if pack == nil {
+	crew := r.rosterText(support)
+	if pack == nil && crew == "" {
 		r.setPackRead(nil)
 		return "", nil
 	}
-	file, err := r.rt.Provisioner.Worktrees.WriteContext(ctx, worktree, pack.Text)
+	text := crew
+	if pack != nil && crew != "" {
+		text = pack.Text + "\n\n" + crew
+	} else if pack != nil {
+		text = pack.Text
+	}
+	file, err := r.rt.Provisioner.Worktrees.WriteContext(ctx, worktree, text)
 	if err != nil {
 		return "", err
+	}
+	if pack == nil {
+		r.setPackRead(nil)
+		return file, nil
 	}
 	r.setPackRead(&lanes.PackRef{ID: pack.ID, Version: pack.Version})
 	return file, nil

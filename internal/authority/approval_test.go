@@ -710,3 +710,59 @@ func TestOnlyAMemberDecidesARecoveryRequest(t *testing.T) {
 		t.Errorf("a member's decision: %+v, %v", decided, err)
 	}
 }
+
+// TestAnAgentClassReachesOnlyTheAgentItNames is FR-AGENT-11: an orchestrator decides a per-use agent's
+// start only under a class that names that agent, and the agent comes from the call's own input.
+func TestAnAgentClassReachesOnlyTheAgentItNames(t *testing.T) {
+	policy := authority.DelegationPolicy{Version: 1, Classes: []authority.DelegationClass{{Tool: "Agent", Agent: "deep-implementation"}}}
+	if err := policy.Check(); err != nil {
+		t.Fatal(err)
+	}
+	start := func(agent string) authority.Approval {
+		call, err := authority.ReadToolCall("Agent", []byte(`{"subagent_type":"`+agent+`","description":"d","prompt":"p"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if call.Agent != agent || !strings.Contains(call.Summary, agent) {
+			t.Fatalf("the call reads %+v", call)
+		}
+		return authority.Approval{Kind: authority.KindToolCall, Subject: call.Tool, Agent: call.Agent, Command: call.Command, Path: call.Path}
+	}
+	if !policy.Covers(start("deep-implementation")) {
+		t.Error("the class does not reach the agent it names")
+	}
+	if policy.Covers(start("reasoning")) {
+		t.Error("the class reached another agent")
+	}
+	if policy.Covers(authority.Approval{Kind: authority.KindToolCall, Subject: "Bash", Agent: "deep-implementation"}) {
+		t.Error("the class reached another tool")
+	}
+	for name, class := range map[string]authority.DelegationClass{
+		"an agent on another tool":   {Tool: "Bash", Agent: "deep-implementation"},
+		"an agent with a prefix too": {Tool: "Agent", Agent: "deep-implementation", CommandPrefix: "go test"},
+	} {
+		if err := (authority.DelegationPolicy{Version: 1, Classes: []authority.DelegationClass{class}}).Check(); err == nil {
+			t.Errorf("%s passed", name)
+		}
+	}
+}
+
+// TestARequestNamesOnlyTheAgentItsCallStarts: the agent a class reads comes from the call's input, so a
+// request that names another is refused.
+func TestARequestNamesOnlyTheAgentItsCallStarts(t *testing.T) {
+	call, err := authority.ReadToolCall("Agent", []byte(`{"subagent_type":"reasoning","prompt":"p"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := authority.Approval{
+		ID: "a1", Lane: "lane-1", Kind: authority.KindToolCall, Subject: call.Tool, SubjectDigest: call.Digest, Input: call.Input,
+		Agent: call.Agent, RequestedBy: "lane:lane-1",
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("a request naming its own agent: %v", err)
+	}
+	request.Agent = "deep-implementation"
+	if err := request.Validate(); !errors.Is(err, authority.ErrBadApproval) {
+		t.Errorf("a request naming another agent: %v", err)
+	}
+}

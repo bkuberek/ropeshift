@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/parking"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -86,6 +87,9 @@ type ReadTx interface {
 	Members() MemberReader
 	// Policies reads policy versions.
 	Policies() PolicyReader
+	// Roster reads the versions of the agent roster: the installation's layer, which every project
+	// resolves under its own, and this project's.
+	Roster() RosterReader
 	// Measures reads experience records.
 	Measures() MeasureReader
 	// Evidence reads what stays linked to a work order for its acceptance.
@@ -148,6 +152,9 @@ type WriteTx interface {
 	// Policies reads and writes policy versions. It refuses a version of the autonomy policy, which the
 	// Installation writes.
 	Policies() PolicyWriter
+	// Roster reads both layers of the agent roster and writes this project's. It refuses a version of the
+	// installation's layer, which the Installation writes.
+	Roster() RosterWriter
 	// Measures reads and writes experience records.
 	Measures() MeasureWriter
 	// Evidence reads and writes what stays linked to a work order for its acceptance.
@@ -835,6 +842,24 @@ type PolicyWriter interface {
 	PolicyReader
 	// Insert adds a version and reports whether it was new.
 	Insert(authority.PolicyVersion) (bool, error)
+}
+
+// RosterReader reads the versions of one side's layers of the agent roster (ADR-0025), by scope:
+// roster.ScopeInstallation or roster.ScopeProject.
+type RosterReader interface {
+	// Latest returns the newest version of a scope, or ErrNotFound for a scope that has none yet.
+	Latest(scope string) (roster.Version, error)
+	// Version returns one version, or ErrNotFound.
+	Version(scope string, version int64) (roster.Version, error)
+	// Versions returns every version of a scope, newest first.
+	Versions(scope string) ([]roster.Version, error)
+}
+
+// RosterWriter writes roster versions. A version never changes once it is written.
+type RosterWriter interface {
+	RosterReader
+	// Insert adds a version and reports whether it was new.
+	Insert(roster.Version) (bool, error)
 }
 
 // MeasureReader reads experience records.

@@ -116,6 +116,9 @@ type LaneTelemetry struct {
 	Tokens        map[string]int64
 	CostUSD       float64
 	LastAt        int64
+	// Agents are the tokens each roster agent spent inside the lane, by agent and then type, where the
+	// driver reported which agent spent them. They are part of Tokens, not added to it (FR-AGENT-12).
+	Agents map[string]map[string]int64
 }
 
 // TelemetryReader reads the worker's local store, for `ropeshift telemetry query` and `top`.

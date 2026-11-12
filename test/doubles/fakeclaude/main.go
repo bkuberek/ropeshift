@@ -148,6 +148,11 @@ type step struct {
 	// it, a call an allow rule covers runs with no prompt, and anything else prompts, as Prompts does.
 	// Each outcome is witnessed as `blocked`, `unprompted`, or `prompted`, with the call.
 	Ruled bool `json:"ruled,omitempty"`
+	// Agent is the subagent an `Agent` call starts, which its `subagent_type` names. Within is the
+	// subagent a call runs inside: one its `--agents` definition does not let hold the tool is refused
+	// before any hook, as the CLI offers it no such tool, and witnessed as `agent_refused`.
+	Agent  string `json:"agent,omitempty"`
+	Within string `json:"within,omitempty"`
 }
 
 // A session's flags, as the real CLI takes them.
@@ -159,6 +164,8 @@ type options struct {
 	model          string
 	resume         string
 	permissionMode string
+	agents         map[string]agentDefinition
+	effort         string
 }
 
 const sessionID = "00000000-0000-4000-8000-000000000000"
@@ -328,6 +335,10 @@ func parse(args []string) options {
 			o.resume = value()
 		case "--permission-mode":
 			o.permissionMode = value()
+		case "--agents":
+			o.agents = readAgents(value())
+		case "--effort":
+			o.effort = value()
 		}
 	}
 	if slices.Contains([]string{"bypassPermissions"}, o.permissionMode) {
@@ -831,7 +842,21 @@ func (s *session) callBuiltin(st step) {
 	if st.File != "" {
 		input["file_path"] = st.File
 	}
-	outputs := s.hook("PreToolUse", map[string]any{"tool_name": st.Tool, "tool_use_id": toolUseID(st), "tool_input": input})
+	if st.Agent != "" {
+		input["subagent_type"], input["description"], input["prompt"] = st.Agent, "a scripted task", "Do the scripted task."
+		if _, defined := s.opts.agents[st.Agent]; !defined {
+			fail("no agent %q in --agents", st.Agent)
+		}
+	}
+	pre := map[string]any{"tool_name": st.Tool, "tool_use_id": toolUseID(st), "tool_input": input}
+	if st.Within != "" {
+		if !s.opts.agents[st.Within].holds(st.Tool) {
+			witness("agent_refused", strings.TrimSpace(st.Within+" "+st.Tool+" "+st.Command+st.File))
+			return
+		}
+		pre["agent_type"] = st.Within
+	}
+	outputs := s.hook("PreToolUse", pre)
 	for _, output := range outputs {
 		var decision struct {
 			Specific struct {
@@ -864,7 +889,7 @@ func (s *session) callBuiltin(st step) {
 		fail("%q would wait on a permission prompt", st.Command)
 	}
 	if st.Ruled {
-		call := strings.TrimSpace(st.Tool + " " + st.Command + st.File)
+		call := strings.TrimSpace(st.Tool + " " + st.Command + st.File + st.Agent)
 		switch s.settings.rule(st) {
 		case ruleDenies:
 			witness("blocked", call)

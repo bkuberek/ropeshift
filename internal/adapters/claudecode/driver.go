@@ -24,6 +24,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api/shimlink"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/roster"
 )
 
 // Binary is the name the driver looks for on the lane's PATH.
@@ -276,6 +277,7 @@ func (d *Driver) Capabilities(ctx context.Context) (ports.Capabilities, error) {
 		NativeResume: true, UsageLimitReport: ports.UsageLimitResetTime,
 		SignInKinds: []string{ports.SignInSubscription, ports.SignInAPIKey},
 		Version:     version, Degraded: q.Degraded, Resume: resumeCosts,
+		Subagents: roster.SubagentsNative, SubagentTools: roster.ToolsEnforced,
 	}, nil
 }
 
@@ -356,6 +358,9 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 			problem("the environment holds a session variable: %s", name)
 		}
 	}
+	for _, found := range agentProblems(spec) {
+		problem("%s", found)
+	}
 	return report, nil
 }
 
@@ -383,7 +388,7 @@ func packArgs(spec ports.SessionSpec) []string {
 	if spec.SystemPromptFile != "" {
 		out = append(out, "--append-system-prompt-file", spec.SystemPromptFile)
 	}
-	return out
+	return append(out, agentArgs(spec)...)
 }
 
 // StartArgs is the command of a new session.
@@ -601,6 +606,7 @@ func sessionEnv(spec ports.SessionSpec, use Use) []string {
 	if spec.TempDir != "" && use.PrivateSockets {
 		env = append(env, envTempDir+spec.TempDir)
 	}
+	env = append(env, agentEnv(spec)...)
 	return append(env, TelemetryEnv(spec)...)
 }
 
@@ -742,6 +748,8 @@ type session struct {
 	// receipts come back, when it has an address.
 	use      Use
 	receipts *receiver
+	// agents maps each Agent call of this stream to the agent it started.
+	agents map[string]string
 }
 
 // read is the one reader of a session's stream. It ends at the child's exit, which is
@@ -838,6 +846,11 @@ func (s *session) take(line []byte, seq int64) {
 		s.events <- ports.DriverEvent{Kind: ports.EventMalformed, Seq: seq}
 		return
 	}
+	if event, ok := s.agentUsage(p); ok {
+		event.Seq = seq
+		s.events <- event
+		return
+	}
 	if !p.useful {
 		return
 	}
@@ -863,6 +876,25 @@ func (s *session) take(line []byte, seq int64) {
 	s.mu.Unlock()
 	p.event.Seq = seq
 	s.events <- p.event
+}
+
+// agentUsage keeps which agent each Agent call started, and turns a subagent's message into the usage of
+// the agent it runs under. A message under a call this stream never named stays the session's own.
+func (s *session) agentUsage(p parsed) (ports.DriverEvent, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for call, agent := range p.started {
+		if s.agents == nil {
+			s.agents = map[string]string{}
+		}
+		s.agents[call] = agent
+	}
+	agent := s.agents[p.parent]
+	if p.parent == "" || agent == "" || p.usage == (lanes.Usage{}) {
+		return ports.DriverEvent{}, false
+	}
+	usage := p.usage
+	return ports.DriverEvent{Kind: ports.EventAgentUsage, Agent: agent, Tokens: &usage}, true
 }
 
 // finish reports how the session ended, and lets the shim go. No `result` for an input

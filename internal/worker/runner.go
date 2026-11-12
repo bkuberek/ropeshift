@@ -606,14 +606,18 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	}
 	r.state.thresholds(prepared.Profile, r.role())
 	r.readFacts(ctx)
-	packFile, err := r.writePrompt(ctx, prepared.Worktree.Path)
+	capabilities, err := r.rt.Driver.Capabilities(ctx)
+	if err != nil {
+		return r.failStart(workorders.ReasonSpawnFailed, err)
+	}
+	packFile, err := r.writePrompt(ctx, prepared.Worktree.Path, capabilities.Support())
 	if err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
 	if err := r.writeReview(ctx, repository, prepared.Worktree.Path); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
-	spec, err := r.spec(ctx, prepared, repository, packFile)
+	spec, err := r.spec(ctx, prepared, repository, packFile, capabilities)
 	if errors.Is(err, errNoInteractive) {
 		// Another attempt finds the same machine, so the work waits for a person to fix it.
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
@@ -705,11 +709,7 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 // spec builds a session from what the worker prepared, and refuses what the driver cannot run
 // before a process starts. A session that goes on stays in the mode it started in, whatever the
 // profile says by now, because a session resumed in the other mode is untested.
-func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, packFile string) (ports.SessionSpec, error) {
-	capabilities, err := r.rt.Driver.Capabilities(ctx)
-	if err != nil {
-		return ports.SessionSpec{}, err
-	}
+func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, packFile string, capabilities ports.Capabilities) (ports.SessionSpec, error) {
 	mode, err := r.runMode(prepared.Profile.RunMode, slices.Contains(capabilities.RunModes, ports.RunModeInteractive))
 	if err != nil {
 		return ports.SessionSpec{}, err
@@ -732,10 +732,15 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	if err != nil {
 		return ports.SessionSpec{}, err
 	}
+	model, effort, deny := r.asAgent(prepared)
 	r.handleLock.Lock()
-	r.model, r.profileDigest = prepared.Profile.Agent.Model, prepared.ProfileDigest
+	r.model, r.profileDigest = model, prepared.ProfileDigest
 	r.version, r.degraded = capabilities.Version, capabilities.Degraded
 	r.settings = laneSettings(prepared.Profile, r.role(), mode)
+	r.settings.ModelRequested = model
+	if effort != "" {
+		r.settings.Effort = effort
+	}
 	r.handleLock.Unlock()
 	r.noteReviewBound(prepared.Profile)
 	r.state.mu.Lock()
@@ -752,6 +757,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		Kept: r.kept(), ReadOnlyDirs: readDirs(r.readTrees()),
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
 		Telemetry: r.sessionTelemetry(prepared, repository),
+		Agents:    r.sessionAgents(prepared.Profile, capabilities.Support()), Effort: effort, Deny: deny,
 	}
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {

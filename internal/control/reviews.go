@@ -170,7 +170,7 @@ func settleReview(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.A
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	failures, err := readyFailures(tx.Planning(), tx.WorkOrders(), tx.Questions(), current)
+	failures, err := readyFailures(tx.Planning(), tx.WorkOrders(), tx.Questions(), tx.Roster(), current)
 	if err != nil {
 		return ReviewResult{}, err
 	}
@@ -211,7 +211,7 @@ func resolveRepository(tx ports.WriteTx, current workorders.WorkOrder, actor led
 }
 
 // readyFailures gathers the facts and runs the pure function.
-func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, asked ports.QuestionReader, w workorders.WorkOrder) ([]workorders.ReadyFailure, error) {
+func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, asked ports.QuestionReader, crew ports.RosterReader, w workorders.WorkOrder) ([]workorders.ReadyFailure, error) {
 	var facts workorders.ReadyFacts
 	var plan string
 	if w.ContractVersion != 0 {
@@ -237,6 +237,9 @@ func readyFailures(planned ports.PlanningReader, orders ports.WorkOrderReader, a
 	}
 	facts.OpenBlockingQuestions = int(open)
 	facts.UnknownRepository = w.UnknownRepository
+	if facts.AgentProblem, err = agentProblem(crew, w); err != nil {
+		return nil, err
+	}
 	dependencies, err := planned.Dependencies(w.ID)
 	if err != nil {
 		return nil, err

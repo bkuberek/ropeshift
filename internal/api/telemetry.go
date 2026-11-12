@@ -67,6 +67,9 @@ type LaneTelemetry struct {
 	Tokens        map[string]int64 `json:"tokens"`
 	CostUSD       float64          `json:"cost_usd"`
 	LastAt        int64            `json:"last_at"`
+	// Agents are the tokens each roster agent spent inside the lane, by agent and then type, where the
+	// driver reported which agent spent them. They are part of Tokens (FR-AGENT-12).
+	Agents map[string]map[string]int64 `json:"agents,omitempty"`
 }
 
 // LaneTelemetryList is every lane the store holds anything of.

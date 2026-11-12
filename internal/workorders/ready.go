@@ -18,6 +18,9 @@ const (
 	CheckQuestions       ReadyCheck = "questions"
 	// CheckRepository fails while the work names a repository its project does not hold (FR-REPO-6).
 	CheckRepository ReadyCheck = "repository"
+	// CheckAgent fails while the roster agent the work names, or the one the default mapping gives it, is
+	// unknown or disabled in the resolved roster (FR-AGENT-13).
+	CheckAgent ReadyCheck = "agent"
 )
 
 // DependencyFact is what the definition of ready knows about one dependency.
@@ -41,6 +44,8 @@ type ReadyFacts struct {
 	OpenBlockingQuestions int
 	// UnknownRepository is the repository name the work's contract gave that its project does not hold.
 	UnknownRepository string
+	// AgentProblem says why the resolved roster cannot give the work its agent, naming the agent.
+	AgentProblem string
 }
 
 // ReadyFailure is one check that did not pass.
@@ -70,6 +75,9 @@ func DefinitionOfReady(f ReadyFacts) []ReadyFailure {
 	}
 	if f.UnknownRepository != "" {
 		failed = append(failed, ReadyFailure{CheckRepository, fmt.Sprintf("the contract names repository %q, which the project does not hold", f.UnknownRepository)})
+	}
+	if f.AgentProblem != "" {
+		failed = append(failed, ReadyFailure{CheckAgent, f.AgentProblem})
 	}
 	return failed
 }

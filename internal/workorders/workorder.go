@@ -73,7 +73,10 @@ type WorkOrder struct {
 	// Adopt says this planning work adopts an existing project (ADR-0023): its lane is told to onboard the
 	// project's documents and plan what remains, and the worker gives it the inventory of the project's
 	// repositories before it starts.
-	Adopt           bool   `json:"adopt,omitempty"`
+	Adopt bool `json:"adopt,omitempty"`
+	// Agent names the roster agent this work's lane runs as (ADR-0025). Empty leaves the choice to the
+	// roster's default mapping.
+	Agent           string `json:"agent,omitempty"`
 	ContractID      string `json:"contract_id,omitempty"`
 	ContractVersion int64  `json:"contract_version,omitempty"`
 	Fence           int64  `json:"fence,omitempty"`
@@ -478,6 +481,7 @@ func Diff(a, b WorkOrder) []string {
 	note("needs", sameNeeds(a.Needs, b.Needs))
 	note("base", a.Base == b.Base)
 	note("continues", a.Continues == b.Continues)
+	note("agent", a.Agent == b.Agent)
 	note("contract_id", a.ContractID == b.ContractID)
 	note("contract_version", a.ContractVersion == b.ContractVersion)
 	note("fence", a.Fence == b.Fence)

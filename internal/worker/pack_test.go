@@ -68,7 +68,8 @@ func TestALaneStartsWithItsPackInTheSystemPrompt(t *testing.T) {
 	if spec.SystemPromptFile == "" {
 		t.Fatal("the session has no pack in its system prompt")
 	}
-	if got := r.worktrees().Context(spec.Dir); got != pack.Text {
+	// The roster's item follows the pack the ledger holds (ADR-0025).
+	if got := r.worktrees().Context(spec.Dir); !strings.HasPrefix(got, pack.Text) || !strings.Contains(got, "## Routing guide") {
 		t.Errorf("the worktree holds %q, and the ledger %q", got, pack.Text)
 	}
 	if !strings.HasSuffix(spec.SystemPromptFile, lanes.PackFile) {
@@ -293,7 +294,7 @@ func TestANextGenerationReadsTheNewestPack(t *testing.T) {
 	specs := r.driver.Specs()
 	generations := r.generationsOf(t)
 	writes := r.worktrees().ContextWrites(specs[1].Dir)
-	if len(writes) != 2 || writes[0] != first.Text || writes[1] == first.Text {
+	if len(writes) != 2 || !strings.HasPrefix(writes[0], first.Text) || strings.HasPrefix(writes[1], first.Text+"\n\n") {
 		t.Fatalf("a worktree held %d versions", len(writes))
 	}
 	if generations[0].PackVersion != first.Version || generations[1].PackVersion != first.Version+1 {
@@ -398,7 +399,7 @@ func TestALaneKeepsItsPackAcrossAHandoff(t *testing.T) {
 		t.Errorf("the files %q and %q", specs[0].SystemPromptFile, specs[1].SystemPromptFile)
 	}
 	pack := r.pinned(t)
-	if got := r.worktrees().Context(specs[1].Dir); got != pack.Text {
+	if got := r.worktrees().Context(specs[1].Dir); !strings.HasPrefix(got, pack.Text) {
 		t.Errorf("the second generation reads %q", got)
 	}
 	if writes := r.worktrees().ContextWrites(specs[1].Dir); len(writes) != 2 || writes[0] != writes[1] {
@@ -430,7 +431,8 @@ func TestALaneThatCannotWriteItsPackDoesNotStart(t *testing.T) {
 	}
 }
 
-// A claim from before packs has none, and that lane still runs.
+// A claim from before packs has none, and that lane still runs, with the roster's item alone in its
+// system prompt.
 func TestALaneWithNoPackStartsWithoutTheFlag(t *testing.T) {
 	t.Parallel()
 	base := newRig(t)
@@ -441,8 +443,11 @@ func TestALaneWithNoPackStartsWithoutTheFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	specs := r.driver.Specs()
-	if len(specs) != 1 || specs[0].SystemPromptFile != "" {
+	if len(specs) != 1 {
 		t.Fatalf("specs %+v", specs)
+	}
+	if held := r.worktrees().Context(specs[0].Dir); strings.Contains(held, "# Context pack") || !strings.Contains(held, "## Routing guide") {
+		t.Errorf("a lane with no pack holds %q", held)
 	}
 	if strings.Contains(specs[0].Brief, lanes.PackFile) {
 		t.Errorf("the brief points at a pack that is not there: %q", specs[0].Brief)

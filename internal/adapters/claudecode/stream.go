@@ -50,6 +50,22 @@ type streamLine struct {
 	} `json:"compact_metadata"`
 	// MessagingSocket is where a session reads messages. It changes with the process.
 	MessagingSocket string `json:"messaging_socket_path"`
+	// Message is a line's message, whose shape differs by type: a user message's content can be text.
+	// The driver reads only an assistant message's usage and the subagent each of its Agent calls starts.
+	Message json.RawMessage `json:"message"`
+}
+
+// streamMessage is what the driver reads of an assistant message.
+type streamMessage struct {
+	Usage   lanes.Usage `json:"usage"`
+	Content []struct {
+		Type  string `json:"type"`
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Input struct {
+			SubagentType string `json:"subagent_type"`
+		} `json:"input"`
+	} `json:"content"`
 }
 
 type rateLimitInfo struct {
@@ -99,6 +115,11 @@ type parsed struct {
 	total   float64
 	// socket is the session's messaging socket, on a line that names one.
 	socket string
+	// started maps each Agent call this line makes to the agent it starts, and parent is the call a
+	// subagent's message runs under, whose usage it carries (FR-AGENT-12).
+	started map[string]string
+	parent  string
+	usage   lanes.Usage
 }
 
 func parseLine(raw []byte, windows bool) (parsed, error) {
@@ -118,6 +139,8 @@ func parseLine(raw []byte, windows bool) (parsed, error) {
 			reading := line.RateLimit.reading(windows)
 			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventLimit, Detail: reading.Status, Usage: &reading}}, nil
 		}
+	case "assistant":
+		return parseAssistant(line), nil
 	case "user":
 		if line.IsReplay && line.UUID != "" {
 			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventInputAdmitted, InputID: line.UUID}}, nil
@@ -146,6 +169,30 @@ func parseSystem(line streamLine) parsed {
 		return parsed{useful: true, event: event}
 	}
 	return parsed{}
+}
+
+// parseAssistant reads which subagent each Agent call of the session starts, and the usage of a message a
+// subagent sends, which names the call it runs under. Subagent stream messages carry
+// `parent_tool_use_id` (landscape/claude-code.md); whether every subagent's usage reaches the stream is
+// a qualified surface, so usage it does not report stays the lane's own.
+func parseAssistant(line streamLine) parsed {
+	var message streamMessage
+	if len(line.Message) == 0 || json.Unmarshal(line.Message, &message) != nil {
+		return parsed{}
+	}
+	if line.ParentToolUseID != nil {
+		return parsed{parent: *line.ParentToolUseID, usage: message.Usage}
+	}
+	started := map[string]string{}
+	for _, block := range message.Content {
+		if block.Type == "tool_use" && (block.Name == agentTool || block.Name == "Task") && block.Input.SubagentType != "" {
+			started[block.ID] = block.Input.SubagentType
+		}
+	}
+	if len(started) == 0 {
+		return parsed{}
+	}
+	return parsed{started: started}
 }
 
 // parseStreamEvent reads context from message_start, the one figure that is per API

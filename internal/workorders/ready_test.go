@@ -53,6 +53,7 @@ func TestDefinitionOfReady(t *testing.T) {
 		{"a pin with no digest", func(f *ReadyFacts) { f.ContractDigest = "" }, []ReadyCheck{CheckContractVersion}},
 		{"an open blocking question", func(f *ReadyFacts) { f.OpenBlockingQuestions = 1 }, []ReadyCheck{CheckQuestions}},
 		{"a repository the project does not hold", func(f *ReadyFacts) { f.UnknownRepository = "api" }, []ReadyCheck{CheckRepository}},
+		{"an agent the roster cannot give", func(f *ReadyFacts) { f.AgentProblem = `unknown agent: the resolved roster holds no agent "ghost"` }, []ReadyCheck{CheckAgent}},
 		{
 			"every failure is named",
 			func(f *ReadyFacts) {

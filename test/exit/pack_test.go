@@ -108,7 +108,8 @@ func TestAPackReachesASession(t *testing.T) {
 			prompts = append(prompts, seen.SystemPrompt)
 		}
 	}
-	if len(prompts) != 1 || prompts[0] != pack.Text {
+	// The roster's item follows the pack the ledger holds (ADR-0025).
+	if len(prompts) != 1 || !strings.HasPrefix(prompts[0], pack.Text) || !strings.Contains(prompts[0], "## Routing guide") {
 		t.Fatalf("a session held %d prompts, and the ledger holds %q", len(prompts), pack.Text)
 	}
 	for _, text := range []string{"The statement of the packed contract.", "A requirement a lane reads."} {
@@ -124,7 +125,7 @@ func TestAPackReachesASession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(onDisk) != pack.Text {
+	if string(onDisk) != prompts[0] {
 		t.Errorf("the file holds %q", onDisk)
 	}
 	status := exec.Command("git", "status", "--porcelain", "--ignored=no")

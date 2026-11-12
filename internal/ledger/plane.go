@@ -3,6 +3,8 @@ package ledger
 import (
 	"errors"
 	"fmt"
+
+	"ropeshift.com/ropeshift/internal/roster"
 )
 
 // ProtocolVersion is the plane protocol this build speaks. Version 2 names the project on every item
@@ -245,6 +247,11 @@ type DesiredLease struct {
 	Attempt *DesiredAttempt `json:"attempt,omitempty"`
 	// Rework is why the work came back for this attempt, when it did.
 	Rework *DesiredRework `json:"rework,omitempty"`
+	// Agent is the roster agent the lane runs as, and Roster the roster its claim pinned, which the
+	// worker renders into the session on every start and resume (ADR-0025). A claim from before the roster
+	// pinned none.
+	Agent  string           `json:"agent,omitempty"`
+	Roster *roster.Resolved `json:"roster,omitempty"`
 }
 
 // RepositoryRead is another repository of a lane's project that the lane reads, read-only, at a commit
