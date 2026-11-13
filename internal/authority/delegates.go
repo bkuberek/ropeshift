@@ -25,9 +25,13 @@ const (
 // DelegateIDPrefix starts the ID of every delegate credential.
 const DelegateIDPrefix = "dlg_"
 
-// DelegateExternal is the one kind of delegate credential: one a member hands to an agent outside
-// ropeshift.
-const DelegateExternal = "external"
+// The kinds of delegate credential. An external one is a member's to hand to an agent outside ropeshift.
+// An assistant one is the control plane's, made for one generation of the session of one of a member's
+// conversations, which acts only while that generation runs (ADR-0024).
+const (
+	DelegateExternal  = "external"
+	DelegateAssistant = "assistant"
+)
 
 // DelegateState is where a delegate credential stands.
 type DelegateState string
@@ -54,18 +58,21 @@ var (
 
 // DelegateCredential is one delegate credential (ADR-0024). The ledger keeps a digest of its token, as it
 // keeps a session's, so the token exists only where the member put it. LastUsedAt and RevokedAt are zero
-// until each happens.
+// until each happens. An assistant credential names its conversation and generation and has no expiry,
+// which a zero ExpiresAt says: it ends when its generation does.
 type DelegateCredential struct {
-	ID         string             `json:"id"`
-	Digest     string             `json:"-"`
-	Member     string             `json:"member"`
-	Project    ledger.WorkspaceID `json:"project_id"`
-	Label      string             `json:"label"`
-	Kind       string             `json:"kind"`
-	CreatedAt  int64              `json:"created_at"`
-	ExpiresAt  int64              `json:"expires_at"`
-	LastUsedAt int64              `json:"last_used_at,omitempty"`
-	RevokedAt  int64              `json:"revoked_at,omitempty"`
+	ID           string             `json:"id"`
+	Digest       string             `json:"-"`
+	Member       string             `json:"member"`
+	Project      ledger.WorkspaceID `json:"project_id"`
+	Label        string             `json:"label"`
+	Kind         string             `json:"kind"`
+	CreatedAt    int64              `json:"created_at"`
+	ExpiresAt    int64              `json:"expires_at"`
+	LastUsedAt   int64              `json:"last_used_at,omitempty"`
+	RevokedAt    int64              `json:"revoked_at,omitempty"`
+	Conversation string             `json:"conversation_id,omitempty"`
+	Generation   int64              `json:"generation,omitempty"`
 }
 
 // State reads a credential at a time. A revoked credential stays revoked after it would have expired.
@@ -73,11 +80,17 @@ func (d DelegateCredential) State(now int64) DelegateState {
 	switch {
 	case d.RevokedAt != 0:
 		return DelegateRevoked
-	case now >= d.ExpiresAt:
+	case d.ExpiresAt != 0 && now >= d.ExpiresAt:
 		return DelegateExpired
 	}
 	return DelegateActive
 }
+
+// Assistant says the credential is one the control plane made for an assistant's session.
+func (d DelegateCredential) Assistant() bool { return d.Kind == DelegateAssistant }
+
+// AssistantLabel is the label of every assistant credential.
+const AssistantLabel = "assistant"
 
 // Actor is who the credential acts as.
 func (d DelegateCredential) Actor() ledger.Actor { return DelegateActor(d.Member, d.ID) }
@@ -86,6 +99,15 @@ func (d DelegateCredential) Actor() ledger.Actor { return DelegateActor(d.Member
 // names that member (FR-LEDGER-4).
 func DelegateActor(member, credential string) ledger.Actor {
 	return ledger.Actor{Kind: ledger.ActorDelegate, ID: member + "/" + credential}
+}
+
+// MemberOf reads the member an actor reads as: a member, or the member a delegate acts for.
+func MemberOf(actor ledger.Actor) (string, bool) {
+	if actor.Kind == ledger.ActorMember {
+		return actor.ID, actor.ID != ""
+	}
+	member, _, ok := ActingFor(actor)
+	return member, ok
 }
 
 // ActingFor reads the member and the credential of a delegate actor.

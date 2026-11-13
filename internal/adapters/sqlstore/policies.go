@@ -69,9 +69,15 @@ type policyTx struct {
 	autonomyScope ledger.WorkspaceID
 }
 
+// installationPolicy says a kind of policy governs what every project shares, so it lives where workers do:
+// autonomy, and the assistant's sessions.
+func installationPolicy(kind authority.PolicyKind) bool {
+	return kind == authority.PolicyAutonomy || kind == authority.PolicyAssistant
+}
+
 // on returns where a kind of policy lives, with its scope bound.
 func (t policyTx) on(kind authority.PolicyKind, p params) (*session, params) {
-	if kind == authority.PolicyAutonomy && t.autonomy != nil {
+	if installationPolicy(kind) && t.autonomy != nil {
 		p["workspace_id"] = string(t.autonomyScope)
 		return t.autonomy, p
 	}

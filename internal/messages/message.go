@@ -28,6 +28,9 @@ const derivedBytes = 16
 // ErrInvalid means a message cannot be sent as it stands.
 var ErrInvalid = errors.New("invalid message")
 
+// ErrNotRunning means a message's target is not running, so nothing would read it.
+var ErrNotRunning = errors.New("the target is not running")
+
 // ErrForeign means a report names a message addressed to another lane.
 var ErrForeign = errors.New("this message is not this lane's")
 
@@ -57,12 +60,77 @@ func (k Kind) DecisionBearing() bool {
 // SenderWorker is the kind of sender a worker is, on the one line it writes for a running turn.
 const SenderWorker = "worker"
 
-// Target is who a message is for. Generation is part of the address, because a message is written
-// for a session that holds one context.
+// TargetKind says what a message is for: a lane, which an empty kind names, a worker's orchestrator, or
+// the assistant of one of a member's conversations.
+type TargetKind string
+
+// The kinds of target.
+const (
+	TargetLane         TargetKind = "lane"
+	TargetOrchestrator TargetKind = "orchestrator"
+	TargetAssistant    TargetKind = "assistant"
+)
+
+// Target is who a message is for: exactly the field of its kind is set. Generation is part of the address,
+// because a message is written for a session that holds one context.
 type Target struct {
-	Lane       string `json:"lane"`
-	Generation int64  `json:"generation"`
+	Kind         TargetKind `json:"kind,omitempty"`
+	Lane         string     `json:"lane"`
+	Worker       string     `json:"worker,omitempty"`
+	Conversation string     `json:"conversation,omitempty"`
+	Generation   int64      `json:"generation"`
 }
+
+// Of is the target's kind, where an empty kind is a lane.
+func (t Target) Of() TargetKind {
+	if t.Kind == "" {
+		return TargetLane
+	}
+	return t.Kind
+}
+
+// ID is the target's own ID: a lane's, a worker's, or a conversation's.
+func (t Target) ID() string {
+	switch t.Of() {
+	case TargetOrchestrator:
+		return t.Worker
+	case TargetAssistant:
+		return t.Conversation
+	}
+	return t.Lane
+}
+
+// To builds the target of a kind from its ID.
+func To(kind TargetKind, id string, generation int64) Target {
+	switch kind {
+	case TargetOrchestrator:
+		return Target{Kind: kind, Worker: id, Generation: generation}
+	case TargetAssistant:
+		return Target{Kind: kind, Conversation: id, Generation: generation}
+	}
+	return Target{Lane: id, Generation: generation}
+}
+
+// check refuses a target that names anything but the one field of its kind.
+func (t Target) check() error {
+	named := 0
+	for _, field := range []string{t.Lane, t.Worker, t.Conversation} {
+		if field != "" {
+			named++
+		}
+	}
+	switch t.Of() {
+	case TargetLane, TargetOrchestrator, TargetAssistant:
+	default:
+		return fmt.Errorf("%w: no target kind %q", ErrInvalid, t.Kind)
+	}
+	if named != 1 || t.ID() == "" {
+		return fmt.Errorf("%w: a message to a %s names its %s and nothing else", ErrInvalid, t.Of(), targetField[t.Of()])
+	}
+	return nil
+}
+
+var targetField = map[TargetKind]string{TargetLane: "lane", TargetOrchestrator: "worker", TargetAssistant: "conversation"}
 
 // Sender is who wrote a message. Seq counts what this sender sent (FR-MSG-1).
 type Sender struct {
@@ -112,8 +180,10 @@ func New(draft Draft, from Sender, now int64, window Window) (Message, error) {
 		return Message{}, fmt.Errorf("%w: a message needs an ID", ErrInvalid)
 	case !isLineID(draft.ID):
 		return Message{}, fmt.Errorf("%w: an ID holds letters, digits, and %s", ErrInvalid, lineIDMarks)
-	case draft.To.Lane == "":
+	case draft.To.Lane == "" && draft.To.Of() == TargetLane:
 		return Message{}, fmt.Errorf("%w: a message needs a lane", ErrInvalid)
+	case draft.To.check() != nil:
+		return Message{}, draft.To.check()
 	case !kinds[draft.Kind]:
 		return Message{}, fmt.Errorf("%w: no kind %q", ErrInvalid, draft.Kind)
 	case strings.TrimSpace(draft.Body) == "":
@@ -184,8 +254,12 @@ const (
 )
 
 // RecordEvent is one change of a message. It holds the whole message, as a question's does, so a
-// replay takes the last word.
+// replay takes the last word. A message to the assistant leaves out its body and its reply, which live
+// only in the messages table, so deleting its conversation removes them (ADR-0024).
 func RecordEvent(m Message, actor ledger.Actor) (ledger.EventDraft, error) {
+	if m.To.Of() == TargetAssistant {
+		m.Body, m.Reply = "", ""
+	}
 	raw, err := json.Marshal(m)
 	if err != nil {
 		return ledger.EventDraft{}, err

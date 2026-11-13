@@ -18,14 +18,14 @@ type messageTx struct {
 }
 
 const messageColumns = `id, envelope, to_lane, to_generation, from_kind, from_id, sender_seq, kind, reply_to, body, state, reason,
-       reply, carried_in, created_at, stale_at, expires_at, traceparent`
+       reply, carried_in, created_at, stale_at, expires_at, traceparent, to_kind`
 
 var (
 	// stmtInsertMessage takes a client's ID, so a retry sends one message.
 	stmtInsertMessage = define("message.insert",
-		`INSERT INTO messages (workspace_id, id, envelope, to_lane, to_generation, from_kind, from_id, sender_seq, kind, reply_to, body,
+		`INSERT INTO messages (workspace_id, id, envelope, to_kind, to_lane, to_generation, from_kind, from_id, sender_seq, kind, reply_to, body,
   state, reason, created_at, stale_at, expires_at, traceparent)
-VALUES (:workspace_id, :id, :envelope, :to_lane, :to_generation, :from_kind, :from_id, :sender_seq, :kind, :reply_to, :body,
+VALUES (:workspace_id, :id, :envelope, :to_kind, :to_lane, :to_generation, :from_kind, :from_id, :sender_seq, :kind, :reply_to, :body,
   :state, :reason, :created_at, :stale_at, :expires_at, :traceparent)`)
 
 	stmtReadMessage = define("message.read",
@@ -36,18 +36,31 @@ VALUES (:workspace_id, :id, :envelope, :to_lane, :to_generation, :from_kind, :fr
 
 	stmtMessagesToLane = define("message.to_lane",
 		`SELECT `+messageColumns+` FROM messages
- WHERE workspace_id = :workspace_id AND to_lane = :lane
+ WHERE workspace_id = :workspace_id AND to_kind = 'lane' AND to_lane = :lane
  ORDER BY created_at, id`)
 
 	stmtQueuedMessages = define("message.queued",
 		`SELECT `+messageColumns+` FROM messages
- WHERE workspace_id = :workspace_id AND to_lane = :lane AND state = 'queued'
+ WHERE workspace_id = :workspace_id AND to_kind = 'lane' AND to_lane = :lane AND state = 'queued'
  ORDER BY created_at, id`)
+
+	stmtMessagesToTarget = define("message.to_target",
+		`SELECT `+messageColumns+` FROM messages
+ WHERE workspace_id = :workspace_id AND to_kind = :to_kind AND to_lane = :target
+ ORDER BY created_at, id`)
+
+	stmtQueuedToTarget = define("message.queued_to",
+		`SELECT `+messageColumns+` FROM messages
+ WHERE workspace_id = :workspace_id AND to_kind = :to_kind AND to_lane = :target AND state = 'queued'
+ ORDER BY created_at, id`)
+
+	stmtDropToTarget = define("message.drop_to",
+		`DELETE FROM messages WHERE workspace_id = :workspace_id AND to_kind = :to_kind AND to_lane = :target`)
 
 	// stmtUnsettledMessages reads what one generation's end decides, and what an earlier end left.
 	stmtUnsettledMessages = define("message.unsettled",
 		`SELECT `+messageColumns+` FROM messages
- WHERE workspace_id = :workspace_id AND to_lane = :lane AND to_generation <= :through
+ WHERE workspace_id = :workspace_id AND to_kind = 'lane' AND to_lane = :lane AND to_generation <= :through
    AND state IN ('queued', 'at_worker', 'handed_off')
  ORDER BY created_at, id`)
 
@@ -55,7 +68,7 @@ VALUES (:workspace_id, :id, :envelope, :to_lane, :to_generation, :from_kind, :fr
 	// a message an ended generation took in and did not answer.
 	stmtMessageFacts = define("message.facts",
 		`SELECT `+messageColumns+` FROM messages
- WHERE workspace_id = :workspace_id AND to_lane = :lane AND carried_in IS NULL
+ WHERE workspace_id = :workspace_id AND to_kind = 'lane' AND to_lane = :lane AND carried_in IS NULL
    AND ((state = 'expired' AND reason = 'ledger_fact') OR (state = 'admitted' AND to_generation <= :ended))
  ORDER BY created_at, id`)
 
@@ -78,15 +91,19 @@ VALUES (:workspace_id, :id, :envelope, :to_lane, :to_generation, :from_kind, :fr
  WHERE workspace_id = :workspace_id AND id = :id AND state = :from_state`)
 )
 
+// scanMessage reads a row. to_lane holds the target's ID for every kind, and the target names it in the
+// field of its kind.
 func scanMessage(row scanner) (messages.Message, error) {
 	var m messages.Message
 	var replyTo, reason, reply, traceparent sql.NullString
 	var carried sql.NullInt64
-	err := row.Scan(&m.ID, &m.Envelope, &m.To.Lane, &m.To.Generation, &m.From.Kind, &m.From.ID, &m.From.Seq, &m.Kind, &replyTo, &m.Body,
-		&m.State, &reason, &reply, &carried, &m.CreatedAt, &m.StaleAt, &m.ExpiresAt, &traceparent)
+	var target, kind string
+	err := row.Scan(&m.ID, &m.Envelope, &target, &m.To.Generation, &m.From.Kind, &m.From.ID, &m.From.Seq, &m.Kind, &replyTo, &m.Body,
+		&m.State, &reason, &reply, &carried, &m.CreatedAt, &m.StaleAt, &m.ExpiresAt, &traceparent, &kind)
 	if err != nil {
 		return messages.Message{}, err
 	}
+	m.To = messages.To(messages.TargetKind(kind), target, m.To.Generation)
 	m.ReplyTo, m.Reason, m.Reply, m.Traceparent = replyTo.String, reason.String, reply.String, traceparent.String
 	m.CarriedIn = carried.Int64
 	return m, nil
@@ -161,6 +178,18 @@ func (t messageTx) Due(now int64) ([]string, error) {
 	return out, rows.Err()
 }
 
+func (t messageTx) ToTarget(kind messages.TargetKind, id string) ([]messages.Message, error) {
+	return t.list(stmtMessagesToTarget, params{"to_kind": string(kind), "target": id})
+}
+
+func (t messageTx) QueuedTo(kind messages.TargetKind, id string) ([]messages.Message, error) {
+	return t.list(stmtQueuedToTarget, params{"to_kind": string(kind), "target": id})
+}
+
+func (t messageTx) DropTo(kind messages.TargetKind, id string) (int64, error) {
+	return t.exec(stmtDropToTarget, t.params(params{"to_kind": string(kind), "target": id}))
+}
+
 func (t messageTx) NextSeq(kind, id string) (int64, error) {
 	row, err := t.row(stmtNextMessageSeq, t.params(params{"from_kind": kind, "from_id": id}))
 	if err != nil {
@@ -173,7 +202,7 @@ func (t messageTx) NextSeq(kind, id string) (int64, error) {
 
 func (t messageTx) Insert(m messages.Message) error {
 	_, err := t.exec(stmtInsertMessage, t.params(params{
-		"id": m.ID, "envelope": int64(m.Envelope), "to_lane": m.To.Lane, "to_generation": m.To.Generation, "from_kind": m.From.Kind, "from_id": m.From.ID,
+		"id": m.ID, "envelope": int64(m.Envelope), "to_kind": string(m.To.Of()), "to_lane": m.To.ID(), "to_generation": m.To.Generation, "from_kind": m.From.Kind, "from_id": m.From.ID,
 		"sender_seq": m.From.Seq, "kind": string(m.Kind), "reply_to": nullText(m.ReplyTo), "body": m.Body, "state": string(m.State),
 		"reason": nullText(m.Reason), "created_at": m.CreatedAt, "stale_at": m.StaleAt, "expires_at": m.ExpiresAt,
 		"traceparent": nullText(m.Traceparent),

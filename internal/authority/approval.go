@@ -63,6 +63,9 @@ const (
 	// on the local socket.
 	ChannelWeb = "web"
 	ChannelCLI = "cli"
+	// ChannelConversation is a member's word given where the record showed inline in a conversation, on the
+	// web listener.
+	ChannelConversation = "conversation"
 )
 
 // ApprovalState is where a request stands.

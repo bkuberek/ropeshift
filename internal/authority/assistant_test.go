@@ -1,0 +1,83 @@
+package authority_test
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"ropeshift.com/ropeshift/internal/authority"
+)
+
+// A member's conversations are theirs alone: no delegate reaches one of their operations, so the
+// assistant cannot start, rename, or delete a conversation, and no card stands in for one.
+func TestEveryConversationOperationIsAMembersAlone(t *testing.T) {
+	for _, id := range []string{
+		authority.OpConversationCreate, authority.OpConversationOpen, authority.OpConversationStop, authority.OpConversationRename,
+		authority.OpConversationDelete, authority.OpConversationCompact, authority.OpConversationClear, authority.OpConversationMessage,
+	} {
+		op, ok := authority.OperationOf(id)
+		if !ok {
+			t.Fatalf("no operation %s", id)
+		}
+		if op.Class != authority.ClassMemberOnly || op.Installation {
+			t.Errorf("%s is %s, installation %v", id, op.Class, op.Installation)
+		}
+		for _, action := range op.Actions {
+			if authority.Allowed(delegate, action) {
+				t.Errorf("%s needs %s, which a delegate holds", id, action)
+			}
+		}
+	}
+	if authority.Allowed(delegate, authority.ActionConverse) {
+		t.Error("a delegate may converse as its member")
+	}
+}
+
+func TestTheAssistantPolicyStopsAnIdleSessionWithinItsBounds(t *testing.T) {
+	builtIn := authority.BuiltInAssistantPolicy()
+	if err := builtIn.Check(); err != nil {
+		t.Fatal(err)
+	}
+	if got := builtIn.IdleStopAfter(); got != 15*time.Minute {
+		t.Errorf("the built-in idle stop is %s", got)
+	}
+	for _, idle := range []string{"59s", "24h1m", "soon", "", "-5m"} {
+		policy := authority.AssistantPolicy{Version: 2, IdleStop: idle}
+		if err := policy.Check(); !errors.Is(err, authority.ErrInvalid) {
+			t.Errorf("idle_stop %q: %v", idle, err)
+		}
+	}
+	for _, idle := range []string{"1m", "24h", "90m"} {
+		policy := authority.AssistantPolicy{Version: 2, IdleStop: idle}
+		if err := policy.Check(); err != nil {
+			t.Errorf("idle_stop %q: %v", idle, err)
+		}
+	}
+	if err := (authority.AssistantPolicy{Version: 0, IdleStop: "15m"}).Check(); !errors.Is(err, authority.ErrInvalid) {
+		t.Errorf("version 0: %v", err)
+	}
+	version, err := authority.NewAssistantVersion("p1", "m1", authority.AssistantDraft{Body: authority.BuiltInAssistantBody, Policy: builtIn}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := authority.ReadAssistant(version)
+	if err != nil || read.IdleStopAfter() != 15*time.Minute || version.Kind != authority.PolicyAssistant {
+		t.Errorf("read %+v, %v", read, err)
+	}
+}
+
+// An assistant credential is made by the control plane for one generation of one conversation's
+// session; a member never asks for one, and the external kind is the only one a member makes.
+func TestAMemberMakesOnlyExternalCredentials(t *testing.T) {
+	request := authority.DelegateRequest{Member: "m1", Label: "x", Kind: authority.DelegateAssistant, ExpiresInMs: authority.MinDelegateTTLMs}
+	if err := request.Check(); !errors.Is(err, authority.ErrInvalid) {
+		t.Errorf("a member asked for an assistant credential: %v", err)
+	}
+	credential := authority.DelegateCredential{ID: "dlg_1", Member: "m1", Kind: authority.DelegateAssistant, Conversation: "c1", Generation: 3, CreatedAt: 1}
+	if credential.State(1 << 62) != authority.DelegateActive {
+		t.Errorf("an assistant credential with no expiry reads %s", credential.State(1<<62))
+	}
+	if !credential.Assistant() {
+		t.Error("an assistant credential reads as external")
+	}
+}

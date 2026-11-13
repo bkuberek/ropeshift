@@ -6,6 +6,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/contextpacks"
+	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/messages"
@@ -98,6 +99,8 @@ type ReadTx interface {
 	Wakes() WakeReader
 	// Messages reads messages to lanes.
 	Messages() MessageReader
+	// Conversations reads members' conversations with the assistant and their entries.
+	Conversations() ConversationReader
 	// Packs reads context packs.
 	Packs() PackReader
 	// Approvals reads approval requests.
@@ -163,6 +166,8 @@ type WriteTx interface {
 	Wakes() WakeWriter
 	// Messages reads and writes messages to lanes.
 	Messages() MessageWriter
+	// Conversations reads and writes members' conversations with the assistant and their entries.
+	Conversations() ConversationWriter
 	// Packs reads and writes context packs.
 	Packs() PackWriter
 	// Approvals reads and writes approval requests.
@@ -481,6 +486,10 @@ type MessageReader interface {
 	// Due lists the messages past their window at a time. A tick reads this with no lock, so each
 	// one is read again in its own transaction.
 	Due(now int64) ([]string, error)
+	// ToTarget lists what was sent to a target of any kind, by the target's ID, oldest first.
+	ToTarget(kind messages.TargetKind, id string) ([]messages.Message, error)
+	// QueuedTo lists what no worker has acknowledged for a target of any kind, oldest first.
+	QueuedTo(kind messages.TargetKind, id string) ([]messages.Message, error)
 }
 
 // MessageWriter writes messages to lanes.
@@ -493,6 +502,42 @@ type MessageWriter interface {
 	// Save is the compare-and-set of the delivery table: it replaces what can change on a message
 	// that still stands in the state its caller read, and reports whether it did.
 	Save(message messages.Message, from messages.State) (bool, error)
+	// DropTo removes every message to one target, and says how many it removed.
+	DropTo(kind messages.TargetKind, id string) (int64, error)
+}
+
+// ConversationReader reads members' conversations with the assistant, and what each holds.
+type ConversationReader interface {
+	// Conversation returns one conversation, or ErrNotFound.
+	Conversation(id string) (conversations.Conversation, error)
+	// OfMember lists a member's conversations, newest activity first.
+	OfMember(member string) ([]conversations.Conversation, error)
+	// Running lists every conversation a member asked to run, oldest activity first.
+	Running() ([]conversations.Conversation, error)
+	// ByRunLane returns the conversation a run lane belongs to, or ErrNotFound.
+	ByRunLane(lane string) (conversations.Conversation, error)
+	// Entries lists a conversation's entries before a seq, newest first, up to limit. A zero seq reads from
+	// the newest.
+	Entries(conversation string, before int64, limit int) ([]conversations.Entry, error)
+	// Entry returns one entry, or ErrNotFound.
+	Entry(conversation, id string) (conversations.Entry, error)
+	// NextSeq is a conversation's next entry position, from 1.
+	NextSeq(conversation string) (int64, error)
+}
+
+// ConversationWriter writes members' conversations with the assistant, and what each holds.
+type ConversationWriter interface {
+	ConversationReader
+	// Insert adds a conversation.
+	Insert(conversations.Conversation) error
+	// Save replaces what can change on a conversation.
+	Save(conversations.Conversation) error
+	// Delete removes a conversation and every entry it holds.
+	Delete(id string) error
+	// AddEntry adds an entry at its seq.
+	AddEntry(conversations.Entry) error
+	// MarkBeforeClear marks every entry of a conversation up to a seq as earlier than a clear.
+	MarkBeforeClear(conversation string, through int64) error
 }
 
 // PackReader reads context packs. No read here stops at a page, because each one decides who hears
@@ -912,6 +957,8 @@ type MemberReader interface {
 	DelegateByDigest(digest string) (authority.DelegateCredential, error)
 	// Delegates lists a member's delegate credentials, oldest first.
 	Delegates(member string) ([]authority.DelegateCredential, error)
+	// ConversationDelegates lists the assistant credentials of one conversation's sessions, oldest first.
+	ConversationDelegates(conversation string) ([]authority.DelegateCredential, error)
 }
 
 // MemberWriter writes who can sign in and who has.

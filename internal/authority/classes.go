@@ -113,6 +113,14 @@ const (
 	OpEffectDecide                      = "effect.decide"
 	OpMessageSend                       = "message.send"
 	OpPaneInput                         = "pane.input"
+	OpConversationCreate                = "conversation.create"
+	OpConversationOpen                  = "conversation.open"
+	OpConversationStop                  = "conversation.stop"
+	OpConversationRename                = "conversation.rename"
+	OpConversationDelete                = "conversation.delete"
+	OpConversationCompact               = "conversation.compact"
+	OpConversationClear                 = "conversation.clear"
+	OpConversationMessage               = "conversation.message"
 )
 
 // The reasons a consent operation is never exempt.
@@ -229,6 +237,14 @@ var operations = append(onInstallation(
 	consent(OpEffectDecide, "Decide an effect", ActionDecideEffect),
 	operational(OpMessageSend, "Send a message", ActionSendMessage),
 	consent(OpPaneInput, "Type into a pane"),
+	memberOnly(OpConversationCreate, "Start a conversation", ActionConverse),
+	memberOnly(OpConversationOpen, "Open a conversation", ActionConverse),
+	memberOnly(OpConversationStop, "Stop a conversation's session", ActionConverse),
+	memberOnly(OpConversationRename, "Rename a conversation", ActionConverse),
+	memberOnly(OpConversationDelete, "Delete a conversation", ActionConverse),
+	memberOnly(OpConversationCompact, "Compact a conversation's context", ActionConverse),
+	memberOnly(OpConversationClear, "Clear a conversation's context", ActionConverse),
+	memberOnly(OpConversationMessage, "Message the assistant", ActionConverse),
 )
 
 // Operations lists the class table in its order.
