@@ -548,7 +548,7 @@ func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle port
 func (d *Driver) newSession(spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, meter lanes.CostMeter) *session {
 	return &session{
 		handle: handle, client: client, dir: shimDir(spec), socket: shimSocket(spec), grace: d.grace,
-		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter,
+		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter, replies: spec.Assistant,
 	}
 }
 
@@ -744,6 +744,8 @@ type session struct {
 	// its stream has ended.
 	peerSocket string
 	over       bool
+	// replies says the session is an assistant's, whose text the stream reports.
+	replies bool
 	// use is what this session's version passed, read once at its launch, and receipts is where its
 	// receipts come back, when it has an address.
 	use      Use
@@ -838,7 +840,7 @@ func exitStatus(exit shimlink.Exit) ports.ExitStatus {
 }
 
 func (s *session) take(line []byte, seq int64) {
-	p, err := parseLine(line, s.use.WindowFigures)
+	p, err := parseLineOf(line, s.use.WindowFigures, s.replies)
 	if err != nil {
 		s.mu.Lock()
 		s.seen.Malformed++

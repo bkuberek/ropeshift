@@ -86,6 +86,12 @@ func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 // worktree (lanes.DenyPolicy).
 var commitRules = []string{"Bash(git add *)", "Bash(git commit *)", "Bash(git rm *)", "Bash(git mv *)"}
 
+// assistantRules are what an assistant's session runs with no prompt besides its own tools: reading and
+// searching files, the web tools, and a shell for `ropeshift` commands, which act with its credential. Any
+// other command has no rule, so it would ask, and the worker's hook denies it with a reason; every edit and
+// write is denied outright (ADR-0024).
+var assistantRules = []string{"Read", "Grep", "Glob", "WebFetch", "WebSearch", "Bash(ropeshift *)"}
+
 // pushRules ask before every push on a lane that writes, in every mode, because an ask rule beats an allow
 // rule and holds where nothing else would ask (FR-LANE-19). A push the rule does not match, such as
 // `git -C . push`, is allowed by no rule either, so it asks in any mode that asks.
@@ -101,6 +107,9 @@ func allowRules(spec ports.SessionSpec) []string {
 	rules := make([]string, 0, len(spec.Tools)+len(commitRules)+4)
 	for _, tool := range spec.Tools {
 		rules = append(rules, toolRule(tool))
+	}
+	if spec.Assistant {
+		return append(rules, assistantRules...)
 	}
 	if spec.OnlyTools || spec.ReadOnly {
 		return rules

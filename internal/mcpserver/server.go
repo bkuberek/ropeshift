@@ -111,8 +111,11 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 		tools := []any{
 			laneReportTool, laneWaitTool, askTool, laneHandoffTool, replyTool, contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool,
 		}
-		if orchestrating(call) {
+		switch ownerOf(call) {
+		case lanes.OwnerOrchestrator:
 			tools = orchestratorTools()
+		case OwnerAssistant:
+			tools = []any{contextGetTool, decisionSearchTool, requirementGetTool, questionSearchTool}
 		}
 		out.Result = map[string]any{"tools": tools}
 	case "tools/call":
@@ -123,11 +126,23 @@ func answer(line []byte, stdout io.Writer, call Caller) error {
 	return reply(stdout, out)
 }
 
+// OwnerAssistant is who an assistant's token stands for: a member's assistant, which reads the context tools
+// and nothing a lane or an orchestrator does.
+const OwnerAssistant = "assistant"
+
 // orchestrating asks the worker who this session's token stands for. A session that cannot reach
 // it gets a lane's tools, which decide nothing, and the worker reads the token again on any decision.
 func orchestrating(call Caller) bool {
+	return ownerOf(call) == lanes.OwnerOrchestrator
+}
+
+// ownerOf is who a session's token stands for, as the worker says, and nobody when it cannot say.
+func ownerOf(call Caller) string {
 	answer, err := call(lanes.Request{Who: true})
-	return err == nil && answer.OK && answer.Owner == lanes.OwnerOrchestrator
+	if err != nil || !answer.OK {
+		return ""
+	}
+	return answer.Owner
 }
 
 func reply(stdout io.Writer, out response) error {
@@ -342,7 +357,7 @@ func orchestratorTools() []any {
 		workCandidatesTool, workClaimTool, laneStartTool, laneStopTool,
 		questionNextTool, questionAttachTool, decisionRecordTool, questionEscalateTool,
 		laneRestartTool, laneResetTool, workRetryTool, workReplanTool,
-		workDeclineTool, approvalDecideTool,
+		workDeclineTool, approvalDecideTool, replyTool,
 	}
 	tools := make([]any, 0, len(all))
 	for _, tool := range all {

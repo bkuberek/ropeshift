@@ -60,7 +60,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	return lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Kept: spec.Kept, Writable: writable,
 		ReadOnlyRoots: readOnly,
-		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly,
+		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec),
 	})
@@ -134,7 +134,7 @@ func denyRules(spec ports.SessionSpec) []string {
 	for _, branch := range slices.Concat(defaultBranches(spec), spec.Kept) {
 		rules = append(rules, "Bash(git push * "+branch+")", "Bash(git push * *:"+branch+")", "Bash(git push * +"+branch+")")
 	}
-	if spec.ReadOnly {
+	if spec.ReadOnly || spec.Assistant {
 		rules = append(rules, readOnlyRules()...)
 	}
 	for _, dir := range spec.ReadOnlyDirs {
