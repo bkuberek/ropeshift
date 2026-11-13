@@ -42,7 +42,13 @@ type talkDaemon struct {
 
 func startTalk(t *testing.T) *talkDaemon {
 	t.Helper()
-	d := &talkDaemon{Daemon: apitest.Start(t), hosts: map[string]control.AssistantHost{}}
+	return startTalkWith(t, apitest.Options{})
+}
+
+// startTalkWith is startTalk on a daemon with these options, such as a clock that repeats.
+func startTalkWith(t *testing.T, options apitest.Options) *talkDaemon {
+	t.Helper()
+	d := &talkDaemon{Daemon: apitest.StartWith(t, options), hosts: map[string]control.AssistantHost{}}
 	config := d.Config
 	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
 		return d.hosts, nil

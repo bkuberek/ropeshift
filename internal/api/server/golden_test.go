@@ -16,8 +16,10 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -150,7 +152,11 @@ type everyState struct {
 	Freshness       []string                  `json:"freshness"`
 	CardStates      []authority.ApprovalState `json:"card_states"`
 	DelegateStates  []authority.DelegateState `json:"delegate_states"`
-	Views           map[string]any            `json:"views"`
+	// ConversationStates are where an assistant's session stands, and MessageStates where a message stands
+	// between the ledger and the session it is for.
+	ConversationStates []conversations.ActualState `json:"conversation_states"`
+	MessageStates      []messages.State            `json:"message_states"`
+	Views              map[string]any              `json:"views"`
 }
 
 func aWorldInEveryState(t *testing.T) *apitest.Daemon {
@@ -175,7 +181,8 @@ func TestFixtureCoversEveryState(t *testing.T) {
 	fixture := everyState{
 		WorkOrderStates: workorders.States(), LaneStates: lanes.ActualStates, Conditions: lanes.EveryCondition, Liveness: apitest.EveryLiveness,
 		Reach: apitest.EveryReach, Freshness: []string{ledger.FreshnessObserved, ledger.FreshnessLastReported},
-		CardStates: authority.CardStates(), DelegateStates: authority.DelegateStates(), Views: map[string]any{},
+		CardStates: authority.CardStates(), DelegateStates: authority.DelegateStates(),
+		ConversationStates: conversations.ActualStates, MessageStates: messages.States, Views: map[string]any{},
 	}
 	for _, name := range api.Views {
 		fixture.Views[name] = readAny(t, d, name)
