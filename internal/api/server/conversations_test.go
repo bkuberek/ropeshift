@@ -647,3 +647,43 @@ func TestSigningOutEverywhereVoidsEveryAssistantCard(t *testing.T) {
 		}
 	}
 }
+
+// A lane's stream holds the messages a delegate sent it, the assistant's among them, named by the
+// credential's label, beside the member's own.
+func TestALanesStreamHoldsTheAssistantsMessages(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	_, assistant, _ := d.assistant(t)
+	w := apitest.NewWorld(t, d.Daemon)
+	lane := w.Running("wo-1", "Add the retry budget")
+	for _, send := range []func() error{
+		func() error {
+			_, err := d.client.SendMessage(ctx, messages.Draft{ID: "m-member", To: messages.Target{Lane: lane.ID}, Kind: messages.KindInstruction, Body: "Use two retries"})
+			return err
+		},
+		func() error {
+			_, err := assistant.SendMessage(ctx, messages.Draft{ID: "m-assistant", To: messages.Target{Lane: lane.ID}, Kind: messages.KindInstruction, Body: "Sam asks for three"})
+			return err
+		},
+	} {
+		if err := send(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := d.client.LaneStream(ctx, lane.ID, api.TalkQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	senders := map[string]api.TalkFrom{}
+	for _, entry := range page.Entries {
+		if entry.Kind == api.TalkKindMember && entry.From != nil {
+			senders[entry.Body] = *entry.From
+		}
+	}
+	if from, ok := senders["Sam asks for three"]; !ok || from.Kind != string(ledger.ActorDelegate) || from.Label != authority.AssistantLabel {
+		t.Errorf("the assistant's message reads %+v (%v) in %+v", from, ok, senders)
+	}
+	if from, ok := senders["Use two retries"]; !ok || from.Kind != string(ledger.ActorMember) {
+		t.Errorf("the member's message reads %+v (%v)", from, ok)
+	}
+}

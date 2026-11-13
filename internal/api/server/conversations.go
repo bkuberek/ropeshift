@@ -350,6 +350,19 @@ func (h *handler) talkEntries(tx ports.ReadTx, rows []conversations.Entry) ([]ap
 	return out, nil
 }
 
+// senderLabel names who sent a message: a member by their name, and a delegate, the assistant among them, by
+// its credential's label, as the audit names it.
+func senderLabel(members ports.MemberReader, kind, id string) string {
+	_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
+	if !ok {
+		return memberLabel(members, id)
+	}
+	if record, err := members.Delegate(credential); err == nil && record.Label != "" {
+		return record.Label
+	}
+	return credential
+}
+
 func memberLabel(members ports.MemberReader, id string) string {
 	if record, err := members.Member(id); err == nil && record.DisplayName != "" {
 		return record.DisplayName
@@ -395,7 +408,7 @@ func messageEntries(tx ports.ReadTx, rows []messages.Message, from api.TalkFrom)
 		message := row
 		out = append(out, api.TalkEntry{
 			ID: "message-" + row.ID, At: row.CreatedAt, Kind: api.TalkKindMember, Body: row.Body, Message: &message,
-			From: &api.TalkFrom{Kind: row.From.Kind, ID: row.From.ID, Label: memberLabel(tx.Members(), row.From.ID)},
+			From: &api.TalkFrom{Kind: row.From.Kind, ID: row.From.ID, Label: senderLabel(tx.Members(), row.From.Kind, row.From.ID)},
 		})
 		if row.Reply == "" {
 			continue
@@ -492,8 +505,8 @@ func (h *handler) streamPage(w http.ResponseWriter, r *http.Request, read func(t
 	reply(w, http.StatusOK, page)
 }
 
-// laneStream is a lane's stream, for a headless lane or a planning session: the member's messages to it
-// with their delivery state, its replies, the events about it or its work order, its approval requests,
+// laneStream is a lane's stream, for a headless lane or a planning session: the messages members and their
+// delegates sent it, with their delivery state, its replies, the events about it or its work order, its approval requests,
 // and the questions it asked or is attached to.
 func (h *handler) laneStream(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
 	lane := r.PathValue("id")
@@ -506,7 +519,9 @@ func (h *handler) laneStream(w http.ResponseWriter, r *http.Request, _ ledger.Ac
 		if err != nil {
 			return nil, err
 		}
-		sent = slices.DeleteFunc(sent, func(m messages.Message) bool { return m.From.Kind != string(ledger.ActorMember) })
+		sent = slices.DeleteFunc(sent, func(m messages.Message) bool {
+			return m.From.Kind != string(ledger.ActorMember) && m.From.Kind != string(ledger.ActorDelegate)
+		})
 		entries, err := messageEntries(tx, sent, api.TalkFrom{Kind: string(ledger.ActorLane), ID: lane, Label: "Lane " + lane})
 		if err != nil {
 			return nil, err
