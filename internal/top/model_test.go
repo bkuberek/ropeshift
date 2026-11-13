@@ -459,3 +459,61 @@ func TestEveryNeedsIDStartsInOneColumn(t *testing.T) {
 		t.Errorf("needs start their IDs in %d columns: %v\n%s", len(columns), columns, frame)
 	}
 }
+
+// TestAWorkerShowsWhatItMeasured holds FR-UI-10 in the terminal: each worker's machine, its cap beside the
+// recommendation, its warnings, and how long ago it measured, and each lane's process tree. A measure the
+// machine could not provide reads as unavailable, never as zero.
+func TestAWorkerShowsWhatItMeasured(t *testing.T) {
+	snapshot := golden(t)
+	if len(snapshot.Floor.Workers) == 0 || len(snapshot.Floor.Lanes) == 0 {
+		t.Fatal("the golden floor holds no worker or no lane")
+	}
+	cpu, load, total, used, available := 42.0, 2.5, int64(32)<<30, int64(12)<<30, int64(20)<<30
+	cores, rss := 1.25, int64(300)<<20
+	lane := snapshot.Floor.Lanes[0].ID
+	line := &snapshot.Floor.Workers[0]
+	line.Worker.Report = &ledger.ResourceReport{
+		IntervalMs: 15_000,
+		Machine: ledger.MachineResources{
+			Cores: 8, CPUPercent: &cpu, Load1: &load, Load5: &load, Load15: &load, MemoryTotalBytes: &total, MemoryUsedBytes: &used, MemoryAvailableBytes: &available,
+			Volumes: []ledger.VolumeResources{{Roles: []string{"state", "worktrees"}, FreeBytes: 5 << 30, TotalBytes: 100 << 30}},
+		},
+		Recommendation: &ledger.LaneRecommendation{MaxLanes: 7, Basis: ledger.BasisEstimates},
+		Caps:           ledger.LaneCaps{MaxLanes: 12, MaxLanesSet: true},
+		Sessions:       []ledger.SessionResources{{Kind: ledger.SessionLane, Lane: lane, CPUCores: &cores, RSSBytes: &rss}},
+		Warnings:       []ledger.ResourceWarning{{Measure: ledger.WarnDiskFree, Volume: "state and worktrees"}},
+	}
+	line.Worker.ReportedAt = snapshot.Needs.AsOf - 5_000
+	line.ReportFreshness = ledger.FreshnessObserved
+	frame := wide(t, snapshot).View()
+	for _, want := range []string{
+		"cpu 42%  load 2.50 2.50 2.50  memory 12.0 GiB used of 32.0 GiB, 20.0 GiB available, pressure unavailable  disk state and worktrees 5.0 GiB free  cap 12 (recommended 7)  warnings disk_free state and worktrees  measured 5s ago",
+		lane + "  ",
+		"cpu 1.25 cores  rss 300.0 MiB",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	line.Worker.Report.Machine = ledger.MachineResources{Cores: 8, Volumes: []ledger.VolumeResources{}}
+	line.Worker.Report.Sessions = []ledger.SessionResources{{Kind: ledger.SessionLane, Lane: lane}}
+	line.ReportFreshness = ledger.FreshnessLastReported
+	frame = wide(t, snapshot).View()
+	for _, want := range []string{"cpu unavailable  load unavailable  memory unavailable  disk unavailable", "measured 5s ago, last reported", "cpu unavailable  rss unavailable"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("no %q in:\n%s", want, frame)
+		}
+	}
+	if strings.Contains(frame, "cpu 0%") {
+		t.Errorf("an unavailable measure was drawn as zero:\n%s", frame)
+	}
+}
+
+// wide is a model on a terminal wide and tall enough to hold every line whole.
+func wide(t *testing.T, snapshot top.Snapshot) top.Model {
+	t.Helper()
+	m := top.New(top.Config{Read: quiet, Now: func() time.Time { return time.UnixMilli(snapshot.Needs.AsOf) }})
+	next, _ := m.Update(top.Resized(1000, 0))
+	next, _ = next.Update(top.Loaded(snapshot))
+	return next
+}

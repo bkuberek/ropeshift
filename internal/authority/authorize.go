@@ -114,6 +114,25 @@ const (
 	// operation: a delegate may prepare one, and only a member's decision runs it, so no row below may ever
 	// grant it.
 	ActionChangeRoster Action = "roster.change"
+	// ActionSetLaneCaps sets a machine's lane caps, per worker and per sign-in (FR-PROJ-7). They protect the
+	// machine and the sign-in, which are a person's, so no agent has this, and no row below may ever grant it.
+	ActionSetLaneCaps Action = "worker.lane_caps"
+	// ActionRaiseMergeAuthority gives a repository a merge authority that leaves more to ropeshift, and
+	// ActionReviewPullRequest moves its review target to a pull request. Each is a consent operation no
+	// delegate policy may exempt (ADR-0024), so only a member has them.
+	ActionRaiseMergeAuthority Action = "repository.raise_merge_authority"
+	ActionReviewPullRequest   Action = "repository.review_pull_request"
+	// ActionDecideOneWay records a decision, or an answer, in a one-way category. An orchestrator never
+	// reaches one, and a delegate's call to one is always a confirmation card, so only a member has it.
+	ActionDecideOneWay Action = "decision.one_way"
+	// ActionManageSessions ends a member's sessions and makes, lists, revokes, and removes their delegate
+	// credentials. These are the member's alone (FR-AUTH-10).
+	ActionManageSessions Action = "member.manage_sessions"
+	// ActionBackupInstallation copies the records every project shares, which only a member may take away.
+	ActionBackupInstallation Action = "installation.backup"
+	// ActionConfirmCard confirms or declines a confirmation card: the one thing a delegate's word never does
+	// (FR-AUTH-1).
+	ActionConfirmCard Action = "card.confirm"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -127,6 +146,8 @@ func Actions() []Action {
 		ActionRecover, ActionPassRecovery, ActionDecideRecovery,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
+		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
+		ActionSetLaneCaps,
 	}
 }
 
@@ -143,10 +164,14 @@ var granted = map[ledger.ActorKind]map[Action]bool{
 
 // Allowed is the one authorization function. Every check passes through it. There are no
 // roles in the first release, so it returns true for any member, and optional roles arrive
-// here with no change to the data model (FR-AUTH-9).
+// here with no change to the data model (FR-AUTH-9). A delegate holds what the class table says
+// some operation it may run needs (ADR-0024).
 func Allowed(actor ledger.Actor, action Action) bool {
-	if actor.Kind == ledger.ActorMember {
+	switch actor.Kind {
+	case ledger.ActorMember:
 		return true
+	case ledger.ActorDelegate:
+		return delegateGrants[action]
 	}
 	return granted[actor.Kind][action]
 }

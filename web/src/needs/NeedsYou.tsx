@@ -8,11 +8,12 @@ import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
 import { EmptyState, ProjectTag } from "../ui/display";
 import { Select } from "../ui/forms";
 import { ApprovalCard } from "./ApprovalCard";
+import { ConfirmCard, ResolvedCard } from "./ConfirmCard";
 import { ContractReviewCard } from "./ContractReviewCard";
 import { EffectCard } from "./EffectCard";
 import type { Frame } from "./frame";
 import type { NeedFilter } from "./kinds";
-import { contextOf, filterOf, filters, headingOf, keyOf, kindOf } from "./kinds";
+import { contextOf, filterOf, filters, headingOf, keyOf, kindOf, preparerOf } from "./kinds";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 import { RecoveryCard } from "./RecoveryCard";
 import { QuestionBatch } from "./QuestionBatch";
@@ -35,6 +36,8 @@ function Card({ item, after, frame }: { item: NeedItem; after: () => Promise<voi
       return <PlanApprovalCard id={item.id} need={item.plan_approval} after={after} frame={frame} />;
     case "contract_review":
       return <ContractReviewCard review={item.contract_review} after={after} frame={frame} />;
+    case "confirm":
+      return <ConfirmCard need={item.card} after={after} frame={frame} />;
   }
 }
 
@@ -173,11 +176,14 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const frameOf = (item: NeedItem): Frame => ({
     project: item.project,
     title: headingOf(item),
-    provenance: (
-      <>
-        {contextOf(item)} · <Wait ms={waitOf(item)} />
-      </>
-    ),
+    provenance:
+      item.kind === "confirm" ? (
+        <Wait ms={waitOf(item)} />
+      ) : (
+        <>
+          {contextOf(item)} · <Wait ms={waitOf(item)} />
+        </>
+      ),
   });
 
   return (
@@ -264,7 +270,13 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                         <Wait ms={waitOf(item)} />
                         <span className="item-meta">
                           {item.project ? <ProjectTag name={item.project.name} display={item.project.display_name} /> : null}
-                          <span className="truncate">{done ? "Resolved elsewhere" : contextOf(item)}</span>
+                          {item.kind === "confirm" && !done ? (
+                            <span className="truncate">
+                              <Icon name="key" size="sm" /> {preparerOf(item.card)}
+                            </span>
+                          ) : (
+                            <span className="truncate">{done ? "Resolved elsewhere" : contextOf(item)}</span>
+                          )}
                         </span>
                       </Link>
                     </li>
@@ -280,7 +292,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
               All items
             </Button>
           ) : null}
-          {selected && tab === "open" && isGone(selected) ? (
+          {selected && tab === "open" && isGone(selected) && selected.kind !== "confirm" ? (
             <div className="decision is-resolved">
               <div className="decision-body">
                 <p className="resolved-note" ref={resolvedNote} tabIndex={-1}>
@@ -289,6 +301,9 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
                 </p>
               </div>
             </div>
+          ) : null}
+          {selected && tab === "open" && isGone(selected) && selected.kind === "confirm" ? (
+            <ResolvedCard need={selected.card} project={selected.project?.name ?? ""} after={after} frame={frameOf(selected)} />
           ) : null}
           {/* Every card stays mounted, and only the selected one shows, so an answer in progress survives a look at another item. */}
           {view.items.map((item) => (

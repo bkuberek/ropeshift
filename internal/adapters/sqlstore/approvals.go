@@ -41,6 +41,11 @@ ON CONFLICT (workspace_id, id) DO NOTHING`)
  WHERE workspace_id = :workspace_id AND state IN ('pending', 'approved') AND expires_at <> 0 AND expires_at <= :now
  ORDER BY id`)
 
+	stmtApprovalsRunning = define("approval.running",
+		`SELECT id FROM approval_requests
+ WHERE workspace_id = :workspace_id AND kind = 'confirm' AND state = 'approved' AND decided_at <= :before
+ ORDER BY decided_at, id`)
+
 	stmtLinkApprovalPlan = define("approval.link_plan",
 		`UPDATE approval_requests SET plan_id = :plan_id, plan_version = :plan_version
  WHERE workspace_id = :workspace_id AND id = :id AND kind = 'plan' AND plan_id IS NULL`)
@@ -136,11 +141,28 @@ func (t approvalTx) Due(now int64) ([]string, error) {
 	return out, rows.Err()
 }
 
+func (t approvalTx) Running(before int64) ([]string, error) {
+	rows, err := t.rows(stmtApprovalsRunning, t.scoped(params{"before": before}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 func (t approvalTx) Insert(a authority.Approval) (bool, error) {
-	// A plan approval belongs to a plan and not to a lane, and the table holds no empty lane for any
-	// other kind, so the lane, the work order, and the generation are empty only for that kind.
+	// A plan approval belongs to a plan and a card to the operation it runs, not to a lane, and the table
+	// holds no empty lane for any other kind, so the generation is empty only for those kinds.
 	var generation sql.NullInt64
-	if a.Kind != authority.KindPlan {
+	if a.Kind != authority.KindPlan && a.Kind != authority.KindConfirm {
 		generation = sql.NullInt64{Int64: a.Generation, Valid: true}
 	}
 	planVersion := sql.NullInt64{Int64: a.PlanVersion, Valid: a.PlanVersion != 0}

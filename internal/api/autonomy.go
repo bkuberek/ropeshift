@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // SetAutonomy chooses a worker's level.
@@ -67,4 +68,26 @@ func (c *Client) OpenWindow(ctx context.Context, worker string, in OpenWindow) (
 // CloseWindow ends the window that stands for one worker.
 func (c *Client) CloseWindow(ctx context.Context, worker string) error {
 	return c.Do(ctx, http.MethodDelete, workerPath(worker, "windows"), nil, nil)
+}
+
+// SetLaneCaps sets a worker's lane caps. MaxLanes null, or left out, follows the worker's recommendation,
+// and zero caps nothing; MaxLanesPerSignIn zero caps nothing. Neither has an upper bound.
+type SetLaneCaps struct {
+	MaxLanes          *int64 `json:"max_lanes"`
+	MaxLanesPerSignIn int64  `json:"max_lanes_per_sign_in"`
+}
+
+// LaneCaps reads a worker's lane caps, with what is in force and its recommendation.
+func (c *Client) LaneCaps(ctx context.Context, worker string) (ledger.WorkerCaps, error) {
+	var out ledger.WorkerCaps
+	err := c.Do(ctx, http.MethodGet, workerPath(worker, "caps"), nil, &out)
+	return out, err
+}
+
+// SetLaneCaps writes a worker's lane caps, and the answer warns when the per-worker cap is above the
+// recommendation.
+func (c *Client) SetLaneCaps(ctx context.Context, worker string, in SetLaneCaps) (ledger.WorkerCaps, error) {
+	var out ledger.WorkerCaps
+	err := c.Do(ctx, http.MethodPut, workerPath(worker, "caps"), in, &out)
+	return out, err
 }

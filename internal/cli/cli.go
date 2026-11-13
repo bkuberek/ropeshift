@@ -27,6 +27,9 @@ const (
 	ExitNotReady    = 7
 	ExitForbidden   = 8
 	ExitUnreachable = 9
+	// ExitPrepared says the command's operation became a confirmation card: it ran nothing, and it runs
+	// when a member confirms the card.
+	ExitPrepared = 10
 )
 
 // Options is what a command needs from its process.
@@ -36,6 +39,9 @@ type Options struct {
 	Doctor func(context.Context) (ledger.Manifest, error)
 	// Session is the member's session this shell holds, if any.
 	Session string
+	// Delegate is the delegate credential this shell holds, if any, which a command presents in place of a
+	// session.
+	Delegate string
 	// Project is the project a command on project records acts on when it names none, from
 	// ROPESHIFT_PROJECT.
 	Project string
@@ -80,7 +86,10 @@ type invocation struct {
 	name           string
 	socket         string
 	session        string
-	asJSON         bool
+	delegate       string
+	// why is the reason a delegate gives, which a card it prepares keeps.
+	why    string
+	asJSON bool
 	// inProject says the command acts on one project's records, so it takes --project.
 	inProject bool
 	// project is what --project names, and envProject what ROPESHIFT_PROJECT does.
@@ -99,13 +108,17 @@ type invocation struct {
 func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	base := &invocation{
 		ctx: context.Background(), stdout: stdout, stderr: stderr, socket: opts.Socket, doctor: opts.Doctor,
-		session: opts.Session, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
+		session: opts.Session, delegate: opts.Delegate, readPassphrase: opts.ReadPassphrase, terminal: opts.Terminal,
 		panes: opts.Panes, startDaemon: opts.StartDaemon, stateDir: opts.StateDir, install: opts.InstallService, uninstall: opts.UninstallService,
 		envProject: opts.Project, repositoryHere: opts.RepositoryHere, repositoryRoot: opts.RepositoryRoot,
 	}
 	found, rest, ok := find(args)
 	if !ok {
 		return base.notFound(args)
+	}
+	if opts.Session != "" && opts.Delegate != "" {
+		fmt.Fprintf(stderr, "%s: %s and %s are both set: a command acts as a member or as a delegate, so unset one\n", program, authority.EnvMemberToken, authority.EnvDelegateToken)
+		return ExitUsage
 	}
 	base.name, base.command, base.inProject = found.Name, found.Command, !found.installation
 	code := found.run(base, rest)
@@ -149,6 +162,7 @@ func (c *invocation) flags() *flag.FlagSet {
 	set.StringVar(&c.socket, "socket", c.socket, "the control plane's socket")
 	if c.inProject {
 		set.StringVar(&c.project, "project", c.project, "the project this acts on, by name")
+		set.StringVar(&c.why, "why", c.why, "why a delegate proposes this, which a card it becomes keeps")
 	}
 	return set
 }
@@ -186,6 +200,11 @@ func (c *invocation) usageError(format string, args ...any) int {
 // for the passphrase here, so a read never asks.
 func (c *invocation) client() *api.Client {
 	client := api.NewUnixClient(c.socket)
+	client.UseWhy(c.why)
+	if c.delegate != "" {
+		client.UseDelegate(c.delegate)
+		return client
+	}
 	client.UseSession(c.session)
 	client.AskSession(func(ctx context.Context) (string, error) {
 		passphrase, err := c.askPassphrase("Passphrase: ")
@@ -215,6 +234,10 @@ func (c *invocation) finish(err error, result any, text func() string) int {
 }
 
 func (c *invocation) failure(err error) int {
+	var prepared *api.Prepared
+	if errors.As(err, &prepared) {
+		return c.prepared(prepared.Card)
+	}
 	var refused *api.Error
 	if errors.As(err, &refused) && refused.Detail.Code == api.CodeNoProject {
 		return c.noProject(refused.Detail)
@@ -244,7 +267,8 @@ func exitOf(refused *api.Error) int {
 	switch refused.Detail.Code {
 	case api.CodeNotFound:
 		return ExitNotFound
-	case api.CodeForbidden, api.CodeSessionRequired, api.CodeBadPassphrase, api.CodeNotEnrolled, api.CodeOneWay, api.CodeRiskNotAcknowledged:
+	case api.CodeForbidden, api.CodeSessionRequired, api.CodeBadPassphrase, api.CodeNotEnrolled, api.CodeOneWay, api.CodeRiskNotAcknowledged,
+		api.CodeBadDelegate, api.CodeOutsideProject, api.CodeMemberOnly:
 		return ExitForbidden
 	case api.CodeFenced:
 		return ExitFenced
@@ -253,7 +277,7 @@ func exitOf(refused *api.Error) int {
 	case api.CodeNotAcceptable, api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
 		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement,
 		api.CodeEffectDecided, api.CodeCannotRepeat, api.CodeRepositoryHeld, api.CodeRepositoryState, api.CodeProjectExists, api.CodeProjectState, api.CodeProjectArchived,
-		api.CodeAlreadyPlanned, api.CodeRosterConflict:
+		api.CodeAlreadyPlanned, api.CodeRosterConflict, api.CodeDelegateActive:
 		return ExitConflict
 	case api.CodeInvalid, api.CodeNoProject:
 		return ExitUsage

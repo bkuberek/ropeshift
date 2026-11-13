@@ -142,13 +142,15 @@ func TestGoldenDocument(t *testing.T) {
 // everyState is what the web test reads: both state tables, the values that stand beside a lane's
 // state, and every read model of a ledger that holds one of each.
 type everyState struct {
-	WorkOrderStates []workorders.State   `json:"work_order_states"`
-	LaneStates      []lanes.ActualState  `json:"lane_states"`
-	Conditions      []lanes.Condition    `json:"conditions"`
-	Liveness        []lanes.Liveness     `json:"liveness"`
-	Reach           []lanes.Reachability `json:"reach"`
-	Freshness       []string             `json:"freshness"`
-	Views           map[string]any       `json:"views"`
+	WorkOrderStates []workorders.State        `json:"work_order_states"`
+	LaneStates      []lanes.ActualState       `json:"lane_states"`
+	Conditions      []lanes.Condition         `json:"conditions"`
+	Liveness        []lanes.Liveness          `json:"liveness"`
+	Reach           []lanes.Reachability      `json:"reach"`
+	Freshness       []string                  `json:"freshness"`
+	CardStates      []authority.ApprovalState `json:"card_states"`
+	DelegateStates  []authority.DelegateState `json:"delegate_states"`
+	Views           map[string]any            `json:"views"`
 }
 
 func aWorldInEveryState(t *testing.T) *apitest.Daemon {
@@ -172,7 +174,8 @@ func TestFixtureCoversEveryState(t *testing.T) {
 	d := aWorldInEveryState(t)
 	fixture := everyState{
 		WorkOrderStates: workorders.States(), LaneStates: lanes.ActualStates, Conditions: lanes.EveryCondition, Liveness: apitest.EveryLiveness,
-		Reach: apitest.EveryReach, Freshness: []string{ledger.FreshnessObserved, ledger.FreshnessLastReported}, Views: map[string]any{},
+		Reach: apitest.EveryReach, Freshness: []string{ledger.FreshnessObserved, ledger.FreshnessLastReported},
+		CardStates: authority.CardStates(), DelegateStates: authority.DelegateStates(), Views: map[string]any{},
 	}
 	for _, name := range api.Views {
 		fixture.Views[name] = readAny(t, d, name)

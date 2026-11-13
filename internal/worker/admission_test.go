@@ -399,3 +399,73 @@ func TestACapacityAdvertisedHoldsAtClaim(t *testing.T) {
 		t.Errorf("a full worker took a claim: %v", err)
 	}
 }
+
+// sized is a machine with this many cores and plenty of memory, whose recommendation, at the default
+// estimates and reserve, is one lane fewer than its cores.
+func sized(cores int64) *fake.Machine {
+	machine := fake.NewMachine(plentyOf())
+	memory := int64(256) << 30
+	machine.SetSample(lanes.MachineSample{Cores: cores, MemoryTotalBytes: &memory, MemoryAvailableBytes: &memory})
+	return machine
+}
+
+// TestAnUnsetWorkerCapFollowsTheRecommendation holds FR-PROJ-7's default: with no max_lanes in the user's
+// profile, the worker's recommendation caps its lanes.
+func TestAnUnsetWorkerCapFollowsTheRecommendation(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	r.config.Machine = sized(2)
+	r.dispatched()
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	r.start()
+	r.awaitGeneration(t, 1)
+	r.secondLane("wo-2", "lane-2")
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.driver.Specs()) != 1 {
+		t.Errorf("%d sessions past a recommendation of one", len(r.driver.Specs()))
+	}
+	r.driver.StopEverySession()
+	r.subject.Wait()
+	if notes := r.heldNotes(); !slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, lanes.HeldWorkerFull) }) {
+		t.Errorf("held notes %v", notes)
+	}
+}
+
+// TestTheManifestAdvertisesTheCapInForce is what a claim is held to before the worker first reports: the
+// user's cap, or the recommendation where the user set none, or no cap where the user chose none.
+func TestTheManifestAdvertisesTheCapInForce(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		profile string
+		want    int64
+	}{
+		{"unset follows the recommendation", "", 4},
+		{"a value over the recommendation", "[admission]\nmax_lanes = 9\n", 9},
+		{"no cap", "[admission]\nmax_lanes = 0\n", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := newRig(t)
+			profiles := fake.NewProfileSource()
+			profiles.PutUser(tt.profile)
+			config := &worker.LaneRuntime{Driver: fake.NewAgentDriver(), Machine: sized(5), Provisioner: worker.Provisioner{Profiles: profiles}}
+			subject := worker.New(base.link, base.journal, base.clock, worker.Config{
+				Name: "test", Lanes: config,
+				JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
+			})
+			if err := subject.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			listed, err := base.plane.List(t.Context())
+			if err != nil || len(listed) != 1 {
+				t.Fatalf("workers %+v: %v", listed, err)
+			}
+			if got := listed[0].Manifest.Capacity.MaxLanes; got != tt.want {
+				t.Errorf("advertised %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

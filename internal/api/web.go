@@ -57,9 +57,17 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/workers/{id}/autonomy/acknowledgement", "worker acknowledge-risk"},
 		{http.MethodPost, "/v1/workers/{id}/windows", "worker window-open"},
 		{http.MethodDelete, "/v1/workers/{id}/windows", "worker window-close"},
+		{http.MethodGet, "/v1/workers/{id}/caps", "worker caps"},
+		{http.MethodPut, "/v1/workers/{id}/caps", "worker caps"},
 		{http.MethodGet, RiskPath, "worker risk"},
 		{http.MethodGet, MembersPath, "member list"},
 		{http.MethodGet, AuditPath, "audit"},
+		{http.MethodPost, SignOutAllPath, "sign-out"},
+		{http.MethodGet, DelegatesPath, "delegate list"},
+		{http.MethodPost, DelegatesPath, "delegate create"},
+		{http.MethodPost, DelegatesPath + "/{id}/revoke", "delegate revoke"},
+		{http.MethodPost, DelegatesPath + "/{id}/remove", "delegate remove"},
+		{http.MethodGet, OperationsPath, "operation list"},
 	}
 	// The roster's routes read and change the installation's layer at the top, and a project's under it.
 	roster := []WebRoute{

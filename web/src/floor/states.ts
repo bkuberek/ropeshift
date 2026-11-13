@@ -118,6 +118,25 @@ export const approvalStates: Record<string, StateLook> = {
   failed_to_run: { label: "Failed to run", tone: "danger", glyph: "cross" },
 };
 
+// cardStates are a confirmation card's states as the API names them (ADR-0024): a card a member confirmed
+// is running until its call answers, and then confirmed, or failed to run with the API's refusal.
+export const cardStates: Record<string, StateLook> = {
+  pending: { label: "Open", tone: "warning", glyph: "half" },
+  approved: { label: "Running", tone: "active", glyph: "dot" },
+  used: { label: "Confirmed", tone: "success", glyph: "check" },
+  failed: { label: "Failed to run", tone: "danger", glyph: "cross" },
+  denied: { label: "Declined", tone: "neutral", glyph: "cross" },
+  void: { label: "Void", tone: "neutral", glyph: "slash" },
+  expired: { label: "Expired", tone: "neutral", glyph: "slash" },
+};
+
+// delegateStates are a delegate credential's states. Only an active one acts.
+export const delegateStates: Record<string, StateLook> = {
+  active: { label: "Active", tone: "active", glyph: "dot" },
+  expired: { label: "Expired", tone: "neutral", glyph: "slash" },
+  revoked: { label: "Revoked", tone: "neutral", glyph: "cross" },
+};
+
 export const projectStates: Record<string, StateLook> = {
   active: { label: "Active", tone: "active", glyph: "dot" },
   archived: { label: "Archived", tone: "neutral", glyph: "slash" },

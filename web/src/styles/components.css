@@ -2288,3 +2288,39 @@ a.wo-card:hover {
   font-weight: 600;
 }
 
+
+/* Actor: who acted, distinct by kind. */
+.actor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.text-2 {
+  color: var(--text-2);
+}
+
+/* What a confirmation card changes, one field or argument a line. */
+.changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.decision .op {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A decided card's outcome takes the whole foot, where its binding stood. */
+.decision.card-confirm.is-resolved .decision-foot > .spacer {
+  display: none;
+}
+
+.decision.card-confirm .resolved-note {
+  flex-wrap: wrap;
+}

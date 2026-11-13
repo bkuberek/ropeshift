@@ -7,7 +7,7 @@ import (
 )
 
 func TestAdmit(t *testing.T) {
-	limits := lanes.Admission{MaxLanes: 4, MaxLanesPerSignIn: 2, MinFreeMemoryMB: 512, MinFreeCPUPercent: 20}
+	limits := lanes.Admission{MaxLanesPerSignIn: 2, MinFreeMemoryMB: 512, MinFreeCPUPercent: 20}
 	plenty := lanes.MachineReading{Known: true, FreeMemoryMB: 2048, FreeCPUPercent: 80}
 	tests := []struct {
 		name  string
@@ -17,9 +17,9 @@ func TestAdmit(t *testing.T) {
 		{"nothing stands in the way", lanes.AdmissionFacts{Mode: lanes.FleetRun, Limits: limits, Machine: plenty}, ""},
 		{"a paused fleet starts nothing", lanes.AdmissionFacts{Mode: lanes.FleetPause, Limits: limits, Machine: plenty}, lanes.HeldFleetPaused},
 		{"a draining fleet starts nothing", lanes.AdmissionFacts{Mode: lanes.FleetDrain, Limits: limits, Machine: plenty}, lanes.HeldFleetDraining},
-		{"the worker is full", lanes.AdmissionFacts{Mode: lanes.FleetRun, Running: 4, Limits: lanes.Admission{MaxLanes: 4}, Machine: plenty}, lanes.HeldWorkerFull},
-		{"one below the worker's cap", lanes.AdmissionFacts{Mode: lanes.FleetRun, Running: 3, Limits: lanes.Admission{MaxLanes: 4}, Machine: plenty}, ""},
-		{"the sign-in is full", lanes.AdmissionFacts{Mode: lanes.FleetRun, Running: 2, Limits: limits, Machine: plenty}, lanes.HeldSignInFull},
+		{"the worker is full", lanes.AdmissionFacts{Mode: lanes.FleetRun, Running: 4, WorkerCap: 4, Machine: plenty}, lanes.HeldWorkerFull},
+		{"one below the worker's cap", lanes.AdmissionFacts{Mode: lanes.FleetRun, Running: 3, WorkerCap: 4, Machine: plenty}, ""},
+		{"the sign-in is full", lanes.AdmissionFacts{Mode: lanes.FleetRun, Running: 2, WorkerCap: 4, Limits: limits, Machine: plenty}, lanes.HeldSignInFull},
 		{"memory under the floor", lanes.AdmissionFacts{Mode: lanes.FleetRun, Limits: limits, Machine: lanes.MachineReading{Known: true, FreeMemoryMB: 100, FreeCPUPercent: 80}}, lanes.HeldMemory},
 		{"CPU under the floor", lanes.AdmissionFacts{Mode: lanes.FleetRun, Limits: limits, Machine: lanes.MachineReading{Known: true, FreeMemoryMB: 2048, FreeCPUPercent: 5}}, lanes.HeldCPU},
 		{"a machine it cannot read does not stop a lane", lanes.AdmissionFacts{Mode: lanes.FleetRun, Limits: limits}, ""},

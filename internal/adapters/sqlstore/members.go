@@ -40,7 +40,36 @@ VALUES (:workspace_id, :digest, :member_id, :created_at, :expires_at)`)
 
 	stmtDropSession = define("member_session.drop_one",
 		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND digest = :digest`)
+
+	stmtDropMemberSessions = define("member_session.drop_member",
+		`DELETE FROM member_sessions WHERE workspace_id = :workspace_id AND member_id = :member_id`)
+
+	stmtInsertDelegate = define("delegate.insert",
+		`INSERT INTO delegate_credentials
+  (workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at)
+VALUES (:workspace_id, :id, :digest, :member_id, :project_id, :label, :kind, :created_at, :expires_at, :last_used_at, :revoked_at)`)
+
+	stmtReadDelegate = define("delegate.read",
+		`SELECT `+delegateColumns+` FROM delegate_credentials WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtReadDelegateByDigest = define("delegate.read_digest",
+		`SELECT `+delegateColumns+` FROM delegate_credentials WHERE workspace_id = :workspace_id AND digest = :digest`)
+
+	stmtListDelegates = define("delegate.list",
+		`SELECT `+delegateColumns+` FROM delegate_credentials WHERE workspace_id = :workspace_id AND member_id = :member_id
+ ORDER BY created_at, id`)
+
+	stmtTouchDelegate = define("delegate.touch",
+		`UPDATE delegate_credentials SET last_used_at = :at WHERE workspace_id = :workspace_id AND id = :id`)
+
+	stmtRevokeDelegate = define("delegate.revoke",
+		`UPDATE delegate_credentials SET revoked_at = :at WHERE workspace_id = :workspace_id AND id = :id AND revoked_at IS NULL`)
+
+	stmtDropDelegate = define("delegate.drop",
+		`DELETE FROM delegate_credentials WHERE workspace_id = :workspace_id AND id = :id`)
 )
+
+const delegateColumns = `id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at`
 
 // memberTx is the member area of one transaction.
 type memberTx struct {
@@ -127,5 +156,78 @@ func (t memberTx) DropSessions(before int64) error {
 
 func (t memberTx) DropSession(digest string) error {
 	_, err := t.exec(stmtDropSession, t.scoped(params{"digest": digest}))
+	return err
+}
+
+func (t memberTx) DropMemberSessions(member string) (int64, error) {
+	return t.exec(stmtDropMemberSessions, t.scoped(params{"member_id": member}))
+}
+
+func scanDelegate(row scanner) (authority.DelegateCredential, error) {
+	var d authority.DelegateCredential
+	var project string
+	var lastUsed, revoked sql.NullInt64
+	err := row.Scan(&d.ID, &d.Digest, &d.Member, &project, &d.Label, &d.Kind, &d.CreatedAt, &d.ExpiresAt, &lastUsed, &revoked)
+	d.Project, d.LastUsedAt, d.RevokedAt = ledger.WorkspaceID(project), lastUsed.Int64, revoked.Int64
+	return d, err
+}
+
+func (t memberTx) readDelegate(st *statement, p params) (authority.DelegateCredential, error) {
+	row, err := t.row(st, t.scoped(p))
+	if err != nil {
+		return authority.DelegateCredential{}, err
+	}
+	d, err := scanDelegate(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return authority.DelegateCredential{}, fmt.Errorf("delegate credential: %w", ports.ErrNotFound)
+	}
+	return d, err
+}
+
+func (t memberTx) Delegate(id string) (authority.DelegateCredential, error) {
+	return t.readDelegate(stmtReadDelegate, params{"id": id})
+}
+
+func (t memberTx) DelegateByDigest(digest string) (authority.DelegateCredential, error) {
+	return t.readDelegate(stmtReadDelegateByDigest, params{"digest": digest})
+}
+
+func (t memberTx) Delegates(member string) ([]authority.DelegateCredential, error) {
+	rows, err := t.rows(stmtListDelegates, t.scoped(params{"member_id": member}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []authority.DelegateCredential
+	for rows.Next() {
+		d, err := scanDelegate(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (t memberTx) InsertDelegate(d authority.DelegateCredential) error {
+	_, err := t.exec(stmtInsertDelegate, t.scoped(params{
+		"id": d.ID, "digest": d.Digest, "member_id": d.Member, "project_id": string(d.Project), "label": d.Label, "kind": d.Kind,
+		"created_at": d.CreatedAt, "expires_at": d.ExpiresAt, "last_used_at": nullInt(d.LastUsedAt), "revoked_at": nullInt(d.RevokedAt),
+	}))
+	return err
+}
+
+func (t memberTx) TouchDelegate(id string, at int64) error {
+	_, err := t.exec(stmtTouchDelegate, t.scoped(params{"id": id, "at": at}))
+	return err
+}
+
+func (t memberTx) RevokeDelegate(id string, at int64) (bool, error) {
+	n, err := t.exec(stmtRevokeDelegate, t.scoped(params{"id": id, "at": at}))
+	return n > 0, err
+}
+
+func (t memberTx) DropDelegate(id string) error {
+	_, err := t.exec(stmtDropDelegate, t.scoped(params{"id": id}))
 	return err
 }

@@ -363,6 +363,12 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 				return nil, err
 			}
 			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: need})
+		case approvals[i].Kind == authority.KindConfirm:
+			need, err := cardNeed(tx.Members(), approvals[i])
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, api.NeedItem{Kind: api.NeedConfirm, ID: approvals[i].ID, Since: approvals[i].RaisedAt, Card: need})
 		default:
 			items = append(items, api.NeedItem{Kind: api.NeedApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, Approval: &approvals[i]})
 		}
@@ -1111,6 +1117,9 @@ func (h *handler) workerLines(tx ports.ReadTx) ([]api.WorkerLine, error) {
 		if line.Freshness, err = h.workers.WorkerFreshness(tx, worker); err != nil {
 			return nil, err
 		}
+		if line.ReportFreshness, err = h.workers.ReportFreshness(tx, worker); err != nil {
+			return nil, err
+		}
 		row, err := tx.Workers().Orchestrator(worker.ID)
 		switch {
 		case err == nil:
@@ -1218,4 +1227,30 @@ func (h *handler) readOperations(tx ports.ReadTx, _ *http.Request, stamp api.Sta
 	}
 	view.Measures, err = control.ReportIn(tx, api.DefaultMeasureWindow, length)
 	return view, err
+}
+
+// cardNeed is what a member reads of a card: the operation it runs, and the delegate that prepared it by
+// its credential's label and the member it acts for. A credential whose record was removed reads as its ID.
+func cardNeed(members ports.MemberReader, card authority.Approval) (*api.CardNeed, error) {
+	detail, err := authority.CardDetailOf(card)
+	if err != nil {
+		return nil, err
+	}
+	need := &api.CardNeed{Approval: card, Detail: detail}
+	kind, id, _ := strings.Cut(card.RequestedBy, ":")
+	member, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
+	if !ok {
+		need.Label = card.RequestedBy
+		return need, nil
+	}
+	need.Member, need.Label = member, credential
+	record, err := members.Delegate(credential)
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+	case err != nil:
+		return nil, err
+	default:
+		need.Label = record.Label
+	}
+	return need, nil
 }

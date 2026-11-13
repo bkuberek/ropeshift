@@ -35,6 +35,8 @@ type Client struct {
 	base       string
 	credential string
 	session    string
+	delegate   string
+	why        string
 	askSession func(context.Context) (string, error)
 }
 
@@ -98,6 +100,12 @@ func (c *Client) send(ctx context.Context, method, path string, in, out any) err
 	if c.session != "" {
 		request.Header.Set(HeaderSession, c.session)
 	}
+	if c.delegate != "" {
+		request.Header.Set(HeaderDelegate, c.delegate)
+	}
+	if c.why != "" {
+		request.Header.Set(HeaderWhy, c.why)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -109,6 +117,20 @@ func (c *Client) send(ctx context.Context, method, path string, in, out any) err
 	if response.StatusCode >= http.StatusBadRequest {
 		return readError(response)
 	}
+	// A delegate's consent call ran nothing: the card it became is the answer.
+	if response.StatusCode == http.StatusAccepted {
+		raw, err := io.ReadAll(io.LimitReader(response.Body, maxAnswer))
+		if err != nil {
+			return err
+		}
+		if prepared := preparedOf(response.StatusCode, raw); prepared != nil {
+			return prepared
+		}
+		if out == nil {
+			return nil
+		}
+		return json.Unmarshal(raw, out)
+	}
 	if out == nil {
 		return nil
 	}
@@ -119,6 +141,9 @@ func (c *Client) send(ctx context.Context, method, path string, in, out any) err
 	}
 	return json.NewDecoder(response.Body).Decode(out)
 }
+
+// maxAnswer bounds an answer the client reads whole before it decodes it.
+const maxAnswer = 16 << 20
 
 func readError(response *http.Response) error {
 	var body ErrorBody

@@ -193,3 +193,19 @@ func TestOnlyAMemberChangesTheRoster(t *testing.T) {
 		t.Error("Actions() does not list the action, so the member test never holds it to the function")
 	}
 }
+
+// TestOnlyAMemberSetsTheLaneCaps holds a machine's lane caps to a person: no agent, worker, or tick
+// changes how many lanes the machine or a sign-in runs (FR-PROJ-7).
+func TestOnlyAMemberSetsTheLaneCaps(t *testing.T) {
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, authority.ActionSetLaneCaps) {
+		t.Error("a member may not set the lane caps")
+	}
+	for _, kind := range []ledger.ActorKind{ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+		if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, authority.ActionSetLaneCaps) {
+			t.Errorf("%s may set the lane caps", kind)
+		}
+	}
+	if !slices.Contains(authority.Actions(), authority.ActionSetLaneCaps) {
+		t.Error("Actions() does not list the action, so the member test never holds it to the function")
+	}
+}

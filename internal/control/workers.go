@@ -314,6 +314,7 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 			return ledger.HeartbeatReply{}, err
 		}
 	}
+	reply.ReportError = saveReport(ctx, w.store.Installation(w.scope), beat)
 	shared, err := w.sharedRevision(ctx)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
@@ -331,6 +332,24 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 		return ledger.HeartbeatReply{}, err
 	}
 	return reply, nil
+}
+
+// saveReport keeps what a heartbeat's worker measured, after its session was checked, and says why it
+// could not. A heartbeat that carries no report leaves the last one standing. A report it could not keep
+// fails nothing else: the leases it renewed and the ones it lost still reach the worker, which sends the
+// report again.
+func saveReport(ctx context.Context, installation ports.Installation, beat ledger.Heartbeat) string {
+	if beat.Report == nil {
+		return ""
+	}
+	report, err := ledger.BoundReport(*beat.Report)
+	if err == nil {
+		err = installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, report)
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func (w *Workers) renewOrReturn(ctx context.Context, lease workorders.Lease, actor ledger.Actor) error {
@@ -1024,6 +1043,23 @@ func (w *Workers) WorkerFreshness(tx ports.ReadTx, worker ledger.Worker) (string
 		seen = max(seen, order.LeaseUntil-w.options.LeaseTTLMs)
 	}
 	if now-min(seen, now) <= freshnessBeats*w.options.HeartbeatMs {
+		return ledger.FreshnessObserved, nil
+	}
+	return ledger.FreshnessLastReported, nil
+}
+
+// ReportFreshness says whether a worker's last resource report is observed: measured within a few of its
+// intervals, or of heartbeats, whichever is longer. A worker that never reported has none.
+func (w *Workers) ReportFreshness(tx ports.ReadTx, worker ledger.Worker) (string, error) {
+	if worker.Report == nil {
+		return "", nil
+	}
+	now, err := tx.Now()
+	if err != nil {
+		return "", err
+	}
+	interval := min(max(worker.Report.IntervalMs, w.options.HeartbeatMs), ledger.MaxReportIntervalMs)
+	if now-min(worker.ReportedAt, now) <= freshnessBeats*interval {
 		return ledger.FreshnessObserved, nil
 	}
 	return ledger.FreshnessLastReported, nil

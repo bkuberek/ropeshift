@@ -22,6 +22,11 @@ type Installation interface {
 	// Write runs fn in one write transaction of the shared records. It commits only if fn returns nil
 	// and appended at least one event, as a project's Write does. op names it in traces and crash steps.
 	Write(ctx context.Context, op string, fn func(SharedTx) error) error
+	// SaveReport keeps what a worker measured, in place of what it measured before, dated by database
+	// time less the report's age. Like a lease renewal it takes no revision and appends no event: one
+	// statement on one row, guarded by the worker's epoch, so a heartbeat never waits for the shared
+	// records' lock. A report of an epoch that is no longer current changes nothing.
+	SaveReport(ctx context.Context, worker string, epoch int64, report ledger.ResourceReport) error
 }
 
 // SharedReadTx is one consistent view of the shared records.

@@ -63,6 +63,7 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"a wrong credential is refused", checkWrongCredential},
 		{"a session opens a new epoch and a stale epoch is refused", checkEpochs},
 		{"a heartbeat returns its nonce and renews", checkHeartbeat},
+		{"a heartbeat's report is kept with no event", checkHeartbeatReport},
 		{"a wrong nonce fails", checkWrongNonce},
 		{"an empty nonce is refused", checkEmptyNonce},
 		{"a lapsed lease returns through a heartbeat", checkLapsedReturns},
@@ -303,6 +304,72 @@ func checkHeartbeat(t *testing.T, ctx context.Context, b LinkBackend) {
 	if got := r.events(t, ctx); len(got) != len(revision) {
 		t.Errorf("a heartbeat appended %d events", len(got)-len(revision))
 	}
+}
+
+// checkHeartbeatReport holds what a worker measured to its record, dated by the control plane's clock less
+// the report's age, with no event, and holds a later report over it (FR-OBS-8).
+func checkHeartbeatReport(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	revision := r.events(t, ctx)
+	cpu := 37.5
+	report := ledger.ResourceReport{
+		IntervalMs: 15_000, AgeMs: 2_000, Machine: ledger.MachineResources{Cores: 8, CPUPercent: &cpu, Volumes: []ledger.VolumeResources{}},
+		Recommendation: &ledger.LaneRecommendation{MaxLanes: 7, Basis: ledger.BasisEstimates, Cores: 8, Reason: "seven fit"},
+		Caps:           ledger.LaneCaps{MaxLanes: 3, MaxLanesSet: true},
+		Sessions:       []ledger.SessionResources{{Kind: ledger.SessionLane, Project: "p", Lane: "lane-1"}},
+	}
+	reply, err := r.Link.Heartbeat(ctx, ledger.Heartbeat{Auth: auth, Epoch: session.Epoch, Protocol: ledger.ProtocolVersion, Nonce: "n1", Report: &report})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := r.worker(t, ctx, auth.WorkerID)
+	if worker.Report == nil || worker.Report.Caps.MaxLanes != 3 || worker.Report.Machine.CPUPercent == nil || *worker.Report.Machine.CPUPercent != cpu ||
+		worker.Report.Recommendation == nil || worker.Report.Recommendation.MaxLanes != 7 || len(worker.Report.Sessions) != 1 {
+		t.Fatalf("kept %+v", worker.Report)
+	}
+	if worker.Report.AgeMs != 0 {
+		t.Errorf("the record keeps the age a heartbeat carried: %d", worker.Report.AgeMs)
+	}
+	if want := reply.ServerTimeMs - 2_000; worker.ReportedAt < want-1_000 || worker.ReportedAt > want {
+		t.Errorf("reported at %d, want about %d", worker.ReportedAt, want)
+	}
+	if worker.LaneCap() != 3 {
+		t.Errorf("a claim is held to %d", worker.LaneCap())
+	}
+	if got := r.events(t, ctx); len(got) != len(revision) {
+		t.Errorf("a report appended %d events", len(got)-len(revision))
+	}
+	report.Caps.MaxLanes, report.AgeMs = 5, 0
+	if _, err := r.Link.Heartbeat(ctx, ledger.Heartbeat{Auth: auth, Epoch: session.Epoch, Protocol: ledger.ProtocolVersion, Nonce: "n2", Report: &report}); err != nil {
+		t.Fatal(err)
+	}
+	if worker := r.worker(t, ctx, auth.WorkerID); worker.Report == nil || worker.Report.Caps.MaxLanes != 5 {
+		t.Errorf("a later report did not replace the first: %+v", worker.Report)
+	}
+	if _, err := r.Link.Heartbeat(ctx, ledger.Heartbeat{Auth: auth, Epoch: session.Epoch, Protocol: ledger.ProtocolVersion, Nonce: "n3"}); err != nil {
+		t.Fatal(err)
+	}
+	if worker := r.worker(t, ctx, auth.WorkerID); worker.Report == nil || worker.Report.Caps.MaxLanes != 5 {
+		t.Errorf("a heartbeat with no report dropped the last: %+v", worker.Report)
+	}
+}
+
+// worker reads one worker's record as the ledger keeps it.
+func (r *LinkRig) worker(t *testing.T, ctx context.Context, id string) ledger.Worker {
+	t.Helper()
+	workers, err := r.Plane.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, worker := range workers {
+		if worker.ID == id {
+			return worker
+		}
+	}
+	t.Fatalf("no worker %s", id)
+	return ledger.Worker{}
 }
 
 func checkWrongNonce(t *testing.T, ctx context.Context, b LinkBackend) {

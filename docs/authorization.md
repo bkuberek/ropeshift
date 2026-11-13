@@ -10,6 +10,7 @@ Ropeshift's aim is that an agent cannot grant itself authority. This page says h
 | Orchestrator | A token for its session process, through its worker | Only a class a member delegated, never its own, and never a plan or recovery request |
 | Lane | A token for its session process, through its worker | None |
 | Worker | The worker credential | None |
+| Delegate | A delegate credential a member made, on the local socket only | Only a class a member delegated, as an orchestrator, and never a card |
 
 A lane or orchestrator token works only on the worker's local socket. It ends when its process ends. A `clear` keeps the process, so the token goes on, and it acts as the lane's current generation.
 
@@ -107,6 +108,24 @@ agent = "deep-implementation"
 ```
 
 A class names a tool and exactly one of a command prefix, a path, or an agent. An `agent` class names the `Agent` tool and one roster agent whose approval is per use, and covers a lane's start of that agent alone, as the call's own input names it ([agents](#agents)). A class with a prefix or a path and a call that carries the other field goes to a member. A prefix reaches one simple command: any shell syntax, such as `;`, `&&`, `|`, `$(`, or a redirect, sends the request to a member. A prefix admits any arguments, so declare only a command whose arguments cannot start something else: `go test -exec` can. A class reads where a call lands, inside the lane's worktree, so a link a lane made under `docs/` leads nowhere a class covers. A path with a `..` in it goes to a member, because a tool reads that off the text and the disk may disagree, and so does a file with a second name, which could lie anywhere. Every other request goes to a member, and so does an orchestrator's own. A decision records the version in force, and only a member can publish one.
+
+### Delegates
+
+A delegate is an agent outside ropeshift, such as a CLI assistant, that acts for a member with a delegate credential (ADR-0024). A member makes one with `ropeshift delegate create`, bound to one project and to a life of one minute to thirty days, and the ledger keeps only its digest. The credential reaches only its project's routes on the local socket: every installation route, every other project, and the web listener refuse it. It acts as the actor `delegate`, named `<member>/<credential>`, so every event names the member it acts for. A member revokes one at any time, and signing out of every session revokes every one of theirs. No lane inherits `ROPESHIFT_DELEGATE_TOKEN`, as none inherits `ROPESHIFT_MEMBER_TOKEN`.
+
+Every changing operation has a class, which `ropeshift operation list` prints:
+
+| Class | A delegate's call |
+|-------|-------------------|
+| Operational | Runs as the delegate: creating and claiming work, starting and steering lanes, reviewing planning work, retrying work with an attempt left, pausing the fleet, recording a decision the decision policy would let an orchestrator record, registering a repository and changing its settings short of the ones below, deciding a request the delegation policy covers, and sending a message |
+| Consent | Records a confirmation card and runs nothing, unless the delegate policy exempts it: accepting work, sending it to rework, canceling it, any other review, a retry with no attempt left, running the fleet or setting its caps, questions and other decisions, changing a forge binding or a merge method, removing a repository, deciding an effect, and typing into a pane, because keys in a pane can answer a prompt no request records |
+| Member only | Refused: managing sessions and delegates, the passphrase, the installation's backup, the delegate policy, a worker's lane caps, which live in the user's profile on its machine where no card can bind to them, and confirming a card |
+
+A card names the exact call, why the delegate proposes it, and what it changes, bound to the subject as it stood, by the identity of the record even when the call named it by a name or a prefix. A member confirms it in Needs you or with `ropeshift confirm`, and the call then runs as that member, through the same checks and events as the member's own. The card is bound again just before its call runs: a subject that changed first makes the card void, and no delegate's word confirms one, its own or another's. Revoking a delegate voids its open cards, and a delegate holds at most 20 open cards in a project, so no agent can bury Needs you.
+
+A versioned `[delegate_policy]` lists the consent operations a delegate runs with no card, and the built-in version lists none. It can never list raising a repository's merge authority, moving its review target to a pull request, changing a policy or a category, changing the agent roster, managing members, worker join tokens, autonomy, or deciding a request outside the delegation policy: a version that lists one is refused. An exemption never applies to an answer or a decision in a one-way category, which stays a card. A delegate decides a request only within the delegation policy, as an orchestrator does.
+
+Each operation names the actions its use case checks, and `Allowed` grants a delegate only what an operational or exemptable consent operation of a project needs. Every member-only and never-exempt operation needs an action no delegate holds, so a defect in the class gate still cannot run one.
 
 ## Agents
 

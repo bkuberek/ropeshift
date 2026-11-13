@@ -35,7 +35,7 @@ var (
 
 // CheckRevisionFirst proves the order SQLite alone cannot show (D7): the first
 // statement of every write transaction takes the workspace revision, and database
-// time is read right after it. A renewal and a wake's next evaluation are the two
+// time is read right after it. A renewal, a wake's next evaluation, and a worker's report are the
 // transactions that skip the revision, and they must then hold no revision statement.
 func CheckRevisionFirst(entries []sqlstore.TraceEntry) (int, error) {
 	byTx := map[uint64][]sqlstore.TraceEntry{}
@@ -71,4 +71,6 @@ func CheckRevisionFirst(entries []sqlstore.TraceEntry) (int, error) {
 }
 
 // IsRenewal names the transactions that hold no revision.
-func IsRenewal(op string) bool { return op == sqlstore.OpRenew || op == sqlstore.OpWakeNextEval }
+func IsRenewal(op string) bool {
+	return op == sqlstore.OpRenew || op == sqlstore.OpWakeNextEval || op == sqlstore.OpSaveReport
+}

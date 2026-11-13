@@ -32,6 +32,12 @@ func (w *Worker) Respawn(ctx context.Context, lane string, asked int64) {
 	}
 }
 
+// ReportPending says the worker holds a report the control plane has not kept.
+func ReportPending(w *Worker) bool {
+	report, _ := w.pendingReport()
+	return report != nil
+}
+
 // Lost is a pass that found a lane's lease gone.
 func (w *Worker) Lost(ctx context.Context, lane string) {
 	if run := w.runOf(lane); run != nil {

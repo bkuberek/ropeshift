@@ -106,6 +106,17 @@ const (
 // PersonDecides reports a level at which a member answers for each change after the review.
 func (a MergeAuthority) PersonDecides() bool { return a != ReviewApproves }
 
+// Rank orders the levels by how much each leaves to ropeshift: a higher level raises merge authority.
+func (a MergeAuthority) Rank() int {
+	switch a {
+	case PersonApproves:
+		return 1
+	case ReviewApproves:
+		return 2
+	}
+	return 0
+}
+
 // ErrInvalidRepository marks a record, or a change to one, that the ledger must not accept.
 var ErrInvalidRepository = errors.New("invalid repository")
 
@@ -290,6 +301,35 @@ func CheckRepositoryName(name string) error {
 		}
 	}
 	return nil
+}
+
+// MinRepositoryPrefix is the shortest prefix of an identity that names a repository.
+const MinRepositoryPrefix = 7
+
+// ShadowsIdentity says a name would read as a repository's identity: the identity itself, or a prefix of
+// it long enough to name it. A command and a route take a name before an identity, so such a name on
+// another record would send a call aimed at this identity to that record.
+func ShadowsIdentity(name, id string) bool {
+	return name == id || (len(name) >= MinRepositoryPrefix && strings.HasPrefix(id, name))
+}
+
+// identityLength is the length of the shortest identity a repository has: a SHA-1 commit hash. A SHA-256
+// one is longer.
+const identityLength = 40
+
+// IdentityShaped says a name has the shape of a repository's identity: hexadecimal digits alone, at least
+// as long as a commit hash. Such a name would read as a repository a later registration brings in, whose
+// identity anyone can compute from its clone's first commit.
+func IdentityShaped(name string) bool {
+	if len(name) < identityLength {
+		return false
+	}
+	for _, r := range name {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // shortIdentity is how much of an identity names a repository nothing else names.

@@ -89,6 +89,8 @@ var operations = map[string]string{
 	"GET /v1/lanes/{id}/messages":                      "message list",
 	"GET /v1/workers/{id}/autonomy":                    "worker autonomy",
 	"PUT /v1/workers/{id}/autonomy":                    "worker level",
+	"GET /v1/workers/{id}/caps":                        "worker caps",
+	"PUT /v1/workers/{id}/caps":                        "worker caps",
 	"POST /v1/workers/{id}/autonomy/acknowledgement":   "worker acknowledge-risk",
 	"POST /v1/workers/{id}/windows":                    "worker window-open",
 	"DELETE /v1/workers/{id}/windows":                  "worker window-close",
@@ -113,6 +115,11 @@ var operations = map[string]string{
 	"POST /v1/effects/{id}/decide":                     "effect decide",
 	"POST /v1/sessions":                                "login",
 	"POST /v1/sessions/end":                            "sign-out",
+	"POST /v1/sessions/end-all":                        "sign-out",
+	"GET /v1/delegates":                                "delegate list",
+	"POST /v1/delegates":                               "delegate create",
+	"POST /v1/delegates/{id}/revoke":                   "delegate revoke",
+	"POST /v1/delegates/{id}/remove":                   "delegate remove",
 	"PUT /v1/passphrase":                               "passphrase set",
 	"GET /v1/passphrase":                               "init",
 	"POST /v1/backup":                                  "backup",
@@ -140,7 +147,7 @@ var operations = map[string]string{
 // namedRoutes are the routes the source spells through a constant.
 var namedRoutes = map[string]string{
 	"api.EventsPath": "events", "api.RiskPath": "worker risk", "api.NeedsYouPath": "needs", "api.PanePath": "lane attach", "api.PaneInputPath": "lane attach",
-	"api.AuditPath": "audit", "api.MembersPath": "member list", "api.ImportUploadPath": "project import", "api.BackupDownloadPath": "backup", "api.InstallationBackupDownloadPath": "backup",
+	"api.AuditPath": "audit", "api.MembersPath": "member list", "api.OperationsPath": "operation list", "api.ImportUploadPath": "project import", "api.BackupDownloadPath": "backup", "api.InstallationBackupDownloadPath": "backup",
 }
 
 var (

@@ -1,6 +1,7 @@
 package sqlstore
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const workerColumns = `id, name, epoch, protocol, capabilities, proof_digest, last_handshake_at`
+const workerColumns = `id, name, epoch, protocol, capabilities, proof_digest, last_handshake_at, report, reported_at`
 
 var (
 	stmtFindWorker = define("worker.find",
@@ -36,6 +37,10 @@ VALUES (:workspace_id, :id, :name, 0, 0, '{}', :proof_digest)`)
        last_handshake_at = :now
  WHERE workspace_id = :workspace_id AND id = :id
 RETURNING epoch`)
+
+	stmtSaveReport = define(OpSaveReport,
+		`UPDATE workers SET report = :report, reported_at = :reported_at
+ WHERE workspace_id = :workspace_id AND id = :id AND epoch = :epoch`)
 
 	stmtInsertJoinGrant = define("join_grant.insert",
 		`INSERT INTO join_grants (workspace_id, id, digest, created_by)
@@ -202,9 +207,9 @@ func (t workerTx) scoped(p params) params {
 
 func scanWorker(row scanner) (ledger.WorkerRecord, error) {
 	var w ledger.WorkerRecord
-	var manifest string
+	var manifest, report string
 	var handshake sql.NullInt64
-	err := row.Scan(&w.ID, &w.Name, &w.Epoch, &w.Protocol, &manifest, &w.ProofDigest, &handshake)
+	err := row.Scan(&w.ID, &w.Name, &w.Epoch, &w.Protocol, &manifest, &w.ProofDigest, &handshake, &report, &w.ReportedAt)
 	if err != nil {
 		return ledger.WorkerRecord{}, err
 	}
@@ -212,7 +217,45 @@ func scanWorker(row scanner) (ledger.WorkerRecord, error) {
 	if err := json.Unmarshal([]byte(manifest), &w.Manifest); err != nil {
 		return ledger.WorkerRecord{}, fmt.Errorf("worker %s: %w", w.ID, err)
 	}
+	if report != "" {
+		w.Report = &ledger.ResourceReport{}
+		if err := json.Unmarshal([]byte(report), w.Report); err != nil {
+			return ledger.WorkerRecord{}, fmt.Errorf("worker %s: report: %w", w.ID, err)
+		}
+	}
 	return w, nil
+}
+
+// saveReport is the write of a worker's report: one statement on one row, with no revision and no event,
+// because a heartbeat carries one every few seconds and must not wait for the lock every change takes.
+// It dates the report by database time less the age the worker sent, and a stale epoch matches no row.
+func (s *Store) saveReport(ctx context.Context, scope ledger.WorkspaceID, worker string, epoch int64, report ledger.ResourceReport) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	age := max(report.AgeMs, 0)
+	report.AgeMs = 0
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	tx, err := s.begin(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	t := workerTx{session: s.session(ctx, tx, ModeWrite, OpSaveReport), scope: scope}
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	if _, err := t.exec(stmtSaveReport, t.scoped(params{"id": worker, "epoch": epoch, "report": string(raw), "reported_at": now - age})); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%s: commit: %w", OpSaveReport, err)
+	}
+	return nil
 }
 
 func (t workerTx) Find(id string) (ledger.WorkerRecord, error) {

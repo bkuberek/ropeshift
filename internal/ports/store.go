@@ -536,6 +536,9 @@ type ApprovalReader interface {
 	OfWorkOrder(workOrder string) ([]authority.Approval, error)
 	// All lists every request, oldest first.
 	All() ([]authority.Approval, error)
+	// Running lists the confirmed cards a member approved by a time whose call has recorded no outcome,
+	// oldest first.
+	Running(before int64) ([]string, error)
 	// Due lists the live requests past their time. A tick reads this with no lock, so each is read
 	// again in its own transaction.
 	Due(now int64) ([]string, error)
@@ -903,6 +906,12 @@ type MemberReader interface {
 	Session(digest string) (authority.Session, error)
 	// Sessions returns every session the ledger still holds.
 	Sessions() ([]authority.Session, error)
+	// Delegate returns one delegate credential by its ID, or ErrNotFound. DelegateByDigest returns one by
+	// the digest of its token. Either may have expired or been revoked, which the caller judges.
+	Delegate(id string) (authority.DelegateCredential, error)
+	DelegateByDigest(digest string) (authority.DelegateCredential, error)
+	// Delegates lists a member's delegate credentials, oldest first.
+	Delegates(member string) ([]authority.DelegateCredential, error)
 }
 
 // MemberWriter writes who can sign in and who has.
@@ -916,6 +925,16 @@ type MemberWriter interface {
 	DropSessions(before int64) error
 	// DropSession removes one session, by the digest of its token.
 	DropSession(digest string) error
+	// DropMemberSessions removes every session of a member, and says how many it removed.
+	DropMemberSessions(member string) (int64, error)
+	// InsertDelegate adds a delegate credential.
+	InsertDelegate(authority.DelegateCredential) error
+	// TouchDelegate records when a credential last acted.
+	TouchDelegate(id string, at int64) error
+	// RevokeDelegate ends a credential at a time, once, and reports whether it was not revoked before.
+	RevokeDelegate(id string, at int64) (bool, error)
+	// DropDelegate removes a credential's record.
+	DropDelegate(id string) error
 }
 
 // WorkerReader reads the worker plane's records.

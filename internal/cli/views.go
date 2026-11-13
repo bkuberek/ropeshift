@@ -258,12 +258,21 @@ func (c *invocation) events(args []string) int {
 // nothing to end, and signing in again would only open a session to end in its place.
 func (c *invocation) signOut(args []string) int {
 	set := c.flags()
+	all := set.Bool("all", false, "end every session of yours, and revoke every delegate credential of yours")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
 	if len(positional) != 0 {
 		return c.usageError("unexpected argument %q", positional[0])
+	}
+	if *all {
+		client := c.client()
+		defer client.Close()
+		ended, err := client.SignOutAll(c.ctx)
+		return c.finish(err, ended, func() string {
+			return fmt.Sprintf("signed out of %d sessions and revoked %d delegates\n", ended.Sessions, len(ended.Delegates))
+		})
 	}
 	if c.session == "" {
 		return c.failure(noSessionToEnd(authority.EnvMemberToken + " is not set in this shell"))
