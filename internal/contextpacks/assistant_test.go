@@ -10,12 +10,13 @@ import (
 // The role is the same bytes for every generation of a conversation, so each reads it from cache, and it
 // states what the assistant may do and how it says it.
 func TestTheAssistantsRoleStatesHowItActs(t *testing.T) {
-	role := contextpacks.AssistantRole("Sam Rivera", "harbor")
-	if role != contextpacks.AssistantRole("Sam Rivera", "harbor") {
+	role := contextpacks.AssistantRole("Sam Rivera", "harbor", "/opt/ropeshift/bin/ropeshift")
+	if role != contextpacks.AssistantRole("Sam Rivera", "harbor", "/opt/ropeshift/bin/ropeshift") {
 		t.Fatal("the role is not the same bytes twice")
 	}
 	for _, want := range []string{
-		"You act for Sam Rivera in harbor", "running `ropeshift`", "exits 10", "--why", "a card waits", "unless its state says so",
+		"You act for Sam Rivera in harbor", "running `/opt/ropeshift/bin/ropeshift`", "`/opt/ropeshift/bin/ropeshift approval show <id>`", "by that path",
+		"exits 10", "--why", "a card waits", "unless its state says so",
 		"[[<kind>:<id>]]", "[[code:<repository>:<path>#L<line>@<commit>]]", "cannot ground", "no `ask`",
 	} {
 		if !strings.Contains(role, want) {

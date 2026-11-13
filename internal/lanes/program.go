@@ -5,6 +5,18 @@ import (
 	"strings"
 )
 
+// CommandWord is a program's path as a shell command names it: as it stands, or quoted when it holds a
+// character a shell would read, such as the space in a macOS state directory. A session's rules and its
+// role name the program this way, and its hook reads the word back to the path.
+func CommandWord(path string) string {
+	for _, c := range path {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/._+-", c)) {
+			return ShellQuote(path)
+		}
+	}
+	return path
+}
+
 // reasonProgram is what a session held to one program is told of any other shell command.
 func reasonProgram(program string) string {
 	return "ropeshift policy: this session runs only `" + program + " ...` in a shell, alone: no other program, no second command, " +

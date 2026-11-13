@@ -199,7 +199,7 @@ func (r *laneRun) writeAssistantRole(ctx context.Context) (string, error) {
 		member = grant.Context.Member
 	}
 	path := filepath.Join(r.rt.configDir(r.lease.Lane), assistantRoleFile)
-	if err := os.WriteFile(path, []byte(contextpacks.AssistantRole(member, grant.Context.ProjectName)), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(contextpacks.AssistantRole(member, grant.Context.ProjectName, lanes.CommandWord(r.rt.Binary))), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil

@@ -123,6 +123,9 @@ func TestAnAssistantRunsWithItsOwnCredentialAndRepliesOnce(t *testing.T) {
 	if strings.Join(spec.Commands, ",") != "lane list,work show" || strings.Join(spec.Routes, ",") != "lane-shim,hook" {
 		t.Errorf("the shell may run %v and its rules deny %v", spec.Commands, spec.Routes)
 	}
+	if role, err := os.ReadFile(spec.SystemPromptFile); err != nil || !strings.Contains(string(role), "`"+a.config.Binary+"`") {
+		t.Errorf("the role names ropeshift as %q (%v)", role, err)
+	}
 	credential, err := control.NewDelegates(a.store).Authenticate(ctx, scope, token)
 	if err != nil {
 		t.Fatal(err)

@@ -61,7 +61,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 	var readRoots []string
 	program := ""
 	if spec.Assistant {
-		readRoots, program = readRootsOf(spec), assistantProgram
+		readRoots, program = readRootsOf(spec), spec.Binary
 	}
 	policy := lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Kept: spec.Kept, Writable: writable,
@@ -188,7 +188,7 @@ func denyRules(spec ports.SessionSpec) []string {
 	if spec.Assistant {
 		rules = append(rules, assistantDenied...)
 		for _, command := range append(slices.Clone(authority.MachineLocalCommands), spec.Routes...) {
-			rules = append(rules, "Bash("+assistantProgram+" "+command+"*)")
+			rules = append(rules, "Bash("+lanes.CommandWord(spec.Binary)+" "+command+"*)")
 		}
 	}
 	for _, dir := range spec.ReadOnlyDirs {

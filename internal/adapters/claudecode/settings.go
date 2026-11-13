@@ -87,14 +87,12 @@ func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 var commitRules = []string{"Bash(git add *)", "Bash(git commit *)", "Bash(git rm *)", "Bash(git mv *)"}
 
 // assistantRules are what an assistant's session runs with no prompt besides its own tools and reading its
-// read roots: a shell for `ropeshift` commands, which act with its credential. Any other command has no
-// rule, so it would ask, and the worker's hook denies it with a reason; every edit, every write, and the
-// web are denied outright (ADR-0024).
-var assistantRules = []string{"Bash(" + assistantProgram + " *)"}
-
-// assistantProgram is the one program an assistant's session runs in a shell, which its hook holds it to
-// whatever its rules or its mode let through.
-const assistantProgram = "ropeshift"
+// read roots: a shell for the ropeshift binary at its stable path, named in full, whose commands act with
+// its credential. Any other command has no rule, so it would ask, and the worker's hook denies it with a
+// reason; every edit, every write, and the web are denied outright (ADR-0024).
+func assistantRules(spec ports.SessionSpec) []string {
+	return []string{"Bash(" + lanes.CommandWord(spec.Binary) + " *)"}
+}
 
 // assistantBuiltIns are the only built-in tools of the CLI an assistant's session holds: reading and
 // searching files, and its shell for ropeshift commands.
@@ -158,7 +156,7 @@ func allowRules(spec ports.SessionSpec) []string {
 		for _, root := range assistantReadRoots(spec) {
 			rules = append(rules, "Read(/"+root+"/**)")
 		}
-		return append(rules, assistantRules...)
+		return append(rules, assistantRules(spec)...)
 	}
 	if spec.OnlyTools || spec.ReadOnly {
 		return rules

@@ -29,7 +29,7 @@ func TestAnAssistantReadsOnlyItsTreesAndRunsOnlyRopeshift(t *testing.T) {
 	spec.ReadOnlyDirs = []string{tree}
 	settings := generateSettings(spec)
 	allow := settings.Permissions.Allow
-	for _, want := range []string{"Read(/" + spec.Dir + "/**)", "Read(/" + tree + "/**)", "Bash(ropeshift *)", toolRule(lanes.ToolContextGet), toolRule(lanes.ToolQuestionSearch)} {
+	for _, want := range []string{"Read(/" + spec.Dir + "/**)", "Read(/" + tree + "/**)", "Bash(" + spec.Binary + " *)", toolRule(lanes.ToolContextGet), toolRule(lanes.ToolQuestionSearch)} {
 		if !slices.Contains(allow, want) {
 			t.Errorf("allow lacks %s: %v", want, allow)
 		}
@@ -38,7 +38,7 @@ func TestAnAssistantReadsOnlyItsTreesAndRunsOnlyRopeshift(t *testing.T) {
 		if slices.Contains([]string{"Read", "Grep", "Glob", "WebFetch", "WebSearch"}, rule) || strings.HasPrefix(rule, "Web") {
 			t.Errorf("an assistant's settings allow %s everywhere", rule)
 		}
-		if strings.HasPrefix(rule, "Edit(") || strings.HasPrefix(rule, "Write") || (strings.HasPrefix(rule, "Bash(") && rule != "Bash(ropeshift *)") {
+		if strings.HasPrefix(rule, "Edit(") || strings.HasPrefix(rule, "Write") || (strings.HasPrefix(rule, "Bash(") && rule != "Bash("+spec.Binary+" *)") {
 			t.Errorf("an assistant's settings allow %s", rule)
 		}
 		if strings.HasPrefix(rule, toolRule("")) && !slices.Contains([]string{
@@ -66,14 +66,15 @@ func TestAnAssistantReadsOnlyItsTreesAndRunsOnlyRopeshift(t *testing.T) {
 		{Tool: "WebFetch", Cwd: spec.Dir},
 		{Tool: "WebSearch", Cwd: spec.Dir},
 		{Tool: "Bash", Command: "cat /proc/1/environ", Cwd: spec.Dir},
-		{Tool: "Bash", Command: "ropeshift lane list && ls ..", Cwd: spec.Dir},
+		{Tool: "Bash", Command: spec.Binary + " lane list && ls ..", Cwd: spec.Dir},
+		{Tool: "Bash", Command: "ropeshift lane list", Cwd: spec.Dir},
 	} {
 		if _, denied := policy.Decide(call); !denied {
 			t.Errorf("the hook's policy lets an assistant %+v", call)
 		}
 	}
 	for _, call := range []lanes.ToolCall{
-		{Tool: "Read", Path: tree + "/main.go", Cwd: spec.Dir}, {Tool: "Grep", Cwd: spec.Dir}, {Tool: "Bash", Command: "ropeshift lane list", Cwd: spec.Dir},
+		{Tool: "Read", Path: tree + "/main.go", Cwd: spec.Dir}, {Tool: "Grep", Cwd: spec.Dir}, {Tool: "Bash", Command: spec.Binary + " lane list", Cwd: spec.Dir},
 	} {
 		if reason, denied := policy.Decide(call); denied {
 			t.Errorf("the hook's policy denies %+v: %s", call, reason)
@@ -118,11 +119,11 @@ func TestAnAssistantsTextIsReadAsReplies(t *testing.T) {
 }
 
 // An assistant's rules deny every ropeshift command that acts on the machine rather than through the API,
-// though `ropeshift *` is allowed, because a deny rule beats an allow rule.
+// though the binary's commands are allowed, because a deny rule beats an allow rule.
 func TestAnAssistantIsDeniedMachineLocalCommands(t *testing.T) {
 	deny := generateSettings(assistantSpec(t)).Permissions.Deny
 	for _, command := range authority.MachineLocalCommands {
-		if want := "Bash(ropeshift " + command + "*)"; !slices.Contains(deny, want) {
+		if want := "Bash(/opt/ropeshift/bin/ropeshift " + command + "*)"; !slices.Contains(deny, want) {
 			t.Errorf("deny lacks %s", want)
 		}
 	}
@@ -139,19 +140,20 @@ func TestAnAssistantRunsOnlyRopeshiftCommandsAndNoRoute(t *testing.T) {
 	spec.Commands, spec.Routes = []string{"lane list", "chat show"}, []string{"hook", "mcp", "statusline", "lane-pane", "lane-shim", "help", "version"}
 	deny := generateSettings(spec).Permissions.Deny
 	for _, route := range spec.Routes {
-		if want := "Bash(ropeshift " + route + "*)"; !slices.Contains(deny, want) {
+		if want := "Bash(" + spec.Binary + " " + route + "*)"; !slices.Contains(deny, want) {
 			t.Errorf("deny lacks %s", want)
 		}
 	}
 	policy := compilePolicy(spec)
 	for _, command := range []string{
-		"ropeshift lane-shim --dir d --socket s -- /bin/sh -c id", "ropeshift hook PreToolUse", "ropeshift backup /tmp/x", "ropeshift chat show c1 --socket=/tmp/evil.sock",
+		spec.Binary + " lane-shim --dir d --socket s -- /bin/sh -c id", spec.Binary + " hook PreToolUse", spec.Binary + " backup /tmp/x",
+		spec.Binary + " chat show c1 --socket=/tmp/evil.sock", "ropeshift chat show c1", "./ropeshift chat show c1",
 	} {
 		if _, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: command, Cwd: spec.Dir}); !denied {
 			t.Errorf("the hook's policy lets an assistant run %q", command)
 		}
 	}
-	if reason, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: "ropeshift chat show c1", Cwd: spec.Dir}); denied {
+	if reason, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: spec.Binary + " chat show c1", Cwd: spec.Dir}); denied {
 		t.Errorf("a command the spec names was denied: %s", reason)
 	}
 }
@@ -202,5 +204,29 @@ func TestAnAssistantIsRefusedAPane(t *testing.T) {
 	}
 	if !slices.ContainsFunc(report.Problems, func(problem string) bool { return strings.Contains(problem, "pane") }) {
 		t.Errorf("an assistant in a pane passed preflight: %v", report.Problems)
+	}
+}
+
+// An assistant's program is the binary at its own path, named in full, quoted where a shell needs it: its
+// rules and its hook take that path and no name a PATH or an alias resolves.
+func TestAnAssistantsProgramIsTheBinaryByItsPath(t *testing.T) {
+	spec := assistantSpec(t)
+	spec.Binary, spec.Commands = "/Users/sam/Library/Application Support/ropeshift/bin/ropeshift", []string{"lane list"}
+	quoted := "'/Users/sam/Library/Application Support/ropeshift/bin/ropeshift'"
+	settings := generateSettings(spec)
+	if !slices.Contains(settings.Permissions.Allow, "Bash("+quoted+" *)") || !slices.Contains(settings.Permissions.Deny, "Bash("+quoted+" init*)") {
+		t.Errorf("the rules name the binary as %v and %v", settings.Permissions.Allow, settings.Permissions.Deny)
+	}
+	spec.Routes = []string{"lane-shim"}
+	settings = generateSettings(spec)
+	if !slices.Contains(settings.Permissions.Deny, "Bash("+quoted+" lane-shim*)") {
+		t.Errorf("deny lacks the route by the quoted path: %v", settings.Permissions.Deny)
+	}
+	policy := compilePolicy(spec)
+	if reason, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: quoted + " lane list", Cwd: spec.Dir}); denied {
+		t.Errorf("the binary by its quoted path was denied: %s", reason)
+	}
+	if _, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: "ropeshift lane list", Cwd: spec.Dir}); !denied {
+		t.Error("the binary by its name was allowed")
 	}
 }

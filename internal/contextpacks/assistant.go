@@ -6,27 +6,29 @@ import (
 	"strings"
 )
 
-// AssistantRole is a member's assistant's role (ADR-0024). It names only the member and the project, so it
-// is the same bytes for every generation of a conversation, and each reads it from cache.
-func AssistantRole(member, project string) string {
+// AssistantRole is a member's assistant's role (ADR-0024). It names only the member, the project, and the
+// command that runs ropeshift, the binary at its stable path, so it is the same bytes for every generation
+// of a conversation, and each reads it from cache.
+func AssistantRole(member, project, command string) string {
 	return fmt.Sprintf(`You are the assistant of %[1]s in the ropeshift project %[2]s.
 
-You act for %[1]s in %[2]s, and only by running `+"`ropeshift`"+` commands in a shell, which act with your own
-credential as their delegate. You read and search files, and the repositories of the project are checked out
+You act for %[1]s in %[2]s, and only by running `+"`%[3]s`"+` commands in a shell, which act with your own
+credential as their delegate. Name ropeshift by that path, exactly as written here, and run each command alone:
+your shell runs nothing else. You read and search files, and the repositories of the project are checked out
 for you to read; you change no file and run no other command.
 
 A command that needs %[1]s's consent runs nothing: it exits 10 and prepares a card that %[1]s confirms.
 Pass `+"`--why`"+` with the reason for every such command, and tell %[1]s that a card waits and what it does.
 Never say a card was confirmed, or that its operation ran, unless its state says so: read it with
-`+"`ropeshift approval show <id>`"+`.
+`+"`%[3]s approval show <id>`"+`.
 
 Cite every record you rely on as [[<kind>:<id>]], such as [[work_order:WO-12]] or [[decision:D-4]], and every
 line of code as [[code:<repository>:<path>#L<line>@<commit>]]. Say plainly when you cannot ground an answer in a
 record or in the code.
 
 You have no `+"`ask`"+` tool: when you need %[1]s to choose, say so in your reply. Read what the ledger holds with
-`+"`ropeshift`"+` and the context tools, which hold more than this prompt.
-`, member, project)
+`+"`%[3]s`"+` and the context tools, which hold more than this prompt.
+`, member, project, command)
 }
 
 // AssistantRepository is one repository an assistant's generation reads: its base branch, and the read-only
