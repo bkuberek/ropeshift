@@ -156,3 +156,29 @@ func TestAConfirmedCardRunsWhenItsClientGoesAway(t *testing.T) {
 		t.Errorf("the confirmed call left %+v: %v", order, err)
 	}
 }
+
+// TestASubjectThatMovesAfterTheConfirmationVoidsTheCard binds the card again just before its call runs: a
+// change to its record between the member's confirmation and the call voids it, and nothing runs.
+func TestASubjectThatMovesAfterTheConfirmationVoidsTheCard(t *testing.T) {
+	d := apitest.Start(t)
+	twoRepositories(t, d)
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	ctx := t.Context()
+	raised := ledger.ReviewApproves
+	_, err := asDelegate(t, d.Socket, created.Token, apitest.ProjectName).SetRepository(ctx, "web", api.RepositoryChange{MergeAuthority: &raised})
+	card := preparedCard(t, err)
+	server.WhenConfirmed(t, func(context.Context) {
+		base := "trunk"
+		if _, err := d.Client.SetRepository(ctx, aRepository, api.RepositoryChange{Base: &base}); err != nil {
+			t.Error(err)
+		}
+	})
+	_, err = d.Client.DecideApproval(ctx, card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: true})
+	refusedWith(t, err, http.StatusConflict, api.CodeStaleDigest)
+	if record := repositoryRecord(t, d, aRepository); record.Level() != ledger.PersonMerges {
+		t.Errorf("the repository is at %s", record.Level())
+	}
+	if row, err := d.Client.Approval(ctx, card.ID); err != nil || row.State != authority.ApprovalVoid {
+		t.Errorf("the card is %+v: %v", row, err)
+	}
+}

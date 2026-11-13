@@ -167,6 +167,19 @@ func (a *Approvals) Bind(ctx context.Context, scope ledger.WorkspaceID, b Bindin
 	return digest, err
 }
 
+// StillBound says a card's subject is still what the card was bound to, by binding it again now.
+func (a *Approvals) StillBound(ctx context.Context, scope ledger.WorkspaceID, card authority.Approval) (bool, error) {
+	binding, err := bindingOf(card)
+	if err != nil {
+		return false, err
+	}
+	digest, err := a.Bind(ctx, scope, binding)
+	if err != nil {
+		return false, err
+	}
+	return digest == card.SubjectDigest, nil
+}
+
 // Prepare records a card a delegate's consent call made. It runs nothing, and it waits for a member with
 // no time limit: a card never expires.
 func (a *Approvals) Prepare(ctx context.Context, scope ledger.WorkspaceID, card authority.Approval, actor ledger.Actor) (authority.Approval, error) {

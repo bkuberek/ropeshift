@@ -629,9 +629,17 @@ func (h *handler) confirmCard(w http.ResponseWriter, r *http.Request, decision a
 }
 
 // movedSince says why a confirmed card no longer addresses what it was bound to, or nothing when it
-// still does. A repository's call reaches its record by a name or a prefix as well as its identity, so the
-// identity the card holds must still read as that record and no other.
+// still does. The card is bound again just before its call runs, so a subject that moved after the
+// confirmation's own check voids it. A repository's call reaches its record by a name or a prefix as well
+// as its identity, so the identity the card holds must also still read as that record and no other.
 func (h *handler) movedSince(ctx context.Context, card authority.Approval) (string, error) {
+	bound, err := h.approvals.StillBound(ctx, h.Scope, card)
+	if err != nil {
+		return "", err
+	}
+	if !bound {
+		return "The subject changed since the card was prepared.", nil
+	}
 	kind, id, _ := strings.Cut(card.Subject, ":")
 	if kind != ledger.SubjectRepository {
 		return "", nil
