@@ -298,15 +298,18 @@ function WorkerDialog({ choosing, busy, onClose, onChoose }: { choosing: Choosin
 }
 
 function RenameDialog({ open, current, onClose, onRename }: { open: boolean; current: string; onClose: () => void; onRename: (name: string) => Promise<string> }) {
-  const [name, setName] = useState(current);
+  // What the member typed, or nothing yet: the field shows the conversation's name until they change it, so the
+  // button is enabled from the first frame the dialog shows, and never stands in a disabled color on its way.
+  const [typed, setTyped] = useState<string | null>(null);
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const name = typed ?? current;
   useEffect(() => {
-    if (open) {
-      setName(current);
+    if (!open) {
+      setTyped(null);
       setFailure("");
     }
-  }, [open, current]);
+  }, [open]);
   const valid = name.trim().length >= 1 && name.trim().length <= 80;
   const save = async () => {
     setBusy(true);
@@ -338,7 +341,7 @@ function RenameDialog({ open, current, onClose, onRename }: { open: boolean; cur
         }}
       >
         <Field label="Name" help="1 to 80 characters." error={name.trim().length > 80 ? "A name is at most 80 characters." : undefined}>
-          <input className="input" autoComplete="off" value={name} onChange={(event) => setName(event.target.value)} />
+          <input className="input" autoComplete="off" value={name} onChange={(event) => setTyped(event.target.value)} />
         </Field>
         {failure ? <Refusal>{failure}</Refusal> : null}
       </form>

@@ -292,9 +292,13 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await dock.getByRole("log", { name: "Messages with the assistant" }).waitFor();
         await dock.getByRole("button", { name: "Conversation actions" }).click();
         found.push(...(await audit(page)).map((violation) => `conversation menu ${violation}`));
+        // A control that changes state as a dialog opens must not show a color on its way: axe reads whatever
+        // a transition has reached, so the audit runs with transitions held slow.
+        const slow = await page.addStyleTag({ content: "*, *::before, *::after { transition-duration: 5s !important; }" });
         await page.getByRole("menuitem", { name: "Rename…" }).click();
         await page.getByRole("dialog", { name: "Rename conversation" }).waitFor();
         found.push(...(await audit(page)).map((violation) => `rename dialog ${violation}`));
+        await slow.evaluate((style) => (style as HTMLElement).remove());
         await page.keyboard.press("Escape");
         await dock.getByRole("button", { name: "Conversation actions" }).click();
         await page.getByRole("menuitem", { name: "Delete conversation…" }).click();
