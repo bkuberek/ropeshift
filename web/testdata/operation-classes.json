@@ -71,6 +71,12 @@
       "never_reason": "Autonomy is policy, which only a member changes."
     },
     {
+      "id": "worker.lane_caps",
+      "label": "Set a worker's lane caps",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "orchestrator.run",
       "label": "Start or stop an orchestrator",
       "class": "operational",
