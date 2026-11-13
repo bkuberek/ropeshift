@@ -40,7 +40,13 @@ const (
 	// link (FR-LANE-19), because a link can lead out of the worktree.
 	ReasonLink = "ropeshift policy: mkdir, rm, rmdir, and mv run on this lane only on paths with no link in them, because a link can lead " +
 		"out of the worktree. Name the path inside the worktree that the link leads to."
+	// ReasonReadOutside is what a session whose reads are scoped is told when it reads past its read roots.
+	ReasonReadOutside = "ropeshift policy: this session reads only its own directory and the read-only trees of the project's repositories. " +
+		"Read there, with a path the policy can read, and read the ledger with ropeshift."
 )
+
+// readTools read files, which a policy with read roots holds to them.
+var readTools = []string{"Read", "Grep", "Glob", "LS", "NotebookRead"}
 
 // filePrograms make, move, and delete files and directories, and generated settings let a lane that writes
 // run them with no prompt (FR-LANE-19). Each changes every operand it names and runs no other program, so
@@ -118,6 +124,8 @@ type PolicySpec struct {
 	// ReadOnly makes a lane that reads and reports: it edits no file with a tool, and writes no commit
 	// and no ref.
 	ReadOnly bool
+	// ReadRoots, when set, are the only directories the session may read with a file tool.
+	ReadRoots []string
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -148,7 +156,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 	return DenyPolicy{
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
-		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates,
+		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, ReadRoots: slices.Clone(spec.ReadRoots),
 	}
 }
 
@@ -192,7 +200,33 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 			return ReasonOutside, true
 		}
 	}
+	if slices.Contains(readTools, call.Tool) && len(p.ReadRoots) != 0 && !p.readable(call) {
+		return ReasonReadOutside, true
+	}
 	return "", false
+}
+
+// readable says a file tool reads under a read root. A search with no path reads where the session
+// stands, and a path the policy cannot read reads as outside, because this hook fails closed.
+func (p DenyPolicy) readable(call ToolCall) bool {
+	target := call.Path
+	if target == "" {
+		target = call.Cwd
+	}
+	// A tool may read `~` or a variable as a place the policy cannot see, so neither reads as inside.
+	if strings.HasPrefix(target, "~") || strings.Contains(target, "$") {
+		return false
+	}
+	resolved, ok := p.resolve(shellWord{text: target}, call.Cwd)
+	if !ok {
+		return false
+	}
+	for _, root := range p.ReadRoots {
+		if resolved == root || strings.HasPrefix(resolved, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // commandWrappers run the command that follows them.

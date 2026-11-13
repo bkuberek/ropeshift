@@ -582,3 +582,37 @@ func diskLinks(path string) (bool, error) {
 	}
 	return err == nil && info.Mode()&os.ModeSymlink != 0, err
 }
+
+// A session whose reads are scoped reads only under its read roots: a file outside them, or a search
+// that names one, is denied whatever a rule allowed, and a search with no path reads where it stands.
+func TestAReadOutsideTheReadRootsIsDenied(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/run/a/session", ReadRoots: []string{"/run/a/session", "/run/a/repositories/api"}})
+	cwd := "/run/a/session"
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: "/home/x/.ssh/id_ed25519", Cwd: cwd},
+		{Tool: "Read", Path: "/proc/42/environ", Cwd: cwd},
+		{Tool: "Read", Path: "../../state/ledger.db", Cwd: cwd},
+		{Tool: "Grep", Path: "/home/x/.config/gh", Cwd: cwd},
+		{Tool: "Glob", Path: "/state", Cwd: cwd},
+		{Tool: "Grep", Cwd: "/elsewhere"},
+		{Tool: "Read", Path: "$HOME/secret", Cwd: cwd},
+		{Tool: "Read", Path: "~/.ssh/config", Cwd: cwd},
+	} {
+		if reason, denied := policy.Decide(call); !denied || reason != ReasonReadOutside {
+			t.Errorf("%+v: %q %v", call, reason, denied)
+		}
+	}
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: "/run/a/repositories/api/main.go", Cwd: cwd},
+		{Tool: "Read", Path: "notes.md", Cwd: cwd},
+		{Tool: "Grep", Cwd: cwd},
+		{Tool: "Glob", Path: "/run/a/repositories/api", Cwd: cwd},
+	} {
+		if reason, denied := policy.Decide(call); denied {
+			t.Errorf("%+v was denied: %s", call, reason)
+		}
+	}
+	if _, denied := CompilePolicy(PolicySpec{Worktree: "/w"}).Decide(ToolCall{Tool: "Read", Path: "/etc/hosts", Cwd: "/w"}); denied {
+		t.Error("a lane with no read roots was held to them")
+	}
+}

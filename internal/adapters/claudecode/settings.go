@@ -86,11 +86,49 @@ func toolRule(tool string) string { return "mcp__" + ServerName + "__" + tool }
 // worktree (lanes.DenyPolicy).
 var commitRules = []string{"Bash(git add *)", "Bash(git commit *)", "Bash(git rm *)", "Bash(git mv *)"}
 
-// assistantRules are what an assistant's session runs with no prompt besides its own tools: reading and
-// searching files, the web tools, and a shell for `ropeshift` commands, which act with its credential. Any
-// other command has no rule, so it would ask, and the worker's hook denies it with a reason; every edit and
-// write is denied outright (ADR-0024).
-var assistantRules = []string{"Read", "Grep", "Glob", "WebFetch", "WebSearch", "Bash(ropeshift *)"}
+// assistantRules are what an assistant's session runs with no prompt besides its own tools and reading its
+// read roots: a shell for `ropeshift` commands, which act with its credential. Any other command has no
+// rule, so it would ask, and the worker's hook denies it with a reason; every edit, every write, and the
+// web are denied outright (ADR-0024).
+var assistantRules = []string{"Bash(ropeshift *)"}
+
+// assistantDenied are the tools an assistant's session never runs: the web, through which anything it read
+// would leave.
+var assistantDenied = []string{"WebFetch", "WebSearch"}
+
+// assistantReadRoots are the only directories an assistant's session reads: its own directory and the
+// read-only trees of the project's repositories, each by its name and the name its links resolve to. A name
+// a rule would read as a pattern gets no rule, and the hook still reads it.
+func assistantReadRoots(spec ports.SessionSpec) []string {
+	var roots []string
+	for _, root := range readRootsOf(spec) {
+		if !strings.ContainsAny(root, patternCharacters) {
+			roots = append(roots, root)
+		}
+	}
+	return roots
+}
+
+// readRootsOf are an assistant's own directory and its read-only trees, each by its name and the name its
+// links resolve to.
+func readRootsOf(spec ports.SessionSpec) []string {
+	var roots []string
+	for _, dir := range append([]string{spec.Dir}, spec.ReadOnlyDirs...) {
+		if dir == "" {
+			continue
+		}
+		names := []string{filepath.Clean(dir)}
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			names = append(names, real)
+		}
+		for _, name := range names {
+			if !slices.Contains(roots, name) {
+				roots = append(roots, name)
+			}
+		}
+	}
+	return roots
+}
 
 // pushRules ask before every push on a lane that writes, in every mode, because an ask rule beats an allow
 // rule and holds where nothing else would ask (FR-LANE-19). A push the rule does not match, such as
@@ -109,6 +147,9 @@ func allowRules(spec ports.SessionSpec) []string {
 		rules = append(rules, toolRule(tool))
 	}
 	if spec.Assistant {
+		for _, root := range assistantReadRoots(spec) {
+			rules = append(rules, "Read(/"+root+"/**)")
+		}
 		return append(rules, assistantRules...)
 	}
 	if spec.OnlyTools || spec.ReadOnly {

@@ -176,3 +176,29 @@ func TestTheHookDeniesAFileProgramThroughALink(t *testing.T) {
 		}
 	}
 }
+
+// The hook reads the path a search names, so a search outside a session's read roots is denied too.
+func TestTheHookDeniesASearchOutsideTheReadRoots(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "policy.json")
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{Worktree: "/run/a/session", ReadRoots: []string{"/run/a/session"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policy, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{event: eventPreToolUse, policy: policy}
+	for _, input := range []string{
+		`{"tool_name":"Grep","cwd":"/run/a/session","tool_input":{"pattern":"token","path":"/home/x/.config"}}`,
+		`{"tool_name":"Glob","cwd":"/run/a/session","tool_input":{"pattern":"*","path":"/state"}}`,
+		`{"tool_name":"Read","cwd":"/run/a/session","tool_input":{"file_path":"/proc/1/environ"}}`,
+	} {
+		if verdict, answer := decide(cfg, []byte(input)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+			t.Errorf("%s: %v %s", input, verdict, answer)
+		}
+	}
+	if verdict, _ := decide(cfg, []byte(`{"tool_name":"Grep","cwd":"/run/a/session","tool_input":{"pattern":"x"}}`)); verdict == callDenied {
+		t.Error("a search where the session stands was denied")
+	}
+}

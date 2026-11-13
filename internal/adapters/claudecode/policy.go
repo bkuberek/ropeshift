@@ -57,14 +57,27 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 			readOnly = append(readOnly, resolved)
 		}
 	}
-	return lanes.CompilePolicy(lanes.PolicySpec{
+	var readRoots []string
+	if spec.Assistant {
+		readRoots = readRootsOf(spec)
+	}
+	policy := lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Kept: spec.Kept, Writable: writable,
 		ReadOnlyRoots: readOnly,
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
-		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec),
+		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec), ReadRoots: readRoots,
 	})
+	if spec.Assistant {
+		for _, tool := range assistantDenied {
+			policy.Deny = append(policy.Deny, lanes.DenyRule{Tool: tool, Reason: reasonNoWeb})
+		}
+	}
+	return policy
 }
+
+// reasonNoWeb is what an assistant's session is told when it reaches for the web.
+const reasonNoWeb = "ropeshift policy: the assistant does not use the web. Answer from the project's records and its read-only trees."
 
 // holdPolicy changes the one field a worker changes after a start. The file goes by a rename,
 // because a hook reads it with no lock, and a file it cannot read denies every tool.
@@ -136,6 +149,9 @@ func denyRules(spec ports.SessionSpec) []string {
 	}
 	if spec.ReadOnly || spec.Assistant {
 		rules = append(rules, readOnlyRules()...)
+	}
+	if spec.Assistant {
+		rules = append(rules, assistantDenied...)
 	}
 	for _, dir := range spec.ReadOnlyDirs {
 		rules = append(rules, "Edit(/"+dir+")", "Edit(/"+dir+"/**)")

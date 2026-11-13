@@ -1,6 +1,7 @@
 package claudecode
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -18,17 +19,24 @@ func assistantSpec(t *testing.T) ports.SessionSpec {
 	}
 }
 
-// An assistant reads, searches, uses the web tools and its context tools, and runs `ropeshift` and nothing
-// else in a shell; no rule lets it edit, write, stage, commit, or push.
-func TestAnAssistantRunsOnlyRopeshiftInAShellAndWritesNothing(t *testing.T) {
-	settings := generateSettings(assistantSpec(t))
+// An assistant reads and searches only its own directory and the read-only trees, and runs `ropeshift`
+// and nothing else in a shell: no rule lets it read anywhere else, reach the web, edit, write, stage,
+// commit, or push, and the hook's policy holds reads to those roots whatever a rule says.
+func TestAnAssistantReadsOnlyItsTreesAndRunsOnlyRopeshift(t *testing.T) {
+	spec := assistantSpec(t)
+	tree := t.TempDir()
+	spec.ReadOnlyDirs = []string{tree}
+	settings := generateSettings(spec)
 	allow := settings.Permissions.Allow
-	for _, want := range []string{"Read", "Grep", "Glob", "WebFetch", "WebSearch", "Bash(ropeshift *)", toolRule(lanes.ToolContextGet), toolRule(lanes.ToolQuestionSearch)} {
+	for _, want := range []string{"Read(/" + spec.Dir + "/**)", "Read(/" + tree + "/**)", "Bash(ropeshift *)", toolRule(lanes.ToolContextGet), toolRule(lanes.ToolQuestionSearch)} {
 		if !slices.Contains(allow, want) {
 			t.Errorf("allow lacks %s: %v", want, allow)
 		}
 	}
 	for _, rule := range allow {
+		if slices.Contains([]string{"Read", "Grep", "Glob", "WebFetch", "WebSearch"}, rule) || strings.HasPrefix(rule, "Web") {
+			t.Errorf("an assistant's settings allow %s everywhere", rule)
+		}
 		if strings.HasPrefix(rule, "Edit(") || strings.HasPrefix(rule, "Write") || (strings.HasPrefix(rule, "Bash(") && rule != "Bash(ropeshift *)") {
 			t.Errorf("an assistant's settings allow %s", rule)
 		}
@@ -38,7 +46,7 @@ func TestAnAssistantRunsOnlyRopeshiftInAShellAndWritesNothing(t *testing.T) {
 			t.Errorf("an assistant's settings allow its tool %s", rule)
 		}
 	}
-	for _, tool := range lanes.ReadOnlyTools() {
+	for _, tool := range append(lanes.ReadOnlyTools(), "WebFetch", "WebSearch") {
 		if !slices.Contains(settings.Permissions.Deny, tool) {
 			t.Errorf("deny lacks %s: %v", tool, settings.Permissions.Deny)
 		}
@@ -49,8 +57,22 @@ func TestAnAssistantRunsOnlyRopeshiftInAShellAndWritesNothing(t *testing.T) {
 	if len(settings.Permissions.Ask) != 0 {
 		t.Errorf("an assistant asks %v", settings.Permissions.Ask)
 	}
-	if denied := compilePolicy(assistantSpec(t)).Deny; !slices.ContainsFunc(denied, func(rule lanes.DenyRule) bool { return strings.Contains(rule.Tool, "Edit") }) {
-		t.Error("the hook's policy lets an assistant edit")
+	policy := compilePolicy(spec)
+	for _, call := range []lanes.ToolCall{
+		{Tool: "Edit", Path: spec.Dir + "/x", Cwd: spec.Dir},
+		{Tool: "Read", Path: "/proc/1/environ", Cwd: spec.Dir},
+		{Tool: "Grep", Path: filepath.Dir(spec.ConfigDir), Cwd: spec.Dir},
+		{Tool: "WebFetch", Cwd: spec.Dir},
+		{Tool: "WebSearch", Cwd: spec.Dir},
+	} {
+		if _, denied := policy.Decide(call); !denied {
+			t.Errorf("the hook's policy lets an assistant %+v", call)
+		}
+	}
+	for _, call := range []lanes.ToolCall{{Tool: "Read", Path: tree + "/main.go", Cwd: spec.Dir}, {Tool: "Grep", Cwd: spec.Dir}} {
+		if reason, denied := policy.Decide(call); denied {
+			t.Errorf("the hook's policy denies %+v: %s", call, reason)
+		}
 	}
 	if settings.Hooks["PreToolUse"] == nil || settings.Hooks["PermissionRequest"] == nil {
 		t.Error("an assistant's session has no hook")

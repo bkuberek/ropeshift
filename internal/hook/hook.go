@@ -351,6 +351,8 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 			Command  string `json:"command"`
 			File     string `json:"file_path"`
 			Notebook string `json:"notebook_path"`
+			// Path is what a search or a listing reads.
+			Path string `json:"path"`
 		} `json:"tool_input"`
 	}
 	if json.Unmarshal(input, &call) != nil {
@@ -375,6 +377,9 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 	target := call.Input.File
 	if target == "" {
 		target = call.Input.Notebook
+	}
+	if target == "" {
+		target = call.Input.Path
 	}
 	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd}
 	reason, denied := policy.WithLinks(diskLink).Decide(tool)

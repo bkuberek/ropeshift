@@ -262,6 +262,9 @@ type DenyPolicy struct {
 	// ReadOnlyRoots are worktrees of other repositories a lane reads and never changes (ADR-0022): no git
 	// command that writes may run in one, and like everything outside Roots, no write may reach one.
 	ReadOnlyRoots []string `json:"read_only_roots,omitempty"`
+	// ReadRoots, when set, are the only directories a file tool may read: a read, a search, or a listing
+	// anywhere else is denied, whatever a rule allowed. None reads anywhere.
+	ReadRoots []string `json:"read_roots,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
 	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A
