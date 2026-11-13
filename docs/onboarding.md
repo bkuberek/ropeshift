@@ -249,7 +249,7 @@ The `[resources]` table of your own layer sets how often the worker measures and
 
 A threshold of `0` turns its warning off. These settings are the machine's, so a repository's or a lane's layer cannot change them.
 
-`ropeshift worker list` and `ropeshift top` show what each worker last measured and how long ago, with each lane's process tree in `top`. A worker that has not reported yet says so.
+`ropeshift worker list` and `ropeshift top` show what each worker last measured and how long ago, with each lane's process tree in `top`, and the web UI's Workers page shows the same for every machine and session, with each warning. A worker that has not reported yet says so.
 
 ### Where a lane starts
 

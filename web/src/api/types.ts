@@ -472,11 +472,66 @@ export type CompletedWork = { work_order: WorkOrder; standing: Standing; since: 
 
 export type Completed = Stamp & { items: CompletedWork[] };
 
-export type Worker = { id: string; name: string; epoch: number; protocol: number; last_handshake_at?: number; manifest: { capacity?: { max_lanes?: number } } };
+// A worker's report is what it last measured of its machine and its sessions (FR-OBS-8). A measure the
+// machine could not provide is absent, never zero.
+export type VolumeResources = { roles: string[]; free_bytes: number; total_bytes: number };
+
+export type MachineResources = {
+  cores?: number;
+  cpu_percent?: number;
+  load_1?: number;
+  load_5?: number;
+  load_15?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  memory_available_bytes?: number;
+  memory_pressure_some?: number;
+  memory_pressure_full?: number;
+  volumes: VolumeResources[];
+};
+
+export type SessionResources = { kind: "lane" | "orchestrator" | "assistant"; project?: string; lane?: string; cpu_cores?: number; rss_bytes?: number; processes?: number };
+
+export type LaneRecommendation = {
+  max_lanes: number;
+  basis: "estimates" | "observed";
+  observed_lanes: number;
+  cores: number;
+  memory_total_bytes?: number;
+  reserve_cpu: number;
+  reserve_memory_bytes: number;
+  lane_cpu: number;
+  lane_memory_bytes: number;
+  by_cpu: number;
+  by_memory?: number;
+  reason: string;
+};
+
+export type ResourceWarning = { measure: "disk_free" | "memory_available" | "memory_pressure" | "cpu_load"; volume?: string; value: number; threshold: number; message: string };
+
+export type ResourceReport = {
+  interval_ms: number;
+  machine: MachineResources;
+  recommendation?: LaneRecommendation;
+  caps: { max_lanes: number; max_lanes_set: boolean; max_lanes_per_sign_in: number };
+  sessions: SessionResources[];
+  warnings?: ResourceWarning[];
+};
+
+export type Worker = {
+  id: string;
+  name: string;
+  epoch: number;
+  protocol: number;
+  last_handshake_at?: number;
+  manifest: { capacity?: { max_lanes?: number } };
+  report?: ResourceReport;
+  reported_at?: number;
+};
 
 export type Orchestrator = { id: string; worker_id: string; desired_state: string; run: number; resets: number; actual_state?: string; current_generation?: number };
 
-export type WorkerLine = { worker: Worker; freshness: "observed" | "last_reported"; orchestrator?: Orchestrator };
+export type WorkerLine = { worker: Worker; freshness: "observed" | "last_reported"; report_freshness?: "observed" | "last_reported"; orchestrator?: Orchestrator };
 
 // A lane on the shop floor names the work it runs, because a lane's ID says nothing to a person.
 export type FloorLane = Lane & { work_order_title?: string };
