@@ -14,9 +14,10 @@ func reasonProgram(program string) string {
 // runsOnly says a command line runs the one program and nothing else: one simple command whose first word
 // is the program's name, with no assignment or wrapper before it, no substitution, variable, or unquoted
 // `~`, `*`, `?`, `[`, or `{` in any word, no here-document or here-string, and no redirect but one that
-// joins a descriptor to another. With commands, the words after the program name one of them. Anything
-// else reads as another command, because this hook fails closed.
-func runsOnly(text, program string, commands []string) bool {
+// joins a descriptor to another. With commands, the words after the program name one of them, and no word
+// is one of the refused flags in any form. Anything else reads as another command, because this hook fails
+// closed.
+func runsOnly(text, program string, commands, refused []string) bool {
 	parsed, nested := parseShell(text)
 	if len(nested) != 0 || len(parsed) != 1 {
 		return false
@@ -26,7 +27,7 @@ func runsOnly(text, program string, commands []string) bool {
 		return false
 	}
 	for _, word := range command.words {
-		if word.dynamic || word.glob {
+		if word.dynamic || word.glob || refusedFlag(word.text, refused) {
 			return false
 		}
 	}
@@ -36,6 +37,18 @@ func runsOnly(text, program string, commands []string) bool {
 		}
 	}
 	return len(commands) == 0 || namesCommand(command.words[1:], commands)
+}
+
+// refusedFlag says a word is one of the refused flags: `-name`, `--name`, `-name=value`, or `--name=value`.
+func refusedFlag(word string, refused []string) bool {
+	for _, name := range refused {
+		for _, form := range []string{"-" + name, "--" + name} {
+			if word == form || strings.HasPrefix(word, form+"=") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // maxCommandWords is the longest name a command has.

@@ -31,6 +31,25 @@ var MachineLocalCommands = []string{
 	"backup", "repository add",
 }
 
+// RedirectingFlags are the flags no delegate's command takes, by name: each points the command at another
+// listener than the one this machine's installation names, which would receive the delegate's credential.
+var RedirectingFlags = []string{"socket"}
+
+// NamesRedirectingFlag says arguments hold one of RedirectingFlags, in any form a flag takes: `-name`,
+// `--name`, `-name=value`, or `--name=value`, wherever it stands.
+func NamesRedirectingFlag(args []string) bool {
+	for _, arg := range args {
+		for _, name := range RedirectingFlags {
+			for _, form := range []string{"-" + name, "--" + name} {
+				if arg == form || strings.HasPrefix(arg, form+"=") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // DelegateIDPrefix starts the ID of every delegate credential.
 const DelegateIDPrefix = "dlg_"
 

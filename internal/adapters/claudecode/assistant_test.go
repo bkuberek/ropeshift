@@ -144,7 +144,9 @@ func TestAnAssistantRunsOnlyRopeshiftCommandsAndNoRoute(t *testing.T) {
 		}
 	}
 	policy := compilePolicy(spec)
-	for _, command := range []string{"ropeshift lane-shim --dir d --socket s -- /bin/sh -c id", "ropeshift hook PreToolUse", "ropeshift backup /tmp/x"} {
+	for _, command := range []string{
+		"ropeshift lane-shim --dir d --socket s -- /bin/sh -c id", "ropeshift hook PreToolUse", "ropeshift backup /tmp/x", "ropeshift chat show c1 --socket=/tmp/evil.sock",
+	} {
 		if _, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: command, Cwd: spec.Dir}); !denied {
 			t.Errorf("the hook's policy lets an assistant run %q", command)
 		}

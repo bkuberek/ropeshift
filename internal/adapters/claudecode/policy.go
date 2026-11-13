@@ -69,7 +69,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec), ReadRoots: readRoots,
-		Program: program, Commands: commandsOf(spec), Tools: assistantCalls(spec),
+		Program: program, Commands: commandsOf(spec), Tools: assistantCalls(spec), RefusedFlags: refusedFlagsOf(spec),
 	})
 	if spec.Assistant {
 		for _, tool := range assistantDenied {
@@ -91,6 +91,15 @@ func assistantCalls(spec ports.SessionSpec) []string {
 		calls = append(calls, toolRule(tool))
 	}
 	return calls
+}
+
+// refusedFlagsOf are the flags no command of an assistant's shell may take: those that would point it at
+// another listener, which would receive its credential.
+func refusedFlagsOf(spec ports.SessionSpec) []string {
+	if !spec.Assistant {
+		return nil
+	}
+	return slices.Clone(authority.RedirectingFlags)
 }
 
 // commandsOf are the commands an assistant's shell may run, and none for any other session, whose shell no

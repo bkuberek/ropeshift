@@ -274,6 +274,9 @@ type DenyPolicy struct {
 	// Tools, when set, are the only tools the session may call: any other is denied, a tool of another
 	// MCP server and one a later CLI adds included, whatever a rule allowed.
 	Tools []string `json:"tools,omitempty"`
+	// RefusedFlags are flags no command of Program may take, in any form, such as one that points it at
+	// another listener than the one it should reach.
+	RefusedFlags []string `json:"refused_flags,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
 	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A

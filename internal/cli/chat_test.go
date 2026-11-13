@@ -294,3 +294,41 @@ func TestADelegateReadsNoFileOnThisMachine(t *testing.T) {
 		}
 	}
 }
+
+// A delegate's command dials only the control plane this machine's installation names: a socket flag, in
+// any of its forms and wherever it stands, is refused before anything is dialed, so no listener a flag
+// names receives the delegate's credential.
+func TestADelegateNamesNoOtherSocket(t *testing.T) {
+	evil := filepath.Join(apitest.ShortDir(t), "evil.sock")
+	listener, err := net.Listen("unix", evil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	dialed := make(chan struct{}, 8)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			dialed <- struct{}{}
+			_ = conn.Close()
+		}
+	}()
+	opts := cli.Options{Socket: filepath.Join(apitest.ShortDir(t), "control.sock"), Delegate: "a-delegate-token"}
+	for _, args := range [][]string{
+		{"health", "--socket", evil}, {"health", "--socket=" + evil}, {"health", "-socket", evil}, {"health", "-socket=" + evil},
+		{"work", "show", "WO-1", "--socket", evil}, {"lane", "list", "--json", "-socket=" + evil},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := cli.Run(args, &stdout, &stderr, opts); code != cli.ExitForbidden || !strings.Contains(stderr.String(), "socket") {
+			t.Errorf("%v: exit %d %q", args, code, stderr.String())
+		}
+	}
+	select {
+	case <-dialed:
+		t.Error("a delegate's command dialed the socket a flag named")
+	case <-time.After(100 * time.Millisecond):
+	}
+}

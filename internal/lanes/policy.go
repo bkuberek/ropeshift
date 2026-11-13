@@ -132,6 +132,8 @@ type PolicySpec struct {
 	Commands []string
 	// Tools, when set, are the only tools the session may call.
 	Tools []string
+	// RefusedFlags are flags no command of Program may take, by name.
+	RefusedFlags []string
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -164,6 +166,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, ReadRoots: slices.Clone(spec.ReadRoots),
 		Program: spec.Program, Commands: slices.Clone(spec.Commands), Tools: slices.Clone(spec.Tools),
+		RefusedFlags: slices.Clone(spec.RefusedFlags),
 	}
 }
 
@@ -219,7 +222,7 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 			return rule.Reason, true
 		}
 	}
-	if call.Tool == ToolBash && p.Program != "" && !runsOnly(call.Command, p.Program, p.Commands) {
+	if call.Tool == ToolBash && p.Program != "" && !runsOnly(call.Command, p.Program, p.Commands, p.RefusedFlags) {
 		return reasonProgram(p.Program), true
 	}
 	switch call.Tool {

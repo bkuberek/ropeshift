@@ -789,3 +789,27 @@ func TestASessionHeldToItsToolsRunsNoOther(t *testing.T) {
 		t.Error("a session held to no list was held to one")
 	}
 }
+
+// A session held to one program takes none of the flags its policy refuses, in any form, wherever it
+// stands, and sets no variable that would move what the program reaches.
+func TestASessionHeldToOneProgramTakesNoRefusedFlag(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/w", Program: "ropeshift", Commands: []string{"health", "lane list"}, RefusedFlags: []string{"socket"}})
+	for _, command := range []string{
+		"ropeshift health --socket /tmp/evil.sock",
+		"ropeshift health --socket=/tmp/evil.sock",
+		"ropeshift health -socket /tmp/evil.sock",
+		"ropeshift health -socket=/tmp/evil.sock",
+		"ropeshift lane list --json '--socket=/tmp/evil.sock'",
+		"ROPESHIFT_RUN_DIR=/tmp/evil ropeshift health",
+		"env ROPESHIFT_RUN_DIR=/tmp/evil ropeshift health",
+		"export ROPESHIFT_RUN_DIR=/tmp/evil",
+		"HOME=/tmp/evil ropeshift health",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: "/w"}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: "ropeshift lane list --json", Cwd: "/w"}); denied {
+		t.Errorf("a plain command was denied: %s", reason)
+	}
+}
