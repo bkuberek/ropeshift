@@ -72,20 +72,28 @@ func (w *Worker) limits(ctx context.Context, lease ledger.DesiredLease) (user, l
 	return user, profile.Admission
 }
 
-// recommend works out the lane cap this worker recommends, from a read of the machine and the peaks of the
-// lanes it ran (FR-OBS-9). A worker with no machine, a read that failed, or cores it could not count has
-// none.
+// recommend works out the lane cap this worker recommends, from the machine's cores and memory and the peaks
+// of the lanes it ran (FR-OBS-9). The machine's size does not change while it runs, so it reads the
+// machine only before any read has counted it. A worker with no machine, a read that failed, or cores it
+// could not count has none.
 func (w *Worker) recommend(ctx context.Context, settings lanes.RecommendSettings) (ledger.LaneRecommendation, bool) {
 	machine := w.config.Lanes.Machine
 	if machine == nil {
 		return ledger.LaneRecommendation{}, false
 	}
-	sample, err := machine.Sample(ctx, nil)
-	if err != nil {
-		w.config.Report(fmt.Errorf("sampling the machine: %w", err))
-		return ledger.LaneRecommendation{}, false
+	cores, memory := w.size()
+	if cores <= 0 {
+		sample, err := machine.Sample(ctx, nil)
+		if err != nil {
+			w.config.Report(fmt.Errorf("sampling the machine: %w", err))
+			return ledger.LaneRecommendation{}, false
+		}
+		w.resources.lock.Lock()
+		w.steady(&sample)
+		w.resources.lock.Unlock()
+		cores, memory = sample.Cores, sample.MemoryTotalBytes
 	}
-	return lanes.Recommend(lanes.RecommendInput{Cores: sample.Cores, MemoryTotalBytes: sample.MemoryTotalBytes, Settings: settings, Peaks: w.lanePeaks()})
+	return lanes.Recommend(lanes.RecommendInput{Cores: cores, MemoryTotalBytes: memory, Settings: settings, Peaks: w.lanePeaks()})
 }
 
 // recommended is the recommendation's cap where the user set none, and zero where the user set one or the
@@ -149,7 +157,11 @@ func (w *Worker) admission(ctx context.Context, lease ledger.DesiredLease, woken
 	}
 	facts := w.usageFacts(lease.Lane, woken)
 	user, layered := w.limits(ctx, lease)
-	facts.Mode, facts.Running, facts.Limits, facts.Machine = w.fleetMode(ctx, lease.Project), running, layered, w.reading(ctx)
+	facts.Mode, facts.Running, facts.Limits = w.fleetMode(ctx, lease.Project), running, layered
+	// Only a floor reads what is free now, which on a Mac spawns its reads, so with none set it reads nothing.
+	if layered.MinFreeMemoryMB > 0 || layered.MinFreeCPUPercent > 0 {
+		facts.Machine = w.reading(ctx)
+	}
 	facts.WorkerCap = lanes.WorkerCap(user.MaxLanes, layered.MaxLanes, w.recommended(ctx, user))
 	return lanes.Admit(facts)
 }

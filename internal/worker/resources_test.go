@@ -272,3 +272,47 @@ func TestAReportedCapHoldsAtClaim(t *testing.T) {
 		t.Errorf("a claim under no cap: %v", err)
 	}
 }
+
+// TestAReadThatLosesTheMemoryKeepsTheLastTotal holds a recommendation to the memory an earlier read
+// counted, because a machine's memory does not change while it runs and a read that loses it, as a failed
+// sysctl does on macOS, would leave the cores alone to decide.
+func TestAReadThatLosesTheMemoryKeepsTheLastTotal(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	machine, sample := measured(r)
+	if got := r.measure().Recommendation; got == nil || got.ByMemory == nil || *got.ByMemory != 14 || got.MaxLanes != 7 {
+		t.Fatalf("first %+v", got)
+	}
+	sample.MemoryTotalBytes = nil
+	machine.SetSample(sample)
+	report := r.measure()
+	if got := report.Recommendation; got == nil || got.ByMemory == nil || *got.ByMemory != 14 || got.MaxLanes != 7 {
+		t.Errorf("after a read that lost the memory: %+v", got)
+	}
+	if total := report.Machine.MemoryTotalBytes; total == nil || *total != 32<<30 {
+		t.Errorf("total %v", total)
+	}
+}
+
+// TestAnAdmissionReadsNoMachineItAlreadyKnows keeps a start from spawning the reads a Mac runs: what the
+// machine has does not change, so a start reuses what a read found, and with no floor set it reads nothing.
+func TestAnAdmissionReadsNoMachineItAlreadyKnows(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	machine := sized(8)
+	r.config.Machine = machine
+	r.running()
+	samples, readings := machine.Calls()
+	if samples != 1 || readings != 0 {
+		t.Errorf("the first start sampled %d times and read %d", samples, readings)
+	}
+	r.secondLane("wo-2", "lane-2")
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.awaitGeneration(t, 2)
+	if samples, readings := machine.Calls(); samples != 1 || readings != 0 {
+		t.Errorf("a second start sampled %d times and read %d in all", samples, readings)
+	}
+}

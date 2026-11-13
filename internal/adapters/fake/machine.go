@@ -18,8 +18,9 @@ type Machine struct {
 	trees   map[int]lanes.ProcessUse
 	// treesErr says this machine cannot read processes.
 	treesErr error
-	// volumes is what each Sample was asked for, last first.
-	volumes [][]lanes.Volume
+	// volumes is what each Sample was asked for, in order, and readings counts the calls to Reading.
+	volumes  [][]lanes.Volume
+	readings int
 }
 
 // NewMachine returns a machine with this reading.
@@ -43,7 +44,15 @@ func (m *Machine) Fail(err error) {
 func (m *Machine) Reading(context.Context) (lanes.MachineReading, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.readings++
 	return m.reading, m.err
+}
+
+// Calls counts the calls to Sample and to Reading, each of which spawns processes on a real Mac.
+func (m *Machine) Calls() (samples, readings int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.volumes), m.readings
 }
 
 // SetSample replaces what Sample returns. Its volumes are the ones a test can read: a volume Sample is

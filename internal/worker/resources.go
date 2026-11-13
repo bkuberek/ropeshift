@@ -30,6 +30,34 @@ type resources struct {
 	ticks     *lanes.CPUTicks
 	meters    map[string]*sessionMeter
 	peaks     []lanes.LanePeak
+	// cores and memory are what a read of the machine last counted. Neither changes while the machine
+	// runs, so a read that loses one keeps it, and a start reads no machine to recommend.
+	cores  int64
+	memory *int64
+}
+
+// steady fills what a read of the machine lost from what an earlier read counted, and keeps what this one
+// counted. The caller holds the lock.
+func (w *Worker) steady(sample *lanes.MachineSample) {
+	if sample.Cores > 0 {
+		w.resources.cores = sample.Cores
+	} else {
+		sample.Cores = w.resources.cores
+	}
+	if sample.MemoryTotalBytes != nil {
+		total := *sample.MemoryTotalBytes
+		w.resources.memory = &total
+	} else if w.resources.memory != nil {
+		total := *w.resources.memory
+		sample.MemoryTotalBytes = &total
+	}
+}
+
+// size is the machine's cores and memory as a read last counted them, and no cores before any read.
+func (w *Worker) size() (int64, *int64) {
+	w.resources.lock.Lock()
+	defer w.resources.lock.Unlock()
+	return w.resources.cores, w.resources.memory
 }
 
 // sessionMeter follows one session, by its lane's ID.
@@ -138,6 +166,9 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 
 	w.resources.lock.Lock()
 	defer w.resources.lock.Unlock()
+	if sampleErr == nil {
+		w.steady(&sample)
+	}
 	report := ledger.ResourceReport{IntervalMs: interval.Milliseconds(), Machine: lanes.MachineResources(sample, w.resources.ticks), Sessions: []ledger.SessionResources{}}
 	if sampleErr == nil {
 		w.resources.ticks = sample.CPU
