@@ -156,18 +156,21 @@ export function Surface({ live, variant, onClose, projectLabel, after }: Props) 
       setMenuSignal((was) => was + 1);
     }
   }, [talk.menuRequest]);
-  useEffect(() => {
-    if (talk.take("new")) {
-      newConversation();
-    }
-  }, [talk.newRequest]);
-  // Choosing a conversation starts its session, once the list says which one it is and that it sleeps.
+  // A request to start a session is answered once the list says where things stand, and is answered whether it
+  // acts or not: a conversation that already runs needs nothing, and a request left standing would start the
+  // session later, when the member stopped it or it idled out. Only the conversation it was made for acts.
   const resume = assistant.resume;
   useEffect(() => {
-    if (listReady && conversation && asleep && talk.take("resume")) {
+    if (!listReady || !isAssistant) {
+      return;
+    }
+    if (talk.takeAsk("new", target.project, "")) {
+      newConversation();
+    }
+    if (talk.takeAsk("resume", target.project, conversation?.id ?? "") && conversation && asleep) {
       resume();
     }
-  }, [talk.resumeRequest, listReady, conversation?.id, asleep]);
+  }, [talk.askCount, listReady, isAssistant, target.project, conversation?.id]);
 
   // The assistant starts a planning session at the member's request, and the member is switched to it.
   const seen = useRef<{ conversation: string; ids: Set<string> } | null>(null);

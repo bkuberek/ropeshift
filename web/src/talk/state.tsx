@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { Target, TalkKind, TalkState } from "./target";
@@ -15,7 +15,8 @@ type SelectOptions = {
   focus?: boolean;
   // quiet leaves a switch unannounced, for one the member's own act in the same conversation made.
   quiet?: boolean;
-  // start asks the assistant's session to start, which choosing a conversation does.
+  // start asks the session of the conversation named by `id` to start, which choosing a conversation does. The
+  // request is for that conversation of this project alone, and is answered once.
   start?: boolean;
 };
 
@@ -36,15 +37,26 @@ export type Talk = {
   // been answered yet, so a surface that opens after the ask still answers it, once.
   focusRequest: number;
   menuRequest: number;
-  newRequest: number;
-  resumeRequest: number;
+  askCount: number;
   requestFocus: () => void;
   requestMenu: () => void;
   requestNew: () => void;
   take: (what: Ask) => boolean;
+  // takeAsk answers a request that starts a session, which changes the ledger, so it is held to more than
+  // `take`: it says yes once, only for the project and conversation it was made for, and only while it is
+  // fresh. A request that does not match is dropped, so it can never start something else later.
+  takeAsk: (what: Started, project: string, conversation: string) => boolean;
 };
 
-export type Ask = "focus" | "menu" | "new" | "resume";
+export type Ask = "focus" | "menu";
+
+// Started is a request to start a session: a new conversation's, or an existing one's.
+export type Started = "new" | "resume";
+
+// How long a request to start a session may wait for the surface to answer it.
+const askFreshMs = 10_000;
+
+type Pending = { what: Started; project: string; conversation: string; at: number };
 
 const quiet: Talk = {
   target: assistantOf(""),
@@ -56,12 +68,12 @@ const quiet: Talk = {
   askAgain: () => {},
   focusRequest: 0,
   menuRequest: 0,
-  newRequest: 0,
-  resumeRequest: 0,
+  askCount: 0,
   requestFocus: () => {},
   requestMenu: () => {},
   requestNew: () => {},
   take: () => false,
+  takeAsk: () => false,
 };
 
 const TalkContext = createContext<Talk>(quiet);
@@ -76,15 +88,34 @@ export function TalkProvider({ project, openDock, children }: { project: string;
   const [notices, setNotices] = useState<Record<string, string>>({});
   const [focusRequest, setFocusRequest] = useState(0);
   const [menuRequest, setMenuRequest] = useState(0);
-  const [newRequest, setNewRequest] = useState(0);
-  const [resumeRequest, setResumeRequest] = useState(0);
-  const asked = useRef<Record<Ask, number>>({ focus: 0, menu: 0, new: 0, resume: 0 });
-  const taken = useRef<Record<Ask, number>>({ focus: 0, menu: 0, new: 0, resume: 0 });
+  const [askCount, setAskCount] = useState(0);
+  const pending = useRef<Pending | null>(null);
+  const asked = useRef<Record<Ask, number>>({ focus: 0, menu: 0 });
+  const taken = useRef<Record<Ask, number>>({ focus: 0, menu: 0 });
   const ask = useCallback((what: Ask) => {
     asked.current[what] += 1;
     const count = asked.current[what];
-    (what === "focus" ? setFocusRequest : what === "menu" ? setMenuRequest : what === "new" ? setNewRequest : setResumeRequest)(count);
+    (what === "focus" ? setFocusRequest : setMenuRequest)(count);
   }, []);
+  const start = useCallback(
+    (next: Pending | null) => {
+      pending.current = next;
+      setAskCount((was) => was + 1);
+    },
+    [],
+  );
+  const takeAsk = useCallback((what: Started, at: string, conversation: string) => {
+    const held = pending.current;
+    if (!held || held.what !== what) {
+      return false;
+    }
+    pending.current = null;
+    return held.project === at && held.conversation === conversation && Date.now() - held.at <= askFreshMs;
+  }, []);
+  // A request belongs to the project it was made in, so changing the project drops it.
+  useEffect(() => {
+    pending.current = null;
+  }, [project]);
   const take = useCallback((what: Ask) => {
     if (asked.current[what] > taken.current[what]) {
       taken.current[what] = asked.current[what];
@@ -110,11 +141,11 @@ export function TalkProvider({ project, openDock, children }: { project: string;
       if (options.focus) {
         ask("focus");
       }
-      if (options.start) {
-        ask("resume");
-      }
+      // Choosing a target drops what an earlier choice asked, and asks for this one's session only when it
+      // names a conversation.
+      start(options.start && id ? { what: "resume", project, conversation: id, at: Date.now() } : null);
     },
-    [project, openDock, ask],
+    [project, openDock, ask, start],
   );
 
   const draftOf = useCallback((of: Target) => drafting(state, of), [state]);
@@ -141,11 +172,11 @@ export function TalkProvider({ project, openDock, children }: { project: string;
   );
   const requestFocus = useCallback(() => ask("focus"), [ask]);
   const requestMenu = useCallback(() => ask("menu"), [ask]);
-  const requestNew = useCallback(() => ask("new"), [ask]);
+  const requestNew = useCallback(() => start({ what: "new", project, conversation: "", at: Date.now() }), [project, start]);
 
   const value = useMemo<Talk>(
-    () => ({ target, select, draftOf, setDraft, noticeOf, clearNotice, askAgain, focusRequest, menuRequest, newRequest, resumeRequest, requestFocus, requestMenu, requestNew, take }),
-    [target.project, target.kind, target.id, select, draftOf, setDraft, noticeOf, clearNotice, askAgain, focusRequest, menuRequest, newRequest, resumeRequest, requestFocus, requestMenu, requestNew, take],
+    () => ({ target, select, draftOf, setDraft, noticeOf, clearNotice, askAgain, focusRequest, menuRequest, askCount, requestFocus, requestMenu, requestNew, take, takeAsk }),
+    [target.project, target.kind, target.id, select, draftOf, setDraft, noticeOf, clearNotice, askAgain, focusRequest, menuRequest, askCount, requestFocus, requestMenu, requestNew, take, takeAsk],
   );
   return (
     <TalkContext.Provider value={value}>

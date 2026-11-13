@@ -396,6 +396,50 @@ describe("switching the target", () => {
   });
 });
 
+// A request to start the session is made for one conversation of one project, and answered once.
+describe("choosing a conversation that already runs", () => {
+  const withLane = () => {
+    state.targets = { ...state.targets, lanes: [lane()] };
+  };
+  const toLaneAndBack = async (dock: HTMLElement) => {
+    await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: /Lane.*L-88/ }));
+    await within(dock).findByRole("log", { name: "Event stream of lane L-88" });
+    await userEvent.click(within(dock).getByRole("button", { name: "Switch target" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: /Assistant/ }));
+    await within(dock).findByRole("log", { name: "Messages with the assistant" });
+  };
+
+  it("starts nothing, and a Stop session after it is not undone by an open", async () => {
+    withLane();
+    state.answers["POST /v1/conversations/conv-1/stop"] = () => {
+      state.conversations = [aConversation({ actual_state: "stopped", desired_state: "stopped" })];
+      return { status: 200, body: state.conversations[0] };
+    };
+    const { sent, dock } = await open(state);
+    await toLaneAndBack(dock);
+    expect(changes(sent)).toEqual([]);
+    await userEvent.click(within(dock).getByRole("button", { name: "Conversation actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Stop session" }));
+    expect(await within(dock).findByText("Stopped · type to resume")).toBeTruthy();
+    await new Promise((done) => setTimeout(done, 300));
+    expect(changes(sent).map((call) => call.path)).toEqual(["/v1/conversations/conv-1/stop"]);
+  });
+
+  it("starts nothing when the dock opens later, after the session idled out", async () => {
+    withLane();
+    const { sent, dock } = await open(state);
+    await toLaneAndBack(dock);
+    await userEvent.click(within(dock).getByRole("button", { name: "Close the conversation panel" }));
+    state.conversations = [aConversation({ actual_state: "stopped", desired_state: "stopped" })];
+    await userEvent.keyboard(".");
+    const reopened = await screen.findByRole("complementary", { name: "Conversation" });
+    expect(await within(reopened).findByText("Stopped · type to resume")).toBeTruthy();
+    await new Promise((done) => setTimeout(done, 300));
+    expect(changes(sent)).toEqual([]);
+  });
+});
+
 describe("the switcher's assistant row", () => {
   const onLane = async (dock: HTMLElement) => {
     await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));
