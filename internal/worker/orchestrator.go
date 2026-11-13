@@ -46,6 +46,9 @@ func (r *laneRun) repository(ctx context.Context) (string, error) {
 	if !r.orchestrating() {
 		return r.rt.Repository(ctx, r.lease.Project, r.lease.Repository)
 	}
+	if r.assisting() {
+		return r.assistantDir(ctx)
+	}
 	dir := r.rt.privateDir(r.lease.Lane)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err

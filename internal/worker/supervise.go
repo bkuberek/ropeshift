@@ -78,6 +78,8 @@ func (r *laneRun) supervised(ctx context.Context, report workorders.Report) (wor
 			moved = r.handoffGeneration(ctx)
 		case r.respawning(ctx):
 			moved = r.respawnGeneration(ctx)
+		case r.resumeRefused():
+			moved = r.startOver(ctx)
 		case r.mayRestart(ctx):
 			moved = r.backOff(ctx)
 		default:

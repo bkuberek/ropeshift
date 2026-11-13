@@ -312,3 +312,53 @@ func TestAnAssistantRunsInTheModeThatAsks(t *testing.T) {
 		t.Fatalf("an assistant runs in %q", mode)
 	}
 }
+
+// A conversation's session runs in one directory at every start, so a later start can resume it where the
+// vendor keeps it. A resume the vendor refuses starts over: a fresh session whose first prompt holds the
+// conversation so far, and the refused session is not tried again.
+func TestAnAssistantResumesInItsOwnDirectoryAndStartsOverWhenRefused(t *testing.T) {
+	first := fake.DriverScript{SessionID: "session-a", Model: "resolved-model", Turns: [][]fake.DriverStep{
+		{{Bound: true}, completed(0.01)}, {{Reply: "Two merges wait.", ReplyID: "msg_01"}, completed(0.01)}, {{Hold: true}},
+	}}
+	refused := fake.DriverScript{SessionID: "session-x", Turns: [][]fake.DriverStep{{{Crash: true}}}}
+	fresh := fake.DriverScript{SessionID: "session-b", Model: "resolved-model", Turns: [][]fake.DriverStep{{{Bound: true}, completed(0.01)}, {{Hold: true}}}}
+	later := fake.DriverScript{SessionID: "session-b", Model: "resolved-model", Turns: [][]fake.DriverStep{{{Bound: true}, completed(0.01)}, {{Hold: true}}}}
+	a := newAssistantRig(t, first, refused, fresh, later)
+	ctx := t.Context()
+	if _, err := a.convs.Create(ctx, scope, control.NewConversation{ID: "conv-1"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "a session at rest", func() bool { return a.conversation(t, "conv-1").Actual == conversations.Running })
+	if _, err := a.convs.Send(ctx, scope, "conv-1", control.MemberMessage{ID: "m-1", Body: "Which merges wait?"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "a reply", func() bool { return len(a.replies(t, "conv-1")) == 1 })
+	reopen := func() {
+		t.Helper()
+		if _, err := a.convs.Stop(ctx, scope, "conv-1", member); err != nil {
+			t.Fatal(err)
+		}
+		a.awaitAssistant(t, "the session's end", func() bool { return a.conversation(t, "conv-1").Actual == conversations.Stopped })
+		if _, err := a.convs.Open(ctx, scope, "conv-1", "", member); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopen()
+	a.awaitAssistant(t, "a fresh session after the refusal", func() bool { return len(a.assistantSpecs()) == 3 })
+	specs := a.assistantSpecs()
+	if specs[0].Dir == "" || specs[1].Dir != specs[0].Dir || specs[2].Dir != specs[0].Dir {
+		t.Errorf("the sessions ran in %q, %q, and %q", specs[0].Dir, specs[1].Dir, specs[2].Dir)
+	}
+	if resumed := a.driver.Resumed(); len(resumed) != 1 || resumed[0].SessionID != "session-a" {
+		t.Fatalf("resumed %+v", resumed)
+	}
+	if !strings.Contains(specs[2].Brief, "Which merges wait?") {
+		t.Errorf("the fresh session's first prompt holds no history: %q", specs[2].Brief)
+	}
+	a.awaitAssistant(t, "the fresh session at rest", func() bool { return a.conversation(t, "conv-1").Actual == conversations.Running })
+	reopen()
+	a.awaitAssistant(t, "a later start", func() bool { return len(a.driver.Resumed()) == 2 })
+	if resumed := a.driver.Resumed(); resumed[1].SessionID != "session-b" {
+		t.Errorf("a later start resumed %+v", resumed)
+	}
+}

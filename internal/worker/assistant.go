@@ -60,6 +60,8 @@ type assistantState struct {
 	// briefed says the turn of a generation's first prompt ended: what the session wrote in it answers the
 	// brief, and no member reads it.
 	briefed bool
+	// refused says the vendor refused the session a generation resumed, so the next starts over.
+	refused bool
 }
 
 // noteTurn keeps that the first prompt's turn ended.
@@ -234,10 +236,26 @@ func (r *laneRun) briefAssistant(resumed bool) string {
 	return contextpacks.AssistantBrief(facts)
 }
 
-// assistantSession is where an assistant's session it can resume is kept: on this machine, by
-// conversation, because a vendor's session lives where its process ran.
+// assistantHome holds what this machine keeps of one conversation: the directory its session runs in at
+// every start, and the vendor session it last had. The vendor keeps a session by the directory it ran in,
+// so a run that started anywhere else could not resume it.
+func (rt *LaneRuntime) assistantHome(conversation string) string {
+	return filepath.Join(rt.StateDir, "assistants", conversation)
+}
+
+// assistantSession is where the vendor session an assistant's next start resumes is kept.
 func (rt *LaneRuntime) assistantSession(conversation string) string {
-	return filepath.Join(rt.StateDir, "assistants", conversation+".json")
+	return filepath.Join(rt.assistantHome(conversation), "kept-session.json")
+}
+
+// assistantDir is the directory an assistant's session runs in, the same for every run of its conversation.
+func (r *laneRun) assistantDir(ctx context.Context) (string, error) {
+	desired, ok := r.w.assistantOf(ctx, r.lease.Lane)
+	if !ok {
+		return "", fmt.Errorf("desired state names no conversation for run %s", r.lease.Lane)
+	}
+	dir := filepath.Join(r.rt.assistantHome(desired.Conversation), "session")
+	return dir, os.MkdirAll(dir, 0o700)
 }
 
 type keptSession struct {
@@ -285,6 +303,52 @@ func (r *laneRun) resumable(ctx context.Context) string {
 		return ""
 	}
 	return kept.SessionID
+}
+
+// noteRefusedResume keeps that the vendor refused the session this generation resumed: it ended before it
+// bound, and nobody stopped it.
+func (r *laneRun) noteRefusedResume(ctx context.Context) {
+	if !r.assisting() || r.resumeFrom == "" || r.bound || !r.orchestratorLost(ctx) {
+		return
+	}
+	r.w.config.Report(fmt.Errorf("lane %s: the vendor refused to resume session %s, so the next generation starts over", r.lease.Lane, r.resumeFrom))
+	state := r.assistant()
+	state.mu.Lock()
+	state.refused = true
+	state.mu.Unlock()
+}
+
+// resumeRefused says the last generation's resume was refused, and the next has not begun.
+func (r *laneRun) resumeRefused() bool {
+	if !r.assisting() {
+		return false
+	}
+	state := r.assistant()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.refused
+}
+
+// startOver begins the generation after a refused resume: a fresh session, whose first prompt holds the
+// conversation so far, and the refused session is forgotten, so no later start tries it again. It counts
+// toward the day as any planned generation does, and not toward the breaker.
+func (r *laneRun) startOver(ctx context.Context) bool {
+	state := r.assistant()
+	state.mu.Lock()
+	state.refused = false
+	state.mu.Unlock()
+	if desired, ok := r.w.assistantOf(ctx, r.lease.Lane); ok {
+		if err := os.Remove(r.rt.assistantSession(desired.Conversation)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			r.w.config.Report(fmt.Errorf("lane %s: forgetting its session: %w", r.lease.Lane, err))
+		}
+	}
+	next := r.currentGeneration() + 1
+	if !r.chargePlanned(ctx, next) {
+		return false
+	}
+	// The session's end left the lane in backoff, and a refused resume waits for no delay.
+	r.signal(ctx, lanes.OnDelayElapsed)
+	return r.nextGeneration(ctx, next, ledger.StartReset)
 }
 
 // postReply records one message the session wrote as a reply in its conversation, apart from the stream,

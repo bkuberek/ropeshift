@@ -897,6 +897,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.afterTurn(ctx, event.Turn, clears)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
+			r.noteRefusedResume(ctx)
 			r.expireToken(ctx)
 			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {
 				r.crashed, r.crashedAt = true, r.w.clock.Now()
