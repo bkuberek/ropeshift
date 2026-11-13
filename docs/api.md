@@ -85,6 +85,8 @@ A card holds:
 
 A member decides a card with `POST /v1/projects/{project}/approvals/{id}/decide`, passing the digest they read. Declining, with `"allow": false`, makes it `denied` and runs nothing. Confirming binds the subject again: one that moved makes the card `void` and answers 409 `stale_digest`. Otherwise the card is `approved`, and its exact call runs through the project's own routes as that member's session, with the same checks and events as the member's own call. A 2xx answer makes the card `used`, and any other makes it `failed`, with the API's refusal as its `reason`. `decided_by`, `decided_at`, and `channel` (`web` or `cli`) say who confirmed it, when, and where. The call runs, and its outcome is kept, even when the member's client goes away before the answer. A card still `approved` ten minutes after its confirmation lost its call to a crash, and a sweep makes it `failed` with the reason `interrupted; check the audit`: the project's audit says whether the call ran. A card has `expires_at` 0, and nothing expires it. A delegate's decision of a card answers 403 `member_only`.
 
+Revoking a credential, or signing out of every session, voids the open cards it prepared, and a confirmation of a card whose credential was revoked or removed voids it and answers 409 `request_closed`. A delegate holds at most 20 open cards in a project: its next consent call answers 403 `forbidden` until a member decides one.
+
 | Card state | Means |
 |------------|-------|
 | `pending` | Open: it waits for a member |

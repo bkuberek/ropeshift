@@ -10,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -180,5 +181,54 @@ func TestASubjectThatMovesAfterTheConfirmationVoidsTheCard(t *testing.T) {
 	}
 	if row, err := d.Client.Approval(ctx, card.ID); err != nil || row.State != authority.ApprovalVoid {
 		t.Errorf("the card is %+v: %v", row, err)
+	}
+}
+
+// TestRevokingADelegateVoidsItsOpenCards ends what a revoked delegate prepared: revoking it, or signing out
+// of every session, voids its open cards, and a card of a delegate that no longer acts cannot be confirmed.
+func TestRevokingADelegateVoidsItsOpenCards(t *testing.T) {
+	d := apitest.Start(t)
+	ctx := t.Context()
+	createReady(t, d, "w1")
+	createReady(t, d, "w2")
+	createReady(t, d, "w3")
+	cardOf := func(token, work string) authority.Approval {
+		t.Helper()
+		_, err := asDelegate(t, d.Socket, token, apitest.ProjectName).CancelWork(ctx, work, api.CancelWork{Reason: "Dropped."})
+		return preparedCard(t, err)
+	}
+	revoked, signedOut, behind := aDelegate(t, d.Client.Client, apitest.ProjectName), aDelegate(t, d.Client.Client, apitest.ProjectName), aDelegate(t, d.Client.Client, apitest.ProjectName)
+	first, second, third := cardOf(revoked.Token, "w1"), cardOf(signedOut.Token, "w2"), cardOf(behind.Token, "w3")
+	if _, err := d.Client.RevokeDelegate(ctx, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	if row, err := d.Client.Approval(ctx, first.ID); err != nil || row.State != authority.ApprovalVoid {
+		t.Errorf("a revoked delegate's card is %+v: %v", row, err)
+	}
+	// A credential revoked where no card is voided, as a revocation the sweep did not reach.
+	if _, err := control.NewDelegates(d.Store).Revoke(ctx, apitest.Scope, behind.ID, ledger.Actor{Kind: ledger.ActorMember, ID: memberOf(t, d)}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := d.Client.DecideApproval(ctx, third.ID, api.DecideApproval{Digest: third.SubjectDigest, Allow: true})
+	refusedWith(t, err, http.StatusConflict, api.CodeRequestClosed)
+	if order, err := d.Client.WorkOrder(ctx, "w3"); err != nil || order.State == workorders.Canceled {
+		t.Errorf("a revoked delegate's card ran: %+v %v", order, err)
+	}
+	second2 := api.NewUnixClient(d.Socket)
+	defer second2.Close()
+	if _, err := apitest.SignIn(ctx, second2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second2.SignOutAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var state authority.ApprovalState
+	err = d.Store.Read(ctx, apitest.Scope, func(tx ports.ReadTx) error {
+		row, err := tx.Approvals().Approval(second.ID)
+		state = row.State
+		return err
+	})
+	if err != nil || state != authority.ApprovalVoid {
+		t.Errorf("a card of a delegate signing out everywhere revoked is %s: %v", state, err)
 	}
 }

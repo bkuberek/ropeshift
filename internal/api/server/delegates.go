@@ -10,6 +10,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -121,6 +122,7 @@ func (h *handler) revokeDelegate(w http.ResponseWriter, r *http.Request, actor l
 		fail(w, err)
 		return
 	}
+	h.voidCardsOf(r.Context(), []authority.DelegateCredential{credential}, actor)
 	names, err := h.projectNames(r.Context())
 	if err != nil {
 		fail(w, err)
@@ -145,7 +147,46 @@ func (h *handler) signOutAll(w http.ResponseWriter, r *http.Request, actor ledge
 		fail(w, err)
 		return
 	}
+	var revoked []authority.DelegateCredential
+	err = h.Installation.Read(r.Context(), func(tx ports.SharedReadTx) error {
+		for _, id := range ended.Delegates {
+			credential, err := tx.Members().Delegate(id)
+			if err != nil {
+				return err
+			}
+			revoked = append(revoked, credential)
+		}
+		return nil
+	})
+	if err == nil {
+		h.voidCardsOf(r.Context(), revoked, actor)
+	}
 	reply(w, http.StatusOK, api.SignedOutAll{Sessions: ended.Sessions, Delegates: ended.Delegates})
+}
+
+// voidCardsOf voids the open cards each revoked credential prepared, in the active project it acts in. The
+// revocation has committed by now, and a confirmation refuses a card whose delegate no longer acts, so a
+// project this cannot reach still runs none of them.
+func (h *handler) voidCardsOf(ctx context.Context, credentials []authority.DelegateCredential, actor ledger.Actor) {
+	if len(credentials) == 0 {
+		return
+	}
+	projects, err := h.Projects.List(ctx)
+	if err != nil {
+		return
+	}
+	for _, credential := range credentials {
+		for _, project := range projects {
+			if project.ID != credential.Project || project.State != ledger.ProjectActive {
+				continue
+			}
+			store, err := h.Projects.Open(ctx, project)
+			if err != nil {
+				continue
+			}
+			_, _ = control.NewApprovals(store).VoidCardsOf(ctx, project.ID, credential.Actor(), actor)
+		}
+	}
 }
 
 // labelsOf reads the label of each delegate a page of events names, by its credential, so the audit names

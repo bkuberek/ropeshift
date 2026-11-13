@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -30,6 +31,7 @@ var DelegateChecks = []Check{
 	{"DL8", "past every gate, a delegate still cannot raise merge authority or move review to a pull request", checkDelegateRepositoryBounds},
 	{"DL9", "past every gate, a delegate still cannot decide or answer in a one-way category", checkDelegateOneWayBounds},
 	{"DL10", "a card a crash left running past its bound fails, naming why, and a younger one keeps running", checkInterruptedCards},
+	{"DL11", "a delegate holds at most a bounded number of open cards in a project", checkOpenCardLimit},
 }
 
 var theDelegateRequest = authority.DelegateRequest{Member: theMember.ID, Label: "planning assistant", ExpiresInMs: authority.MaxDelegateTTLMs}
@@ -252,8 +254,23 @@ func sharedEvents(r *Rig, s ports.Store) ([]ledger.Event, error) {
 	return events, err
 }
 
-// prepareCard records the card a delegate's consent call makes, bound as the server binds it.
+// cardDelegate makes the credential of a delegate that prepares cards, and returns who it acts as.
+func cardDelegate(r *Rig, s ports.Store) (ledger.Actor, error) {
+	grant, err := control.NewDelegates(s).Create(r.Ctx, r.Scope, delegateRequest(r), theMember)
+	return grant.Credential.Actor(), err
+}
+
+// prepareCard records the card a new delegate's consent call makes, bound as the server binds it.
 func prepareCard(r *Rig, s ports.Store, operation, kind, id, arguments string) (authority.Approval, error) {
+	actor, err := cardDelegate(r, s)
+	if err != nil {
+		return authority.Approval{}, err
+	}
+	return prepareCardAs(r, s, actor, operation, kind, id, arguments)
+}
+
+// prepareCardAs records the card one delegate's consent call makes.
+func prepareCardAs(r *Rig, s ports.Store, actor ledger.Actor, operation, kind, id, arguments string) (authority.Approval, error) {
 	approvals := control.NewApprovals(s)
 	binding, err := control.BindingFor(operation, kind, id, json.RawMessage(arguments))
 	if err != nil {
@@ -270,7 +287,6 @@ func prepareCard(r *Rig, s ports.Store, operation, kind, id, arguments string) (
 	if err != nil {
 		return authority.Approval{}, err
 	}
-	actor := authority.DelegateActor(theMember.ID, "dlg_1")
 	return approvals.Prepare(r.Ctx, r.Scope, authority.Approval{
 		Subject: binding.Subject(), SubjectDigest: digest, Summary: "Raise merge authority: web", Detail: string(detail),
 	}, actor)
@@ -497,6 +513,37 @@ func checkInterruptedCards(r *Rig) error {
 	}
 	if again, err := approvals.FailInterrupted(r.Ctx, r.Scope, 0); err != nil || len(again) != 0 {
 		return Violatedf("a second sweep failed %v: %v", again, err)
+	}
+	return nil
+}
+
+func checkOpenCardLimit(r *Rig) error {
+	s := r.Store()
+	actor, err := cardDelegate(r, s)
+	if err != nil {
+		return err
+	}
+	var first authority.Approval
+	for i := range control.MaxOpenCards {
+		card, err := prepareCardAs(r, s, actor, authority.OpRepositoryRaiseMergeAuthority, "repository", fmt.Sprintf("r%d", i), raiseArguments)
+		if err != nil {
+			return Violatedf("card %d: %v", i+1, err)
+		}
+		if i == 0 {
+			first = card
+		}
+	}
+	if _, err := prepareCard(r, s, authority.OpRepositoryRaiseMergeAuthority, "repository", "another", raiseArguments); err != nil {
+		return Violatedf("another delegate's card: %v", err)
+	}
+	if _, err := prepareCardAs(r, s, actor, authority.OpRepositoryRaiseMergeAuthority, "repository", "one-more", raiseArguments); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a card past the limit: %v", err)
+	}
+	if _, err := control.NewApprovals(s).Confirm(r.Ctx, r.Scope, authority.Decision{ID: first.ID, Digest: first.SubjectDigest, Allow: false}, theMember, authority.ChannelCLI); err != nil {
+		return err
+	}
+	if _, err := prepareCardAs(r, s, actor, authority.OpRepositoryRaiseMergeAuthority, "repository", "one-more", raiseArguments); err != nil {
+		return Violatedf("a card once a member declined one: %v", err)
 	}
 	return nil
 }

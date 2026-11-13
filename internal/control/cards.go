@@ -31,6 +31,10 @@ const (
 	BindArguments = "arguments"
 )
 
+// MaxOpenCards is how many open cards one delegate may hold in a project. A delegate past it waits for a
+// member to decide one, so no agent can bury Needs you.
+const MaxOpenCards = 20
+
 // voidReason is what a card that went void says.
 const voidReason = "The subject changed since the card was prepared."
 
@@ -196,6 +200,14 @@ func (a *Approvals) Prepare(ctx context.Context, scope ledger.WorkspaceID, card 
 		if err := card.Validate(); err != nil {
 			return fmt.Errorf("%w: %v", workorders.ErrInvalid, err)
 		}
+		open, err := openCardsOf(tx.Approvals(), card.RequestedBy)
+		if err != nil {
+			return err
+		}
+		if len(open) >= MaxOpenCards {
+			return fmt.Errorf("%w: delegate %s holds %d open cards, the most one delegate holds in a project; a member decides one before it prepares another",
+				workorders.ErrForbidden, actor.ID, MaxOpenCards)
+		}
 		added, err := tx.Approvals().Insert(card)
 		if err != nil {
 			return err
@@ -214,6 +226,65 @@ func (a *Approvals) Prepare(ctx context.Context, scope ledger.WorkspaceID, card 
 		return authority.Approval{}, err
 	}
 	return card, nil
+}
+
+// openCardsOf lists the cards a principal prepared that still wait for a member.
+func openCardsOf(reader ports.ApprovalReader, principal string) ([]authority.Approval, error) {
+	rows, err := reader.All()
+	if err != nil {
+		return nil, err
+	}
+	var open []authority.Approval
+	for _, row := range rows {
+		if row.Kind == authority.KindConfirm && row.Open() && row.RequestedBy == principal {
+			open = append(open, row)
+		}
+	}
+	return open, nil
+}
+
+// noLongerActs is what a card of a delegate whose credential was revoked or removed says.
+const noLongerActs = "The delegate that prepared it no longer acts."
+
+// requesterActs says the delegate that prepared a card still holds a credential that was not revoked. An
+// expired one still stands behind what it prepared while it acted.
+func requesterActs(members ports.MemberReader, card authority.Approval) (bool, error) {
+	kind, id, _ := strings.Cut(card.RequestedBy, ":")
+	_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
+	if !ok {
+		return false, nil
+	}
+	record, err := members.Delegate(credential)
+	if errors.Is(err, ports.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil && record.RevokedAt == 0, err
+}
+
+// VoidCardsOf voids the open cards a delegate prepared, once its credential was revoked: what an agent a
+// member stopped trusting prepared stands no more.
+func (a *Approvals) VoidCardsOf(ctx context.Context, scope ledger.WorkspaceID, delegate ledger.Actor, actor ledger.Actor) ([]string, error) {
+	if !authority.Allowed(actor, authority.ActionManageSessions) {
+		return nil, workorders.ErrForbidden
+	}
+	var voided []string
+	err := a.store.Write(ctx, scope, "card.void_delegate", func(tx ports.WriteTx) error {
+		voided = nil
+		open, err := openCardsOf(tx.Approvals(), authority.Principal(delegate))
+		if err != nil {
+			return err
+		}
+		for _, row := range open {
+			next := row
+			next.State, next.Reason = authority.ApprovalVoid, noLongerActs
+			if err := noteApproval(tx, next, row.State, actor); err != nil {
+				return err
+			}
+			voided = append(voided, row.ID)
+		}
+		return nil
+	})
+	return voided, err
 }
 
 // Confirmed is what a member's word on a card did. Decided says this call moved the card out of pending,
@@ -243,9 +314,9 @@ func (a *Approvals) Confirm(ctx context.Context, scope ledger.WorkspaceID, decis
 		return Confirmed{}, err
 	}
 	var out Confirmed
-	var voided bool
+	var voided, revoked bool
 	err = a.store.Write(ctx, scope, "card.confirm", func(tx ports.WriteTx) error {
-		out, voided = Confirmed{}, false
+		out, voided, revoked = Confirmed{}, false, false
 		row, err := tx.Approvals().Approval(decision.ID)
 		if err != nil {
 			return err
@@ -264,6 +335,16 @@ func (a *Approvals) Confirm(ctx context.Context, scope ledger.WorkspaceID, decis
 			return fmt.Errorf("%w: it is bound to %s", authority.ErrStaleDigest, row.SubjectDigest)
 		}
 		if decision.Allow {
+			acts, err := requesterActs(tx.Members(), row)
+			if err != nil {
+				return err
+			}
+			if !acts {
+				revoked = true
+				out.Card = row
+				out.Card.State, out.Card.Reason = authority.ApprovalVoid, noLongerActs
+				return noteApproval(tx, out.Card, row.State, actor)
+			}
 			reads := bindingReads{events: tx.EventsAbout, approval: tx.Approvals().Approval, inForce: tx.Policies().InForce}
 			if autonomy != nil {
 				reads.inForce = autonomy
@@ -292,6 +373,9 @@ func (a *Approvals) Confirm(ctx context.Context, scope ledger.WorkspaceID, decis
 	}
 	if voided {
 		return out, fmt.Errorf("%w: %s", authority.ErrStaleDigest, voidReason)
+	}
+	if revoked {
+		return out, fmt.Errorf("%w: %s", authority.ErrApprovalClosed, noLongerActs)
 	}
 	return out, nil
 }
