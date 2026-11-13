@@ -370,7 +370,7 @@ export function App() {
                   </p>
                 </div>
               ) : null}
-              <div hidden={needsSession}>
+              <div hidden={needsSession} className={onConversations ? "fill" : undefined}>
                 {needs.view ? (
                   <>
                     <div hidden={view !== "needs-you"} className="screen-flush">

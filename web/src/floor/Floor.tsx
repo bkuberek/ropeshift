@@ -175,7 +175,6 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
           <button
             type="button"
             className="target-button"
-            aria-label={`Talk to the orchestrator on ${name}`}
             title={`Talk to the orchestrator on ${name}`}
             onClick={() => talk.select("orchestrator", worker.id, { name, open: true, focus: true })}
           >
@@ -183,6 +182,7 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
               Orchestrator · {orchestrator.actual_state ? laneLabel(orchestrator.actual_state).toLowerCase() : `wanted ${words(orchestrator.desired_state).toLowerCase()}`}
               {orchestrator.current_generation ? ` · gen ${orchestrator.current_generation}` : ""}
             </TargetChip>
+            <span className="visually-hidden">, talk to the orchestrator on {name}</span>
           </button>
         ) : (
           <span className="subtle small">No orchestrator</span>

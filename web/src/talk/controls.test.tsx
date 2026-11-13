@@ -61,7 +61,7 @@ describe("talking from the floor", () => {
   it("makes the orchestrator's target chip a button that opens the dock on it", async () => {
     serveTalk(state);
     openPage(here("/floor"));
-    await userEvent.click(await screen.findByRole("button", { name: "Talk to the orchestrator on solo" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Orchestrator.*, talk to the orchestrator on solo$/ }));
     const dock = await screen.findByRole("complementary", { name: "Conversation" });
     expect(await within(dock).findByRole("log", { name: "Event stream of the orchestrator on solo" })).toBeTruthy();
   });

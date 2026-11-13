@@ -252,7 +252,6 @@
 }
 
 .inline-item {
-  max-width: 680px;
   min-width: 0;
 }
 
@@ -446,6 +445,17 @@
 }
 
 @media (max-width: 639px) {
+  /* The name keeps a line of its own under the target and its actions, as a planning session's title does. */
+  .convo-name {
+    order: 9;
+    flex: 1 1 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    font-size: var(--fs-16);
+    line-height: var(--lh-16);
+  }
+
   .convo-stream {
     padding: var(--s-12);
   }
@@ -480,4 +490,9 @@
 .target-button:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* The Conversations view fills the content region, so the stream scrolls inside it and the composer stays put. */
+.main > .fill {
+  height: 100%;
 }
