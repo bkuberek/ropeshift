@@ -120,6 +120,7 @@ func TestARespawnPastTheDayWaitsForAMember(t *testing.T) {
 	r := laneRigWith(t, oneGenerationADay)
 	g, after := newGate(), newGate()
 	r.finishLater(g)
+	r.gates(g, after)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, after.step(), r.reports(workorders.OutcomeCompleted), completed(0.01)}))
 	r.start()

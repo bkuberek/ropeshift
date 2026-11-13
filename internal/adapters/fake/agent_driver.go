@@ -200,7 +200,9 @@ func (d *AgentDriver) FailFind(err error) {
 }
 
 // StopEverySession ends what runs now and what starts later, so a test can end while a
-// lane is still on its way to a session.
+// lane is still on its way to a session. A stop, this one and Stop alike, cannot interrupt a
+// step's Do: the session takes it once that step returns, so a test that blocks a Do step lets
+// it go itself.
 func (d *AgentDriver) StopEverySession() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -811,7 +813,9 @@ func (d *AgentDriver) SetMidTurnRefused(on bool) {
 	d.midTurnRefused = on
 }
 
-// Stop ends a session and waits for its last event to be sent.
+// Stop ends a session and waits for its last event to be sent. It cannot interrupt a step's Do,
+// and a session with an input queued and a stop waiting takes either first, so the stop can end
+// the session before it plays that turn.
 func (d *AgentDriver) Stop(_ context.Context, h ports.SessionHandle, how ports.StopMode) error {
 	session, err := d.session(h)
 	if err != nil {

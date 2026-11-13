@@ -53,6 +53,7 @@ func TestAMemberRespawnsARunningLane(t *testing.T) {
 	r := laneRigWith(t, "")
 	g, after := newGate(), newGate()
 	r.finishLater(g)
+	r.gates(g, after)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, after.step(), r.reports(workorders.OutcomeCompleted), completed(0.01)}))
 	r.start()
@@ -130,11 +131,12 @@ func (l *lookupGate) await(t *testing.T) {
 }
 
 // endsWithTheTest stops every session and waits for the lane when the test ends. It is registered before the
-// gates and the lookup are, because those cleanups free what this waits for.
+// gates and the lookup are, because those cleanups free what this waits for. A stop cannot interrupt a step a
+// script runs, so a gate the test never released is let go by gates.
 func (r *laneRig) endsWithTheTest() {
 	r.t.Cleanup(func() {
 		r.driver.StopEverySession()
-		r.subject.Wait()
+		r.waitForTheLane(r.t)
 	})
 }
 
@@ -181,6 +183,7 @@ func TestARespawnRequestThatArrivesAgainIsNotActedOnTwice(t *testing.T) {
 	r := laneRigWith(t, "")
 	g, after := newGate(), newGate()
 	r.endsWithTheTest()
+	r.gates(g, after)
 	held := r.holdsLookup(2)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.driver.PlayAfter(script([]fake.DriverStep{{Bound: true}, after.step(), r.reports(workorders.OutcomeCompleted), completed(0.01)}))
@@ -216,16 +219,18 @@ func TestARespawnRequestThatArrivesAgainIsNotActedOnTwice(t *testing.T) {
 }
 
 // A request that comes while the next generation has no session yet is not lost: the session cannot take a
-// stop before the driver holds it, so the lane stops it once it does.
+// stop before the driver holds it, so the lane stops it once it does. The second generation holds until that
+// stop, so it ends through it however the session orders the stop against its script.
 func TestARespawnAskedBeforeASessionStartsStopsItOnceItHas(t *testing.T) {
 	t.Parallel()
 	r := laneRigWith(t, "")
-	g, second, after := newGate(), newGate(), newGate()
+	g, after := newGate(), newGate()
 	r.endsWithTheTest()
+	r.gates(g, after)
 	held := r.holdsLookup(2)
 	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
 	r.driver.PlayAfter(
-		script([]fake.DriverStep{{Bound: true}, second.step()}),
+		script([]fake.DriverStep{{Bound: true}, {Hold: true}}),
 		script([]fake.DriverStep{{Bound: true}, after.step(), r.reports(workorders.OutcomeCompleted), completed(0.01)}),
 	)
 	defer r.noStopWithoutASession(t)
@@ -236,9 +241,6 @@ func TestARespawnAskedBeforeASessionStartsStopsItOnceItHas(t *testing.T) {
 	held.await(t)
 	r.asksForANewGeneration(t)
 	held.free()
-	r.reach(t, second)
-	// The stop waits behind the turn the session is in, so the turn ends and the stop ends the session.
-	close(second.release)
 	r.reach(t, after)
 	r.eventually("the third session at work", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
 	// A third request would start a fourth session, which the count below reads.
@@ -252,6 +254,9 @@ func TestARespawnAskedBeforeASessionStartsStopsItOnceItHas(t *testing.T) {
 	generations := r.generations(t)
 	if len(generations) != 3 || generations[1].StartReason != ledger.StartUserRespawn || generations[2].StartReason != ledger.StartUserRespawn {
 		t.Fatalf("generations %+v", generations)
+	}
+	if generations[1].EndReason != string(ledger.StartUserRespawn) {
+		t.Errorf("the second generation ended with %q, not through the respawn that was asked while it began", generations[1].EndReason)
 	}
 	if specs := r.driver.Specs(); len(specs) != 3 {
 		t.Errorf("%d sessions", len(specs))
