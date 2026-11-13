@@ -456,7 +456,6 @@ func (r *laneRun) begin(ctx context.Context) error {
 	if err := r.w.Upload(ctx); err != nil {
 		r.w.config.Report(err)
 	}
-	r.signal(ctx, lanes.OnClaimGranted)
 	if r.orchestrating() {
 		r.loadProfile(ctx)
 	}
@@ -465,7 +464,14 @@ func (r *laneRun) begin(ctx context.Context) error {
 
 // proceed runs a lane's session to the end. A restart comes here for a lane a crash
 // stopped before its session existed, and the effects on record say how far it got.
+//
+// The claim is granted by the time a lane is here, and `claim_granted` is the only way out of
+// `pending`. Proceeding sends it, and not only the path that begins a lane, because a kill
+// between that journaled start and this signal leaves a lane in `pending`, and a lane a restart
+// continues from there would hear every later signal from a state with no edge for it. The
+// signal moves nothing from any other state.
 func (r *laneRun) proceed(ctx context.Context) error {
+	r.signal(ctx, lanes.OnClaimGranted)
 	return r.conclude(ctx, r.session(ctx))
 }
 
