@@ -47,3 +47,31 @@ ON CONFLICT (id) DO UPDATE SET state = excluded.state`, string(raw)); err != nil
 	}
 	return tx.Commit()
 }
+
+// LanePeaks reads the peaks of the last lanes this worker ran, which is none until it first saves.
+func (j *Journal) LanePeaks(ctx context.Context) ([]lanes.LanePeak, error) {
+	var raw string
+	err := j.db.QueryRowContext(ctx, `SELECT peaks FROM lane_peaks WHERE id = 1`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var peaks []lanes.LanePeak
+	return peaks, json.Unmarshal([]byte(raw), &peaks)
+}
+
+// SaveLanePeaks keeps the peaks in place of what the journal held.
+func (j *Journal) SaveLanePeaks(ctx context.Context, peaks []lanes.LanePeak) error {
+	if peaks == nil {
+		peaks = []lanes.LanePeak{}
+	}
+	raw, err := json.Marshal(peaks)
+	if err != nil {
+		return err
+	}
+	_, err = j.db.ExecContext(ctx, `INSERT INTO lane_peaks (id, peaks) VALUES (1, ?1)
+ON CONFLICT (id) DO UPDATE SET peaks = excluded.peaks`, string(raw))
+	return err
+}

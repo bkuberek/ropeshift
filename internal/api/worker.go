@@ -33,6 +33,8 @@ type JoinTokenResponse struct {
 // WorkerList is the answer to a list of workers.
 type WorkerList struct {
 	Workers []ledger.Worker `json:"workers"`
+	// AsOf is the control plane's time of the read, which a report's age counts from.
+	AsOf int64 `json:"as_of,omitempty"`
 }
 
 // WithCredential returns a client that identifies a worker on every call.
@@ -59,9 +61,15 @@ func (c *Client) CreateJoinToken(ctx context.Context) (string, error) {
 
 // Workers lists the registered workers.
 func (c *Client) Workers(ctx context.Context) ([]ledger.Worker, error) {
+	out, err := c.WorkerList(ctx)
+	return out.Workers, err
+}
+
+// WorkerList reads every registered worker, with the time of the read.
+func (c *Client) WorkerList(ctx context.Context) (WorkerList, error) {
 	var out WorkerList
 	err := c.Do(ctx, http.MethodGet, "/v1/workers", nil, &out)
-	return out.Workers, err
+	return out, err
 }
 
 // Register exchanges a join token for a worker credential.

@@ -111,10 +111,17 @@ type WorktreeSettings struct {
 	PushOnStop bool `toml:"push_on_stop" json:"push_on_stop"`
 }
 
-// ResourceSettings sizes what each lane gets.
+// ResourceSettings sizes what each lane gets, and says how often the worker measures its machine and where
+// a measure warns (FR-OBS-8, FR-UI-10). A measuring setting left unset takes its documented default and
+// stays out of a lane's digest.
 type ResourceSettings struct {
-	PortsPerLane         int64  `toml:"ports_per_lane" json:"ports_per_lane"`
-	ComposeProjectPrefix string `toml:"compose_project_prefix" json:"compose_project_prefix"`
+	PortsPerLane         int64    `toml:"ports_per_lane" json:"ports_per_lane"`
+	ComposeProjectPrefix string   `toml:"compose_project_prefix" json:"compose_project_prefix"`
+	ReportInterval       string   `toml:"report_interval" json:"report_interval,omitempty"`
+	DiskFreeWarn         string   `toml:"disk_free_warn" json:"disk_free_warn,omitempty"`
+	MemoryAvailableWarn  *float64 `toml:"memory_available_warn" json:"memory_available_warn,omitempty"`
+	MemoryPressureWarn   *float64 `toml:"memory_pressure_warn" json:"memory_pressure_warn,omitempty"`
+	CPULoadWarn          *float64 `toml:"cpu_load_warn" json:"cpu_load_warn,omitempty"`
 }
 
 // Profile is the resolved settings of a lane. It configures a lane and holds no

@@ -264,6 +264,7 @@ func (p *Plane) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.He
 			return ledger.HeartbeatReply{}, err
 		}
 	}
+	reply.ReportError = saveReport(ctx, p.installation, beat)
 	revisions, projects, sum, err := p.revisions(ctx)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err

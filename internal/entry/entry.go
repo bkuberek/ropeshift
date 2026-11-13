@@ -99,7 +99,7 @@ func cliOptions() cli.Options {
 	if opts.Terminal != nil {
 		opts.Panes = terminalPanes(paths)
 	}
-	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx, paths) }
+	opts.Doctor = func(ctx context.Context) (ledger.Manifest, error) { return runDoctor(ctx) }
 	opts.StartDaemon = startDaemonForInit(paths)
 	opts.StateDir = paths.StateDir
 	return opts

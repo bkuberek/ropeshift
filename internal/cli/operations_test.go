@@ -89,6 +89,8 @@ var operations = map[string]string{
 	"GET /v1/lanes/{id}/messages":                      "message list",
 	"GET /v1/workers/{id}/autonomy":                    "worker autonomy",
 	"PUT /v1/workers/{id}/autonomy":                    "worker level",
+	"GET /v1/workers/{id}/caps":                        "worker caps",
+	"PUT /v1/workers/{id}/caps":                        "worker caps",
 	"POST /v1/workers/{id}/autonomy/acknowledgement":   "worker acknowledge-risk",
 	"POST /v1/workers/{id}/windows":                    "worker window-open",
 	"DELETE /v1/workers/{id}/windows":                  "worker window-close",

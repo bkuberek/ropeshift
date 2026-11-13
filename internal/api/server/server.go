@@ -88,6 +88,11 @@ type Config struct {
 	// ModelClasses reads the model each driver's profile on the worker this daemon runs maps every
 	// capability class to, by driver and then class (ADR-0025). Nil shows no rendered model.
 	ModelClasses func(context.Context) (map[string]map[string]string, error)
+	// Profile is the user's layer on the machine of the worker this daemon runs, where its lane caps live
+	// (FR-PROJ-7), and LocalWorker names that worker once it has registered. With either nil, the caps
+	// routes refuse.
+	Profile     ports.UserProfile
+	LocalWorker func(context.Context) (string, error)
 }
 
 type handler struct {
@@ -116,6 +121,9 @@ type handler struct {
 	// lifecycle and router are the installation's, which only the first project's handler holds.
 	lifecycle *control.Projects
 	router    *router
+	// caps reads and sets the lane caps of the worker this daemon runs, which only the first project's
+	// handler holds.
+	caps *control.LaneCaps
 }
 
 // New returns the versioned API. The installation's routes sit at the top, and each project's routes
@@ -136,6 +144,7 @@ func New(config Config) http.Handler {
 	}, matching(config))
 	projects := newRouter(config, home)
 	home.lifecycle, home.router = control.NewProjects(config.Projects), projects
+	home.caps = control.NewLaneCaps(config.Installation, config.Profile, config.LocalWorker)
 	mux := http.NewServeMux()
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
@@ -153,6 +162,7 @@ func (h *handler) installationRoutes(mux *http.ServeMux) {
 	h.workerRoutes(mux)
 	h.orchestratorRoutes(mux)
 	h.autonomyRoutes(mux)
+	h.capsRoutes(mux)
 	h.telemetryRoutes(mux)
 	h.installationRosterRoutes(mux)
 	mux.HandleFunc("GET /v1/health", h.health)

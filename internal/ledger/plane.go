@@ -125,6 +125,9 @@ type Heartbeat struct {
 	DesiredRev    int64       `json:"desired_rev"`
 	EventsThrough int64       `json:"events_through"`
 	Leases        []HeldLease `json:"leases"`
+	// Report is what the worker measured since its last heartbeat that was answered, and absent when it
+	// measured nothing new (FR-OBS-8).
+	Report *ResourceReport `json:"report,omitempty"`
 }
 
 // RenewedLease is a lease that holds, with what a worker counts from its send.
@@ -154,6 +157,9 @@ type HeartbeatReply struct {
 	// Revisions is where each project's desired state and the installation's stand, on a plane that
 	// serves several projects. A worker whose cached revisions differ reads desired state again.
 	Revisions map[string]int64 `json:"revisions,omitempty"`
+	// ReportError says the control plane did not keep the report this heartbeat carried, and why. The
+	// rest of the answer stands, and the worker sends the report again.
+	ReportError string `json:"report_error,omitempty"`
 }
 
 // DesiredRequest reads desired state. Since is the revision the worker has, and Revisions what it has
@@ -550,6 +556,20 @@ type Worker struct {
 	Protocol        int      `json:"protocol"`
 	Manifest        Manifest `json:"manifest"`
 	LastHandshakeAt int64    `json:"last_handshake_at,omitempty"`
+	// Report is what the worker last measured of its machine and its sessions, and ReportedAt when it
+	// measured it, by the control plane's clock. Both are absent until a worker reports.
+	Report     *ResourceReport `json:"report,omitempty"`
+	ReportedAt int64           `json:"reported_at,omitempty"`
+}
+
+// LaneCap is the per-worker cap a claim is held to: the cap in force the worker last reported, which
+// follows a member's change without a new session, or the capacity its session opened with. Zero caps
+// nothing.
+func (w Worker) LaneCap() int64 {
+	if w.Report != nil {
+		return w.Report.Caps.MaxLanes
+	}
+	return w.Manifest.Capacity.MaxLanes
 }
 
 // WorkerRecord is a worker as the ledger holds it. ProofDigest is the digest of its

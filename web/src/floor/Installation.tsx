@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { createJoinToken, stopOrchestrator } from "../api/admin";
 import { inProjectOf, readView, startOrchestrator } from "../api/client";
-import type { Operations, Project, ShopFloor, WorkerLine } from "../api/types";
+import type { Operations, Project, ResourceReport, SessionResources, ShopFloor, WorkerLine } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
@@ -24,6 +24,56 @@ export function useEveryFloor(live: Live, projects: Project[]) {
     () => Promise.all(names.map((name) => inProjectOf(name, () => readView<ShopFloor>("shop-floor")).then((view) => ({ project: name, view })))),
     `floors:${names.join(",")}`,
     live,
+  );
+}
+
+// bytes says a size in binary units with one decimal, as the worker's own words do.
+export function bytes(value: number): string {
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  let scaled = value / 1024;
+  let unit = units[0];
+  for (const next of units.slice(1)) {
+    if (scaled < 1024) {
+      break;
+    }
+    scaled /= 1024;
+    unit = next;
+  }
+  return `${scaled.toFixed(1)} ${unit}`;
+}
+
+// measured shows a reported value, or says the machine could not provide it, and never draws it as zero.
+function measured(value: number | undefined, show: (value: number) => string) {
+  return value === undefined ? <Absent>unavailable</Absent> : show(value);
+}
+
+// NotReported is a worker that has sent no resource report yet.
+function NotReported() {
+  return <Absent>not reported</Absent>;
+}
+
+// sessionOf finds one session in a worker's last report: a lane by its ID, or the orchestrator.
+function sessionOf(report: ResourceReport | undefined, kind: SessionResources["kind"], lane?: string): SessionResources | undefined {
+  return report?.sessions.find((row) => row.kind === kind && (lane === undefined || row.lane === lane));
+}
+
+// SessionUse is a session's process tree as its worker last measured it.
+function SessionUse({ report, session }: { report?: ResourceReport; session?: SessionResources }) {
+  if (!report) {
+    return <NotReported />;
+  }
+  if (!session) {
+    return <Absent>unavailable</Absent>;
+  }
+  return (
+    <>
+      {measured(session.cpu_cores, (cores) => `${cores.toFixed(2)} cores`)}
+      {" · "}
+      {measured(session.rss_bytes, bytes)}
+    </>
   );
 }
 
@@ -138,8 +188,9 @@ function JoinToken({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-// WorkersPage lists each machine with what it reports, and every session on it. A measure no source
-// reports to this page yet says so, and is never drawn as zero.
+// WorkersPage lists each machine with what its worker last measured, and every session on it. A worker
+// that has not reported says so, a measure its machine cannot provide says it is unavailable, and neither is
+// ever drawn as zero. A value past a threshold warns, and stops no work.
 export function WorkersPage({ live, projects, selected, after, dialog = "" }: { live: Live; projects: Project[]; selected: string; after: () => Promise<void>; dialog?: string }) {
   const [joining, setJoining] = useState(dialog === "token");
   const floors = useEveryFloor(live, projects);
@@ -195,6 +246,13 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
         ) : null}
         {floors.view && workers.size > 0 ? (
           <ViewTime.Provider value={{ asOf: stamp?.as_of ?? 0, elapsed: Math.max(0, now - floors.readAt) }}>
+            {[...workers.values()].flatMap((line) =>
+              (line.worker.report?.warnings ?? []).map((warning) => (
+                <Banner key={`${line.worker.id}:${warning.measure}:${warning.volume ?? ""}`} tone="warning">
+                  {line.worker.name || line.worker.id}: {warning.message} A warning stops no work.
+                </Banner>
+              )),
+            )}
             <Panel title="Machines" flush>
               <TableRegion label="Machines">
                 <table className="table stack-on-phone">
@@ -218,7 +276,9 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                   <tbody>
                     {[...workers.values()].map((line) => {
                       const count = lanes.filter((row) => row.lane.worker_id === line.worker.id && running.has(row.lane.actual_state)).length;
-                      const cap = line.worker.manifest?.capacity?.max_lanes;
+                      const report = line.worker.report;
+                      const machine = report?.machine;
+                      const cap = report ? report.caps.max_lanes : line.worker.manifest?.capacity?.max_lanes;
                       const orchestrator = line.orchestrator;
                       const stopped = !orchestrator || !orchestrator.actual_state || !running.has(orchestrator.actual_state);
                       return (
@@ -235,15 +295,47 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                           <td data-label="Lanes / cap" className="r">
                             {count}
                             {cap ? ` / ${cap}` : ""}
+                            {report?.recommendation ? <span className="cell-note">recommended {report.recommendation.max_lanes}</span> : null}
                           </td>
                           <td data-label="CPU">
-                            <Absent>unavailable</Absent>
+                            {machine ? (
+                              <>
+                                {measured(machine.cpu_percent, (share) => `${Math.round(share)}%`)}
+                                <span className="cell-note">load {measured(machine.load_5, (load) => load.toFixed(2))}</span>
+                              </>
+                            ) : (
+                              <NotReported />
+                            )}
                           </td>
                           <td data-label="Memory">
-                            <Absent>unavailable</Absent>
+                            {machine ? (
+                              <>
+                                {machine.memory_used_bytes !== undefined && machine.memory_total_bytes !== undefined ? (
+                                  `${bytes(machine.memory_used_bytes)} of ${bytes(machine.memory_total_bytes)}`
+                                ) : (
+                                  <Absent>unavailable</Absent>
+                                )}
+                                <span className="cell-note">
+                                  {measured(machine.memory_available_bytes, (available) => `${bytes(available)} available`)}
+                                  {machine.memory_pressure_some !== undefined ? `, pressure ${machine.memory_pressure_some.toFixed(1)}%` : null}
+                                </span>
+                              </>
+                            ) : (
+                              <NotReported />
+                            )}
                           </td>
                           <td data-label="Free disk">
-                            <Absent>unavailable</Absent>
+                            {!machine ? (
+                              <NotReported />
+                            ) : machine.volumes.length === 0 ? (
+                              <Absent>unavailable</Absent>
+                            ) : (
+                              machine.volumes.map((volume) => (
+                                <div key={volume.roles.join(",")}>
+                                  {bytes(volume.free_bytes)} <span className="cell-note">{volume.roles.join(" and ")}</span>
+                                </div>
+                              ))
+                            )}
                           </td>
                           <td data-label="Orchestrator">
                             <span className="row-tight">
@@ -265,6 +357,12 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                                 </>
                               ) : null}
                             </Freshness>
+                            {report && line.worker.reported_at ? (
+                              <span className="cell-note">
+                                Resources measured <Ago at={line.worker.reported_at} />
+                                {line.report_freshness === "observed" ? "" : ", last reported"}
+                              </span>
+                            ) : null}
                           </td>
                           <td className="actions-cell">
                             <Link className="btn btn-sm" to={addressOf("/settings", { section: "autonomy", worker: line.worker.id })} installation>
@@ -279,7 +377,11 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                 </table>
               </TableRegion>
             </Panel>
-            <Panel title="Sessions" flush foot="Only lanes count toward a machine's caps. No source reports a session's CPU or memory to this page yet.">
+            <Panel
+              title="Sessions"
+              flush
+              foot="Only lanes count toward a machine's caps. CPU is the cores a session's process tree kept busy since its worker last measured, and memory is the tree's resident memory. A measure the machine cannot provide is unavailable, never zero."
+            >
               <TableRegion label="Sessions">
                 <table className="table stack-on-phone">
                   <thead>
@@ -305,7 +407,7 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                           <td data-label="Project">Every project it serves</td>
                           <td data-label="Counts toward caps">No</td>
                           <td data-label="CPU · Mem">
-                            <Absent>unavailable</Absent>
+                            <SessionUse report={line.worker.report} session={sessionOf(line.worker.report, "orchestrator")} />
                           </td>
                         </tr>
                       ))}
@@ -328,7 +430,11 @@ export function WorkersPage({ live, projects, selected, after, dialog = "" }: { 
                         </td>
                         <td data-label="Counts toward caps">Yes</td>
                         <td data-label="CPU · Mem">
-                          <Absent>unavailable</Absent>
+                          {lane.worker_id ? (
+                            <SessionUse report={workers.get(lane.worker_id)?.worker.report} session={sessionOf(workers.get(lane.worker_id)?.worker.report, "lane", lane.id)} />
+                          ) : (
+                            <Absent>none yet</Absent>
+                          )}
                         </td>
                       </tr>
                     ))}

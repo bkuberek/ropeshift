@@ -56,6 +56,12 @@ func Resolve(layers ...string) (lanes.Profile, error) {
 	if err := lanes.CheckPermissionMode(profile.Agent.PermissionMode); err != nil {
 		return lanes.Profile{}, err
 	}
+	if err := profile.Admission.Check(); err != nil {
+		return lanes.Profile{}, err
+	}
+	if _, _, err := profile.Resources.Reporting(); err != nil {
+		return lanes.Profile{}, err
+	}
 	return profile, nil
 }
 
@@ -85,6 +91,10 @@ func ResolveLayers(user, repository, overrides string) (lanes.Profile, error) {
 	}
 	if err := lanes.CheckAdmission(below.Admission, profile.Admission); err != nil {
 		return lanes.Profile{}, err
+	}
+	// How often the worker measures its machine, and where a measure warns, are the machine's.
+	if !lanes.SameMeasuring(below.Resources, profile.Resources) {
+		return lanes.Profile{}, fmt.Errorf("%w: a layer past the user's cannot change how this machine is measured", lanes.ErrBadProfile)
 	}
 	// Content in telemetry is a person's choice, and the worker's store and export are the machine's.
 	if profile.Telemetry.Content && !below.Telemetry.Content {
