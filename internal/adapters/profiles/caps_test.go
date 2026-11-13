@@ -124,3 +124,41 @@ func TestTheFilesystemSetsTheLaneCaps(t *testing.T) {
 		t.Errorf("an edit left %d files beside the layer: %v", len(entries), err)
 	}
 }
+
+// TestALinkedLayerStaysALink edits the file a symbolic link names and leaves the link, as a person who keeps
+// the layer in a dotfiles repository expects.
+func TestALinkedLayerStaysALink(t *testing.T) {
+	ctx := context.Background()
+	real := filepath.Join(t.TempDir(), "profile.toml")
+	if err := os.WriteFile(real, []byte(kept), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), UserFile)
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Filesystem{User: link}).SetLaneCaps(ctx, capsOf(lanesCap(3), 0)); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(link)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link is now %v: %v", info.Mode(), err)
+	}
+	if caps, err := laneCapsOf(mustRead(t, real)); err != nil || !sameCaps(caps, capsOf(lanesCap(3), 0)) {
+		t.Errorf("the linked file holds %+v, %v", caps, err)
+	}
+	for _, dir := range []string{filepath.Dir(real), filepath.Dir(link)} {
+		if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+			t.Errorf("%d files in a directory of the edit: %v", len(entries), err)
+		}
+	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -150,7 +151,8 @@ func (f Filesystem) LaneCaps(context.Context) (lanes.LaneCapSettings, error) {
 }
 
 // SetLaneCaps edits the user's layer and replaces the file in one rename, so a reader finds the layer as
-// it was or as it is now, never half of it. A new layer is the user's alone to read.
+// it was or as it is now, never half of it. A layer that is a symbolic link stays one: the edit replaces
+// the file it names. A new layer is the user's alone to read.
 func (f Filesystem) SetLaneCaps(_ context.Context, caps lanes.LaneCapSettings) error {
 	if f.User == "" {
 		return errors.New("this machine has no user's layer to write")
@@ -165,14 +167,22 @@ func (f Filesystem) SetLaneCaps(_ context.Context, caps lanes.LaneCapSettings) e
 	if err != nil {
 		return err
 	}
+	path, err := filepath.EvalSymlinks(f.User)
+	if errors.Is(err, os.ErrNotExist) {
+		path, err = f.User, nil
+	}
+	if err != nil {
+		return err
+	}
 	mode := os.FileMode(0o600)
-	if info, err := os.Stat(f.User); err == nil {
+	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
-	return replaceFile(f.User, []byte(edited), mode)
+	return replaceFile(path, []byte(edited), mode)
 }
 
-// replaceFile writes a file beside path and renames it over path.
+// replaceFile writes a file beside path, renames it over path, and syncs the directory, so the rename
+// outlives a crash.
 func replaceFile(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	temp, err := os.CreateTemp(dir, ".profile-*.toml")
@@ -199,7 +209,24 @@ func replaceFile(path string, data []byte, mode os.FileMode) error {
 	if err := os.Rename(name, path); err != nil {
 		return fmt.Errorf("replacing %s: %w", filepath.Base(path), err)
 	}
-	return nil
+	return syncDir(dir)
+}
+
+// syncDir makes a directory's entries durable. A filesystem that cannot sync a directory has nothing more
+// to give, and the rename stands.
+func syncDir(dir string) error {
+	handle, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	syncErr := handle.Sync()
+	if err := handle.Close(); err != nil {
+		return err
+	}
+	if errors.Is(syncErr, syscall.EINVAL) || errors.Is(syncErr, syscall.ENOTSUP) {
+		return nil
+	}
+	return syncErr
 }
 
 var _ ports.UserProfile = Filesystem{}
