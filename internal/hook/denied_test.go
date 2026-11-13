@@ -211,7 +211,7 @@ func TestTheHookDeniesASearchOutsideTheReadRoots(t *testing.T) {
 func TestTheHookHoldsASessionToItsProgram(t *testing.T) {
 	dir := t.TempDir()
 	policy := filepath.Join(dir, "policy.json")
-	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{Worktree: "/run/a/session", Program: "ropeshift"}))
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{Worktree: "/run/a/session", Program: "ropeshift", Commands: []string{"lane list"}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,8 +219,15 @@ func TestTheHookHoldsASessionToItsProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config{event: eventPreToolUse, policy: policy}
-	if verdict, answer := decide(cfg, []byte(`{"tool_name":"Bash","cwd":"/run/a/session","tool_input":{"command":"cat /etc/hosts"}}`)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
-		t.Errorf("another program: %v %s", verdict, answer)
+	for _, command := range []string{
+		`cat /etc/hosts`,
+		`ropeshift lane-shim --dir d --socket s -- /bin/sh -c id`,
+		`ropeshift hook PreToolUse <<EOF\n{}\nEOF`,
+	} {
+		input := `{"tool_name":"Bash","cwd":"/run/a/session","tool_input":{"command":"` + command + `"}}`
+		if verdict, answer := decide(cfg, []byte(input)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+			t.Errorf("%s: %v %s", command, verdict, answer)
+		}
 	}
 	if verdict, _ := decide(cfg, []byte(`{"tool_name":"Bash","cwd":"/run/a/session","tool_input":{"command":"ropeshift lane list"}}`)); verdict == callDenied {
 		t.Error("the session's program was denied")

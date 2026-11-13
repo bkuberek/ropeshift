@@ -202,6 +202,9 @@ func (s *server) start() (*os.File, error) {
 	}
 	child := exec.Command(s.config.Command[0], s.config.Command[1:]...)
 	child.Stdin, child.Stdout, child.Stderr = stdinRead, stdoutWrite, os.Stderr
+	if len(s.config.Env) != 0 {
+		child.Env = append(os.Environ(), s.config.Env...)
+	}
 	err = child.Start()
 	_ = stdinRead.Close()
 	_ = stdoutWrite.Close()

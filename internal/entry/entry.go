@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"golang.org/x/term"
@@ -64,6 +65,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		if r.Name != "help" && asksForHelp(rest[1:]) {
 			r.writeUsage(stdout, command)
 			return exitOK
+		}
+		if slices.Contains(sessionRoutes, r.Name) && os.Getenv(authority.EnvDelegateToken) != "" {
+			fmt.Fprintf(stderr, "%s %s: a delegate starts no session process, which the worker starts with no credential of a delegate\n", command, r.Name)
+			return cli.ExitForbidden
 		}
 		return r.run(rest[1:], stdout, stderr)
 	}

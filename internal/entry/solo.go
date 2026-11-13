@@ -508,6 +508,7 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 	if err != nil {
 		return nil, nil, err
 	}
+	commands, named := assistantShell()
 	return &worker.LaneRuntime{
 		Driver: soloDriver(runner, terminal, env),
 		Provisioner: worker.Provisioner{
@@ -528,6 +529,8 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		// gh runs with the daemon's own environment, where the person's sign-in is (ADR-0020).
 		Forge:      ghcli.Forge{},
 		ForgeEvery: opts.forgeTick,
+		// What an assistant's shell may run of this binary, and what its rules deny by name (ADR-0024).
+		AssistantCommands: commands, Routes: named,
 	}, terminal, nil
 }
 

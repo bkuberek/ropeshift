@@ -268,6 +268,9 @@ type DenyPolicy struct {
 	// Program, when set, is the one program a shell may run: alone, with no substitution, variable, or
 	// redirect to or from a file. Any other command is denied, whatever a rule or the session's mode allowed.
 	Program string `json:"program,omitempty"`
+	// Commands are the only commands of Program a shell may run, by name, such as `lane list`: a first
+	// word of the program that names no command, as a route another process starts does, is denied.
+	Commands []string `json:"commands,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
 	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A

@@ -39,6 +39,10 @@ type LaneRuntime struct {
 	Spool  string
 	// Binary is the stable path generated settings name (D18).
 	Binary string
+	// AssistantCommands are the commands of Binary an assistant's shell may run, and Routes the first
+	// words of Binary that name no command, which its rules deny by name (ADR-0024).
+	AssistantCommands []string
+	Routes            []string
 	// Ports is the pool this worker hands out. Zero takes the default.
 	Ports lanes.PortPool
 	// StateDir holds generated settings, per lane.
@@ -802,6 +806,7 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		Telemetry: r.sessionTelemetry(prepared, repository),
 		Agents:    r.sessionAgents(prepared.Profile, capabilities.Support()), Effort: effort, Deny: deny,
 	}
+	r.assistantShell(&spec)
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
 			return ports.SessionSpec{}, err

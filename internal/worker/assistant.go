@@ -507,6 +507,14 @@ func (r *laneRun) compactWhenAsked(ctx context.Context, asked int64) {
 	}
 }
 
+// assistantShell names what an assistant's shell may run of the ropeshift binary, and what its rules deny
+// by name. No other session's shell is held to a list.
+func (r *laneRun) assistantShell(spec *ports.SessionSpec) {
+	if r.assisting() {
+		spec.Commands, spec.Routes = slices.Clone(r.rt.AssistantCommands), slices.Clone(r.rt.Routes)
+	}
+}
+
 // assistantApproval answers a call of an assistant's session that no rule allowed: denied, with a reason,
 // and never raised as a request, because an assistant changes things only through ropeshift.
 func assistantApproval() lanes.Reply {

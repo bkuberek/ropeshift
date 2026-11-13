@@ -21,6 +21,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
 	"ropeshift.com/ropeshift/internal/adapters/secrets"
 	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -976,5 +977,52 @@ func TestTheShimOutlivesTheWorkersService(t *testing.T) {
 	}
 	if shims != 1 {
 		t.Errorf("%d shims started", shims)
+	}
+}
+
+// recordingRunner remembers every process it started, as its spec named it.
+type recordingRunner struct {
+	ports.ProcessRunner
+	mu      sync.Mutex
+	started []ports.ProcessSpec
+}
+
+func (r *recordingRunner) Start(ctx context.Context, spec ports.ProcessSpec) (ports.Process, error) {
+	r.mu.Lock()
+	r.started = append(r.started, spec)
+	r.mu.Unlock()
+	return r.ProcessRunner.Start(ctx, spec)
+}
+
+// An assistant's delegate credential reaches its session and not the shim that holds the session's pipes,
+// because the binary refuses to start a shim for a delegate: the shim reads it from a private file it
+// removes, and hands it to the session it starts.
+func TestADelegateCredentialPassesTheShimToTheSession(t *testing.T) {
+	_, path, spec := session(t, "two-turns", func(spec *ports.SessionSpec) {
+		spec.Env = append(spec.Env, authority.EnvDelegateToken+"=the-assistants-token")
+	})
+	runner := &recordingRunner{ProcessRunner: osexec.Runner{}}
+	driver := claudecode.New(runner, claudecode.Options{Env: []string{"PATH=" + path}, StopGrace: 2 * time.Second})
+	play(t, driver, spec)
+	var shims int
+	for _, started := range runner.started {
+		if !slices.Contains(started.Args, "lane-shim") {
+			continue
+		}
+		shims++
+		for _, entry := range started.Env {
+			if strings.HasPrefix(entry, authority.EnvDelegateToken+"=") {
+				t.Errorf("the shim started with the delegate's token: %v", started.Args)
+			}
+		}
+	}
+	if shims != 1 {
+		t.Fatalf("%d shims started", shims)
+	}
+	if value := doubles.SeenEnv(t, path, authority.EnvDelegateToken); value != "the-assistants-token" {
+		t.Errorf("the session saw %q", value)
+	}
+	if leftover, _ := filepath.Glob(filepath.Join(spec.ConfigDir, "*.env")); len(leftover) != 0 {
+		t.Errorf("the token's file stays: %v", leftover)
 	}
 }

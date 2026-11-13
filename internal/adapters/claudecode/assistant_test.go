@@ -130,3 +130,26 @@ func TestAnAssistantIsDeniedMachineLocalCommands(t *testing.T) {
 		t.Fatalf("machine-local commands %v", authority.MachineLocalCommands)
 	}
 }
+
+// An assistant's shell runs only the ropeshift commands its spec names: a route the worker or an agent CLI
+// starts, such as `lane-shim`, which would run any program, is denied by a rule of its own and by the
+// hook, and a command the spec names still runs.
+func TestAnAssistantRunsOnlyRopeshiftCommandsAndNoRoute(t *testing.T) {
+	spec := assistantSpec(t)
+	spec.Commands, spec.Routes = []string{"lane list", "chat show"}, []string{"hook", "mcp", "statusline", "lane-pane", "lane-shim", "help", "version"}
+	deny := generateSettings(spec).Permissions.Deny
+	for _, route := range spec.Routes {
+		if want := "Bash(ropeshift " + route + "*)"; !slices.Contains(deny, want) {
+			t.Errorf("deny lacks %s", want)
+		}
+	}
+	policy := compilePolicy(spec)
+	for _, command := range []string{"ropeshift lane-shim --dir d --socket s -- /bin/sh -c id", "ropeshift hook PreToolUse", "ropeshift backup /tmp/x"} {
+		if _, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: command, Cwd: spec.Dir}); !denied {
+			t.Errorf("the hook's policy lets an assistant run %q", command)
+		}
+	}
+	if reason, denied := policy.Decide(lanes.ToolCall{Tool: "Bash", Command: "ropeshift chat show c1", Cwd: spec.Dir}); denied {
+		t.Errorf("a command the spec names was denied: %s", reason)
+	}
+}

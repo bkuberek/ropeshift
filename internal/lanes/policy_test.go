@@ -720,3 +720,50 @@ func TestAReadThroughALinkHoldsToWhereItLeads(t *testing.T) {
 		}
 	}
 }
+
+// A session held to one program runs only the commands it names: a first word of the program that is no
+// command, such as a route the worker or an agent CLI starts, is denied, and so is any command it does not
+// list. A here-document or a here-string, and an unquoted `~`, `*`, `?`, `[`, or `{`, are denied too,
+// because each feeds the command what the policy cannot read.
+func TestASessionHeldToOneProgramRunsOnlyItsCommands(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/run/a/session", Program: "ropeshift", Commands: []string{"lane list", "work show", "chat show", "top"}})
+	cwd := "/run/a/session"
+	for _, command := range []string{
+		"ropeshift lane-shim --dir d --socket s -- /bin/sh -c 'cp /home/x/.ssh/id_ed25519 /tmp/x'",
+		"ropeshift lane-pane /tmp/launch.json",
+		"ropeshift hook PreToolUse",
+		"ropeshift mcp",
+		"ropeshift statusline",
+		"ropeshift help",
+		"ropeshift version",
+		"ropeshift backup /tmp/copy.db",
+		"ropeshift",
+		"ropeshift --json lane list",
+		"ropeshift lane",
+		"ropeshift hook PreToolUse <<EOF\n{\"tool_name\":\"Bash\"}\nEOF",
+		"ropeshift lane list <<EOF\nx\nEOF",
+		"ropeshift lane list <<< x",
+		"ropeshift work show ~/x",
+		"ropeshift work show WO-*",
+		"ropeshift work show WO-?",
+		"ropeshift work show WO-[12]",
+		"ropeshift work show {WO-1,WO-2}",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	for _, command := range []string{
+		"ropeshift lane list",
+		"ropeshift lane list --json",
+		"ropeshift work show WO-1 --json 2>&1",
+		"ropeshift chat show c1 --limit 5",
+		"ropeshift top --once",
+		"ropeshift work show 'WO-*' --why \"it's {done} ~ok?\"",
+		"ropeshift work show WO\\*1",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); denied {
+			t.Errorf("%q was denied: %s", command, reason)
+		}
+	}
+}

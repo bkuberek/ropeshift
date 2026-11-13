@@ -156,10 +156,15 @@ type SessionSpec struct {
 	// not edit a file with a tool, and it may not commit, push, or move a branch or a tag. A review lane's
 	// session is one.
 	ReadOnly bool
-	// Assistant says the session is a member's assistant (ADR-0024): it reads and searches files, uses the
-	// web tools and its own tools, and runs a shell only for `ropeshift` commands, and it is denied every
-	// edit, every write, and every other command. Its driver reports the text it writes, as EventReply.
+	// Assistant says the session is a member's assistant (ADR-0024): it reads and searches its own files,
+	// uses its own tools, and runs a shell only for the `ropeshift` commands Commands names, and it is denied
+	// every other tool and command. Its driver reports the text it writes, as EventReply.
 	Assistant bool
+	// Commands are the commands of the ropeshift binary an assistant's shell may run, by name, such as
+	// `lane list`. Routes are the binary's first words that name no command, which the worker and an agent
+	// CLI start, such as `lane-shim`; an assistant's rules deny each by name.
+	Commands []string
+	Routes   []string
 	// Planning says the lane runs a `plan` work order, whose person answers its questions in the
 	// conversation. A driver leaves the agent's own question tool to an attached terminal for it.
 	Planning bool

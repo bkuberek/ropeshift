@@ -69,7 +69,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec), ReadRoots: readRoots,
-		Program: program,
+		Program: program, Commands: commandsOf(spec),
 	})
 	if spec.Assistant {
 		for _, tool := range assistantDenied {
@@ -77,6 +77,15 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		}
 	}
 	return policy
+}
+
+// commandsOf are the commands an assistant's shell may run, and none for any other session, whose shell no
+// list holds.
+func commandsOf(spec ports.SessionSpec) []string {
+	if !spec.Assistant {
+		return nil
+	}
+	return slices.Clone(spec.Commands)
 }
 
 // reasonNoWeb is what an assistant's session is told when it reaches for the web.
@@ -155,8 +164,8 @@ func denyRules(spec ports.SessionSpec) []string {
 	}
 	if spec.Assistant {
 		rules = append(rules, assistantDenied...)
-		for _, command := range authority.MachineLocalCommands {
-			rules = append(rules, "Bash(ropeshift "+command+"*)")
+		for _, command := range append(slices.Clone(authority.MachineLocalCommands), spec.Routes...) {
+			rules = append(rules, "Bash("+assistantProgram+" "+command+"*)")
 		}
 	}
 	for _, dir := range spec.ReadOnlyDirs {

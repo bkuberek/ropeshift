@@ -30,6 +30,7 @@ type assistantRig struct {
 func newAssistantRig(t *testing.T, scripts ...fake.DriverScript) *assistantRig {
 	t.Helper()
 	o := newOrchestratorRig(t, scripts...)
+	o.config.AssistantCommands, o.config.Routes = []string{"lane list", "work show"}, []string{"lane-shim", "hook"}
 	o.tick(t)
 	a := &assistantRig{orchestratorRig: o}
 	a.convs = control.NewConversations(o.store, nil).Hosting(func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
@@ -118,6 +119,9 @@ func TestAnAssistantRunsWithItsOwnCredentialAndRepliesOnce(t *testing.T) {
 	}
 	if strings.Join(spec.Tools, ",") != strings.Join([]string{lanes.ToolContextGet, lanes.ToolDecisionSearch, lanes.ToolRequirementGet, lanes.ToolQuestionSearch}, ",") {
 		t.Errorf("tools %v", spec.Tools)
+	}
+	if strings.Join(spec.Commands, ",") != "lane list,work show" || strings.Join(spec.Routes, ",") != "lane-shim,hook" {
+		t.Errorf("the shell may run %v and its rules deny %v", spec.Commands, spec.Routes)
 	}
 	credential, err := control.NewDelegates(a.store).Authenticate(ctx, scope, token)
 	if err != nil {
