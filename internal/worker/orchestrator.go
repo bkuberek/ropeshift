@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,6 +59,9 @@ func (r *laneRun) writePrompt(ctx context.Context, worktree string, support rost
 	if !r.orchestrating() {
 		return r.writePack(ctx, worktree, support)
 	}
+	if r.assisting() {
+		return r.writeAssistantRole(ctx)
+	}
 	path := filepath.Join(r.rt.configDir(r.lease.Lane), roleFile)
 	if err := os.WriteFile(path, []byte(lanes.OrchestratorRole), 0o600); err != nil {
 		return "", err
@@ -67,8 +71,12 @@ func (r *laneRun) writePrompt(ctx context.Context, worktree string, support rost
 
 // tools is what generated settings allow this session, and what `ropeshift mcp` lists for it.
 func (r *laneRun) tools() []string {
+	if r.assisting() {
+		return assistantTools
+	}
 	if r.orchestrating() {
-		return lanes.OrchestratorTools
+		// It answers a member's message as a lane does.
+		return append(slices.Clone(lanes.OrchestratorTools), lanes.ToolReply)
 	}
 	return lanes.Tools
 }
@@ -184,9 +192,11 @@ func (r *laneRun) briefOrchestrator() string {
 // orchestratorRests settles a turn that ended. It has no outcome to report and nothing to be nudged
 // towards, so a rest is where it belongs, and a turn that failed costs one wake.
 func (r *laneRun) orchestratorRests(ctx context.Context, turn *ports.TurnResult) {
-	r.w.wakeLanded(r.pendingWake())
-	r.setWake(nil)
-	r.letGo(ctx)
+	if !r.assisting() {
+		r.w.wakeLanded(r.pendingWake())
+		r.setWake(nil)
+		r.letGo(ctx)
+	}
 	if r.currentFlight() != nil {
 		return
 	}
@@ -224,14 +234,15 @@ func (w *Worker) wakeLanded(items []ledger.WakeItem) {
 		return
 	}
 	w.wakeLock.Lock()
-	defer w.wakeLock.Unlock()
 	w.wakes.Sent(items, w.clock.Now())
+	w.wakeLock.Unlock()
+	w.orchestratorMessagesLanded(context.Background(), items)
 }
 
 // orchestratorRun finds the run of the orchestrator this worker holds, if any.
 func (w *Worker) orchestratorRun() *laneRun {
 	for _, run := range w.runs() {
-		if run.orchestrating() {
+		if run.orchestrating() && !run.assisting() {
 			return run
 		}
 	}
@@ -271,6 +282,7 @@ func (w *Worker) tendOrchestrator(ctx context.Context) {
 	w.wakes.Debounce, w.wakes.Floor, w.wakes.Hold = debounce, floor, run.limitHolds()
 	w.wakes.Note(digest.Items, now)
 	w.wakeLock.Unlock()
+	w.noteOrchestratorMessages(ctx, digest.Items)
 	run.deliverWake(ctx)
 }
 

@@ -437,6 +437,9 @@ func (r *laneRun) retryBrief(ctx context.Context) {
 }
 
 func (r *laneRun) briefText() string {
+	if r.assisting() {
+		return r.briefAssistant(false)
+	}
 	if r.orchestrating() {
 		return r.briefOrchestrator()
 	}

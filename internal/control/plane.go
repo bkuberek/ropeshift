@@ -664,11 +664,14 @@ func (p *Plane) labeled(verb string, project ledger.Project, reply ledger.Orches
 
 // AssistantCredential makes a generation's credential in the project the run is in.
 func (p *Plane) AssistantCredential(ctx context.Context, request ledger.AssistantCredentialRequest) (ledger.AssistantGrant, error) {
-	w, _, err := p.route(ctx, request.Auth, request.Project, true)
+	w, project, err := p.route(ctx, request.Auth, request.Project, true)
 	if err != nil {
 		return ledger.AssistantGrant{}, err
 	}
-	return w.AssistantCredential(ctx, request)
+	grant, err := w.AssistantCredential(ctx, request)
+	// A command names a project as the registry does.
+	grant.Context.ProjectName = project.Name
+	return grant, err
 }
 
 // AssistantEntry records a reply in the project the run is in.

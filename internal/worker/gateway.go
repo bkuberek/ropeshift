@@ -89,8 +89,16 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 	if err != nil {
 		return refused(lanes.CodeUnavailable, err.Error())
 	}
-	if lane.Owner == lanes.OwnerOrchestrator && request.LaneOnly() {
+	if lane.Owner == lanes.OwnerOrchestrator && request.LaneOnly() && request.Reply == nil {
 		return refused(lanes.CodeForbidden, "an orchestrator's token cannot do this")
+	}
+	if lane.Owner == ownerAssistant {
+		switch {
+		case request.LaneOnly(), request.Decide != nil, request.Work != nil, len(request.Handoff) != 0:
+			return refused(lanes.CodeForbidden, "an assistant's token cannot do this")
+		case request.Approval != nil:
+			return assistantApproval()
+		}
 	}
 	switch {
 	case request.Who:

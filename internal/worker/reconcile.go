@@ -175,6 +175,9 @@ func (w *Worker) desired(ctx context.Context) (ledger.DesiredState, error) {
 	if err == nil && state.Orchestrator != nil {
 		state.Leases = append(state.Leases, orchestratorLease(*state.Orchestrator))
 	}
+	for _, desired := range state.Assistants {
+		state.Leases = append(state.Leases, assistantLease(desired))
+	}
 	return state, err
 }
 
@@ -366,6 +369,7 @@ func (w *Worker) Reconcile(ctx context.Context) ([]lanes.Action, error) {
 	w.deliverMessages(ctx)
 	w.parkOnPolicy(ctx)
 	w.tendOrchestrator(ctx)
+	w.tendAssistants(ctx)
 	w.tendForge(ctx)
 	return actions, nil
 }

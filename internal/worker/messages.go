@@ -97,7 +97,7 @@ func (w *Worker) takeMessages(ctx context.Context) (bool, error) {
 }
 
 func leaseRecord(lease ledger.DesiredLease, generation int64) lanes.Record {
-	return lanes.Record{ID: lease.Lane, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence, Generation: generation}
+	return lanes.Record{ID: lease.Lane, Project: lease.Project, WorkOrder: lease.WorkOrder, ClaimID: lease.ClaimID, Fence: lease.Fence, Generation: generation}
 }
 
 func (w *Worker) messageEvent(record lanes.Record, report messages.Report) (ledger.UploadEvent, error) {
@@ -312,6 +312,9 @@ func (r *laneRun) noteRefused(ctx context.Context, input string) {
 // lane hears so. A lane answers only what was sent to it (FR-AUTH-1), and what a brief listed is
 // the one message it may answer that this worker never held.
 func (w *Worker) takeReply(ctx context.Context, lane lanes.Record, request lanes.ReplyRequest) lanes.Reply {
+	if lane.Owner == lanes.OwnerOrchestrator {
+		return w.orchestratorReply(ctx, request)
+	}
 	if strings.TrimSpace(request.Body) == "" {
 		return refused(lanes.CodeInvalid, "a reply needs a body")
 	}

@@ -102,6 +102,10 @@ type Worker struct {
 	forgeReported map[string]bool
 	forgeFailed   map[string]time.Time
 	forgeRead     map[string]forgeReadSeen
+
+	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
+	// its making.
+	toOrchestrator *orchestratorMessages
 }
 
 // New returns a worker that has not started.
