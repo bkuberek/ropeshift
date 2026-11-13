@@ -780,3 +780,18 @@ func TestReadingAConversationStartsNothing(t *testing.T) {
 		}
 	}
 }
+
+// The installation's own database holds the assistant policy, and a daemon opens it with its migrations, so a
+// version published through the API must be one that database accepts.
+func TestTheAssistantPolicyPublishesOnTheInstallationsOwnDatabase(t *testing.T) {
+	in := apitest.StartInstallation(t, "beta")
+	ctx := t.Context()
+	project := in.Client.Project(apitest.ProjectName)
+	if _, err := project.PublishPolicy(ctx, "[assistant]\nversion = 2\nidle_stop = \"30m\"\nwarm_idle_stop = \"2m\"\n"); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := project.AssistantPolicies(ctx)
+	if err != nil || len(versions) != 2 || versions[0].Version != 2 {
+		t.Fatalf("versions %+v: %v", versions, err)
+	}
+}
