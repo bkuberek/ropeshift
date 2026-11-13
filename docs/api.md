@@ -52,7 +52,7 @@ A member's session manages the member's own credentials, on the installation's r
 | Route | Body | Answer |
 |-------|------|--------|
 | `GET /v1/delegates` | | `{"as_of", "delegates": [...]}`: each credential the member made: its `id` (`dlg_<ulid>`), `label`, `project`, `kind` (`external`), `created_at`, `expires_at`, `last_used_at`, `revoked_at`, and `state` (`active`, `expired`, or `revoked`) |
-| `POST /v1/delegates` | `{"project": "...", "label": "...", "expires_in_ms": N}` | 201 with the credential and its `token`, the one time anyone sees it. `project` names an active project, `label` is 1 to 64 characters, and `expires_in_ms` is from one minute to thirty days |
+| `POST /v1/delegates` | `{"project": "...", "label": "...", "expires_in_ms": N}` | 201 with the credential and its `token`, the one time anyone sees it. `project` names an active project, `label` is 1 to 64 characters and is never `assistant`, in any case and with spaces around it, which is the assistant's own credentials' label (a refusal is 400 `invalid`), and `expires_in_ms` is from one minute to thirty days |
 | `POST /v1/delegates/{id}/revoke` | `{}` | The credential, revoked |
 | `POST /v1/delegates/{id}/remove` | `{}` | 204, once the credential no longer acts, and 409 `delegate_active` while it does |
 | `POST /v1/sessions/end-all` | `{}` | `{"sessions", "delegates", "conversations"}`: every session of the member ends and every credential of theirs that acts is revoked, in one transaction with one event, and then every running conversation of theirs with the assistant stops, in every active project |
@@ -97,7 +97,7 @@ Revoking a credential, or signing out of every session, voids the open cards it 
 | `void` | Its subject changed before a member confirmed it |
 | `expired` | Expired |
 
-The combined Needs you lists each pending card of every active project as an item of kind `confirm`, with a `card` that holds the approval, its parsed `detail`, and the preparing delegate's `label` and `member`. A card the assistant prepared also holds `conversation`, the `id` and `name` of the conversation it came from; once that conversation is deleted, `name` is empty and `deleted` is true, and the card stays. `GET /v1/projects/{project}/approvals/{id}` answers the same `conversation` beside the approval's fields.
+The combined Needs you lists each pending card of every active project as an item of kind `confirm`, with a `card` that holds the approval, its parsed `detail`, and the preparing delegate's `label` and `member`. A card also holds `delegate_kind`, `external` or `assistant`, which a surface shows the card's preparer by, never its label. A card the assistant prepared also holds `conversation`, the `id` and `name` of the conversation it came from; once that conversation is deleted, `name` is empty and `deleted` is true, and the card stays. `GET /v1/projects/{project}/approvals/{id}` answers the same `conversation` beside the approval's fields.
 
 A card the assistant prepared stays confirmable after its session stops, because its credential ends with each generation and that says nothing against what it prepared. Revoking that credential by its ID, or signing out of every session, voids its open cards as it voids any delegate's.
 
@@ -111,7 +111,7 @@ exempt = ["work_order.accept", "work_order.cancel"]
 
 `exempt` lists consent operations by ID. A version that lists an unknown ID, an operational or member-only operation, or an operation that is never exempt answers 400 `invalid`, naming each and why. The built-in version exempts nothing.
 
-An event's `actor_for` and `actor_label`, in the event stream and the audit, name the member a delegate acted for and its credential's label, or the credential's ID once its record was removed. Both are absent for every other actor, and `GET /v1/audit?actor=delegate` keeps a delegate's events.
+An event's `actor_for` and `actor_label`, in the event stream and the audit, name the member a delegate acted for and its credential's label, or the credential's ID once its record was removed, and `delegate_kind` names its kind, `external` or `assistant`, until its record is removed. They are absent for every other actor, and `GET /v1/audit?actor=delegate` keeps a delegate's events.
 
 ## Conversations
 
@@ -156,7 +156,7 @@ These refusals are the conversation surface's own:
 | 409 | `no_assistant_worker` | No worker can run the project's assistant |
 | 409 | `target_not_running` | A compaction or a clear of a conversation whose session is not running, or a message to an orchestrator that is not running |
 
-A conversation's entries, a lane's stream, and an orchestrator's stream share one entry: `id`, `at`, `kind` (`member`, `reply`, `event`, `action`, `card`, `request`, `question`, or `marker`), `from` (`kind`, `id`, `label`), `body`, `message` (a member's message, with its delivery state), `event` (with `actor_for` and `actor_label`), `action`, `approval` (the current approval of a `card` or a `request`), `question` (the current question, its batch, and the `channel` a member's answer came through), `marker`, `assent`, and `before_clear`. A page is `{"entries", "next", "as_of"}`: oldest first within the page, the newest page first. `before` takes a page's `next`, and `limit` is 1 to 500, 100 by default.
+A conversation's entries, a lane's stream, and an orchestrator's stream share one entry: `id`, `at`, `kind` (`member`, `reply`, `event`, `action`, `card`, `request`, `question`, or `marker`), `from` (`kind`, `id`, `label`, and a delegate's `delegate_kind`), `body`, `message` (a member's message, with its delivery state), `event` (with `actor_for` and `actor_label`), `action`, `approval` (the current approval of a `card` or a `request`), `question` (the current question, its batch, and the `channel` a member's answer came through), `marker`, `assent`, and `before_clear`. A page is `{"entries", "next", "as_of"}`: oldest first within the page, the newest page first. `before` takes a page's `next`, and `limit` is 1 to 500, 100 by default.
 
 - A conversation's entries hold the member's messages, the assistant's replies, the operations it ran as `action` entries, a `card` entry in place of each card it prepared, holding the card as it stands now, and its markers (`started`, `stopped`, `compacted`, `cleared`, `idle_stopped`). A member's message that reads as a yes while a card waits carries `"assent": true`, and is still only a message.
 - A lane's stream, for a headless lane or a planning session, holds the messages members and their delegates, the assistant among them, sent it, with their delivery state and the sender a `member` entry's `from` names, its replies, the events about the lane or its work order, its approval requests, and the questions it asked or is attached to.

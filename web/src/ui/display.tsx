@@ -258,15 +258,15 @@ export function Digest({ value, length = 12 }: { value: string; length?: number 
   );
 }
 
-// assistantLabel is the label of every assistant credential.
-const assistantLabel = "assistant";
-
 type ActorProps = {
   kind: string;
   id: string;
   // actorFor and label are a delegate's: the member it acted for, and its credential's label.
   actorFor?: string;
   label?: string;
+  // delegateKind is the credential's kind, `assistant` or `external`, which decides how it shows. Its label
+  // never does: a credential's label is a member's word, and the kind is the API's.
+  delegateKind?: string;
   // you is the current member, whom an act of theirs names as "you".
   you?: string;
 };
@@ -274,14 +274,14 @@ type ActorProps = {
 // Actor shows who acted, distinct by kind (FR-AUTH-10): a member by name in bold, a delegate by its key, its
 // label, and the member it acted for, the assistant by its target chip and the member it acted for, the orchestrator by its target chip and worker, a lane by its ID,
 // and a worker or the control plane in quieter text.
-export function Actor({ kind, id, actorFor, label, you }: ActorProps) {
+export function Actor({ kind, id, actorFor, label, delegateKind, you }: ActorProps) {
   switch (kind) {
     case "member":
       return <strong className="actor">{you && id === you ? "you" : id}</strong>;
     case "delegate": {
       const [member = "", credential = ""] = id.split(/\/(.*)/);
-      // The assistant's credential is labeled `assistant`, and it shows as the assistant's target chip.
-      if (label === assistantLabel) {
+      // The assistant's credential is of kind `assistant`, and it shows as the assistant's target chip.
+      if (delegateKind === "assistant") {
         return (
           <span className="actor actor-delegate">
             <TargetChip kind="assistant" small />

@@ -15,12 +15,27 @@ function assistantCards(deleted = false): View {
   const first = view.items.find((item): item is CardItem => item.kind === "confirm");
   if (first) {
     first.card.label = "assistant";
+    first.card.delegate_kind = "assistant";
     first.card.conversation = deleted ? { id: "conv-1", name: "", deleted: true } : { id: "conv-1", name: "harbor-web merges" };
   }
   return view;
 }
 
 const firstCard = (view: View) => view.items.find((item): item is CardItem => item.kind === "confirm") as CardItem;
+
+describe("a card an outside delegate called the assistant prepared", () => {
+  it("never shows the assistant's chip", async () => {
+    const view = assistantCards();
+    const card = firstCard(view);
+    card.card.delegate_kind = "external";
+    delete card.card.conversation;
+    serveTalk({ ...talking(), answers: { "GET /v1/needs-you": () => ({ status: 200, body: view }) } });
+    openPage(`/needs-you?kind=cards&item=confirm%3A${card.id}`);
+    const article = await screen.findByRole("article", { name: card.card.approval.summary });
+    expect(article.querySelector(".target-chip")).toBeNull();
+    expect(article.querySelector(".decision-provenance")?.textContent).toContain("Prepared by assistant for member-1");
+  });
+});
 
 describe("a card the assistant prepared, in Needs you", () => {
   it("says the assistant prepared it, for whom, and in which conversation", async () => {

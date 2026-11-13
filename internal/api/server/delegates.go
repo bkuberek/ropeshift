@@ -223,7 +223,7 @@ func (h *handler) voidCardsOf(ctx context.Context, credentials []authority.Deleg
 // labelsOf reads the label of each delegate a page of events names, by its credential, so the audit names
 // a delegate as its member does. A credential whose record was removed keeps its ID as its label.
 func labelsOf(members ports.MemberReader, events []api.StreamEvent) error {
-	labels := map[string]string{}
+	labels, kinds := map[string]string{}, map[string]string{}
 	for i := range events {
 		_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(events[i].ActorKind), ID: events[i].ActorID})
 		if !ok {
@@ -238,11 +238,11 @@ func labelsOf(members ports.MemberReader, events []api.StreamEvent) error {
 			case err != nil:
 				return err
 			default:
-				label = record.Label
+				label, kinds[credential] = record.Label, record.Kind
 			}
 			labels[credential] = label
 		}
-		events[i].ActorLabel = label
+		events[i].ActorLabel, events[i].DelegateKind = label, kinds[credential]
 	}
 	return nil
 }

@@ -43,7 +43,7 @@ function EventLine({ event, at, you }: { event: StreamEvent; at: number; you: st
     <div className="event-line">
       <Icon name="info" size="sm" />
       <span>
-        <Actor kind={event.actor_kind} id={event.actor_id} actorFor={event.actor_for} label={event.actor_label} you={you} /> <span className="mono">{event.type}</span>{" "}
+        <Actor kind={event.actor_kind} id={event.actor_id} actorFor={event.actor_for} label={event.actor_label} delegateKind={event.delegate_kind} you={you} /> <span className="mono">{event.type}</span>{" "}
         <Subject kind={event.subject_kind} id={event.subject_id} />
       </span>
       <span className="subtle">{clockOf(at)}</span>
@@ -137,7 +137,7 @@ export function Stream({ entries, read, label, chip, member, you, conversation, 
           return (
             <div key={row.key} className={`msg-block${own ? " from-me" : ""}${row.beforeClear ? " is-before-clear" : ""}`}>
               <div className="msg-meta">
-                {own ? <strong>{named(entry)}</strong> : <Actor kind={entry.from?.kind ?? "member"} id={entry.from?.id ?? ""} label={entry.from?.label} actorFor={member} you={you} />}
+                {own ? <strong>{named(entry)}</strong> : <Actor kind={entry.from?.kind ?? "member"} id={entry.from?.id ?? ""} label={entry.from?.label} delegateKind={entry.from?.delegate_kind} actorFor={member} you={you} />}
                 <span>{clockOf(entry.at)}</span>
                 {entry.message ? <StateBadge table={deliveryStates} state={entry.message.state} /> : null}
                 {before}

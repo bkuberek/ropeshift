@@ -14,6 +14,7 @@
       "recorded_at": 1794000180000,
       "actor_for": "member-1",
       "actor_label": "planning assistant",
+      "delegate_kind": "external",
       "id": "generated-2",
       "data": {
         "id": "generated-1",
@@ -40,6 +41,7 @@
       "recorded_at": 1794000120000,
       "actor_for": "member-1",
       "actor_label": "planning assistant",
+      "delegate_kind": "external",
       "id": "generated-4",
       "data": {
         "id": "generated-3",
@@ -66,6 +68,7 @@
       "recorded_at": 1794000120000,
       "actor_for": "member-1",
       "actor_label": "planning assistant",
+      "delegate_kind": "external",
       "id": "generated-5",
       "data": {
         "id": "dlg_credential-1",
@@ -88,6 +91,7 @@
       "recorded_at": 1794000060000,
       "actor_for": "member-1",
       "actor_label": "planning assistant",
+      "delegate_kind": "external",
       "id": "generated-7",
       "data": {
         "id": "generated-6",
@@ -114,6 +118,7 @@
       "recorded_at": 1794000000000,
       "actor_for": "member-1",
       "actor_label": "planning assistant",
+      "delegate_kind": "external",
       "id": "generated-9",
       "data": {
         "id": "generated-8",
@@ -140,6 +145,7 @@
       "recorded_at": 1794000000000,
       "actor_for": "member-1",
       "actor_label": "planning assistant",
+      "delegate_kind": "external",
       "id": "generated-10",
       "data": {
         "id": "dlg_credential-1",

@@ -149,6 +149,10 @@ func (d DelegateCredential) EndedRoutinely() bool {
 // AssistantLabel is the label of every assistant credential.
 const AssistantLabel = "assistant"
 
+// Reserved says a label is the assistant's own, in any case and with spaces around it, so no outside
+// credential can be made to pass for the assistant by its name.
+func Reserved(label string) bool { return strings.EqualFold(strings.TrimSpace(label), AssistantLabel) }
+
 // Actor is who the credential acts as.
 func (d DelegateCredential) Actor() ledger.Actor { return DelegateActor(d.Member, d.ID) }
 
@@ -193,6 +197,8 @@ func (r DelegateRequest) Check() error {
 		return fmt.Errorf("%w: member %q holds a slash, which a delegate's actor ID cannot carry", ErrInvalid, r.Member)
 	case strings.TrimSpace(r.Label) == "" || length > MaxDelegateLabel:
 		return fmt.Errorf("%w: a delegate's label is 1 to %d characters", ErrInvalid, MaxDelegateLabel)
+	case Reserved(r.Label):
+		return fmt.Errorf("%w: the label %q is reserved for the assistant's own credentials", ErrInvalid, AssistantLabel)
 	case r.ExpiresInMs < MinDelegateTTLMs || r.ExpiresInMs > MaxDelegateTTLMs:
 		return fmt.Errorf("%w: a delegate expires in one minute to thirty days, as expires_in_ms", ErrInvalid)
 	case r.Kind != "" && r.Kind != DelegateExternal:

@@ -111,7 +111,7 @@ export function ConfirmCard({ need, after, frame, outcome, compact = false, plac
       provenance={
         <>
           Prepared by{" "}
-          {need.conversation ? (
+          {need.delegate_kind === "assistant" ? (
             <TargetChip kind="assistant" small />
           ) : (
             <span className="actor">
@@ -120,7 +120,7 @@ export function ConfirmCard({ need, after, frame, outcome, compact = false, plac
             </span>
           )}
           {need.member ? ` for ${need.member}` : ""}
-          {need.conversation && !compact ? <> in {need.conversation.deleted ? "a deleted conversation" : `“${need.conversation.name}”`}</> : null}
+          {need.delegate_kind === "assistant" && need.conversation && !compact ? <> in {need.conversation.deleted ? "a deleted conversation" : `“${need.conversation.name}”`}</> : null}
           {frame.provenance ? <> · {frame.provenance}</> : null}
         </>
       }

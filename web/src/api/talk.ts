@@ -44,7 +44,7 @@ export type TalkMessage = {
   reply?: string;
 };
 
-export type TalkFrom = { kind: string; id: string; label?: string };
+export type TalkFrom = { kind: string; id: string; label?: string; delegate_kind?: string };
 
 export type StreamEvent = {
   rev: number;
@@ -57,6 +57,7 @@ export type StreamEvent = {
   recorded_at: number;
   actor_for?: string;
   actor_label?: string;
+  delegate_kind?: string;
 };
 
 export type TalkAction = { operation: string; label: string; subject?: string; outcome: "ran" | "card"; approval?: string; rev?: number; planning_lane?: string };

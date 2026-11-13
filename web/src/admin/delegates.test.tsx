@@ -173,3 +173,21 @@ describe("the command palette", () => {
     expect(await screen.findByRole("dialog", { name: "Sign out all sessions" })).toBeTruthy();
   });
 });
+
+describe("an outside delegate called the assistant, in the audit", () => {
+  it("shows its key and label, never the assistant's chip", async () => {
+    const audit = golden<{ events: { actor_kind: string; actor_label?: string; delegate_kind?: string }[] }>("audit-delegates");
+    const row = audit.events.find((event) => event.actor_kind === "delegate");
+    if (row) {
+      row.actor_label = "assistant";
+      row.delegate_kind = "external";
+    }
+    serveDelegates((call) => (call.method === "GET" && call.path.startsWith("/v1/audit?") ? { status: 200, body: audit } : undefined));
+    openPage(here("/audit?actor=delegate"));
+    const table = await screen.findByRole("region", { name: "Events" });
+    const actor = (within(table).getAllByRole("row")[1] as HTMLElement).querySelector('[data-label="Actor"]');
+    expect(actor?.querySelector(".target-chip")).toBeNull();
+    expect(actor?.querySelector("svg")).not.toBeNull();
+    expect(actor?.textContent).toContain("assistant");
+  });
+});

@@ -65,7 +65,7 @@ export type CardDetail = {
 
 // CardNeed is a confirmation card that waits for a member, with the delegate that prepared it: its
 // credential's label and the member it acts for.
-export type CardNeed = { approval: Approval; detail: CardDetail; label: string; member: string; conversation?: CardConversation };
+export type CardNeed = { approval: Approval; detail: CardDetail; label: string; member: string; delegate_kind?: "external" | "assistant"; conversation?: CardConversation };
 
 // CardConversation names the conversation with the assistant that prepared a card. Once the conversation is
 // deleted its name is empty and `deleted` says so: the card stays.

@@ -43,7 +43,8 @@
           ]
         },
         "label": "planning assistant",
-        "member": "member-1"
+        "member": "member-1",
+        "delegate_kind": "external"
       }
     },
     {
@@ -91,7 +92,8 @@
           }
         },
         "label": "planning assistant",
-        "member": "member-1"
+        "member": "member-1",
+        "delegate_kind": "external"
       }
     },
     {
@@ -139,7 +141,8 @@
           ]
         },
         "label": "planning assistant",
-        "member": "member-1"
+        "member": "member-1",
+        "delegate_kind": "external"
       }
     },
     {
@@ -182,7 +185,8 @@
           ]
         },
         "label": "planning assistant",
-        "member": "member-1"
+        "member": "member-1",
+        "delegate_kind": "external"
       }
     }
   ],

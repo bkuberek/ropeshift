@@ -110,3 +110,18 @@ func TestTheAssistantPolicyStopsAnUnusedSessionSooner(t *testing.T) {
 		}
 	}
 }
+
+func TestTheAssistantsLabelIsReservedAgainstOutsideCredentials(t *testing.T) {
+	ok := authority.DelegateRequest{Member: "m", Project: "p", Label: "assistant bot", ExpiresInMs: authority.MinDelegateTTLMs}
+	if err := ok.Check(); err != nil {
+		t.Fatalf("a label that holds the word is refused: %v", err)
+	}
+	for _, label := range []string{"assistant", "Assistant", "ASSISTANT", " assistant ", "Assistant "} {
+		request := ok
+		request.Label = label
+		err := request.Check()
+		if !errors.Is(err, authority.ErrInvalid) || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("label %q: got %v, want a refusal that says it is reserved", label, err)
+		}
+	}
+}

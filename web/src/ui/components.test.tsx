@@ -100,16 +100,27 @@ describe("a target chip", () => {
 
 describe("an actor", () => {
   it("shows the assistant as its target chip and the member it acts for, and an outside delegate as a key", () => {
-    const { container, rerender } = render(<Actor kind="delegate" id="member-1/dlg_a" label="assistant" actorFor="Sam Rivera" />);
+    const { container, rerender } = render(<Actor kind="delegate" id="member-1/dlg_a" label="assistant" delegateKind="assistant" actorFor="Sam Rivera" />);
     expect(container.querySelector(".target-chip.t-assistant")?.textContent).toBe("Assistant");
     expect(container.textContent).toContain("for Sam Rivera");
     expect(container.querySelectorAll("svg")).toHaveLength(1);
-    rerender(<Actor kind="delegate" id="member-1/dlg_b" label="planning assistant" actorFor="Sam Rivera" />);
+    rerender(<Actor kind="delegate" id="member-1/dlg_b" label="planning assistant" delegateKind="external" actorFor="Sam Rivera" />);
     expect(container.querySelector(".target-chip")).toBeNull();
     expect(container.textContent).toContain("planning assistant");
     expect(container.textContent).toContain("for Sam Rivera");
     expect(container.querySelectorAll("svg")).toHaveLength(1);
     expect(container.querySelector(".actor-delegate > svg")).not.toBeNull();
+  });
+});
+
+describe("an outside delegate called the assistant", () => {
+  it("never shows as the assistant, because its kind decides and its label does not", () => {
+    for (const kind of ["external", undefined]) {
+      const { container } = render(<Actor kind="delegate" id="member-1/dlg_c" label="assistant" delegateKind={kind} actorFor="Sam Rivera" />);
+      expect(container.querySelector(".target-chip")).toBeNull();
+      expect(container.querySelector(".actor-delegate > svg")).not.toBeNull();
+      expect(container.textContent).toContain("assistant");
+    }
   });
 });
 

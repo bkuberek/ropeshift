@@ -62,7 +62,7 @@ function CardItem({ entry, member, conversation, after }: ItemProps) {
     return <Unreadable title={approval.summary} />;
   }
   // A card in a conversation is the assistant's, which its provenance says with the assistant's chip.
-  const need: CardNeed = { approval, detail, label: "assistant", member, conversation: { id: conversation?.id ?? "", name: conversation?.name ?? "" } };
+  const need: CardNeed = { approval, detail, label: "assistant", member, delegate_kind: "assistant", conversation: { id: conversation?.id ?? "", name: conversation?.name ?? "" } };
   const frame: Frame = { title: approval.summary };
   return (
     <ConfirmCard

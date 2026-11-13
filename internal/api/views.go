@@ -169,6 +169,8 @@ type CardNeed struct {
 	Detail   authority.CardDetail `json:"detail"`
 	Label    string               `json:"label"`
 	Member   string               `json:"member"`
+	// DelegateKind is the credential's kind, `external` or `assistant`, which the card's form is decided on.
+	DelegateKind string `json:"delegate_kind,omitempty"`
 	// Conversation is the conversation with the assistant that prepared the card, for one an assistant's
 	// credential prepared.
 	Conversation *CardConversation `json:"conversation,omitempty"`

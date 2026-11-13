@@ -107,6 +107,8 @@ type TalkFrom struct {
 	Kind  string `json:"kind"`
 	ID    string `json:"id"`
 	Label string `json:"label,omitempty"`
+	// DelegateKind is the kind of a delegate's credential, `external` or `assistant`.
+	DelegateKind string `json:"delegate_kind,omitempty"`
 }
 
 // TalkQuestion is a question an entry holds, as it stands now, with the batch it reaches a person in.

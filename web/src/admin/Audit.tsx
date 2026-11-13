@@ -14,7 +14,7 @@ const actors = ["", "member", "delegate", "worker", "lane", "orchestrator", "sys
 
 // EventActor shows who acted on an event, as every surface shows an actor.
 function EventActor({ event, you }: { event: AuditEvent; you: string }) {
-  return <Actor kind={event.actor_kind} id={event.actor_id} actorFor={event.actor_for} label={event.actor_label} you={you} />;
+  return <Actor kind={event.actor_kind} id={event.actor_id} actorFor={event.actor_for} label={event.actor_label} delegateKind={event.delegate_kind} you={you} />;
 }
 
 type Filters = { actor: string; kind: string; subject: string };
