@@ -227,6 +227,28 @@ A size is a number of bytes, or a number with `KiB`, `MiB`, `GiB`, or `TiB`, or 
 
 A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer can lower either cap for their own lanes, and cannot raise it: a layer that sets a higher value than yours, or no cap where you set one or left the recommendation, is refused, and the lane does not start. Where you left the recommendation, a layer's value holds only up to it. Each project's own caps, which `ropeshift fleet caps` sets, still hold inside that project, so a cap per worker in one project keeps it from taking every lane on the machine.
 
+### What the worker measures
+
+Each worker measures its machine and its sessions every `report_interval`, and sends what it measured to the control plane with its next heartbeat:
+
+- The machine's CPU use and core count, its load averages, its memory in all, used, and available, and its memory pressure where the system provides it.
+- The free space on the volumes that hold the state directory and the worktrees of the lanes that run.
+- The CPU and resident memory of each session's process tree: each lane and the orchestrator.
+
+On Linux the worker reads `/proc` for CPU, load, memory, pressure, and each process, and `statfs` for free space. On macOS it runs `sysctl`, `vm_stat`, and `ps`, and reports no machine CPU use and no memory pressure. A measure the machine cannot provide is reported as unavailable, never as zero.
+
+The `[resources]` table of your own layer sets how often the worker measures and where a measure warns. A warning shows on the machine; it never stops, parks, or refuses work by itself. Only the memory and CPU floors of `[admission]` hold a lane back.
+
+| Setting | Default | Warns when |
+|---------|---------|------------|
+| `report_interval` | `"15s"` | Not a threshold: how often the worker measures, at least a second |
+| `disk_free_warn` | `"10GiB"` | A watched volume has less free space |
+| `memory_available_warn` | `0.10` | Available memory is a smaller share of the total |
+| `memory_pressure_warn` | `10.0` | Some task waited on memory for more of the last minute, in percent |
+| `cpu_load_warn` | `1.5` | The five-minute load per core is higher |
+
+A threshold of `0` turns its warning off. These settings are the machine's, so a repository's or a lane's layer cannot change them.
+
 ### Where a lane starts
 
 A lane's worktree starts from the repository's base branch, and never from the commit your checkout has out. The base branch is the repository's default branch, which the daemon reads from git, until you name another:

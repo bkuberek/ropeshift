@@ -55,6 +55,11 @@ func (in *Installation) Write(ctx context.Context, op string, fn func(ports.Shar
 	return err
 }
 
+// SaveReport keeps what a worker measured, in the installation's database.
+func (in *Installation) SaveReport(ctx context.Context, worker string, epoch int64, report ledger.ResourceReport) error {
+	return in.core.saveReport(ctx, ledger.InstallationScope, worker, epoch, report)
+}
+
 // installationReadTx is one view of the installation's shared records.
 type installationReadTx struct {
 	*session
@@ -168,6 +173,10 @@ func (o ownShared) Write(ctx context.Context, op string, fn func(ports.SharedTx)
 	return o.store.Write(ctx, o.scope, op, func(tx ports.WriteTx) error {
 		return fn(ownSharedWrite{tx.(*writeTx)})
 	})
+}
+
+func (o ownShared) SaveReport(ctx context.Context, worker string, epoch int64, report ledger.ResourceReport) error {
+	return o.store.saveReport(ctx, o.scope, worker, epoch, report)
 }
 
 type ownSharedRead struct {

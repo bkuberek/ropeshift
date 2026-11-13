@@ -224,7 +224,7 @@ func wakeWork(tx ports.ReadTx, worker string, facts autonomyFacts) ([]ledger.Wak
 	if err != nil {
 		return nil, err
 	}
-	if room := tighter(record.Manifest.Capacity.MaxLanes, facts.lanes()); room != 0 && int64(len(held)) >= room {
+	if room := tighter(record.LaneCap(), facts.lanes()); room != 0 && int64(len(held)) >= room {
 		return nil, nil
 	}
 	var opened int64

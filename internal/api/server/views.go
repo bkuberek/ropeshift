@@ -1104,6 +1104,9 @@ func (h *handler) workerLines(tx ports.ReadTx) ([]api.WorkerLine, error) {
 		if line.Freshness, err = h.workers.WorkerFreshness(tx, worker); err != nil {
 			return nil, err
 		}
+		if line.ReportFreshness, err = h.workers.ReportFreshness(tx, worker); err != nil {
+			return nil, err
+		}
 		row, err := tx.Workers().Orchestrator(worker.ID)
 		switch {
 		case err == nil:

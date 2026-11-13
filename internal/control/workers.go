@@ -314,6 +314,9 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 			return ledger.HeartbeatReply{}, err
 		}
 	}
+	if err := saveReport(ctx, w.store.Installation(w.scope), beat); err != nil {
+		return ledger.HeartbeatReply{}, err
+	}
 	shared, err := w.sharedRevision(ctx)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
@@ -331,6 +334,15 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 		return ledger.HeartbeatReply{}, err
 	}
 	return reply, nil
+}
+
+// saveReport keeps what a heartbeat's worker measured, after its session was checked. A heartbeat that
+// carries no report leaves the last one standing.
+func saveReport(ctx context.Context, installation ports.Installation, beat ledger.Heartbeat) error {
+	if beat.Report == nil {
+		return nil
+	}
+	return installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, *beat.Report)
 }
 
 func (w *Workers) renewOrReturn(ctx context.Context, lease workorders.Lease, actor ledger.Actor) error {
@@ -1024,6 +1036,22 @@ func (w *Workers) WorkerFreshness(tx ports.ReadTx, worker ledger.Worker) (string
 		seen = max(seen, order.LeaseUntil-w.options.LeaseTTLMs)
 	}
 	if now-min(seen, now) <= freshnessBeats*w.options.HeartbeatMs {
+		return ledger.FreshnessObserved, nil
+	}
+	return ledger.FreshnessLastReported, nil
+}
+
+// ReportFreshness says whether a worker's last resource report is observed: measured within a few of its
+// intervals, or of heartbeats, whichever is longer. A worker that never reported has none.
+func (w *Workers) ReportFreshness(tx ports.ReadTx, worker ledger.Worker) (string, error) {
+	if worker.Report == nil {
+		return "", nil
+	}
+	now, err := tx.Now()
+	if err != nil {
+		return "", err
+	}
+	if now-min(worker.ReportedAt, now) <= freshnessBeats*max(worker.Report.IntervalMs, w.options.HeartbeatMs) {
 		return ledger.FreshnessObserved, nil
 	}
 	return ledger.FreshnessLastReported, nil
