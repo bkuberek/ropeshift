@@ -57,29 +57,37 @@ type AssistantFacts struct {
 	History []AssistantHistory
 }
 
+// mentionMark is what stands for `@` in record text a prompt states: the full-width form, which reads the
+// same to a person and the model, and which the agent CLI does not take as a file to attach.
+const mentionMark = "\uff20"
+
+// inert writes record text so that it mentions no file: lanes, and anyone who writes a record, write it,
+// and the agent CLI may read an `@` followed by a path as a file to attach to the prompt.
+func inert(text string) string { return strings.ReplaceAll(text, "@", mentionMark) }
+
 // AssistantBrief is an assistant generation's first prompt: the project's name, its repositories with their
 // read-only trees and base branches, its open plans, and how much work stands in each state, then the
 // conversation so far when the session has none of its own. Detail comes from the context tools and
 // `ropeshift` reads.
 func AssistantBrief(facts AssistantFacts) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "Project: %s\n\nRepositories, each read-only at its base branch:\n", facts.ProjectName)
+	fmt.Fprintf(&out, "Project: %s\n\nRepositories, each read-only at its base branch:\n", inert(facts.ProjectName))
 	if len(facts.Repositories) == 0 {
 		out.WriteString("- none\n")
 	}
 	for _, repository := range facts.Repositories {
 		where := repository.Path
 		if where == "" {
-			where = "not checked out: " + repository.Detail
+			where = "not checked out: " + inert(repository.Detail)
 		}
-		fmt.Fprintf(&out, "- %s (base %s): %s\n", repository.Name, repository.Base, where)
+		fmt.Fprintf(&out, "- %s (base %s): %s\n", inert(repository.Name), inert(repository.Base), where)
 	}
 	out.WriteString("\nOpen plans:\n")
 	if len(facts.Plans) == 0 {
 		out.WriteString("- none\n")
 	}
 	for _, plan := range facts.Plans {
-		fmt.Fprintf(&out, "- %s\n", plan)
+		fmt.Fprintf(&out, "- %s\n", inert(plan))
 	}
 	out.WriteString("\nWork by state:")
 	states := make([]string, 0, len(facts.Work))
@@ -97,7 +105,7 @@ func AssistantBrief(facts AssistantFacts) string {
 	if len(facts.History) != 0 {
 		out.WriteString("\nThe earlier conversation, oldest first, which this session starts without:\n")
 		for _, entry := range facts.History {
-			fmt.Fprintf(&out, "[%s] %s\n", entry.Kind, entry.Body)
+			fmt.Fprintf(&out, "[%s] %s\n", entry.Kind, inert(entry.Body))
 		}
 	}
 	out.WriteString("\nWait for the member's next message.\n")
