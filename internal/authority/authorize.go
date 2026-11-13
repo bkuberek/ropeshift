@@ -114,6 +114,9 @@ const (
 	// operation: a delegate may prepare one, and only a member's decision runs it, so no row below may ever
 	// grant it.
 	ActionChangeRoster Action = "roster.change"
+	// ActionSetLaneCaps sets a machine's lane caps, per worker and per sign-in (FR-PROJ-7). They protect the
+	// machine and the sign-in, which are a person's, so no agent has this, and no row below may ever grant it.
+	ActionSetLaneCaps Action = "worker.lane_caps"
 	// ActionRaiseMergeAuthority gives a repository a merge authority that leaves more to ropeshift, and
 	// ActionReviewPullRequest moves its review target to a pull request. Each is a consent operation no
 	// delegate policy may exempt (ADR-0024), so only a member has them.
@@ -150,7 +153,7 @@ func Actions() []Action {
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
-		ActionConverse, ActionBackupProject,
+		ActionConverse, ActionBackupProject, ActionSetLaneCaps,
 	}
 }
 

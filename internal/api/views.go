@@ -425,11 +425,13 @@ type Completed struct {
 	Items []CompletedWork `json:"items"`
 }
 
-// WorkerLine is a worker, how fresh its word is, and the one session it runs.
+// WorkerLine is a worker, how fresh its word is, and the one session it runs. ReportFreshness says how
+// fresh its last resource report is, and is absent until it reports one (FR-UI-10).
 type WorkerLine struct {
-	Worker       ledger.Worker        `json:"worker"`
-	Freshness    string               `json:"freshness"`
-	Orchestrator *ledger.Orchestrator `json:"orchestrator,omitempty"`
+	Worker          ledger.Worker        `json:"worker"`
+	Freshness       string               `json:"freshness"`
+	ReportFreshness string               `json:"report_freshness,omitempty"`
+	Orchestrator    *ledger.Orchestrator `json:"orchestrator,omitempty"`
 }
 
 // FloorLane is a lane and the title of the work it runs, because a lane's ID says nothing to a person.

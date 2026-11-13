@@ -254,9 +254,9 @@ func TestAdmissionAtALimit(t *testing.T) {
 		"a new lane near the limit":     {lanes.AdmissionFacts{NearLimit: true}, lanes.HeldNearLimit},
 		"a woken lane near the limit":   {lanes.AdmissionFacts{NearLimit: true, Woken: true}, ""},
 		"a pause before all of it":      {lanes.AdmissionFacts{Mode: lanes.FleetPause, SignedOut: true}, lanes.HeldFleetPaused},
-		"caps after all of it":          {lanes.AdmissionFacts{Limited: true, Running: 1, Limits: lanes.Admission{MaxLanes: 1}}, lanes.HeldUsageLimit},
+		"caps after all of it":          {lanes.AdmissionFacts{Limited: true, Running: 1, WorkerCap: 1}, lanes.HeldUsageLimit},
 		"a woken lane still takes caps": {lanes.AdmissionFacts{Woken: true, Running: 2, Limits: lanes.Admission{MaxLanesPerSignIn: 2}}, lanes.HeldSignInFull},
-		"the probe still takes caps":    {lanes.AdmissionFacts{Limited: true, Woken: true, Probe: true, Running: 1, Limits: lanes.Admission{MaxLanes: 1}}, lanes.HeldWorkerFull},
+		"the probe still takes caps":    {lanes.AdmissionFacts{Limited: true, Woken: true, Probe: true, Running: 1, WorkerCap: 1}, lanes.HeldWorkerFull},
 	} {
 		if got := lanes.Admit(tt.facts); got != tt.want {
 			t.Errorf("%s: %q, want %q", name, got, tt.want)

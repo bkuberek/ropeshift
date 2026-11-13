@@ -106,6 +106,10 @@ type Worker struct {
 	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
 	// its making.
 	toOrchestrator *orchestratorMessages
+
+	// resources is what this worker measures of its machine and its sessions, and the peaks of the lanes
+	// it ran.
+	resources resources
 }
 
 // New returns a worker that has not started.
@@ -184,22 +188,29 @@ func (w *Worker) Start(ctx context.Context) error {
 	if err := w.loadQualification(ctx); err != nil {
 		return err
 	}
+	if err := w.loadPeaks(ctx); err != nil {
+		return err
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.identity, w.session, w.desiredRev, w.desiredRevs, w.advertised = identity, session, cached.Rev, cached.Revisions, manifest
 	return nil
 }
 
-// manifest asks the driver what this machine can run. A doctor that fails advertises no
-// driver and stops nothing, because a worker must still hold what it holds.
+// manifest asks the driver what this machine can run, and says the per-worker cap in force. A doctor that
+// fails advertises no driver and stops nothing, because a worker must still hold what it holds.
 func (w *Worker) manifest(ctx context.Context) ledger.Manifest {
 	if w.config.Lanes == nil {
 		return w.config.Manifest
 	}
-	manifest, err := BuildManifest(ctx, w.config.Lanes.Driver, w.config.Manifest)
+	base := w.config.Manifest
+	if limit, ok := w.workerCap(ctx); ok {
+		base.Capacity.MaxLanes = limit
+	}
+	manifest, err := BuildManifest(ctx, w.config.Lanes.Driver, base)
 	if err != nil {
 		w.config.Report(fmt.Errorf("the doctor: %w", err))
-		return w.config.Manifest
+		return base
 	}
 	return manifest
 }
@@ -273,16 +284,23 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 	auth := ledger.WorkerAuth{WorkerID: w.identity.WorkerID, Credential: w.identity.Credential}
 	epoch, desired, revisions := w.identity.Epoch, w.desiredRev, w.desiredRevs
 	w.mu.Unlock()
+	report, seq := w.pendingReport()
 	sent := w.clock.Now()
 	reply, err := w.link.Heartbeat(ctx, ledger.Heartbeat{
 		Auth: auth, Epoch: epoch, Protocol: w.config.Protocol, Nonce: nonce,
-		DesiredRev: desired, EventsThrough: through, Leases: leases,
+		DesiredRev: desired, EventsThrough: through, Leases: leases, Report: report,
 	})
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
 	}
 	if reply.Nonce != nonce {
 		return ledger.HeartbeatReply{}, fmt.Errorf("%w: sent %s, got %s", ledger.ErrNonce, nonce, reply.Nonce)
+	}
+	switch {
+	case reply.ReportError != "":
+		w.config.Report(fmt.Errorf("the control plane did not keep the resource report, which goes again: %s", reply.ReportError))
+	case report != nil:
+		w.reportSent(seq)
 	}
 	if err := w.applyBeat(ctx, leases, reply, sent); err != nil {
 		return reply, err
@@ -444,6 +462,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	hints := make(chan int64, 1)
 	go w.watch(ctx, hints)
+	go w.measureEvery(ctx)
 	for {
 		w.cycle(ctx)
 		w.tick(ctx)

@@ -95,10 +95,14 @@ func TestATurnsEndClosesItsCalls(t *testing.T) {
 	r := laneRigWith(t, stallProfile)
 	r.finishLater(first)
 	r.finishLater(second)
-	r.driver.Play(script(
+	// What a session admits counts as progress, and the admission of the second turn's input can land
+	// after the clock moved, so this one says nothing.
+	plays := script(
 		[]fake.DriverStep{{Bound: true}, first.step(), completed(0.01)},
 		[]fake.DriverStep{second.step()},
-	))
+	)
+	plays.Silent = true
+	r.driver.Play(plays)
 	r.atGate(first)
 	r.hook(t, lanes.HookEvent{Event: "PreToolUse", Subject: "toolu_1", Tool: "Bash"})
 	first.release <- struct{}{}

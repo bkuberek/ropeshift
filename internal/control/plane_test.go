@@ -1,8 +1,11 @@
 package control_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"math"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/lexical"
@@ -361,5 +364,55 @@ func TestAnOrchestratorsUnknownEffectIsAnEffect(t *testing.T) {
 	}
 	if row.ReportedAt != 0 {
 		t.Errorf("an effect moved the orchestrator's record: %+v", row)
+	}
+}
+
+// failingReports is an installation whose every report write fails, as a busy or broken store's would.
+type failingReports struct {
+	ports.Installation
+}
+
+func (failingReports) SaveReport(context.Context, string, int64, ledger.ResourceReport) error {
+	return errors.New("the store is busy")
+}
+
+// TestAReportThatFailsToSaveStillAnswersTheHeartbeat keeps a report's write from costing a worker its
+// lease answers: the leases it renewed and the ones it lost reach it, and the reply says the report was
+// not kept, so the worker sends it again.
+func TestAReportThatFailsToSaveStillAnswersTheHeartbeat(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	r.ready("pa", "wo")
+	if err := r.claim("pa", "wo"); err != nil {
+		t.Fatal(err)
+	}
+	held := r.desired().Leases[0]
+	plane := control.NewPlane(r.state, failingReports{r.state.Installation}, "pa", control.WorkerOptions{}, nil)
+	reply, err := plane.Heartbeat(t.Context(), ledger.Heartbeat{
+		Auth: r.auth, Epoch: r.epoch, Protocol: ledger.ProtocolVersion, Nonce: "n",
+		Leases: []ledger.HeldLease{{Project: held.Project, WorkOrder: held.WorkOrder, Claim: held.ClaimID, Fence: held.Fence}},
+		Report: &ledger.ResourceReport{IntervalMs: 15_000, Sessions: []ledger.SessionResources{}},
+	})
+	if err != nil {
+		t.Fatalf("a report that did not save failed the heartbeat: %v", err)
+	}
+	if len(reply.Leases) != 1 || reply.Nonce != "n" || !strings.Contains(reply.ReportError, "the store is busy") {
+		t.Errorf("reply %+v", reply)
+	}
+}
+
+// TestAReportIsKeptWithinBounds keeps only what a bounded report holds, so a worker cannot fill the
+// installation's record or overflow the window its freshness reads.
+func TestAReportIsKeptWithinBounds(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	report := ledger.ResourceReport{IntervalMs: math.MaxInt64, Sessions: make([]ledger.SessionResources, 5000)}
+	if _, err := r.plane.Heartbeat(t.Context(), ledger.Heartbeat{Auth: r.auth, Epoch: r.epoch, Protocol: ledger.ProtocolVersion, Nonce: "n", Report: &report}); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := r.plane.List(t.Context())
+	if err != nil || len(workers) != 1 || workers[0].Report == nil {
+		t.Fatalf("workers %+v: %v", workers, err)
+	}
+	if got := workers[0].Report; got.IntervalMs != ledger.MaxReportIntervalMs || len(got.Sessions) != ledger.MaxReportSessions {
+		t.Errorf("kept an interval of %d and %d sessions", got.IntervalMs, len(got.Sessions))
 	}
 }

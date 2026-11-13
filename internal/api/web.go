@@ -57,6 +57,8 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/workers/{id}/autonomy/acknowledgement", "worker acknowledge-risk"},
 		{http.MethodPost, "/v1/workers/{id}/windows", "worker window-open"},
 		{http.MethodDelete, "/v1/workers/{id}/windows", "worker window-close"},
+		{http.MethodGet, "/v1/workers/{id}/caps", "worker caps"},
+		{http.MethodPut, "/v1/workers/{id}/caps", "worker caps"},
 		{http.MethodGet, RiskPath, "worker risk"},
 		{http.MethodGet, MembersPath, "member list"},
 		{http.MethodGet, AuditPath, "audit"},

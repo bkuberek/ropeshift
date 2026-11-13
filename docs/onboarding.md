@@ -204,9 +204,52 @@ max_lanes = 6
 max_lanes_per_sign_in = 3
 ```
 
-`max_lanes` caps the lanes this machine runs, and `max_lanes_per_sign_in` the lanes on one agent sign-in, because every session on a subscription draws from the same usage limits. `0`, or no value, caps nothing. Only lanes count: a worker's orchestrator never does, and a cap never holds it back. A lane a cap holds keeps its claim, its work order says why in a note, and it starts once a lane ends.
+`max_lanes` caps the lanes this machine runs. With no value, the worker's recommendation caps them; `0` caps nothing, and any positive number stands, with no upper bound. `ropeshift worker caps <id> --max-lanes N --per-sign-in N` sets both in this file and shows the recommendation beside them; a value above the recommendation is saved with a warning that says why it is the recommendation. The worker reads a change at its next start and its next measure, with no restart. `max_lanes_per_sign_in` caps the lanes on one agent sign-in, because every session on a subscription draws from the same usage limits; `0`, or no value, caps nothing. Only lanes count: a worker's orchestrator never does, and a cap never holds it back. A lane a cap holds keeps its claim, its work order says why in a note, and it starts once a lane ends.
 
-A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer can lower either cap for their own lanes, and cannot raise it: a layer that sets a higher value than yours, or no cap where you set one, is refused, and the lane does not start. Each project's own caps, which `ropeshift fleet caps` sets, still hold inside that project, so a cap per worker in one project keeps it from taking every lane on the machine.
+The worker recommends a cap from what the machine can run: its cores and its memory, less a reserve for the system, the daemon, the orchestrator, and the assistant, each divided by what one lane takes, and the lower of the two, never below one:
+
+```text
+recommended = max(1, min(floor((cores - reserve_cpu) / lane_cpu), floor((memory - reserve_memory) / lane_memory)))
+```
+
+What one lane takes starts as the estimates below. Once `observed_min` lanes have run on the worker, it is the highest peak among the last `observed_window` lanes instead: the cores a lane's process tree kept busy, averaged over a minute and counting the children its processes reaped, and its resident memory. A peak never counts as less than half its estimate, so a run of quiet lanes lifts the recommendation at most to twice what the estimates give. These settings are the machine's, so only your own layer sets them:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `lane_cpu_estimate` | `1.0` | Cores one lane takes, until enough lanes have run |
+| `lane_memory_estimate` | `"2GiB"` | Memory one lane takes, until enough lanes have run |
+| `reserve_cpu` | `1.0` | Cores kept for the system, the daemon, the orchestrator, and the assistant |
+| `reserve_memory` | `"4GiB"` | Memory kept the same way |
+| `observed_window` | `50` | Recent lanes whose peaks replace the estimates |
+| `observed_min` | `10` | Lanes that must have run before their peaks apply |
+
+A size is a number of bytes, or a number with `KiB`, `MiB`, `GiB`, or `TiB`, or `KB`, `MB`, `GB`, or `TB`. The defaults are starting values to tune, not measurements. A machine's cores and memory do not change while it runs, so a read that fails keeps what the last one counted. Until a read has counted the cores, the worker recommends one lane and says why, so a machine it cannot read never leaves `max_lanes` uncapped by accident.
+
+A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer can lower either cap for their own lanes, and cannot raise it: a layer that sets a higher value than yours, or no cap where you set one or left the recommendation, is refused, and the lane does not start. Where you left the recommendation, a layer's value holds only up to it. Each project's own caps, which `ropeshift fleet caps` sets, still hold inside that project, so a cap per worker in one project keeps it from taking every lane on the machine.
+
+### What the worker measures
+
+Each worker measures its machine and its sessions every `report_interval`, and sends what it measured to the control plane with its next heartbeat:
+
+- The machine's CPU use and core count, its load averages, its memory in all, used, and available, and its memory pressure where the system provides it.
+- The free space on the volumes that hold the state directory and the worktrees of the lanes that run.
+- The CPU and resident memory of each session's process tree: each lane and the orchestrator.
+
+On Linux the worker reads `/proc` for CPU, load, memory, pressure, and each process, and `statfs` for free space; a process's CPU time includes the children it reaped. On macOS it runs `sysctl`, `vm_stat`, and `ps -S`, which adds each process's exited children to its time, and reports no machine CPU use and no memory pressure. A measure the machine cannot provide is reported as unavailable, never as zero.
+
+The `[resources]` table of your own layer sets how often the worker measures and where a measure warns. A warning shows on the machine; it never stops, parks, or refuses work by itself. Only the memory and CPU floors of `[admission]` hold a lane back.
+
+| Setting | Default | Warns when |
+|---------|---------|------------|
+| `report_interval` | `"15s"` | Not a threshold: how often the worker measures, at least a second |
+| `disk_free_warn` | `"10GiB"` | A watched volume has less free space |
+| `memory_available_warn` | `0.10` | Available memory is a smaller share of the total |
+| `memory_pressure_warn` | `10.0` | Some task waited on memory for more of the last minute, in percent |
+| `cpu_load_warn` | `1.5` | The five-minute load per core is higher |
+
+A threshold of `0` turns its warning off. These settings are the machine's, so a repository's or a lane's layer cannot change them.
+
+`ropeshift worker list` and `ropeshift top` show what each worker last measured and how long ago, with each lane's process tree in `top`, and the web UI's Workers page shows the same for every machine and session, with each warning. A worker that has not reported yet says so.
 
 ### Where a lane starts
 

@@ -30,4 +30,5 @@ LANES
   lane-wo-running  wo-running  working  liveness alive  model reachable  ledger reachable  -  last reported 4m ago
 WORKERS
   worker-a  solo  epoch 1  last reported  orchestrator not reported, wanted running
+    resources not reported
 j/k move   r read now   q quit

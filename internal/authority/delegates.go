@@ -114,6 +114,11 @@ func (d DelegateCredential) State(now int64) DelegateState {
 	return DelegateActive
 }
 
+// DelegateStates are the states of a delegate credential.
+func DelegateStates() []DelegateState {
+	return []DelegateState{DelegateActive, DelegateExpired, DelegateRevoked}
+}
+
 // Assistant says the credential is one the control plane made for an assistant's session.
 func (d DelegateCredential) Assistant() bool { return d.Kind == DelegateAssistant }
 

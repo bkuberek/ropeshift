@@ -8,6 +8,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 )
 
@@ -144,7 +145,16 @@ func (h *handler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	if workers == nil {
 		workers = []ledger.Worker{}
 	}
-	reply(w, http.StatusOK, api.WorkerList{Workers: workers})
+	var now int64
+	err = h.Installation.Read(r.Context(), func(tx ports.SharedReadTx) error {
+		now, err = tx.Now()
+		return err
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, api.WorkerList{Workers: workers, AsOf: now})
 }
 
 func (h *handler) openSession(w http.ResponseWriter, r *http.Request) {

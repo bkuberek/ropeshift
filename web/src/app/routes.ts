@@ -37,8 +37,9 @@ export const bothScopes = new Set<View>(["settings", "agents", "audit"]);
 export type Resolved =
   | { kind: "view"; view: View; project: string }
   | { kind: "redirect"; to: string }
-  // pick-project is a project's view at an address that names no project; the page chooses one.
-  | { kind: "pick-project"; path: string }
+  // pick-project is a project's view at an address that names no project; the page chooses one. view is
+  // the view the address opens, so the page can say where a person is before it has chosen.
+  | { kind: "pick-project"; path: string; view: ProjectView }
   | { kind: "missing" };
 
 // A page's name for the browser. It names the view and never a record, so a tab title never carries an
@@ -131,8 +132,9 @@ export function resolve(pathname: string, search: string): Resolved {
     if (isInstallationView(name)) {
       return { kind: "view", view: name, project: "" };
     }
-    if (isProjectView(name) || moved[path]) {
-      return { kind: "pick-project", path };
+    const opens = moved[path]?.path.slice(1) ?? name;
+    if (isProjectView(opens)) {
+      return { kind: "pick-project", path, view: opens };
     }
     return { kind: "missing" };
   }

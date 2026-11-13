@@ -225,7 +225,7 @@ func checkEligible(tx ports.WriteTx, request workorders.ClaimRequest, actor ledg
 		if runs, why := record.Manifest.Runs(order.Needs); !runs {
 			return fmt.Errorf("%w: worker %s has %s", workorders.ErrIneligible, request.Worker, why)
 		}
-		limit = tighter(limit, record.Manifest.Capacity.MaxLanes)
+		limit = tighter(limit, record.LaneCap())
 		if !authority.Allowed(actor, authority.ActionPassAutonomy) {
 			bound, err := holdToAutonomy(tx, record, order)
 			if err != nil {

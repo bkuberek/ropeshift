@@ -56,6 +56,7 @@ const (
 	OpAutonomySet                       = "autonomy.set"
 	OpAutonomyAcknowledge               = "autonomy.acknowledge"
 	OpAutonomyWindow                    = "autonomy.window"
+	OpWorkerLaneCaps                    = "worker.lane_caps"
 	OpOrchestratorRun                   = "orchestrator.run"
 	OpRosterChange                      = "roster.change"
 	OpSessionEnd                        = "session.end"
@@ -176,6 +177,9 @@ var operations = append(onInstallation(
 	never(OpAutonomySet, "Set a worker's level", neverAutonomy, ActionSetAutonomy),
 	never(OpAutonomyAcknowledge, "Acknowledge the stated risk", neverAutonomy, ActionAcknowledgeRisk),
 	never(OpAutonomyWindow, "Open or close a run window", neverAutonomy, ActionOpenWindow),
+	// A worker's lane caps live in the user's profile on its machine and set what that machine admits. No
+	// ledger record holds them for a card to bind to, so a delegate's call is refused, not carded.
+	memberOnly(OpWorkerLaneCaps, "Set a worker's lane caps", ActionSetLaneCaps),
 	operational(OpOrchestratorRun, "Start or stop an orchestrator", ActionRunOrchestrator),
 	memberOnly(OpSessionEnd, "Sign out", ActionManageSessions),
 	memberOnly(OpSessionEndAll, "Sign out all sessions", ActionManageSessions),

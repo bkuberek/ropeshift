@@ -64,7 +64,16 @@ describe("an address", () => {
   });
 
   it.each(["/roadmap", "/floor", "/in-progress", "/shop-floor", "/requirements", "/repositories", "/plan", "/planning", "/traceability"])("%s names a project view and no project, so it waits for one", (path) => {
-    expect(resolve(path, "")).toEqual({ kind: "pick-project", path });
+    expect(resolve(path, "")).toMatchObject({ kind: "pick-project", path });
+  });
+
+  it.each([
+    ["/roadmap", "roadmap"],
+    ["/in-progress", "work"],
+    ["/shop-floor", "floor"],
+    ["/requirements", "documents"],
+  ])("%s waiting for a project already opens %s", (path, view) => {
+    expect(resolve(path, "")).toEqual({ kind: "pick-project", path, view });
   });
 
   it.each(["/projects/harbor/nowhere", "/nowhere", "/projects/harbor/members"])("%s holds no view", (path) => {

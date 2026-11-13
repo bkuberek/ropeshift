@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -242,6 +243,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	batches, windows := soloBatches(paths), soloWindows(paths)
+	local := &soloWorker{}
 	webListener, err := listenWeb(opts.web, stderr)
 	if err != nil {
 		return err
@@ -255,6 +257,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
 		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Checkouts: kept, ModelClasses: soloModelClasses(paths),
+		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
 	}
 	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
 	config.AssistantHosts = hosts.read
@@ -283,7 +286,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 			fmt.Fprintf(stderr, "ropeshiftd: %s tick: %v\n", name, err)
 		})
 	}()
-	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, hosts, stderr)
+	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, hosts, local, stderr)
 	if err != nil {
 		return err
 	}
@@ -361,7 +364,7 @@ func startWeb(config server.Config, listener net.Listener, stdout, stderr io.Wri
 // the control plane.
 func startSoloWorker(
 	ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, hosts *soloHosts,
-	stderr io.Writer,
+	local *soloWorker, stderr io.Writer,
 ) (<-chan struct{}, error) {
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
 		return nil, err
@@ -389,7 +392,7 @@ func startSoloWorker(
 		JoinToken: func(ctx context.Context) (string, error) {
 			return plane.CreateJoinToken(ctx, tickActor("solo"))
 		},
-		Manifest:  soloManifest(paths),
+		Manifest:  soloManifest(),
 		Spool:     paths.Spool(),
 		Lanes:     runtime,
 		Telemetry: telemetry.emitter,
@@ -398,6 +401,7 @@ func startSoloWorker(
 		},
 	})
 	hosts.serve(subject)
+	local.worker.Store(subject)
 	socketDone := make(chan struct{})
 	go func() {
 		defer close(socketDone)
@@ -418,16 +422,25 @@ func startSoloWorker(
 	return done, nil
 }
 
-// soloManifest is what this worker says of itself. A user's layer that does not parse
-// leaves capacity unstated, and a lane that reads it reports the fault.
-func soloManifest(paths api.Paths) ledger.Manifest {
-	var maxLanes int64
-	if raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile)); err == nil || errors.Is(err, os.ErrNotExist) {
-		if profile, err := profiles.Resolve(string(raw)); err == nil {
-			maxLanes = profile.Admission.MaxLanes
+// soloWorker holds the worker this daemon runs, once it has one, for the routes that act on its machine.
+type soloWorker struct {
+	worker atomic.Pointer[worker.Worker]
+}
+
+// id names the daemon's worker once it has registered.
+func (s *soloWorker) id(context.Context) (string, error) {
+	if subject := s.worker.Load(); subject != nil {
+		if id := subject.Auth().WorkerID; id != "" {
+			return id, nil
 		}
 	}
-	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: localauth.Member}, maxLanes)
+	return "", errors.New("this daemon's worker has not registered yet")
+}
+
+// soloManifest is what this worker says of itself. The worker states its capacity, the cap in force
+// from the user's layer and its recommendation, when it opens a session.
+func soloManifest() ledger.Manifest {
+	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: localauth.Member}, 0)
 }
 
 // soloModelClasses reads the model this worker's profile maps each capability class to, from the user's
@@ -470,12 +483,12 @@ func laneRunner(goos string, getenv func(string) string, stderr io.Writer) ports
 
 // runDoctor is `ropeshift worker doctor`. It needs no daemon, because a person runs it
 // when nothing works yet.
-func runDoctor(ctx context.Context, paths api.Paths) (ledger.Manifest, error) {
+func runDoctor(ctx context.Context) (ledger.Manifest, error) {
 	env, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: os.LookupEnv})
 	if err != nil {
 		return ledger.Manifest{}, err
 	}
-	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env), soloManifest(paths))
+	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env), soloManifest())
 }
 
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this

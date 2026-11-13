@@ -294,6 +294,7 @@ func (m Model) laneLines() []string {
 	for _, lane := range m.snapshot.Telemetry.Lanes {
 		figures[lane.Lane] = lane
 	}
+	sessions := m.sessions()
 	lines := make([]string, 0, len(lanes))
 	for _, lane := range lanes {
 		conditions := strings.Join(lane.Conditions, ",")
@@ -304,6 +305,9 @@ func (m Model) laneLines() []string {
 			clean(lane.Liveness), clean(lane.ModelReach), clean(lane.LedgerReach), clean(conditions), m.freshness(lane.Freshness, lane.AsOf))
 		if figure, ok := figures[lane.ID]; ok {
 			line += fmt.Sprintf("  context %d  tokens %d  cost %s", figure.ContextTokens, laneTokens(figure), api.Dollars(figure.CostUSD))
+		}
+		if session, ok := sessions[lane.ID]; ok {
+			line += "  " + api.SessionWords(session)
 		}
 		lines = append(lines, line)
 	}
@@ -319,8 +323,10 @@ func laneTokens(figure api.LaneTelemetry) int64 {
 	return total
 }
 
+// workerLines gives each worker a line, and under it what it last measured of its machine and when, with
+// its orchestrator's process tree when it reported one (FR-UI-10).
 func (m Model) workerLines() []string {
-	lines := make([]string, 0, len(m.snapshot.Floor.Workers))
+	lines := make([]string, 0, 2*len(m.snapshot.Floor.Workers))
 	for _, line := range m.snapshot.Floor.Workers {
 		text := fmt.Sprintf("  %s  %s  epoch %d  %s", clean(line.Worker.ID), clean(line.Worker.Name), line.Worker.Epoch, m.freshness(line.Freshness, 0))
 		if line.Orchestrator != nil {
@@ -331,8 +337,38 @@ func (m Model) workerLines() []string {
 			text += fmt.Sprintf("  orchestrator %s, wanted %s", actual, clean(line.Orchestrator.Desired))
 		}
 		lines = append(lines, text)
+		report := line.Worker.Report
+		resources := "    " + api.ResourceWords(report)
+		if report != nil {
+			resources += "  measured " + age(m.ago(line.Worker.ReportedAt)) + " ago"
+			if line.ReportFreshness != ledger.FreshnessObserved {
+				resources += ", last reported"
+			}
+			for _, session := range report.Sessions {
+				if session.Kind == ledger.SessionOrchestrator {
+					resources += "  orchestrator " + api.SessionWords(session)
+				}
+			}
+		}
+		lines = append(lines, resources)
 	}
 	return lines
+}
+
+// sessions is each lane's process tree as its worker last reported it, by lane.
+func (m Model) sessions() map[string]ledger.SessionResources {
+	out := map[string]ledger.SessionResources{}
+	for _, line := range m.snapshot.Floor.Workers {
+		if line.Worker.Report == nil {
+			continue
+		}
+		for _, session := range line.Worker.Report.Sessions {
+			if session.Kind == ledger.SessionLane {
+				out[session.Lane] = session
+			}
+		}
+	}
+	return out
 }
 
 // window keeps the cursor in view when a list has less room than it has lines.

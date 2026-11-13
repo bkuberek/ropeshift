@@ -40,4 +40,5 @@ const (
 	StatementReadClock       = "clock.read"
 	OpRenew                  = "lease.renew"
 	OpWakeNextEval           = "wake.next_eval"
+	OpSaveReport             = "worker.save_report"
 )

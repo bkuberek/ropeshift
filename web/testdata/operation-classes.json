@@ -1,0 +1,422 @@
+{
+  "operations": [
+    {
+      "id": "project.create",
+      "label": "Create a project",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "project.import",
+      "label": "Import a project",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "project.rename",
+      "label": "Rename a project",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "project.archive",
+      "label": "Archive a project",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "project.restore",
+      "label": "Restore a project",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "project.remove",
+      "label": "Remove a project",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "installation.backup",
+      "label": "Back up the installation",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "worker.join_token",
+      "label": "Make a worker join token",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Member and worker management stays with a member."
+    },
+    {
+      "id": "autonomy.set",
+      "label": "Set a worker's level",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Autonomy is policy, which only a member changes."
+    },
+    {
+      "id": "autonomy.acknowledge",
+      "label": "Acknowledge the stated risk",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Autonomy is policy, which only a member changes."
+    },
+    {
+      "id": "autonomy.window",
+      "label": "Open or close a run window",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Autonomy is policy, which only a member changes."
+    },
+    {
+      "id": "orchestrator.run",
+      "label": "Start or stop an orchestrator",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "session.end",
+      "label": "Sign out",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "session.end_all",
+      "label": "Sign out all sessions",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "passphrase.set",
+      "label": "Set the passphrase",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "delegate.create",
+      "label": "Create a delegate",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "delegate.list",
+      "label": "List delegates",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "delegate.revoke",
+      "label": "Revoke a delegate",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "delegate.remove",
+      "label": "Remove a delegate",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "roster.change",
+      "label": "Change the agent roster",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "The agent roster and its routing guide are changed only on a member's word (ADR-0025)."
+    },
+    {
+      "id": "project.backup",
+      "label": "Back up the project",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.create",
+      "label": "Create work",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.review_plan",
+      "label": "Review planning work",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.review",
+      "label": "Pass a review",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.claim",
+      "label": "Claim work",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "lane.start",
+      "label": "Start a lane",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "lane.resume",
+      "label": "Resume a lane",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "lane.reset",
+      "label": "Reset a lane",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "lane.restart",
+      "label": "Restart a lane",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "lane.archive",
+      "label": "Archive a lane",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.replan",
+      "label": "Replan work",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.retry",
+      "label": "Retry work",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "work_order.retry_extra",
+      "label": "Retry work with an extra attempt",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.accept",
+      "label": "Accept work",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.rework",
+      "label": "Send work to rework",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.cancel",
+      "label": "Cancel work",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.reassign",
+      "label": "Reassign work",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.send_back",
+      "label": "Send work back to planning",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.resolve",
+      "label": "Resolve blocked work",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.write",
+      "label": "Write under a claim",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "work_order.release",
+      "label": "Release a claim",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "fleet.pause",
+      "label": "Pause the fleet",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "fleet.run",
+      "label": "Run the fleet",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "fleet.caps",
+      "label": "Set the fleet's caps",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "plan.start_review",
+      "label": "Start a contract review",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "question.record",
+      "label": "Record a question",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "question.dismiss",
+      "label": "Dismiss a question",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "question.answer",
+      "label": "Answer a question",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "decision.assume",
+      "label": "Record a decision within policy",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "decision.record",
+      "label": "Record a decision",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "decision.overturn",
+      "label": "Overturn a decision",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "policy.publish",
+      "label": "Publish a policy",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Policy is changed only on a member's word."
+    },
+    {
+      "id": "delegate_policy.publish",
+      "label": "Publish the delegate policy",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "category.add",
+      "label": "Add a category",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Policy is changed only on a member's word."
+    },
+    {
+      "id": "repository.register",
+      "label": "Register a repository",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "repository.set",
+      "label": "Change a repository's settings",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "repository.lower_merge_authority",
+      "label": "Lower merge authority",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "repository.review_target_branch",
+      "label": "Review on the branch",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "repository.raise_merge_authority",
+      "label": "Raise merge authority",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Raising merge authority leaves more to ropeshift, which only a member allows."
+    },
+    {
+      "id": "repository.review_target_pull_request",
+      "label": "Review through a pull request",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "Moving review to a pull request changes where work lands, which only a member allows."
+    },
+    {
+      "id": "repository.forge",
+      "label": "Change forge settings",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "repository.remove",
+      "label": "Remove a repository",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "approval.decide_delegated",
+      "label": "Decide a delegated request",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "approval.decide",
+      "label": "Decide a request",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate decides a request only within the delegation policy; every other request needs a member."
+    },
+    {
+      "id": "card.confirm",
+      "label": "Confirm a card",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "effect.decide",
+      "label": "Decide an effect",
+      "class": "consent",
+      "exemptable": true
+    },
+    {
+      "id": "message.send",
+      "label": "Send a message",
+      "class": "operational",
+      "exemptable": false
+    },
+    {
+      "id": "pane.input",
+      "label": "Type into a pane",
+      "class": "consent",
+      "exemptable": true
+    }
+  ]
+}

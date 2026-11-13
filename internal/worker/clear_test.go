@@ -291,20 +291,101 @@ func TestATokenEndsWithItsProcess(t *testing.T) {
 }
 
 // A hook's tags say the generation its process started in, and a spooled line has no token to
-// correct them, so what it says is read against the process it came from.
+// correct them, so what it says is read against the process it came from. This one is a compaction
+// of the generation the clear began, stamped after the clear.
 func TestASpooledHookAfterAClearReachesTheRun(t *testing.T) {
 	t.Parallel()
 	r, _ := aLaneAtWork(t)
 	r.cleared(t, clearedSession)
-	path := filepath.Join(r.dir, "spool")
-	line := sealedLine(t, r.token(t), lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: clearedSession, AtMs: 3})
-	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+	after := time.Now().UnixMilli()
+	r.spool(t, lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: clearedSession, AtMs: after})
+	r.eventually("what the spool said", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Compacting) })
+}
+
+// spool leaves one sealed line in the spool and drains it, as a worker's pass does.
+func (r *laneRig) spool(t *testing.T, event lanes.HookEvent) {
+	t.Helper()
+	line := sealedLine(t, r.token(t), event)
+	if err := os.WriteFile(filepath.Join(r.dir, "spool"), append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.subject.DrainSpool(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	r.eventually("what the spool said", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Compacting) })
+}
+
+// The ways a hook the worker already heard can reach it again. A hook waits 25 ms for an ack and
+// spools its event when none comes, so the worker may hold the event twice, and it takes the spool on
+// every pass.
+var repeatedHooks = map[string]func(t *testing.T, r *laneRig, event lanes.HookEvent){
+	"the spool":  func(t *testing.T, r *laneRig, event lanes.HookEvent) { r.spool(t, event) },
+	"the socket": func(t *testing.T, r *laneRig, event lanes.HookEvent) { r.hook(t, event) },
+}
+
+// The times of a compaction that ran before a clear. A clear's hook is stamped by the clock of the
+// test, which is later than both.
+const (
+	compactionBeganMs = 10
+	compactionEndedMs = 20
+)
+
+// aClearedLaneAtRest is a lane whose first generation was cleared in a turn, and whose turn has ended
+// since, so it waits for its brief. A heard compaction ran in the turn before the clear.
+func aClearedLaneAtRest(t *testing.T, heardCompaction bool) *laneRig {
+	t.Helper()
+	g := newGate()
+	r := laneRigWith(t, "")
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), completed(0.01)}, []fake.DriverStep{{Hold: true}}))
+	r.atGate(g)
+	if heardCompaction {
+		r.hook(t, lanes.HookEvent{Event: "PreCompact", Subject: "s", Detail: "auto", AtMs: compactionBeganMs})
+		r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "s", Detail: "auto", AtMs: compactionEndedMs})
+	}
+	r.cleared(t, clearedSession)
+	g.release <- struct{}{}
+	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+	return r
+}
+
+// briefs counts the inputs that told the session its work.
+func (r *laneRig) briefs() int {
+	told := 0
+	for _, input := range r.driver.Sent() {
+		if input.Text != lanes.Nudge && strings.Contains(input.Text, r.id) {
+			told++
+		}
+	}
+	return told
+}
+
+// A hook stamped before a clear says nothing about the generation the clear began, however late it
+// arrives. A compaction start that did would leave the lane in a compaction that nothing ends, and a
+// lane that is not at rest is not told its work.
+func TestAHookFromBeforeAClearLeavesTheNewGenerationAtRest(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"a compaction that ended before the clear":           true,
+		"a compaction the worker heard nothing of before it": false,
+	}
+	for name, heard := range cases {
+		for path, deliver := range repeatedHooks {
+			t.Run(name+" through "+path, func(t *testing.T) {
+				t.Parallel()
+				r := aClearedLaneAtRest(t, heard)
+				deliver(t, r, lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: "s", Detail: "auto", AtMs: compactionBeganMs})
+				if view := r.read(); view.ActualState != string(lanes.Idle) {
+					t.Fatalf("after the late hook the lane reads %s", view.ActualState)
+				}
+				r.eventually("the brief", func(ledger.LaneView) bool {
+					if _, err := r.subject.Reconcile(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+					return r.briefs() == 1
+				})
+			})
+		}
+	}
 }
 
 // A session's driver knows it by the process, which a clear does not change.

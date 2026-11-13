@@ -200,6 +200,17 @@ func TestALaneLayerNarrowsAndCannotWiden(t *testing.T) {
 		{name: "a lane can lower a cap", user: "[admission]\nmax_lanes = 4\n", lane: "[admission]\nmax_lanes = 1\n"},
 		{name: "a repository cannot lower the floor", user: "[admission]\nmin_free_memory_mb = 512\n", repository: "[admission]\nmin_free_memory_mb = 0\n", refused: true},
 		{name: "a user sets what a machine admits", user: "[admission]\nmax_lanes = 9\n"},
+		{name: "a repository cannot lift the recommendation", repository: "[admission]\nmax_lanes = 0\n", refused: true},
+		{name: "a repository can lower the recommendation", repository: "[admission]\nmax_lanes = 2\n"},
+		{name: "a repository cannot change the estimates", repository: "[admission]\nlane_cpu_estimate = 0.5\n", refused: true},
+		{name: "a repository cannot change the reserve", repository: "[admission]\nreserve_memory = \"1GiB\"\n", refused: true},
+		{name: "a lane cannot change the report interval", lane: "[resources]\nreport_interval = \"1s\"\n", refused: true},
+		{name: "a repository cannot quiet a warning", repository: "[resources]\ndisk_free_warn = \"0\"\n", refused: true},
+		{name: "a repository still sizes its lanes' ports", repository: "[resources]\nports_per_lane = 20\n"},
+		{name: "a user sets the machine's settings", user: "[admission]\nlane_cpu_estimate = 2\nlane_memory_estimate = \"3GiB\"\nreserve_cpu = 0\nreserve_memory = \"8GiB\"\nobserved_window = 20\nobserved_min = 5\n[resources]\nreport_interval = \"30s\"\ndisk_free_warn = \"20GiB\"\nmemory_available_warn = 0.2\nmemory_pressure_warn = 5\ncpu_load_warn = 2\n"},
+		{name: "a user's interval that is no time is refused", user: "[resources]\nreport_interval = \"often\"\n", refused: true},
+		{name: "a user's negative estimate is refused", user: "[admission]\nlane_cpu_estimate = -1\n", refused: true},
+		{name: "a negative cap is refused", user: "[admission]\nmax_lanes = -1\n", refused: true},
 		{name: "a user turns content capture on", user: "[telemetry]\ncontent = true\n"},
 		{name: "a lane cannot turn content capture on", lane: "[telemetry]\ncontent = true\n", refused: true},
 		{name: "a repository cannot turn content capture on", repository: "[telemetry]\ncontent = true\n", refused: true},
@@ -225,12 +236,28 @@ func TestALayerLowersTheLaneCapsTheUserSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.Admission.MaxLanesPerSignIn != 1 || profile.Admission.MaxLanes != 2 {
+	if profile.Admission.MaxLanesPerSignIn != 1 || profile.Admission.MaxLanes == nil || *profile.Admission.MaxLanes != 2 {
 		t.Errorf("admission %+v", profile.Admission)
 	}
 	_, err = ResolveLayers("[admission]\nmax_lanes_per_sign_in = 1\n", "[admission]\nmax_lanes_per_sign_in = 2\n", "")
 	if !errors.Is(err, lanes.ErrBadProfile) || !strings.Contains(err.Error(), "max_lanes_per_sign_in") {
 		t.Errorf("a repository that raises the sign-in cap: %v", err)
+	}
+}
+
+// TestTheBuiltInCapsFollowTheRecommendation holds FR-PROJ-7's defaults: no per-worker cap, so the worker's
+// recommendation stands, and no per-sign-in cap. Zero is a choice a person makes, and reads back as set.
+func TestTheBuiltInCapsFollowTheRecommendation(t *testing.T) {
+	profile, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Admission.MaxLanes != nil || profile.Admission.MaxLanesPerSignIn != 0 {
+		t.Errorf("admission %+v", profile.Admission)
+	}
+	profile, err = Resolve("[admission]\nmax_lanes = 0\n")
+	if err != nil || profile.Admission.MaxLanes == nil || *profile.Admission.MaxLanes != 0 {
+		t.Errorf("no cap reads as %+v: %v", profile.Admission, err)
 	}
 }
 

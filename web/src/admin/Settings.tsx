@@ -19,12 +19,14 @@ import {
   setLevel,
 } from "../api/admin";
 import type { Autonomy, Fleet, Level, PolicyList, PolicyVersion, RepositoryList, Risk, WorkerList } from "../api/admin";
+import { readOperations } from "../api/delegates";
+import type { Operation } from "../api/delegates";
 import type { Live } from "../api/useView";
 import { addressOf, go, Link } from "../app/route";
 import type { Theme } from "../app/theme";
 import { Until } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
-import { Absent, Banner, Panel, Refusal, TableRegion } from "../ui/display";
+import { Absent, Banner, Panel, Refusal, SkeletonRows, TableRegion } from "../ui/display";
 import { Diff } from "../ui/Diff";
 import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
@@ -52,6 +54,7 @@ const sections: Section[] = [
   { id: "lane", title: "Lane policy", scope: "project", note: "What a change under a running lane does to it." },
   { id: "recovery", title: "Recovery policy", scope: "project", note: "What an orchestrator may do on its own when a lane stalls, trips, fails, or blocks." },
   { id: "delegation", title: "Delegation policy", scope: "project", note: "The approval classes an orchestrator decides for a lane, so they never wait on a member." },
+  { id: "delegate-policy", title: "Delegate policy", scope: "project", note: "Consent operations a delegate may run without a card. Only a member changes this policy." },
   { id: "notify", title: "Notifications", scope: "project", note: "How a member hears that something waits on them." },
   { id: "appearance", title: "Appearance and keyboard", scope: "you", note: "This browser's own choices." },
 ];
@@ -64,6 +67,7 @@ const policyOf: Partial<Record<string, PolicyKind>> = {
   lane: "lane",
   recovery: "recovery",
   delegation: "delegation",
+  "delegate-policy": "delegate",
   notify: "notify",
 };
 
@@ -633,9 +637,18 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
                   )}
                 </p>
                 {fields.map((field) => (
-                  <PolicyField key={field.key} kind={kind} spec={field} value={values[field.key]} saved={saved[field.key]} disabled={archived} onChange={(value) => setValues((was) => ({ ...was, [field.key]: value }))} />
+                  <PolicyField
+                    key={field.key}
+                    kind={kind}
+                    spec={field}
+                    value={values[field.key]}
+                    saved={saved[field.key]}
+                    disabled={archived}
+                    failure={review ? "" : change.failure}
+                    onChange={(value) => setValues((was) => ({ ...was, [field.key]: value }))}
+                  />
                 ))}
-                {change.failure && !review ? <Refusal>{change.failure}</Refusal> : null}
+                {change.failure && !review && !fields.some((field) => field.type === "operations") ? <Refusal>{change.failure}</Refusal> : null}
               </div>
               <SaveBar
                 summary={summary}
@@ -710,12 +723,14 @@ function PolicyHistory({ versions, archived, onRevert }: { versions: PolicyVersi
   );
 }
 
-function PolicyField({ kind, spec, value, saved, disabled, onChange }: {
+function PolicyField({ kind, spec, value, saved, disabled, failure = "", onChange }: {
   kind: PolicyKind;
   spec: (typeof policies)[PolicyKind]["fields"][number];
   value: PolicyValue | undefined;
   saved: PolicyValue | undefined;
   disabled: boolean;
+  // failure is the API's refusal of the version this field's value made, which the field shows.
+  failure?: string;
   onChange: (value: PolicyValue) => void;
 }) {
   const source = same(value, saved) ? undefined : { name: "Changed", overridden: true };
@@ -765,6 +780,9 @@ function PolicyField({ kind, spec, value, saved, disabled, onChange }: {
   if (spec.type === "list") {
     return <CategoryField label={spec.label} help={spec.help} value={(value as string[] | undefined) ?? []} disabled={disabled} onChange={onChange} />;
   }
+  if (spec.type === "operations") {
+    return <OperationsField label={spec.label} help={spec.help} value={(value as string[] | undefined) ?? []} disabled={disabled} failure={failure} onChange={onChange} />;
+  }
   if (spec.type === "classes") {
     return <ClassesField label={spec.label} help={spec.help} value={(value as DelegationClass[] | undefined) ?? []} disabled={disabled} onChange={onChange} />;
   }
@@ -772,6 +790,45 @@ function PolicyField({ kind, spec, value, saved, disabled, onChange }: {
     <Field label={spec.label} source={source} help={spec.help}>
       <input className="input mono" autoComplete="off" spellCheck={false} disabled={disabled} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} placeholder={kind === "notify" && spec.key === "webhook_url" ? "https://example.com/hook…" : undefined} />
     </Field>
+  );
+}
+
+// OperationsField chooses the consent operations a delegate runs without a card, among the ones the class
+// table lists. One no policy may exempt is shown disabled, with the API's reason.
+function OperationsField({ label, help, value, disabled, failure, onChange }: { label: string; help?: string; value: string[]; disabled: boolean; failure: string; onChange: (value: string[]) => void }) {
+  const [operations, setOperations] = useState<Operation[] | null>(null);
+  useEffect(() => {
+    void readOperations().then(
+      (list) => setOperations(list.operations.filter((op) => op.class === "consent")),
+      () => setOperations([]),
+    );
+  }, []);
+  const order = (ids: string[]) => (operations ?? []).map((op) => op.id).filter((id) => ids.includes(id)).concat(ids.filter((id) => !operations?.some((op) => op.id === id)));
+  return (
+    <fieldset className="field">
+      <legend className="label">{label}</legend>
+      {operations === null ? <SkeletonRows rows={3} /> : null}
+      <div className="check-list">
+        {(operations ?? []).map((op) => (
+          <div key={op.id} className="check-item">
+            <label className="check-row">
+              <input
+                type="checkbox"
+                disabled={disabled || !op.exemptable}
+                checked={value.includes(op.id)}
+                onChange={(event) => onChange(order(event.target.checked ? [...value, op.id] : value.filter((one) => one !== op.id)))}
+              />
+              <span>
+                {op.label} <span className="mono small subtle">{op.id}</span>
+              </span>
+            </label>
+            {!op.exemptable && op.never_reason ? <p className="help">{op.never_reason}</p> : null}
+          </div>
+        ))}
+      </div>
+      {help ? <p className="help">{help}</p> : null}
+      {failure ? <Refusal>{failure}</Refusal> : null}
+    </fieldset>
   );
 }
 

@@ -226,7 +226,7 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
     case "import":
       return <ImportPage projects={projects} chosen={param("project")} reload={reloadProjects} />;
     case "members":
-      return <MembersPage live={live} onSignedOut={onSignedOut} />;
+      return <MembersPage live={live} onSignedOut={onSignedOut} dialog={param("dialog")} />;
     case "repositories":
       return <RepositoriesPage live={live} project={project} label={label} selected={param("repo")} dialog={param("dialog")} archived={archived} />;
     case "settings":

@@ -174,6 +174,10 @@ type Journal interface {
 	Qualification(ctx context.Context) (lanes.Qualification, error)
 	// SaveQualification keeps a probe's result and the event that records it, in one write.
 	SaveQualification(ctx context.Context, q lanes.Qualification, events ...ledger.UploadEvent) error
+	// LanePeaks reads the peaks of the last lanes this worker ran, oldest first, and none before it saves.
+	LanePeaks(ctx context.Context) ([]lanes.LanePeak, error)
+	// SaveLanePeaks keeps them in place of what it held.
+	SaveLanePeaks(ctx context.Context, peaks []lanes.LanePeak) error
 	// CloseMessage stops holding a message nobody can be told of here. The ledger decides what a
 	// sender reads, so this stores no event.
 	CloseMessage(ctx context.Context, id string) error
