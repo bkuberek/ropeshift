@@ -122,9 +122,12 @@ func TestADelegateIsCheckedWhenMade(t *testing.T) {
 		"no such project":  {Project: "nowhere", Label: "x", ExpiresInMs: day},
 		"another kind":     {Project: apitest.ProjectName, Label: "x", ExpiresInMs: day, Kind: "assistant"},
 		// The label `assistant` is the assistant's alone, so no outside credential can pass for it.
-		"the assistant's label":           {Project: apitest.ProjectName, Label: "assistant", ExpiresInMs: day},
-		"the assistant's label, cased":    {Project: apitest.ProjectName, Label: "Assistant ", ExpiresInMs: day},
-		"the assistant's label, in space": {Project: apitest.ProjectName, Label: "  ASSISTANT", ExpiresInMs: day},
+		"the assistant's label":             {Project: apitest.ProjectName, Label: "assistant", ExpiresInMs: day},
+		"the assistant's label, cased":      {Project: apitest.ProjectName, Label: "Assistant ", ExpiresInMs: day},
+		"the assistant's label, in space":   {Project: apitest.ProjectName, Label: "  ASSISTANT", ExpiresInMs: day},
+		"the assistant's label, full width": {Project: apitest.ProjectName, Label: "ａｓｓｉｓｔａｎｔ", ExpiresInMs: day},
+		"the assistant's label, ligatured":  {Project: apitest.ProjectName, Label: "ａssistant", ExpiresInMs: day},
+		"the assistant's label, hidden":     {Project: apitest.ProjectName, Label: "assistant\u200b", ExpiresInMs: day},
 	} {
 		_, err := d.Client.CreateDelegate(ctx, in)
 		var refused *api.Error

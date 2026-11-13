@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/conversations"
@@ -69,11 +70,31 @@ var markerWords = map[string]string{
 	conversations.MarkerIdleStopped: "session stopped after it sat idle",
 }
 
+// fromLabel says who sent an entry. A delegate is told by its credential's kind and never by its label, which
+// a member chooses: the assistant reads as the assistant, and any other delegate as a key with its label.
 func fromLabel(from *api.TalkFrom, fallback string) string {
 	if from == nil || from.Label == "" {
 		return fallback
 	}
-	return from.Label
+	if from.Kind == "delegate" {
+		member, _, _ := strings.Cut(from.ID, "/")
+		if from.DelegateKind == "assistant" {
+			return "assistant for " + plain(member)
+		}
+		return "key " + plain(from.Label) + " for " + plain(member)
+	}
+	return plain(from.Label)
+}
+
+// plain makes a word from an agent or a member safe to print: a control, format, or separator character,
+// an escape sequence's first byte included, shows as a question mark and moves nothing.
+func plain(word string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.In(r, unicode.Cc, unicode.Cf, unicode.Co, unicode.Cs, unicode.Zl, unicode.Zp) {
+			return '?'
+		}
+		return r
+	}, word)
 }
 
 // conversationLine says what one conversation is and how it stands.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -149,6 +150,15 @@ func (d DelegateCredential) EndedRoutinely() bool {
 // AssistantLabel is the label of every assistant credential.
 const AssistantLabel = "assistant"
 
+// hidesCharacters says a label holds a character that shows as nothing or moves a terminal or a line of
+// text: a control, a format character such as a zero-width space, a byte order mark, or a bidirectional
+// control, a line or paragraph separator, a private-use or surrogate code point.
+func hidesCharacters(label string) bool {
+	return strings.IndexFunc(label, func(r rune) bool {
+		return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Co, unicode.Cs, unicode.Zl, unicode.Zp)
+	}) >= 0
+}
+
 // Reserved says a label is the assistant's own, in any case and with spaces around it, so no outside
 // credential can be made to pass for the assistant by its name.
 func Reserved(label string) bool { return strings.EqualFold(strings.TrimSpace(label), AssistantLabel) }
@@ -197,6 +207,8 @@ func (r DelegateRequest) Check() error {
 		return fmt.Errorf("%w: member %q holds a slash, which a delegate's actor ID cannot carry", ErrInvalid, r.Member)
 	case strings.TrimSpace(r.Label) == "" || length > MaxDelegateLabel:
 		return fmt.Errorf("%w: a delegate's label is 1 to %d characters", ErrInvalid, MaxDelegateLabel)
+	case hidesCharacters(r.Label):
+		return fmt.Errorf("%w: a delegate's label holds no control, format, or separator character, such as a zero-width space, a byte order mark, or a bidirectional control", ErrInvalid)
 	case Reserved(r.Label):
 		return fmt.Errorf("%w: the label %q is reserved for the assistant's own credentials", ErrInvalid, AssistantLabel)
 	case r.ExpiresInMs < MinDelegateTTLMs || r.ExpiresInMs > MaxDelegateTTLMs:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"net/http"
 
 	"github.com/BurntSushi/toml"
@@ -110,8 +111,10 @@ func (h *handler) createDelegate(w http.ResponseWriter, r *http.Request, actor l
 		fail(w, err)
 		return
 	}
+	// A label is kept in its compatibility-normalized form, so a full-width or ligatured spelling of a reserved
+	// word reads as the word.
 	grant, err := h.delegates.Create(r.Context(), h.Scope, authority.DelegateRequest{
-		Member: actor.ID, Project: project.ID, Label: in.Label, Kind: in.Kind, ExpiresInMs: in.ExpiresInMs,
+		Member: actor.ID, Project: project.ID, Label: norm.NFKC.String(in.Label), Kind: in.Kind, ExpiresInMs: in.ExpiresInMs,
 	}, actor)
 	if err != nil {
 		fail(w, err)
