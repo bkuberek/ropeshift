@@ -186,6 +186,8 @@ type AssistantTarget struct {
 	Conversation *Conversation     `json:"conversation"`
 	Workers      []AssistantWorker `json:"workers"`
 	IdleStopMs   int64             `json:"idle_stop_ms"`
+	// WarmIdleStopMs is when a session that has had no message since it started stops.
+	WarmIdleStopMs int64 `json:"warm_idle_stop_ms"`
 }
 
 // OrchestratorTarget is the orchestrator of a worker that serves the project.

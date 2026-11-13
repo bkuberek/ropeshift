@@ -28,6 +28,7 @@ var ConversationChecks = []Check{
 	{"CV5", "no event of a conversation, its entries, or a message to the assistant holds a body or a name", checkConversationEventsHoldNoBody},
 	{"CV6", "compact and clear need a running session, and a clear marks every earlier entry", checkConversationCompactClear},
 	{"CV7", "the tick stops a conversation idle past the assistant policy, and nothing younger", checkConversationIdleStop},
+	{"CV18", "a session with no message since it started stops at the warm idle stop, and one that has a message at the idle stop", checkConversationWarmIdleStop},
 	{"CV8", "a message to a stopped conversation opens it and waits for its session", checkConversationMessageOpens},
 	{"CV9", "an assistant credential acts only while its generation runs", checkAssistantCredential},
 	{"CV10", "a reply is recorded once, as activity", checkAssistantReplyOnce},
@@ -540,6 +541,9 @@ func checkConversationIdleStop(r *Rig) error {
 	if err != nil {
 		return err
 	}
+	if _, err := t.send(theMember, idle.Conversation.ID, "Which merges wait?"); err != nil {
+		return err
+	}
 	tick := ledger.Actor{Kind: ledger.ActorSystem, ID: "tick"}
 	r.DB.ShiftClock(10 * 60 * 1000)
 	if _, err := t.plane.OpenSession(r.Ctx, ledger.SessionRequest{Auth: t.auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest}); err != nil {
@@ -547,6 +551,9 @@ func checkConversationIdleStop(r *Rig) error {
 	}
 	young, err := t.create(theOtherMember, "")
 	if err != nil {
+		return err
+	}
+	if _, err := t.send(theOtherMember, young.Conversation.ID, "And which lanes run?"); err != nil {
 		return err
 	}
 	stopped, err := t.convs.IdleStop(r.Ctx, r.Scope, tick)
@@ -1285,4 +1292,55 @@ func checkConversationIDScoped(r *Rig) error {
 		}
 	}
 	return nil
+}
+
+func checkConversationWarmIdleStop(r *Rig) error {
+	t, err := newTalkRig(r)
+	if err != nil {
+		return err
+	}
+	tick := ledger.Actor{Kind: ledger.ActorSystem, ID: "tick"}
+	warm, err := t.create(theMember, "")
+	if err != nil {
+		return err
+	}
+	used, err := t.create(theOtherMember, "")
+	if err != nil {
+		return err
+	}
+	stop := func(after int64, want ...string) error {
+		r.DB.ShiftClock(after)
+		stopped, err := t.convs.IdleStop(r.Ctx, r.Scope, tick)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(stopped, want) {
+			return Violatedf("the tick stopped %v, want %v", stopped, want)
+		}
+		return nil
+	}
+	if err := stop(60 * 1000); err != nil {
+		return err
+	}
+	// A message switches its session to the idle stop, from the message on.
+	if _, err := t.send(theOtherMember, used.Conversation.ID, "Which merges wait?"); err != nil {
+		return err
+	}
+	if err := stop(90*1000, warm.Conversation.ID); err != nil {
+		return err
+	}
+	record, err := t.read(warm.Conversation.ID)
+	if err != nil {
+		return err
+	}
+	if record.Running() || record.StoppedReason != conversations.ReasonIdle {
+		return Violatedf("an unused session reads %+v", record)
+	}
+	if markers, err := t.markers(warm.Conversation.ID); err != nil || markers[len(markers)-1] != conversations.MarkerIdleStopped {
+		return Violatedf("markers %v (%v)", markers, err)
+	}
+	if err := stop(10 * 60 * 1000); err != nil {
+		return err
+	}
+	return stop(5*60*1000, used.Conversation.ID)
 }

@@ -724,3 +724,53 @@ func TestACardNamesOnlyItsMembersConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Reading a conversation, its entries, the member's list, or what the member can talk to starts no session:
+// the history comes from the ledger. Opening it is the start, the one a client makes on the member's first
+// keystroke, and it sends nothing. The targets say when an unused session stops.
+func TestReadingAConversationStartsNothing(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	opened, err := d.client.CreateConversation(ctx, api.CreateConversation{ID: "conv-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped, err := d.client.StopConversation(ctx, opened.Conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := revisionOf(t, d.Daemon)
+	if _, err := d.client.Conversation(ctx, "conv-1"); err != nil {
+		t.Fatal(err)
+	}
+	d.entries(t, "conv-1")
+	if _, err := d.client.Conversations(ctx); err != nil {
+		t.Fatal(err)
+	}
+	targets, err := d.client.ConversationTargets(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targets.Assistant.WarmIdleStopMs != 2*60*1000 || targets.Assistant.IdleStopMs != 15*60*1000 {
+		t.Errorf("the targets say an unused session stops after %d ms and an idle one after %d", targets.Assistant.WarmIdleStopMs, targets.Assistant.IdleStopMs)
+	}
+	read, err := d.client.Conversation(ctx, "conv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Running() || read.RunLane != stopped.RunLane || revisionOf(t, d.Daemon) != before {
+		t.Fatalf("reading started %+v", read.Conversation)
+	}
+	started, err := d.client.OpenConversation(ctx, "conv-1", api.OpenConversation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !started.Conversation.Running() || started.Conversation.RunLane == stopped.RunLane {
+		t.Fatalf("opening left %+v", started.Conversation)
+	}
+	for _, entry := range d.entries(t, "conv-1") {
+		if entry.Kind == api.TalkKindMember {
+			t.Errorf("opening sent %+v", entry)
+		}
+	}
+}

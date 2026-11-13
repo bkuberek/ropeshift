@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/conversations"
@@ -829,7 +830,11 @@ func (c *Conversations) IdleStop(ctx context.Context, scope ledger.WorkspaceID, 
 			return err
 		}
 		for _, row := range running {
-			if now-row.LastActiveAt > policy.IdleStopAfter().Milliseconds() {
+			after, err := idleStopOf(tx.Conversations(), row, policy)
+			if err != nil {
+				return err
+			}
+			if now-row.LastActiveAt > after.Milliseconds() {
 				due = append(due, row.ID)
 			}
 		}
@@ -854,7 +859,11 @@ func (c *Conversations) IdleStop(ctx context.Context, scope ledger.WorkspaceID, 
 			if err != nil {
 				return err
 			}
-			if !row.Running() || tx.Now()-row.LastActiveAt <= policy.IdleStopAfter().Milliseconds() {
+			after, err := idleStopOf(tx.Conversations(), row, policy)
+			if err != nil {
+				return err
+			}
+			if !row.Running() || tx.Now()-row.LastActiveAt <= after.Milliseconds() {
 				return nil
 			}
 			record, err = stopIn(tx, row, conversations.ReasonIdle, conversations.MarkerIdleStopped, actor)
@@ -870,6 +879,44 @@ func (c *Conversations) IdleStop(ctx context.Context, scope ledger.WorkspaceID, 
 		}
 	}
 	return stopped, nil
+}
+
+// idleStopOf is how long a running conversation's session may sit idle: the warm idle stop while it has
+// had no message since its run began, at a start or a clear, and the idle stop once one reached it.
+func idleStopOf(reader ports.ConversationReader, record conversations.Conversation, policy authority.AssistantPolicy) (time.Duration, error) {
+	unused, err := unusedRun(reader, record)
+	if err != nil || !unused {
+		return policy.IdleStopAfter(), err
+	}
+	return policy.WarmIdleStopAfter(), nil
+}
+
+// unusedRun says no member message reached a conversation since its current run began. A run with no
+// marker to begin it reads as used, so the longer stop holds where the ledger cannot say.
+func unusedRun(reader ports.ConversationReader, record conversations.Conversation) (bool, error) {
+	before := int64(0)
+	for {
+		rows, err := reader.Entries(record.ID, before, 200)
+		if err != nil || len(rows) == 0 {
+			return false, err
+		}
+		for _, row := range rows {
+			if row.Kind == conversations.KindMember {
+				return false, nil
+			}
+			if row.Kind != conversations.KindMarker {
+				continue
+			}
+			data, err := row.MarkerData()
+			if err != nil {
+				return false, err
+			}
+			if data.Boundary() && data.RunLane == record.RunLane {
+				return true, nil
+			}
+		}
+		before = rows[len(rows)-1].Seq
+	}
 }
 
 // StopMember stops every running conversation of a member, as signing out everywhere does.

@@ -681,6 +681,7 @@ func (h *handler) conversationTargets(w http.ResponseWriter, r *http.Request, ac
 			return err
 		}
 		targets.Assistant.IdleStopMs = policy.IdleStopAfter().Milliseconds()
+		targets.Assistant.WarmIdleStopMs = policy.WarmIdleStopAfter().Milliseconds()
 		if targets.Planning, targets.Lanes, err = sessionTargets(tx, names); err != nil {
 			return err
 		}

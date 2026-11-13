@@ -2,6 +2,7 @@ package authority_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,5 +80,33 @@ func TestAMemberMakesOnlyExternalCredentials(t *testing.T) {
 	}
 	if !credential.Assistant() {
 		t.Error("an assistant credential reads as external")
+	}
+}
+
+// A session that has received no message since it started stops after the warm idle stop, two minutes by
+// default, never later than the idle stop, and a published one holds to the same bounds.
+func TestTheAssistantPolicyStopsAnUnusedSessionSooner(t *testing.T) {
+	builtIn := authority.BuiltInAssistantPolicy()
+	if got := builtIn.WarmIdleStopAfter(); got != 2*time.Minute {
+		t.Errorf("the built-in warm idle stop is %s", got)
+	}
+	if !strings.Contains(authority.BuiltInAssistantBody, `warm_idle_stop = "2m"`) {
+		t.Errorf("the built-in body says %q", authority.BuiltInAssistantBody)
+	}
+	if got := (authority.AssistantPolicy{Version: 2, IdleStop: "30m"}).WarmIdleStopAfter(); got != 2*time.Minute {
+		t.Errorf("a policy that names no warm idle stop stops an unused session after %s", got)
+	}
+	if got := (authority.AssistantPolicy{Version: 2, IdleStop: "1m", WarmIdleStop: "5m"}).WarmIdleStopAfter(); got != time.Minute {
+		t.Errorf("a warm idle stop past the idle stop reads %s", got)
+	}
+	for _, warm := range []string{"59s", "24h1m", "soon", "-1m"} {
+		if err := (authority.AssistantPolicy{Version: 2, IdleStop: "15m", WarmIdleStop: warm}).Check(); !errors.Is(err, authority.ErrInvalid) {
+			t.Errorf("warm_idle_stop %q: %v", warm, err)
+		}
+	}
+	for _, warm := range []string{"", "1m", "10m"} {
+		if err := (authority.AssistantPolicy{Version: 2, IdleStop: "15m", WarmIdleStop: warm}).Check(); err != nil {
+			t.Errorf("warm_idle_stop %q: %v", warm, err)
+		}
 	}
 }

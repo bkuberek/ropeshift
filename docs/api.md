@@ -122,7 +122,7 @@ A member talks to one target at a time: their assistant in a project, the orches
 | `GET /v1/conversations` | | `{"as_of", "conversations", "workers"}`: the member's conversations, newest activity first, and each registered worker with `available` and, when it is not, `reason` |
 | `POST /v1/conversations` | `{"id", "name", "worker"}` | 201 with `conversation` and `stopped`, the running conversation it stopped first. `id` is the client's, so a retry makes one; an ID another member's conversation holds, or a deleted conversation held, is refused with 400 `invalid` |
 | `GET /v1/conversations/{id}` | | One conversation |
-| `POST /v1/conversations/{id}/open` | `{"worker"}` | Starts its session, resuming what it had, with `stopped` |
+| `POST /v1/conversations/{id}/open` | `{"worker"}` | Starts its session, resuming what it had, with `stopped`, and sends nothing: it is the warm start a client makes on the member's first keystroke, so the session is up when the message goes |
 | `POST /v1/conversations/{id}/stop` | `{}` | Stops its session; the conversation stays |
 | `POST /v1/conversations/{id}/rename` | `{"name"}` | `name` is 1 to 80 characters |
 | `POST /v1/conversations/{id}/delete` | `{}` | 204: its session stops, and its entries, its messages, and its record go in one transaction. Each worker that ran it then removes what it holds of it: the messages to it and its runs' records in its journal, and the directory its sessions ran in. Its actions' events and its cards stay in the ledger. The agent CLI's own record of a session, where the CLI keeps one, is outside ropeshift's control and stays |
@@ -145,7 +145,7 @@ A conversation holds `id`, `member_id`, `name`, `worker_id`, `worker_name`, `des
 | `stopped` | It has no session |
 | `failed` | Its session could not start, which `stopped_reason` names |
 
-At most one of a member's conversations runs in a project: creating, opening, or messaging one stops the running one, with a `stopped` marker. A new conversation is called `New conversation` until the member's first message, which names it with its first 60 characters, cut at a word, unless the member named it. A conversation stops when it sits idle past the assistant policy's `idle_stop`, with an `idle_stopped` marker; closing a view or switching target stops nothing. Another member's conversation answers 404 `not_found`.
+At most one of a member's conversations runs in a project: creating, opening, or messaging one stops the running one, with a `stopped` marker. A new conversation is called `New conversation` until the member's first message, which names it with its first 60 characters, cut at a word, unless the member named it. A conversation stops when it sits idle past the assistant policy's `idle_stop`, with an `idle_stopped` marker, and sooner, past its `warm_idle_stop`, while no member message has reached it since its session started or was cleared; closing a view or switching target stops nothing. Reading a conversation, its entries, the list, or the conversation targets starts no session: the history comes from the ledger. Another member's conversation answers 404 `not_found`.
 
 A start runs on a worker that is connected, holds a checkout of every active repository of the project, and runs headless sessions. A start that names a worker takes that one. With none named, it takes the conversation's last worker while it can, else the only one that can; with several that can it answers 400 `invalid` ("Choose a worker: atlas and basalt can run the assistant."), and with none it answers 409 `no_assistant_worker`, naming each worker's reason.
 
@@ -164,18 +164,19 @@ A conversation's entries, a lane's stream, and an orchestrator's stream share on
 
 A request, a question, or a card resolved anywhere stays at its place in a stream, with its outcome.
 
-`GET /v1/conversation-targets` answers `assistant` (the member's newest conversation or null, the `workers`, and `idle_stop_ms`), `orchestrators` (each worker that holds a checkout of an active repository of the project, with its name, state, generation, and the projects it serves), `planning` (the lanes of planning and adopt work that have not ended), and `lanes` (every other lane that has not ended), each lane with its work order and title, worker, generation, run mode, and state.
+`GET /v1/conversation-targets` answers `assistant` (the member's newest conversation or null, the `workers`, `idle_stop_ms`, and `warm_idle_stop_ms`), `orchestrators` (each worker that holds a checkout of an active repository of the project, with its name, state, generation, and the projects it serves), `planning` (the lanes of planning and adopt work that have not ended), and `lanes` (every other lane that has not ended), each lane with its work order and title, worker, generation, run mode, and state.
 
 `POST /v1/projects/{project}/messages` takes `"to": {"kind": "orchestrator", "worker": "..."}` beside a lane's `"to": {"lane": "..."}`; exactly the field of its kind is set. A message to an orchestrator answers 409 `target_not_running` while that orchestrator is not running, and 400 `invalid` when its worker serves no repository of the project. It reaches the orchestrator as one item of its next wake, with its age, moves to `at_worker` when the worker takes it, `handed_off` when the wake reaches a turn, and `replied` when the orchestrator replies, and it expires on the message window like any other. A message to the assistant goes through its conversation, and `"kind": "assistant"` here answers 400 `invalid`. A message never decides anything: a card or a request stays open whatever a message says.
 
 `POST /v1/projects/{project}/approvals/{id}/decide` and `POST /v1/projects/{project}/questions/{id}/answer` take an optional `place`, `needs_you` or `conversation`. On the web listener, `"place": "conversation"` records the channel `conversation`; otherwise the channel is `web` or `cli`. A member's decision of an approval request records its channel as a card's does, and an answer records it in its decision's event.
 
-The assistant policy is a versioned policy of kind `assistant`, the installation's, published with `POST /v1/projects/{project}/policies` as a member and listed with `GET /v1/projects/{project}/policies?kind=assistant`. `idle_stop` is a duration from one minute to 24 hours, and the built-in version stops an idle session after 15 minutes:
+The assistant policy is a versioned policy of kind `assistant`, the installation's, published with `POST /v1/projects/{project}/policies` as a member and listed with `GET /v1/projects/{project}/policies?kind=assistant`. `idle_stop` is a duration from one minute to 24 hours, and the built-in version stops an idle session after 15 minutes. `warm_idle_stop`, from one minute to 24 hours and never longer than `idle_stop`, stops a session that no member message has reached since it started, such as one a warm start opened; it is 2 minutes when a version names none. Once a message reaches the session, `idle_stop` holds:
 
 ```toml
 [assistant]
 version = 2
 idle_stop = "30m"
+warm_idle_stop = "2m"
 ```
 
 ## Searching a project's records
