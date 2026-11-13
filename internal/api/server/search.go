@@ -20,6 +20,8 @@ type searchRequest struct {
 	query string
 	kind  string
 	limit int
+	// member is who searches, whose own conversations are among what a search finds.
+	member string
 }
 
 // searchOf reads a search from its query: q, the words; category, one kind; and limit, which a search with
@@ -76,6 +78,7 @@ func (h *handler) serveSearch(w http.ResponseWriter, r *http.Request) {
 		invalid(w, "%v", err)
 		return
 	}
+	request.member = h.viewer(r)
 	h.serveView(w, r, func(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (any, error) {
 		return h.readSearch(tx, request, stamp)
 	})
@@ -85,6 +88,15 @@ func (h *handler) readSearch(tx ports.ReadTx, request searchRequest, stamp api.S
 	every, err := h.searchable(tx, request.kind)
 	if err != nil {
 		return nil, err
+	}
+	if request.member != "" && (request.kind == "" || request.kind == api.SearchConversation) {
+		owned, err := tx.Conversations().OfMember(request.member)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range owned {
+			every = append(every, api.SearchRecord{Kind: api.SearchConversation, ID: record.ID, Title: record.Name, State: string(record.Actual)})
+		}
 	}
 	type found struct {
 		record api.SearchRecord
@@ -247,4 +259,17 @@ func allQuestions(tx ports.ReadTx) ([]questions.Question, error) {
 		}
 		filter.After = page[len(page)-1].ID
 	}
+}
+
+// viewer is the member a read is for: a member's session, or the member a delegate acts for. A read with
+// neither reads as nobody's, and finds no conversation.
+func (h *handler) viewer(r *http.Request) string {
+	if credential, ok := delegateOf(r.Context()); ok {
+		return credential.Member
+	}
+	actor, err := h.sessions.Member(r.Context(), h.Scope, sessionOf(r))
+	if err != nil {
+		return ""
+	}
+	return actor.ID
 }

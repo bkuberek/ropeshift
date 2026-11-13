@@ -13,6 +13,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -88,6 +89,10 @@ type Config struct {
 	// ModelClasses reads the model each driver's profile on the worker this daemon runs maps every
 	// capability class to, by driver and then class (ADR-0025). Nil shows no rendered model.
 	ModelClasses func(context.Context) (map[string]map[string]string, error)
+	// AssistantHosts reads what each worker could run a project's assistant on: whether its driver offers a
+	// headless session, and the repositories it holds a checkout of. Nil leaves no worker able to, and no
+	// orchestrator serving a project (ADR-0024).
+	AssistantHosts control.AssistantHosts
 }
 
 type handler struct {
@@ -111,6 +116,8 @@ type handler struct {
 	repositories *control.Repositories
 	recoveries   *control.Recoveries
 	delegates    *control.Delegates
+	// conversations are the member's conversations with the assistant.
+	conversations *control.Conversations
 	// root is the whole API as the socket serves it, through which a confirmed card's call runs again.
 	root http.Handler
 	// lifecycle and router are the installation's, which only the first project's handler holds.
@@ -177,6 +184,7 @@ func (h *handler) projectRoutes(mux *http.ServeMux) {
 	h.measureRoutes(mux)
 	h.paneRoutes(mux)
 	h.projectRosterRoutes(mux)
+	h.conversationRoutes(mux)
 	mux.HandleFunc("POST /v1/backup", h.member(h.backup))
 	mux.HandleFunc("POST "+api.BackupDownloadPath, h.member(h.downloadBackup))
 	mux.HandleFunc("GET "+api.AuditPath, h.projectAudit)
@@ -212,22 +220,23 @@ func matching(config Config) func(ports.Store) ports.Matcher {
 
 func newHandler(config Config) *handler {
 	return &handler{
-		Config:       config,
-		workOrders:   control.NewWorkOrders(config.Store),
-		leases:       control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
-		reviews:      control.NewReviews(config.Store),
-		recoveries:   control.NewRecoveries(config.Store),
-		accepting:    control.NewAcceptances(config.Store),
-		questions:    control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
-		fleet:        control.NewFleet(config.Store),
-		wakes:        control.NewWakes(config.Store),
-		messages:     control.NewMessages(config.Store, config.Windows),
-		sessions:     control.NewSessions(config.Store, config.Identity),
-		approvals:    control.NewApprovals(config.Store),
-		autonomy:     control.NewAutonomy(config.Store),
-		effects:      control.NewEffects(config.Store),
-		repositories: control.NewRepositories(config.Store),
-		delegates:    control.NewDelegates(config.Store),
+		Config:        config,
+		workOrders:    control.NewWorkOrders(config.Store),
+		leases:        control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
+		reviews:       control.NewReviews(config.Store),
+		recoveries:    control.NewRecoveries(config.Store),
+		accepting:     control.NewAcceptances(config.Store),
+		questions:     control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
+		fleet:         control.NewFleet(config.Store),
+		wakes:         control.NewWakes(config.Store),
+		messages:      control.NewMessages(config.Store, config.Windows).Hosting(config.AssistantHosts),
+		sessions:      control.NewSessions(config.Store, config.Identity),
+		approvals:     control.NewApprovals(config.Store),
+		autonomy:      control.NewAutonomy(config.Store),
+		effects:       control.NewEffects(config.Store),
+		repositories:  control.NewRepositories(config.Store),
+		delegates:     control.NewDelegates(config.Store),
+		conversations: control.NewConversations(config.Store, config.Windows).Hosting(config.AssistantHosts, config.HeartbeatMs),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts,
@@ -306,6 +315,12 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeStaleEpoch, Message: err.Error()})
 	case errors.Is(err, ports.ErrNotFound):
 		refuse(w, http.StatusNotFound, api.ErrorDetail{Code: api.CodeNotFound, Message: err.Error()})
+	case errors.Is(err, conversations.ErrNoWorker):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeNoAssistantWorker, Message: err.Error()})
+	case errors.Is(err, conversations.ErrNotRunning), errors.Is(err, messages.ErrNotRunning):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeTargetNotRunning, Message: err.Error()})
+	case errors.Is(err, conversations.ErrInvalid):
+		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadRecoveryPolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository), errors.Is(err, ledger.ErrInvalidProject):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, authority.ErrRiskNotAcknowledged):

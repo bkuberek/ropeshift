@@ -6,6 +6,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 func (h *handler) approvalRoutes(mux *http.ServeMux) {
@@ -32,7 +33,17 @@ func (h *handler) showApproval(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	reply(w, http.StatusOK, row)
+	detail := api.ApprovalDetail{Approval: row}
+	err = h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
+		var err error
+		detail.Conversation, err = cardConversation(tx.Members(), tx.Conversations(), row)
+		return err
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, detail)
 }
 
 // decideApproval is a member's word. The session this route demands is the one thing a lane cannot
@@ -46,12 +57,16 @@ func (h *handler) decideApproval(w http.ResponseWriter, r *http.Request, actor l
 		invalid(w, "a decision names the digest it saw")
 		return
 	}
-	decision := authority.Decision{ID: r.PathValue("id"), Digest: in.Digest, Allow: in.Allow, Reason: in.Reason}
-	if row, err := h.approvals.Get(r.Context(), h.Scope, decision.ID); err == nil && row.Kind == authority.KindConfirm {
-		h.confirmCard(w, r, decision, actor)
+	channel, ok := placed(w, r, in.Place)
+	if !ok {
 		return
 	}
-	record, err := h.approvals.Decide(r.Context(), h.Scope, decision, actor)
+	decision := authority.Decision{ID: r.PathValue("id"), Digest: in.Digest, Allow: in.Allow, Reason: in.Reason}
+	if row, err := h.approvals.Get(r.Context(), h.Scope, decision.ID); err == nil && row.Kind == authority.KindConfirm {
+		h.confirmCard(w, r.WithContext(withChannel(r.Context(), channel)), decision, actor)
+		return
+	}
+	record, err := h.approvals.DecideFrom(r.Context(), h.Scope, decision, actor, channel)
 	if err != nil {
 		fail(w, err)
 		return
@@ -88,4 +103,21 @@ func (h *handler) workerDecideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, record)
+}
+
+// placed reads where a member decided, and the channel the record keeps: the conversation for a word given
+// inline in one on the web listener, and otherwise the web listener or the command line.
+func placed(w http.ResponseWriter, r *http.Request, place string) (string, bool) {
+	channel := channelOf(r.Context())
+	switch place {
+	case "", api.PlaceNeedsYou:
+	case api.PlaceConversation:
+		if channel == authority.ChannelWeb {
+			channel = authority.ChannelConversation
+		}
+	default:
+		invalid(w, "place is %s or %s, and not %q", api.PlaceNeedsYou, api.PlaceConversation, place)
+		return "", false
+	}
+	return channel, true
 }

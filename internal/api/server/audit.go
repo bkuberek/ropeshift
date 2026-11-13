@@ -17,14 +17,16 @@ const auditChunk = 200
 
 // auditRequest is an audit's filters and page, as a request states them.
 type auditRequest struct {
-	actor, kind, subject string
-	before               int64
-	limit                int
+	actor, actorID, kind, subject string
+	before                        int64
+	limit                         int
 }
 
 func auditOf(r *http.Request) (auditRequest, error) {
 	query := r.URL.Query()
-	request := auditRequest{actor: query.Get("actor"), kind: query.Get("kind"), subject: query.Get("subject"), limit: api.AuditDefaultLimit}
+	request := auditRequest{
+		actor: query.Get("actor"), actorID: query.Get("actor_id"), kind: query.Get("kind"), subject: query.Get("subject"), limit: api.AuditDefaultLimit,
+	}
 	if text := query.Get("before"); text != "" {
 		before, err := strconv.ParseInt(text, 10, 64)
 		if err != nil || before < 1 {
@@ -43,7 +45,7 @@ func auditOf(r *http.Request) (auditRequest, error) {
 }
 
 func (q auditRequest) matches(event ledger.Event) bool {
-	return (q.actor == "" || string(event.Actor.Kind) == q.actor) &&
+	return (q.actor == "" || string(event.Actor.Kind) == q.actor) && (q.actorID == "" || event.Actor.ID == q.actorID) &&
 		(q.kind == "" || strings.HasPrefix(event.Type, q.kind)) &&
 		(q.subject == "" || event.Subject.Kind == q.subject)
 }

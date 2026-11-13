@@ -24,6 +24,7 @@ const (
 // a page starts below, zero for the newest.
 type AuditQuery struct {
 	Actor   string
+	ActorID string
 	Kind    string
 	Subject string
 	Before  int64
@@ -33,7 +34,7 @@ type AuditQuery struct {
 // Encode is the query a route reads.
 func (q AuditQuery) Encode() string {
 	values := url.Values{}
-	for name, value := range map[string]string{"actor": q.Actor, "kind": q.Kind, "subject": q.Subject} {
+	for name, value := range map[string]string{"actor": q.Actor, "actor_id": q.ActorID, "kind": q.Kind, "subject": q.Subject} {
 		if value != "" {
 			values.Set(name, value)
 		}

@@ -28,6 +28,8 @@ type DecideApproval struct {
 	Digest string `json:"digest"`
 	Allow  bool   `json:"allow"`
 	Reason string `json:"reason,omitempty"`
+	// Place is where the member decided: in Needs you, or inline in a conversation.
+	Place string `json:"place,omitempty"`
 }
 
 // Approvals lists the requests in one state, oldest first. An empty state lists them all.

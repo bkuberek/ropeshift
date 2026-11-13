@@ -84,6 +84,11 @@ func (h *handler) listDelegates(w http.ResponseWriter, r *http.Request, actor le
 	}
 	out := api.DelegateList{AsOf: now, Delegates: make([]api.Delegate, 0, len(credentials))}
 	for _, credential := range credentials {
+		// An assistant's credentials are the control plane's, one for each generation of a session, and
+		// a member's list holds the ones the member made.
+		if credential.Kind != authority.DelegateExternal {
+			continue
+		}
 		out.Delegates = append(out.Delegates, delegateView(credential, names, now))
 	}
 	reply(w, http.StatusOK, out)
@@ -161,7 +166,33 @@ func (h *handler) signOutAll(w http.ResponseWriter, r *http.Request, actor ledge
 	if err == nil {
 		h.voidCardsOf(r.Context(), revoked, actor)
 	}
-	reply(w, http.StatusOK, api.SignedOutAll{Sessions: ended.Sessions, Delegates: ended.Delegates})
+	stopped := h.stopConversationsOf(r.Context(), actor)
+	reply(w, http.StatusOK, api.SignedOutAll{Sessions: ended.Sessions, Delegates: ended.Delegates, Conversations: stopped})
+}
+
+// stopConversationsOf stops every running conversation of a member, in every active project, once their
+// sessions ended. Their credentials were revoked with the sessions, so a project this cannot reach still
+// runs no credential of theirs.
+func (h *handler) stopConversationsOf(ctx context.Context, actor ledger.Actor) []string {
+	stopped := []string{}
+	projects, err := h.Projects.List(ctx)
+	if err != nil {
+		return stopped
+	}
+	for _, project := range projects {
+		if project.State != ledger.ProjectActive {
+			continue
+		}
+		store, err := h.Projects.Open(ctx, project)
+		if err != nil {
+			continue
+		}
+		ids, err := control.NewConversations(store, h.Windows).StopMember(ctx, project.ID, actor.ID, actor)
+		if err == nil {
+			stopped = append(stopped, ids...)
+		}
+	}
+	return stopped
 }
 
 // voidCardsOf voids the open cards each revoked credential prepared, in the active project it acts in. The
