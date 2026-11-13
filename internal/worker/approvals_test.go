@@ -468,6 +468,41 @@ func TestAWaitPastItsBoundParksUntilADecision(t *testing.T) {
 	}
 }
 
+// A hook's look can land after a wait's deadline and before the lane's own loop has read its clock,
+// which that loop does once a tick. The look is told the wait ran out, and a hook that is told lets the
+// turn go on, so the session's handoff comes next: parking has to have begun by then, or the handoff
+// finds none asked for and the turn ends with a request open and no parking begun, which reads as a
+// person's answer at a terminal.
+func TestAHookToldTheWaitRanOutBeforeTheLoopReadItsClockFindsTheLaneParking(t *testing.T) {
+	t.Parallel()
+	r, _ := aLaneThatWaits(t)
+	r.subject.HoldApprovalLoop("lane-1")
+	r.look(t, gatedCall, "call-1", false)
+	a := r.onlyRequest(t)
+	r.clock.Advance(6 * time.Minute)
+	reply := r.look(t, gatedCall, "call-1", true)
+	if decisionIn(t, reply) != lanes.ApprovalDeny || reply.Approval.Reason != lanes.ReasonApprovalWait {
+		t.Fatalf("reply %+v", reply.Approval)
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !record.Parking.Open() {
+		t.Errorf("a hook heard the wait ran out before the lane began to park: %+v", record.Parking)
+	}
+	if handoff := r.callHandoff(narrativeText); !handoff.OK {
+		t.Errorf("the session's handoff after the denial was refused: %+v", handoff)
+	}
+	r.eventually("parking", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Parking) })
+	if want := lanes.ApprovalWake([]string{a.ID}); r.wakeOf(t, 1).Expr != want {
+		t.Errorf("wake %+v, want %s", r.wakeOf(t, 1), want)
+	}
+	if got := r.onlyRequest(t); got.State != authority.ApprovalPending {
+		t.Errorf("request %+v", got)
+	}
+}
+
 // wholeCall is a call as a session makes one, with fields a person never reads. The digest covers
 // each of them, so a session told only the command would write a description of its own.
 const wholeCall = `{"command":"git tag v1","description":"Tag the release","timeout":5000}`

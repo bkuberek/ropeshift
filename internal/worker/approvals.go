@@ -288,7 +288,10 @@ func (r *laneRun) askLedger(ctx context.Context, lane lanes.Record, call authori
 }
 
 // keepWaiting keeps a request on record and says how much longer a call waits. Past its bound a hook
-// denies, and the lane is on its way to parking, so the request stands for when it comes back.
+// denies, and the lane parks before the hook hears of it, so the request stands for when it comes
+// back. Parking starts here whether or not the hook's peek missed, because a hook can look after the
+// deadline and before `awaitApproval` reads its clock, and a session that hears the denial calls for
+// its handoff at once.
 func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call authority.ToolCall, request lanes.ApprovalRequest) lanes.Reply {
 	open, err := r.standingRequest(ctx, lane, call, request)
 	if errors.Is(err, errRequestGone) {
@@ -299,9 +302,7 @@ func (r *laneRun) keepWaiting(ctx context.Context, lane lanes.Record, call autho
 	}
 	left := time.UnixMilli(open.DeadlineMs).Sub(r.w.clock.Now())
 	if left <= 0 {
-		if request.Missed {
-			r.parkOnWaitRanOut(ctx)
-		}
+		r.parkOnWaitRanOut(ctx)
 		return answer(lanes.ApprovalDeny, lanes.ReasonApprovalWait, open.ID)
 	}
 	reply := answer(lanes.ApprovalWaiting, "", open.ID)
@@ -462,9 +463,10 @@ func (r *laneRun) awaitApproval(ctx context.Context) {
 }
 
 // parkOnWaitRanOut begins parking before a hook hears that its wait ran out, where `awaitApproval`
-// would begin it at its next look at the clock. A hook told the wait ran out lets the turn end, and a
-// turn that ends with a request open and no parking begun reads as a person's answer at a terminal,
-// which closes the request and leaves the lane to go on. Begun twice, the second finds it begun.
+// would begin it at its next look at the clock. A hook told the wait ran out lets the turn go on, so
+// the session's handoff follows, and one that finds no parking asked of it is refused. A turn that
+// ends with a request open and no parking begun reads as a person's answer at a terminal, which
+// closes the request and leaves the lane to go on. Begun twice, the second finds it begun.
 func (r *laneRun) parkOnWaitRanOut(ctx context.Context) {
 	rows, err := r.requestsOfThisGeneration(ctx)
 	if err != nil {
