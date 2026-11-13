@@ -303,6 +303,16 @@ func CheckRepositoryName(name string) error {
 	return nil
 }
 
+// MinRepositoryPrefix is the shortest prefix of an identity that names a repository.
+const MinRepositoryPrefix = 7
+
+// ShadowsIdentity says a name would read as a repository's identity: the identity itself, or a prefix of
+// it long enough to name it. A command and a route take a name before an identity, so such a name on
+// another record would send a call aimed at this identity to that record.
+func ShadowsIdentity(name, id string) bool {
+	return name == id || (len(name) >= MinRepositoryPrefix && strings.HasPrefix(id, name))
+}
+
 // shortIdentity is how much of an identity names a repository nothing else names.
 const shortIdentity = 12
 

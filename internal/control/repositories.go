@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -182,7 +183,12 @@ func freeName(repositories ports.RepositoryReader, found DetectedRepository, cla
 	for _, record := range all {
 		taken[record.Name] = true
 	}
-	return ledger.NameRepository(found.Directory, found.Remote, found.ID, func(name string) bool { return taken[name] }), nil
+	shadows := func(name string) bool {
+		return slices.ContainsFunc(all, func(record ledger.Repository) bool {
+			return record.ID != found.ID && ledger.ShadowsIdentity(name, record.ID)
+		})
+	}
+	return ledger.NameRepository(found.Directory, found.Remote, found.ID, func(name string) bool { return taken[name] || shadows(name) }), nil
 }
 
 // Change applies a member's settings to a repository. The record that results must hold together, and a
@@ -354,6 +360,15 @@ func nameIsFree(repositories ports.RepositoryReader, record ledger.Repository) e
 	if err := ledger.CheckRepositoryName(record.Name); err != nil {
 		return err
 	}
+	all, err := repositories.Repositories()
+	if err != nil {
+		return err
+	}
+	for _, other := range all {
+		if other.ID != record.ID && ledger.ShadowsIdentity(record.Name, other.ID) {
+			return fmt.Errorf("%w: name %q reads as the identity of repository %s", ledger.ErrInvalidRepository, record.Name, other.ID)
+		}
+	}
 	holder, err := repositories.Named(record.Name)
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
@@ -452,7 +467,7 @@ func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, na
 		switch {
 		case record.ID == name:
 			return record, nil
-		case len(name) >= minRepositoryPrefix && len(record.ID) > len(name) && record.ID[:len(name)] == name:
+		case len(name) >= ledger.MinRepositoryPrefix && len(record.ID) > len(name) && record.ID[:len(name)] == name:
 			found = append(found, record)
 		}
 	}
@@ -464,9 +479,6 @@ func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, na
 	}
 	return ledger.Repository{}, fmt.Errorf("%w: %q names %d repositories", ledger.ErrInvalidRepository, name, len(found))
 }
-
-// minRepositoryPrefix is the shortest prefix of an identity that names a repository.
-const minRepositoryPrefix = 7
 
 // ForgeHealth reads what each worker last said of its forge sign-in, by repository, with each worker's name.
 func (r *Repositories) ForgeHealth(ctx context.Context, scope ledger.WorkspaceID) ([]ledger.ForgeHealth, error) {
