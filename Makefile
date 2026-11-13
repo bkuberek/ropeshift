@@ -35,8 +35,10 @@ lint:
 # Always run: the exit tests build the daemon at run time, so the test cache cannot see
 # a change to it and would repeat an old pass. The timeout sits past go test's default of
 # 10 minutes, which the worker's package reaches on a busy machine with every test passing.
+# The slowest packages, the daemon-backed exit tests and the API server tests, take close to
+# 25 minutes on slower runners, so the timeout is 45 minutes.
 test:
-	$(GO) test -race -count=1 -timeout 25m ./...
+	$(GO) test -race -count=1 -timeout 45m ./...
 
 # The web application's types and tests, on the packages its lockfile pins.
 web-test:

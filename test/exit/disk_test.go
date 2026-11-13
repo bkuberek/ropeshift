@@ -19,7 +19,8 @@ import (
 // twice. So a wait counts only its time on a disk that flushes as an idle one does, and goes on while the
 // disk is held up, to its longest.
 type waitBounds struct {
-	// ceiling is the time on an idle disk after which a wait gives up.
+	// ceiling is the time on an idle disk that flushes in a millisecond or less after which a wait gives up.
+	// A slower idle disk lengthens it, up to longest.
 	ceiling time.Duration
 	// longest bounds a wait whatever the disk does.
 	longest time.Duration
@@ -48,10 +49,23 @@ func (b waitBounds) heldUp(took time.Duration) bool {
 	return took >= max(heldUpFactor*b.idle(), heldUpFloor)
 }
 
+// scaleFrom is the idle flush up to which a disk counts as fast, and the ceiling is as it is written.
+const scaleFrom = time.Millisecond
+
+// idleCeiling is the time on an idle disk after which a wait gives up, on this machine's disk. Every step
+// of a lane is a run of commits, so on a disk that flushes slowly even when nothing holds it up, the same
+// steps take proportionally longer, and the ceiling grows in step with the idle flush. A disk that
+// flushes in a millisecond or less keeps the ceiling as written, and no disk lengthens it past the longest.
+func (b waitBounds) idleCeiling() time.Duration {
+	scale := max(1, float64(b.idle())/float64(scaleFrom))
+	return min(time.Duration(float64(b.ceiling)*scale), b.longest)
+}
+
 // await looks at done until it holds, and reports whether it did. A wait that gives up says why, with
 // what the disk took to flush a block at its last reading and on an idle disk.
 func (b waitBounds) await(done func() bool) (bool, string) {
 	began := time.Now()
+	ceiling := b.idleCeiling()
 	counted, last, nextLook := time.Duration(0), began, began
 	var took time.Duration
 	held := false
@@ -64,7 +78,7 @@ func (b waitBounds) await(done func() bool) (bool, string) {
 			counted += now.Sub(last)
 		}
 		last = now
-		if counted >= b.ceiling || now.Sub(began) >= b.longest {
+		if counted >= ceiling || now.Sub(began) >= b.longest {
 			return false, fmt.Sprintf("gave up after %v on an idle disk, %v in all; the disk last flushed a block in %v, and in %v when idle\n",
 				counted.Round(time.Millisecond), now.Sub(began).Round(time.Millisecond), took, b.idle())
 		}
@@ -167,6 +181,57 @@ func TestAWaitCountsOnlyItsTimeOnAnIdleDisk(t *testing.T) {
 	held, _ := bounds.await(func() bool { return false })
 	took := time.Since(began)
 	if held || took < heldFor+bounds.ceiling-50*time.Millisecond || took >= bounds.longest {
+		t.Fatalf("held %t after %v", held, took)
+	}
+}
+
+// TestTheCeilingScalesWithTheIdleFlush is the rule for a disk that is slow by itself: every step of a lane
+// is a run of commits, so its time grows with the idle flush, and the ceiling grows with it, from one
+// millisecond of idle flush up, and never past the longest wait.
+func TestTheCeilingScalesWithTheIdleFlush(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		idle time.Duration
+		want time.Duration
+	}{
+		{"a fast disk", 50 * time.Microsecond, exitWaits.ceiling},
+		{"a flush of one millisecond", time.Millisecond, exitWaits.ceiling},
+		{"a flush of two milliseconds", 2 * time.Millisecond, 2 * exitWaits.ceiling},
+		{"a flush of five milliseconds", 5 * time.Millisecond, 5 * exitWaits.ceiling},
+		{"a flush of 60 milliseconds", 60 * time.Millisecond, exitWaits.longest},
+		{"a flush of a second", time.Second, exitWaits.longest},
+	} {
+		bounds := exitWaits
+		bounds.idle = func() time.Duration { return c.idle }
+		if got := bounds.idleCeiling(); got != c.want {
+			t.Errorf("%s: the ceiling is %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAWaitOnASlowDiskGivesUpAtItsScaledCeiling(t *testing.T) {
+	bounds := heldBounds(func() time.Duration { return 3 * time.Millisecond })
+	bounds.idle = func() time.Duration { return 3 * time.Millisecond }
+	bounds.flush = bounds.idle
+	began := time.Now()
+	held, said := bounds.await(func() bool { return false })
+	took := time.Since(began)
+	want := 3 * bounds.ceiling
+	if held || took < want || took > want+300*time.Millisecond {
+		t.Fatalf("held %t after %v, want a give-up at %v", held, took, want)
+	}
+	if !strings.Contains(said, "3ms") {
+		t.Errorf("the reason leaves out the disk: %q", said)
+	}
+}
+
+func TestAWaitOnASlowDiskStillEndsAtTheLongest(t *testing.T) {
+	bounds := heldBounds(func() time.Duration { return 60 * time.Millisecond })
+	bounds.idle = func() time.Duration { return 60 * time.Millisecond }
+	began := time.Now()
+	held, _ := bounds.await(func() bool { return false })
+	took := time.Since(began)
+	if held || took < bounds.longest || took > bounds.longest+300*time.Millisecond {
 		t.Fatalf("held %t after %v", held, took)
 	}
 }

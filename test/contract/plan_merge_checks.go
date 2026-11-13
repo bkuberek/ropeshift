@@ -28,6 +28,8 @@ var PlanMergeChecks = []Check{
 	{"PM7", "a conflict sends the planning work back to rework on the same branch, with the conflict in its brief", checkPlanningConflict},
 	{"PM8", "approving an adopt session's plan merges the adoption branch the same way", checkAdoptionBranchMerges},
 	{"PM9", "a planning branch accepted by hand waits in integrating for its plan approval, and a member's acceptance never approves its merge", checkPlanAcceptedByHandWaits},
+	{"PM10", "a plan approved before the pull request is on record has its merge record name the pull request the worker merged through, in the record and in the merge event", checkPlanMergeNamesItsPullRequest},
+	{"PM11", "a plan approved before the pull request is on record has the person's merge on the forge recorded with the pull request's number", checkPlanForgeMergeNamesItsPullRequest},
 }
 
 // planMergeRig is a registered worker that ran a planning lane to completion in a repository under a review
@@ -608,4 +610,92 @@ func checkPlanAcceptedByHandWaits(r *Rig) error {
 		return err
 	}
 	return p.landed(merge, "merged-by-hand")
+}
+
+// approvedBeforeTheOpening approves the plan and records its approval of the head while no pull request is on
+// record, as a plan approved after the worker ran `gh pr create` and before its report reached the control
+// plane is, and says the approval names no pull request.
+func (p *planMergeRig) approvedBeforeTheOpening(level ledger.MergeAuthority) error {
+	if _, err := p.approved(); err != nil {
+		return err
+	}
+	if _, err := p.tick(); err != nil {
+		return err
+	}
+	record, err := p.approvedBy(p.head, level, 1)
+	if err != nil || record.PullRequest != 0 {
+		return Violatedf("the approval before the pull request is on record reads %+v: %v", record, err)
+	}
+	return nil
+}
+
+func checkPlanMergeNamesItsPullRequest(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonApproves, false)
+	if err != nil {
+		return err
+	}
+	if _, err := p.publish(); err != nil {
+		return err
+	}
+	if err := p.approvedBeforeTheOpening(ledger.PersonApproves); err != nil {
+		return err
+	}
+	if err := p.noMerge(); err != nil {
+		return err
+	}
+	if err := p.report(p.opened(1, p.head)); err != nil {
+		return err
+	}
+	if _, err := p.integrate(); err != nil {
+		return err
+	}
+	merge, err := p.oneMerge()
+	if err != nil || merge.Number != 7 {
+		return Violatedf("the worker is asked to merge %+v: %v", merge, err)
+	}
+	if err := p.landed(merge, "merged-pr"); err != nil {
+		return err
+	}
+	record, err := p.approvedBy(p.head, ledger.PersonApproves, 1)
+	if err != nil || record.PullRequest != 7 || record.MergedCommit != "merged-pr" {
+		return Violatedf("the merge is recorded as %+v, want pull request 7: %v", record, err)
+	}
+	merged, err := p.integrationEvents(ledger.EventIntegrationMerged)
+	if err != nil || len(merged) != 1 || !strings.Contains(string(merged[0].Data), `"pull_request":7`) {
+		return Violatedf("the merge events %+v want pull request 7: %v", merged, err)
+	}
+	return r.CheckProjection(p.store)
+}
+
+func checkPlanForgeMergeNamesItsPullRequest(r *Rig) error {
+	p, err := newPlanMergeRig(r, ledger.ReviewOnPullRequest, ledger.PersonMerges, false)
+	if err != nil {
+		return err
+	}
+	if _, err := p.publish(); err != nil {
+		return err
+	}
+	if err := p.approvedBeforeTheOpening(ledger.PersonMerges); err != nil {
+		return err
+	}
+	if err := p.report(p.opened(1, p.head)); err != nil {
+		return err
+	}
+	merged := p.pullRequestAt(p.head)
+	merged.State, merged.MergeCommit, merged.MergedAt = ledger.PullRequestMerged, "persons-merge", "2026-11-12T11:00:00Z"
+	if err := p.read(merged); err != nil {
+		return err
+	}
+	if err := p.stands(workorders.Done); err != nil {
+		return err
+	}
+	record, err := p.approvedBy(p.head, ledger.PersonMerges, 1)
+	if err != nil || record.MergedCommit != "persons-merge" || record.PullRequest != 7 {
+		return Violatedf("the person's merge is recorded as %+v, want pull request 7: %v", record, err)
+	}
+	events, err := p.integrationEvents(ledger.EventIntegrationMerged)
+	if err != nil || len(events) != 1 || !strings.Contains(string(events[0].Data), `"pull_request":7`) {
+		return Violatedf("the merge events %+v want pull request 7: %v", events, err)
+	}
+	return r.CheckProjection(p.store)
 }
