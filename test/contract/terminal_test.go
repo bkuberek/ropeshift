@@ -51,8 +51,39 @@ func TestTmuxTerminalContract(t *testing.T) {
 				}
 				t.Fatalf("%q never showed: %q", text, last)
 			},
+			// Each rig installs its own double, which holds one pane, so its log is that pane's.
+			Took: func(t *testing.T, _ string, n int) {
+				t.Helper()
+				log := filepath.Join(doubles.BinDir(terminalPath), "keys.log")
+				deadline := time.Now().Add(20 * time.Second)
+				taken := 0
+				for time.Now().Before(deadline) {
+					taken = trustKeysTaken(log)
+					if taken >= n {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
+				t.Fatalf("the pane took %d keys, want %d", taken, n)
+			},
 		}
 	})
+}
+
+// trustKeysTaken counts the keys a double's trust dialog has read and drawn, from its log.
+func trustKeysTaken(log string) int {
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		return 0
+	}
+	taken := 0
+	for line := range strings.Lines(string(raw)) {
+		// A line is the process ID, the dialog, and the key.
+		if fields := strings.Fields(line); len(fields) == 3 && fields[1] == "trust" {
+			taken++
+		}
+	}
+	return taken
 }
 
 // attachesOnATerminal attaches a real tmux client on a pseudo-terminal, as a person's shell would, and
@@ -254,6 +285,7 @@ func TestFakeTerminalContract(t *testing.T) {
 					t.Fatalf("%q is not on the screen: %q, %v", text, screen, err)
 				}
 			},
+			Took: func(*testing.T, string, int) {},
 		}
 	})
 }
