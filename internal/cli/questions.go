@@ -3,7 +3,6 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -434,7 +433,7 @@ func (c *invocation) policyPublish(args []string) int {
 	if *file == "" {
 		return c.usageError("--file is required")
 	}
-	body, err := os.ReadFile(*file)
+	body, err := c.readLocal(*file)
 	if err != nil {
 		return c.failure(err)
 	}

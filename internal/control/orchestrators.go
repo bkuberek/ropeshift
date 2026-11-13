@@ -11,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -175,7 +176,7 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 		if facts.standing.MayClaim() {
 			gather = append(gather, func(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) { return wakeWork(tx, worker, facts) })
 		}
-		gather = append(gather, wakeQuestions)
+		gather = append(gather, wakeQuestions, wakeMessages)
 		if facts.standing.MayWork() {
 			gather = append(gather, wakeFinished, wakeLanes, wakeStuckWork, wakeApprovals)
 		}
@@ -189,6 +190,31 @@ func (w *Workers) WakeDigest(ctx context.Context, request ledger.WakeRequest) (l
 		return nil
 	})
 	return digest, err
+}
+
+// wakeMessages lists the members' messages to this worker's orchestrator that no turn has taken in yet,
+// each one item of the next wake with its age (FR-ORCH-7). Its stamp is when it was sent, so it counts once.
+func wakeMessages(tx ports.ReadTx, worker string) ([]ledger.WakeItem, error) {
+	rows, err := tx.Messages().ToTarget(messages.TargetOrchestrator, worker)
+	if err != nil {
+		return nil, err
+	}
+	now, err := tx.Now()
+	if err != nil {
+		return nil, err
+	}
+	var items []ledger.WakeItem
+	for _, row := range rows {
+		if row.State != messages.Queued && row.State != messages.AtWorker {
+			continue
+		}
+		age := (now - row.CreatedAt) / 1000
+		items = append(items, ledger.WakeItem{
+			Kind: ledger.WakeMessage, ID: row.ID, Stamp: row.CreatedAt,
+			Text: fmt.Sprintf("Message %s from %s %s, %dm%02ds old: %s\n%s", row.ID, row.From.Kind, row.From.ID, age/60, age%60, row.Body, messages.NotConsent),
+		})
+	}
+	return items, nil
 }
 
 // autonomyOf reads a worker's standing, for a read with no transaction of its own to write in.

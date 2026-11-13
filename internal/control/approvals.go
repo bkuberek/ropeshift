@@ -126,6 +126,12 @@ func builtInDelegation(id string, createdAt int64) (authority.PolicyVersion, err
 // reaches only what a member delegated. Each check here repeats in the store where a statement can
 // hold it, so the rule stands if this code is wrong.
 func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decision authority.Decision, actor ledger.Actor) (authority.Approval, error) {
+	return a.DecideFrom(ctx, scope, decision, actor, "")
+}
+
+// DecideFrom is Decide with where a member's word came from: the web listener, the command line, or the
+// conversation the request showed in. An empty channel keeps the hook's, which reads the decision.
+func (a *Approvals) DecideFrom(ctx context.Context, scope ledger.WorkspaceID, decision authority.Decision, actor ledger.Actor, channel string) (authority.Approval, error) {
 	if !authority.Allowed(actor, authority.ActionDecideApproval) {
 		return authority.Approval{}, workorders.ErrForbidden
 	}
@@ -190,6 +196,9 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		}
 		if record, err = row.Decide(decision, actor, version.Version, tx.Now()); err != nil {
 			return err
+		}
+		if channel != "" {
+			record.Channel = channel
 		}
 		if err := noteApproval(tx, record, row.State, actor); err != nil {
 			return err

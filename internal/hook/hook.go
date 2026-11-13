@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -351,12 +352,19 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 			Command  string `json:"command"`
 			File     string `json:"file_path"`
 			Notebook string `json:"notebook_path"`
+			// Path is what a search or a listing reads.
+			Path string `json:"path"`
+			// Pattern is what a Glob matches, which can name a place of its own.
+			Pattern string `json:"pattern"`
 		} `json:"tool_input"`
 	}
 	if json.Unmarshal(input, &call) != nil {
 		return callDenied, denial(unavailablePolicy)
 	}
 	if reason, held := policy.HoldsTool(call.Tool); held {
+		return callDenied, denial(reason)
+	}
+	if reason, unlisted := policy.Unlisted(call.Tool); unlisted {
 		return callDenied, denial(reason)
 	}
 	if call.Tool == lanes.ToolQuestion {
@@ -376,8 +384,11 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 	if target == "" {
 		target = call.Input.Notebook
 	}
-	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd}
-	reason, denied := policy.WithLinks(diskLink).Decide(tool)
+	if target == "" {
+		target = call.Input.Path
+	}
+	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Pattern: call.Input.Pattern, Cwd: call.Cwd}
+	reason, denied := policy.WithLinks(diskLink).WithRealPaths(filepath.EvalSymlinks).Decide(tool)
 	if denied {
 		return callDenied, denial(reason)
 	}

@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -173,6 +174,11 @@ func (q *Questions) decideInTx(tx ports.WriteTx, record questions.Decision, acto
 }
 
 func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Actor) error {
+	return insertDecisionFrom(tx, record, actor, "")
+}
+
+// insertDecisionFrom records a decision with the channel a member's word came through, in its event.
+func insertDecisionFrom(tx ports.WriteTx, record questions.Decision, actor ledger.Actor, channel string) error {
 	if err := tx.Questions().InsertDecision(record); err != nil {
 		return err
 	}
@@ -186,6 +192,11 @@ func insertDecision(tx ports.WriteTx, record questions.Decision, actor ledger.Ac
 	event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, actor)
 	if err != nil {
 		return err
+	}
+	if channel != "" {
+		if event.Data, err = withChannel(event.Data, channel); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Append(event); err != nil {
 		return err
@@ -270,4 +281,35 @@ func (q *Questions) AddCategory(ctx context.Context, scope ledger.WorkspaceID, n
 		_, err = tx.Append(event)
 		return err
 	})
+}
+
+// withChannel adds where a member's word came from to an event's record.
+func withChannel(data []byte, channel string) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(channel)
+	if err != nil {
+		return nil, err
+	}
+	fields["channel"] = raw
+	return json.Marshal(fields)
+}
+
+// DecisionChannel reads where a member's word on a decision came from, from its event, and nothing when it
+// recorded none.
+func DecisionChannel(events []ledger.Event) string {
+	for _, event := range events {
+		if event.Type != questions.EventDecisionRecorded {
+			continue
+		}
+		var fields struct {
+			Channel string `json:"channel"`
+		}
+		if json.Unmarshal(event.Data, &fields) == nil && fields.Channel != "" {
+			return fields.Channel
+		}
+	}
+	return ""
 }

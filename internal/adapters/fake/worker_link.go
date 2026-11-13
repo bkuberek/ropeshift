@@ -35,6 +35,16 @@ type WorkerLink struct {
 	FailUpload atomic.Bool
 }
 
+// AssistantCredential calls the plane.
+func (l *WorkerLink) AssistantCredential(ctx context.Context, request ledger.AssistantCredentialRequest) (ledger.AssistantGrant, error) {
+	return l.Plane.AssistantCredential(ctx, request)
+}
+
+// AssistantEntry calls the plane.
+func (l *WorkerLink) AssistantEntry(ctx context.Context, request ledger.AssistantEntryRequest) error {
+	return l.Plane.AssistantEntry(ctx, request)
+}
+
 // Register calls the plane.
 func (l *WorkerLink) Register(ctx context.Context, registration ledger.Registration) (ledger.WorkerCredential, error) {
 	return l.Plane.Register(ctx, registration)

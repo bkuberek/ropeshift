@@ -164,7 +164,7 @@ func TestAWorkerOnProtocolOneIsRefused(t *testing.T) {
 	if !errors.As(err, &refused) {
 		t.Fatalf("a worker on protocol 1: %v", err)
 	}
-	if refused.Worker != 1 || refused.Oldest != ledger.ProtocolVersion || refused.Newest != ledger.ProtocolVersion {
+	if refused.Worker != 1 || refused.Oldest != ledger.ProtocolOldest || refused.Newest != ledger.ProtocolVersion {
 		t.Errorf("refusal %+v", refused)
 	}
 	r.ready("pa", "wo")

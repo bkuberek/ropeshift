@@ -219,7 +219,7 @@
       "decided_at": 1790000124000,
       "policy_version": 1,
       "raised_at": 1790000064000,
-      "channel": "hook",
+      "channel": "cli",
       "plan_id": "generated-1",
       "plan_version": 5,
       "detail": "{\"title\":\"The factory floor\",\"ref\":\"factory\",\"counts\":{\"contract\":4,\"milestone\":3,\"requirements\":1,\"spec\":1},\"difference\":{\"added\":[\"contract:client\",\"contract:core\",\"contract:guide\",\"contract:ui\",\"milestone:build\",\"milestone:guide\",\"milestone:ship\",\"plan:factory\",\"requirements:factory\",\"spec:factory-api\"]},\"source\":\"plans/factory/plan.md@7\"}"

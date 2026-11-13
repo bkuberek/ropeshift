@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -221,7 +220,7 @@ func (c *invocation) agentSet(args []string) int {
 		if !found || field == "" {
 			return c.usageError("%q is not <field>=<value>", pair)
 		}
-		text, err := fileValue(field, value)
+		text, err := c.fileValue(field, value)
 		if err != nil {
 			return c.usageError("%v", err)
 		}
@@ -231,12 +230,12 @@ func (c *invocation) agentSet(args []string) int {
 }
 
 // fileValue reads `@<file>` for the fields that hold text, and takes every other value as it stands.
-func fileValue(field, value string) (string, error) {
+func (c *invocation) fileValue(field, value string) (string, error) {
 	path, isFile := strings.CutPrefix(value, "@")
 	if !isFile || !slices.Contains([]string{"purpose", "instructions", "report"}, field) {
 		return value, nil
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := c.readLocal(path)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", field, err)
 	}
@@ -256,7 +255,7 @@ func (c *invocation) agentAdd(args []string) int {
 	}
 	change := roster.Change{Op: roster.OpAdd, Agent: positional[0], From: *from}
 	if *file != "" {
-		definition, err := readAgentFile(*file)
+		definition, err := c.readAgentFile(*file)
 		if err != nil {
 			return c.usageError("%v", err)
 		}
@@ -285,8 +284,8 @@ type agentFile struct {
 	} `toml:"tools"`
 }
 
-func readAgentFile(path string) (roster.Agent, error) {
-	raw, err := os.ReadFile(path)
+func (c *invocation) readAgentFile(path string) (roster.Agent, error) {
+	raw, err := c.readLocal(path)
 	if err != nil {
 		return roster.Agent{}, err
 	}
@@ -445,7 +444,7 @@ func (c *invocation) agentGuide(args []string) int {
 		}{view.Roster.Guide, view.Roster.GuideSource}
 		return c.finish(err, guide, func() string { return guide.Guide + "\n\n(from " + guide.Source + ")\n" })
 	case positional[0] == "set" && len(positional) == 2:
-		text, err := fileValue("instructions", positional[1])
+		text, err := c.fileValue("instructions", positional[1])
 		if err != nil {
 			return c.usageError("%v", err)
 		}

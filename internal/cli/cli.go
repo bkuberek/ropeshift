@@ -9,6 +9,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -120,6 +122,14 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 		fmt.Fprintf(stderr, "%s: %s and %s are both set: a command acts as a member or as a delegate, so unset one\n", program, authority.EnvMemberToken, authority.EnvDelegateToken)
 		return ExitUsage
 	}
+	if opts.Delegate != "" && authority.NamesRedirectingFlag(rest) {
+		fmt.Fprintf(stderr, "%s %s: a delegate's command reaches only this installation's control plane, so it takes no --socket\n", program, found.Name)
+		return ExitForbidden
+	}
+	if opts.Delegate != "" && slices.Contains(authority.MachineLocalCommands, found.Name) {
+		fmt.Fprintf(stderr, "%s %s: a delegate acts only through the API, and this command acts on this machine: a member runs it\n", program, found.Name)
+		return ExitForbidden
+	}
 	base.name, base.command, base.inProject = found.Name, found.Command, !found.installation
 	code := found.run(base, rest)
 	if base.helped {
@@ -190,6 +200,18 @@ func (c *invocation) parse(set *flag.FlagSet, args []string) ([]string, bool) {
 		args = args[1:]
 	}
 }
+
+// readLocal reads a file on this machine that a command names. A delegate's command reads none, because a
+// delegate acts only through the API, and a file it named could lie past what its own reads may reach.
+func (c *invocation) readLocal(path string) ([]byte, error) {
+	if c.delegate != "" {
+		return nil, errDelegateReadsNoFile
+	}
+	return os.ReadFile(path)
+}
+
+// errDelegateReadsNoFile is why a delegate's command named a file in vain.
+var errDelegateReadsNoFile = errors.New("a delegate acts only through the API and reads no file on this machine: a member runs this with a file")
 
 func (c *invocation) usageError(format string, args ...any) int {
 	fmt.Fprintf(c.stderr, "ropeshift %s: "+format+"\n", append([]any{c.name}, args...)...)
@@ -277,7 +299,7 @@ func exitOf(refused *api.Error) int {
 	case api.CodeNotAcceptable, api.CodeLost, api.CodeIneligible, api.CodeNotLapsed, api.CodeIllegalMove, api.CodeUnpushedWork, api.CodeResolved,
 		api.CodeOverlap, api.CodeDecisionEnded, api.CodeNotHeld, api.CodeWrongRung, api.CodeAssumptionLimit, api.CodeWindowOpen, api.CodeStaleStatement,
 		api.CodeEffectDecided, api.CodeCannotRepeat, api.CodeRepositoryHeld, api.CodeRepositoryState, api.CodeProjectExists, api.CodeProjectState, api.CodeProjectArchived,
-		api.CodeAlreadyPlanned, api.CodeRosterConflict, api.CodeDelegateActive:
+		api.CodeAlreadyPlanned, api.CodeRosterConflict, api.CodeDelegateActive, api.CodeNoAssistantWorker, api.CodeTargetNotRunning:
 		return ExitConflict
 	case api.CodeInvalid, api.CodeNoProject:
 		return ExitUsage

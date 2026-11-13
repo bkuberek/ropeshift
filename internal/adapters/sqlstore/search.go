@@ -133,8 +133,8 @@ type projectPolicies struct {
 }
 
 func (t projectPolicies) Insert(p authority.PolicyVersion) (bool, error) {
-	if p.Kind == authority.PolicyAutonomy {
-		return false, fmt.Errorf("%w: the autonomy policy is the installation's", ports.ErrNotShared)
+	if installationPolicy(p.Kind) {
+		return false, fmt.Errorf("%w: the %s policy is the installation's", ports.ErrNotShared, p.Kind)
 	}
 	return t.policyTx.Insert(p)
 }

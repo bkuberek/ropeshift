@@ -77,6 +77,8 @@ type DelegateList struct {
 type SignedOutAll struct {
 	Sessions  int64    `json:"sessions"`
 	Delegates []string `json:"delegates"`
+	// Conversations are the member's running conversations with the assistant it stopped.
+	Conversations []string `json:"conversations"`
 }
 
 // OperationList is the class table.

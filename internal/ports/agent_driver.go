@@ -156,6 +156,15 @@ type SessionSpec struct {
 	// not edit a file with a tool, and it may not commit, push, or move a branch or a tag. A review lane's
 	// session is one.
 	ReadOnly bool
+	// Assistant says the session is a member's assistant (ADR-0024): it reads and searches its own files,
+	// uses its own tools, and runs a shell only for the `ropeshift` commands Commands names, and it is denied
+	// every other tool and command. Its driver reports the text it writes, as EventReply.
+	Assistant bool
+	// Commands are the commands of the ropeshift binary an assistant's shell may run, by name, such as
+	// `lane list`. Routes are the binary's first words that name no command, which the worker and an agent
+	// CLI start, such as `lane-shim`; an assistant's rules deny each by name.
+	Commands []string
+	Routes   []string
 	// Planning says the lane runs a `plan` work order, whose person answers its questions in the
 	// conversation. A driver leaves the agent's own question tool to an attached terminal for it.
 	Planning bool
@@ -304,6 +313,9 @@ const (
 	EventRetry EventKind = "retry"
 	// EventMalformed says a stream line did not parse.
 	EventMalformed EventKind = "malformed"
+	// EventReply carries the text of one message an assistant's session wrote, with the vendor's ID of
+	// that message. A message that holds only tool calls or thinking is none.
+	EventReply EventKind = "reply"
 	// EventSessionEnded is the last event of a session.
 	EventSessionEnded EventKind = "session_ended"
 )
@@ -361,6 +373,9 @@ type DriverEvent struct {
 	// Agent names the roster agent an EventAgentUsage counts toward, and Tokens what it spent.
 	Agent  string
 	Tokens *lanes.Usage
+	// Text and MessageID are an EventReply's.
+	Text      string
+	MessageID string
 	// Seq is this event's position in a session's stream. Zero means the driver keeps
 	// no stream that outlives its process.
 	Seq int64

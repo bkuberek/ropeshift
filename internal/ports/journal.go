@@ -49,6 +49,10 @@ type Journal interface {
 	// EndLane marks a lane ended, expires its token, and stores its last event in one
 	// transaction, so a lane ends once whatever a crash interrupts.
 	EndLane(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, error)
+	// ForgetLanes removes what the journal holds of lanes that ended for good: their records, the messages
+	// to them, and their hook events, restarts, allocations, and open requests, and stores an event, in one
+	// transaction. A lane it does not hold is no failure.
+	ForgetLanes(ctx context.Context, ids []string, event ledger.UploadEvent) (ledger.UploadEvent, error)
 	// Lane returns one lane, or ErrNotFound.
 	Lane(ctx context.Context, id string) (lanes.Record, error)
 	// LaneByToken returns the lane a token digest belongs to, or ErrNotFound. A token

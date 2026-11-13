@@ -35,7 +35,7 @@ An archived project answers every change with 409 `project_archived`, a backup e
 
 `POST /v1/projects/{project}/backup` copies one project's ledger, and `POST /v1/installation/backup` copies the installation database. Each takes `{"path": "..."}`, an absolute path on the daemon's machine where no file exists, and needs a member's session. `POST /v1/projects/{project}/backup/download` and `POST /v1/installation/backup/download` take `{}` and answer the same copy in the response, as `application/vnd.sqlite3` with a file name in `Content-Disposition`, for a browser that saves it as a download; nothing of it stays on the daemon's machine.
 
-`GET /v1/audit` reads the installation's log, and `GET /v1/projects/{project}/audit` a project's, newest first: each event with its revision, type, actor, subject, times, and its whole record. `actor` keeps one actor kind, `kind` the event types that start with its text, `subject` one subject kind, `limit` sets the page from 1 to 200 (50 by default), and `before` starts the page below a revision, which the answer's `next` names, zero when no older event is left. A filtered read looks at 5,000 events at most and answers `"scanned": true` with `next` where it stopped. `GET /v1/members` lists each member that holds a live session, with when each session began and ends, and how many members can sign in; no answer carries a session's token.
+`GET /v1/audit` reads the installation's log, and `GET /v1/projects/{project}/audit` a project's, newest first: each event with its revision, type, actor, subject, times, and its whole record. `actor` keeps one actor kind, `actor_id` one actor's ID, `kind` the event types that start with its text, `subject` one subject kind, `limit` sets the page from 1 to 200 (50 by default), and `before` starts the page below a revision, which the answer's `next` names, zero when no older event is left. A filtered read looks at 5,000 events at most and answers `"scanned": true` with `next` where it stopped. `GET /v1/members` lists each member that holds a live session, with when each session began and ends, and how many members can sign in; no answer carries a session's token.
 
 A change to a record every project shares, such as a member's sign-in, a worker's registration or autonomy, or an orchestrator, records its event in the installation's log, and no project's log holds it.
 
@@ -51,11 +51,11 @@ A member's session manages the member's own credentials, on the installation's r
 
 | Route | Body | Answer |
 |-------|------|--------|
-| `GET /v1/delegates` | | `{"as_of", "delegates": [...]}`: each credential's `id` (`dlg_<ulid>`), `label`, `project`, `kind` (`external`), `created_at`, `expires_at`, `last_used_at`, `revoked_at`, and `state` (`active`, `expired`, or `revoked`) |
+| `GET /v1/delegates` | | `{"as_of", "delegates": [...]}`: each credential the member made: its `id` (`dlg_<ulid>`), `label`, `project`, `kind` (`external`), `created_at`, `expires_at`, `last_used_at`, `revoked_at`, and `state` (`active`, `expired`, or `revoked`) |
 | `POST /v1/delegates` | `{"project": "...", "label": "...", "expires_in_ms": N}` | 201 with the credential and its `token`, the one time anyone sees it. `project` names an active project, `label` is 1 to 64 characters, and `expires_in_ms` is from one minute to thirty days |
 | `POST /v1/delegates/{id}/revoke` | `{}` | The credential, revoked |
 | `POST /v1/delegates/{id}/remove` | `{}` | 204, once the credential no longer acts, and 409 `delegate_active` while it does |
-| `POST /v1/sessions/end-all` | `{}` | `{"sessions", "delegates"}`: every session of the member ends and every credential of theirs that acts is revoked, in one transaction with one event |
+| `POST /v1/sessions/end-all` | `{}` | `{"sessions", "delegates", "conversations"}`: every session of the member ends and every credential of theirs that acts is revoked, in one transaction with one event, and then every running conversation of theirs with the assistant stops, in every active project |
 | `GET /v1/operations` | | The class table: each operation's `id`, `label`, `class` (`operational`, `consent`, or `member_only`), `exemptable`, and `never_reason` |
 
 The ledger keeps a credential's digest and never its token, and each change to one is an event in the installation's log with the member as its actor. A call that acts records the credential's last use when the one it holds is more than a minute old, as a `delegate.used` event.
@@ -97,7 +97,9 @@ Revoking a credential, or signing out of every session, voids the open cards it 
 | `void` | Its subject changed before a member confirmed it |
 | `expired` | Expired |
 
-The combined Needs you lists each pending card of every active project as an item of kind `confirm`, with a `card` that holds the approval, its parsed `detail`, and the preparing delegate's `label` and `member`.
+The combined Needs you lists each pending card of every active project as an item of kind `confirm`, with a `card` that holds the approval, its parsed `detail`, and the preparing delegate's `label` and `member`. A card the assistant prepared also holds `conversation`, the `id` and `name` of the conversation it came from; once that conversation is deleted, `name` is empty and `deleted` is true, and the card stays. `GET /v1/projects/{project}/approvals/{id}` answers the same `conversation` beside the approval's fields.
+
+A card the assistant prepared stays confirmable after its session stops, because its credential ends with each generation and that says nothing against what it prepared. Revoking that credential by its ID, or signing out of every session, voids its open cards as it voids any delegate's.
 
 A delegate policy is a versioned policy of kind `delegate`, published with `POST /v1/projects/{project}/policies` as a member, and listed with `GET /v1/projects/{project}/policies?kind=delegate`:
 
@@ -111,9 +113,75 @@ exempt = ["work_order.accept", "work_order.cancel"]
 
 An event's `actor_for` and `actor_label`, in the event stream and the audit, name the member a delegate acted for and its credential's label, or the credential's ID once its record was removed. Both are absent for every other actor, and `GET /v1/audit?actor=delegate` keeps a delegate's events.
 
+## Conversations
+
+A member talks to one target at a time: their assistant in a project, the orchestrator of a worker that serves the project, a planning session, or a lane ([authorization](authorization.md#delegation)). Every route here is a project's, under `/v1/projects/{project}/`, and needs a member's session; a delegate reads its member's conversations and changes none.
+
+| Route | Body | Answer |
+|-------|------|--------|
+| `GET /v1/conversations` | | `{"as_of", "conversations", "workers"}`: the member's conversations, newest activity first, and each registered worker with `available` and, when it is not, `reason` |
+| `POST /v1/conversations` | `{"id", "name", "worker"}` | 201 with `conversation` and `stopped`, the running conversation it stopped first. `id` is the client's, so a retry makes one; an ID another member's conversation holds, or a deleted conversation held, is refused with 400 `invalid` |
+| `GET /v1/conversations/{id}` | | One conversation |
+| `POST /v1/conversations/{id}/open` | `{"worker"}` | Starts its session, resuming what it had, with `stopped`, and sends nothing: it is the warm start a client makes on the member's first keystroke, so the session is up when the message goes |
+| `POST /v1/conversations/{id}/stop` | `{}` | Stops its session; the conversation stays |
+| `POST /v1/conversations/{id}/rename` | `{"name"}` | `name` is 1 to 80 characters |
+| `POST /v1/conversations/{id}/delete` | `{}` | 204: its session stops, and its entries, its messages, and its record go in one transaction. Each worker that ran it then removes what it holds of it: the messages to it and its runs' records in its journal, and the directory its sessions ran in. Its actions' events and its cards stay in the ledger. The agent CLI's own record of a session, where the CLI keeps one, is outside ropeshift's control and stays |
+| `POST /v1/conversations/{id}/compact` | `{}` | Asks its running session to compact its context with the runtime's own command, and adds a `compacted` marker |
+| `POST /v1/conversations/{id}/clear` | `{}` | Ends its running generation and starts the next with an empty context, on the same worker, adds a `cleared` marker, and marks every earlier entry `before_clear`, which no later first prompt holds |
+| `GET /v1/conversations/{id}/entries` | | A page of its entries |
+| `POST /v1/conversations/{id}/messages` | `{"id", "body", "worker"}` | 201 with `conversation`, `entry`, `message`, and `stopped`: the member's message to the assistant, which opens a stopped conversation first and is delivered once its session runs |
+| `GET /v1/conversation-targets` | | What the member can talk to now |
+| `GET /v1/lanes/{id}/stream` | | A page of a lane's stream |
+| `GET /v1/orchestrators/{worker}/stream` | | A page of a worker's orchestrator's stream in this project |
+
+A conversation holds `id`, `member_id`, `name`, `worker_id`, `worker_name`, `desired_state` (`running` or `stopped`), `actual_state`, `run_lane`, `current_generation`, `stopped_reason`, `created_at`, `last_active_at`, and `open_cards`, the cards it prepared that wait.
+
+| Actual state | Means |
+|--------------|-------|
+| `starting` | Its session was asked for, and its worker has not reported it running |
+| `running` | Its session waits for the member |
+| `working` | A turn is running |
+| `stopping` | Its session was asked to stop, and its worker has not reported it stopped |
+| `stopped` | It has no session |
+| `failed` | Its session could not start, which `stopped_reason` names |
+
+At most one of a member's conversations runs in a project: creating, opening, or messaging one stops the running one, with a `stopped` marker. A new conversation is called `New conversation` until the member's first message, which names it with its first 60 characters, cut at a word, unless the member named it. A conversation stops when it sits idle past the assistant policy's `idle_stop`, with an `idle_stopped` marker, and sooner, past its `warm_idle_stop`, while no member message has reached it since its session started or was cleared; closing a view or switching target stops nothing. Reading a conversation, its entries, the list, or the conversation targets starts no session: the history comes from the ledger. Another member's conversation answers 404 `not_found`.
+
+A start runs on a worker that is connected, holds a checkout of every active repository of the project, and runs headless sessions. A start that names a worker takes that one. With none named, it takes the conversation's last worker while it can, else the only one that can; with several that can it answers 400 `invalid` ("Choose a worker: atlas and basalt can run the assistant."), and with none it answers 409 `no_assistant_worker`, naming each worker's reason.
+
+These refusals are the conversation surface's own:
+
+| Status | Code | When |
+|--------|------|------|
+| 409 | `no_assistant_worker` | No worker can run the project's assistant |
+| 409 | `target_not_running` | A compaction or a clear of a conversation whose session is not running, or a message to an orchestrator that is not running |
+
+A conversation's entries, a lane's stream, and an orchestrator's stream share one entry: `id`, `at`, `kind` (`member`, `reply`, `event`, `action`, `card`, `request`, `question`, or `marker`), `from` (`kind`, `id`, `label`), `body`, `message` (a member's message, with its delivery state), `event` (with `actor_for` and `actor_label`), `action`, `approval` (the current approval of a `card` or a `request`), `question` (the current question, its batch, and the `channel` a member's answer came through), `marker`, `assent`, and `before_clear`. A page is `{"entries", "next", "as_of"}`: oldest first within the page, the newest page first. `before` takes a page's `next`, and `limit` is 1 to 500, 100 by default.
+
+- A conversation's entries hold the member's messages, the assistant's replies, the operations it ran as `action` entries, a `card` entry in place of each card it prepared, holding the card as it stands now, and its markers (`started`, `stopped`, `compacted`, `cleared`, `idle_stopped`). A member's message that reads as a yes while a card waits carries `"assent": true`, and is still only a message.
+- A lane's stream, for a headless lane or a planning session, holds the messages members and their delegates, the assistant among them, sent it, with their delivery state and the sender a `member` entry's `from` names, its replies, the events about the lane or its work order, its approval requests, and the questions it asked or is attached to.
+- An orchestrator's stream holds this project's events its orchestrator caused, the member's messages to it with its replies, and the recovery requests it raised.
+
+A request, a question, or a card resolved anywhere stays at its place in a stream, with its outcome.
+
+`GET /v1/conversation-targets` answers `assistant` (the member's newest conversation or null, the `workers`, `idle_stop_ms`, and `warm_idle_stop_ms`), `orchestrators` (each worker that holds a checkout of an active repository of the project, with its name, state, generation, and the projects it serves), `planning` (the lanes of planning and adopt work that have not ended), and `lanes` (every other lane that has not ended), each lane with its work order and title, worker, generation, run mode, and state.
+
+`POST /v1/projects/{project}/messages` takes `"to": {"kind": "orchestrator", "worker": "..."}` beside a lane's `"to": {"lane": "..."}`; exactly the field of its kind is set. A message to an orchestrator answers 409 `target_not_running` while that orchestrator is not running, and 400 `invalid` when its worker serves no repository of the project. It reaches the orchestrator as one item of its next wake, with its age, moves to `at_worker` when the worker takes it, `handed_off` when the wake reaches a turn, and `replied` when the orchestrator replies, and it expires on the message window like any other. A message to the assistant goes through its conversation, and `"kind": "assistant"` here answers 400 `invalid`. A message never decides anything: a card or a request stays open whatever a message says.
+
+`POST /v1/projects/{project}/approvals/{id}/decide` and `POST /v1/projects/{project}/questions/{id}/answer` take an optional `place`, `needs_you` or `conversation`. On the web listener, `"place": "conversation"` records the channel `conversation`; otherwise the channel is `web` or `cli`. A member's decision of an approval request records its channel as a card's does, and an answer records it in its decision's event.
+
+The assistant policy is a versioned policy of kind `assistant`, the installation's, published with `POST /v1/projects/{project}/policies` as a member and listed with `GET /v1/projects/{project}/policies?kind=assistant`. `idle_stop` is a duration from one minute to 24 hours, and the built-in version stops an idle session after 15 minutes. `warm_idle_stop`, from one minute to 24 hours and never longer than `idle_stop`, stops a session that no member message has reached since it started, such as one a warm start opened; it is 2 minutes when a version names none. Once a message reaches the session, `idle_stop` holds:
+
+```toml
+[assistant]
+version = 2
+idle_stop = "30m"
+warm_idle_stop = "2m"
+```
+
 ## Searching a project's records
 
-`GET /v1/projects/{project}/views/search` is the read model the web UI's command palette reads. It lists the project's work orders, lanes, plans, contracts, requirements, decisions, questions, planning documents, and repositories, each with its kind, ID, title, and state, and it changes nothing. `q` keeps the records whose ID or title holds every word, in any order and any case: an exact ID first, then an ID that begins with the words, then words that each begin a word of the title, then the rest. `category` names one kind. `limit` caps the list, 20 by default when `q` is set, and `more` says the cap cut it. With no `q`, every record is listed.
+`GET /v1/projects/{project}/views/search` is the read model the web UI's command palette reads. It lists the project's work orders, lanes, plans, contracts, requirements, decisions, questions, planning documents, and repositories, and the calling member's conversations by name as kind `conversation`, each with its kind, ID, title, and state, and it changes nothing. `q` keeps the records whose ID or title holds every word, in any order and any case: an exact ID first, then an ID that begins with the words, then words that each begin a word of the title, then the rest. `category` names one kind. `limit` caps the list, 20 by default when `q` is set, and `more` says the cap cut it. With no `q`, every record is listed.
 
 ## Reading a plan by version, and a planning session's outline
 
@@ -132,5 +200,7 @@ A worker claims work on its own route, `POST /v1/workers/{id}/claims`, with the 
 `GET /v1/workers/{id}/caps` reads a worker's lane caps: `max_lanes`, null where it follows the recommendation and 0 for no cap, `max_lanes_per_sign_in`, 0 for no cap, `effective_max_lanes`, the cap in force, and the `recommendation` the worker last reported, with the numbers behind it and its `reason`. `PUT /v1/workers/{id}/caps` takes `{"max_lanes": N, "max_lanes_per_sign_in": N}` and needs a member's session. A value is any number from 0, with no upper bound, and a `max_lanes` that is null or left out follows the recommendation. The caps live in the user's profile of the worker's machine, which the change edits in place, so the file and the API are one setting. The answer is the caps as they now stand, and carries a `warning`, with the `recommended` value and its `reason`, when `max_lanes` is above the recommendation; the value is saved all the same. A worker that does not run on the daemon's own machine answers 400 `invalid`, because its caps are in the user's profile on that machine. Setting them is member-only: a delegate's call answers 403 `member_only`.
 
 A heartbeat carries a `report` when the worker has measured since its last answered heartbeat: its machine, each session's process tree, the lane cap it recommends with the numbers behind it, the caps in force, and the warnings past its thresholds. The control plane keeps the last report on the worker's record, with no event, as `report` and `reported_at`, dated by its own clock less the report's `age_ms`. A report it cannot keep fails nothing else: the heartbeat still renews and fences the worker's leases, and its answer carries `report_error`, so the worker sends the report again. A report is the worker's word, so the control plane keeps at most 512 sessions, 64 warnings, and 64 volumes of it, each text cut at 1024 bytes, and its interval between a second and a day; a report still larger than 256 KiB is not kept. A measure the machine cannot provide is absent from the report, never zero. `GET /v1/workers` lists each worker with its last report, and `as_of`, the time of the read. Each worker of a project's `shop-floor` view carries the same, and `report_freshness` says whether the report is `observed`, from within three of its intervals or heartbeats, whichever is longer, or `last_reported`. A claim is held to the per-worker cap the last report states, so a change to the cap takes hold without a new session, and to the capacity the session opened with before the first report.
+
+Version 3 adds the assistant's sessions. Desired state's `assistants` lists each running conversation placed on the worker, with its project, conversation, member, run lane, the conversation's generation the run began at, the assistant policy's idle stop, whether it begins with an empty context, the compactions asked of it, and its messages. Each start names a run lane of its own, and the worker runs every start of a conversation in one directory of its own, so a start resumes the vendor's session where it last ran. A resume the vendor refuses starts a fresh generation whose first prompt holds the conversation's newest entries, and the refused session is not tried again. Desired state's `forget` lists each deleted conversation the worker ran, with its project, conversation, and run lanes and no text; once none of those runs goes on, the worker removes the messages to it and its runs' records from its journal and the conversation's directory, and uploads `assistant_forgotten` with the conversation, after which `forget` names it no more. The worker asks `POST /v1/workers/{id}/assistant-credentials`, with the project, conversation, run lane, and the run's generation, for each generation it starts, and the answer holds the credential's token once, with the project's facts and the conversation's newest 50 entries since its last clear for the session's first prompt. It records each reply with `POST /v1/workers/{id}/assistant-entries`, under the vendor message's ID, so a retry records it once. Uploads from an assistant's run carry no work order, and its run's states move its conversation. A worker on version 2 is served, and is told of no assistant.
 
 A worker that speaks version 1, which names no project and serves only the first project, is no longer served. Opening a session at version 1 answers 426 with the code `protocol`, and the message says the version is no longer served and the worker must be upgraded; the error also carries the worker's version and the oldest and newest the control plane accepts. A worker whose session was opened at version 1 before the control plane was upgraded is refused the same way on its next call, until it opens a session at version 2.

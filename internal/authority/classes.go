@@ -114,6 +114,14 @@ const (
 	OpEffectDecide                      = "effect.decide"
 	OpMessageSend                       = "message.send"
 	OpPaneInput                         = "pane.input"
+	OpConversationCreate                = "conversation.create"
+	OpConversationOpen                  = "conversation.open"
+	OpConversationStop                  = "conversation.stop"
+	OpConversationRename                = "conversation.rename"
+	OpConversationDelete                = "conversation.delete"
+	OpConversationCompact               = "conversation.compact"
+	OpConversationClear                 = "conversation.clear"
+	OpConversationMessage               = "conversation.message"
 )
 
 // The reasons a consent operation is never exempt.
@@ -182,7 +190,7 @@ var operations = append(onInstallation(
 	memberOnly(OpDelegateRemove, "Remove a delegate", ActionManageSessions),
 ),
 	never(OpRosterChange, "Change the agent roster", neverRoster, ActionChangeRoster),
-	operational(OpProjectBackup, "Back up the project"),
+	memberOnly(OpProjectBackup, "Back up the project", ActionBackupProject),
 	operational(OpWorkOrderCreate, "Create work"),
 	operational(OpWorkOrderReviewPlan, "Review planning work", ActionPassReview),
 	consent(OpWorkOrderReview, "Pass a review", ActionPassReview),
@@ -216,7 +224,7 @@ var operations = append(onInstallation(
 	never(OpPolicyPublish, "Publish a policy", neverPolicy, ActionPublishPolicy),
 	memberOnly(OpDelegatePolicyPublish, "Publish the delegate policy", ActionPublishPolicy),
 	never(OpCategoryAdd, "Add a category", neverPolicy, ActionAddCategory),
-	operational(OpRepositoryRegister, "Register a repository", ActionRegisterRepository),
+	consent(OpRepositoryRegister, "Register a repository", ActionRegisterRepository),
 	operational(OpRepositorySet, "Change a repository's settings", ActionSetRepository),
 	operational(OpRepositoryLowerMergeAuthority, "Lower merge authority", ActionSetRepository),
 	operational(OpRepositoryReviewTargetBranch, "Review on the branch", ActionSetRepository),
@@ -233,6 +241,14 @@ var operations = append(onInstallation(
 	consent(OpEffectDecide, "Decide an effect", ActionDecideEffect),
 	operational(OpMessageSend, "Send a message", ActionSendMessage),
 	consent(OpPaneInput, "Type into a pane"),
+	memberOnly(OpConversationCreate, "Start a conversation", ActionConverse),
+	memberOnly(OpConversationOpen, "Open a conversation", ActionConverse),
+	memberOnly(OpConversationStop, "Stop a conversation's session", ActionConverse),
+	memberOnly(OpConversationRename, "Rename a conversation", ActionConverse),
+	memberOnly(OpConversationDelete, "Delete a conversation", ActionConverse),
+	memberOnly(OpConversationCompact, "Compact a conversation's context", ActionConverse),
+	memberOnly(OpConversationClear, "Clear a conversation's context", ActionConverse),
+	memberOnly(OpConversationMessage, "Message the assistant", ActionConverse),
 )
 
 // Operations lists the class table in its order.

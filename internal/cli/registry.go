@@ -124,9 +124,24 @@ func registry() []section {
 			command("lane respawn", "<work-order>", "ask for a running lane's next generation", (*invocation).laneRespawn),
 			command("lane resume", "<work-order>", "give a parked lane a member's word", (*invocation).laneResume),
 			command("lane archive", "<lane> [--force]", "remove a lane's worktree, which keeps its branch", (*invocation).laneArchive),
-			command("message send", "<lane> --body B [--kind K] [--id I] [--reply-to R] [--generation G]", "send a lane a message, which grants nothing", (*invocation).messageSend),
+			command("message send", "(<lane> | --orchestrator W) --body B [--kind K] [--id I] [--reply-to R] [--generation G]", "send a lane or an orchestrator a message, which grants nothing", (*invocation).messageSend),
 			command("message show", "<id>", "say what became of a message", (*invocation).messageShow),
 			command("message list", "<lane>", "list what was sent to a lane", (*invocation).messageList),
+			command("orchestrator attach", "[--worker W]", "follow the stream of the orchestrator serving this project, and message it", (*invocation).orchestratorAttach),
+		}},
+		{"Conversations", []registered{
+			command("chat", "[--conversation ID | --new] [--name T] [--worker W]", "talk to your assistant in this project: each line is a message, and ending input stops its session", (*invocation).chat),
+			command("chat list", "", "list your conversations with the assistant, and the workers that could run one", (*invocation).chatList),
+			command("chat show", "<id> [--limit N]", "print a conversation's newest entries, oldest first", (*invocation).chatShow),
+			command("chat new", "[--name T] [--worker W]", "start a new conversation, which stops your running one", (*invocation).chatNew),
+			command("chat open", "<id> [--worker W]", "start a conversation's session, resuming what it had", (*invocation).chatOpen),
+			command("chat rename", "<id> <name>", "name a conversation", (*invocation).chatRename),
+			command("chat delete", "<id>", "remove a conversation and its messages; its actions and cards stay in the audit", (*invocation).chatDelete),
+			command("chat stop", "<id>", "stop a conversation's session, which keeps the conversation", chatChange((*api.ProjectClient).StopConversation)),
+			command("chat compact", "<id>", "compact a running conversation's context", chatChange((*api.ProjectClient).CompactConversation)),
+			command("chat clear", "<id>", "start a running conversation's next generation with an empty context", chatChange((*api.ProjectClient).ClearConversation)),
+			command("chat send", "<id> --body B [--worker W]", "send the assistant a message, which opens a stopped conversation", (*invocation).chatSend),
+			command("chat targets", "", "list what you can talk to in this project", (*invocation).chatTargets),
 		}},
 		{"Repositories", []registered{
 			command("repository add", "<path>... [--depth N] [--dry-run]", "register the git clones at or below paths on this machine in the project", (*invocation).repositoryAdd),
@@ -219,14 +234,15 @@ func find(args []string) (registered, []string, bool) {
 			byName[c.Name] = c
 		}
 	}
-	if len(args) > 0 {
-		if c, ok := byName[args[0]]; ok {
-			return c, args[1:], true
-		}
-	}
+	// Two words first, because `chat` is a command and the first word of others.
 	if len(args) > 1 {
 		if c, ok := byName[args[0]+" "+args[1]]; ok {
 			return c, args[2:], true
+		}
+	}
+	if len(args) > 0 {
+		if c, ok := byName[args[0]]; ok {
+			return c, args[1:], true
 		}
 	}
 	return registered{}, nil, false

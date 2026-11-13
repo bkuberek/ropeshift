@@ -20,6 +20,10 @@ type Config struct {
 	Linger time.Duration
 	// JournalCap bounds the journal on disk. Zero takes the default.
 	JournalCap int64
+	// EnvFile is a private file of environment entries for the child and not for the shim, each ended by
+	// a NUL byte, which the shim reads and removes before it starts. Env is what it held.
+	EnvFile string
+	Env     []string `json:"-"`
 }
 
 // DefaultLinger is how long a shim stays after its child ends, so a worker that is coming
@@ -70,6 +74,9 @@ func Args(config Config) []string {
 	}
 	if config.JournalCap != 0 {
 		args = append(args, "--journal-cap", strconv.FormatInt(config.JournalCap, 10))
+	}
+	if config.EnvFile != "" {
+		args = append(args, "--env-file", config.EnvFile)
 	}
 	return append(append(args, "--"), config.Command...)
 }

@@ -131,16 +131,17 @@ func (r bindingReads) digest(b Binding) (string, error) {
 	return "", fmt.Errorf("%w: binding %q", authority.ErrBadApproval, b.Mode)
 }
 
-// autonomyReads reads the autonomy policy in force from the installation, the one kind a project's
+// autonomyReads reads the autonomy or assistant policy in force from the installation, the kinds a project's
 // ledger does not hold, before a transaction that binds a card to it.
 func (a *Approvals) autonomyReads(ctx context.Context, scope ledger.WorkspaceID, b Binding) (func(authority.PolicyKind) (authority.PolicyVersion, error), error) {
-	if b.Mode != BindPolicy || authority.PolicyKind(b.ID) != authority.PolicyAutonomy {
+	kind := authority.PolicyKind(b.ID)
+	if b.Mode != BindPolicy || (kind != authority.PolicyAutonomy && kind != authority.PolicyAssistant) {
 		return nil, nil
 	}
 	var version authority.PolicyVersion
 	var found error
 	err := a.store.Installation(scope).Read(ctx, func(tx ports.SharedReadTx) error {
-		version, found = tx.Policies().InForce(authority.PolicyAutonomy)
+		version, found = tx.Policies().InForce(kind)
 		if errors.Is(found, ports.ErrNotFound) {
 			return nil
 		}
@@ -257,6 +258,12 @@ func requesterActs(members ports.MemberReader, card authority.Approval) (bool, e
 	record, err := members.Delegate(credential)
 	if errors.Is(err, ports.ErrNotFound) {
 		return false, nil
+	}
+	// An assistant's credential ends routinely with its generation or its session, which says nothing against
+	// what it prepared: a member confirms its card after the session stopped. A member's revocation, or their
+	// signing out of every session, ends what it prepared, as every delegate's.
+	if err == nil && record.Assistant() && record.EndedRoutinely() {
+		return true, nil
 	}
 	return err == nil && record.RevokedAt == 0, err
 }

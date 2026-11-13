@@ -188,3 +188,42 @@ func TestJournalClosesOnlyWhatWaits(t *testing.T) {
 		t.Errorf("closing moved a written message to %s", got.State)
 	}
 }
+
+// TestJournalForgetsALaneForGood removes what the journal holds of a lane, its record and the messages to
+// it, with an event, and leaves every other lane's as it was.
+func TestJournalForgetsALaneForGood(t *testing.T) {
+	t.Parallel()
+	j := openTestJournal(t)
+	ctx := t.Context()
+	other := heldMessage("m-2")
+	other.To.Lane = "lane-2"
+	for _, message := range []messages.Held{heldMessage("m-1"), other} {
+		if _, err := j.TakeMessage(ctx, message, eventOf(ledger.UploadMessage)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, lane := range []string{"lane-1", "lane-2"} {
+		if err := j.SaveLane(ctx, lanes.Record{ID: lane, State: lanes.StateEnded}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := pendingCount(t, j)
+	if _, err := j.ForgetLanes(ctx, []string{"lane-1", "lane-gone"}, eventOf(ledger.UploadAssistantForgotten)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Message(ctx, "m-1"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a forgotten lane's message: %v", err)
+	}
+	if _, err := j.Lane(ctx, "lane-1"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a forgotten lane's record: %v", err)
+	}
+	if _, err := j.Message(ctx, "m-2"); err != nil {
+		t.Errorf("another lane's message: %v", err)
+	}
+	if _, err := j.Lane(ctx, "lane-2"); err != nil {
+		t.Errorf("another lane's record: %v", err)
+	}
+	if got := pendingCount(t, j); got != before+1 {
+		t.Errorf("%d events after forgetting, from %d", got, before)
+	}
+}

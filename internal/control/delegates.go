@@ -140,11 +140,14 @@ func (d *Delegates) Revoke(ctx context.Context, scope ledger.WorkspaceID, id str
 		if credential, err = own(tx.Members(), id, actor); err != nil {
 			return err
 		}
-		revoked, err := tx.Members().RevokeDelegate(id, tx.Now())
+		revoked, err := tx.Members().RevokeDelegate(id, tx.Now(), authority.DelegateEndRevoked)
 		if err != nil || !revoked {
 			return err
 		}
-		credential.RevokedAt = tx.Now()
+		if credential.RevokedAt == 0 {
+			credential.RevokedAt = tx.Now()
+		}
+		credential.EndedReason = authority.DelegateEndRevoked
 		return appendDelegate(tx, EventDelegateRevoked, credential, actor)
 	})
 	return credential, err
@@ -230,13 +233,17 @@ func activeDelegate(members ports.MemberReader, token string, now int64) (author
 }
 
 // SignedOut is what signing out everywhere ended: how many sessions, and which credentials it revoked.
+// Ended adds the assistant credentials that had ended routinely, whose cards no longer stand either.
 type SignedOut struct {
 	Sessions  int64    `json:"sessions"`
 	Delegates []string `json:"delegates"`
+	Ended     []string `json:"-"`
 }
 
 // EndAll ends every session of the calling member and revokes every credential of theirs that still acts,
-// in one installation transaction with one event (FR-AUTH-10).
+// in one installation transaction with one event (FR-AUTH-10). An assistant credential that ended routinely,
+// with its generation or its session, now ends by the sign-out too, so no card any of the member's
+// assistants prepared stands after it, an earlier generation's or a deleted conversation's included.
 func (s *Sessions) EndAll(ctx context.Context, scope ledger.WorkspaceID, actor ledger.Actor) (SignedOut, error) {
 	if !authority.Allowed(actor, authority.ActionManageSessions) {
 		return SignedOut{}, workorders.ErrForbidden
@@ -253,16 +260,22 @@ func (s *Sessions) EndAll(ctx context.Context, scope ledger.WorkspaceID, actor l
 			return err
 		}
 		for _, credential := range credentials {
-			if credential.State(tx.Now()) != authority.DelegateActive {
+			active := credential.State(tx.Now()) == authority.DelegateActive
+			routine := credential.Assistant() && credential.EndedRoutinely()
+			if !active && !routine {
 				continue
 			}
-			revoked, err := tx.Members().RevokeDelegate(credential.ID, tx.Now())
+			revoked, err := tx.Members().RevokeDelegate(credential.ID, tx.Now(), authority.DelegateEndSignedOut)
 			if err != nil {
 				return err
 			}
-			if revoked {
+			if !revoked {
+				continue
+			}
+			if active {
 				ended.Delegates = append(ended.Delegates, credential.ID)
 			}
+			ended.Ended = append(ended.Ended, credential.ID)
 		}
 		data, err := json.Marshal(ended)
 		if err != nil {

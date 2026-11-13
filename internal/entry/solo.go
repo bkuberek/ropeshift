@@ -259,6 +259,8 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Checkouts: kept, ModelClasses: soloModelClasses(paths),
 		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
 	}
+	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
+	config.AssistantHosts = hosts.read
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpServer.Serve(listener) }()
@@ -284,7 +286,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 			fmt.Fprintf(stderr, "ropeshiftd: %s tick: %v\n", name, err)
 		})
 	}()
-	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, local, stderr)
+	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, hosts, local, stderr)
 	if err != nil {
 		return err
 	}
@@ -361,8 +363,8 @@ func startWeb(config server.Config, listener net.Listener, stdout, stderr io.Wri
 // start makes its own join token, because the person who started the daemon owns
 // the control plane.
 func startSoloWorker(
-	ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, local *soloWorker,
-	stderr io.Writer,
+	ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, hosts *soloHosts,
+	local *soloWorker, stderr io.Writer,
 ) (<-chan struct{}, error) {
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
 		return nil, err
@@ -398,6 +400,7 @@ func startSoloWorker(
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},
 	})
+	hosts.serve(subject)
 	local.worker.Store(subject)
 	socketDone := make(chan struct{})
 	go func() {
@@ -505,6 +508,7 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 	if err != nil {
 		return nil, nil, err
 	}
+	commands, named := assistantShell()
 	return &worker.LaneRuntime{
 		Driver: soloDriver(runner, terminal, env),
 		Provisioner: worker.Provisioner{
@@ -525,6 +529,8 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		// gh runs with the daemon's own environment, where the person's sign-in is (ADR-0020).
 		Forge:      ghcli.Forge{},
 		ForgeEvery: opts.forgeTick,
+		// What an assistant's shell may run of this binary, and what its rules deny by name (ADR-0024).
+		AssistantCommands: commands, Routes: named, ControlEnv: controlEnv(paths),
 	}, terminal, nil
 }
 
@@ -801,6 +807,11 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		}),
 		tick("messages", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
+			return err
+		}),
+		// An assistant's session idle past the assistant policy stops; closing a view stops nothing.
+		tick("conversations", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewConversations(store, windows).IdleStop(ctx, p.ID, tickActor("conversation-tick"))
 			return err
 		}),
 		// The checks a pull request's base requires are the check source: a worker reads them on the head, and

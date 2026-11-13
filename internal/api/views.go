@@ -169,6 +169,24 @@ type CardNeed struct {
 	Detail   authority.CardDetail `json:"detail"`
 	Label    string               `json:"label"`
 	Member   string               `json:"member"`
+	// Conversation is the conversation with the assistant that prepared the card, for one an assistant's
+	// credential prepared.
+	Conversation *CardConversation `json:"conversation,omitempty"`
+}
+
+// CardConversation names the conversation a card the assistant prepared came from. After the conversation
+// was deleted its name is empty and Deleted says so: the card stays in the ledger.
+type CardConversation struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Deleted bool   `json:"deleted,omitempty"`
+}
+
+// ApprovalDetail is one approval request as its own route answers it, with the conversation a card the
+// assistant prepared came from.
+type ApprovalDetail struct {
+	authority.Approval
+	Conversation *CardConversation `json:"conversation,omitempty"`
 }
 
 // NeedsYou is the default view: what a member can act on, the longest wait first (FR-UI-2). The combined
@@ -472,12 +490,14 @@ const (
 	SearchQuestion    = "question"
 	SearchDocument    = "document"
 	SearchRepository  = "repository"
+	// SearchConversation is one of the calling member's conversations with the assistant, by its name.
+	SearchConversation = "conversation"
 )
 
 // SearchKinds lists every kind the search finds, in order.
 var SearchKinds = []string{
 	SearchWorkOrder, SearchLane, SearchPlan, SearchContract, SearchRequirement, SearchDecision, SearchQuestion,
-	SearchDocument, SearchRepository,
+	SearchDocument, SearchRepository, SearchConversation,
 }
 
 // SearchLimit is how many records a search with words returns when it names no limit. A search with no

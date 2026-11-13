@@ -176,3 +176,126 @@ func TestTheHookDeniesAFileProgramThroughALink(t *testing.T) {
 		}
 	}
 }
+
+// The hook reads the path a search names, so a search outside a session's read roots is denied too.
+func TestTheHookDeniesASearchOutsideTheReadRoots(t *testing.T) {
+	dir := t.TempDir()
+	session := filepath.Join(dir, "session")
+	if err := os.Mkdir(session, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := filepath.Join(dir, "policy.json")
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{Worktree: session, ReadRoots: []string{session}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policy, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{event: eventPreToolUse, policy: policy}
+	for _, input := range []string{
+		`{"tool_name":"Grep","cwd":"` + session + `","tool_input":{"pattern":"token","path":"/home/x/.config"}}`,
+		`{"tool_name":"Glob","cwd":"` + session + `","tool_input":{"pattern":"*","path":"/state"}}`,
+		`{"tool_name":"Read","cwd":"` + session + `","tool_input":{"file_path":"/proc/1/environ"}}`,
+	} {
+		if verdict, answer := decide(cfg, []byte(input)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+			t.Errorf("%s: %v %s", input, verdict, answer)
+		}
+	}
+	if verdict, _ := decide(cfg, []byte(`{"tool_name":"Grep","cwd":"`+session+`","tool_input":{"pattern":"x"}}`)); verdict == callDenied {
+		t.Error("a search where the session stands was denied")
+	}
+}
+
+// The hook holds a session to its one program from the policy file, whatever its mode let through.
+func TestTheHookHoldsASessionToItsProgram(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "policy.json")
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{Worktree: "/run/a/session", Program: "ropeshift", Commands: []string{"lane list"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policy, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{event: eventPreToolUse, policy: policy}
+	for _, command := range []string{
+		`cat /etc/hosts`,
+		`ropeshift lane-shim --dir d --socket s -- /bin/sh -c id`,
+		`ropeshift hook PreToolUse <<EOF\n{}\nEOF`,
+	} {
+		input := `{"tool_name":"Bash","cwd":"/run/a/session","tool_input":{"command":"` + command + `"}}`
+		if verdict, answer := decide(cfg, []byte(input)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+			t.Errorf("%s: %v %s", command, verdict, answer)
+		}
+	}
+	if verdict, _ := decide(cfg, []byte(`{"tool_name":"Bash","cwd":"/run/a/session","tool_input":{"command":"ropeshift lane list"}}`)); verdict == callDenied {
+		t.Error("the session's program was denied")
+	}
+}
+
+// The hook reads where a path leads on the disk, so a link in a read-only tree that leads out of the read
+// roots is denied, and a Glob pattern that names a place outside them is too.
+func TestTheHookDeniesAReadThroughALinkOutOfTheReadRoots(t *testing.T) {
+	base := t.TempDir()
+	session, tree, outside := filepath.Join(base, "session"), filepath.Join(base, "tree"), filepath.Join(base, "outside")
+	for _, dir := range []string{session, tree, outside} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, file := range []string{filepath.Join(outside, "secret.txt"), filepath.Join(tree, "main.go")} {
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(tree, "notes.md")); err != nil {
+		t.Fatal(err)
+	}
+	policy := filepath.Join(base, "policy.json")
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{Worktree: session, ReadRoots: []string{session, tree}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policy, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{event: eventPreToolUse, policy: policy}
+	call := func(tool, input string) []byte {
+		return []byte(`{"tool_name":"` + tool + `","cwd":"` + session + `","tool_input":` + input + `}`)
+	}
+	for _, input := range [][]byte{
+		call("Read", `{"file_path":"`+filepath.Join(tree, "notes.md")+`"}`),
+		call("Glob", `{"path":"`+tree+`","pattern":"`+outside+`/*"}`),
+	} {
+		if verdict, answer := decide(cfg, input); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+			t.Errorf("%s: %v %s", input, verdict, answer)
+		}
+	}
+	if verdict, _ := decide(cfg, call("Read", `{"file_path":"`+filepath.Join(tree, "main.go")+`"}`)); verdict == callDenied {
+		t.Error("a file in the tree was denied")
+	}
+}
+
+// A session held to a list of tools is denied every other at the hook, its question tool included, which
+// is denied before it could be deferred.
+func TestTheHookDeniesAToolTheSessionDoesNotList(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "policy.json")
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{
+		Worktree: dir, QuestionTool: lanes.QuestionToolDefer, Tools: []string{"Read", "Bash", "mcp__ropeshift__context_get"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policy, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{event: eventPreToolUse, policy: policy}
+	for _, tool := range []string{lanes.ToolQuestion, "mcp__claude_ai_Gmail__send_message", "Monitor"} {
+		input := `{"tool_name":"` + tool + `","cwd":"` + dir + `","tool_input":{}}`
+		if verdict, answer := decide(cfg, []byte(input)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+			t.Errorf("%s: %v %s", tool, verdict, answer)
+		}
+	}
+}

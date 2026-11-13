@@ -144,6 +144,18 @@ func (c *Client) LaneFacts(ctx context.Context, worker string, in ledger.LaneFac
 	return out, err
 }
 
+// AssistantCredential makes the credential of one generation of an assistant's run this worker holds.
+func (c *Client) AssistantCredential(ctx context.Context, worker string, in ledger.AssistantCredentialRequest) (ledger.AssistantGrant, error) {
+	var out ledger.AssistantGrant
+	err := c.Do(ctx, http.MethodPost, workerPath(worker, "assistant-credentials"), in, &out)
+	return out, err
+}
+
+// AssistantEntry records a reply an assistant's run this worker holds wrote.
+func (c *Client) AssistantEntry(ctx context.Context, worker string, in ledger.AssistantEntryRequest) error {
+	return c.Do(ctx, http.MethodPost, workerPath(worker, "assistant-entries"), in, nil)
+}
+
 // LaneContext reads what a workspace holds, for a lane this worker holds.
 func (c *Client) LaneContext(ctx context.Context, worker string, in ledger.LaneContextRequest) (ledger.LaneContext, error) {
 	var out ledger.LaneContext

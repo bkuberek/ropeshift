@@ -27,6 +27,14 @@ const (
 type Messages struct {
 	store   ports.Store
 	windows messages.Windows
+	hosts   AssistantHosts
+}
+
+// Hosting reads which repositories of a project each worker holds a checkout of, which decides the
+// orchestrators that serve the project. Nil leaves none serving it.
+func (m *Messages) Hosting(hosts AssistantHosts) *Messages {
+	m.hosts = hosts
+	return m
 }
 
 // NewMessages returns the use cases over a Store. A kind the windows leave out takes the default.
@@ -40,8 +48,18 @@ func (m *Messages) Send(ctx context.Context, scope ledger.WorkspaceID, draft mes
 	if !authority.Allowed(actor, authority.ActionSendMessage) {
 		return messages.Message{}, workorders.ErrForbidden
 	}
+	if draft.To.Of() == messages.TargetAssistant {
+		return messages.Message{}, refuseWith(messages.ErrInvalid, "A message to the assistant goes through its conversation.")
+	}
 	if _, err := messages.New(draft, messages.Sender{}, 0, messages.DefaultWindow); err != nil {
 		return messages.Message{}, err
+	}
+	serving := false
+	if draft.To.Of() == messages.TargetOrchestrator {
+		var err error
+		if serving, err = m.serves(ctx, scope, draft.To.Worker); err != nil {
+			return messages.Message{}, err
+		}
 	}
 	var record messages.Message
 	err := m.store.Write(ctx, scope, opMessageSend, func(tx ports.WriteTx) error {
@@ -53,6 +71,10 @@ func (m *Messages) Send(ctx context.Context, scope ledger.WorkspaceID, draft mes
 		if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
+		if draft.To.Of() == messages.TargetOrchestrator {
+			record, err = sendToOrchestrator(tx, draft, serving, m.windows, actor)
+			return err
+		}
 		record, err = sendIn(tx, draft, m.windows, actor)
 		return err
 	})
@@ -60,6 +82,71 @@ func (m *Messages) Send(ctx context.Context, scope ledger.WorkspaceID, draft mes
 		return messages.Message{}, err
 	}
 	return record, nil
+}
+
+// serves says a worker holds a checkout of an active repository of the project, which is what makes its
+// orchestrator one the project's members talk to.
+func (m *Messages) serves(ctx context.Context, scope ledger.WorkspaceID, worker string) (bool, error) {
+	if m.hosts == nil {
+		return false, nil
+	}
+	hosts, err := m.hosts(ctx, scope)
+	if err != nil {
+		return false, err
+	}
+	var repositories []ledger.Repository
+	err = m.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		var err error
+		repositories, err = tx.Repositories().Repositories()
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, repository := range repositories {
+		if !repository.Removed() && hosts[worker].Checkouts[repository.ID] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// sendToOrchestrator records a member's message to the orchestrator of a worker that serves the project.
+// It reaches the orchestrator as an item of its next wake, and is refused while the orchestrator is not
+// running, because nothing would read it.
+func sendToOrchestrator(tx ports.WriteTx, draft messages.Draft, serving bool, windows messages.Windows, actor ledger.Actor) (messages.Message, error) {
+	worker, err := tx.Workers().Find(draft.To.Worker)
+	if errors.Is(err, ports.ErrNotFound) {
+		return messages.Message{}, refuseWith(messages.ErrInvalid, "No worker %s.", draft.To.Worker)
+	}
+	if err != nil {
+		return messages.Message{}, err
+	}
+	if !serving {
+		return messages.Message{}, refuseWith(messages.ErrInvalid, "%s serves no repository of this project.", worker.Name)
+	}
+	orchestrator, err := tx.Workers().Orchestrator(worker.ID)
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		return messages.Message{}, err
+	}
+	if err != nil || orchestrator.Desired != ledger.OrchestratorRunning || orchestrator.Tripped() {
+		return messages.Message{}, refuseWith(messages.ErrNotRunning, "The orchestrator on %s is not running. Start it from Workers.", worker.Name)
+	}
+	if draft.To.Generation == 0 {
+		draft.To.Generation = orchestrator.Generation
+	}
+	seq, err := tx.Messages().NextSeq(string(actor.Kind), actor.ID)
+	if err != nil {
+		return messages.Message{}, err
+	}
+	record, err := messages.New(draft, messages.Sender{Kind: string(actor.Kind), ID: actor.ID, Seq: seq}, tx.Now(), windows.For(draft.Kind))
+	if err != nil {
+		return messages.Message{}, err
+	}
+	if err := tx.Messages().Insert(record); err != nil {
+		return messages.Message{}, err
+	}
+	return record, appendMessage(tx, record, actor, noStamp)
 }
 
 // sendIn records a message in the transaction that caused it. A message for a generation that
@@ -255,15 +342,21 @@ func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	if !slices.Contains(workerReports, report.State) {
 		return fmt.Errorf("%w: a worker cannot report %q", workorders.ErrInvalid, report.State)
 	}
-	if err := ranLane(tx, worker, e); err != nil {
-		return err
-	}
 	row, err := tx.Messages().Message(report.ID)
-	if err != nil {
-		return err
-	}
-	if row.To.Lane != e.Lane && !readsAnyLane() {
-		return fmt.Errorf("%w: %v: %s of %s", workorders.ErrInvalid, messages.ErrForeign, report.ID, e.Lane)
+	if err == nil && row.To.Of() != messages.TargetLane {
+		if err := speaksFor(tx, worker, row, e); err != nil {
+			return err
+		}
+	} else {
+		if err := ranLane(tx, worker, e); err != nil {
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		if row.To.Lane != e.Lane && !readsAnyLane() {
+			return fmt.Errorf("%w: %v: %s of %s", workorders.ErrInvalid, messages.ErrForeign, report.ID, e.Lane)
+		}
 	}
 	if !messages.CanMove(row.State, report.State) {
 		return nil
@@ -272,6 +365,26 @@ func messageUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) er
 	stamp := func(draft *ledger.EventDraft) { draft.ID, draft.OccurredAt = id, e.OccurredAt }
 	_, err = moveMessage(tx, row, report.State, "", ledger.Actor{Kind: ledger.ActorWorker, ID: worker}, stamp)
 	return err
+}
+
+// speaksFor refuses a word on a message to an orchestrator from any worker but the one it runs on, and a
+// word on a message to the assistant from any run but its conversation's current one on this worker.
+func speaksFor(tx ports.WriteTx, worker string, row messages.Message, e ledger.UploadEvent) error {
+	switch row.To.Of() {
+	case messages.TargetOrchestrator:
+		if row.To.Worker == worker {
+			return nil
+		}
+	case messages.TargetAssistant:
+		record, err := tx.Conversations().Conversation(row.To.Conversation)
+		if err != nil {
+			return err
+		}
+		if record.Worker == worker && record.RunLane == e.Lane {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %v: %s", workorders.ErrInvalid, messages.ErrForeign, row.ID)
 }
 
 // carryMessages settles what a generation's first prompt stated, in the transaction that shows

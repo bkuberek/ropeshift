@@ -134,7 +134,7 @@
     {
       "id": "project.backup",
       "label": "Back up the project",
-      "class": "operational",
+      "class": "member_only",
       "exemptable": false
     },
     {
@@ -340,8 +340,8 @@
     {
       "id": "repository.register",
       "label": "Register a repository",
-      "class": "operational",
-      "exemptable": false
+      "class": "consent",
+      "exemptable": true
     },
     {
       "id": "repository.set",
@@ -423,6 +423,54 @@
       "label": "Type into a pane",
       "class": "consent",
       "exemptable": true
+    },
+    {
+      "id": "conversation.create",
+      "label": "Start a conversation",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "conversation.open",
+      "label": "Open a conversation",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "conversation.stop",
+      "label": "Stop a conversation's session",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "conversation.rename",
+      "label": "Rename a conversation",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "conversation.delete",
+      "label": "Delete a conversation",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "conversation.compact",
+      "label": "Compact a conversation's context",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "conversation.clear",
+      "label": "Clear a conversation's context",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
+      "id": "conversation.message",
+      "label": "Message the assistant",
+      "class": "member_only",
+      "exemptable": false
     }
   ]
 }

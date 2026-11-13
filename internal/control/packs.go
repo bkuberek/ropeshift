@@ -614,6 +614,13 @@ func (w *Workers) LaneContext(ctx context.Context, request ledger.LaneContextReq
 // fence, or this worker's own orchestrator, which has no work order to hold.
 func readsAsHolder(tx ports.ReadTx, request ledger.LaneContextRequest) error {
 	if request.WorkOrder == "" {
+		// An assistant's run reads its own project, while its conversation runs on this worker.
+		if record, err := tx.Conversations().ByRunLane(request.Lane); err == nil {
+			if record.Worker != request.Auth.WorkerID || !record.Running() {
+				return fmt.Errorf("%w: run %s is not this worker's", workorders.ErrInvalid, request.Lane)
+			}
+			return nil
+		}
 		row, err := tx.Workers().Orchestrator(request.Auth.WorkerID)
 		if errors.Is(err, ports.ErrNotFound) || (err == nil && !row.Belongs(request.Lane)) {
 			return fmt.Errorf("%w: %s is not this worker's orchestrator", workorders.ErrInvalid, request.Lane)

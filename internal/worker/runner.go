@@ -39,6 +39,14 @@ type LaneRuntime struct {
 	Spool  string
 	// Binary is the stable path generated settings name (D18).
 	Binary string
+	// AssistantCommands are the commands of Binary an assistant's shell may run, and Routes the first
+	// words of Binary that name no command, which its rules deny by name (ADR-0024).
+	AssistantCommands []string
+	Routes            []string
+	// ControlEnv is what an assistant's ropeshift reads to reach the control plane where it listens, such
+	// as the run directory of its socket. It comes from the daemon's own paths, and replaces whatever else
+	// the session's environment names for it.
+	ControlEnv []string
 	// Ports is the pool this worker hands out. Zero takes the default.
 	Ports lanes.PortPool
 	// StateDir holds generated settings, per lane.
@@ -170,6 +178,9 @@ type laneRun struct {
 	wake []ledger.WakeItem
 	// adopted says this run took over a session an earlier process left.
 	adopted atomic.Bool
+	// assisted is what an assistant's run holds beside the lane code's state, and the handle's lock guards
+	// its making.
+	assisted *assistantState
 }
 
 func newOnce() *sync.Once { return &sync.Once{} }
@@ -427,6 +438,9 @@ func (r *laneRun) record() lanes.Record {
 	if r.orchestrating() {
 		record.Owner = lanes.OwnerOrchestrator
 	}
+	if r.assisting() {
+		record.Owner = ownerAssistant
+	}
 	return record
 }
 
@@ -576,8 +590,16 @@ func (r *laneRun) failStart(reason string, err error) workorders.Report {
 // session provisions and runs the session, and returns the lane's outcome. The token
 // exists only in the session's environment, and the journal keeps its digest.
 func (r *laneRun) session(ctx context.Context) workorders.Report {
-	if r.orchestrating() && !r.awaitWake(ctx) {
+	if r.orchestrating() && !r.assisting() && !r.awaitWake(ctx) {
 		return failed(workorders.ReasonWorkerRestarted)
+	}
+	if r.assisting() {
+		if _, err := r.assistantGrant(ctx); err != nil {
+			return r.failStart(workorders.ReasonSpawnFailed, err)
+		}
+		if r.currentGeneration() == firstGeneration && r.resumeFrom == "" {
+			r.resumeFrom = r.resumable(ctx)
+		}
 	}
 	if err := r.w.awaitQualified(ctx, r.lease); err != nil {
 		return failed(workorders.ReasonWorkerRestarted)
@@ -621,6 +643,11 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	r.signal(ctx, lanes.OnResourcesReady)
 	r.setWorktreePath(prepared.Worktree.Path)
 	r.setReads(r.prepareReads(ctx, prepared.Worktree.Path))
+	if r.assisting() {
+		grant := r.assistant().grantNow()
+		prepared.Environment = assistantEnvironment(prepared.Environment, grant, r.w.projectName(ctx, r.lease.Project, grant), r.rt.ControlEnv)
+		r.setReads(r.assistantReads(ctx, prepared.Worktree.Path, grant.Context.Repositories))
+	}
 	if err := r.writeInventory(ctx, repository, prepared.Worktree.Path); err != nil {
 		return r.failStart(workorders.ReasonSpawnFailed, err)
 	}
@@ -710,6 +737,9 @@ func (r *laneRun) launch(ctx context.Context, spec ports.SessionSpec) (ports.Ses
 	}
 	resumed := spec
 	resumed.Brief = r.resumePrompt()
+	if r.assisting() {
+		resumed.Brief = r.briefAssistant(true)
+	}
 	if r.woken() != nil {
 		r.setInstruction(resumed.Brief)
 	}
@@ -738,8 +768,9 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 		mode = r.startedMode
 	}
 	// A version whose `-p` lost a subscription's login offers no headless lane, and ADR-0002 falls
-	// back to tmux. A session that goes on cannot change its mode, so only a fresh one moves.
-	if mode == ports.RunModeHeadless && r.resumeFrom == "" && !slices.Contains(capabilities.RunModes, mode) &&
+	// back to tmux. A session that goes on cannot change its mode, so only a fresh one moves, and an
+	// assistant never does: a pane's launch file would hold its credential.
+	if mode == ports.RunModeHeadless && r.resumeFrom == "" && !r.assisting() && !slices.Contains(capabilities.RunModes, mode) &&
 		slices.Contains(capabilities.RunModes, ports.RunModeInteractive) {
 		r.w.config.Report(fmt.Errorf("lane %s: version %s offers no headless lane on this sign-in, so it runs in tmux", r.lease.Lane, capabilities.Version))
 		mode = ports.RunModeInteractive
@@ -769,16 +800,18 @@ func (r *laneRun) spec(ctx context.Context, prepared PreparedLane, repository, p
 	r.state.noteCapabilities(capabilities)
 	spec := ports.SessionSpec{
 		Lane: r.lease.Lane, WorkOrder: r.lease.WorkOrder, Generation: r.currentGeneration(), Dir: prepared.Worktree.Path,
-		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: prepared.Profile.Agent.PermissionMode,
+		Contract: r.lease.Contract, ContractVersion: r.lease.ContractVersion, Repository: repository, Env: prepared.Environment, Model: r.model, PermissionMode: r.permissionMode(prepared.Profile),
 		Brief: r.briefText(), SystemPromptFile: packFile,
-		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating(),
+		ConfigDir: r.rt.configDir(r.lease.Lane), Binary: r.rt.Binary, Tools: r.tools(), OnlyTools: r.orchestrating() && !r.assisting(),
 		Credential: credential, TempDir: r.rt.tempDir(r.lease.Lane), Override: r.rt.Override,
-		RunMode: mode, Planning: r.planning(), ReadOnly: r.reviewing(), ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
+		RunMode: mode, Planning: r.planning(), ReadOnly: r.reviewing() || r.assisting(), Assistant: r.assisting(),
+		ReadyTimeout: readyTimeout(prepared.Profile), DefaultBranch: prepared.DefaultBranch,
 		Kept: r.kept(), ReadOnlyDirs: readDirs(r.readTrees()),
 		Gates: prepared.Profile.Agent.Gates, ApprovalWait: r.state.approvalWait(),
 		Telemetry: r.sessionTelemetry(prepared, repository),
 		Agents:    r.sessionAgents(prepared.Profile, capabilities.Support()), Effort: effort, Deny: deny,
 	}
+	r.assistantShell(&spec)
 	if spec.TempDir != "" {
 		if err := os.MkdirAll(spec.TempDir, 0o700); err != nil {
 			return ports.SessionSpec{}, err
@@ -802,6 +835,10 @@ var errNoInteractive = errors.New("a planning lane runs where a person can attac
 // sign-in say, because a person is present by construction (ADR-0018), and it never falls back to
 // headless. Every other lane takes what its profile and sign-in call for.
 func (r *laneRun) runMode(profile string, interactive bool) (string, error) {
+	if r.assisting() {
+		// An assistant's replies are read from its stream, which only a headless session writes.
+		return ports.RunModeHeadless, nil
+	}
 	if !r.planning() {
 		return runMode(profile, r.w.signInKind(), interactive)
 	}
@@ -859,7 +896,14 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 		switch event.Kind {
 		case ports.EventSessionBound:
 			r.bind(ctx, event)
+		case ports.EventReply:
+			if r.assisting() {
+				r.postReply(ctx, event)
+			}
 		case ports.EventTurnEnded:
+			if r.assisting() {
+				r.assistant().noteTurn()
+			}
 			r.cost, r.usage = event.Turn.Cost, r.usage.Add(event.Turn.Usage)
 			r.measureTurn(event.Turn)
 			r.finishTurn(event.Turn)
@@ -867,6 +911,7 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.afterTurn(ctx, event.Turn, clears)
 			r.saveProgress(ctx, event.Seq)
 		case ports.EventSessionEnded:
+			r.noteRefusedResume(ctx)
 			r.expireToken(ctx)
 			if event.End != nil && (event.End.Crashed || r.orchestratorLost(ctx)) {
 				r.crashed, r.crashedAt = true, r.w.clock.Now()
@@ -916,6 +961,9 @@ func (r *laneRun) bind(ctx context.Context, event ports.DriverEvent) {
 		return
 	}
 	r.bound = true
+	if r.assisting() {
+		r.rememberSession(ctx, event.SessionID)
+	}
 	if !r.bindSession(ctx, event.SessionID, event.ModelResolved) {
 		return
 	}

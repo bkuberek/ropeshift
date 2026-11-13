@@ -3,6 +3,8 @@ package server_test
 import (
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -217,4 +219,36 @@ func TestARepositoryRegisteredAgainComesBack(t *testing.T) {
 	if view, err := client.Repository(t.Context(), "api"); err != nil || view.Removed() || view.MergeMethod != ledger.MergeSquash {
 		t.Errorf("the record came back as %+v, %v", view, err)
 	}
+}
+
+// A delegate registers no clone from a path on this machine on its own word: its call becomes a card,
+// which registers nothing until a member confirms it. A backup writes a file at a path its caller names,
+// so a delegate makes none.
+func TestADelegatesRegistrationIsACardAndItsBackupIsRefused(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t)
+	in.Checkouts.Place(ports.Clone{Path: "/work/api", ID: "id-api", Remote: "https://example.invalid/acme/api.git", DefaultBranch: "main"})
+	_, _, client := in.In(t, apitest.ProjectName)
+	ctx := t.Context()
+	created := aDelegate(t, in.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, in.Socket, created.Token, apitest.ProjectName)
+	_, err := delegate.AddRepositories(ctx, api.RepositoryAdd{Paths: []string{"/work/api"}})
+	card := preparedCard(t, err)
+	if len(repositoriesOf(t, client)) != 0 {
+		t.Fatal("a delegate's call registered a repository")
+	}
+	if _, err := client.DecideApproval(ctx, card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if registered := repositoriesOf(t, client); len(registered) != 1 {
+		t.Fatalf("the confirmed card registered %+v", registered)
+	}
+	copied := filepath.Join(t.TempDir(), "copy.db")
+	_, err = delegate.Backup(ctx, api.BackupRequest{Path: copied})
+	refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
+	if _, err := os.Stat(copied); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a delegate's backup wrote %s: %v", copied, err)
+	}
+	err = delegate.Do(ctx, http.MethodPost, api.InProject(apitest.ProjectName, api.BackupDownloadPath), struct{}{}, nil)
+	refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
 }

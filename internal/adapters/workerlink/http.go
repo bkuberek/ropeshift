@@ -184,6 +184,17 @@ func (l *HTTP) Orchestrate(ctx context.Context, verb string, call ledger.Orchest
 	return reply, domainError(err)
 }
 
+// AssistantCredential makes the credential of one generation of an assistant's run.
+func (l *HTTP) AssistantCredential(ctx context.Context, request ledger.AssistantCredentialRequest) (ledger.AssistantGrant, error) {
+	grant, err := l.as(request.Auth).AssistantCredential(ctx, request.Auth.WorkerID, request)
+	return grant, domainError(err)
+}
+
+// AssistantEntry records a reply an assistant's run wrote.
+func (l *HTTP) AssistantEntry(ctx context.Context, request ledger.AssistantEntryRequest) error {
+	return domainError(l.as(request.Auth).AssistantEntry(ctx, request.Auth.WorkerID, request))
+}
+
 // WakeDigest reads what this worker's orchestrator could judge now.
 func (l *HTTP) WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error) {
 	digest, err := l.as(request.Auth).WakeDigest(ctx, request.Auth.WorkerID, request)

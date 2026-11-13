@@ -106,6 +106,10 @@ type Worker struct {
 	forgeFailed   map[string]time.Time
 	forgeRead     map[string]forgeReadSeen
 
+	// toOrchestrator is what this worker knows of the members' messages to its orchestrator, and mu guards
+	// its making.
+	toOrchestrator *orchestratorMessages
+
 	// resources is what this worker measures of its machine and its sessions, and the peaks of the lanes
 	// it ran.
 	resources resources

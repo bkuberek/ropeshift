@@ -359,6 +359,20 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			watched.Project = name
 			state.PullRequests = append(state.PullRequests, watched)
 		}
+		for _, assistant := range part.Assistants {
+			if record.Protocol != 0 && record.Protocol < ledger.ProtocolAssistants {
+				break
+			}
+			assistant.Project = name
+			state.Assistants = append(state.Assistants, assistant)
+		}
+		for _, forget := range part.Forget {
+			if record.Protocol != 0 && record.Protocol < ledger.ProtocolAssistants {
+				break
+			}
+			forget.Project = name
+			state.Forget = append(state.Forget, forget)
+		}
 	}
 	return state, nil
 }
@@ -654,6 +668,27 @@ func (p *Plane) labeled(verb string, project ledger.Project, reply ledger.Orches
 		return ledger.OrchestratorReply{Result: raw}, err
 	}
 	return reply, nil
+}
+
+// AssistantCredential makes a generation's credential in the project the run is in.
+func (p *Plane) AssistantCredential(ctx context.Context, request ledger.AssistantCredentialRequest) (ledger.AssistantGrant, error) {
+	w, project, err := p.route(ctx, request.Auth, request.Project, true)
+	if err != nil {
+		return ledger.AssistantGrant{}, err
+	}
+	grant, err := w.AssistantCredential(ctx, request)
+	// A command names a project as the registry does.
+	grant.Context.ProjectName = project.Name
+	return grant, err
+}
+
+// AssistantEntry records a reply in the project the run is in.
+func (p *Plane) AssistantEntry(ctx context.Context, request ledger.AssistantEntryRequest) error {
+	w, _, err := p.route(ctx, request.Auth, request.Project, true)
+	if err != nil {
+		return err
+	}
+	return w.AssistantEntry(ctx, request)
 }
 
 // List returns every registered worker of the installation.

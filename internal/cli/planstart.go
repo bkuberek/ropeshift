@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -111,7 +110,7 @@ func (c *invocation) readGoal(text, file string) (string, error) {
 		return "", errors.New("give --goal or --goal-file, not both")
 	}
 	if file != "" {
-		raw, err := os.ReadFile(file)
+		raw, err := c.readLocal(file)
 		if err != nil {
 			return "", err
 		}

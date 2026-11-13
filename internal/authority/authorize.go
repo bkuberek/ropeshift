@@ -130,9 +130,15 @@ const (
 	ActionManageSessions Action = "member.manage_sessions"
 	// ActionBackupInstallation copies the records every project shares, which only a member may take away.
 	ActionBackupInstallation Action = "installation.backup"
+	// ActionBackupProject copies a project's ledger, to a file its caller names on this machine or in the
+	// answer, which only a member may take away.
+	ActionBackupProject Action = "project.backup"
 	// ActionConfirmCard confirms or declines a confirmation card: the one thing a delegate's word never does
 	// (FR-AUTH-1).
 	ActionConfirmCard Action = "card.confirm"
+	// ActionConverse starts, stops, renames, deletes, compacts, clears, and writes in a member's own
+	// conversations with the assistant, which are the member's alone (ADR-0024).
+	ActionConverse Action = "conversation.converse"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -147,7 +153,7 @@ func Actions() []Action {
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
-		ActionSetLaneCaps,
+		ActionConverse, ActionBackupProject, ActionSetLaneCaps,
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api/shimlink"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -326,6 +327,12 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	if spec.ConfigDir == "" {
 		problem("no directory for generated settings")
 	}
+	if spec.Assistant && len(spec.Commands) == 0 {
+		problem("an assistant's session names no command its shell may run")
+	}
+	if spec.Assistant && spec.RunMode == ports.RunModeInteractive {
+		problem("an assistant's session never runs in a pane, whose launch file would hold its credential")
+	}
 	if info, err := os.Stat(spec.Dir); err != nil || !info.IsDir() {
 		problem("no worktree at %s", spec.Dir)
 	}
@@ -385,10 +392,25 @@ func packArgs(spec ports.SessionSpec) []string {
 	if spec.OnlyTools {
 		out = append(out, "--tools", "")
 	}
+	if spec.Assistant {
+		out = append(out, assistantArgs()...)
+	}
 	if spec.SystemPromptFile != "" {
 		out = append(out, "--append-system-prompt-file", spec.SystemPromptFile)
 	}
 	return append(out, agentArgs(spec)...)
+}
+
+// assistantArgs hold an assistant's session to what ropeshift gives it, whatever the person who signed the
+// CLI in has set up for themselves: its built-in tools alone, ropeshift's MCP server alone, which leaves out
+// the person's own servers and connectors, and no settings of the person's, so none of their plugins,
+// hooks, or permissions load. Its CLI keeps the person's home, where its sign-in lives, so a configuration
+// directory of its own, which would hold no sign-in, is not how it is held.
+func assistantArgs() []string {
+	return []string{
+		"--tools", strings.Join(assistantBuiltIns, ","), "--strict-mcp-config",
+		flagSettingSources, sourceProject + "," + sourceLocal,
+	}
 }
 
 // StartArgs is the command of a new session.
@@ -449,8 +471,17 @@ func (d *Driver) launch(ctx context.Context, spec ports.SessionSpec, arguments [
 		Dir: shimDir(spec), Socket: shimSocket(spec), Command: append([]string{binary}, arguments...),
 		Linger: d.linger, JournalCap: d.cap,
 	}
+	env, carried := carriedPast(sessionEnv(spec, UseOf(q)))
+	if len(carried) != 0 {
+		if config.EnvFile, err = writeCarried(spec, carried); err != nil {
+			_ = stderr.Close()
+			return ports.SessionHandle{}, err
+		}
+		// The shim removes it once it reads it, before it answers; this holds a start that failed first.
+		defer func() { _ = os.Remove(config.EnvFile) }()
+	}
 	process, err := d.runner.Start(ctx, ports.ProcessSpec{
-		Path: spec.Binary, Args: shimlink.Args(config), Dir: spec.Dir, Env: sessionEnv(spec, UseOf(q)),
+		Path: spec.Binary, Args: shimlink.Args(config), Dir: spec.Dir, Env: env,
 		Stderr: stderr, Detached: true, Outlive: true,
 	})
 	_ = stderr.Close()
@@ -548,7 +579,7 @@ func (d *Driver) follow(ctx context.Context, spec ports.SessionSpec, handle port
 func (d *Driver) newSession(spec ports.SessionSpec, handle ports.SessionHandle, client *shimlink.Client, meter lanes.CostMeter) *session {
 	return &session{
 		handle: handle, client: client, dir: shimDir(spec), socket: shimSocket(spec), grace: d.grace,
-		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter,
+		events: make(chan ports.DriverEvent, eventBuffer), done: make(chan struct{}), meter: meter, replies: spec.Assistant,
 	}
 }
 
@@ -601,6 +632,38 @@ func sessionHandleID(spec ports.SessionSpec) string {
 
 // sessionEnv adds the driver's own variables. An undocumented one goes only to a
 // version that passed its check.
+// carriedPast splits from a session's environment what the shim must not hold itself and passes to the
+// session: a delegate's credential, for which the binary refuses to start a shim, so no delegate can run
+// one to start a program of its own.
+func carriedPast(env []string) (own, carried []string) {
+	for _, entry := range env {
+		if strings.HasPrefix(entry, authority.EnvDelegateToken+"=") {
+			carried = append(carried, entry)
+			continue
+		}
+		own = append(own, entry)
+	}
+	return own, carried
+}
+
+// writeCarried leaves what a shim passes to its session in a file only the owner reads, each entry ended
+// by a NUL byte, beside the generation's generated files.
+func writeCarried(spec ports.SessionSpec, carried []string) (string, error) {
+	path := filepath.Join(spec.ConfigDir, fmt.Sprintf("carried-%d.env", spec.Generation))
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", err
+	}
+	_, err = file.WriteString(strings.Join(carried, "\x00") + "\x00")
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return path, err
+}
+
 func sessionEnv(spec ports.SessionSpec, use Use) []string {
 	env := append(withoutTelemetry(spec.Env), envSessionState, lanes.EnvPolicy+"="+policyPath(spec))
 	if spec.TempDir != "" && use.PrivateSockets {
@@ -744,6 +807,8 @@ type session struct {
 	// its stream has ended.
 	peerSocket string
 	over       bool
+	// replies says the session is an assistant's, whose text the stream reports.
+	replies bool
 	// use is what this session's version passed, read once at its launch, and receipts is where its
 	// receipts come back, when it has an address.
 	use      Use
@@ -838,7 +903,7 @@ func exitStatus(exit shimlink.Exit) ports.ExitStatus {
 }
 
 func (s *session) take(line []byte, seq int64) {
-	p, err := parseLine(line, s.use.WindowFigures)
+	p, err := parseLineOf(line, s.use.WindowFigures, s.replies)
 	if err != nil {
 		s.mu.Lock()
 		s.seen.Malformed++

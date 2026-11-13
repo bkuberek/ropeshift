@@ -364,7 +364,7 @@ func (h *handler) needs(tx ports.ReadTx, stamp api.Stamp) ([]api.NeedItem, error
 			}
 			items = append(items, api.NeedItem{Kind: api.NeedPlanApproval, ID: approvals[i].ID, Since: approvals[i].RaisedAt, PlanApproval: need})
 		case approvals[i].Kind == authority.KindConfirm:
-			need, err := cardNeed(tx.Members(), approvals[i])
+			need, err := cardNeed(tx.Members(), tx.Conversations(), approvals[i])
 			if err != nil {
 				return nil, err
 			}
@@ -1231,12 +1231,15 @@ func (h *handler) readOperations(tx ports.ReadTx, _ *http.Request, stamp api.Sta
 
 // cardNeed is what a member reads of a card: the operation it runs, and the delegate that prepared it by
 // its credential's label and the member it acts for. A credential whose record was removed reads as its ID.
-func cardNeed(members ports.MemberReader, card authority.Approval) (*api.CardNeed, error) {
+func cardNeed(members ports.MemberReader, threads ports.ConversationReader, card authority.Approval) (*api.CardNeed, error) {
 	detail, err := authority.CardDetailOf(card)
 	if err != nil {
 		return nil, err
 	}
 	need := &api.CardNeed{Approval: card, Detail: detail}
+	if need.Conversation, err = cardConversation(members, threads, card); err != nil {
+		return nil, err
+	}
 	kind, id, _ := strings.Cut(card.RequestedBy, ":")
 	member, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
 	if !ok {
@@ -1253,4 +1256,30 @@ func cardNeed(members ports.MemberReader, card authority.Approval) (*api.CardNee
 		need.Label = record.Label
 	}
 	return need, nil
+}
+
+// cardConversation names the conversation a card came from, when an assistant's credential prepared it,
+// and nothing for any other card. A conversation since deleted reads with no name, and so does one that is
+// not the credential's member's.
+func cardConversation(members ports.MemberReader, threads ports.ConversationReader, card authority.Approval) (*api.CardConversation, error) {
+	kind, id, _ := strings.Cut(card.RequestedBy, ":")
+	_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
+	if !ok {
+		return nil, nil
+	}
+	record, err := members.Delegate(credential)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil || !record.Assistant() {
+		return nil, err
+	}
+	thread, err := threads.Conversation(record.Conversation)
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && thread.Member != record.Member) {
+		return &api.CardConversation{ID: record.Conversation, Deleted: true}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &api.CardConversation{ID: thread.ID, Name: thread.Name}, nil
 }

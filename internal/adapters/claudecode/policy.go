@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -57,14 +58,61 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 			readOnly = append(readOnly, resolved)
 		}
 	}
-	return lanes.CompilePolicy(lanes.PolicySpec{
+	var readRoots []string
+	program := ""
+	if spec.Assistant {
+		readRoots, program = readRootsOf(spec), spec.Binary
+	}
+	policy := lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Kept: spec.Kept, Writable: writable,
 		ReadOnlyRoots: readOnly,
-		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly,
+		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
-		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec),
+		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec), ReadRoots: readRoots,
+		Program: program, Commands: commandsOf(spec), Tools: assistantCalls(spec), RefusedFlags: refusedFlagsOf(spec),
 	})
+	if spec.Assistant {
+		for _, tool := range assistantDenied {
+			policy.Deny = append(policy.Deny, lanes.DenyRule{Tool: tool, Reason: reasonNoWeb})
+		}
+	}
+	return policy
 }
+
+// assistantCalls are the only tools an assistant's session may call: its built-in tools and ropeshift's
+// context tools. Any other, a vendor tool, a tool of another MCP server, or one a later CLI adds, its hook
+// denies. Every other session calls what its rules allow.
+func assistantCalls(spec ports.SessionSpec) []string {
+	if !spec.Assistant {
+		return nil
+	}
+	calls := slices.Clone(assistantBuiltIns)
+	for _, tool := range spec.Tools {
+		calls = append(calls, toolRule(tool))
+	}
+	return calls
+}
+
+// refusedFlagsOf are the flags no command of an assistant's shell may take: those that would point it at
+// another listener, which would receive its credential.
+func refusedFlagsOf(spec ports.SessionSpec) []string {
+	if !spec.Assistant {
+		return nil
+	}
+	return slices.Clone(authority.RedirectingFlags)
+}
+
+// commandsOf are the commands an assistant's shell may run, and none for any other session, whose shell no
+// list holds.
+func commandsOf(spec ports.SessionSpec) []string {
+	if !spec.Assistant {
+		return nil
+	}
+	return slices.Clone(spec.Commands)
+}
+
+// reasonNoWeb is what an assistant's session is told when it reaches for the web.
+const reasonNoWeb = "ropeshift policy: the assistant does not use the web. Answer from the project's records and its read-only trees."
 
 // holdPolicy changes the one field a worker changes after a start. The file goes by a rename,
 // because a hook reads it with no lock, and a file it cannot read denies every tool.
@@ -134,8 +182,14 @@ func denyRules(spec ports.SessionSpec) []string {
 	for _, branch := range slices.Concat(defaultBranches(spec), spec.Kept) {
 		rules = append(rules, "Bash(git push * "+branch+")", "Bash(git push * *:"+branch+")", "Bash(git push * +"+branch+")")
 	}
-	if spec.ReadOnly {
+	if spec.ReadOnly || spec.Assistant {
 		rules = append(rules, readOnlyRules()...)
+	}
+	if spec.Assistant {
+		rules = append(rules, assistantDenied...)
+		for _, command := range append(slices.Clone(authority.MachineLocalCommands), spec.Routes...) {
+			rules = append(rules, "Bash("+lanes.CommandWord(spec.Binary)+" "+command+"*)")
+		}
 	}
 	for _, dir := range spec.ReadOnlyDirs {
 		rules = append(rules, "Edit(/"+dir+")", "Edit(/"+dir+"/**)")

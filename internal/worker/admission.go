@@ -46,7 +46,7 @@ func (w *Worker) runningLanes(ctx context.Context) (int64, error) {
 		}
 	}
 	for _, record := range records {
-		if _, held := w.running[record.ID]; !held && record.State == lanes.StateRunning && record.Owner != lanes.OwnerOrchestrator {
+		if _, held := w.running[record.ID]; !held && record.State == lanes.StateRunning && !leaseless(record.Owner) {
 			count++
 		}
 	}

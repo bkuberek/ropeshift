@@ -9,6 +9,8 @@ import (
 // rosterSession is the kind of session this lane is, as the roster reads it (ADR-0025).
 func (r *laneRun) rosterSession() roster.Session {
 	switch {
+	case r.assisting():
+		return roster.SessionAssistant
 	case r.orchestrating():
 		return roster.SessionOrchestrator
 	case r.reviewing():

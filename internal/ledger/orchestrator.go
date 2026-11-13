@@ -149,6 +149,8 @@ const (
 	// retries or replans work on its own (ADR-0014).
 	WakeFailed  = "failed_work"
 	WakeBlocked = "blocked_work"
+	// WakeMessage is a member's message to the orchestrator, which costs one wake like any item (FR-ORCH-7).
+	WakeMessage = "message"
 )
 
 // WakeItem is one thing to judge. Stamp says how it stands, so an item that changed counts again and

@@ -301,12 +301,19 @@ func TestAnOrchestratorsTokenReachesOnlyItsOwnTools(t *testing.T) {
 	for name, request := range map[string]lanes.Request{
 		"a report": {Report: &report},
 		"a wait":   {Wait: &lanes.WaitDeclaration{Minutes: 1}},
-		"a reply":  {Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}},
 		"an ask":   {Ask: &lanes.AskRequest{Text: "Why?"}},
+		// Its one exception is exactly a reply: a reply that carries a lane's request is still refused.
+		"a reply with a report": {Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}, Report: &report},
+		"a reply with a wait":   {Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}, Wait: &lanes.WaitDeclaration{Minutes: 1}},
+		"a reply with an ask":   {Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}, Ask: &lanes.AskRequest{Text: "Why?"}},
 	} {
 		if got := ask(request); got.OK || got.Code != lanes.CodeForbidden {
 			t.Errorf("%s: %+v", name, got)
 		}
+	}
+	// It answers only a member's message its wake held.
+	if got := ask(lanes.Request{Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}}); got.OK || got.Code != lanes.CodeInvalid {
+		t.Errorf("a reply to no message: %+v", got)
 	}
 	tools := strings.Join(spec.Tools, " ")
 	if !strings.Contains(tools, lanes.ToolApprovalDecide) || strings.Contains(tools, lanes.ToolLaneReport) {

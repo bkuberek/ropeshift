@@ -98,7 +98,7 @@ func routes(command string) []routeGroup {
 		},
 		{
 			Command: cli.Command{
-				Name: "lane-shim", Args: "--dir D --socket S [--linger D] [--journal-cap N] -- <command> [args]",
+				Name: "lane-shim", Args: "--dir D --socket S [--linger D] [--journal-cap N] [--env-file F] -- <command> [args]",
 				Summary: "hold a headless session's pipes in a process of its own",
 				Detail: "The worker starts this command for each headless session, so the session outlives the worker,\n" +
 					"and a person does not run it by hand. It journals every line, serves the journal on a private\n" +

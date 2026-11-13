@@ -97,9 +97,13 @@ func (h *handler) answerQuestion(w http.ResponseWriter, r *http.Request, actor l
 	if !decode(w, r, &in) {
 		return
 	}
-	record, err := h.questions.Answer(r.Context(), h.Scope, r.PathValue("id"), questions.Answer{
+	channel, ok := placed(w, r, in.Place)
+	if !ok {
+		return
+	}
+	record, err := h.questions.AnswerFrom(r.Context(), h.Scope, r.PathValue("id"), questions.Answer{
 		DecisionID: in.ID, Statement: in.Answer, Rationale: in.Rationale, Citations: in.Citations,
-	}, actor)
+	}, actor, channel)
 	if err != nil {
 		fail(w, err)
 		return

@@ -194,6 +194,8 @@ var sessionless = map[string]string{
 	"POST /v1/workers/{id}/rulings":                  "a worker's credential",
 	"POST /v1/workers/{id}/approvals/use":            "a worker's credential",
 	"POST /v1/workers/{id}/approvals/decide":         "a worker's credential, which reaches only what a member delegated",
+	"POST /v1/workers/{id}/assistant-credentials":    "a worker's credential, for an assistant's run it holds",
+	"POST /v1/workers/{id}/assistant-entries":        "a worker's credential, for an assistant's run it holds",
 	"POST /v1/workers/{id}/orchestrator/digest":      "a worker's credential, and it changes nothing",
 	"POST /v1/workers/{id}/orchestrator/acts/{verb}": "a worker's credential, and only for the orchestrator a member started",
 }

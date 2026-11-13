@@ -46,8 +46,10 @@ VALUES (:workspace_id, :digest, :member_id, :created_at, :expires_at)`)
 
 	stmtInsertDelegate = define("delegate.insert",
 		`INSERT INTO delegate_credentials
-  (workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at)
-VALUES (:workspace_id, :id, :digest, :member_id, :project_id, :label, :kind, :created_at, :expires_at, :last_used_at, :revoked_at)`)
+  (workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at, conversation_id, generation,
+   ended_reason)
+VALUES (:workspace_id, :id, :digest, :member_id, :project_id, :label, :kind, :created_at, :expires_at, :last_used_at, :revoked_at,
+  :conversation_id, :generation, :ended_reason)`)
 
 	stmtReadDelegate = define("delegate.read",
 		`SELECT `+delegateColumns+` FROM delegate_credentials WHERE workspace_id = :workspace_id AND id = :id`)
@@ -59,17 +61,29 @@ VALUES (:workspace_id, :id, :digest, :member_id, :project_id, :label, :kind, :cr
 		`SELECT `+delegateColumns+` FROM delegate_credentials WHERE workspace_id = :workspace_id AND member_id = :member_id
  ORDER BY created_at, id`)
 
+	stmtConversationDelegates = define("delegate.of_conversation",
+		`SELECT `+delegateColumns+` FROM delegate_credentials
+ WHERE workspace_id = :workspace_id AND project_id = :project_id AND member_id = :member_id AND conversation_id = :conversation_id
+ ORDER BY created_at, id`)
+
 	stmtTouchDelegate = define("delegate.touch",
 		`UPDATE delegate_credentials SET last_used_at = :at WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtRevokeDelegate = define("delegate.revoke",
-		`UPDATE delegate_credentials SET revoked_at = :at WHERE workspace_id = :workspace_id AND id = :id AND revoked_at IS NULL`)
+		`UPDATE delegate_credentials SET revoked_at = :at, ended_reason = :reason
+ WHERE workspace_id = :workspace_id AND id = :id AND revoked_at IS NULL`)
+
+	stmtRevokeDelegateExplicitly = define("delegate.revoke_explicit",
+		`UPDATE delegate_credentials SET revoked_at = COALESCE(revoked_at, :at), ended_reason = :reason
+ WHERE workspace_id = :workspace_id AND id = :id
+   AND (revoked_at IS NULL OR ended_reason IN ('`+authority.DelegateEndGeneration+`', '`+authority.DelegateEndStopped+`', '`+authority.DelegateEndIdle+`'))`)
 
 	stmtDropDelegate = define("delegate.drop",
 		`DELETE FROM delegate_credentials WHERE workspace_id = :workspace_id AND id = :id`)
 )
 
-const delegateColumns = `id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at`
+const delegateColumns = `id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at,
+       conversation_id, generation, ended_reason`
 
 // memberTx is the member area of one transaction.
 type memberTx struct {
@@ -166,9 +180,11 @@ func (t memberTx) DropMemberSessions(member string) (int64, error) {
 func scanDelegate(row scanner) (authority.DelegateCredential, error) {
 	var d authority.DelegateCredential
 	var project string
-	var lastUsed, revoked sql.NullInt64
-	err := row.Scan(&d.ID, &d.Digest, &d.Member, &project, &d.Label, &d.Kind, &d.CreatedAt, &d.ExpiresAt, &lastUsed, &revoked)
+	var lastUsed, revoked, generation sql.NullInt64
+	var conversation, ended sql.NullString
+	err := row.Scan(&d.ID, &d.Digest, &d.Member, &project, &d.Label, &d.Kind, &d.CreatedAt, &d.ExpiresAt, &lastUsed, &revoked, &conversation, &generation, &ended)
 	d.Project, d.LastUsedAt, d.RevokedAt = ledger.WorkspaceID(project), lastUsed.Int64, revoked.Int64
+	d.Conversation, d.Generation, d.EndedReason = conversation.String, generation.Int64, ended.String
 	return d, err
 }
 
@@ -193,7 +209,15 @@ func (t memberTx) DelegateByDigest(digest string) (authority.DelegateCredential,
 }
 
 func (t memberTx) Delegates(member string) ([]authority.DelegateCredential, error) {
-	rows, err := t.rows(stmtListDelegates, t.scoped(params{"member_id": member}))
+	return t.delegates(stmtListDelegates, params{"member_id": member})
+}
+
+func (t memberTx) ConversationDelegates(project ledger.WorkspaceID, member, conversation string) ([]authority.DelegateCredential, error) {
+	return t.delegates(stmtConversationDelegates, params{"project_id": string(project), "member_id": member, "conversation_id": conversation})
+}
+
+func (t memberTx) delegates(st *statement, p params) ([]authority.DelegateCredential, error) {
+	rows, err := t.rows(st, t.scoped(p))
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +237,7 @@ func (t memberTx) InsertDelegate(d authority.DelegateCredential) error {
 	_, err := t.exec(stmtInsertDelegate, t.scoped(params{
 		"id": d.ID, "digest": d.Digest, "member_id": d.Member, "project_id": string(d.Project), "label": d.Label, "kind": d.Kind,
 		"created_at": d.CreatedAt, "expires_at": d.ExpiresAt, "last_used_at": nullInt(d.LastUsedAt), "revoked_at": nullInt(d.RevokedAt),
+		"conversation_id": nullText(d.Conversation), "generation": nullGeneration(d), "ended_reason": nullText(d.EndedReason),
 	}))
 	return err
 }
@@ -222,12 +247,21 @@ func (t memberTx) TouchDelegate(id string, at int64) error {
 	return err
 }
 
-func (t memberTx) RevokeDelegate(id string, at int64) (bool, error) {
-	n, err := t.exec(stmtRevokeDelegate, t.scoped(params{"id": id, "at": at}))
+func (t memberTx) RevokeDelegate(id string, at int64, reason string) (bool, error) {
+	st := stmtRevokeDelegateExplicitly
+	if authority.RoutineEnd(reason) {
+		st = stmtRevokeDelegate
+	}
+	n, err := t.exec(st, t.scoped(params{"id": id, "at": at, "reason": reason}))
 	return n > 0, err
 }
 
 func (t memberTx) DropDelegate(id string) error {
 	_, err := t.exec(stmtDropDelegate, t.scoped(params{"id": id}))
 	return err
+}
+
+// nullGeneration is an assistant credential's generation, and nothing for an external one.
+func nullGeneration(d authority.DelegateCredential) sql.NullInt64 {
+	return sql.NullInt64{Int64: d.Generation, Valid: d.Kind == authority.DelegateAssistant}
 }

@@ -262,6 +262,21 @@ type DenyPolicy struct {
 	// ReadOnlyRoots are worktrees of other repositories a lane reads and never changes (ADR-0022): no git
 	// command that writes may run in one, and like everything outside Roots, no write may reach one.
 	ReadOnlyRoots []string `json:"read_only_roots,omitempty"`
+	// ReadRoots, when set, are the only directories a file tool may read: a read, a search, or a listing
+	// anywhere else is denied, whatever a rule allowed. None reads anywhere.
+	ReadRoots []string `json:"read_roots,omitempty"`
+	// Program, when set, is the one program a shell may run: alone, with no substitution, variable, or
+	// redirect to or from a file. Any other command is denied, whatever a rule or the session's mode allowed.
+	Program string `json:"program,omitempty"`
+	// Commands are the only commands of Program a shell may run, by name, such as `lane list`: a first
+	// word of the program that names no command, as a route another process starts does, is denied.
+	Commands []string `json:"commands,omitempty"`
+	// Tools, when set, are the only tools the session may call: any other is denied, a tool of another
+	// MCP server and one a later CLI adds included, whatever a rule allowed.
+	Tools []string `json:"tools,omitempty"`
+	// RefusedFlags are flags no command of Program may take, in any form, such as one that points it at
+	// another listener than the one it should reach.
+	RefusedFlags []string `json:"refused_flags,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
 	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A
@@ -281,6 +296,8 @@ type DenyPolicy struct {
 	Ground Grounding `json:"ground,omitzero"`
 	// links reads the disk for a file program's links (WithLinks). It is the reader's, not the file's.
 	links LinkReader
+	// real reads where a path leads on the disk (WithRealPaths). It is the reader's, not the file's.
+	real RealPathReader
 }
 
 // ToolQuestion is the vendor's tool that asks the terminal. A lane must not ask there,

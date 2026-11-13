@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"encoding/json"
+	"strings"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -55,13 +56,16 @@ type streamLine struct {
 	Message json.RawMessage `json:"message"`
 }
 
-// streamMessage is what the driver reads of an assistant message.
+// streamMessage is what the driver reads of an assistant message. Its text is read only for an assistant's
+// session, whose replies are the conversation.
 type streamMessage struct {
+	ID      string      `json:"id"`
 	Usage   lanes.Usage `json:"usage"`
 	Content []struct {
 		Type  string `json:"type"`
 		ID    string `json:"id"`
 		Name  string `json:"name"`
+		Text  string `json:"text"`
 		Input struct {
 			SubagentType string `json:"subagent_type"`
 		} `json:"input"`
@@ -123,6 +127,12 @@ type parsed struct {
 }
 
 func parseLine(raw []byte, windows bool) (parsed, error) {
+	return parseLineOf(raw, windows, false)
+}
+
+// parseLineOf reads one line, and the text of an assistant message when replies says the session's text
+// is what a person reads.
+func parseLineOf(raw []byte, windows, replies bool) (parsed, error) {
 	var line streamLine
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return parsed{}, err
@@ -140,6 +150,11 @@ func parseLine(raw []byte, windows bool) (parsed, error) {
 			return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventLimit, Detail: reading.Status, Usage: &reading}}, nil
 		}
 	case "assistant":
+		if replies {
+			if reply, ok := parseReply(line); ok {
+				return reply, nil
+			}
+		}
 		return parseAssistant(line), nil
 	case "user":
 		if line.IsReplay && line.UUID != "" {
@@ -193,6 +208,29 @@ func parseAssistant(line streamLine) parsed {
 		return parsed{}
 	}
 	return parsed{started: started}
+}
+
+// parseReply reads the text of one message of an assistant's session: its text blocks joined, under the
+// vendor message's ID. A message of a subagent, and one with only tool calls or thinking, holds no reply.
+func parseReply(line streamLine) (parsed, bool) {
+	var message streamMessage
+	if line.ParentToolUseID != nil || len(line.Message) == 0 || json.Unmarshal(line.Message, &message) != nil {
+		return parsed{}, false
+	}
+	var texts []string
+	for _, block := range message.Content {
+		if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+			texts = append(texts, block.Text)
+		}
+	}
+	id := message.ID
+	if id == "" {
+		id = line.UUID
+	}
+	if len(texts) == 0 || id == "" {
+		return parsed{}, false
+	}
+	return parsed{useful: true, event: ports.DriverEvent{Kind: ports.EventReply, Text: strings.Join(texts, "\n\n"), MessageID: id}}, true
 }
 
 // parseStreamEvent reads context from message_start, the one figure that is per API

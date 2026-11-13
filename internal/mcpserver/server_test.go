@@ -111,7 +111,8 @@ func TestToolsDependOnWhoTheTokenStandsFor(t *testing.T) {
 		want   []string
 	}{
 		{name: "a lane", want: lanes.Tools},
-		{name: "an orchestrator", worker: worker{owner: lanes.OwnerOrchestrator}, want: lanes.OrchestratorTools},
+		{name: "an orchestrator", worker: worker{owner: lanes.OwnerOrchestrator}, want: append(slices.Clone(lanes.OrchestratorTools), lanes.ToolReply)},
+		{name: "an assistant", worker: worker{owner: mcpserver.OwnerAssistant}, want: []string{"context_get", "decision_search", "requirement_get", "question_search"}},
 		{name: "a worker out of reach", worker: worker{owner: lanes.OwnerOrchestrator, down: true}, want: lanes.Tools},
 	}
 	for _, tt := range tests {
@@ -124,7 +125,8 @@ func TestToolsDependOnWhoTheTokenStandsFor(t *testing.T) {
 }
 
 // The numbers are the decision's (ADR-0014): more tools raise prompt cost and widen authority, so a
-// new one has to change this test. The Recovery group added four to the orchestrator's 14 (FR-ORCH-8).
+// new one has to change this test. The Recovery group added four to the orchestrator's 14 (FR-ORCH-8),
+// and `reply` answers a member's message to it (FR-ORCH-7).
 func TestEachCallerSeesExactlyItsTools(t *testing.T) {
 	lane := []string{"lane_report", "lane_wait", "ask", "lane_handoff", "reply", "context_get", "decision_search", "requirement_get", "question_search"}
 	orchestrator := []string{
@@ -132,10 +134,10 @@ func TestEachCallerSeesExactlyItsTools(t *testing.T) {
 		"work_candidates", "work_claim", "lane_start", "lane_stop",
 		"question_next", "question_attach", "decision_record", "question_escalate",
 		"lane_restart", "lane_reset", "work_retry", "work_replan",
-		"work_decline", "approval_decide",
+		"work_decline", "approval_decide", "reply",
 	}
-	if len(orchestrator) != 18 {
-		t.Fatalf("the decision names 18 orchestrator tools, and this lists %d", len(orchestrator))
+	if len(orchestrator) != 19 {
+		t.Fatalf("the decision names 19 orchestrator tools, and this lists %d", len(orchestrator))
 	}
 	if got := listed(t, &worker{}); !slices.Equal(got, lane) {
 		t.Errorf("a lane sees %d: %v", len(got), got)

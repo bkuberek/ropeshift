@@ -123,6 +123,26 @@ func WebRoutes() []WebRoute {
 		{http.MethodPost, "/v1/work-orders/{id}/lanes", "lane start"},
 	}
 	inProject = append(inProject, roster...)
+	// The conversation surface: the member's conversations with the assistant, what the member can talk
+	// to, a message to a lane or an orchestrator, and the streams of each.
+	talk := []WebRoute{
+		{http.MethodPost, "/v1/messages", "message send"},
+		{http.MethodGet, ConversationTargetsPath, "chat targets"},
+		{http.MethodGet, ConversationsPath, "chat list"},
+		{http.MethodPost, ConversationsPath, "chat new"},
+		{http.MethodGet, ConversationsPath + "/{id}", "chat show"},
+		{http.MethodGet, ConversationsPath + "/{id}/entries", "chat show"},
+		{http.MethodPost, ConversationsPath + "/{id}/open", "chat open"},
+		{http.MethodPost, ConversationsPath + "/{id}/stop", "chat stop"},
+		{http.MethodPost, ConversationsPath + "/{id}/rename", "chat rename"},
+		{http.MethodPost, ConversationsPath + "/{id}/delete", "chat delete"},
+		{http.MethodPost, ConversationsPath + "/{id}/compact", "chat compact"},
+		{http.MethodPost, ConversationsPath + "/{id}/clear", "chat clear"},
+		{http.MethodPost, ConversationsPath + "/{id}/messages", "chat send"},
+		{http.MethodGet, "/v1/lanes/{id}/stream", "lane attach"},
+		{http.MethodGet, "/v1/orchestrators/{worker}/stream", "orchestrator attach"},
+	}
+	inProject = append(inProject, talk...)
 	for _, name := range Views {
 		inProject = append(inProject, WebRoute{http.MethodGet, ViewPath(name), "view " + name})
 	}

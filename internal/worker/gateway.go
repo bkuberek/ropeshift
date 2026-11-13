@@ -70,6 +70,12 @@ func refused(code, message string) lanes.Reply {
 	return lanes.Reply{Code: code, Message: message}
 }
 
+// replyAlone says a request is exactly a reply, the one lane request an orchestrator's token makes: it
+// carries no report, wait, or ask beside it.
+func replyAlone(request lanes.Request) bool {
+	return request.Reply != nil && request.Report == nil && request.Wait == nil && request.Ask == nil
+}
+
 // AnswerLane answers one line of the worker socket. It checks the token first, so a
 // process that holds no token learns nothing. The token says which lane is calling, and
 // whatever the line claims about its lane or generation is ignored: the worker resolves
@@ -89,8 +95,16 @@ func (w *Worker) AnswerLane(ctx context.Context, line []byte) lanes.Reply {
 	if err != nil {
 		return refused(lanes.CodeUnavailable, err.Error())
 	}
-	if lane.Owner == lanes.OwnerOrchestrator && request.LaneOnly() {
+	if lane.Owner == lanes.OwnerOrchestrator && request.LaneOnly() && !replyAlone(request) {
 		return refused(lanes.CodeForbidden, "an orchestrator's token cannot do this")
+	}
+	if lane.Owner == ownerAssistant {
+		switch {
+		case request.LaneOnly(), request.Decide != nil, request.Work != nil, len(request.Handoff) != 0:
+			return refused(lanes.CodeForbidden, "an assistant's token cannot do this")
+		case request.Approval != nil:
+			return assistantApproval()
+		}
 	}
 	switch {
 	case request.Who:

@@ -16,6 +16,7 @@ import (
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
+	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -161,6 +162,14 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/effects/{id}/decide":                     fixed(authority.OpEffectDecide).about(ledger.SubjectEffect),
 	"POST /v1/messages":                                fixed(authority.OpMessageSend),
 	"POST " + api.PaneInputPath:                        fixed(authority.OpPaneInput).about(subjectLane),
+	"POST /v1/conversations":                           fixed(authority.OpConversationCreate),
+	"POST /v1/conversations/{id}/open":                 fixed(authority.OpConversationOpen),
+	"POST /v1/conversations/{id}/stop":                 fixed(authority.OpConversationStop),
+	"POST /v1/conversations/{id}/rename":               fixed(authority.OpConversationRename),
+	"POST /v1/conversations/{id}/delete":               fixed(authority.OpConversationDelete),
+	"POST /v1/conversations/{id}/compact":              fixed(authority.OpConversationCompact),
+	"POST /v1/conversations/{id}/clear":                fixed(authority.OpConversationClear),
+	"POST /v1/conversations/{id}/messages":             fixed(authority.OpConversationMessage),
 }
 
 var repositoryOperations = []string{
@@ -261,9 +270,15 @@ func (g *gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, fmt.Errorf("%w: %s is not a route of project %s", authority.ErrOutsideProject, r.URL.Path, credential.Project))
 		return
 	}
-	project, err := g.router.config.Projects.Named(r.Context(), projectNameOf(r))
+	project, served, err := g.router.project(r.Context(), projectNameOf(r))
 	if err != nil || project.ID != credential.Project {
 		fail(w, fmt.Errorf("%w: this credential acts in project %s", authority.ErrOutsideProject, credential.Project))
+		return
+	}
+	// An assistant's credential acts only while the generation it was made for runs, whatever a revocation
+	// that may have been lost left.
+	if err := control.AssistantActs(r.Context(), served.handler.Store, project.ID, credential); err != nil {
+		fail(w, err)
 		return
 	}
 	g.mux.ServeHTTP(w, r.WithContext(withDelegate(r.Context(), credential)))
@@ -290,6 +305,10 @@ func projectNameOf(r *http.Request) string {
 // nothing: everything that changes passes through here (D26).
 func (h *handler) member(next func(http.ResponseWriter, *http.Request, ledger.Actor)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if credential, ok := delegateOf(r.Context()); ok && credential.Assistant() {
+			h.assisted(w, r, credential, next)
+			return
+		}
 		actor, exempt, ok := h.admit(w, r)
 		if !ok {
 			return
@@ -306,6 +325,95 @@ func (h *handler) member(next func(http.ResponseWriter, *http.Request, ledger.Ac
 			_ = h.approvals.Exempted(r.Context(), h.Scope, exempt.subject, exempt.detail, exempt.version, actor)
 		}
 	}
+}
+
+// callKey carries what a call of the assistant's resolved to, for the entry it leaves in its conversation.
+type callKey struct{}
+
+// assistantCall is the operation an assistant's call resolved to, and the record it is about.
+type assistantCall struct {
+	op      authority.Operation
+	subject string
+}
+
+// callSubject names the record a call is about, as a card binds to it.
+func callSubject(h *handler, r *http.Request, body []byte, route routeOperation) string {
+	kind, id := route.kind, r.PathValue("id")
+	if route.subject != nil {
+		id = route.subject(h, r, body)
+	}
+	if kind == "" || id == "" {
+		return ""
+	}
+	return kind + ":" + id
+}
+
+// assisted runs a changing call of an assistant's credential as any delegate's, and records it in the
+// conversation the credential acts in: an action that ran, or the card it became. A refusal records
+// nothing. A start of a planning or adopt lane names the lane, so the conversation can follow it.
+func (h *handler) assisted(w http.ResponseWriter, r *http.Request, credential authority.DelegateCredential, next func(http.ResponseWriter, *http.Request, ledger.Actor)) {
+	call := &assistantCall{}
+	r = r.WithContext(context.WithValue(r.Context(), callKey{}, call))
+	recorder := &capturingWriter{ResponseWriter: w}
+	actor, exempt, ok := h.admit(recorder, r)
+	if ok {
+		next(recorder, r, actor)
+		if exempt != nil && recorder.status < http.StatusMultipleChoices {
+			_ = h.approvals.Exempted(r.Context(), h.Scope, exempt.subject, exempt.detail, exempt.version, actor)
+		}
+	}
+	if recorder.status >= http.StatusMultipleChoices || call.op.ID == "" {
+		return
+	}
+	action := conversations.ActionData{Operation: call.op.ID, Label: call.op.Label, Subject: call.subject, Outcome: conversations.OutcomeRan}
+	if recorder.status == http.StatusAccepted {
+		var prepared api.Prepared
+		if json.Unmarshal(recorder.body.Bytes(), &prepared) != nil || prepared.Card.ID == "" {
+			return
+		}
+		action.Outcome, action.Approval = conversations.OutcomeCard, prepared.Card.ID
+	}
+	if action.Outcome == conversations.OutcomeRan && call.op.ID == authority.OpLaneStart {
+		action.PlanningLane = h.planningLane(r, recorder.body.Bytes())
+	}
+	// The call already ran or became a card, so a failure to record it loses only its line in the
+	// conversation, and its events and its card stay.
+	_ = h.conversations.RecordAction(context.WithoutCancel(r.Context()), h.Scope, credential, action)
+}
+
+// planningLane names the lane a start made when its work order plans or adopts.
+func (h *handler) planningLane(r *http.Request, answer []byte) string {
+	var dispatched api.LaneDispatched
+	if json.Unmarshal(answer, &dispatched) != nil || dispatched.LaneID == "" {
+		return ""
+	}
+	order, err := h.workOrder(r.Context(), r.PathValue("id"))
+	if err != nil || order.Kind != workorders.KindPlan {
+		return ""
+	}
+	return dispatched.LaneID
+}
+
+// capturingWriter keeps the status and the body a handler answered with, as it passes them on.
+type capturingWriter struct {
+	http.ResponseWriter
+	status int
+	body   bytes.Buffer
+}
+
+func (c *capturingWriter) WriteHeader(status int) {
+	if c.status == 0 {
+		c.status = status
+	}
+	c.ResponseWriter.WriteHeader(status)
+}
+
+func (c *capturingWriter) Write(raw []byte) (int, error) {
+	if c.status == 0 {
+		c.status = http.StatusOK
+	}
+	c.body.Write(raw)
+	return c.ResponseWriter.Write(raw)
 }
 
 // exemption is a consent operation a delegate runs with no card, and the version that exempted it.
@@ -400,6 +508,9 @@ func (h *handler) delegated(w http.ResponseWriter, r *http.Request, credential a
 		}
 	}
 	ops := operationsOf(ids)
+	if call, ok := r.Context().Value(callKey{}).(*assistantCall); ok {
+		call.op, call.subject = strictestOf(ops), callSubject(h, r, body, route)
+	}
 	switch authority.Strictest(ops) {
 	case authority.ClassMemberOnly:
 		fail(w, fmt.Errorf("%w: %s", authority.ErrMemberOnly, strictestOf(ops).Label))
@@ -888,6 +999,7 @@ func policyKindOfBody(body string) authority.PolicyKind {
 	}{
 		{delegatePolicyTable, authority.PolicyDelegate}, {notifyTable, authority.PolicyNotify}, {autonomyTable, authority.PolicyAutonomy},
 		{delegationTable, authority.PolicyDelegation}, {recoveryPolicyTable, authority.PolicyRecovery}, {lanePolicyTable, authority.PolicyLane},
+		{assistantTable, authority.PolicyAssistant},
 	} {
 		if holdsTable(body, kind.table) {
 			return kind.kind
@@ -1041,6 +1153,8 @@ func (h *handler) versionsOf(ctx context.Context, kind authority.PolicyKind) ([]
 		return h.recoveries.RecoveryPolicyVersions(ctx, h.Scope)
 	case authority.PolicyDelegate:
 		return h.approvals.DelegatePolicyVersions(ctx, h.Scope)
+	case authority.PolicyAssistant:
+		return h.conversations.AssistantVersions(ctx, h.Scope)
 	}
 	return h.questions.PolicyVersions(ctx, h.Scope)
 }

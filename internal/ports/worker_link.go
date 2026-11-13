@@ -43,4 +43,9 @@ type WorkerLink interface {
 	WakeDigest(ctx context.Context, request ledger.WakeRequest) (ledger.WakeDigest, error)
 	// Orchestrate carries one act of this worker's orchestrator.
 	Orchestrate(ctx context.Context, verb string, call ledger.OrchestratorCall) (ledger.OrchestratorReply, error)
+	// AssistantCredential makes the credential of one generation of an assistant's run this worker holds,
+	// with what the session's first prompt reads.
+	AssistantCredential(ctx context.Context, request ledger.AssistantCredentialRequest) (ledger.AssistantGrant, error)
+	// AssistantEntry records a reply an assistant's run this worker holds wrote, once.
+	AssistantEntry(ctx context.Context, request ledger.AssistantEntryRequest) error
 }

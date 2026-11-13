@@ -53,6 +53,9 @@ type DriverStep struct {
 	Crash bool
 	// Compaction reports the boundary of a compaction that ran.
 	Compaction bool
+	// Reply reports a message an assistant's session wrote, under ReplyID.
+	Reply   string
+	ReplyID string
 }
 
 // DriverScript is one session. Each turn answers one input, and the brief is the
@@ -615,6 +618,8 @@ func (s *driverSession) playTurn(steps []DriverStep) (ports.SessionEnd, bool) {
 			s.events <- ports.DriverEvent{Kind: ports.EventRetry, Detail: step.Retry, Attempt: step.Attempt}
 		case step.Compaction:
 			s.events <- ports.DriverEvent{Kind: ports.EventCompaction, Detail: "manual"}
+		case step.Reply != "":
+			s.events <- ports.DriverEvent{Kind: ports.EventReply, Text: step.Reply, MessageID: step.ReplyID}
 		case step.Turn != nil:
 			result := ports.TurnResult{Status: step.Turn.Status, Reason: step.Turn.Reason, Usage: step.Turn.Usage, Compaction: step.Turn.Compaction, Deferred: step.Turn.Deferred}
 			result.CostUSD = s.meter.ObserveTurn(step.Turn.TotalUSD)

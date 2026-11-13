@@ -332,3 +332,70 @@ func TestReplayKeepsTheLastWord(t *testing.T) {
 		t.Error("a broken event replayed")
 	}
 }
+
+// A target names exactly one recipient, the one of its kind, so a draft that names two, or names the
+// wrong one for its kind, is refused before anything is recorded.
+func TestATargetNamesTheFieldOfItsKind(t *testing.T) {
+	valid := []messages.Target{
+		{Lane: "L-1"},
+		{Kind: messages.TargetLane, Lane: "L-1"},
+		{Kind: messages.TargetOrchestrator, Worker: "w-1"},
+		{Kind: messages.TargetAssistant, Conversation: "c-1"},
+	}
+	for _, to := range valid {
+		draft := messages.Draft{ID: "m1", To: to, Kind: messages.KindInstruction, Body: "Look."}
+		if _, err := messages.New(draft, messages.Sender{}, 0, messages.DefaultWindow); err != nil {
+			t.Errorf("%+v: %v", to, err)
+		}
+	}
+	invalid := []messages.Target{
+		{},
+		{Lane: "L-1", Worker: "w-1"},
+		{Kind: messages.TargetOrchestrator, Lane: "L-1"},
+		{Kind: messages.TargetOrchestrator, Worker: "w-1", Conversation: "c-1"},
+		{Kind: messages.TargetAssistant, Worker: "w-1"},
+		{Kind: messages.TargetAssistant},
+		{Kind: "peer", Lane: "L-1"},
+	}
+	for _, to := range invalid {
+		draft := messages.Draft{ID: "m1", To: to, Kind: messages.KindInstruction, Body: "Look."}
+		if _, err := messages.New(draft, messages.Sender{}, 0, messages.DefaultWindow); !errors.Is(err, messages.ErrInvalid) {
+			t.Errorf("%+v: %v", to, err)
+		}
+	}
+	if got := (messages.Target{Kind: messages.TargetOrchestrator, Worker: "w-1"}).ID(); got != "w-1" {
+		t.Errorf("an orchestrator target's ID is %q", got)
+	}
+	if got := (messages.Target{Lane: "L-1"}).Of(); got != messages.TargetLane {
+		t.Errorf("an empty kind reads as %q", got)
+	}
+}
+
+// What a member writes to the assistant lives only in the messages table, which deleting the
+// conversation clears, so no event holds its body or its reply.
+func TestAnAssistantMessagesEventHoldsNoBody(t *testing.T) {
+	m := messages.Message{
+		ID: "m1", To: messages.Target{Kind: messages.TargetAssistant, Conversation: "c-1"}, Kind: messages.KindInstruction,
+		Body: "the secret plan", Reply: "the secret answer", State: messages.Queued,
+	}
+	event, err := messages.RecordEvent(m, ledger.Actor{Kind: ledger.ActorMember, ID: "m1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(event.Data), "secret") {
+		t.Fatalf("the event holds %s", event.Data)
+	}
+	lane := m
+	lane.To = messages.Target{Lane: "L-1"}
+	event, err = messages.RecordEvent(lane, ledger.Actor{Kind: ledger.ActorMember, ID: "m1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(event.Data), "the secret plan") {
+		t.Fatalf("a lane message's event lost its body: %s", event.Data)
+	}
+	book, err := messages.Replay([]ledger.Event{{Rev: 1, Type: messages.EventChanged, Data: event.Data}})
+	if err != nil || book["m1"].Body != "the secret plan" {
+		t.Fatalf("replay: %+v, %v", book, err)
+	}
+}

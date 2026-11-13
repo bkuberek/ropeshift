@@ -112,6 +112,28 @@ func readDelegation(body string) (authority.DelegationDraft, error) {
 	return authority.DelegationDraft{Body: body, Policy: file.DelegationPolicy}, nil
 }
 
+// assistantTable names the table of the assistant policy.
+const assistantTable = "assistant"
+
+// readAssistantPolicy reads an assistant policy as a member wrote it. Both of its settings are stated,
+// because an idle stop left out would read as no stop at all.
+func readAssistantPolicy(body string) (authority.AssistantDraft, error) {
+	var file authority.AssistantPolicyFile
+	meta, err := toml.Decode(body, &file)
+	if err != nil {
+		return authority.AssistantDraft{}, fmt.Errorf("%w: %v", authority.ErrInvalid, err)
+	}
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		return authority.AssistantDraft{}, fmt.Errorf("%w: unknown setting %s", authority.ErrInvalid, unknown[0])
+	}
+	for _, key := range []string{"version", "idle_stop"} {
+		if !meta.IsDefined(assistantTable, key) {
+			return authority.AssistantDraft{}, fmt.Errorf("%w: an assistant policy states %s", authority.ErrInvalid, key)
+		}
+	}
+	return authority.AssistantDraft{Body: body, Policy: file.Assistant}, nil
+}
+
 func holdsTable(body, table string) bool {
 	var tables map[string]any
 	if _, err := toml.Decode(body, &tables); err != nil {
@@ -160,6 +182,19 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 			return
 		}
 		if record, err = h.autonomy.PublishAutonomyPolicy(r.Context(), h.Scope, draft, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, http.StatusCreated, record)
+		return
+	}
+	if holdsTable(in.Body, assistantTable) {
+		draft, err := readAssistantPolicy(in.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record, err = h.conversations.PublishAssistantPolicy(r.Context(), h.Scope, draft, actor); err != nil {
 			fail(w, err)
 			return
 		}
@@ -232,6 +267,9 @@ func (h *handler) policyVersions(r *http.Request) ([]authority.PolicyVersion, er
 	}
 	if r.URL.Query().Get("kind") == string(authority.PolicyDelegation) {
 		return h.approvals.DelegationVersions(r.Context(), h.Scope)
+	}
+	if r.URL.Query().Get("kind") == string(authority.PolicyAssistant) {
+		return h.conversations.AssistantVersions(r.Context(), h.Scope)
 	}
 	if r.URL.Query().Get("kind") == string(authority.PolicyLane) {
 		return h.questions.LanePolicyVersions(r.Context(), h.Scope)

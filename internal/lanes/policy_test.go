@@ -582,3 +582,257 @@ func diskLinks(path string) (bool, error) {
 	}
 	return err == nil && info.Mode()&os.ModeSymlink != 0, err
 }
+
+// A session whose reads are scoped reads only under its read roots: a file outside them, or a search
+// that names one, is denied whatever a rule allowed, and a search with no path reads where it stands.
+func TestAReadOutsideTheReadRootsIsDenied(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/run/a/session", ReadRoots: []string{"/run/a/session", "/run/a/repositories/api"}})
+	cwd := "/run/a/session"
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: "/home/x/.ssh/id_ed25519", Cwd: cwd},
+		{Tool: "Read", Path: "/proc/42/environ", Cwd: cwd},
+		{Tool: "Read", Path: "../../state/ledger.db", Cwd: cwd},
+		{Tool: "Grep", Path: "/home/x/.config/gh", Cwd: cwd},
+		{Tool: "Glob", Path: "/state", Cwd: cwd},
+		{Tool: "Grep", Cwd: "/elsewhere"},
+		{Tool: "Read", Path: "$HOME/secret", Cwd: cwd},
+		{Tool: "Read", Path: "~/.ssh/config", Cwd: cwd},
+	} {
+		if reason, denied := policy.Decide(call); !denied || reason != ReasonReadOutside {
+			t.Errorf("%+v: %q %v", call, reason, denied)
+		}
+	}
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: "/run/a/repositories/api/main.go", Cwd: cwd},
+		{Tool: "Read", Path: "notes.md", Cwd: cwd},
+		{Tool: "Grep", Cwd: cwd},
+		{Tool: "Glob", Path: "/run/a/repositories/api", Cwd: cwd},
+	} {
+		if reason, denied := policy.Decide(call); denied {
+			t.Errorf("%+v was denied: %s", call, reason)
+		}
+	}
+	if _, denied := CompilePolicy(PolicySpec{Worktree: "/w"}).Decide(ToolCall{Tool: "Read", Path: "/etc/hosts", Cwd: "/w"}); denied {
+		t.Error("a lane with no read roots was held to them")
+	}
+}
+
+// A session held to one program runs it alone in a shell: another program, a second command, a
+// substitution, a variable, or a redirect to or from a file is denied whatever a rule or a mode allowed.
+func TestASessionHeldToOneProgramRunsNothingElse(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/run/a/session", Program: "ropeshift"})
+	cwd := "/run/a/session"
+	for _, command := range []string{
+		"cat /home/x/.ssh/id_ed25519",
+		"ls",
+		"ropeshift lane list && cat /etc/hosts",
+		"ropeshift lane list; ls",
+		"ropeshift lane list | sh",
+		"ropeshift lane list > /tmp/out",
+		"ropeshift orchestrator attach < /home/x/.ssh/id_ed25519",
+		"ropeshift message send --body \"$(cat /etc/hosts)\"",
+		"ropeshift message send --body \"$HOME\"",
+		"ropeshift message send --body `id`",
+		"FOO=1 ropeshift lane list",
+		"env ropeshift lane list",
+		"/usr/local/bin/ropeshift lane list",
+		"$R lane list",
+		"ropeshift lane list\ncat /etc/hosts",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	for _, command := range []string{
+		"ropeshift lane list",
+		"ropeshift lane list --json 2>&1",
+		"ropeshift message send --orchestrator atlas --body 'done; next: the $5 fix'",
+		"'ropeshift' work show WO-1",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); denied {
+			t.Errorf("%q was denied: %s", command, reason)
+		}
+	}
+	if _, denied := CompilePolicy(PolicySpec{Worktree: "/w"}).Decide(ToolCall{Tool: ToolBash, Command: "ls", Cwd: "/w"}); denied {
+		t.Error("a session held to no program was held to one")
+	}
+}
+
+// readRootsOnDisk is a session directory and a read-only tree whose links lead out of the read roots, to
+// nowhere, and back in, with a directory beside them that no root holds.
+func readRootsOnDisk(t *testing.T) (session, tree, outside string) {
+	t.Helper()
+	base := t.TempDir()
+	session, tree, outside = filepath.Join(base, "session"), filepath.Join(base, "tree"), filepath.Join(base, "outside")
+	for _, dir := range []string{session, filepath.Join(tree, "src"), filepath.Join(outside, "dir")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, file := range []string{filepath.Join(outside, "secret.txt"), filepath.Join(outside, "dir", "key.txt"), filepath.Join(tree, "real.txt")} {
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, to := range map[string]string{
+		"secret-link": filepath.Join(outside, "secret.txt"), "dir-link": filepath.Join(outside, "dir"), "dangling": filepath.Join(tree, "missing"),
+		"chain-1": "chain-2", "chain-2": "real.txt",
+	} {
+		if err := os.Symlink(to, filepath.Join(tree, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return session, tree, outside
+}
+
+// With the disk, a read holds to where a path leads: a link in a read-only tree that leads out of the read
+// roots, through a file or a directory, or to nothing, is denied, and a chain of links that ends inside is
+// read. A Glob pattern whose fixed part lies outside the roots is denied too.
+func TestAReadThroughALinkHoldsToWhereItLeads(t *testing.T) {
+	session, tree, outside := readRootsOnDisk(t)
+	policy := CompilePolicy(PolicySpec{Worktree: session, ReadRoots: []string{session, tree}}).WithRealPaths(filepath.EvalSymlinks)
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: filepath.Join(tree, "secret-link"), Cwd: session},
+		{Tool: "Read", Path: filepath.Join(tree, "dir-link", "key.txt"), Cwd: session},
+		{Tool: "Grep", Path: filepath.Join(tree, "dir-link"), Cwd: session},
+		{Tool: "Read", Path: filepath.Join(tree, "dangling"), Cwd: session},
+		{Tool: "Read", Path: "secret-link", Cwd: tree},
+		{Tool: "Glob", Path: tree, Pattern: outside + "/*", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "../outside/*", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "dir-link/*", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "**/../../outside/*", Cwd: session},
+		{Tool: "Glob", Pattern: "/*", Cwd: session},
+	} {
+		if reason, denied := policy.Decide(call); !denied || reason != ReasonReadOutside {
+			t.Errorf("%+v: %q %v", call, reason, denied)
+		}
+	}
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: filepath.Join(tree, "chain-1"), Cwd: session},
+		{Tool: "Read", Path: filepath.Join(tree, "real.txt"), Cwd: session},
+		{Tool: "Grep", Path: tree, Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "**/*.go", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "src/*.go", Cwd: session},
+		{Tool: "Glob", Pattern: "*.md", Cwd: session},
+	} {
+		if reason, denied := policy.Decide(call); denied {
+			t.Errorf("%+v was denied: %s", call, reason)
+		}
+	}
+}
+
+// A session held to one program runs only the commands it names: a first word of the program that is no
+// command, such as a route the worker or an agent CLI starts, is denied, and so is any command it does not
+// list. A here-document or a here-string, and an unquoted `~`, `*`, `?`, `[`, or `{`, are denied too,
+// because each feeds the command what the policy cannot read.
+func TestASessionHeldToOneProgramRunsOnlyItsCommands(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/run/a/session", Program: "ropeshift", Commands: []string{"lane list", "work show", "chat show", "top"}})
+	cwd := "/run/a/session"
+	for _, command := range []string{
+		"ropeshift lane-shim --dir d --socket s -- /bin/sh -c 'cp /home/x/.ssh/id_ed25519 /tmp/x'",
+		"ropeshift lane-pane /tmp/launch.json",
+		"ropeshift hook PreToolUse",
+		"ropeshift mcp",
+		"ropeshift statusline",
+		"ropeshift help",
+		"ropeshift version",
+		"ropeshift backup /tmp/copy.db",
+		"ropeshift",
+		"ropeshift --json lane list",
+		"ropeshift lane",
+		"ropeshift hook PreToolUse <<EOF\n{\"tool_name\":\"Bash\"}\nEOF",
+		"ropeshift lane list <<EOF\nx\nEOF",
+		"ropeshift lane list <<< x",
+		"ropeshift work show ~/x",
+		"ropeshift work show WO-*",
+		"ropeshift work show WO-?",
+		"ropeshift work show WO-[12]",
+		"ropeshift work show {WO-1,WO-2}",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	for _, command := range []string{
+		"ropeshift lane list",
+		"ropeshift lane list --json",
+		"ropeshift work show WO-1 --json 2>&1",
+		"ropeshift chat show c1 --limit 5",
+		"ropeshift top --once",
+		"ropeshift work show 'WO-*' --why \"it's {done} ~ok?\"",
+		"ropeshift work show WO\\*1",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); denied {
+			t.Errorf("%q was denied: %s", command, reason)
+		}
+	}
+}
+
+// A session held to a list of tools runs those alone: any other, a vendor tool, a tool of another MCP
+// server, or one a later version adds, is denied whatever a rule allowed.
+func TestASessionHeldToItsToolsRunsNoOther(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/w", Tools: []string{"Read", "Bash", "mcp__ropeshift__context_get"}})
+	for _, tool := range []string{"Monitor", "LSP", "ReadMcpResourceTool", "mcp__claude_ai_Gmail__send_message", "mcp__ropeshift__lane_report", "Task", "Skill", "WebFetch", "AskUserQuestion"} {
+		if reason, denied := policy.Unlisted(tool); !denied || reason != ReasonUnlistedTool {
+			t.Errorf("%s: %q %v", tool, reason, denied)
+		}
+		if _, denied := policy.Decide(ToolCall{Tool: tool, Cwd: "/w"}); !denied {
+			t.Errorf("%s was decided as allowed", tool)
+		}
+	}
+	for _, tool := range []string{"Read", "Bash", "mcp__ropeshift__context_get"} {
+		if reason, denied := policy.Unlisted(tool); denied {
+			t.Errorf("%s was denied: %s", tool, reason)
+		}
+	}
+	if _, denied := CompilePolicy(PolicySpec{Worktree: "/w"}).Unlisted("Monitor"); denied {
+		t.Error("a session held to no list was held to one")
+	}
+}
+
+// A session held to one program takes none of the flags its policy refuses, in any form, wherever it
+// stands, and sets no variable that would move what the program reaches.
+func TestASessionHeldToOneProgramTakesNoRefusedFlag(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/w", Program: "ropeshift", Commands: []string{"health", "lane list"}, RefusedFlags: []string{"socket"}})
+	for _, command := range []string{
+		"ropeshift health --socket /tmp/evil.sock",
+		"ropeshift health --socket=/tmp/evil.sock",
+		"ropeshift health -socket /tmp/evil.sock",
+		"ropeshift health -socket=/tmp/evil.sock",
+		"ropeshift lane list --json '--socket=/tmp/evil.sock'",
+		"ROPESHIFT_RUN_DIR=/tmp/evil ropeshift health",
+		"env ROPESHIFT_RUN_DIR=/tmp/evil ropeshift health",
+		"export ROPESHIFT_RUN_DIR=/tmp/evil",
+		"HOME=/tmp/evil ropeshift health",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: "/w"}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: "ropeshift lane list --json", Cwd: "/w"}); denied {
+		t.Errorf("a plain command was denied: %s", reason)
+	}
+}
+
+// A session held to one program fails closed on a comment, which a shell drops and a reader could take as
+// part of the command, and on a redirect to or from `-`, which closes a descriptor.
+func TestASessionHeldToOneProgramTakesNoCommentOrClosedDescriptor(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/w", Program: "ropeshift", Commands: []string{"lane list"}})
+	for _, command := range []string{
+		"ropeshift lane list # and then",
+		"ropeshift lane list #",
+		"# ropeshift lane list",
+		"ropeshift lane list\n# after",
+		"ropeshift lane list 2>&-",
+		"ropeshift lane list >&-",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: "/w"}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	for _, command := range []string{"ropeshift lane list --why 'issue #42'", "ropeshift lane list 2>&1"} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: "/w"}); denied {
+			t.Errorf("%q was denied: %s", command, reason)
+		}
+	}
+}

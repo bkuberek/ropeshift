@@ -94,6 +94,8 @@ type AnswerQuestion struct {
 	Answer    string   `json:"answer"`
 	Rationale string   `json:"rationale,omitempty"`
 	Citations []string `json:"citations,omitempty"`
+	// Place is where the member answered: in Needs you, or inline in a conversation.
+	Place string `json:"place,omitempty"`
 }
 
 // BatchList is what reached members and still waits for them.

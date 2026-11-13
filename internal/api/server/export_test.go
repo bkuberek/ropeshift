@@ -1,6 +1,12 @@
 package server
 
-import "context"
+import (
+	"context"
+
+	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ports"
+)
 
 // RouteOperation is what a test reads of a changing route's operations: every one it can run, and whether
 // it picks among them per call.
@@ -23,4 +29,9 @@ func RouteOperations() map[string]RouteOperation {
 func WhenConfirmed(t interface{ Cleanup(func()) }, f func(context.Context)) {
 	onConfirmed = f
 	t.Cleanup(func() { onConfirmed = func(context.Context) {} })
+}
+
+// CardConversation names the conversation a card came from, as Needs you and an approval's detail read it.
+func CardConversation(members ports.MemberReader, threads ports.ConversationReader, card authority.Approval) (*api.CardConversation, error) {
+	return cardConversation(members, threads, card)
 }

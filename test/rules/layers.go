@@ -26,17 +26,18 @@ const (
 
 // domainPackages are the top-level names that scream the domain.
 var domainPackages = map[string]bool{
-	"authority":    true,
-	"contextpacks": true,
-	"lanes":        true,
-	"ledger":       true,
-	"measures":     true,
-	"messages":     true,
-	"parking":      true,
-	"planning":     true,
-	"questions":    true,
-	"roster":       true,
-	"workorders":   true,
+	"authority":     true,
+	"contextpacks":  true,
+	"conversations": true,
+	"lanes":         true,
+	"ledger":        true,
+	"measures":      true,
+	"messages":      true,
+	"parking":       true,
+	"planning":      true,
+	"questions":     true,
+	"roster":        true,
+	"workorders":    true,
 }
 
 // clientPackages reach the ledger only through the API or the worker's socket.
