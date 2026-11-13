@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -195,7 +196,7 @@ var routeLine = regexp.MustCompile(`mux\.HandleFunc\("((POST|PUT|PATCH|DELETE) (
 // reached is where a route a handler registers is served: an installation route where it reads, and a
 // project route under the harness's project.
 func reached(path string) string {
-	for _, prefix := range []string{"/v1/sessions", "/v1/passphrase", "/v1/workers", "/v1/autonomy", "/v1/telemetry", "/v1/health", "/v1/projects", "/v1/installation"} {
+	for _, prefix := range []string{"/v1/sessions", "/v1/passphrase", "/v1/workers", "/v1/autonomy", "/v1/telemetry", "/v1/health", "/v1/projects", "/v1/installation", "/v1/delegates", "/v1/operations"} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return path
 		}
@@ -243,6 +244,109 @@ func TestEveryChangingRouteNeedsASession(t *testing.T) {
 	}
 	if checked < 15 {
 		t.Fatalf("checked %d routes, so the source scan found too few", checked)
+	}
+}
+
+// namedPaths are the changing routes the source spells through a constant.
+var namedPaths = map[string]string{
+	"api.InstallationBackupDownloadPath": api.InstallationBackupDownloadPath, "api.BackupDownloadPath": api.BackupDownloadPath,
+	"api.ImportUploadPath": api.ImportUploadPath, "api.PaneInputPath": api.PaneInputPath,
+}
+
+var namedRouteLine = regexp.MustCompile(`mux\.HandleFunc\("(GET|POST|PUT|PATCH|DELETE) "\+(api\.\w+), (.+)\)$`)
+
+var anyRouteLine = regexp.MustCompile(`mux\.HandleFunc\("((GET|POST|PUT|PATCH|DELETE) ([^"]+))", (.+)$`)
+
+// sourceRoutes reads every route a handler registers, literal or through a constant, with what it reaches.
+func sourceRoutes(t *testing.T) map[string]string {
+	t.Helper()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := map[string]string{}
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for line := range strings.Lines(string(raw)) {
+			line = strings.TrimSpace(line)
+			if route := anyRouteLine.FindStringSubmatch(line); route != nil {
+				routes[route[1]] = route[4]
+			}
+			if route := namedRouteLine.FindStringSubmatch(line); route != nil {
+				if path, ok := namedPaths[route[2]]; ok {
+					routes[route[1]+" "+path] = route[3]
+				}
+			}
+		}
+	}
+	return routes
+}
+
+// credentialed are the changing routes no member's or delegate's operation names: a worker's credential
+// or a join token proves who calls them, and signing in is how a session starts.
+func credentialed(pattern string) bool {
+	reason, ok := sessionless[pattern]
+	return ok && (strings.Contains(reason, "worker's credential") || strings.Contains(reason, "join token") || pattern == "POST /v1/sessions") &&
+		pattern != "POST /v1/work-orders/{id}/claims"
+}
+
+// TestEveryChangingRouteNamesAnOperation holds the class table to the routes: a changing route that names
+// no operation fails here until it does, because a delegate's call to it would read as unnamed consent.
+func TestEveryChangingRouteNamesAnOperation(t *testing.T) {
+	table := server.RouteOperations()
+	checked := 0
+	for pattern, target := range sourceRoutes(t) {
+		if strings.HasPrefix(pattern, "GET ") {
+			if strings.HasPrefix(target, "h.member(") {
+				if _, ok := table[pattern]; !ok && pattern != "GET "+api.PanePath {
+					t.Errorf("%s needs a session and names no operation", pattern)
+				}
+			}
+			continue
+		}
+		if credentialed(pattern) {
+			continue
+		}
+		checked++
+		route, ok := table[pattern]
+		if !ok {
+			t.Errorf("%s names no operation", pattern)
+			continue
+		}
+		for _, id := range route.IDs {
+			if _, ok := authority.OperationOf(id); !ok {
+				t.Errorf("%s names %s, which the class table lacks", pattern, id)
+			}
+		}
+	}
+	if checked < 55 {
+		t.Fatalf("checked %d routes, so the source scan found too few", checked)
+	}
+}
+
+// TestEveryOperationIsReachedByARoute holds the class table the other way: every operation it names is
+// one some route runs, and every route the table names exists.
+func TestEveryOperationIsReachedByARoute(t *testing.T) {
+	routes := sourceRoutes(t)
+	reachedBy := map[string]bool{}
+	for pattern, route := range server.RouteOperations() {
+		if _, ok := routes[pattern]; !ok {
+			t.Errorf("the table names %s, which no handler registers", pattern)
+		}
+		for _, id := range route.IDs {
+			reachedBy[id] = true
+		}
+	}
+	for _, op := range authority.Operations() {
+		if !reachedBy[op.ID] {
+			t.Errorf("no route runs %s", op.ID)
+		}
 	}
 }
 

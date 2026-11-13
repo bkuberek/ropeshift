@@ -104,6 +104,10 @@ func (s *web) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("X-Frame-Options", "DENY")
 	header.Set("Referrer-Policy", "no-referrer")
+	if r.Header.Get(api.HeaderDelegate) != "" {
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForbidden, Message: "A delegate uses the local socket, never the web listener."})
+		return
+	}
 	if !s.hosts[r.Host] {
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeForeignHost, Message: "this listener answers only to its own loopback names"})
 		return
@@ -169,7 +173,7 @@ func (s *web) member(next func(http.ResponseWriter, *http.Request, string)) http
 
 // forward hands an admitted request to the API, as the session its cookie holds.
 func (s *web) forward(w http.ResponseWriter, r *http.Request, token string) {
-	inner := r.Clone(r.Context())
+	inner := r.Clone(withChannel(r.Context(), authority.ChannelWeb))
 	inner.Header.Del("Authorization")
 	inner.Header.Set(api.HeaderSession, token)
 	s.api.ServeHTTP(w, inner)

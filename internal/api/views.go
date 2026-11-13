@@ -59,6 +59,8 @@ const (
 	// NeedContractReview is work whose contract waits for a member's review, because no plan approval
 	// stands behind it.
 	NeedContractReview = "contract_review"
+	// NeedConfirm is a confirmation card a delegate prepared, which runs only when a member confirms it.
+	NeedConfirm = "confirm"
 )
 
 // Why work waits for a person. The first five are the design's stuck list.
@@ -156,6 +158,17 @@ type NeedItem struct {
 	Work           *WorkNeed            `json:"work,omitempty"`
 	PlanApproval   *PlanApprovalNeed    `json:"plan_approval,omitempty"`
 	ContractReview *ContractReviewNeed  `json:"contract_review,omitempty"`
+	Card           *CardNeed            `json:"card,omitempty"`
+}
+
+// CardNeed is a confirmation card that waits for a member: the request, the operation it runs, and the
+// delegate that prepared it, by its credential's label and the member it acts for. A credential whose
+// record was removed reads as its ID.
+type CardNeed struct {
+	Approval authority.Approval   `json:"approval"`
+	Detail   authority.CardDetail `json:"detail"`
+	Label    string               `json:"label"`
+	Member   string               `json:"member"`
 }
 
 // NeedsYou is the default view: what a member can act on, the longest wait first (FR-UI-2). The combined

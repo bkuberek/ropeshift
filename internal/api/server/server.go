@@ -18,6 +18,7 @@ import (
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
+	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -103,6 +104,9 @@ type handler struct {
 	notices      *control.Notices
 	repositories *control.Repositories
 	recoveries   *control.Recoveries
+	delegates    *control.Delegates
+	// root is the whole API as the socket serves it, through which a confirmed card's call runs again.
+	root http.Handler
 	// lifecycle and router are the installation's, which only the first project's handler holds.
 	lifecycle *control.Projects
 	router    *router
@@ -130,7 +134,9 @@ func New(config Config) http.Handler {
 	home.installationRoutes(mux)
 	projects.registryRoutes(mux)
 	mux.Handle(projectPrefix+"{project}/", projects)
-	return mux
+	root := &gate{mux: mux, home: home, router: projects}
+	home.root, projects.root = root, root
+	return root
 }
 
 // installationRoutes are the routes of the installation's own records: members and their sessions,
@@ -215,6 +221,7 @@ func newHandler(config Config) *handler {
 		autonomy:     control.NewAutonomy(config.Store),
 		effects:      control.NewEffects(config.Store),
 		repositories: control.NewRepositories(config.Store),
+		delegates:    control.NewDelegates(config.Store),
 		workers: control.NewWorkers(config.Store, config.Scope, control.WorkerOptions{
 			Protocol: config.Protocol, HeartbeatMs: config.HeartbeatMs, LeaseTTLMs: config.LeaseTTL, Batches: config.Batches, Windows: config.Windows,
 			PackTokens: config.PackTokens, Matcher: config.Matcher, Starts: config.Starts,
@@ -269,6 +276,14 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadPassphrase, Message: err.Error()})
 	case errors.Is(err, authority.ErrNotEnrolled):
 		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeNotEnrolled, Message: err.Error()})
+	case errors.Is(err, authority.ErrBadDelegate):
+		refuse(w, http.StatusUnauthorized, api.ErrorDetail{Code: api.CodeBadDelegate, Message: err.Error()})
+	case errors.Is(err, authority.ErrOutsideProject):
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeOutsideProject, Message: err.Error()})
+	case errors.Is(err, authority.ErrMemberOnly):
+		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeMemberOnly, Message: err.Error()})
+	case errors.Is(err, authority.ErrDelegateActive):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeDelegateActive, Message: err.Error()})
 	case errors.Is(err, workorders.ErrAlreadyPlanned):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeAlreadyPlanned, Message: err.Error()})
 	case errors.Is(err, ledger.ErrProjectExists):
@@ -295,6 +310,10 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeWindowOpen, Message: err.Error()})
 	case errors.Is(err, questions.ErrResolved):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeResolved, Message: err.Error()})
+	case errors.Is(err, roster.ErrInvalid), errors.Is(err, roster.ErrUnknownAgent), errors.Is(err, roster.ErrDisabledAgent):
+		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
+	case errors.Is(err, roster.ErrExists), errors.Is(err, roster.ErrNothingToReset), errors.Is(err, roster.ErrInUse):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeRosterConflict, Message: err.Error()})
 	case errors.As(err, &overlap):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeOverlap, Message: err.Error(), Decisions: overlap.Overlapping})
 	case errors.Is(err, questions.ErrOneWay):
@@ -521,10 +540,11 @@ func (h *handler) claim(w http.ResponseWriter, r *http.Request) {
 	if credential := bearer(r); credential != "" {
 		grant, err = h.workers.Claim(r.Context(), ledger.WorkerAuth{WorkerID: in.WorkerID, Credential: credential}, request)
 	} else {
-		var actor ledger.Actor
-		if actor, err = h.sessions.Member(r.Context(), h.Scope, sessionOf(r)); err == nil {
-			grant, err = h.leases.Claim(r.Context(), h.Scope, request, actor)
+		actor, _, ok := h.admit(w, r)
+		if !ok {
+			return
 		}
+		grant, err = h.leases.Claim(r.Context(), h.Scope, request, actor)
 	}
 	if err != nil {
 		fail(w, err)

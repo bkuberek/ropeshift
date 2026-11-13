@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -26,14 +27,23 @@ type StreamEvent struct {
 	ActorID     string `json:"actor_id"`
 	OccurredAt  int64  `json:"occurred_at,omitempty"`
 	RecordedAt  int64  `json:"recorded_at"`
+	// ActorFor is the member a delegate acted for, and ActorLabel its credential's label, or the credential's
+	// ID once its record was removed. Both are empty for every other actor.
+	ActorFor   string `json:"actor_for,omitempty"`
+	ActorLabel string `json:"actor_label,omitempty"`
 }
 
-// StreamEventOf is what the stream says of one event.
+// StreamEventOf is what the stream says of one event. A delegate's label reads as its credential's ID
+// until a caller that holds the credential's record fills it in.
 func StreamEventOf(event ledger.Event) StreamEvent {
-	return StreamEvent{
+	out := StreamEvent{
 		Rev: event.Rev, Type: event.Type, SubjectKind: event.Subject.Kind, SubjectID: event.Subject.ID,
 		ActorKind: string(event.Actor.Kind), ActorID: event.Actor.ID, OccurredAt: event.OccurredAt, RecordedAt: event.RecordedAt,
 	}
+	if member, credential, ok := authority.ActingFor(event.Actor); ok {
+		out.ActorFor, out.ActorLabel = member, credential
+	}
+	return out
 }
 
 // Events follows the ledger from a revision: every event after it, in order, then each new one. The

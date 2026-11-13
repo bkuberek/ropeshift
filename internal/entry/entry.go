@@ -82,7 +82,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 // socket empty, and the command reports it cannot reach anything.
 func cliOptions() cli.Options {
 	opts := cli.Options{
-		Session: os.Getenv(authority.EnvMemberToken), Project: os.Getenv(api.EnvProject), ReadPassphrase: localauth.ReadPassphrase,
+		Session: os.Getenv(authority.EnvMemberToken), Delegate: os.Getenv(authority.EnvDelegateToken), Project: os.Getenv(api.EnvProject), ReadPassphrase: localauth.ReadPassphrase,
 		RepositoryHere: repositoryHere, RepositoryRoot: repositoryRoot,
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {

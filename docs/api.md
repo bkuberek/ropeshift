@@ -43,6 +43,72 @@ A change to a record every project shares, such as a member's sign-in, a worker'
 
 `GET /v1/needs-you` lists what waits on a member in every active project, the longest wait first. Each item is the item a project's `needs-you` view holds, with a `project` that names its project's ID, name, and display name. `projects` lists each active project with the revision its ledger stood at and how many of its items wait. A member acts on an item through its own project's routes.
 
+## Delegates and confirmation cards
+
+A delegate is an agent outside ropeshift acting with a member's delegate credential ([authorization](authorization.md#delegation)). It sends the credential in the header `Ropeshift-Delegate`, on the local socket only. Its actor is `delegate`, with the ID `<member ID>/<credential ID>`, so every event it causes names the member it acts for.
+
+A member's session manages the member's own credentials, on the installation's routes:
+
+| Route | Body | Answer |
+|-------|------|--------|
+| `GET /v1/delegates` | | `{"as_of", "delegates": [...]}`: each credential's `id` (`dlg_<ulid>`), `label`, `project`, `kind` (`external`), `created_at`, `expires_at`, `last_used_at`, `revoked_at`, and `state` (`active`, `expired`, or `revoked`) |
+| `POST /v1/delegates` | `{"project": "...", "label": "...", "expires_in_ms": N}` | 201 with the credential and its `token`, the one time anyone sees it. `project` names an active project, `label` is 1 to 64 characters, and `expires_in_ms` is from one minute to thirty days |
+| `POST /v1/delegates/{id}/revoke` | `{}` | The credential, revoked |
+| `POST /v1/delegates/{id}/remove` | `{}` | 204, once the credential no longer acts, and 409 `delegate_active` while it does |
+| `POST /v1/sessions/end-all` | `{}` | `{"sessions", "delegates"}`: every session of the member ends and every credential of theirs that acts is revoked, in one transaction with one event |
+| `GET /v1/operations` | | The class table: each operation's `id`, `label`, `class` (`operational`, `consent`, or `member_only`), `exemptable`, and `never_reason` |
+
+The ledger keeps a credential's digest and never its token, and each change to one is an event in the installation's log with the member as its actor. A call that acts records the credential's last use when the one it holds is more than a minute old, as a `delegate.used` event.
+
+These refusals are a delegate's:
+
+| Status | Code | When |
+|--------|------|------|
+| 400 | `invalid` | A request carries both `Ropeshift-Session` and `Ropeshift-Delegate`, or a consent call carries no `Ropeshift-Why` |
+| 401 | `bad_delegate` | The credential is not known, was revoked, or expired, which the message names |
+| 403 | `outside_project` | The route is an installation route, or another project's |
+| 403 | `member_only` | The operation is a member's alone, such as every route above, a delegate policy, or a card's decision |
+| 409 | `delegate_active` | A removal of a credential that still acts |
+| 403 | `forbidden` | Any request to the web listener that carries `Ropeshift-Delegate` |
+
+Every changing route names its operation, and a delegate's call takes the operation's class. An operational call runs as the delegate. A consent call runs as the delegate only when the delegate policy in force exempts it, and then records a `delegate.exempted` event naming that policy's version. Any other consent call runs nothing: it records a card, an approval request of kind `confirm`, and answers 202 with `{"card": <approval>}`. It needs the header `Ropeshift-Why`, the delegate's reason, up to 2,000 characters. A call that resolves to several operations, such as a repository change that sets several fields, takes the strictest class, and is exempt only when every consent operation in it is.
+
+A card holds:
+
+| Field | Holds |
+|-------|-------|
+| `subject` | `<kind>:<id>` of the record the call names |
+| `subject_digest` | What the card binds to: the SHA-256 of the record's kind, ID, and the revision of the newest event about it; for a decision of a request, that request's own digest and state; for a policy, the version in force; for a call that creates its record, its arguments, so such a card never goes void |
+| `summary` | The operation's label and the subject, such as `Raise merge authority: web` |
+| `requested_by` | `delegate:<member ID>/<credential ID>` |
+| `detail` | JSON with `operation`, `label`, `method`, `path` (the full project-scoped path), `arguments` (the body as sent), `why`, and `changes`: `{field, from, to}` per field for a repository change or the fleet's caps, `{before, after}` bodies for a policy or a roster change, and `{field, to}` per argument for any other call |
+
+A member decides a card with `POST /v1/projects/{project}/approvals/{id}/decide`, passing the digest they read. Declining, with `"allow": false`, makes it `denied` and runs nothing. Confirming binds the subject again: one that moved makes the card `void` and answers 409 `stale_digest`. Otherwise the card is `approved`, and its exact call runs through the project's own routes as that member's session, with the same checks and events as the member's own call. A 2xx answer makes the card `used`, and any other makes it `failed`, with the API's refusal as its `reason`. `decided_by`, `decided_at`, and `channel` (`web` or `cli`) say who confirmed it, when, and where. A card has `expires_at` 0, and nothing expires it. A delegate's decision of a card answers 403 `member_only`.
+
+| Card state | Means |
+|------------|-------|
+| `pending` | Open: it waits for a member |
+| `approved` | Running: a member confirmed it, and its call is running |
+| `used` | Confirmed: its call ran |
+| `failed` | Failed to run: the API refused its call |
+| `denied` | Declined |
+| `void` | Its subject changed before a member confirmed it |
+| `expired` | Expired |
+
+The combined Needs you lists each pending card of every active project as an item of kind `confirm`, with a `card` that holds the approval, its parsed `detail`, and the preparing delegate's `label` and `member`.
+
+A delegate policy is a versioned policy of kind `delegate`, published with `POST /v1/projects/{project}/policies` as a member, and listed with `GET /v1/projects/{project}/policies?kind=delegate`:
+
+```toml
+[delegate_policy]
+version = 2
+exempt = ["work_order.accept", "work_order.cancel"]
+```
+
+`exempt` lists consent operations by ID. A version that lists an unknown ID, an operational or member-only operation, or an operation that is never exempt answers 400 `invalid`, naming each and why. The built-in version exempts nothing.
+
+An event's `actor_for` and `actor_label`, in the event stream and the audit, name the member a delegate acted for and its credential's label, or the credential's ID once its record was removed. Both are absent for every other actor, and `GET /v1/audit?actor=delegate` keeps a delegate's events.
+
 ## Searching a project's records
 
 `GET /v1/projects/{project}/views/search` is the read model the web UI's command palette reads. It lists the project's work orders, lanes, plans, contracts, requirements, decisions, questions, planning documents, and repositories, each with its kind, ID, title, and state, and it changes nothing. `q` keeps the records whose ID or title holds every word, in any order and any case: an exact ID first, then an ID that begins with the words, then words that each begin a word of the title, then the rest. `category` names one kind. `limit` caps the list, 20 by default when `q` is set, and `more` says the cap cut it. With no `q`, every record is listed.
