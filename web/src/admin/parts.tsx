@@ -133,13 +133,21 @@ export function timeOf(at: number): string {
 
 // useDraft is a form's draft of a saved record. A read that brings the same record again leaves the
 // draft alone, so a live update never undoes what a person is typing; a record that changed resets it.
+// The reset happens in the render that sees the new record, not in an effect after it, so no render shows
+// a field with the old record's draft where an edit could still be undone.
 export function useDraft<T>(saved: T): [T, (next: T | ((was: T) => T)) => void, T] {
   const content = JSON.stringify(saved);
   // The saved value is kept by its content, so a new object with the same content changes nothing.
   const stable = useMemo(() => saved, [content]);
-  const [draft, setDraft] = useState<T>(stable);
-  useEffect(() => setDraft(stable), [stable]);
-  return [draft, setDraft, stable];
+  const [state, setState] = useState<{ draft: T; of: T }>({ draft: stable, of: stable });
+  const setDraft = useCallback((next: T | ((was: T) => T)) => {
+    setState((was) => ({ ...was, draft: typeof next === "function" ? (next as (was: T) => T)(was.draft) : next }));
+  }, []);
+  if (state.of !== stable) {
+    setState({ draft: stable, of: stable });
+    return [stable, setDraft, stable];
+  }
+  return [state.draft, setDraft, stable];
 }
 
 // GridField is a field in a form grid: its label in the left column, and the control with its help and
