@@ -15,6 +15,9 @@ const (
 	ActorLane         ActorKind = "lane"
 	ActorOrchestrator ActorKind = "orchestrator"
 	ActorSystem       ActorKind = "system"
+	// ActorDelegate is a credential a member made for an agent outside ropeshift. Its ID is the member's ID,
+	// a slash, and the credential's ID, so every event it causes names the member it acts for.
+	ActorDelegate ActorKind = "delegate"
 )
 
 // Actor names the cause of a state change (FR-LEDGER-4).
