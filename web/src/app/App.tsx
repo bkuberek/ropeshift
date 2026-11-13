@@ -99,10 +99,13 @@ export function App() {
   const switcher = useProjectSwitcher();
   const keyState = useRef(idle);
   const view = resolved.kind === "view" ? resolved.view : null;
+  // A project's view at an address with no project is where a person is already, while the page chooses
+  // the project, so the sidebar marks it and the tab names it from the first render.
+  const marked = resolved.kind === "pick-project" ? resolved.view : view;
   const needsSession = projects.needsSession || needs.needsSession;
   const signedIn = needs.view !== null && !needsSession;
   const live = useMemo(() => ({ heard: needs.heard, checkSession: needs.checkSession }), [needs.heard, needs.checkSession]);
-  useDocumentTitle(resolved.kind === "view" || resolved.kind === "missing" ? view : "needs-you");
+  useDocumentTitle(resolved.kind === "view" || resolved.kind === "pick-project" || resolved.kind === "missing" ? marked : "needs-you");
 
   useEffect(() => {
     if (route.project) {
@@ -268,7 +271,7 @@ export function App() {
             />
             {signedIn ? (
               <Sidebar
-                view={view}
+                view={marked}
                 project={project}
                 waiting={waiting}
                 theme={themeWords[theme]}

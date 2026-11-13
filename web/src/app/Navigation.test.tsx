@@ -35,6 +35,27 @@ describe("the views", () => {
     expect(within(await views()).getByRole("link", { name: "Plans" }).getAttribute("aria-current")).toBeNull();
   });
 
+  it("marks the view while the projects are still being read, and keeps the mark when they arrive", async () => {
+    serveViews();
+    const ordinary = globalThis.fetch;
+    let release: (() => void) | undefined;
+    globalThis.fetch = ((path: string, init?: RequestInit) =>
+      path === "/v1/projects" ? new Promise<Response>((resolve) => (release = () => resolve(ordinary(path, init) as Promise<Response>))) : ordinary(path, init)) as typeof fetch;
+    openPage("/roadmap");
+    const nav = await views();
+    expect(within(nav).getByRole("link", { name: "Roadmap" }).getAttribute("aria-current")).toBe("page");
+    expect(document.title).toBe("Roadmap - ropeshift");
+    release?.();
+    await waitFor(() => expect(window.location.pathname).toBe(here("/roadmap")));
+    expect(within(nav).getByRole("link", { name: "Roadmap" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("marks the view an earlier address moved to", async () => {
+    serveViews();
+    openPage("/in-progress");
+    expect(within(await views()).getByRole("link", { name: "Work orders" }).getAttribute("aria-current")).toBe("page");
+  });
+
   it("marks a view from any address inside it", async () => {
     serveViews();
     openPage("/plans?plan=no-such-plan");
