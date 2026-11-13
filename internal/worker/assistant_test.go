@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/conversations"
@@ -434,5 +435,37 @@ func TestAnAssistantNeverFallsBackToAPane(t *testing.T) {
 		if spec.Assistant {
 			t.Errorf("an assistant's session started in %s", spec.RunMode)
 		}
+	}
+}
+
+// An assistant's ropeshift reaches the control plane where the daemon listens, which under a user service
+// is the run directory XDG_RUNTIME_DIR names and the session's own environment does not: the worker names
+// that directory to the session from its own configuration, once, and nothing else in the session names
+// another.
+func TestAnAssistantReachesTheDaemonsOwnSocket(t *testing.T) {
+	a := newAssistantRig(t, script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	daemon := api.Paths{RunDir: "/run/user/1000/ropeshift"}
+	a.config.ControlEnv = []string{api.EnvRunDir + "=" + daemon.RunDir}
+	if _, err := a.convs.Create(t.Context(), scope, control.NewConversation{ID: "conv-1"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "an assistant's session", func() bool { return len(a.assistantSpecs()) == 1 })
+	spec := a.assistantSpecs()[0]
+	session := func(name string) string { return envOf(spec, name) }
+	seen, err := api.ResolvePaths("linux", session, "/home/sam")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen.ControlSocket() != daemon.ControlSocket() {
+		t.Errorf("the assistant's ropeshift dials %s, and the daemon listens at %s", seen.ControlSocket(), daemon.ControlSocket())
+	}
+	named := 0
+	for _, entry := range spec.Env {
+		if strings.HasPrefix(entry, api.EnvRunDir+"=") {
+			named++
+		}
+	}
+	if named != 1 {
+		t.Errorf("the session names the run directory %d times: %v", named, spec.Env)
 	}
 }

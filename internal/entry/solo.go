@@ -530,7 +530,7 @@ func soloLanes(paths api.Paths, opts soloOptions, kept ports.Checkouts, stderr i
 		Forge:      ghcli.Forge{},
 		ForgeEvery: opts.forgeTick,
 		// What an assistant's shell may run of this binary, and what its rules deny by name (ADR-0024).
-		AssistantCommands: commands, Routes: named,
+		AssistantCommands: commands, Routes: named, ControlEnv: controlEnv(paths),
 	}, terminal, nil
 }
 

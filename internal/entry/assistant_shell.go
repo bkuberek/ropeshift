@@ -3,6 +3,7 @@ package entry
 import (
 	"slices"
 
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
 )
@@ -27,4 +28,11 @@ func assistantShell() (commands, named []string) {
 		}
 	}
 	return commands, named
+}
+
+// controlEnv is what an assistant's ropeshift reads to reach the control plane where this daemon listens:
+// its run directory, from the daemon's own paths, which a session's environment would not lead to under a
+// user service whose XDG_RUNTIME_DIR the session does not carry.
+func controlEnv(paths api.Paths) []string {
+	return []string{api.EnvRunDir + "=" + paths.RunDir}
 }

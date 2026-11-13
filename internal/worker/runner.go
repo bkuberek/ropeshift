@@ -43,6 +43,10 @@ type LaneRuntime struct {
 	// words of Binary that name no command, which its rules deny by name (ADR-0024).
 	AssistantCommands []string
 	Routes            []string
+	// ControlEnv is what an assistant's ropeshift reads to reach the control plane where it listens, such
+	// as the run directory of its socket. It comes from the daemon's own paths, and replaces whatever else
+	// the session's environment names for it.
+	ControlEnv []string
 	// Ports is the pool this worker hands out. Zero takes the default.
 	Ports lanes.PortPool
 	// StateDir holds generated settings, per lane.
@@ -641,7 +645,7 @@ func (r *laneRun) session(ctx context.Context) workorders.Report {
 	r.setReads(r.prepareReads(ctx, prepared.Worktree.Path))
 	if r.assisting() {
 		grant := r.assistant().grantNow()
-		prepared.Environment = assistantEnvironment(prepared.Environment, grant, r.w.projectName(ctx, r.lease.Project, grant))
+		prepared.Environment = assistantEnvironment(prepared.Environment, grant, r.w.projectName(ctx, r.lease.Project, grant), r.rt.ControlEnv)
 		r.setReads(r.assistantReads(ctx, prepared.Worktree.Path, grant.Context.Repositories))
 	}
 	if err := r.writeInventory(ctx, repository, prepared.Worktree.Path); err != nil {

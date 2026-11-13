@@ -137,17 +137,21 @@ func (r *laneRun) assistant() *assistantState {
 	return r.assisted
 }
 
-// assistantEnvironment adds the credential and the project to a session's environment, after the lane
-// environment's filter, which drops any credential a worker inherits. Nothing here reaches the journal.
-func assistantEnvironment(environment []string, grant ledger.AssistantGrant, project string) []string {
-	out := make([]string, 0, len(environment)+2)
+// assistantEnvironment adds the credential, the project, and where the control plane listens to a session's
+// environment, after the lane environment's filter, which drops any credential a worker inherits. Where the
+// control plane listens comes from the worker's own configuration and replaces whatever else names it, so
+// nothing in a session or a repository points its ropeshift at another socket. Nothing here reaches the
+// journal.
+func assistantEnvironment(environment []string, grant ledger.AssistantGrant, project string, control []string) []string {
+	set := append([]string{authority.EnvDelegateToken + "=" + grant.Token, envProject + "=" + project}, control...)
+	out := make([]string, 0, len(environment)+len(set))
 	for _, entry := range environment {
-		if strings.HasPrefix(entry, authority.EnvDelegateToken+"=") || strings.HasPrefix(entry, envProject+"=") {
-			continue
+		name, _, _ := strings.Cut(entry, "=")
+		if !slices.ContainsFunc(set, func(own string) bool { return strings.HasPrefix(own, name+"=") }) {
+			out = append(out, entry)
 		}
-		out = append(out, entry)
 	}
-	return append(out, authority.EnvDelegateToken+"="+grant.Token, envProject+"="+project)
+	return append(out, set...)
 }
 
 // envProject names the project a `ropeshift` command acts in.

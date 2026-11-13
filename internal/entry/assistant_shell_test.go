@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/cli"
 )
@@ -66,5 +67,27 @@ func TestAnAssistantsShellHoldsTheCLIsCommandsAndNoRoute(t *testing.T) {
 		if !cli.HasCommand(command) || len(strings.Fields(command)) > 3 {
 			t.Errorf("%q is no command of the CLI an assistant's policy can name", command)
 		}
+	}
+}
+
+// A daemon under a user service listens in the run directory XDG_RUNTIME_DIR names, which a session's
+// environment does not carry: what the worker names to an assistant's session leads its ropeshift there.
+func TestAnAssistantsRopeshiftFindsTheDaemonUnderAUserService(t *testing.T) {
+	service := map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"}
+	daemon, err := api.ResolvePaths("linux", func(name string) string { return service[name] }, "/home/sam")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := map[string]string{}
+	for _, entry := range controlEnv(daemon) {
+		name, value, _ := strings.Cut(entry, "=")
+		session[name] = value
+	}
+	seen, err := api.ResolvePaths("linux", func(name string) string { return session[name] }, "/home/sam")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen.ControlSocket() != daemon.ControlSocket() {
+		t.Errorf("the assistant's ropeshift dials %s, and the daemon listens at %s", seen.ControlSocket(), daemon.ControlSocket())
 	}
 }
