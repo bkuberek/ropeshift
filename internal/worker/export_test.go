@@ -26,3 +26,9 @@ func (w *Worker) Respawn(ctx context.Context, lane string, asked int64) {
 		run.respawn(ctx, asked)
 	}
 }
+
+// ReportPending says the worker holds a report the control plane has not kept.
+func ReportPending(w *Worker) bool {
+	report, _ := w.pendingReport()
+	return report != nil
+}

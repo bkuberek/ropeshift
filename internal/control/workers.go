@@ -314,9 +314,7 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 			return ledger.HeartbeatReply{}, err
 		}
 	}
-	if err := saveReport(ctx, w.store.Installation(w.scope), beat); err != nil {
-		return ledger.HeartbeatReply{}, err
-	}
+	reply.ReportError = saveReport(ctx, w.store.Installation(w.scope), beat)
 	shared, err := w.sharedRevision(ctx)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
@@ -336,13 +334,18 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 	return reply, nil
 }
 
-// saveReport keeps what a heartbeat's worker measured, after its session was checked. A heartbeat that
-// carries no report leaves the last one standing.
-func saveReport(ctx context.Context, installation ports.Installation, beat ledger.Heartbeat) error {
+// saveReport keeps what a heartbeat's worker measured, after its session was checked, and says why it
+// could not. A heartbeat that carries no report leaves the last one standing. A report it could not keep
+// fails nothing else: the leases it renewed and the ones it lost still reach the worker, which sends the
+// report again.
+func saveReport(ctx context.Context, installation ports.Installation, beat ledger.Heartbeat) string {
 	if beat.Report == nil {
-		return nil
+		return ""
 	}
-	return installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, *beat.Report)
+	if err := installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, *beat.Report); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func (w *Workers) renewOrReturn(ctx context.Context, lease workorders.Lease, actor ledger.Actor) error {

@@ -292,7 +292,10 @@ func (w *Worker) Beat(ctx context.Context) (ledger.HeartbeatReply, error) {
 	if reply.Nonce != nonce {
 		return ledger.HeartbeatReply{}, fmt.Errorf("%w: sent %s, got %s", ledger.ErrNonce, nonce, reply.Nonce)
 	}
-	if report != nil {
+	switch {
+	case reply.ReportError != "":
+		w.config.Report(fmt.Errorf("the control plane did not keep the resource report, which goes again: %s", reply.ReportError))
+	case report != nil:
 		w.reportSent(seq)
 	}
 	if err := w.applyBeat(ctx, leases, reply, sent); err != nil {

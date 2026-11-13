@@ -1,8 +1,11 @@
 package worker_test
 
 import (
+	"context"
 	"errors"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +14,8 @@ import (
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
+	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/worker"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -314,5 +319,54 @@ func TestAnAdmissionReadsNoMachineItAlreadyKnows(t *testing.T) {
 	r.awaitGeneration(t, 2)
 	if samples, readings := machine.Calls(); samples != 1 || readings != 0 {
 		t.Errorf("a second start sampled %d times and read %d in all", samples, readings)
+	}
+}
+
+// refusingReports is a link whose control plane answers each heartbeat and keeps no report.
+type refusingReports struct {
+	ports.WorkerLink
+}
+
+func (l refusingReports) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.HeartbeatReply, error) {
+	beat.Report = nil
+	reply, err := l.WorkerLink.Heartbeat(ctx, beat)
+	reply.ReportError = "the store is busy"
+	return reply, err
+}
+
+// TestAReportTheControlPlaneDidNotKeepGoesAgain keeps a report the control plane said it did not keep
+// for the next heartbeat, and says so.
+func TestAReportTheControlPlaneDidNotKeepGoesAgain(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	var reported []error
+	var mu sync.Mutex
+	config := &worker.LaneRuntime{Driver: fake.NewAgentDriver(), Machine: sized(8), Provisioner: worker.Provisioner{Profiles: fake.NewProfileSource()}}
+	subject := worker.New(refusingReports{base.link}, base.journal, base.clock, worker.Config{
+		Name: "test", Lanes: config,
+		JoinToken: func(ctx context.Context) (string, error) { return base.plane.CreateJoinToken(ctx, member) },
+		Report: func(err error) {
+			mu.Lock()
+			defer mu.Unlock()
+			reported = append(reported, err)
+		},
+	})
+	if err := subject.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subject.Measure(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subject.Beat(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	said := slices.ContainsFunc(reported, func(err error) bool { return strings.Contains(err.Error(), "the store is busy") })
+	mu.Unlock()
+	if !said {
+		t.Errorf("reported %v", reported)
+	}
+	if !worker.ReportPending(subject) {
+		t.Error("a report the control plane did not keep was marked sent")
 	}
 }

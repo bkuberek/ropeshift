@@ -157,6 +157,9 @@ type HeartbeatReply struct {
 	// Revisions is where each project's desired state and the installation's stand, on a plane that
 	// serves several projects. A worker whose cached revisions differ reads desired state again.
 	Revisions map[string]int64 `json:"revisions,omitempty"`
+	// ReportError says the control plane did not keep the report this heartbeat carried, and why. The
+	// rest of the answer stands, and the worker sends the report again.
+	ReportError string `json:"report_error,omitempty"`
 }
 
 // DesiredRequest reads desired state. Since is the revision the worker has, and Revisions what it has
