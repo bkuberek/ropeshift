@@ -153,3 +153,38 @@ func TestAnAssistantRunsOnlyRopeshiftCommandsAndNoRoute(t *testing.T) {
 		t.Errorf("a command the spec names was denied: %s", reason)
 	}
 }
+
+// An assistant calls only its own tools: reading and searching, its shell, and ropeshift's context tools.
+// Its CLI starts with ropeshift's MCP configuration alone, reads no person's settings, so none of their
+// plugins, hooks, or permissions load, and offers only the built-in tools it uses; a lane's starts as it
+// did.
+func TestAnAssistantHoldsOnlyItsOwnToolsAndServers(t *testing.T) {
+	spec := assistantSpec(t)
+	spec.Commands = []string{"lane list"}
+	policy := compilePolicy(spec)
+	for _, tool := range []string{"Read", "Grep", "Glob", "Bash", toolRule(lanes.ToolContextGet), toolRule(lanes.ToolQuestionSearch)} {
+		if reason, denied := policy.Unlisted(tool); denied {
+			t.Errorf("an assistant may not call %s: %s", tool, reason)
+		}
+	}
+	for _, tool := range []string{"Monitor", "LSP", "ReadMcpResourceTool", "mcp__claude_ai_Gmail__send_message", "Task", "Skill", toolRule(lanes.ToolLaneReport)} {
+		if _, denied := policy.Unlisted(tool); !denied {
+			t.Errorf("an assistant may call %s", tool)
+		}
+	}
+	_, mcp := generatedPaths(spec)
+	args := StartArgs(spec)
+	for _, want := range [][]string{{"--strict-mcp-config"}, {"--mcp-config", mcp}, {"--setting-sources", "project,local"}, {"--tools", "Read,Grep,Glob,Bash"}} {
+		if at := slices.Index(args, want[0]); at < 0 || (len(want) == 2 && (at+1 >= len(args) || args[at+1] != want[1])) {
+			t.Errorf("an assistant starts with %v, lacking %v", args, want)
+		}
+	}
+	if resumed := ResumeArgs(spec, ports.ResumeRef{SessionID: "s"}); !slices.Contains(resumed, "--strict-mcp-config") {
+		t.Errorf("an assistant resumes with %v", resumed)
+	}
+	lane := spec
+	lane.Assistant, lane.Commands = false, nil
+	if slices.Contains(StartArgs(lane), "--strict-mcp-config") || len(compilePolicy(lane).Tools) != 0 {
+		t.Error("a lane is held as an assistant")
+	}
+}

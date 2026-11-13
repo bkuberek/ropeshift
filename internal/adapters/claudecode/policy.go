@@ -69,7 +69,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec), ReadRoots: readRoots,
-		Program: program, Commands: commandsOf(spec),
+		Program: program, Commands: commandsOf(spec), Tools: assistantCalls(spec),
 	})
 	if spec.Assistant {
 		for _, tool := range assistantDenied {
@@ -77,6 +77,20 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		}
 	}
 	return policy
+}
+
+// assistantCalls are the only tools an assistant's session may call: its built-in tools and ropeshift's
+// context tools. Any other, a vendor tool, a tool of another MCP server, or one a later CLI adds, its hook
+// denies. Every other session calls what its rules allow.
+func assistantCalls(spec ports.SessionSpec) []string {
+	if !spec.Assistant {
+		return nil
+	}
+	calls := slices.Clone(assistantBuiltIns)
+	for _, tool := range spec.Tools {
+		calls = append(calls, toolRule(tool))
+	}
+	return calls
 }
 
 // commandsOf are the commands an assistant's shell may run, and none for any other session, whose shell no

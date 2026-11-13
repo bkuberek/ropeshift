@@ -96,6 +96,10 @@ var assistantRules = []string{"Bash(" + assistantProgram + " *)"}
 // whatever its rules or its mode let through.
 const assistantProgram = "ropeshift"
 
+// assistantBuiltIns are the only built-in tools of the CLI an assistant's session holds: reading and
+// searching files, and its shell for ropeshift commands.
+var assistantBuiltIns = []string{"Read", "Grep", "Glob", "Bash"}
+
 // assistantDenied are the tools an assistant's session never runs: the web, through which anything it read
 // would leave.
 var assistantDenied = []string{"WebFetch", "WebSearch"}

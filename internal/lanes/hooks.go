@@ -271,6 +271,9 @@ type DenyPolicy struct {
 	// Commands are the only commands of Program a shell may run, by name, such as `lane list`: a first
 	// word of the program that names no command, as a route another process starts does, is denied.
 	Commands []string `json:"commands,omitempty"`
+	// Tools, when set, are the only tools the session may call: any other is denied, a tool of another
+	// MCP server and one a later CLI adds included, whatever a rule allowed.
+	Tools []string `json:"tools,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
 	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A

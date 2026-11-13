@@ -389,10 +389,25 @@ func packArgs(spec ports.SessionSpec) []string {
 	if spec.OnlyTools {
 		out = append(out, "--tools", "")
 	}
+	if spec.Assistant {
+		out = append(out, assistantArgs()...)
+	}
 	if spec.SystemPromptFile != "" {
 		out = append(out, "--append-system-prompt-file", spec.SystemPromptFile)
 	}
 	return append(out, agentArgs(spec)...)
+}
+
+// assistantArgs hold an assistant's session to what ropeshift gives it, whatever the person who signed the
+// CLI in has set up for themselves: its built-in tools alone, ropeshift's MCP server alone, which leaves out
+// the person's own servers and connectors, and no settings of the person's, so none of their plugins,
+// hooks, or permissions load. Its CLI keeps the person's home, where its sign-in lives, so a configuration
+// directory of its own, which would hold no sign-in, is not how it is held.
+func assistantArgs() []string {
+	return []string{
+		"--tools", strings.Join(assistantBuiltIns, ","), "--strict-mcp-config",
+		flagSettingSources, sourceProject + "," + sourceLocal,
+	}
 }
 
 // StartArgs is the command of a new session.

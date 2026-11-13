@@ -276,3 +276,26 @@ func TestTheHookDeniesAReadThroughALinkOutOfTheReadRoots(t *testing.T) {
 		t.Error("a file in the tree was denied")
 	}
 }
+
+// A session held to a list of tools is denied every other at the hook, its question tool included, which
+// is denied before it could be deferred.
+func TestTheHookDeniesAToolTheSessionDoesNotList(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "policy.json")
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{
+		Worktree: dir, QuestionTool: lanes.QuestionToolDefer, Tools: []string{"Read", "Bash", "mcp__ropeshift__context_get"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policy, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{event: eventPreToolUse, policy: policy}
+	for _, tool := range []string{lanes.ToolQuestion, "mcp__claude_ai_Gmail__send_message", "Monitor"} {
+		input := `{"tool_name":"` + tool + `","cwd":"` + dir + `","tool_input":{}}`
+		if verdict, answer := decide(cfg, []byte(input)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+			t.Errorf("%s: %v %s", tool, verdict, answer)
+		}
+	}
+}

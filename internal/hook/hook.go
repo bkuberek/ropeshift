@@ -364,6 +364,9 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 	if reason, held := policy.HoldsTool(call.Tool); held {
 		return callDenied, denial(reason)
 	}
+	if reason, unlisted := policy.Unlisted(call.Tool); unlisted {
+		return callDenied, denial(reason)
+	}
 	if call.Tool == lanes.ToolQuestion {
 		switch policy.QuestionTool {
 		case lanes.QuestionToolDefer:

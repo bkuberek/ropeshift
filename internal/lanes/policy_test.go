@@ -767,3 +767,25 @@ func TestASessionHeldToOneProgramRunsOnlyItsCommands(t *testing.T) {
 		}
 	}
 }
+
+// A session held to a list of tools runs those alone: any other, a vendor tool, a tool of another MCP
+// server, or one a later version adds, is denied whatever a rule allowed.
+func TestASessionHeldToItsToolsRunsNoOther(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/w", Tools: []string{"Read", "Bash", "mcp__ropeshift__context_get"}})
+	for _, tool := range []string{"Monitor", "LSP", "ReadMcpResourceTool", "mcp__claude_ai_Gmail__send_message", "mcp__ropeshift__lane_report", "Task", "Skill", "WebFetch", "AskUserQuestion"} {
+		if reason, denied := policy.Unlisted(tool); !denied || reason != ReasonUnlistedTool {
+			t.Errorf("%s: %q %v", tool, reason, denied)
+		}
+		if _, denied := policy.Decide(ToolCall{Tool: tool, Cwd: "/w"}); !denied {
+			t.Errorf("%s was decided as allowed", tool)
+		}
+	}
+	for _, tool := range []string{"Read", "Bash", "mcp__ropeshift__context_get"} {
+		if reason, denied := policy.Unlisted(tool); denied {
+			t.Errorf("%s was denied: %s", tool, reason)
+		}
+	}
+	if _, denied := CompilePolicy(PolicySpec{Worktree: "/w"}).Unlisted("Monitor"); denied {
+		t.Error("a session held to no list was held to one")
+	}
+}

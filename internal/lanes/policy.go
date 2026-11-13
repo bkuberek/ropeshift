@@ -130,6 +130,8 @@ type PolicySpec struct {
 	// commands of it the session may run, by name.
 	Program  string
 	Commands []string
+	// Tools, when set, are the only tools the session may call.
+	Tools []string
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -161,8 +163,20 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, ReadRoots: slices.Clone(spec.ReadRoots),
-		Program: spec.Program, Commands: slices.Clone(spec.Commands),
+		Program: spec.Program, Commands: slices.Clone(spec.Commands), Tools: slices.Clone(spec.Tools),
 	}
+}
+
+// ReasonUnlistedTool is what a session held to a list of tools is told of any other.
+const ReasonUnlistedTool = "ropeshift policy: this session calls only the tools it was given: reading and searching its files, " +
+	"its shell for ropeshift commands, and its own context tools. Use one of those."
+
+// Unlisted says a session held to a list of tools called one it does not list, and why that is denied.
+func (p DenyPolicy) Unlisted(tool string) (string, bool) {
+	if len(p.Tools) == 0 || slices.Contains(p.Tools, tool) {
+		return "", false
+	}
+	return ReasonUnlistedTool, true
 }
 
 // ToolCall is the part of a tool call a policy reads.
@@ -197,6 +211,9 @@ func (p DenyPolicy) WithLinks(links LinkReader) DenyPolicy {
 // to catch, and a hook is a guardrail, not a sandbox. The one exception is a file program that
 // runs with no prompt, whose targets it walks for a link when it has the disk (WithLinks).
 func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
+	if reason, unlisted := p.Unlisted(call.Tool); unlisted {
+		return reason, true
+	}
 	for _, rule := range p.Deny {
 		if rule.Tool == call.Tool && strings.HasPrefix(call.Command, rule.CommandPrefix) {
 			return rule.Reason, true
