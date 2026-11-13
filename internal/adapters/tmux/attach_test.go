@@ -123,6 +123,39 @@ func TestClientsOfAPaneTheServerDoesNotHoldIsNotFound(t *testing.T) {
 	}
 }
 
+// A server that is running but holds no sessions answers every target with "no current target", so
+// it reads as a pane that is not there.
+func TestAServerWithNoSessionsLeftHoldsNoPane(t *testing.T) {
+	newTerminal := func(t *testing.T) *tmux.Terminal {
+		return answeringTerminal(t, &answering{stderr: "no current target\n", code: 1})
+	}
+	t.Run("clients", func(t *testing.T) {
+		if _, err := newTerminal(t).Clients(t.Context(), "lane-g1"); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("err %v, want not found", err)
+		}
+	})
+	t.Run("pane", func(t *testing.T) {
+		if _, err := newTerminal(t).Pane(t.Context(), "lane-g1"); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("err %v, want not found", err)
+		}
+	})
+	t.Run("capture", func(t *testing.T) {
+		if _, err := newTerminal(t).Capture(t.Context(), "lane-g1"); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("err %v, want not found", err)
+		}
+	})
+	t.Run("screen", func(t *testing.T) {
+		if _, err := newTerminal(t).Screen(t.Context(), "lane-g1"); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("err %v, want not found", err)
+		}
+	})
+	t.Run("close", func(t *testing.T) {
+		if err := newTerminal(t).Close(t.Context(), "lane-g1"); err != nil {
+			t.Errorf("err %v, want nil", err)
+		}
+	})
+}
+
 // An attach hands tmux the person's own terminal, because the client reads the keyboard and draws on
 // the screen itself, and it is the only tmux call that stays in the person's session and group.
 func TestAttachRunsTheClientOnThePersonsTerminal(t *testing.T) {
