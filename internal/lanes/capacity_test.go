@@ -115,6 +115,9 @@ func TestRecommend(t *testing.T) {
 		{"enough lanes give their peaks", 8, ptr(32 * gib), peaks(10, 0.5, gib), 14, ledger.BasisObserved, ptr(int64(28))},
 		{"only the last window counts", 8, ptr(32 * gib), append(peaks(10, 4, 8*gib), peaks(50, 0.5, gib)...), 14, ledger.BasisObserved, ptr(int64(28))},
 		{"a peak it could not measure keeps that estimate", 8, ptr(32 * gib), peaks(10, 0, 4*gib), 7, ledger.BasisObserved, ptr(int64(7))},
+		// A peak far under the estimate counts as half the estimate, so a quiet run of lanes cannot lift the
+		// cap past twice what the estimates give: 64 GiB less 4 at 1 GiB, not at 400 MiB.
+		{"a peak is never under half the estimate", 32, ptr(64 * gib), peaks(10, 0.05, 400<<20), 60, ledger.BasisObserved, ptr(int64(60))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

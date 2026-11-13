@@ -2,14 +2,18 @@ package machine_test
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/adapters/machine"
 	"ropeshift.com/ropeshift/internal/adapters/osexec"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ports"
 )
 
 func TestParseMeminfo(t *testing.T) {
@@ -143,6 +147,30 @@ func TestParseProcStat(t *testing.T) {
 	}
 	if _, err := machine.ParseProcStat("4242 (short) S 1", 100, 4096); err == nil {
 		t.Error("a short line passed")
+	}
+	// A child the process has reaped keeps its CPU time in the tree, in cutime and cstime, so a build's
+	// compilers still count once they exit.
+	reaped := "4242 (make) S 4000 4242 4242 0 -1 4194560 100 0 0 0 250 150 30 20 20 0 1 0 100 1000000 300 18446744073709551615"
+	if stat, err := machine.ParseProcStat(reaped, 100, 4096); err != nil || stat.CPUSeconds != 4.5 {
+		t.Errorf("reaped children: %+v: %v", stat, err)
+	}
+}
+
+// TestADarwinTreeCountsReapedChildren asks ps to add each process's exited children to its time, which is
+// what cutime and cstime give on Linux.
+func TestADarwinTreeCountsReapedChildren(t *testing.T) {
+	runner := fake.NewProcessRunner()
+	runner.Install("/bin/ps", func(spec ports.ProcessSpec, _ <-chan struct{}) int {
+		_, _ = io.WriteString(spec.Stdout, "  10     1   2048     0:30.00\n  11    10   1024     0:15.00\n")
+		return 0
+	})
+	trees, err := machine.Reader{Processes: runner, GOOS: "darwin"}.ProcessTrees(context.Background(), []int{10})
+	if err != nil || trees[10].CPUSeconds != 45 {
+		t.Fatalf("trees %+v: %v", trees, err)
+	}
+	spawned := runner.Spawned()
+	if len(spawned) != 1 || !slices.Contains(spawned[0].Args, "-S") {
+		t.Errorf("ran %+v", spawned)
 	}
 }
 

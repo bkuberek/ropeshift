@@ -75,12 +75,17 @@ func TestCPUMeterAveragesTheLastMinute(t *testing.T) {
 			t.Errorf("at %v: %v cores, minute %v, ok %v; want %v, %v", step.after, cores, minute, ok, step.cores, step.minute)
 		}
 	}
-	// A new process tree starts its CPU time again, and so does the meter.
-	if _, _, ok := meter.Add(start.Add(90*time.Second), 1); ok {
-		t.Error("a tree whose CPU time went back gave a rate")
+	// A process that leaves the tree takes its CPU time with it, and a new generation starts its own from
+	// zero. Either way the meter goes on from where it stood and keeps its window, so a lane whose
+	// children come and go still reaches a minute's average.
+	if cores, minute, ok := meter.Add(start.Add(90*time.Second), 1); !ok || cores != 2.25 || !minute {
+		t.Errorf("after the tree's time went back: %v, minute %v, ok %v", cores, minute, ok)
 	}
-	if cores, _, ok := meter.Add(start.Add(105*time.Second), 16); !ok || cores != 1 {
-		t.Errorf("after a new tree: %v, %v", cores, ok)
+	if cores, minute, ok := meter.Add(start.Add(105*time.Second), 16); !ok || cores != 2 || !minute {
+		t.Errorf("a read after it: %v, minute %v, ok %v", cores, minute, ok)
+	}
+	if _, _, ok := meter.Add(start.Add(105*time.Second), 20); ok {
+		t.Error("a read with no time since the last gave a rate")
 	}
 }
 

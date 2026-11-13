@@ -26,6 +26,10 @@ const (
 	DefaultCPULoadWarn         = 1.5
 	// minReportInterval keeps a mistyped interval from turning the worker's measuring into a busy loop.
 	minReportInterval = time.Second
+	// ObservedFloor is the least share of an estimate an observed peak counts as. A peak measured low, by
+	// lanes that did little or by a tree whose CPU the worker could not see, lifts the recommendation at
+	// most to twice what the estimates give.
+	ObservedFloor = 0.5
 )
 
 // RecommendSettings is the [admission] table's recommendation settings, read, with every default applied.
@@ -226,7 +230,8 @@ type RecommendInput struct {
 //	max(1, min(floor((cores - reserve_cpu) / lane_cpu), floor((memory - reserve_memory) / lane_memory)))
 //
 // One lane's share is the profile's estimates until observed_min lanes have run, and from then on the
-// highest peak among the last observed_window lanes, each measure on its own. Memory it cannot read
+// highest peak among the last observed_window lanes, each measure on its own, and never under
+// ObservedFloor of its estimate. A measure no lane's peak holds keeps its estimate. Memory it cannot read
 // leaves the cores alone to decide. A machine whose cores it could not count has no recommendation.
 func Recommend(in RecommendInput) (ledger.LaneRecommendation, bool) {
 	if in.Cores <= 0 {
@@ -247,10 +252,10 @@ func Recommend(in RecommendInput) (ledger.LaneRecommendation, bool) {
 			cpu, memory = max(cpu, peak.CPU), max(memory, peak.MemoryBytes)
 		}
 		if cpu > 0 {
-			out.LaneCPU = cpu
+			out.LaneCPU = max(cpu, s.LaneCPU*ObservedFloor)
 		}
 		if memory > 0 {
-			out.LaneMemoryBytes = memory
+			out.LaneMemoryBytes = max(memory, int64(float64(s.LaneMemoryBytes)*ObservedFloor))
 		}
 	}
 	out.ByCPU = max(0, int64(math.Floor((float64(in.Cores)-out.ReserveCPU)/out.LaneCPU)))

@@ -58,18 +58,28 @@ type cpuPoint struct {
 }
 
 // CPUMeter turns a process tree's CPU time, read now and then, into the cores it kept busy: averaged over
-// the last minute, or over every read so far while there is less than a minute of them.
+// the last minute, or over every read so far while there is less than a minute of them. A tree's CPU time
+// can go back: a process that leaves the tree takes its time with it, and a new generation starts its own
+// from zero. The meter then goes on from where it stood, so it keeps its window and loses only the time
+// that left between two reads.
 type CPUMeter struct {
 	points []cpuPoint
+	// carried is the CPU time that left the tree, added to every later read so the series never goes back.
+	carried float64
+	last    float64
 }
 
 // Add takes one read and returns the cores kept busy, and whether that average spans a whole minute. A
-// first read, and a read whose CPU time went back, which is a new process tree, give no rate.
+// first read, and a read with no time since the one before, give no rate.
 func (m *CPUMeter) Add(at time.Time, seconds float64) (cores float64, minute, ok bool) {
-	if len(m.points) > 0 && (seconds < m.points[len(m.points)-1].seconds || !at.After(m.points[len(m.points)-1].at)) {
-		m.points = nil
+	if len(m.points) > 0 && !at.After(m.points[len(m.points)-1].at) {
+		return 0, false, false
 	}
-	m.points = append(m.points, cpuPoint{at: at, seconds: seconds})
+	if len(m.points) > 0 && seconds < m.last {
+		m.carried += m.last - seconds
+	}
+	m.last = seconds
+	m.points = append(m.points, cpuPoint{at: at, seconds: seconds + m.carried})
 	base := 0
 	for i, point := range m.points {
 		if !point.at.After(at.Add(-meterWindow)) {
@@ -80,8 +90,9 @@ func (m *CPUMeter) Add(at time.Time, seconds float64) (cores float64, minute, ok
 	if len(m.points) < 2 {
 		return 0, false, false
 	}
-	span := at.Sub(m.points[0].at)
-	return (seconds - m.points[0].seconds) / span.Seconds(), span >= meterWindow, true
+	newest, oldest := m.points[len(m.points)-1], m.points[0]
+	span := at.Sub(oldest.at)
+	return (newest.seconds - oldest.seconds) / span.Seconds(), span >= meterWindow, true
 }
 
 // LaneMeter follows one session: its CPU through a CPUMeter, and the most it used. A lane's CPU peak is

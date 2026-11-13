@@ -212,7 +212,7 @@ The worker recommends a cap from what the machine can run: its cores and its mem
 recommended = max(1, min(floor((cores - reserve_cpu) / lane_cpu), floor((memory - reserve_memory) / lane_memory)))
 ```
 
-What one lane takes starts as the estimates below. Once `observed_min` lanes have run on the worker, it is the highest peak among the last `observed_window` lanes instead: the cores a lane's process tree kept busy, and its resident memory. These settings are the machine's, so only your own layer sets them:
+What one lane takes starts as the estimates below. Once `observed_min` lanes have run on the worker, it is the highest peak among the last `observed_window` lanes instead: the cores a lane's process tree kept busy, averaged over a minute and counting the children its processes reaped, and its resident memory. A peak never counts as less than half its estimate, so a run of quiet lanes lifts the recommendation at most to twice what the estimates give. These settings are the machine's, so only your own layer sets them:
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
@@ -235,7 +235,7 @@ Each worker measures its machine and its sessions every `report_interval`, and s
 - The free space on the volumes that hold the state directory and the worktrees of the lanes that run.
 - The CPU and resident memory of each session's process tree: each lane and the orchestrator.
 
-On Linux the worker reads `/proc` for CPU, load, memory, pressure, and each process, and `statfs` for free space. On macOS it runs `sysctl`, `vm_stat`, and `ps`, and reports no machine CPU use and no memory pressure. A measure the machine cannot provide is reported as unavailable, never as zero.
+On Linux the worker reads `/proc` for CPU, load, memory, pressure, and each process, and `statfs` for free space; a process's CPU time includes the children it reaped. On macOS it runs `sysctl`, `vm_stat`, and `ps -S`, which adds each process's exited children to its time, and reports no machine CPU use and no memory pressure. A measure the machine cannot provide is reported as unavailable, never as zero.
 
 The `[resources]` table of your own layer sets how often the worker measures and where a measure warns. A warning shows on the machine; it never stops, parks, or refuses work by itself. Only the memory and CPU floors of `[admission]` hold a lane back.
 

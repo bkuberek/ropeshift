@@ -283,7 +283,8 @@ func (r Reader) ProcessTrees(ctx context.Context, roots []int) (map[int]lanes.Pr
 		stats, err = readProcStats()
 	case "darwin":
 		var raw []byte
-		if raw, err = r.output(ctx, ps, "-A", "-o", "pid=,ppid=,rss=,time="); err == nil {
+		// -S adds each process's exited children to its time, as cutime and cstime do on Linux.
+		if raw, err = r.output(ctx, ps, "-A", "-S", "-o", "pid=,ppid=,rss=,time="); err == nil {
 			stats, err = ParsePS(raw)
 		}
 	default:
@@ -428,7 +429,9 @@ type ProcessStat struct {
 }
 
 // ParseProcStat reads one /proc/<pid>/stat. A command name can hold spaces and parentheses, so the fields
-// count from the last closing parenthesis: the state, then the parent, and utime, stime, and rss further on.
+// count from the last closing parenthesis: the state, then the parent, and utime, stime, cutime, cstime, and
+// rss further on. The CPU time holds the children the process reaped, cutime and cstime, so a build's
+// compilers still count after they exit.
 func ParseProcStat(line string, hz, pageBytes int64) (ProcessStat, error) {
 	open, closing := strings.IndexByte(line, '('), strings.LastIndexByte(line, ')')
 	if open < 1 || closing < open {
@@ -439,22 +442,22 @@ func ParseProcStat(line string, hz, pageBytes int64) (ProcessStat, error) {
 		return ProcessStat{}, err
 	}
 	fields := strings.Fields(line[closing+1:])
-	const ppid, utime, stime, rss = 1, 11, 12, 21
+	const ppid, utime, stime, cutime, cstime, rss = 1, 11, 12, 13, 14, 21
 	if len(fields) <= rss {
 		return ProcessStat{}, errors.New("a short stat line")
 	}
-	var values [4]int64
-	for i, index := range []int{ppid, utime, stime, rss} {
+	var values [6]int64
+	for i, index := range []int{ppid, utime, stime, cutime, cstime, rss} {
 		if values[i], err = strconv.ParseInt(fields[index], 10, 64); err != nil {
 			return ProcessStat{}, err
 		}
 	}
 	return ProcessStat{
-		PID: pid, PPID: int(values[0]), CPUSeconds: float64(values[1]+values[2]) / float64(hz), RSSBytes: values[3] * pageBytes,
+		PID: pid, PPID: int(values[0]), CPUSeconds: float64(values[1]+values[2]+values[3]+values[4]) / float64(hz), RSSBytes: values[5] * pageBytes,
 	}, nil
 }
 
-// ParsePS reads `ps -A -o pid=,ppid=,rss=,time=`: resident memory in kilobytes, and CPU time as
+// ParsePS reads `ps -A -S -o pid=,ppid=,rss=,time=`: resident memory in kilobytes, and CPU time as
 // [dd-][hh:]mm:ss[.ss]. A line that does not read is skipped.
 func ParsePS(raw []byte) ([]ProcessStat, error) {
 	var stats []ProcessStat
