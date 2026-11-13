@@ -1045,6 +1045,15 @@ func (r *laneRun) generationStop() *sync.Once {
 	return r.stopOnce
 }
 
+// generationSession is the session the driver holds for the generation running now, and that generation's
+// stop. enterGeneration moves both together under the handle's lock, so reading them in one piece never
+// pairs a session with another generation's stop, which reading them one after the other can.
+func (r *laneRun) generationSession() (ports.SessionHandle, *sync.Once) {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	return r.handle, r.stopOnce
+}
+
 // stopWith spends a generation's stop. A caller that decides from what another goroutine moves takes the
 // stop before it decides, so a decision about one generation never spends the next one's.
 func (r *laneRun) stopWith(ctx context.Context, once *sync.Once, how ports.StopMode) {
