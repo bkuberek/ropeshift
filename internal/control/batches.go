@@ -180,6 +180,12 @@ func appendDelivery(tx ports.WriteTx, delivery questions.Delivery, actor ledger.
 // member's answer ends an orchestrator's hold. A question is answered once, and the
 // client's ID lets a retry find that answer.
 func (q *Questions) Answer(ctx context.Context, scope ledger.WorkspaceID, id string, answer questions.Answer, actor ledger.Actor) (questions.Decision, error) {
+	return q.AnswerFrom(ctx, scope, id, answer, actor, "")
+}
+
+// AnswerFrom is Answer with where the member's word came from, which the decision's event keeps: the web
+// listener, the command line, or the conversation the question showed in. Empty records none.
+func (q *Questions) AnswerFrom(ctx context.Context, scope ledger.WorkspaceID, id string, answer questions.Answer, actor ledger.Actor, channel string) (questions.Decision, error) {
 	if !authority.Allowed(actor, authority.ActionAnswerQuestion) {
 		return questions.Decision{}, workorders.ErrForbidden
 	}
@@ -216,7 +222,7 @@ func (q *Questions) Answer(ctx context.Context, scope ledger.WorkspaceID, id str
 		if err := admit(tx, &record, policy, actor); err != nil {
 			return err
 		}
-		if err := insertDecision(tx, record, actor); err != nil {
+		if err := insertDecisionFrom(tx, record, actor, channel); err != nil {
 			return err
 		}
 		if err := q.noticeOneWay(tx, record, actor); err != nil {

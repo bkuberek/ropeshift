@@ -437,7 +437,12 @@ func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error
 		return err
 	}
 	woken, err := wokenFor(tx, worker)
+	if err != nil {
+		return err
+	}
 	state.Woken = append(state.Woken, woken...)
+	assistants, err := desiredAssistants(tx, worker)
+	state.Assistants = append(state.Assistants, assistants...)
 	return err
 }
 
@@ -719,7 +724,11 @@ func (w *Workers) storeEvent(ctx context.Context, worker string, e ledger.Upload
 			return storeOrchestratorEvent(ctx, w.store.Installation(w.scope), worker, id, e)
 		}
 	}
-	return uploadResult(e, write(ctx))
+	err := write(ctx)
+	if err == nil {
+		w.afterAssistantUpload(ctx, worker, e)
+	}
+	return uploadResult(e, err)
 }
 
 // uploadResult answers one stored event: nothing when it stood, a result the worker keeps when the ledger
@@ -762,6 +771,11 @@ func storeOrchestratorEvent(ctx context.Context, installation ports.Installation
 func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
 	if e.Type == ledger.UploadEffectUnknown || e.Type == ledger.UploadEffectSettled {
 		return effectUpload(tx, worker, id, e)
+	}
+	if e.WorkOrder == "" && e.Lane != "" {
+		if handled, err := assistantUpload(tx, worker, id, e); handled {
+			return err
+		}
 	}
 	stamp := func(draft *ledger.EventDraft) { draft.ID, draft.OccurredAt = id, e.OccurredAt }
 	lease := workorders.Lease{WorkOrder: e.WorkOrder, ClaimID: e.ClaimID, Fence: e.Fence}

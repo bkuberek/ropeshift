@@ -29,6 +29,38 @@ func (h *handler) workerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/workers/{id}/rulings", h.workerRule)
 	mux.HandleFunc("POST /v1/workers/{id}/approvals/use", h.workerUseApproval)
 	mux.HandleFunc("POST /v1/workers/{id}/approvals/decide", h.workerDecideApproval)
+	mux.HandleFunc("POST /v1/workers/{id}/assistant-credentials", h.workerAssistantCredential)
+	mux.HandleFunc("POST /v1/workers/{id}/assistant-entries", h.workerAssistantEntry)
+}
+
+// workerAssistantCredential makes the credential of one generation of an assistant's run the worker holds.
+// The token crosses here once, to the worker that puts it in the session's environment.
+func (h *handler) workerAssistantCredential(w http.ResponseWriter, r *http.Request) {
+	var in ledger.AssistantCredentialRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	grant, err := h.plane.AssistantCredential(r.Context(), in)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, grant)
+}
+
+// workerAssistantEntry records a reply an assistant's run the worker holds wrote.
+func (h *handler) workerAssistantEntry(w http.ResponseWriter, r *http.Request) {
+	var in ledger.AssistantEntryRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Auth = authOf(r)
+	if err := h.plane.AssistantEntry(r.Context(), in); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // laneRoutes are a project's routes for its lanes and its fleet.

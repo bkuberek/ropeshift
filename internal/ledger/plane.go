@@ -8,8 +8,12 @@ import (
 )
 
 // ProtocolVersion is the plane protocol this build speaks. Version 2 names the project on every item
-// (ADR-0021).
-const ProtocolVersion = 2
+// (ADR-0021). Version 3 adds the assistant's sessions: desired state's assistants, the worker routes that
+// make a generation's credential and record a reply, and uploads from an assistant's run (ADR-0024).
+const ProtocolVersion = 3
+
+// ProtocolAssistants is the oldest protocol a worker runs the assistant on.
+const ProtocolAssistants = 3
 
 // ProtocolOldest is the oldest plane protocol any build serves. Version 1 named no project and served
 // only the installation's default project; a worker that speaks it is refused and must be upgraded.
@@ -432,6 +436,9 @@ type DesiredState struct {
 	ForgeRepositories []DesiredForgeRepository `json:"forge_repositories,omitempty"`
 	// PullRequests are the pull requests this worker opened whose work is still open, for it to watch.
 	PullRequests []DesiredPullRequest `json:"pull_requests,omitempty"`
+	// Assistants are the conversations a member runs on this worker, each the assistant's session for one
+	// member in one project (ADR-0024).
+	Assistants []DesiredAssistant `json:"assistants,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.
@@ -565,4 +572,88 @@ type JoinGrant struct {
 	Digest    string
 	CreatedBy string
 	UsedBy    string
+}
+
+// RunKindAssistant is the kind of a run that is the assistant's session, which a worker carries in the run's
+// lease record. The run has no work order, as an orchestrator's has none.
+const RunKindAssistant = "assistant"
+
+// DesiredAssistant is one conversation whose session this worker should run. Lane is the run lane this start
+// named, which no other start reuses, and Generation the conversation's generation the run began at: the
+// run's generation n is the conversation's Generation+n-1. Fresh says the session begins with an empty
+// context, after a clear, and Compactions counts the compactions the member asked of this run.
+type DesiredAssistant struct {
+	Project      string           `json:"project,omitempty"`
+	Conversation string           `json:"conversation"`
+	Member       string           `json:"member"`
+	MemberName   string           `json:"member_name,omitempty"`
+	Lane         string           `json:"lane"`
+	Generation   int64            `json:"generation"`
+	IdleStopMs   int64            `json:"idle_stop_ms"`
+	Fresh        bool             `json:"fresh,omitempty"`
+	Compactions  int64            `json:"compactions,omitempty"`
+	Messages     []DesiredMessage `json:"messages,omitempty"`
+}
+
+// AssistantCredentialRequest asks for the credential of one generation of an assistant's run, where the
+// generation is the run's own. It carries a worker's proof like any other call.
+type AssistantCredentialRequest struct {
+	Auth         WorkerAuth `json:"-"`
+	Epoch        int64      `json:"epoch"`
+	Project      string     `json:"project"`
+	Conversation string     `json:"conversation"`
+	Lane         string     `json:"lane"`
+	Generation   int64      `json:"generation"`
+}
+
+// AssistantGrant is a generation's credential, whose token this is the one time anyone sees, with what the
+// session's first prompt reads: the project's facts, and the conversation's newest entries, oldest first.
+type AssistantGrant struct {
+	Credential string                  `json:"credential"`
+	Token      string                  `json:"token"`
+	Context    AssistantContext        `json:"context"`
+	History    []AssistantHistoryEntry `json:"history,omitempty"`
+}
+
+// AssistantContext is what an assistant's pack states of its project beside its role.
+type AssistantContext struct {
+	Project      string                `json:"project"`
+	ProjectName  string                `json:"project_name"`
+	Member       string                `json:"member"`
+	MemberName   string                `json:"member_name,omitempty"`
+	Repositories []AssistantRepository `json:"repositories,omitempty"`
+	Plans        []AssistantPlan       `json:"plans,omitempty"`
+	Work         map[string]int64      `json:"work,omitempty"`
+}
+
+// AssistantRepository is one active repository of the project, and the branch its read-only tree follows.
+type AssistantRepository struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Base string `json:"base"`
+}
+
+// AssistantPlan is one open plan of the project.
+type AssistantPlan struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// AssistantHistoryEntry is one entry of a conversation as a fresh generation's first prompt states it.
+type AssistantHistoryEntry struct {
+	Kind string `json:"kind"`
+	Body string `json:"body,omitempty"`
+	At   int64  `json:"at"`
+}
+
+// AssistantEntryRequest is a reply an assistant's session wrote. ID names the vendor's message, so a retry
+// records it once.
+type AssistantEntryRequest struct {
+	Auth         WorkerAuth `json:"-"`
+	Epoch        int64      `json:"epoch"`
+	Project      string     `json:"project"`
+	Conversation string     `json:"conversation"`
+	Lane         string     `json:"lane"`
+	ID           string     `json:"id"`
+	Body         string     `json:"body"`
 }

@@ -194,7 +194,7 @@ func TestAWorkerOnProtocolOneIsRefused(t *testing.T) {
 	if !errors.As(err, &refused) {
 		t.Fatal(err)
 	}
-	if refused.Detail.Worker != 1 || refused.Detail.Oldest != ledger.ProtocolVersion || refused.Detail.Newest != ledger.ProtocolVersion {
+	if refused.Detail.Worker != 1 || refused.Detail.Oldest != ledger.ProtocolOldest || refused.Detail.Newest != ledger.ProtocolVersion {
 		t.Errorf("the refusal names protocols %d, %d, %d", refused.Detail.Worker, refused.Detail.Oldest, refused.Detail.Newest)
 	}
 	for _, want := range []string{"no longer served", "upgrade the worker"} {
