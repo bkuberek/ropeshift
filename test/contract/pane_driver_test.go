@@ -593,6 +593,8 @@ func TestAPlanningLanesHookSeesAPersonAttachToItsPane(t *testing.T) {
 	person.WaitFor(t, "fakeclaude")
 	eventually("the question tool left to the terminal", func() bool { return !denied() })
 
+	// A client takes keys within tmux's paste window of its attach as a paste, so the detach waits it out.
+	doubles.WaitOutPaste(t, r.terminal)
 	person.Type(t, "\x02d")
 	if err := <-attached; err != nil {
 		t.Fatalf("the attach ended with %v", err)
