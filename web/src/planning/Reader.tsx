@@ -9,14 +9,14 @@ import { requirementStates } from "../floor/states";
 import { Ago, useClock, ViewTime } from "../parts/parts";
 import { IconButton } from "../ui/controls";
 import { Diff } from "../ui/Diff";
-import { lineDiff } from "../ui/diff";
+import { lineDiff } from "../ui/lineDiff";
 import { Banner, Digest, StateBadge } from "../ui/display";
 import { Select } from "../ui/forms";
 import { useToast } from "../ui/overlays";
 import { DocumentText } from "./DocumentText";
-import { documentAddress, kindWord, reviewWords, versionLabel } from "./documents";
-import type { TreeItem } from "./documents";
-import { requirementStatus } from "./trace";
+import { documentAddress, kindWord, reviewWords, versionLabel } from "./documentTree";
+import type { TreeItem } from "./documentTree";
+import { requirementStatus } from "./requirementTrace";
 
 const outside = "This text comes from a repository, as anyone with a commit wrote it. It is shown as text: nothing in it runs, loads, or links.";
 

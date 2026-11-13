@@ -13,7 +13,7 @@ import { Banner, Digest, EmptyState, Panel, Refusal, SkeletonRows, StateBadge, T
 import { Field } from "../ui/forms";
 import { Dialog } from "../ui/overlays";
 import { AdoptionGroups, ChangedContracts, CoveredDocuments, DifferenceBlock, DraftDecisions } from "./PlanParts";
-import { versionLinks } from "./planParts";
+import { versionLinks } from "./planChanges";
 
 // Subject is what the page decides on: one version of a plan and the request to approve it. A plan the ledger
 // does not hold yet, which a branch's first version is, has no plan, and its request is read by its own ID.

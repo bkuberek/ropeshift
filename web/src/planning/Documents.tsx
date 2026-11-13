@@ -4,12 +4,12 @@ import { LinkTabs } from "../ui/controls";
 import { EmptyState } from "../ui/display";
 import { Icon } from "../ui/Icon";
 import { Link } from "../app/route";
-import { documentAddress, homes, homeWords, openedDocument, treeOf } from "./documents";
-import type { TreeItem } from "./documents";
+import { documentAddress, homes, homeWords, openedDocument, treeOf } from "./documentTree";
+import type { TreeItem } from "./documentTree";
 import { FileReader, RecordedReader } from "./Reader";
 import { StartSession } from "./StartSession";
 import { Matrix, TracePanel } from "./Trace";
-import { documentsAddress } from "./trace";
+import { documentsAddress } from "./requirementTrace";
 
 // DocumentsTabs are the view's two tabs. Each has an address of its own, so switching between them changes the
 // address, and a requirement a person selected goes with it.

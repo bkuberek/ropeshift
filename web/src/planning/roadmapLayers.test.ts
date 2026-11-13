@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PlanProgress, PlannedWork } from "../api/types";
 import { golden } from "../testing";
-import { layersByMilestone, noMilestone, waitingVersions } from "./roadmap";
+import { layersByMilestone, noMilestone, waitingVersions } from "./roadmapLayers";
 
 const order = (id: string, milestone?: string): PlannedWork => ({ id, title: id, state: "ready", milestone });
 

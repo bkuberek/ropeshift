@@ -26,7 +26,7 @@ import { Until } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
 import { Absent, Banner, Panel, Refusal, TableRegion } from "../ui/display";
 import { Diff } from "../ui/Diff";
-import { lineDiff } from "../ui/diff";
+import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Documents, PlanDocuments, RequirementTrace, TracedCriterion, TracedWork } from "../api/types";
 import { golden } from "../testing";
-import { documentsAddress, filterRows, requirementStatus, rowsOf, statusFilters } from "./trace";
+import { documentsAddress, filterRows, requirementStatus, rowsOf, statusFilters } from "./requirementTrace";
 
 const work = (id: string, state: string, verdict?: TracedWork["verdict"]): TracedWork => ({ id, title: id, state, verdict });
 

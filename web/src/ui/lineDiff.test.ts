@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { lineDiff } from "./diff";
+import { lineDiff } from "./lineDiff";
 
 describe("lineDiff", () => {
   it("keeps the lines both sides share and marks what one side lacks", () => {

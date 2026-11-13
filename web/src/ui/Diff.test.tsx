@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Diff } from "./Diff";
-import { lineDiff } from "./diff";
+import { lineDiff } from "./lineDiff";
 
 describe("the diff", () => {
   it("shows each changed line with its sign in words as well as in color", () => {

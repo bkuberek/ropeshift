@@ -1,4 +1,4 @@
-import type { DiffLine } from "./diff";
+import type { DiffLine } from "./lineDiff";
 
 // Diff shows a difference by line: what goes in green with a plus, what goes out in red with a minus.
 export function Diff({ lines, label }: { lines: DiffLine[]; label: string }) {

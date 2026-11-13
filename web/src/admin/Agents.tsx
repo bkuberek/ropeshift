@@ -8,7 +8,7 @@ import { Page } from "../parts/parts";
 import { Button, Segmented, Tabs, TabPanel } from "../ui/controls";
 import { Badge, Banner, EmptyState, Panel, Refusal, TableRegion } from "../ui/display";
 import { Diff } from "../ui/Diff";
-import { lineDiff } from "../ui/diff";
+import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
 import { Dialog, useToast } from "../ui/overlays";
 import { agentLines, changedFields } from "./logic";

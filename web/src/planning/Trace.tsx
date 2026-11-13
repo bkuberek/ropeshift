@@ -6,8 +6,8 @@ import { requirementStates, verdictStates } from "../floor/states";
 import { FilterChip } from "../ui/controls";
 import { Digest, EmptyState, Panel, StateBadge, TableRegion, WorkBadge } from "../ui/display";
 import { Select } from "../ui/forms";
-import { documentsAddress, filterRows, requirementStatus, rowsOf, statusFilters, workOf } from "./trace";
-import type { Row } from "./trace";
+import { documentsAddress, filterRows, requirementStatus, rowsOf, statusFilters, workOf } from "./requirementTrace";
+import type { Row } from "./requirementTrace";
 
 // A requirement's criteria, gathered under the contract that holds them, in the order they came.
 type TracedContract = { contract: string; title: string; version: number; criteria: TracedCriterion[] };

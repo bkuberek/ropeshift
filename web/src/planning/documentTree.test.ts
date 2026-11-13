@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Documents } from "../api/types";
 import { golden } from "../testing";
-import { homeOfKind, openedDocument, reviewWords, treeOf, versionLabel } from "./documents";
+import { homeOfKind, openedDocument, reviewWords, treeOf, versionLabel } from "./documentTree";
 
 const view = golden<Documents>("documents");
 

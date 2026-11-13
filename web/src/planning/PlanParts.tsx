@@ -7,9 +7,9 @@ import { useView } from "../api/useView";
 import { addressOf, Link } from "../app/route";
 import { Badge, Banner } from "../ui/display";
 import { Icon } from "../ui/Icon";
-import { kindWord } from "./documents";
-import { changeLines, refKind, refName } from "./planParts";
-import type { Change } from "./planParts";
+import { kindWord } from "./documentTree";
+import { changeLines, refKind, refName } from "./planChanges";
+import type { Change } from "./planChanges";
 
 const changeLook: Record<Change, { tone: "success" | "active" | "neutral"; glyph: "dot" | "half" | "cross"; label: string }> = {
   added: { tone: "success", glyph: "dot", label: "Added" },

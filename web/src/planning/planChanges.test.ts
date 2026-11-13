@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Difference } from "../api/types";
-import { changeLines, refKind, refName, versionLinks } from "./planParts";
+import { changeLines, refKind, refName, versionLinks } from "./planChanges";
 
 describe("a difference between plan versions", () => {
   it("reads a reference as the kind of record it names and the ID inside the file", () => {
