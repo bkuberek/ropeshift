@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,12 @@ const capsWorker = "worker-caps"
 // second socket.
 func capsDaemon(t *testing.T) (*apitest.Daemon, *fake.ProfileSource, string) {
 	t.Helper()
+	return capsDaemonWith(t, "8 cores less 1 reserved fit 7 lanes", []string{"state"})
+}
+
+// capsDaemonWith is capsDaemon with the reason and the volume roles the worker reports.
+func capsDaemonWith(t *testing.T, reason string, roles []string) (*apitest.Daemon, *fake.ProfileSource, string) {
+	t.Helper()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	token, err := d.Client.CreateJoinToken(ctx)
@@ -43,8 +50,11 @@ func capsDaemon(t *testing.T) (*apitest.Daemon, *fake.ProfileSource, string) {
 	}
 	report := ledger.ResourceReport{
 		IntervalMs: 15_000, Machine: ledger.MachineResources{Cores: 8, Volumes: []ledger.VolumeResources{}}, Sessions: []ledger.SessionResources{},
-		Recommendation: &ledger.LaneRecommendation{MaxLanes: 7, Basis: ledger.BasisEstimates, Cores: 8, Reason: "8 cores less 1 reserved fit 7 lanes"},
+		Recommendation: &ledger.LaneRecommendation{MaxLanes: 7, Basis: ledger.BasisEstimates, Cores: 8, Reason: reason},
 		Caps:           ledger.LaneCaps{MaxLanes: 7},
+	}
+	if len(roles) > 1 || roles[0] != "state" {
+		report.Machine.Volumes = []ledger.VolumeResources{{Roles: roles, FreeBytes: 1 << 30, TotalBytes: 1 << 40}}
 	}
 	if _, err := worker.Heartbeat(ctx, capsWorker, ledger.Heartbeat{Epoch: session.Epoch, Protocol: ledger.ProtocolVersion, Nonce: "n", Report: &report}); err != nil {
 		t.Fatal(err)
@@ -116,6 +126,25 @@ func TestWorkerListShowsWhatEachWorkerMeasured(t *testing.T) {
 	for _, want := range []string{"worker-caps\tcaps\tepoch 1\t", "cpu unavailable  load unavailable  memory unavailable  disk unavailable  cap 7, the recommendation", "measured "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in:\n%s", want, out)
+		}
+	}
+}
+
+// TestWorkerTextPrintsNoControlCharacters prints what a worker wrote with its control characters replaced,
+// as top does, because a worker's report reaches a person's terminal.
+func TestWorkerTextPrintsNoControlCharacters(t *testing.T) {
+	d, _, socket := capsDaemonWith(t, "seven fit\x1b]0;owned\x07\nnext line", []string{"state\x1b[31m"})
+	for _, run := range []struct {
+		socket string
+		args   []string
+	}{{socket, []string{"worker", "caps", capsWorker}}, {d.Socket, []string{"worker", "list"}}} {
+		var stdout, stderr bytes.Buffer
+		if code := cli.Run(run.args, &stdout, &stderr, cli.Options{Socket: run.socket, Session: d.Session}); code != cli.ExitOK {
+			t.Fatalf("%v: exit %d: %s", run.args, code, stderr.String())
+		}
+		lines := strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n")
+		if strings.ContainsAny(stdout.String(), "\x1b\x07") || slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, "next line") }) {
+			t.Errorf("%v printed %q", run.args, stdout.String())
 		}
 	}
 }

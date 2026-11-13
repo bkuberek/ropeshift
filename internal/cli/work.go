@@ -673,7 +673,7 @@ func (c *invocation) workerList(args []string) int {
 	return c.finish(err, list, func() string {
 		var out strings.Builder
 		for _, worker := range list.Workers {
-			fmt.Fprintf(&out, "%s\t%s\tepoch %d\tprotocol %d\t%s", worker.ID, worker.Name, worker.Epoch, worker.Protocol, api.ResourceWords(worker.Report))
+			fmt.Fprintf(&out, "%s\t%s\tepoch %d\tprotocol %d\t%s", api.Printable(worker.ID), api.Printable(worker.Name), worker.Epoch, worker.Protocol, api.ResourceWords(worker.Report))
 			if worker.Report != nil {
 				fmt.Fprintf(&out, "  measured %s ago", api.AgeWords(list.AsOf-worker.ReportedAt))
 			}

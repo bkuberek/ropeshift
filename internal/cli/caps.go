@@ -58,12 +58,13 @@ func (c *invocation) workerCaps(args []string) int {
 	}
 	view, err = client.SetLaneCaps(c.ctx, worker, change)
 	if err == nil && view.Warning != nil && !c.asJSON {
-		fmt.Fprintf(c.stderr, "ropeshift %s: warning: %s\n", c.name, view.Warning.Message)
+		fmt.Fprintf(c.stderr, "ropeshift %s: warning: %s\n", c.name, api.Printable(view.Warning.Message))
 	}
 	return c.finish(err, view, func() string { return capsText(view) })
 }
 
-// capsText states a worker's caps the way a person reads them, with the recommendation and its reason.
+// capsText states a worker's caps the way a person reads them, with the recommendation and its reason,
+// which the worker wrote and so prints safe for a terminal.
 func capsText(view ledger.WorkerCaps) string {
 	var out strings.Builder
 	switch {
@@ -76,7 +77,7 @@ func capsText(view ledger.WorkerCaps) string {
 	}
 	fmt.Fprintf(&out, "max_lanes_per_sign_in\t%s\n", capWords(view.MaxLanesPerSignIn))
 	if view.Recommendation != nil {
-		fmt.Fprintf(&out, "recommended\t%d: %s\n", view.Recommendation.MaxLanes, view.Recommendation.Reason)
+		fmt.Fprintf(&out, "recommended\t%d: %s\n", view.Recommendation.MaxLanes, api.Printable(view.Recommendation.Reason))
 	} else {
 		out.WriteString("recommended\tnot reported yet\n")
 	}

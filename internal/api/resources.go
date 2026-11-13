@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -11,6 +13,20 @@ import (
 
 // unavailable is what a measure the machine could not provide reads as. It is never zero.
 const unavailable = "unavailable"
+
+// Printable is text a worker or an agent wrote, made safe for a terminal: a line break or a tab is a
+// space, and a control or format character, or a byte that is no character, is a question mark.
+func Printable(text string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return ' '
+		case r == utf8.RuneError, unicode.Is(unicode.Cc, r), unicode.Is(unicode.Cf, r):
+			return '?'
+		}
+		return r
+	}, text)
+}
 
 // ResourceWords says what a worker last measured of its machine the way a person reads it (FR-OBS-8,
 // FR-UI-10): CPU, load, memory, free disk, the cap in force beside the recommendation, and the warnings. A
@@ -34,7 +50,7 @@ func ResourceWords(report *ledger.ResourceReport) string {
 			if warning.Volume != "" {
 				measure += " " + warning.Volume
 			}
-			measures = append(measures, measure)
+			measures = append(measures, Printable(measure))
 		}
 		parts = append(parts, "warnings "+strings.Join(measures, ", "))
 	}
@@ -89,7 +105,7 @@ func diskWords(volumes []ledger.VolumeResources) string {
 	}
 	parts := make([]string, 0, len(volumes))
 	for _, volume := range volumes {
-		parts = append(parts, strings.Join(volume.Roles, " and ")+" "+lanes.BytesWords(volume.FreeBytes)+" free")
+		parts = append(parts, Printable(strings.Join(volume.Roles, " and "))+" "+lanes.BytesWords(volume.FreeBytes)+" free")
 	}
 	return strings.Join(parts, ", ")
 }
