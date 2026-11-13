@@ -76,12 +76,15 @@ func (d *contextDriver) finishes() {
 	d.report(ports.SessionSpec{}, records[0].ID)
 }
 
-// atWork crosses the compact threshold at rest, compacts, and finishes.
+// atWork crosses the compact threshold at rest, compacts, and holds the turn the go-on starts. It
+// answers that go-on only under the worker that takes over (readOn), because a report here could
+// reach the journal before the kill at `continued` lands, and a lane that already ended owes nothing
+// a broken restart could send again.
 func (d *contextDriver) atWork() fake.DriverScript {
 	return fake.DriverScript{SessionID: "session-1", Model: "fixture", Turns: [][]fake.DriverStep{
 		{{Bound: true}, contextUsage(30), contextUsage(160), contextTurn(0.01)},
 		{{Compaction: true}, contextTurn(0.01)},
-		{contextUsage(40), d.responds(), contextTurn(0.02)},
+		{{Hold: true}},
 	}}
 }
 
