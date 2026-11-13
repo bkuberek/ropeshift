@@ -25,6 +25,7 @@ func auditTypes(page api.AuditPage) []string {
 // The project's audit reads its log newest first, each event with who did it and its whole record, and
 // pages back through it with the revision each page names.
 func TestTheAuditReadsTheLogNewestFirst(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	project := d.Client.Project(apitest.ProjectName)
 	for i := range 3 {
@@ -54,6 +55,7 @@ func TestTheAuditReadsTheLogNewestFirst(t *testing.T) {
 
 // Each filter narrows the audit on its own, and one that matches nothing answers an empty page.
 func TestTheAuditFilters(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	project := d.Client.Project(apitest.ProjectName)
 	createWork(t, project, "wo-1", "Ship the invoice export")
@@ -83,6 +85,7 @@ func TestTheAuditFilters(t *testing.T) {
 
 // The installation's audit reads its own log, which holds the projects' lifecycle.
 func TestTheInstallationAuditReadsItsOwnLog(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t)
 	if _, err := in.Client.CreateProject(t.Context(), api.CreateProject{Name: "beta"}); err != nil {
 		t.Fatal(err)
@@ -99,6 +102,7 @@ func TestTheInstallationAuditReadsItsOwnLog(t *testing.T) {
 // The members list names who holds a session, never a session's token. The harness signs in with no
 // member record, so how many are enrolled is not what this holds.
 func TestTheMembersListNamesWhoHoldsASession(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	list, err := d.Client.Members(t.Context())
 	if err != nil {
@@ -116,6 +120,7 @@ func TestTheMembersListNamesWhoHoldsASession(t *testing.T) {
 // A backup a browser downloads is the project's ledger, the same copy a backup to a file writes, and it
 // needs a member as that does. Nothing of it stays behind.
 func TestABackupDownloadsAsTheLedger(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	_, _, acme := in.In(t, "acme")
 	createWork(t, acme, "wo-acme", "Ship the invoice export")
@@ -152,6 +157,7 @@ func TestABackupDownloadsAsTheLedger(t *testing.T) {
 // A backup a browser uploads registers its project as an import of a file does, under a name the upload
 // chooses, and an upload with no backup or no member is refused.
 func TestAnUploadedBackupImportsItsProject(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	_, _, acme := in.In(t, "acme")
 	createWork(t, acme, "wo-acme", "Ship the invoice export")

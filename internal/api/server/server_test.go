@@ -61,6 +61,7 @@ func wantRefused(t *testing.T, err error, status int, code string) {
 }
 
 func TestHealthReadsTheStore(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	health, err := d.Client.Health(t.Context())
 	if err != nil {
@@ -79,6 +80,7 @@ func TestHealthReadsTheStore(t *testing.T) {
 // Health says where the web UI listens, so a command names a page at the address the daemon bound, and a
 // daemon with no web UI says none.
 func TestHealthSaysWhereTheWebUIListens(t *testing.T) {
+	t.Parallel()
 	d := apitest.StartWith(t, apitest.Options{WebAddress: "127.0.0.1:49152"})
 	health, err := d.Client.Health(t.Context())
 	if err != nil || health.Web != "127.0.0.1:49152" {
@@ -91,6 +93,7 @@ func TestHealthSaysWhereTheWebUIListens(t *testing.T) {
 }
 
 func TestCreateListShow(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	first := createReady(t, d, "wo-1")
@@ -117,6 +120,7 @@ func TestCreateListShow(t *testing.T) {
 }
 
 func TestCreateRetryReturnsTheFirstAnswer(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	request := api.CreateWorkOrder{ID: "wo-1", Title: "One", Criteria: []planning.Criterion{{ID: "c1", Text: "It works"}}}
@@ -145,6 +149,7 @@ func TestCreateRetryReturnsTheFirstAnswer(t *testing.T) {
 // TestLedgerAloneHoldsWork is FR-LEDGER-3: no source, and work still reaches a
 // claim through the definition of ready.
 func TestLedgerAloneHoldsWork(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	createReady(t, d, "wo-1")
@@ -170,6 +175,7 @@ func TestLedgerAloneHoldsWork(t *testing.T) {
 }
 
 func TestReviewRefusals(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	if _, err := d.Client.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "bare", Title: "No criteria"}); err != nil {
@@ -187,6 +193,7 @@ func TestReviewRefusals(t *testing.T) {
 }
 
 func TestRacingClaimsHaveOneWinner(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	createReady(t, d, "wo-1")
 	const racers = 8
@@ -218,6 +225,7 @@ func TestRacingClaimsHaveOneWinner(t *testing.T) {
 }
 
 func TestClaimRetryReturnsTheGrant(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	createReady(t, d, "wo-1")
@@ -236,6 +244,7 @@ func TestClaimRetryReturnsTheGrant(t *testing.T) {
 }
 
 func TestStaleWriteGetsTheCurrentFence(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	createReady(t, d, "wo-1")
@@ -264,6 +273,7 @@ func TestStaleWriteGetsTheCurrentFence(t *testing.T) {
 // TestWriteRetryStoresOneEvent is a write whose answer was lost: the retry finds
 // the first write and repeats nothing, even after the holder lost the fence.
 func TestWriteRetryStoresOneEvent(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	createReady(t, d, "wo-1")
@@ -289,6 +299,7 @@ func TestWriteRetryStoresOneEvent(t *testing.T) {
 }
 
 func TestReleaseAndReassignRefusals(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	createReady(t, d, "wo-1")
@@ -309,12 +320,14 @@ func TestReleaseAndReassignRefusals(t *testing.T) {
 }
 
 func TestClaimOfUnknownWorkOrder(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	_, err := d.Client.Claim(t.Context(), "absent", api.ClaimRequest{ClaimID: "c", WorkerID: "w"})
 	wantRefused(t, err, http.StatusNotFound, api.CodeNotFound)
 }
 
 func TestInvalidRequests(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx := t.Context()
 	tests := []struct {
@@ -354,6 +367,7 @@ func TestInvalidRequests(t *testing.T) {
 }
 
 func TestSourcesList(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	list, err := d.Client.Sources(t.Context())
 	if err != nil {
@@ -365,6 +379,7 @@ func TestSourcesList(t *testing.T) {
 }
 
 func TestMalformedBodyIsRefused(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	var raw json.RawMessage = []byte(`{"unknown_field": 1}`)
 	err := d.Client.Do(t.Context(), http.MethodPost, apitest.Route("/v1/work-orders"), raw, nil)
@@ -372,6 +387,7 @@ func TestMalformedBodyIsRefused(t *testing.T) {
 }
 
 func TestListenMakesAPrivateSocket(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(apitest.ShortDir(t), "run")
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		t.Fatal(err)
@@ -399,6 +415,7 @@ func TestListenMakesAPrivateSocket(t *testing.T) {
 }
 
 func TestListenRefusesAPathOverTheLimit(t *testing.T) {
+	t.Parallel()
 	long := "/tmp/" + string(make([]byte, 0)) + filepath.Join(fillPath(120), api.ControlSocketName)
 	if _, err := server.Listen(long); err == nil {
 		t.Error("a socket path over the limit was accepted")
@@ -414,6 +431,7 @@ func fillPath(n int) string {
 }
 
 func TestErrorsNameTheirActor(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	createReady(t, d, "wo-1")
 	var last ledger.Event

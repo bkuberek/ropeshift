@@ -43,6 +43,7 @@ func workIDs(t *testing.T, client *api.ProjectClient) []string {
 // routes read and write its own database, an ID in one project names nothing in the other, and a
 // ladder lookup in one project finds none of the other's decisions.
 func TestTwoProjectsKeepTheirRecordsApart(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	_, _, home := in.In(t, apitest.ProjectName)
 	_, _, acme := in.In(t, "acme")
@@ -87,6 +88,7 @@ func TestTwoProjectsKeepTheirRecordsApart(t *testing.T) {
 // TestEachProjectHasADatabaseOfItsOwn holds FR-PROJ-1 on the disk: the registry names a file for each
 // project, and the files are different.
 func TestEachProjectHasADatabaseOfItsOwn(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme", "beta")
 	projects, err := in.State.List(t.Context())
 	if err != nil {
@@ -110,6 +112,7 @@ func TestEachProjectHasADatabaseOfItsOwn(t *testing.T) {
 // TestTheRegistryListsEveryProject is what a client reads to choose a project: each one with its state and
 // the repositories it holds, and one project's record with its database.
 func TestTheRegistryListsEveryProject(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	_, err := in.State.Installation.IndexRepositories(t.Context(), []ledger.IndexedRepository{
 		{Identity: "example.com/acme/invoices", Project: "acme-id", Repository: "r1"},
@@ -138,6 +141,7 @@ func TestTheRegistryListsEveryProject(t *testing.T) {
 // TestAPathThatNamesNoProjectIsRefused says which name it did not find, apart from a record that is not
 // there.
 func TestAPathThatNamesNoProjectIsRefused(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t)
 	_, err := in.Client.Project("nowhere").WorkOrders(t.Context(), "")
 	refusedWith(t, err, http.StatusNotFound, api.CodeNoProject)
@@ -148,6 +152,7 @@ func TestAPathThatNamesNoProjectIsRefused(t *testing.T) {
 // TestARouteWithNoProjectIsGone holds that every surface names a project: a control plane answers a
 // route with no project as a route it does not have, and marks nothing deprecated.
 func TestARouteWithNoProjectIsGone(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	err := d.Client.Do(t.Context(), http.MethodGet, "/v1/work-orders", nil, nil)
 	var refused *api.Error
@@ -172,6 +177,7 @@ func TestARouteWithNoProjectIsGone(t *testing.T) {
 // worker that speaks it is refused at its session with 426 and the code `protocol`, and the message says
 // to upgrade the worker.
 func TestAWorkerOnProtocolOneIsRefused(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	token, err := d.Client.CreateJoinToken(t.Context())
 	if err != nil {
@@ -204,6 +210,7 @@ func TestAWorkerOnProtocolOneIsRefused(t *testing.T) {
 // TestEachProjectBacksUpOnItsOwn holds FR-PROJ-9 through the API: a project's backup holds that project's
 // records, the installation's holds the member, and each needs a member's session.
 func TestEachProjectBacksUpOnItsOwn(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	_, _, home := in.In(t, apitest.ProjectName)
 	_, _, acme := in.In(t, "acme")
@@ -262,6 +269,7 @@ func rowsIn(t *testing.T, file, table string) []string {
 // every active project, the longest wait first, each item labeled with its project, and an archived project
 // lists nothing.
 func TestTheCombinedNeedsYouListsEveryActiveProject(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "beta")
 	_, _, beta := in.In(t, "beta")
 	createWork(t, in.Client, "wo-home", "Add the retry budget")

@@ -34,6 +34,7 @@ func kindsOf(records []api.SearchRecord) []string {
 // TestSearch reads the search read model of one world, which every case shares, because a world takes
 // seconds to build under the race detector.
 func TestSearch(t *testing.T) {
+	t.Parallel()
 	d := aDetailedWorld(t)
 	// The palette finds a record by its ID, which ranks first, with its kind, title, and state.
 	t.Run("finds a record by its ID", func(t *testing.T) {
@@ -123,6 +124,7 @@ func TestSearch(t *testing.T) {
 
 // The web listener serves the search, and the command that does the same is `view search`.
 func TestTheWebListenerServesTheSearch(t *testing.T) {
+	t.Parallel()
 	want := api.ProjectRoute(api.ViewPath(api.ViewSearch))
 	found := slices.ContainsFunc(api.WebRoutes(), func(route api.WebRoute) bool {
 		return route.Pattern == want && route.Command == "view "+api.ViewSearch

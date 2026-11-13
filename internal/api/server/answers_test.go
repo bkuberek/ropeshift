@@ -44,6 +44,7 @@ func checkAnswerWindow(t *testing.T, d *apitest.Daemon, lane string) {
 // TestAMembersAnswerTakesTheDaemonsWindow reads what the daemon was configured with on the path a
 // member's command takes.
 func TestAMembersAnswerTakesTheDaemonsWindow(t *testing.T) {
+	t.Parallel()
 	d := apitest.StartWith(t, apitest.Options{Windows: messages.Windows{messages.KindAnswer: answerWindow}})
 	lane := attached(t, d, "q1")
 	if _, err := d.Client.AnswerQuestion(t.Context(), "q1-lane", api.AnswerQuestion{ID: "d1", Answer: "Twice.", Rationale: "It follows."}); err != nil {
@@ -54,6 +55,7 @@ func TestAMembersAnswerTakesTheDaemonsWindow(t *testing.T) {
 
 // TestARulingTakesTheDaemonsWindow is the same on the worker plane, which holds use cases of its own.
 func TestARulingTakesTheDaemonsWindow(t *testing.T) {
+	t.Parallel()
 	d := apitest.StartWith(t, apitest.Options{Windows: messages.Windows{messages.KindAnswer: answerWindow}})
 	r := rulingRigOn(t, d)
 	lane := attached(t, d, "q1")
