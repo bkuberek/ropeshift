@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { readView, setCurrentProject, signOut } from "../api/client";
 import type { NeedItem, Project, ShopFloor } from "../api/types";
@@ -8,13 +9,16 @@ import { useView } from "../api/useView";
 import { headingOf } from "../needs/kinds";
 import { NeedsYou } from "../needs/NeedsYou";
 import { useClock } from "../parts/parts";
+import { TalkProvider, useTalk } from "../talk/state";
+import type { Talk } from "../talk/state";
+import { Surface } from "../talk/Surface";
 import { Banner } from "../ui/display";
 import { ToastProvider } from "../ui/overlays";
 import { inField, idle, onMac, readKey } from "./keys";
 import { NoSuchView, PageFor } from "./pages";
 import type { Entry } from "./ranking";
 import { Palette } from "./Palette";
-import { recentRecords, useFlag } from "./prefs";
+import { recentRecords, useDockWidth, useFlag } from "./prefs";
 import { ArrivalsProvider, CurrentProject, go, inProject, Link, useRoute } from "./route";
 import type { View } from "./routes";
 import { goKeys, resolve, titleOf } from "./routes";
@@ -77,6 +81,13 @@ function focusPrimary(): void {
   (shown("#main .decision .decide .btn-primary")[0] ?? buttons[buttons.length - 1])?.focus();
 }
 
+// TalkBridge hands the conversation surface's controls to the shell's key handler and palette, which stand
+// outside the provider that holds them.
+function TalkBridge({ into }: { into: { current: Talk | null } }) {
+  into.current = useTalk();
+  return null;
+}
+
 // App is the shell around every view: the top bar, the sidebar, the content, the conversation dock, and
 // the status bar. Needs you stays mounted behind every other view, so an answer in progress survives a
 // look elsewhere, and every view stays mounted behind a sign-in.
@@ -93,6 +104,9 @@ export function App() {
   const mac = useMemo(onMac, []);
   const [singleKeys, setSingleKeys] = useFlag("ropeshift-single-keys", true);
   const [dockOpen, setDockOpen] = useFlag("ropeshift-dock", false);
+  const [dockPx, setDockPx] = useDockWidth();
+  const talkRef = useRef<Talk | null>(null);
+  const openDock = useCallback(() => setDockOpen(true), [setDockOpen]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -104,6 +118,9 @@ export function App() {
   const marked = resolved.kind === "pick-project" ? resolved.view : view;
   const needsSession = projects.needsSession || needs.needsSession;
   const signedIn = needs.view !== null && !needsSession;
+  // The Conversations view holds the surface in full, so the dock stands aside there and the keys go to it.
+  const onConversations = view === "conversations";
+  const dockVisible = dockOpen && signedIn && !onConversations;
   const live = useMemo(() => ({ heard: needs.heard, checkSession: needs.checkSession }), [needs.heard, needs.checkSession]);
   useDocumentTitle(resolved.kind === "view" || resolved.kind === "pick-project" || resolved.kind === "missing" ? marked : "needs-you");
 
@@ -129,6 +146,18 @@ export function App() {
   const signedInAgain = async () => {
     await needs.reload();
     await projects.reload();
+  };
+
+  // The dock opens with the cursor in its message box, and on the Conversations view the key goes there.
+  const toggleDock = () => {
+    if (onConversations || !dockOpen) {
+      if (!onConversations) {
+        setDockOpen(true);
+      }
+      talkRef.current?.requestFocus();
+      return;
+    }
+    setDockOpen(false);
   };
 
   useEffect(() => {
@@ -168,7 +197,13 @@ export function App() {
           switcher.setOpen(true);
           break;
         case "dock":
-          setDockOpen(!dockOpen);
+          toggleDock();
+          break;
+        case "target":
+          if (!onConversations) {
+            setDockOpen(true);
+          }
+          talkRef.current?.requestMenu();
           break;
         case "next":
           moveInList(1);
@@ -183,7 +218,7 @@ export function App() {
     };
     window.addEventListener("keydown", listen);
     return () => window.removeEventListener("keydown", listen);
-  }, [signedIn, singleKeys, mac, project, dockOpen, setDockOpen, switcher]);
+  }, [signedIn, singleKeys, mac, project, dockOpen, onConversations, setDockOpen, switcher]);
 
   const current = list.find((row) => row.name === project);
   const label = projectName(current, project);
@@ -212,7 +247,38 @@ export function App() {
         : []),
       { key: "action:join-token", group: "Actions", title: "Create join token", icon: "key", to: "/workers?dialog=token" },
       { key: "action:backup-installation", group: "Actions", title: "Back up the installation", icon: "download", to: inProject(project, "/settings?section=backup") },
-      { key: "action:dock", group: "Actions", title: dockOpen ? "Close the conversation panel" : "Open the conversation panel", icon: "chat", meta: ".", run: () => setDockOpen(!dockOpen) },
+      { key: "action:dock", group: "Actions", title: dockOpen ? "Close the conversation panel" : "Open the conversation panel", icon: "chat", meta: ".", run: toggleDock },
+      ...(project
+        ? [
+            {
+              key: "action:new-conversation",
+              group: "Actions" as const,
+              title: "New assistant conversation",
+              icon: "plus" as const,
+              keywords: "chat talk assistant",
+              run: () => {
+                const talk = talkRef.current;
+                talk?.select("assistant", "", { open: !onConversations, focus: true });
+                talk?.requestNew();
+              },
+            },
+            {
+              key: "action:target",
+              group: "Actions" as const,
+              title: "Switch conversation target",
+              icon: "chat" as const,
+              meta: "T",
+              keywords: "talk assistant orchestrator lane planning",
+              run: () => {
+                if (!onConversations) {
+                  setDockOpen(true);
+                }
+                talkRef.current?.requestMenu();
+              },
+            },
+            { key: "action:conversations", group: "Actions" as const, title: "Go to Conversations", icon: "chat" as const, meta: "G C", to: inProject(project, "/conversations") },
+          ]
+        : []),
       { key: "action:theme", group: "Actions", title: `Switch theme (${themeWords[theme].replace("Theme: ", "now ")})`, icon: "theme", run: nextTheme },
       { key: "action:sheet", group: "Actions", title: "Show keyboard shortcuts", icon: "keyboard", meta: "?", run: () => setSheetOpen(true) },
       { key: "action:sign-out", group: "Actions", title: "Sign out", icon: "lock", run: signOutNow },
@@ -237,16 +303,22 @@ export function App() {
       .filter((row) => row.state === "active" && row.name !== project)
       .map((row) => ({ key: `project:${row.name}`, group: "Projects", id: row.name, title: `Switch to ${projectName(row, row.name)}`, icon: "projects", to: inProject(row.name, resolved.kind === "view" && route.project ? route.path : "/roadmap") }));
     return { actions, views, recent, projects: others };
-  }, [items, dockOpen, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path]);
+  }, [items, dockOpen, onConversations, theme, nextTheme, signOutNow, project, label, list, switcher, setDockOpen, resolved.kind, route.project, route.path]);
 
   const waiting = needs.view ? needs.view.items.length : null;
-  const shell = `app${navOpen ? " nav-open" : ""}${dockOpen && signedIn ? " dock-open" : ""}`;
+  const shell = `app${navOpen ? " nav-open" : ""}${dockVisible ? " dock-open" : ""}`;
+  const chooseConversation = (id: string) => {
+    talkRef.current?.select("assistant", id, { start: true });
+    go(addressOfView("conversations", project));
+  };
 
   return (
     <ToastProvider>
       <CurrentProject.Provider value={project}>
         <ArrivalsProvider value={route.moves - opened.current}>
-          <div className={shell}>
+          <TalkProvider project={project} openDock={openDock}>
+          <TalkBridge into={talkRef} />
+          <div className={shell} style={dockVisible ? ({ "--dock-w": `${dockPx}px` } as CSSProperties) : undefined}>
             <a className="skip-link" href="#main">
               Skip to content
             </a>
@@ -261,8 +333,8 @@ export function App() {
                 />
               }
               waiting={waiting}
-              dockOpen={dockOpen}
-              onDock={() => setDockOpen(!dockOpen)}
+              dockOpen={dockVisible || (dockOpen && onConversations)}
+              onDock={toggleDock}
               onPalette={() => setPaletteOpen(true)}
               theme={themeWords[theme]}
               onTheme={nextTheme}
@@ -323,11 +395,16 @@ export function App() {
                 ) : null}
               </div>
             </main>
-            {signedIn ? <Dock open={dockOpen} onClose={() => setDockOpen(false)} /> : null}
+            {signedIn ? (
+              <Dock open={dockVisible} width={dockPx} onWidth={setDockPx}>
+                <Surface live={live} variant="dock" onClose={() => setDockOpen(false)} projectLabel={label} after={needs.reload} />
+              </Dock>
+            ) : null}
             {signedIn ? <StatusBar connection={needs.connection} floor={floor.view} floorAgeMs={Math.max(0, now - floor.readAt)} project={project} /> : <footer className="statusbar" aria-label="Status" />}
           </div>
-          <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} project={project} projectLabel={label} sources={sources} />
+          <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} project={project} projectLabel={label} sources={sources} onConversation={chooseConversation} />
           <ShortcutSheet open={sheetOpen} onClose={() => setSheetOpen(false)} mac={mac} singleKeys={singleKeys} onSingleKeys={setSingleKeys} />
+          </TalkProvider>
         </ArrivalsProvider>
       </CurrentProject.Provider>
     </ToastProvider>

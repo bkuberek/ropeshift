@@ -7,6 +7,7 @@ import { useView } from "../api/useView";
 import { useChange } from "../admin/parts";
 import { addressOf, Link, useArrivalFocus } from "../app/route";
 import { LanePane } from "../lanes/LanePane";
+import { useTalk } from "../talk/state";
 import { Button } from "../ui/controls";
 import { EmptyState, LaneBadge, Refusal, TargetChip } from "../ui/display";
 import { Icon } from "../ui/Icon";
@@ -32,6 +33,7 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
   const held = useView<OnHold>(() => readView<OnHold>("on-hold"), "planning:held", live);
   const floor = useView<ShopFloor>(() => readView<ShopFloor>("shop-floor"), "planning:floor", live);
   const [attached, setAttached] = useState(true);
+  const talk = useTalk();
   const resume = useChange();
   const heading = useRef<HTMLHeadingElement>(null);
   useArrivalFocus(heading);
@@ -85,6 +87,9 @@ export function PlanningPage({ live, project, label, lane, after }: { live: Live
           </h1>
           <span className="spacer" />
           {found ? <LaneBadge state={found.actual_state} /> : null}
+          <Button small icon="chat" onClick={() => talk.select("planning", laneId, { open: true, focus: true })}>
+            Talk to the planning session
+          </Button>
           <Button small onClick={() => setAttached(!attached)}>
             {attached ? "Detach" : "Attach"}
           </Button>

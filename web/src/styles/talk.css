@@ -1,0 +1,483 @@
+/* ---------- Conversation surface ---------- */
+
+.convo {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  background: var(--surface);
+}
+
+.convo-head {
+  padding: var(--s-12) var(--s-16);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: inset 0 3px 0 var(--t);
+}
+
+.convo-head-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  min-width: 0;
+}
+
+.convo-name {
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  min-width: 0;
+}
+
+.convo-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-8);
+  flex-wrap: wrap;
+}
+
+.convo-session {
+  margin-top: var(--s-8);
+  display: flex;
+  gap: var(--s-12);
+  align-items: center;
+  font-size: var(--fs-12);
+  color: var(--text-2);
+  flex-wrap: wrap;
+}
+
+.convo-session-row .btn {
+  margin-top: var(--s-8);
+}
+
+.convo-banner {
+  padding: var(--s-8) var(--s-12) 0;
+  background: var(--bg);
+}
+
+.convo-stream {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--s-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16);
+  min-height: 0;
+  background: var(--bg);
+}
+
+.convo-stream > * {
+  flex-shrink: 0;
+}
+
+.convo-older {
+  align-self: center;
+}
+
+.convo-notice {
+  padding: var(--s-8) var(--s-12) 0;
+  align-self: stretch;
+  justify-content: center;
+}
+
+.convo-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+  padding: var(--s-8) var(--s-12);
+  max-height: 45%;
+  overflow-y: auto;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.msg-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 680px;
+  min-width: 0;
+}
+
+.msg-block.from-me {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.msg-meta {
+  display: flex;
+  gap: var(--s-6);
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: var(--fs-12);
+  color: var(--text-3);
+}
+
+.msg-meta strong {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.from-me .msg-meta {
+  justify-content: flex-end;
+}
+
+.before-clear {
+  font-style: italic;
+}
+
+.is-before-clear {
+  opacity: 0.78;
+}
+
+.bubble {
+  font-size: var(--fs-14);
+  line-height: 21px;
+  padding: var(--s-8) var(--s-12);
+  border-radius: var(--r-8);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bubble-plain {
+  white-space: pre-wrap;
+}
+
+.from-me .bubble {
+  background: var(--surface-3);
+  border-color: var(--surface-3);
+}
+
+.bubble p {
+  white-space: pre-wrap;
+}
+
+.bubble p + p,
+.bubble p + ul,
+.bubble ul + p,
+.bubble p + ol,
+.bubble ol + p,
+.bubble p + pre,
+.bubble pre + p {
+  margin-top: var(--s-8);
+}
+
+.bubble ul {
+  list-style: disc;
+  padding-left: 18px;
+}
+
+.bubble ol {
+  list-style: decimal;
+  padding-left: 20px;
+}
+
+.bubble li + li {
+  margin-top: 2px;
+}
+
+.bubble code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.code-block {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-6);
+  padding: var(--s-8) var(--s-12);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.bubble .code-block code {
+  background: transparent;
+  padding: 0;
+}
+
+.chip-code {
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.event-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  font-size: var(--fs-12);
+  color: var(--text-2);
+  padding: var(--s-6) var(--s-12);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-6);
+  background: var(--surface);
+  max-width: 680px;
+  flex-wrap: wrap;
+}
+
+.event-line .i {
+  color: var(--text-3);
+}
+
+.event-line > span:first-of-type {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.notice {
+  align-self: center;
+  font-size: var(--fs-12);
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  text-align: center;
+}
+
+.notice::before,
+.notice::after {
+  content: "";
+  width: 40px;
+  height: 1px;
+  background: var(--border);
+  flex: none;
+}
+
+.inline-item {
+  max-width: 680px;
+  min-width: 0;
+}
+
+.decision-compact .decision-head {
+  padding: var(--s-8) var(--s-12);
+}
+
+.decision-compact .decision-body {
+  padding: var(--s-8) var(--s-12);
+  gap: var(--s-8);
+}
+
+.decision-compact .decision-foot {
+  padding: var(--s-6) var(--s-12);
+}
+
+.decision-compact .decision-title {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+/* ---------- Composer ---------- */
+.composer {
+  border-top: 1px solid var(--border);
+  padding: var(--s-8) var(--s-12) var(--s-12);
+  background: var(--surface);
+}
+
+.composer-to {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  font-size: var(--fs-12);
+  color: var(--text-2);
+  margin-bottom: var(--s-6);
+  min-width: 0;
+}
+
+.composer-box {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-8);
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--t);
+}
+
+.composer-box:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  max-height: 160px;
+  border: 0;
+  padding: var(--s-8) var(--s-12) var(--s-4) var(--s-16);
+  background: transparent;
+  color: var(--text);
+  resize: none;
+  font: inherit;
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+}
+
+.composer textarea:focus {
+  outline: none;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  padding: var(--s-4) var(--s-8) var(--s-8) var(--s-16);
+  font-size: var(--fs-12);
+  color: var(--text-3);
+}
+
+.send-btn {
+  margin-left: auto;
+}
+
+.composer-ended {
+  padding: var(--s-4) 0;
+}
+
+/* The pane of a planning session or an interactive lane stands in place of the stream and the composer. */
+.convo > .convo-term {
+  flex: 1;
+}
+
+.convo-term .pane {
+  overflow-y: auto;
+}
+
+/* ---------- Switch target ---------- */
+.target-menu {
+  min-width: 300px;
+}
+
+.target-menu .menu-item .target-chip {
+  min-width: 128px;
+}
+
+.target-menu .menu-item .meta {
+  margin-left: auto;
+}
+
+/* ---------- Conversations view ---------- */
+.dock .convo,
+.split .convo {
+  flex: 1;
+  min-height: 0;
+}
+
+.split .split-detail.convo-detail {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.convo-detail .back-to-list {
+  margin: var(--s-8) var(--s-12) 0;
+  align-self: flex-start;
+}
+
+.convo-list-group {
+  padding: var(--s-12) var(--s-16) var(--s-4);
+}
+
+.convo-list-group + ul,
+.convo-list-group + p {
+  margin: 0;
+}
+
+.convo-item .item-meta {
+  grid-column: 1 / -1;
+}
+
+.convo-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.convo-item .target-chip {
+  justify-self: start;
+}
+
+/* ---------- Dock resize ---------- */
+.dock {
+  position: relative;
+}
+
+.dock-resize {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 2;
+  touch-action: none;
+}
+
+.dock-resize::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+
+.dock-resize:hover::after,
+.dock-resize:focus-visible::after,
+.dock-resize.is-dragging::after {
+  background: var(--border-strong);
+}
+
+.dock-resize:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+@media (max-width: 1023px) {
+  .dock-resize {
+    display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .convo-stream {
+    padding: var(--s-12);
+  }
+
+  .composer textarea {
+    font-size: 16px;
+  }
+}
+
+@media (forced-colors: active) {
+  .composer-box,
+  .convo-head {
+    forced-color-adjust: auto;
+    border: 1px solid CanvasText;
+  }
+}
+
+/* A target chip that is a button: the chip's own form, with a pointer and a focus ring. */
+.target-button {
+  display: inline-flex;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  border-radius: var(--r-4);
+  cursor: pointer;
+}
+
+.target-button:hover .target-chip {
+  filter: brightness(0.96);
+}
+
+.target-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

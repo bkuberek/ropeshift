@@ -6,9 +6,10 @@ import type { Connection } from "../api/useNeedsYou";
 import type { IconName } from "../ui/Icon";
 import { Icon } from "../ui/Icon";
 import { IconButton, Kbd } from "../ui/controls";
-import { Absent, EmptyState } from "../ui/display";
+import { Absent } from "../ui/display";
 import { moveInMenu, trapTab, usePopover } from "../ui/overlays";
 import { createPortal } from "react-dom";
+import { dockWidth } from "./prefs";
 import { go, inProject, Link } from "./route";
 import type { View } from "./routes";
 import { goKeys, titleOf } from "./routes";
@@ -38,6 +39,7 @@ export const navGroups: { name: string; items: NavItem[] }[] = [
       { view: "measures", icon: "measures" },
     ],
   },
+  { name: "Talk", items: [{ view: "conversations", icon: "chat" }] },
   {
     name: "Project",
     items: [
@@ -470,28 +472,70 @@ export function StatusBar({ connection, floor, floorAgeMs, project }: StatusProp
   );
 }
 
-// Dock is the frame of the conversation surface, open or closed per browser. Conversations arrive in a
-// later build; until then it says what will be here and how to reach a lane today.
-export function Dock({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const heading = useId();
-  const title = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (open) {
-      title.current?.focus();
-    }
-  }, [open]);
+// Dock is the conversation surface's frame, open or closed per browser, on every view. It holds the surface
+// only while open, so a closed dock reads nothing, and its width is the person's: dragged, or stepped 20 px
+// with the arrow keys, between 360 and 640 px. Below 1024 px it is an overlay, and on a phone it fills the screen.
+export function Dock({ open, width, onWidth, children }: { open: boolean; width: number; onWidth: (width: number) => void; children: ReactNode }) {
   return (
-    <aside className="dock" id="dock" aria-labelledby={heading} hidden={!open}>
-      <div className="dock-head">
-        <h2 id={heading} ref={title} tabIndex={-1}>
-          Conversation
-        </h2>
-        <IconButton icon="x" label="Close the conversation panel" shortcut="." small onClick={onClose} />
-      </div>
-      <EmptyState icon="chat" title="No conversation in this build">
-        Talking to the assistant, the orchestrator, a planning session, or a lane from here arrives in a later build. A lane takes a message today
-        from a terminal, with <code>ropeshift message send</code>.
-      </EmptyState>
+    <aside className="dock" id="dock" aria-label="Conversation" hidden={!open}>
+      {open ? (
+        <>
+          <DockResize width={width} onWidth={onWidth} />
+          {children}
+        </>
+      ) : null}
     </aside>
+  );
+}
+
+// DockResize is the dock's separator: a handle that is dragged, or stepped with the arrow keys, so no resize
+// needs a drag (WCAG 2.5.7). The dock stands on the right, so a left key widens it.
+function DockResize({ width, onWidth }: { width: number; onWidth: (width: number) => void }) {
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ x: number; width: number } | null>(null);
+  const keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.key === "ArrowLeft" || event.key === "ArrowUp" ? dockWidth.step : event.key === "ArrowRight" || event.key === "ArrowDown" ? -dockWidth.step : 0;
+    if (step) {
+      event.preventDefault();
+      onWidth(width + step);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      onWidth(dockWidth.min);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      onWidth(dockWidth.max);
+    }
+  };
+  return (
+    <div
+      className={`dock-resize${dragging ? " is-dragging" : ""}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the conversation panel"
+      aria-valuenow={width}
+      aria-valuemin={dockWidth.min}
+      aria-valuemax={dockWidth.max}
+      aria-valuetext={`${width} pixels wide`}
+      tabIndex={0}
+      onKeyDown={keys}
+      onPointerDown={(event) => {
+        start.current = { x: event.clientX, width };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        setDragging(true);
+      }}
+      onPointerMove={(event) => {
+        if (start.current) {
+          onWidth(start.current.width + (start.current.x - event.clientX));
+        }
+      }}
+      onPointerUp={() => {
+        start.current = null;
+        setDragging(false);
+      }}
+      onPointerCancel={() => {
+        start.current = null;
+        setDragging(false);
+      }}
+    />
   );
 }

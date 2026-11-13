@@ -25,6 +25,7 @@ const recordKinds: Record<string, { icon: IconName; name: string; to: (id: strin
   decision: { icon: "decision", name: "Decision", to: (id) => `/decisions?id=${encodeURIComponent(id)}` },
   question: { icon: "question", name: "Question", to: (id) => `/questions?id=${encodeURIComponent(id)}` },
   document: { icon: "doc", name: "Document", to: (id) => `/documents?id=${encodeURIComponent(id)}` },
+  conversation: { icon: "chat", name: "Conversation", to: () => "/conversations" },
 };
 
 // stateOf says a record's state: a badge for the two state machines, and its own words otherwise.
@@ -39,11 +40,13 @@ function stateOf(record: SearchRecord): ReactNode {
 }
 
 // recordEntry makes a search result a line of the palette, which opens the record's view.
-export function recordEntry(record: SearchRecord, project: string, projectLabel: string): Entry | null {
+export function recordEntry(record: SearchRecord, project: string, projectLabel: string, onConversation?: (id: string) => void): Entry | null {
   const kind = recordKinds[record.kind];
   if (!kind) {
     return null;
   }
+  // A conversation opens in the surface, where choosing it is how a member talks to it.
+  const open = record.kind === "conversation" && onConversation ? () => onConversation(record.id) : undefined;
   return {
     key: `record:${record.kind}:${record.id}`,
     group: "Records",
@@ -51,6 +54,7 @@ export function recordEntry(record: SearchRecord, project: string, projectLabel:
     title: record.title || record.id,
     icon: kind.icon,
     to: inProject(project, kind.to(record.id)),
+    run: open,
     meta: (
       <>
         <span>{kind.name}</span>
@@ -67,6 +71,8 @@ type PaletteProps = {
   project: string;
   projectLabel: string;
   sources: Omit<Sources, "records">;
+  // onConversation opens a conversation found among the records, in the conversation surface.
+  onConversation?: (id: string) => void;
 };
 
 const searchWaitMs = 120;
@@ -74,7 +80,7 @@ const searchWaitMs = 120;
 // Palette finds any view, record, or action. The field is a combobox over a listbox: arrow keys move,
 // Enter runs, Escape closes and returns focus. An action navigates or opens its dialog; the palette
 // never decides anything.
-export function Palette({ open, onClose, project, projectLabel, sources }: PaletteProps) {
+export function Palette({ open, onClose, project, projectLabel, sources, onConversation }: PaletteProps) {
   const [typed, setTyped] = useState("");
   const [records, setRecords] = useState<Entry[]>([]);
   const [failure, setFailure] = useState("");
@@ -104,7 +110,7 @@ export function Palette({ open, onClose, project, projectLabel, sources }: Palet
       searchRecords(words)
         .then((found) => {
           if (current) {
-            setRecords(found.records.map((record) => recordEntry(record, project, projectLabel)).filter((entry): entry is Entry => entry !== null));
+            setRecords(found.records.map((record) => recordEntry(record, project, projectLabel, onConversation)).filter((entry): entry is Entry => entry !== null));
             setFailure("");
           }
         })
@@ -119,7 +125,7 @@ export function Palette({ open, onClose, project, projectLabel, sources }: Palet
       current = false;
       clearTimeout(timer);
     };
-  }, [open, words, project, projectLabel]);
+  }, [open, words, project, projectLabel, onConversation]);
 
   const groups = useMemo(() => arrange(typed, { ...sources, records }), [typed, sources, records]);
   const flat = groups.flatMap((group) => group.entries);
