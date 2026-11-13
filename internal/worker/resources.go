@@ -34,6 +34,25 @@ type resources struct {
 	// runs, so a read that loses one keeps it, and a start reads no machine to recommend.
 	cores  int64
 	memory *int64
+	// recommendation is the last one a read of the machine gave, which a failed read keeps.
+	recommendation *ledger.LaneRecommendation
+}
+
+// recommendLocked works out the recommendation from the machine's size as a read last counted it. With no
+// count it keeps the last recommendation, and with none it recommends one lane, so a failed read never
+// leaves the cap unset. The caller holds the lock.
+func (w *Worker) recommendLocked(settings lanes.RecommendSettings) ledger.LaneRecommendation {
+	recommendation, ok := lanes.Recommend(lanes.RecommendInput{
+		Cores: w.resources.cores, MemoryTotalBytes: w.resources.memory, Settings: settings, Peaks: w.resources.peaks,
+	})
+	switch {
+	case ok:
+		w.resources.recommendation = &recommendation
+		return recommendation
+	case w.resources.recommendation != nil:
+		return *w.resources.recommendation
+	}
+	return lanes.UnreadRecommendation()
 }
 
 // steady fills what a read of the machine lost from what an earlier read counted, and keeps what this one
@@ -83,13 +102,6 @@ func (w *Worker) loadPeaks(ctx context.Context) error {
 	defer w.resources.lock.Unlock()
 	w.resources.peaks = peaks
 	return nil
-}
-
-// lanePeaks is the peaks of the lanes this worker ran, oldest first.
-func (w *Worker) lanePeaks() []lanes.LanePeak {
-	w.resources.lock.Lock()
-	defer w.resources.lock.Unlock()
-	return slices.Clone(w.resources.peaks)
 }
 
 // sessions lists what runs now that has a process to measure.
@@ -179,15 +191,11 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 			w.config.Report(fmt.Errorf("keeping the lanes' peaks: %w", err))
 		}
 	}
-	var recommended int64
-	if recommendation, ok := lanes.Recommend(lanes.RecommendInput{
-		Cores: sample.Cores, MemoryTotalBytes: sample.MemoryTotalBytes, Settings: settings, Peaks: w.resources.peaks,
-	}); ok {
-		report.Recommendation, recommended = &recommendation, recommendation.MaxLanes
-	}
+	recommendation := w.recommendLocked(settings)
+	report.Recommendation = &recommendation
 	user := profile.Admission
 	report.Caps = ledger.LaneCaps{
-		MaxLanes: lanes.WorkerCap(user.MaxLanes, user.MaxLanes, recommended), MaxLanesSet: user.MaxLanes != nil, MaxLanesPerSignIn: user.MaxLanesPerSignIn,
+		MaxLanes: lanes.WorkerCap(user.MaxLanes, user.MaxLanes, recommendation.MaxLanes), MaxLanesSet: user.MaxLanes != nil, MaxLanesPerSignIn: user.MaxLanesPerSignIn,
 	}
 	report.Warnings = lanes.ResourceWarnings(report.Machine, thresholds)
 	w.resources.seq++

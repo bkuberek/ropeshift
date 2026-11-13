@@ -161,8 +161,34 @@ func TestAMeasureTheMachineCannotProvideIsAbsent(t *testing.T) {
 	}
 	machine.Fail(errors.New("no sample"))
 	report = r.measure()
-	if report.Machine.Cores != 0 || report.Recommendation != nil || report.Caps.MaxLanes != 0 {
-		t.Errorf("a machine that cannot be read gave %+v", report)
+	if report.Machine.Cores != 0 || report.Machine.MemoryTotalBytes != nil {
+		t.Errorf("a machine that cannot be read reported %+v", report.Machine)
+	}
+	// A failed read keeps the size the last read counted, so the cap stays where it was.
+	if report.Recommendation == nil || report.Recommendation.MaxLanes != 3 || report.Caps.MaxLanes != 3 {
+		t.Errorf("a failed read after a good one gave %+v and caps %+v", report.Recommendation, report.Caps)
+	}
+}
+
+// TestAMachineNeverReadCapsAtOneLane never lets a machine the worker cannot read leave the cap unset: until
+// a read counts its cores, the worker recommends one lane and says why.
+func TestAMachineNeverReadCapsAtOneLane(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	machine := fake.NewMachine(plentyOf())
+	machine.Fail(errors.New("no sample"))
+	r.config.Machine = machine
+	report := r.measure()
+	if got := report.Recommendation; got == nil || got.MaxLanes != 1 || got.Basis != ledger.BasisUnread || got.Reason == "" || report.Caps.MaxLanes != 1 {
+		t.Errorf("recommendation %+v, caps %+v", got, report.Caps)
+	}
+	r.running()
+	r.secondLane("wo-2", "lane-2")
+	if _, err := r.subject.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.driver.Specs()) != 1 {
+		t.Errorf("%d sessions on a machine the worker could not read", len(r.driver.Specs()))
 	}
 }
 

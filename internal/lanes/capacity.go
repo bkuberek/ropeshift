@@ -283,6 +283,14 @@ func Recommend(in RecommendInput) (ledger.LaneRecommendation, bool) {
 	return out, true
 }
 
+// UnreadRecommendation is what a worker recommends for a machine whose cores it has not counted: one lane,
+// so a read that fails never leaves the cap unset.
+func UnreadRecommendation() ledger.LaneRecommendation {
+	return ledger.LaneRecommendation{
+		MaxLanes: 1, Basis: ledger.BasisUnread, Reason: "this machine could not be read, so the worker recommends one lane until it can",
+	}
+}
+
 func number(value float64) string { return strconv.FormatFloat(value, 'f', -1, 64) }
 
 // WorkerCap is the per-worker cap in force for one lane, from the user's own value and the value its

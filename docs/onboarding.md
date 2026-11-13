@@ -223,7 +223,7 @@ What one lane takes starts as the estimates below. Once `observed_min` lanes hav
 | `observed_window` | `50` | Recent lanes whose peaks replace the estimates |
 | `observed_min` | `10` | Lanes that must have run before their peaks apply |
 
-A size is a number of bytes, or a number with `KiB`, `MiB`, `GiB`, or `TiB`, or `KB`, `MB`, `GB`, or `TB`. The defaults are starting values to tune, not measurements. A worker that cannot read its machine has no recommendation, and then no value for `max_lanes` caps nothing.
+A size is a number of bytes, or a number with `KiB`, `MiB`, `GiB`, or `TiB`, or `KB`, `MB`, `GB`, or `TB`. The defaults are starting values to tune, not measurements. A machine's cores and memory do not change while it runs, so a read that fails keeps what the last one counted. Until a read has counted the cores, the worker recommends one lane and says why, so a machine it cannot read never leaves `max_lanes` uncapped by accident.
 
 A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer can lower either cap for their own lanes, and cannot raise it: a layer that sets a higher value than yours, or no cap where you set one or left the recommendation, is refused, and the lane does not start. Where you left the recommendation, a layer's value holds only up to it. Each project's own caps, which `ropeshift fleet caps` sets, still hold inside that project, so a cap per worker in one project keeps it from taking every lane on the machine.
 

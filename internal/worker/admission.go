@@ -74,26 +74,26 @@ func (w *Worker) limits(ctx context.Context, lease ledger.DesiredLease) (user, l
 
 // recommend works out the lane cap this worker recommends, from the machine's cores and memory and the peaks
 // of the lanes it ran (FR-OBS-9). The machine's size does not change while it runs, so it reads the
-// machine only before any read has counted it. A worker with no machine, a read that failed, or cores it
-// could not count has none.
+// machine only before any read has counted it. A read that fails keeps the last recommendation, or gives
+// one lane, so it never leaves the cap unset. Only a worker with no machine to read has none.
 func (w *Worker) recommend(ctx context.Context, settings lanes.RecommendSettings) (ledger.LaneRecommendation, bool) {
 	machine := w.config.Lanes.Machine
 	if machine == nil {
 		return ledger.LaneRecommendation{}, false
 	}
-	cores, memory := w.size()
-	if cores <= 0 {
+	if cores, _ := w.size(); cores <= 0 {
 		sample, err := machine.Sample(ctx, nil)
 		if err != nil {
 			w.config.Report(fmt.Errorf("sampling the machine: %w", err))
-			return ledger.LaneRecommendation{}, false
+		} else {
+			w.resources.lock.Lock()
+			w.steady(&sample)
+			w.resources.lock.Unlock()
 		}
-		w.resources.lock.Lock()
-		w.steady(&sample)
-		w.resources.lock.Unlock()
-		cores, memory = sample.Cores, sample.MemoryTotalBytes
 	}
-	return lanes.Recommend(lanes.RecommendInput{Cores: cores, MemoryTotalBytes: memory, Settings: settings, Peaks: w.lanePeaks()})
+	w.resources.lock.Lock()
+	defer w.resources.lock.Unlock()
+	return w.recommendLocked(settings), true
 }
 
 // recommended is the recommendation's cap where the user set none, and zero where the user set one or the

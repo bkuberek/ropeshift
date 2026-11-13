@@ -15,10 +15,12 @@ const (
 	WarnCPULoad         = "cpu_load"
 )
 
-// The bases of a recommendation: the estimates the profile sets, or the peaks of lanes this worker ran.
+// The bases of a recommendation: the estimates the profile sets, the peaks of lanes this worker ran, or a
+// machine the worker could not read yet, which it recommends one lane for.
 const (
 	BasisEstimates = "estimates"
 	BasisObserved  = "observed"
+	BasisUnread    = "unread"
 )
 
 // ResourceReport is what a worker measured of its machine and its sessions at one moment, with the lane
