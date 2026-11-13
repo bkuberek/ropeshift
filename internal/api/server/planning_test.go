@@ -32,6 +32,7 @@ func plannedDaemon(t *testing.T) *apitest.Daemon {
 }
 
 func TestAPlanShowsItsGoalContractsAndWork(t *testing.T) {
+	t.Parallel()
 	daemon := plannedDaemon(t)
 	plans, err := daemon.Client.Plans(t.Context())
 	if err != nil {
@@ -58,6 +59,7 @@ func TestAPlanShowsItsGoalContractsAndWork(t *testing.T) {
 }
 
 func TestARequirementReadsByItsKey(t *testing.T) {
+	t.Parallel()
 	daemon := plannedDaemon(t)
 	requirement, err := daemon.Client.Requirement(t.Context(), "PAY-12")
 	if err != nil {
@@ -78,6 +80,7 @@ func TestARequirementReadsByItsKey(t *testing.T) {
 }
 
 func TestSendingBackMovesWorkToPlanning(t *testing.T) {
+	t.Parallel()
 	daemon := plannedDaemon(t)
 	rows, err := daemon.Client.WorkOrders(t.Context(), workorders.ContractReview)
 	if err != nil || len(rows) != 1 {
@@ -98,6 +101,7 @@ func TestSendingBackMovesWorkToPlanning(t *testing.T) {
 }
 
 func TestDocumentsAreReadableAndVersioned(t *testing.T) {
+	t.Parallel()
 	knowledge := fake.NewKnowledgeSource()
 	knowledge.Write("design.md", "# One\n")
 	knowledge.Write("design.md", "# Two\n")

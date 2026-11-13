@@ -237,6 +237,7 @@ func (r *paneRig) typeInto(t *testing.T, cookies []*http.Cookie, token, lane str
 
 // A member who signed in sees the screen of the lane's current pane, with its colours, at once.
 func TestAMemberSeesALanesPane(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "\x1b[1mPlanning\x1b[0m: what is the plan for?")
 	cookies, _ := r.signedIn(t)
@@ -250,6 +251,7 @@ func TestAMemberSeesALanesPane(t *testing.T) {
 // ATTACK: a page with no session, or a process that holds a worker's credential and no member's
 // session, reads no screen and types nothing.
 func TestThePaneRefusesAnyoneWithNoMembersSession(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	response, raw := r.send(t, call{path: apitest.Route(strings.ReplaceAll(api.PanePath, "{id}", r.lane.ID))})
@@ -291,6 +293,7 @@ func TestThePaneRefusesAnyoneWithNoMembersSession(t *testing.T) {
 
 // ATTACK: cross-site request forgery. A page that cannot read the token types nothing.
 func TestTypingIntoAPaneNeedsTheToken(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, token := r.signedIn(t)
@@ -305,6 +308,7 @@ func TestTypingIntoAPaneNeedsTheToken(t *testing.T) {
 
 // Text goes in literally, Enter after it when asked, and a named key as the terminal names it.
 func TestThePaneTakesTextAndNamedKeys(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, token := r.signedIn(t)
@@ -332,6 +336,7 @@ func TestThePaneTakesTextAndNamedKeys(t *testing.T) {
 // Every key the API names is one the pane takes, so the list a page reads and the keys the server
 // accepts are the same list.
 func TestThePaneTakesEveryKeyOnTheList(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, token := r.signedIn(t)
@@ -347,6 +352,7 @@ func TestThePaneTakesEveryKeyOnTheList(t *testing.T) {
 // ATTACK: the key list is closed, so a page cannot send a key name, a sequence, or an escape the list
 // does not hold, and text cannot carry a control character that would act as a key.
 func TestThePaneRefusesAnyKeyOffItsList(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, token := r.signedIn(t)
@@ -377,6 +383,7 @@ func TestThePaneRefusesAnyKeyOffItsList(t *testing.T) {
 // A lane with nothing to show is refused with a code that says why, and so is a control plane that
 // reaches no worker's terminal.
 func TestThePaneRefusesALaneWithNoPane(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	cookies, token := r.signedIn(t)
 	ended := r.world.Running("wo-ended", "A lane that ended")
@@ -418,6 +425,7 @@ func TestThePaneRefusesALaneWithNoPane(t *testing.T) {
 // The stream sends a snapshot when the screen changes and stays silent while it does not, however
 // often it reads.
 func TestThePaneSendsASnapshotOnlyWhenTheScreenChanges(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "first")
 	cookies, _ := r.signedIn(t)
@@ -435,6 +443,7 @@ func TestThePaneSendsASnapshotOnlyWhenTheScreenChanges(t *testing.T) {
 
 // Nobody watching means nobody reading: the screen is read only while a stream is open.
 func TestThePaneIsReadOnlyWhileSomeoneWatches(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, _ := r.signedIn(t)
@@ -457,6 +466,7 @@ func TestThePaneIsReadOnlyWhileSomeoneWatches(t *testing.T) {
 // A restart, a hand-off, or a resume gives the lane a new generation and a new pane, and the stream
 // shows that pane with no new request.
 func TestThePaneFollowsTheLaneToItsNextGeneration(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "generation one")
 	cookies, _ := r.signedIn(t)
@@ -483,6 +493,7 @@ func TestThePaneFollowsTheLaneToItsNextGeneration(t *testing.T) {
 // A parked lane has no process, and the stream says so instead of going silent, both to a person
 // already watching and to one who opens the page while it is parked.
 func TestThePaneSaysWhileTheLaneIsParked(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, _ := r.signedIn(t)
@@ -507,6 +518,7 @@ func TestThePaneSaysWhileTheLaneIsParked(t *testing.T) {
 
 // A lane that ends under a watcher says so, and the stream closes, because nothing will show again.
 func TestThePaneStreamEndsWithTheLane(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, _ := r.signedIn(t)
@@ -529,6 +541,7 @@ func TestThePaneStreamEndsWithTheLane(t *testing.T) {
 // A pane's stream asks whether its session stands while it runs, as every stream on this listener
 // does, so signing out ends it.
 func TestThePaneStreamEndsWithItsSession(t *testing.T) {
+	t.Parallel()
 	r := paneOn(t)
 	r.panes.show(r.lane.ID, 1, "a screen")
 	cookies, token := r.signedIn(t)

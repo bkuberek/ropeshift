@@ -16,6 +16,7 @@ import (
 )
 
 func TestAMemberCancelsRunningWork(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	lane := w.Running("wo", "Drop the old plan")
@@ -51,6 +52,7 @@ func TestAMemberCancelsRunningWork(t *testing.T) {
 }
 
 func TestACancelNeedsAReasonAndWorkToEnd(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	_, err := d.Client.CancelWork(t.Context(), "no-such-work", api.CancelWork{Reason: "gone"})
 	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
@@ -82,6 +84,7 @@ func expectRunning(t *testing.T, d *apitest.Daemon, id string) {
 // goes through its worker's credential, so that credential and each thing a worker may say must stop
 // short of ending work. Only a member's session may.
 func TestNoLaneOrOrchestratorCanCancelWork(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	lane := w.Running("wo", "Drop the old plan")
@@ -141,6 +144,7 @@ func TestNoLaneOrOrchestratorCanCancelWork(t *testing.T) {
 }
 
 func TestAWebPageCancelsThroughItsOwnRoute(t *testing.T) {
+	t.Parallel()
 	if !slices.ContainsFunc(api.WebRoutes(), func(route api.WebRoute) bool {
 		return route.Method == http.MethodPost && route.Pattern == api.ProjectRoute("/v1/work-orders/{id}/cancel") && route.Command == "work cancel"
 	}) {
@@ -149,6 +153,7 @@ func TestAWebPageCancelsThroughItsOwnRoute(t *testing.T) {
 }
 
 func TestStuckWorkOffersACancel(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	lane := w.Running("wo", "Stuck on a question")
@@ -165,6 +170,7 @@ func TestStuckWorkOffersACancel(t *testing.T) {
 // A lane whose work ended can stop nowhere a person could act: its tripped breaker counts for nothing
 // once its work is gone.
 func TestALaneOfCanceledWorkIsNotStuck(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	lane := w.Running("wo", "Tripped and dropped")

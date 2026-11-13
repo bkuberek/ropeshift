@@ -152,6 +152,7 @@ func (r *webRig) aChange(t *testing.T) (call, func() bool) {
 }
 
 func TestAChangeThroughTheFrontDoorWorks(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	change, changed := r.aChange(t)
@@ -166,6 +167,7 @@ func TestAChangeThroughTheFrontDoorWorks(t *testing.T) {
 // ATTACK: DNS rebinding. A page on a hostile name resolves that name to this machine, so a browser
 // sends its requests here, and only the Host header shows where it thinks it is.
 func TestARebindingRequestIsRefused(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	for _, host := range []string{
@@ -198,6 +200,7 @@ func TestARebindingRequestIsRefused(t *testing.T) {
 }
 
 func TestEveryLoopbackNameOfThisPortIsAdmitted(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	port := strconv.Itoa(r.web.Port)
 	for _, host := range []string{"127.0.0.1:" + port, "localhost:" + port, "[::1]:" + port} {
@@ -208,6 +211,7 @@ func TestEveryLoopbackNameOfThisPortIsAdmitted(t *testing.T) {
 
 // ATTACK: an unauthenticated change. Reaching this port proves nothing: any local process can.
 func TestAChangeWithNoSessionIsRefused(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	change, changed := r.aChange(t)
 	response, raw := r.send(t, change)
@@ -219,6 +223,7 @@ func TestAChangeWithNoSessionIsRefused(t *testing.T) {
 
 // Every changing route the listener serves needs a session, by name, so a new route cannot slip past.
 func TestEveryChangingWebRouteNeedsASession(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	for _, route := range api.WebRoutes() {
 		if route.Method == http.MethodGet || route.Pattern == api.SignInPath {
@@ -233,6 +238,7 @@ func TestEveryChangingWebRouteNeedsASession(t *testing.T) {
 
 // This listener reaches further than the socket, so its reads need a session too.
 func TestEveryReadNeedsASession(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	for _, route := range api.WebRoutes() {
 		if route.Method != http.MethodGet {
@@ -248,6 +254,7 @@ func TestEveryReadNeedsASession(t *testing.T) {
 // ATTACK: cross-site request forgery. A browser attaches a same-site cookie to a request a page on
 // this machine makes, so the cookie proves nothing and the token a page cannot read does.
 func TestAChangeWithNoCSRFTokenIsRefused(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	change, changed := r.aChange(t)
@@ -271,6 +278,7 @@ func TestAChangeWithNoCSRFTokenIsRefused(t *testing.T) {
 // ATTACK: a request from another origin, with every credential a browser could attach. Another port on
 // this machine is another origin and the same site, which SameSite does not stop.
 func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	change, changed := r.aChange(t)
@@ -290,6 +298,7 @@ func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
 }
 
 func TestAFetchABrowserCallsCrossSiteIsRefused(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	change, changed := r.aChange(t)
@@ -303,6 +312,7 @@ func TestAFetchABrowserCallsCrossSiteIsRefused(t *testing.T) {
 
 // ATTACK: a forged session. The token proves nothing the ledger does not hold, whatever matches it.
 func TestAForgedSessionIsRefused(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	_, token := r.signedIn(t)
 	change, changed := r.aChange(t)
@@ -325,6 +335,7 @@ func TestAForgedSessionIsRefused(t *testing.T) {
 // A token in a header is how a CLI proves itself on the socket, and this listener takes only the
 // cookie, so a page gains nothing by naming one.
 func TestASessionInAHeaderOpensNothingHere(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	r := webOn(t, d)
 	change, changed := r.aChange(t)
@@ -339,6 +350,7 @@ func TestASessionInAHeaderOpensNothingHere(t *testing.T) {
 // A worker's own routes and setting the passphrase stay on the socket. A join token and a policy are a
 // member's steps, which the web UI takes as the CLI does (FR-UI-7).
 func TestAWorkersRoutesStayOnTheSocket(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	for _, attempt := range []call{
@@ -360,6 +372,7 @@ func TestAWorkersRoutesStayOnTheSocket(t *testing.T) {
 }
 
 func TestSignInHidesTheTokenFromAPage(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	response, raw := r.send(t, call{method: http.MethodPost, path: api.SignInPath, body: api.SignIn{Passphrase: apitest.Passphrase}})
 	wantStatus(t, response, raw, http.StatusCreated, "")
@@ -393,6 +406,7 @@ func TestSignInHidesTheTokenFromAPage(t *testing.T) {
 }
 
 func TestAWrongPassphraseSetsNoCookie(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	response, raw := r.send(t, call{method: http.MethodPost, path: api.SignInPath, body: api.SignIn{Passphrase: "a guess at it"}})
 	wantStatus(t, response, raw, http.StatusUnauthorized, api.CodeBadPassphrase)
@@ -404,6 +418,7 @@ func TestAWrongPassphraseSetsNoCookie(t *testing.T) {
 // ATTACK: a sign-in from a page. A form can post across origins with no preflight, and the listener
 // reads only JSON, which a form cannot send.
 func TestAFormCannotSignIn(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, r.web.URL(api.SignInPath), strings.NewReader(`{"passphrase":"`+apitest.Passphrase+`"}`))
 	if err != nil {
@@ -420,6 +435,7 @@ func TestAFormCannotSignIn(t *testing.T) {
 }
 
 func TestASignInFromAnotherOriginIsRefused(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	response, raw := r.send(t, call{
 		method: http.MethodPost, path: api.SignInPath, body: api.SignIn{Passphrase: apitest.Passphrase},
@@ -429,6 +445,7 @@ func TestASignInFromAnotherOriginIsRefused(t *testing.T) {
 }
 
 func TestSigningOutEndsTheSession(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	read := call{path: apitest.Route(api.ViewPath(api.ViewNeedsYou)), cookies: cookies}
@@ -449,6 +466,7 @@ func TestSigningOutEndsTheSession(t *testing.T) {
 }
 
 func TestAPageReadsAViewAsUnrenderedJSON(t *testing.T) {
+	t.Parallel()
 	clock := apitest.NewClock()
 	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
 	r := webOn(t, d)
@@ -480,6 +498,7 @@ func TestAPageReadsAViewAsUnrenderedJSON(t *testing.T) {
 }
 
 func TestEveryResponseStatesItsLimits(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, _ := r.signedIn(t)
 	for _, path := range []string{"/", "/assets/app-abc123.js", apitest.Route(api.ViewPath(api.ViewNeedsYou))} {
@@ -509,6 +528,7 @@ func TestEveryResponseStatesItsLimits(t *testing.T) {
 }
 
 func TestAViewIsNeverCached(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, _ := r.signedIn(t)
 	response, _ := r.send(t, call{path: apitest.Route(api.ViewPath(api.ViewNeedsYou)), cookies: cookies})
@@ -518,6 +538,7 @@ func TestAViewIsNeverCached(t *testing.T) {
 }
 
 func TestAssetsAreServed(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cases := []struct {
 		path, want, mediaType, cache string
@@ -548,6 +569,7 @@ func TestAssetsAreServed(t *testing.T) {
 // The tree holds the placeholder or a build, and either way what is embedded serves, with every file
 // a built page names.
 func TestTheEmbeddedAssetsAreServed(t *testing.T) {
+	t.Parallel()
 	assets, err := web.Assets()
 	if err != nil {
 		t.Fatal(err)
@@ -570,6 +592,7 @@ func TestTheEmbeddedAssetsAreServed(t *testing.T) {
 }
 
 func TestAnUnbuiltTreeServesItsPlaceholder(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	web := d.ServeWeb(t, fstest.MapFS{"placeholder.html": {Data: []byte("not built")}}, time.Second)
 	r := &webRig{d: d, web: web}
@@ -581,6 +604,7 @@ func TestAnUnbuiltTreeServesItsPlaceholder(t *testing.T) {
 }
 
 func TestAPathLeavesNoAssetTree(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	for _, path := range []string{"/assets/missing.js", "/assets/", "/assets", "/missing.css", "/%2e%2e/%2e%2e/go.mod"} {
 		t.Run(path, func(t *testing.T) {
@@ -593,6 +617,7 @@ func TestAPathLeavesNoAssetTree(t *testing.T) {
 }
 
 func TestAnAssetTakesNoOtherMethod(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	response, raw := r.send(t, call{method: http.MethodPost, path: "/", body: struct{}{}})
 	wantStatus(t, response, raw, http.StatusMethodNotAllowed, "")
@@ -600,6 +625,7 @@ func TestAnAssetTakesNoOtherMethod(t *testing.T) {
 
 // An open stream outlives the request that checked it, so a session that ends must end the stream.
 func TestAStreamEndsWithItsSession(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, token := r.signedIn(t)
 	ctx, cancel := context.WithTimeout(t.Context(), streamWait)
@@ -636,6 +662,7 @@ func TestAStreamEndsWithItsSession(t *testing.T) {
 // TestTheTCPListenersBindLoopbackOnly holds both TCP listeners the design names, the web UI's and the
 // OTLP receiver's, to loopback addresses.
 func TestTheTCPListenersBindLoopbackOnly(t *testing.T) {
+	t.Parallel()
 	for name, listen := range map[string]func(string) (net.Listener, error){"web": server.ListenWeb, "telemetry": server.ListenTelemetry} {
 		for _, address := range []string{"127.0.0.1:0", "localhost:0", "[::1]:0"} {
 			t.Run(name+"/"+address, func(t *testing.T) {
@@ -674,6 +701,7 @@ func documentsOn(t *testing.T) *webRig {
 
 // A list holds no bodies, so a page that cannot open one document shows only titles.
 func TestADocumentOpensThroughTheWebListener(t *testing.T) {
+	t.Parallel()
 	r := documentsOn(t)
 	cookies, _ := r.signedIn(t)
 	response, raw := r.send(t, call{path: apitest.Route("/v1/documents/read?path=design.md"), cookies: cookies})
@@ -704,6 +732,7 @@ func TestADocumentOpensThroughTheWebListener(t *testing.T) {
 // ATTACK: a document's text comes from a repository, so a session is what stands between it and any
 // page on this machine.
 func TestADocumentStaysBehindASession(t *testing.T) {
+	t.Parallel()
 	r := documentsOn(t)
 	for _, path := range []string{apitest.Route("/v1/documents/read?path=design.md"), apitest.Route("/v1/documents/versions?path=design.md")} {
 		response, raw := r.send(t, call{path: path})
@@ -716,6 +745,7 @@ func TestADocumentStaysBehindASession(t *testing.T) {
 
 // ATTACK: a path in a link a stranger sends reads only what the source lists.
 func TestADocumentPathNamesOnlyWhatTheSourceLists(t *testing.T) {
+	t.Parallel()
 	r := documentsOn(t)
 	cookies, _ := r.signedIn(t)
 	for _, path := range []string{"../../etc/passwd", "/etc/passwd", "design.md/../../secret.md", "", "design.md\x00.txt"} {
@@ -727,6 +757,7 @@ func TestADocumentPathNamesOnlyWhatTheSourceLists(t *testing.T) {
 // The closed list is the whole of what the listener serves, so a route it names and the API lacks is
 // a typo that would read as a refusal.
 func TestEveryWebRouteExistsInTheAPI(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	r := webOn(t, d)
 	cookies, token := r.signedIn(t)

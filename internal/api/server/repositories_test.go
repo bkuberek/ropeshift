@@ -26,6 +26,7 @@ func detected(t *testing.T, d *apitest.Daemon, id, branch string) {
 }
 
 func TestAMemberReadsAndChangesARepository(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	detected(t, d, aRepository, "main")
 	list, err := d.Client.Repositories(t.Context())
@@ -56,6 +57,7 @@ func TestAMemberReadsAndChangesARepository(t *testing.T) {
 }
 
 func TestAMemberChangesTheMergeAuthority(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	detected(t, d, aRepository, "main")
 	if record, err := d.Client.Repository(t.Context(), aRepository); err != nil || record.Level() != ledger.PersonMerges {
@@ -75,6 +77,7 @@ func TestAMemberChangesTheMergeAuthority(t *testing.T) {
 }
 
 func TestARepositoryRefusesWhatCannotHold(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	detected(t, d, aRepository, "main")
 	accepted, squash, bad := ledger.StartFromAccepted, ledger.MergeSquash, ledger.MergeMethod("fast-forward")
@@ -98,6 +101,7 @@ func TestARepositoryRefusesWhatCannotHold(t *testing.T) {
 // Reaching the socket proves nothing, because a lane runs as the same user. Only a member's session
 // changes how much a repository may merge or where work starts.
 func TestOnlyAMemberChangesARepository(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	detected(t, d, aRepository, "main")
 	credential, _ := joinWorker(t, d)
@@ -159,6 +163,7 @@ func calibrated(t *testing.T, d *apitest.Daemon, repository string) {
 }
 
 func TestARepositoryReadsItsReviewAgreementBesideItsLevel(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	detected(t, d, aRepository, "main")
 	detected(t, d, "9e8d7c6b5a49382716059483726150493827160a", "main")
@@ -220,6 +225,7 @@ func TestARepositoryReadsItsReviewAgreementBesideItsLevel(t *testing.T) {
 }
 
 func TestAMemberNamesThePlanningRepository(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	other := "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d"
 	detected(t, d, aRepository, "main")

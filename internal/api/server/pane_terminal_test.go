@@ -30,6 +30,7 @@ func openPane(t *testing.T, terminal *fake.Terminal, name, screen string) {
 // A lane's generation has a pane of its own, under the name the driver gave it, and the web pane reads
 // that one and no other.
 func TestTerminalPanesReadTheGenerationsOwnPane(t *testing.T) {
+	t.Parallel()
 	terminal := fake.NewTerminal()
 	openPane(t, terminal, "lane-1-g1", "generation one")
 	openPane(t, terminal, "lane-1-g2", "generation two")
@@ -77,6 +78,7 @@ func (t *typing) Keys(ctx context.Context, name string, keys ...string) error {
 // Text goes in first and the keys after it, with a rest between, because an agent CLI that sees text
 // and Enter arrive together can take the Enter as part of a paste and not as a submit.
 func TestTerminalPanesTypeTextAndThenPressItsKeys(t *testing.T) {
+	t.Parallel()
 	terminal := &typing{Terminal: fake.NewTerminal()}
 	openPane(t, terminal.Terminal, "lane-1-g1", "a screen")
 	settle := 100 * time.Millisecond
@@ -106,6 +108,7 @@ func TestTerminalPanesTypeTextAndThenPressItsKeys(t *testing.T) {
 // A person's terminal attached with `lane attach` and the web pane see the same pane at once: the web
 // pane reads and types while the client stays attached, and it never detaches it.
 func TestTerminalPanesWorkWhileATerminalIsAttached(t *testing.T) {
+	t.Parallel()
 	terminal := fake.NewTerminal()
 	openPane(t, terminal, "lane-1-g1", "the conversation")
 	ctx, cancel := context.WithCancel(t.Context())

@@ -189,16 +189,13 @@ func StartWith(t testing.TB, options Options) *Daemon {
 	if options.Clock != nil {
 		dialect = options.Clock(dialect)
 	}
-	db, err := sqlite.OpenMemoryDB()
+	ctx := context.Background()
+	db, err := openMigrated(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	store := sqlstore.New(db, dialect, sqlstore.Options{})
 	t.Cleanup(func() { _ = store.Close() })
-	ctx := context.Background()
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
 	actor := ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}
 	if _, err := store.CreateWorkspace(ctx, ledger.Workspace{ID: Scope, Name: "Test"}, actor); err != nil {
 		t.Fatal(err)
@@ -261,7 +258,15 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 	t.Helper()
 	ctx := context.Background()
 	actor := ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}
-	state, store, err := sqlite.Upgrade(ctx, t.TempDir(), api.LedgerFileName, ledger.Workspace{ID: Scope, Name: "Test"}, actor)
+	dir := t.TempDir()
+	ids := make([]ledger.WorkspaceID, len(names))
+	for i, name := range names {
+		ids[i] = ledger.WorkspaceID(name + "-id")
+	}
+	if err := seedState(ctx, dir, ids...); err != nil {
+		t.Fatal(err)
+	}
+	state, store, err := sqlite.Upgrade(ctx, dir, api.LedgerFileName, ledger.Workspace{ID: Scope, Name: "Test"}, actor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,8 +274,8 @@ func StartInstallation(t testing.TB, names ...string) *Installation {
 		_ = state.Close()
 		_ = store.Close()
 	})
-	for _, name := range names {
-		if _, _, err := state.CreateProject(ctx, ledger.Project{ID: ledger.WorkspaceID(name + "-id"), Name: name}, actor); err != nil {
+	for i, name := range names {
+		if _, _, err := state.CreateProject(ctx, ledger.Project{ID: ids[i], Name: name}, actor); err != nil {
 			t.Fatal(err)
 		}
 	}

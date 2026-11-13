@@ -73,6 +73,7 @@ func planApprovalNeed(t *testing.T, view api.NeedsYou) *api.PlanApprovalNeed {
 }
 
 func TestNeedsYouHoldsAPlanApprovalWithWhatItHoldsAndHowItDiffers(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Planned(retrySource("The first draft."))
 	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
@@ -100,6 +101,7 @@ func TestNeedsYouHoldsAPlanApprovalWithWhatItHoldsAndHowItDiffers(t *testing.T) 
 }
 
 func TestNeedsYouHoldsAContractReviewNoPlanStandsBehind(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Recorded("wo-alone", "Document the budget")
 	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
@@ -123,6 +125,7 @@ func TestNeedsYouHoldsAContractReviewNoPlanStandsBehind(t *testing.T) {
 }
 
 func TestApprovingAPlanFromNeedsYouLeavesNothingToReview(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Planned(retrySource("The first draft."))
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
@@ -150,6 +153,7 @@ func TestApprovingAPlanFromNeedsYouLeavesNothingToReview(t *testing.T) {
 }
 
 func TestANewVersionAsksAgainAndShowsWhatChanged(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	source := retrySource("The first draft.")
 	w.Planned(source)
@@ -177,6 +181,7 @@ func TestANewVersionAsksAgainAndShowsWhatChanged(t *testing.T) {
 }
 
 func TestShowingAPlanCarriesItsApprovalAndTheDifference(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Planned(retrySource("The first draft."))
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
@@ -192,6 +197,7 @@ func TestShowingAPlanCarriesItsApprovalAndTheDifference(t *testing.T) {
 
 // A member decides the drafts with the plan, so Needs you shows each one's question and answer.
 func TestAPlanApprovalNeedCarriesItsDraftDecisions(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Planned(retrySource("The first draft."))
 	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
@@ -203,6 +209,7 @@ func TestAPlanApprovalNeedCarriesItsDraftDecisions(t *testing.T) {
 
 // A contract review names the plan its contract belongs to, so a person can read the contract first.
 func TestAContractReviewNeedNamesItsPlan(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Recorded("wo-alone", "Document the budget")
 	for _, item := range readView[api.NeedsYou](t, d, api.ViewNeedsYou, "").Items {
@@ -219,6 +226,7 @@ func TestAContractReviewNeedNamesItsPlan(t *testing.T) {
 // A member passes a contract review, or sends the work back, from the browser as from the CLI
 // (FR-UI-6).
 func TestAWebPagePassesOrSendsBackAContractReview(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	w.Recorded("wo-pass", "Pass this one")
@@ -249,6 +257,7 @@ func TestAWebPagePassesOrSendsBackAContractReview(t *testing.T) {
 // every claim with its evidence, each continued branch, what is new, what is left out, and the branch's
 // changes.
 func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	adoption := planning.Adoption{
 		Exists:    []planning.ExistingRecord{{Ref: "requirement:SHOP-1", Title: "One client", Evidence: []string{"shop:client.go"}}},

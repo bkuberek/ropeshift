@@ -12,6 +12,7 @@ import (
 // A failed lane leaves its work failed, and a member's retry returns it to ready with one more attempt,
 // because a member is held to no recovery policy (ADR-0014).
 func TestAMemberRetriesFailedWork(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	w.Running("wo", "Try the flaky call").End(workorders.OutcomeFailed, workorders.ReasonCrashed)
