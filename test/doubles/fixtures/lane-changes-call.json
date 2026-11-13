@@ -6,7 +6,7 @@
     [
       {"init": true},
       {"hook": "UserPromptSubmit", "input": {"prompt": "the brief"}},
-      {"tool": "Bash", "command": "touch first-call-ran", "prompts": true},
+      {"tool": "Bash", "command": "touch first-call-ran", "prompts": true, "late_verdict": true},
       {"mcp": "lane_handoff", "arguments": {"done": [], "in_progress": ["A call waits on a decision"], "next_steps": ["Make the call again"], "risks": [], "carries_next_step": false}},
       {"hook": "Stop", "input": {}},
       {"emit": {"type": "result", "subtype": "success", "is_error": false, "terminal_reason": "completed", "num_turns": 1, "total_cost_usd": 0.01, "usage": {"input_tokens": 3, "output_tokens": 5}}}
