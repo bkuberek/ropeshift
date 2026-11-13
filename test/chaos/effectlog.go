@@ -4,9 +4,13 @@ package chaos
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"syscall"
 )
 
@@ -32,7 +36,11 @@ type Record struct {
 // EffectLog is the witness: a child writes it, the database never sees it, and the
 // parent checks one against the other. Each record is one write on an O_APPEND
 // descriptor followed by fsync, so records from several processes interleave
-// whole and survive SIGKILL of any of them.
+// whole. A write is not atomic against SIGKILL, though: one that crosses a page
+// boundary can be cut short, leaving a fragment. Each record therefore starts
+// with a newline, so a fragment ends up on its own line, and ReadEffectLog skips
+// it. A killed writer's lost record means the same as the writer having been
+// killed just before it wrote.
 type EffectLog struct {
 	file *os.File
 }
@@ -54,7 +62,7 @@ func (l *EffectLog) Append(r Record) error {
 	if err != nil {
 		return err
 	}
-	if _, err := l.file.Write(append(raw, '\n')); err != nil {
+	if _, err := l.file.Write(append([]byte{'\n'}, raw...)); err != nil {
 		return err
 	}
 	return syscall.Fsync(int(l.file.Fd()))
@@ -63,8 +71,13 @@ func (l *EffectLog) Append(r Record) error {
 // Close closes the log.
 func (l *EffectLog) Close() error { return l.file.Close() }
 
-// ReadEffectLog parses the whole log. A line that does not parse is an error,
-// because a torn record would mean the witness cannot be trusted.
+// recordStart opens every record. Quotes inside a string value are escaped, so
+// this text appears only where a record begins, even after a fragment on the same line.
+const recordStart = `{"k":`
+
+// ReadEffectLog parses the whole log. A fragment a killed writer left is skipped.
+// A complete record that does not parse is an error, because the witness could
+// not be trusted.
 func ReadEffectLog(path string) ([]Record, error) {
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -78,11 +91,40 @@ func ReadEffectLog(path string) ([]Record, error) {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		var r Record
-		if err := json.Unmarshal(scanner.Bytes(), &r); err != nil {
-			return nil, fmt.Errorf("torn record %q: %w", scanner.Text(), err)
+		// A fragment can share its line with the record written after it.
+		for _, text := range splitRecords(scanner.Text()) {
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			var r Record
+			if err := json.Unmarshal([]byte(text), &r); err != nil {
+				if truncated(text) {
+					continue
+				}
+				return nil, fmt.Errorf("malformed record %q: %w", text, err)
+			}
+			out = append(out, r)
 		}
-		out = append(out, r)
 	}
 	return out, scanner.Err()
+}
+
+// splitRecords cuts a line before each record start.
+func splitRecords(line string) []string {
+	var parts []string
+	for line != "" {
+		i := strings.Index(line[1:], recordStart) + 1
+		if i == 0 {
+			return append(parts, line)
+		}
+		parts = append(parts, line[:i])
+		line = line[i:]
+	}
+	return parts
+}
+
+// truncated reports whether text is the start of a JSON value that ends early.
+func truncated(text string) bool {
+	err := json.NewDecoder(bytes.NewReader([]byte(text))).Decode(new(json.RawMessage))
+	return errors.Is(err, io.ErrUnexpectedEOF)
 }
