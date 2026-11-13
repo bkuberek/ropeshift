@@ -1,0 +1,15 @@
+{
+  "id": "adopt-approval",
+  "lane_id": "",
+  "work_order_id": "adopt-1",
+  "generation": 0,
+  "kind": "plan",
+  "subject": "shop@1",
+  "subject_digest": "sha256:abc",
+  "summary": "Plan Adopt shop, version 1",
+  "requested_by": "lane:lane-1",
+  "state": "pending",
+  "raised_at": 1,
+  "plan_version": 1,
+  "detail": "{\"title\":\"Adopt shop\",\"ref\":\"shop\",\"counts\":{\"contract\":3,\"milestone\":2,\"requirements\":1},\"decisions\":1,\"difference\":{},\"source\":\"abc1234\",\"adoption\":{\"exists\":[{\"ref\":\"requirement:SHOP-1\",\"title\":\"One client\",\"evidence\":[\"shop:client.go\",\"shop:client_test.go\"],\"cites\":[\"requirement:SHOP-2\"]}],\"continues\":[{\"contract\":\"contract:retry\",\"work_order\":\"retry-finish\",\"title\":\"Finish the retry\",\"repo\":\"shop\",\"branch\":\"feature/retry\"}],\"new\":[{\"ref\":\"milestone:m2\",\"title\":\"Saved carts\",\"work_orders\":[\"carts-storage\"]}],\"left_out\":[{\"ref\":\"branch:spike/old-ui\",\"reason\":\"Abandoned in favor of the new checkout\"}],\"changes\":[{\"status\":\"added\",\"path\":\"plans/plan.md\"},{\"status\":\"moved\",\"path\":\"docs/payments.md\",\"from\":\"notes/payments.md\"},{\"status\":\"changed\",\"path\":\"docs/requirements.md\"}]}}"
+}

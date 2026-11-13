@@ -158,10 +158,10 @@ export type BannerTone = "neutral" | "active" | "warning" | "danger";
 const bannerIcons: Record<BannerTone, IconName> = { neutral: "info", active: "info", warning: "warning", danger: "warning" };
 
 // Banner states a fact about the view until the fact changes. A danger banner is an alert.
-export function Banner({ tone = "neutral", action, children }: { tone?: BannerTone; action?: ReactNode; children: ReactNode }) {
+export function Banner({ tone = "neutral", icon, action, children }: { tone?: BannerTone; icon?: IconName; action?: ReactNode; children: ReactNode }) {
   return (
     <div className={`banner tone-${tone}`} role={tone === "danger" ? "alert" : undefined}>
-      <Icon name={bannerIcons[tone]} />
+      <Icon name={icon ?? bannerIcons[tone]} />
       <div className="banner-body">{children}</div>
       {action}
     </div>

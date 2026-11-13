@@ -315,6 +315,26 @@
     "command": "plan list"
   },
   {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/plans/{id}",
+    "command": "plan show"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/approvals/{id}",
+    "command": "approval show"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/lanes/{id}/outline",
+    "command": "lane outline"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/sources",
+    "command": "source list"
+  },
+  {
     "method": "POST",
     "pattern": "/v1/projects/{project}/work-orders",
     "command": "work create"

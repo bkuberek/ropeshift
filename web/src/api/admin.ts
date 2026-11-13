@@ -1,5 +1,5 @@
 import { call, project, request } from "./client";
-import type { Project } from "./types";
+import type { Project, SourceBinding } from "./types";
 
 // The installation's and one project's records a member manages: projects, repositories, settings, the
 // agent roster, members, and the audit. Every call is a route the web listener serves, which names the
@@ -182,6 +182,7 @@ export const adminPaths = {
   orchestrator: (worker: string) => `/v1/workers/${encodeURIComponent(worker)}/orchestrator`,
   approvals: (state: string) => project(`/approvals${query({ state })}`),
   workOrders: () => project("/work-orders"),
+  sources: () => project("/sources"),
   claim: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/claims`),
   startLane: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/lanes`),
   review: (id: string) => project(`/work-orders/${encodeURIComponent(id)}/review`),
@@ -243,6 +244,7 @@ export const stopOrchestrator = (worker: string) => call<unknown>("PUT", adminPa
 
 // The adopt flow's own steps, each one a member's call, as `ropeshift adopt` makes them.
 
+export const readSources = () => call<{ sources: SourceBinding[] }>("GET", adminPaths.sources());
 export const readApprovals = (state: string) => call<{ approvals: Approval[] }>("GET", adminPaths.approvals(state));
 
 export type ReadyFailure = { check: string; detail: string };
@@ -259,6 +261,36 @@ export const createAdoptWork = (draft: AdoptDraft) =>
     repository_id: draft.repository || undefined,
     adopt: true,
     criteria: [{ id: "c1", text: draft.criterion }],
+  });
+// What a planning session's work order is called when its goal says nothing, how long a title taken from a
+// goal runs, and the one criterion the session holds, because the definition of ready wants at least one and
+// a plan has no test to run: as `ropeshift plan start` records them.
+export const defaultPlanTitle = "Planning session";
+export const maxPlanTitle = 80;
+export const planCriterion = "The plan is written to the repository as files, and the person has gone through it in this session.";
+
+// planTitle is a goal's first line that says anything, which is what a person scanning a list would call it.
+export function planTitle(goal: string): string {
+  for (const line of goal.split("\n")) {
+    const text = line.trim();
+    if (text !== "") {
+      return [...text].slice(0, maxPlanTitle).join("");
+    }
+  }
+  return defaultPlanTitle;
+}
+
+export type PlanDraft = { id: string; goal: string; repository: string };
+
+// createPlanWork records the work order of a planning session: a `plan` work order whose statement is the goal.
+export const createPlanWork = (draft: PlanDraft) =>
+  call<{ id: string; title: string }>("POST", adminPaths.workOrders(), {
+    id: draft.id,
+    kind: "plan",
+    title: planTitle(draft.goal),
+    statement: draft.goal,
+    repository_id: draft.repository || undefined,
+    criteria: [{ id: "c1", text: planCriterion }],
   });
 export const reviewWork = (id: string) => call<ReviewResult>("POST", adminPaths.review(id), {});
 export const claimWork = (id: string, claim: string, worker: string) => call<unknown>("POST", adminPaths.claim(id), { claim_id: claim, worker_id: worker });

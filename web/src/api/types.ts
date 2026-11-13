@@ -113,6 +113,10 @@ export type WorkOrder = {
   review_pins?: string[];
   size?: string;
   contract_id?: string;
+  // agent is the roster agent the work's lane runs as, which the plan proposes.
+  agent?: string;
+  requirements?: string[];
+  adopt?: boolean;
 };
 
 export type WorkAction = "reassign" | "resolve" | "replan" | "reset" | "respawn" | "resume" | "accept" | "rework" | "cancel";
@@ -299,6 +303,8 @@ export type PlanDetail = {
   work_orders: WorkOrder[];
   milestones: MilestoneProgress[];
   pending_version?: number;
+  // approved_version is the newest version a member approved, which is the one in force.
+  approved_version?: number;
 };
 
 export type Plans = Stamp & { plans: PlanDetail[]; unplanned: WorkOrder[] };
@@ -347,7 +353,12 @@ export type RecordedVersion = {
 // A planning document intake recorded from a plan's files, with every version, newest first.
 export type RecordedDocument = { id: string; kind: string; title: string; path?: string; versions: RecordedVersion[] };
 
-export type TracedWork = { id: string; title: string; state: string };
+// What a review found of one criterion, on the commit it read.
+export type TracedVerdict = { verdict: VerdictKind; commit: string };
+
+// TracedWork is a work order that carries a criterion. Its verdict is the latest one that speaks for its
+// current attempt and commit, and it is absent until a review has judged the criterion.
+export type TracedWork = { id: string; title: string; state: string; verdict?: TracedVerdict };
 
 export type TracedCriterion = {
   contract: string;
@@ -591,3 +602,59 @@ export type SearchRecord = { kind: string; id: string; title?: string; state?: s
 
 // Search is the records whose ID or title holds every word of a query, ranked by the server.
 export type Search = Stamp & { query?: string; records: SearchRecord[]; more?: boolean };
+
+// The records a plan version's approval covers, each by its reference and digest. A record that is a
+// document names the document it is, so its versions can be read.
+export type PlanEntry = { ref: string; digest: string; record?: string };
+
+// PlanApprovalDetail is what a request to approve a plan says of its version beyond its summary. The
+// approval's `detail` is this, as JSON.
+export type PlanApprovalDetail = {
+  title: string;
+  ref?: string;
+  counts?: Record<string, number>;
+  decisions?: number;
+  difference?: Difference;
+  // source is the commit of the planning branch the version was read from.
+  source?: string;
+  adoption?: Adoption;
+};
+
+// PlanApprovalView is a request to approve a plan version with everything a member reads before deciding.
+export type PlanApprovalView = { approval: Approval; detail: PlanApprovalDetail; records?: PlanEntry[]; drafts?: DraftDecision[] };
+
+// One version of a plan, and where the request to approve it stands: none when nobody asked.
+export type PlanVersionLine = { version: number; digest?: string; approval?: string; state?: string };
+
+// PlanView is one plan with its goal, each contract's newest version, their work orders, and the request to
+// approve it: the one waiting, or else the newest, or the one of the version asked for.
+export type PlanView = {
+  plan: Plan;
+  goal?: Goal;
+  contracts: Contract[];
+  work_orders: WorkOrder[];
+  approval?: PlanApprovalView;
+  versions: PlanVersionLine[];
+};
+
+// A request as the approvals list and show routes answer, with who decided it and when once it is decided.
+export type ApprovalRecord = Approval & { decided_by?: string; decided_at?: number; reason?: string };
+
+export type OutlineDocument = { path: string; kind: string; title?: string; status: "new" | "changed" };
+export type OutlineMilestone = { id: string; title: string; priority: number };
+export type OutlineContract = { id: string; title: string; criteria: number; work_orders: number };
+export type OutlineQuestion = { id: string; text: string; blocking?: boolean };
+
+// PlanOutline is what a planning lane's branch holds at its tip: read from the repository, only what is
+// committed. A branch that cannot be read answers `unread` with the reason, and nothing else.
+export type PlanOutline = {
+  unread?: string;
+  commit?: string;
+  documents?: OutlineDocument[];
+  milestones?: OutlineMilestone[];
+  contracts?: OutlineContract[];
+  decisions?: DraftDecision[];
+  questions?: OutlineQuestion[];
+  approval?: { id: string; state: string; version: number };
+  not_submitted?: string;
+};

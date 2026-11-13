@@ -13,7 +13,7 @@ function planned(): PlanDetail {
   return plan;
 }
 
-function serve(change: (view: Plans) => void) {
+function serve(change: (view: Plans) => void = () => {}) {
   const view = golden<Plans>("plans");
   change(view);
   serveViews((call) => (call.path.startsWith("/v1/views/plans") ? { status: 200, body: view } : undefined));
@@ -73,7 +73,26 @@ describe("the plan list", () => {
       view.unplanned = [];
     });
     openPage("/plans");
-    expect(await screen.findByText("No plans yet.")).toBeTruthy();
+    expect(await screen.findByText("No plans yet")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Start planning session" }).length).toBeGreaterThan(0);
+  });
+
+  it("states each plan's version in force and progress, and offers to review a version that waits", async () => {
+    serve((view) => {
+      for (const row of view.plans) {
+        if (row.plan.title === "The factory floor") {
+          row.plan.id = "factory-plan";
+        }
+      }
+    });
+    openPage("/plans");
+    const row = (await screen.findByRole("link", { name: "The factory floor" })).closest("li") as HTMLElement;
+    expect(row.textContent).toContain("Version 5 approved · version 6 waits");
+    expect(within(row).getByRole("progressbar", { name: "The factory floor: 1 of 5 done" })).toBeTruthy();
+    expect(within(row).getByRole("link", { name: "Review version 6" }).getAttribute("href")).toBe(here("/plan?id=factory-plan&version=6"));
+    const quiet = (await screen.findByRole("link", { name: "Write the docs" })).closest("li") as HTMLElement;
+    expect(within(quiet).queryByRole("link", { name: /Review version/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Start planning session" }).length).toBeGreaterThan(0);
   });
 });
 
@@ -215,10 +234,30 @@ describe("a plan with milestones", () => {
     expect(row?.textContent).toContain("In milestone Build the core");
   });
 
-  it("says which version waits for approval, and leads to Needs you", async () => {
+  it("says which version waits for approval, and leads to its approval page and to Needs you", async () => {
     await openFactory();
-    const waiting = screen.getByText(/^Version 6 waits for approval/);
-    expect(waiting.textContent).toBe("Version 6 waits for approval in Needs you.");
-    expect(within(waiting).getByRole("link", { name: "Needs you" }).getAttribute("href")).toBe("/needs-you?kind=decisions");
+    const banner = screen.getByText("Version 6 waits for your approval.").closest(".banner") as HTMLElement;
+    expect(within(banner).getByRole("link", { name: "Needs you" }).getAttribute("href")).toBe("/needs-you?kind=decisions");
+    expect(within(banner).getByRole("link", { name: "Review version 6" }).getAttribute("href")).toMatch(/\/plan\?id=.+&version=6$/);
+  });
+
+  it("lists the plan's versions with where each request stands", async () => {
+    await openFactory();
+    const versions = await screen.findByRole("list", { name: "Versions of the plan" });
+    const rows = within(versions).getAllByRole("listitem");
+    expect(rows).toHaveLength(6);
+    expect(rows[0]?.textContent).toContain("Version 6");
+    expect(rows[0]?.textContent).toContain("Open");
+    expect(rows[1]?.textContent).toContain("Approved");
+    expect(within(rows[1] as HTMLElement).getByRole("link", { name: "Version 5" }).getAttribute("href")).toMatch(/\/plan\?id=.+&version=5$/);
+  });
+
+  it("shows how the newest version differs from the approved one, and the drafts it carries", async () => {
+    await openFactory();
+    const diff = await screen.findByRole("region", { name: "Version 6: difference from version 5" });
+    expect(within(diff).getByText("Added")).toBeTruthy();
+    expect(within(diff).getByRole("list", { name: "Inside contract:core" }).textContent).toContain("Criteria added: c2");
+    const drafts = screen.getByRole("list", { name: "Draft decisions" });
+    expect(within(drafts).getAllByRole("listitem")).toHaveLength(2);
   });
 });
