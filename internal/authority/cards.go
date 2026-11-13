@@ -11,6 +11,12 @@ import (
 // MaxWhy bounds the reason a delegate gives for a card, in bytes.
 const MaxWhy = 2000
 
+// CardStates are the states a confirmation card passes through, in the order a person reads them: open,
+// running, confirmed, failed to run, declined, void, and expired.
+func CardStates() []ApprovalState {
+	return []ApprovalState{ApprovalPending, ApprovalApproved, ApprovalUsed, ApprovalFailed, ApprovalDenied, ApprovalVoid, ApprovalExpired}
+}
+
 // CardDetail is what a confirmation card holds of the operation it runs: the operation and its label, the
 // exact HTTP call as the delegate sent it, the delegate's reason, and what the call changes. A member's
 // confirmation replays this call, and nothing else.

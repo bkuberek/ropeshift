@@ -79,6 +79,11 @@ func (d DelegateCredential) State(now int64) DelegateState {
 	return DelegateActive
 }
 
+// DelegateStates are the states of a delegate credential.
+func DelegateStates() []DelegateState {
+	return []DelegateState{DelegateActive, DelegateExpired, DelegateRevoked}
+}
+
 // Actor is who the credential acts as.
 func (d DelegateCredential) Actor() ledger.Actor { return DelegateActor(d.Member, d.ID) }
 

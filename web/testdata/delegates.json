@@ -1,0 +1,38 @@
+{
+  "as_of": 1794000180000,
+  "delegates": [
+    {
+      "id": "dlg_credential-1",
+      "label": "planning assistant",
+      "project": "default",
+      "kind": "external",
+      "created_at": 1794000000000,
+      "expires_at": 1794028800000,
+      "last_used_at": 1794000120000,
+      "revoked_at": null,
+      "state": "active"
+    },
+    {
+      "id": "dlg_credential-2",
+      "label": "planning assistant",
+      "project": "default",
+      "kind": "external",
+      "created_at": 1794000000000,
+      "expires_at": 1794086400000,
+      "last_used_at": null,
+      "revoked_at": 1794000000000,
+      "state": "revoked"
+    },
+    {
+      "id": "dlg_credential-3",
+      "label": "release notes bot",
+      "project": "default",
+      "kind": "external",
+      "created_at": 1794000000000,
+      "expires_at": 1794604800000,
+      "last_used_at": null,
+      "revoked_at": null,
+      "state": "active"
+    }
+  ]
+}

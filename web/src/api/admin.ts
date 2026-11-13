@@ -108,6 +108,9 @@ export type AuditEvent = {
   subject_id: string;
   actor_kind: string;
   actor_id: string;
+  // A delegate's event names the member it acted for and its credential's label.
+  actor_for?: string;
+  actor_label?: string;
   occurred_at?: number;
   recorded_at: number;
   data?: unknown;

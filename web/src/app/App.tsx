@@ -216,6 +216,8 @@ export function App() {
       { key: "action:theme", group: "Actions", title: `Switch theme (${themeWords[theme].replace("Theme: ", "now ")})`, icon: "theme", run: nextTheme },
       { key: "action:sheet", group: "Actions", title: "Show keyboard shortcuts", icon: "keyboard", meta: "?", run: () => setSheetOpen(true) },
       { key: "action:sign-out", group: "Actions", title: "Sign out", icon: "lock", run: signOutNow },
+      { key: "action:create-delegate", group: "Actions", title: "Create delegate", icon: "key", to: "/members?dialog=delegate", keywords: "credential agent" },
+      { key: "action:sign-out-all", group: "Actions", title: "Sign out all sessions", icon: "lock", to: "/members?dialog=sign-out-all", keywords: "revoke delegates" },
     ];
     const views: Entry[] = navGroups.flatMap((group) =>
       group.items.map((item) => ({

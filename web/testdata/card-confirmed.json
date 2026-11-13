@@ -1,0 +1,19 @@
+{
+  "id": "generated-1",
+  "lane_id": "",
+  "work_order_id": "",
+  "generation": 0,
+  "kind": "confirm",
+  "subject": "work_order:w1",
+  "subject_digest": "sha256:346103b317780f03af62e2f9feb0535247055d30c9671b4fdd69aa0d2c7744c7",
+  "summary": "Cancel work: w1",
+  "requested_by": "delegate:member-1/dlg_credential-1",
+  "state": "used",
+  "decided_by": "member:member-1",
+  "decided_kind": "member",
+  "decided_digest": "sha256:346103b317780f03af62e2f9feb0535247055d30c9671b4fdd69aa0d2c7744c7",
+  "decided_at": 1794000000000,
+  "raised_at": 1794000000000,
+  "channel": "cli",
+  "detail": "{\"operation\":\"work_order.cancel\",\"label\":\"Cancel work\",\"method\":\"POST\",\"path\":\"/v1/projects/default/work-orders/w1/cancel\",\"arguments\":{\"reason\":\"The plan dropped it.\"},\"why\":\"The checks passed, and the plan names this step next.\",\"changes\":[{\"field\":\"reason\",\"to\":\"The plan dropped it.\"}]}"
+}

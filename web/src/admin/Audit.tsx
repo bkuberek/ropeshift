@@ -1,16 +1,21 @@
 import { useEffect, useId, useState } from "react";
 
-import { readAudit } from "../api/admin";
-import type { AuditEvent, AuditPage, Scope } from "../api/admin";
+import { readAudit, readMembers } from "../api/admin";
+import type { AuditEvent, AuditPage, MemberList, Scope } from "../api/admin";
 import type { Live } from "../api/useView";
 import { addressOf, go } from "../app/route";
 import { Page } from "../parts/parts";
 import { Button, Segmented } from "../ui/controls";
-import { EmptyState, Panel, TableRegion } from "../ui/display";
+import { Actor, EmptyState, Panel, TableRegion } from "../ui/display";
 import { Field, Select } from "../ui/forms";
 import { Reading, timeOf, useRead } from "./parts";
 
-const actors = ["", "member", "worker", "lane", "orchestrator", "system"];
+const actors = ["", "member", "delegate", "worker", "lane", "orchestrator", "system"];
+
+// EventActor shows who acted on an event, as every surface shows an actor.
+function EventActor({ event, you }: { event: AuditEvent; you: string }) {
+  return <Actor kind={event.actor_kind} id={event.actor_id} actorFor={event.actor_for} label={event.actor_label} you={you} />;
+}
 
 type Filters = { actor: string; kind: string; subject: string };
 
@@ -24,6 +29,9 @@ export function AuditView({ live, project, label, scope, actor, kind }: { live: 
   const before = pages[pages.length - 1] ?? 0;
   const read = useRead<AuditPage>(() => readAudit(scope, { ...filters, before, limit: 50 }), `audit:${scope}:${project}:${JSON.stringify(filters)}:${before}`, live);
   const id = useId();
+  // With one member enrolled, every act of a member is the reader's own, which the audit names "you".
+  const members = useRead<MemberList>(() => readMembers(), "members", live);
+  const you = members.view?.enrolled === 1 && members.view.members.length === 1 ? (members.view.members[0]?.id ?? "") : "";
   useEffect(() => setOpen(null), [read.view]);
   const apply = (next: Filters) => {
     setFilters(next);
@@ -140,7 +148,7 @@ export function AuditView({ live, project, label, scope, actor, kind }: { live: 
                           {timeOf(event.recorded_at)}
                         </td>
                         <td data-label="Actor">
-                          {event.actor_kind} <span className="mono small subtle">{event.actor_id}</span>
+                          <EventActor event={event} you={you} />
                         </td>
                         <td data-label="Act" className="mono small">
                           {event.type}
@@ -171,7 +179,7 @@ export function AuditView({ live, project, label, scope, actor, kind }: { live: 
                     <dd className="mono">{open.type}</dd>
                     <dt>Actor</dt>
                     <dd>
-                      {open.actor_kind} <span className="mono">{open.actor_id}</span>
+                      <EventActor event={open} you={you} /> <span className="mono small subtle">{open.actor_id}</span>
                     </dd>
                     <dt>Subject</dt>
                     <dd>

@@ -13,10 +13,11 @@ export const filters: { id: NeedFilter; label: string }[] = [
   { id: "stuck", label: "Stuck" },
 ];
 
-// filterOf is the family an item belongs to. A confirmation card is a kind of its own, which this build
-// does not raise, so the Cards filter counts none.
+// filterOf is the family an item belongs to. A confirmation card a delegate prepared is a family of its own.
 export function filterOf(item: NeedItem): Exclude<NeedFilter, "all"> {
   switch (item.kind) {
+    case "confirm":
+      return "cards";
     case "questions":
     case "plan_approval":
     case "contract_review":
@@ -71,6 +72,8 @@ export function kindOf(item: NeedItem): { icon: IconName; name: string } {
       return { icon: "plan", name: "Plan approval" };
     case "contract_review":
       return { icon: "review", name: "Contract review" };
+    case "confirm":
+      return { icon: "card", name: "Confirmation card" };
   }
 }
 
@@ -91,6 +94,8 @@ export function headingOf(item: NeedItem): string {
       return `Approve ${item.plan_approval.title}, version ${item.plan_approval.version}?`;
     case "contract_review":
       return item.contract_review.work_order.title || item.id;
+    case "confirm":
+      return item.card.approval.summary;
   }
 }
 
@@ -115,5 +120,12 @@ export function contextOf(item: NeedItem): string {
       return [`Requested by ${item.plan_approval.requested_by}`, plural(item.plan_approval.drafts.length, "draft decision")].join(" · ");
     case "contract_review":
       return [item.contract_review.work_order.id, `${item.contract_review.contract} v${item.contract_review.version}`].join(" · ");
+    case "confirm":
+      return preparerOf(item.card);
   }
+}
+
+// preparerOf names the delegate that prepared a card: its credential's label, and the member it acts for.
+export function preparerOf(card: { label: string; member: string }): string {
+  return card.member ? `${card.label} for ${card.member}` : card.label;
 }

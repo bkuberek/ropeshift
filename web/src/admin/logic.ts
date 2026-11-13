@@ -5,7 +5,7 @@ import type { StateLook } from "../floor/states";
 // fields a roster change sends. None of it decides anything the API decides; the API refuses what it
 // refuses, and the page shows that refusal at the field.
 
-export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "delegation";
+export type PolicyKind = "decision" | "lane" | "recovery" | "notify" | "autonomy" | "delegation" | "delegate";
 
 export type DelegationClass = { tool: string; command_prefix: string; path: string; agent: string };
 export type PolicyValue = boolean | number | string | string[] | DelegationClass[];
@@ -14,7 +14,7 @@ export type PolicyValues = Record<string, PolicyValue>;
 export type FieldSpec = {
   key: string;
   label: string;
-  type: "bool" | "int" | "text" | "choice" | "list" | "classes";
+  type: "bool" | "int" | "text" | "choice" | "list" | "classes" | "operations";
   choices?: string[];
   help?: string;
   // optional text is left out of the body when empty, because the policy reads its absence.
@@ -68,6 +68,10 @@ export const policies: Record<PolicyKind, { table: string; fields: FieldSpec[] }
   delegation: {
     table: "delegation_policy",
     fields: [{ key: "classes", label: "Approval classes an orchestrator decides", type: "classes", help: "Each class names a tool, and optionally a command prefix, a path, or an agent." }],
+  },
+  delegate: {
+    table: "delegate_policy",
+    fields: [{ key: "exempt", label: "Consent operations a delegate runs without a card", type: "operations", help: "Every other consent operation a delegate calls becomes a card a member confirms." }],
   },
 };
 
