@@ -20,6 +20,10 @@ type TerminalRig struct {
 	Exits func(name string) ports.PaneSpec
 	// Waits holds a test until a pane shows a piece of text.
 	Waits func(t *testing.T, name, text string)
+	// Took holds a test until the pane's process has read n keys in all, and drawn the screen each
+	// one called for, so one read after it sees a settled screen. A scripted pane reads a key as
+	// Keys returns, and answers at once.
+	Took func(t *testing.T, name string, n int)
 	// Attaches puts a person's terminal on a pane, the way this terminal does it, and returns once
 	// that client is attached. Detach presses the detach keys and returns once the client has ended.
 	Attaches func(t *testing.T, name string) (detach func())
@@ -69,7 +73,8 @@ func openPane(t *testing.T, ctx context.Context, rig TerminalRig, spec ports.Pan
 
 func checkPaneShows(t *testing.T, ctx context.Context, rig TerminalRig) {
 	openPane(t, ctx, rig, rig.Spec("show"))
-	rig.Waits(t, "show", "No, exit")
+	// The line the read looks for, and not one above it, because a process draws top to bottom.
+	rig.Waits(t, "show", "Yes, I trust this folder")
 	text, err := rig.Terminal.Capture(ctx, "show")
 	if err != nil {
 		t.Fatal(err)
@@ -95,9 +100,14 @@ func checkTypedText(t *testing.T, ctx context.Context, rig TerminalRig) {
 		t.Fatal(err)
 	}
 	rig.Waits(t, "typed", "❯ Yes, I trust this folder")
-	if err := rig.Terminal.Type(ctx, "typed", "/compact"); err != nil {
+	const typed = "/compact"
+	if err := rig.Terminal.Type(ctx, "typed", typed); err != nil {
 		t.Fatal(err)
 	}
+	// Type returns once the terminal has the keys, not once the process has read them, and a process
+	// that has not read them yet still shows the dialog. The read waits for the keys, and then a
+	// dialog that answered one would no longer be there.
+	rig.Took(t, "typed", 1+len(typed)) // the Down, and one key for each typed byte
 	text, err := rig.Terminal.Capture(ctx, "typed")
 	if err != nil {
 		t.Fatal(err)

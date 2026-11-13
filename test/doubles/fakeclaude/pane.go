@@ -96,8 +96,23 @@ func witness(kind, line string) {
 	}
 }
 
+// drawGap is how long the double leaves between the pieces of one screen. A real CLI repaints in
+// several writes, and a terminal can show a read of any of them, so a test that reads a screen
+// without waiting for the CLI to finish sees a half-drawn frame here too, on any platform.
+const drawGap = 200 * time.Microsecond
+
+// draw paints a screen in pieces: the clear, then one line at a time.
 func draw(text string) {
-	fmt.Print("\033[2J\033[H" + strings.ReplaceAll(text, "\n", "\r\n"))
+	write := func(piece string) {
+		if _, err := os.Stdout.WriteString(piece); err != nil {
+			fail("%v", err)
+		}
+	}
+	write("\033[2J\033[H")
+	for _, line := range strings.SplitAfter(text, "\n") {
+		time.Sleep(drawGap)
+		write(strings.ReplaceAll(line, "\n", "\r\n"))
+	}
 }
 
 // terminalInput turns off line buffering, so a key arrives when it is pressed. The
@@ -166,13 +181,13 @@ func (s *session) askTrust(keys <-chan string) {
 	}
 	show()
 	for key := range keys {
-		witness("keys", "trust "+key)
 		switch key {
 		case keyDown:
 			accept = true
 		case keyUp:
 			accept = false
 		case keyEnter:
+			witness("keys", "trust "+key)
 			if !accept {
 				witness("bare-enter", "the wrong answer")
 				os.Exit(1)
@@ -183,6 +198,9 @@ func (s *session) askTrust(keys <-chan string) {
 			return
 		}
 		show()
+		// The line comes after the redraw, so a reader that waits for it and then reads the screen
+		// sees a finished frame.
+		witness("keys", "trust "+key)
 	}
 }
 

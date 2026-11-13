@@ -23,7 +23,20 @@ import (
 
 func TestTmuxTerminalContract(t *testing.T) {
 	doubles.RequireTmux(t)
-	RunTerminal(t, func(t *testing.T) TerminalRig {
+	RunTerminal(t, tmuxRig(""))
+}
+
+// A person who types right after attaching must wait out the server's paste window before the keys
+// count as typed, whatever that window is, so the contract holds with a window far longer than the default.
+func TestTmuxTerminalContractWithALongPasteWindow(t *testing.T) {
+	doubles.RequireTmux(t)
+	RunTerminal(t, tmuxRig("100"))
+}
+
+// tmuxRig is the rig of a private tmux server. A paste window sets the server's assume-paste-time in
+// milliseconds once a pane is open, and an empty one keeps tmux's own.
+func tmuxRig(pasteWindow string) func(*testing.T) TerminalRig {
+	return func(t *testing.T) TerminalRig {
 		terminal := doubles.PrivateTmux(t)
 		terminalPath := doubles.InstallFakeClaude(t, "pane-terminal")
 		exitPath := doubles.InstallFakeClaude(t, "pane-exit")
@@ -36,7 +49,7 @@ func TestTmuxTerminalContract(t *testing.T) {
 			}
 		}
 		return TerminalRig{
-			Terminal: terminal, Spec: spec(terminalPath), Exits: spec(exitPath), Attaches: attachesOnATerminal(terminal),
+			Terminal: terminal, Spec: spec(terminalPath), Exits: spec(exitPath), Attaches: attachesOnATerminal(terminal, pasteWindow),
 			Waits: func(t *testing.T, name, text string) {
 				t.Helper()
 				deadline := time.Now().Add(20 * time.Second)
@@ -51,27 +64,70 @@ func TestTmuxTerminalContract(t *testing.T) {
 				}
 				t.Fatalf("%q never showed: %q", text, last)
 			},
+			// Each rig installs its own double, which holds one pane, so its log is that pane's.
+			Took: func(t *testing.T, _ string, n int) {
+				t.Helper()
+				log := filepath.Join(doubles.BinDir(terminalPath), "keys.log")
+				deadline := time.Now().Add(20 * time.Second)
+				taken := 0
+				for time.Now().Before(deadline) {
+					taken = trustKeysTaken(log)
+					if taken >= n {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
+				t.Fatalf("the pane took %d keys, want %d", taken, n)
+			},
 		}
-	})
+	}
+}
+
+// trustKeysTaken counts the keys a double's trust dialog has read and drawn, from its log.
+func trustKeysTaken(log string) int {
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		return 0
+	}
+	taken := 0
+	for line := range strings.Lines(string(raw)) {
+		// A line is the process ID, the dialog, and the key.
+		if fields := strings.Fields(line); len(fields) == 3 && fields[1] == "trust" {
+			taken++
+		}
+	}
+	return taken
 }
 
 // attachesOnATerminal attaches a real tmux client on a pseudo-terminal, as a person's shell would, and
 // detaches it with tmux's own binding.
-func attachesOnATerminal(terminal *tmux.Terminal) func(*testing.T, string) func() {
+//
+// A client takes keys that arrive within the server's assume-paste-time of its attach as a paste and sends
+// them to the pane, so the person waits that window out before typing the detach keys. A pasteWindow
+// sets the server's window first, in milliseconds, and an empty one keeps tmux's own.
+func attachesOnATerminal(terminal *tmux.Terminal, pasteWindow string) func(*testing.T, string) func() {
 	return func(t *testing.T, name string) func() {
 		t.Helper()
+		if pasteWindow != "" {
+			doubles.SetTmuxOption(t, terminal, "assume-paste-time", pasteWindow)
+		}
 		person := doubles.NewPTY(t)
 		done := make(chan error, 1)
 		go func() {
 			done <- terminal.Attach(context.Background(), name, ports.Console{Stdin: person.Terminal, Stdout: person.Terminal, Stderr: person.Terminal})
 		}()
-		deadline := time.Now().Add(20 * time.Second)
-		for time.Now().Before(deadline) {
+		attached := false
+		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline) && !attached; {
 			if count, err := terminal.Clients(context.Background(), name); err == nil && count == 1 {
+				attached = true
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
+		if !attached {
+			t.Fatalf("no client attached to %q: %q", name, person.Drawn())
+		}
+		doubles.WaitOutPaste(t, terminal)
 		return func() {
 			t.Helper()
 			select {
@@ -254,6 +310,7 @@ func TestFakeTerminalContract(t *testing.T) {
 					t.Fatalf("%q is not on the screen: %q, %v", text, screen, err)
 				}
 			},
+			Took: func(*testing.T, string, int) {},
 		}
 	})
 }
