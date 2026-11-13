@@ -15,9 +15,10 @@ import (
 // to the disk: each ledger and journal commit flushes a file, and git and every process it starts write
 // files too. While another program holds the disk up with full flushes of its own, a commit that takes
 // tens of microseconds on an idle disk takes hundreds of milliseconds, and a lane's start goes from
-// seconds to minutes, where CPU load alone, even from two full suites at once, slows it by less than
-// twice. So a wait counts only its time on a disk that flushes as an idle one does, and goes on while the
-// disk is held up, to its longest.
+// seconds to minutes. CPU load slows a lane as well: on a runner with three cores a resumed session of a
+// fleet took six to eight seconds, and a wait over many sessions takes the sum. So a wait counts only its time on a disk that flushes as an
+// idle one does, and goes on while the disk is held up, to its longest. A wait over a scenario of many
+// steps also gives a progress reading, and counts only the time since the reading last changed.
 type waitBounds struct {
 	// ceiling is the time on an idle disk that flushes in a millisecond or less after which a wait gives up.
 	// A slower idle disk lengthens it, up to longest.
@@ -64,9 +65,21 @@ func (b waitBounds) idleCeiling() time.Duration {
 // await looks at done until it holds, and reports whether it did. A wait that gives up says why, with
 // what the disk took to flush a block at its last reading and on an idle disk.
 func (b waitBounds) await(done func() bool) (bool, string) {
+	return b.awaitProgress(done, nil)
+}
+
+// awaitProgress is await for a thing that takes many steps, such as a fleet of lanes going through their
+// sessions one after another. Its progress reading says how far the thing has got, as a string that
+// differs whenever it has got further, and is read every look. The time a wait counts toward its ceiling
+// starts over whenever the reading changes, so a wait goes on while the thing moves, however slowly a
+// busy machine moves it, and gives up a ceiling after the last move. The longest still bounds the whole
+// wait. With a nil progress it is await.
+func (b waitBounds) awaitProgress(done func() bool, progress func() string) (bool, string) {
 	began := time.Now()
 	ceiling := b.idleCeiling()
-	counted, last, nextLook := time.Duration(0), began, began
+	counted, last, nextLook, nextRead := time.Duration(0), began, began, began
+	lastMove := began
+	var reading string
 	var took time.Duration
 	held := false
 	for {
@@ -78,9 +91,14 @@ func (b waitBounds) await(done func() bool) (bool, string) {
 			counted += now.Sub(last)
 		}
 		last = now
+		if progress != nil && !now.Before(nextRead) {
+			if seen := progress(); seen != reading {
+				counted, lastMove, reading = 0, now, seen
+			}
+			nextRead = time.Now().Add(b.look)
+		}
 		if counted >= ceiling || now.Sub(began) >= b.longest {
-			return false, fmt.Sprintf("gave up after %v on an idle disk, %v in all; the disk last flushed a block in %v, and in %v when idle\n",
-				counted.Round(time.Millisecond), now.Sub(began).Round(time.Millisecond), took, b.idle())
+			return false, b.gaveUp(counted, now.Sub(began), now.Sub(lastMove), reading, progress != nil, took)
 		}
 		if !now.Before(nextLook) {
 			took = b.flush()
@@ -89,6 +107,18 @@ func (b waitBounds) await(done func() bool) (bool, string) {
 		}
 		time.Sleep(b.poll)
 	}
+}
+
+// gaveUp is the reason a wait ran out: the time it counted on an idle disk, the time in all, and what the
+// disk took to flush a block. A wait with a progress reading also says how long since the reading last
+// changed, and what it was.
+func (b waitBounds) gaveUp(counted, total, sinceMove time.Duration, reading string, measured bool, took time.Duration) string {
+	var progress string
+	if measured {
+		progress = fmt.Sprintf("; no progress for %v, and the last reading was %q", sinceMove.Round(time.Millisecond), reading)
+	}
+	return fmt.Sprintf("gave up after %v on an idle disk, %v in all%s; the disk last flushed a block in %v, and in %v when idle\n",
+		counted.Round(time.Millisecond), total.Round(time.Millisecond), progress, took, b.idle())
 }
 
 // flushLatency is how long the disk under the temporary directory takes now to write one block through
@@ -142,6 +172,62 @@ func TestAWaitOnAnIdleDiskGivesUpAtItsCeiling(t *testing.T) {
 	}
 	if !strings.Contains(said, "60µs") {
 		t.Errorf("the reason leaves out the disk: %q", said)
+	}
+}
+
+// ticking is a progress reading that changes every step, from a start the test chose.
+func ticking(began time.Time, step time.Duration) func() string {
+	return func() string { return fmt.Sprintf("step %d", time.Since(began)/step) }
+}
+
+func TestAWaitThatMakesProgressGoesOnPastItsCeiling(t *testing.T) {
+	bounds := heldBounds(func() time.Duration { return 60 * time.Microsecond })
+	began := time.Now()
+	held, said := bounds.awaitProgress(func() bool { return time.Since(began) > 3*bounds.ceiling }, ticking(began, bounds.ceiling/4))
+	if !held {
+		t.Fatalf("gave up after %v: %s", time.Since(began), said)
+	}
+}
+
+func TestAWaitThatMakesProgressStillEndsAtTheLongest(t *testing.T) {
+	bounds := heldBounds(func() time.Duration { return 60 * time.Microsecond })
+	began := time.Now()
+	held, said := bounds.awaitProgress(func() bool { return false }, ticking(began, bounds.ceiling/4))
+	took := time.Since(began)
+	if held || took < bounds.longest || took > bounds.longest+300*time.Millisecond {
+		t.Fatalf("held %t after %v", held, took)
+	}
+	if !strings.Contains(said, "step ") {
+		t.Errorf("the reason leaves out the last reading: %q", said)
+	}
+}
+
+func TestAWaitWithNoProgressGivesUpAtItsCeiling(t *testing.T) {
+	bounds := heldBounds(func() time.Duration { return 60 * time.Microsecond })
+	began := time.Now()
+	held, said := bounds.awaitProgress(func() bool { return false }, func() string { return "stuck at lane-3" })
+	took := time.Since(began)
+	if held || took < bounds.ceiling || took > bounds.ceiling+300*time.Millisecond {
+		t.Fatalf("held %t after %v", held, took)
+	}
+	if !strings.Contains(said, "stuck at lane-3") || !strings.Contains(said, "progress") {
+		t.Errorf("the reason leaves out the last progress: %q", said)
+	}
+}
+
+// TestAWaitCountsFromItsLastProgress is a wait whose progress stops partway: it gives up a ceiling after
+// the last change, not a ceiling after it began.
+func TestAWaitCountsFromItsLastProgress(t *testing.T) {
+	bounds := heldBounds(func() time.Duration { return 60 * time.Microsecond })
+	began := time.Now()
+	const movedFor = 400 * time.Millisecond
+	reading := func() string {
+		return fmt.Sprintf("step %d", min(time.Since(began), movedFor)/(movedFor/4))
+	}
+	held, _ := bounds.awaitProgress(func() bool { return false }, reading)
+	took := time.Since(began)
+	if held || took < movedFor+bounds.ceiling-50*time.Millisecond || took >= bounds.longest {
+		t.Fatalf("held %t after %v", held, took)
 	}
 }
 
