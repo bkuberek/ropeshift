@@ -558,3 +558,92 @@ func TestSigningOutEverywhereStopsTheMembersConversations(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// assistantCard opens a conversation, runs its first generation, and has its assistant prepare a card that
+// cancels a ready work order.
+func (d *talkDaemon) assistantCard(t *testing.T, conversation, work string) (conversations.Conversation, ledger.AssistantGrant, authority.Approval) {
+	t.Helper()
+	ctx := t.Context()
+	opened, err := d.client.CreateConversation(ctx, api.CreateConversation{ID: conversation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := opened.Conversation.Conversation
+	d.running(t, record)
+	grant, err := d.workers.AssistantCredential(ctx, ledger.AssistantCredentialRequest{
+		Auth: d.auth, Epoch: d.epoch, Conversation: record.ID, Lane: record.RunLane, Generation: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createReady(t, d.Daemon, work)
+	_, err = asDelegate(t, d.socket, grant.Token, apitest.ProjectName).CancelWork(ctx, work, api.CancelWork{Reason: "Not now"})
+	return record, grant, preparedCard(t, err)
+}
+
+func (d *talkDaemon) cardState(t *testing.T, id string) authority.ApprovalState {
+	t.Helper()
+	var state authority.ApprovalState
+	err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
+		row, err := tx.Approvals().Approval(id)
+		state = row.State
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+// An assistant's card stands after its credential ended routinely, with a stop, and not after a member
+// revoked the credential, even where no sweep voided the card.
+func TestAnAssistantsCardOutlivesARoutineEndAndNoRevocation(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	record, _, routine := d.assistantCard(t, "conv-1", "wo-a")
+	if _, err := d.client.StopConversation(ctx, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.DecideApproval(ctx, routine.ID, api.DecideApproval{Digest: routine.SubjectDigest, Allow: true}); err != nil {
+		t.Fatalf("a card of a stopped conversation: %v", err)
+	}
+	record, grant, revoked := d.assistantCard(t, "conv-2", "wo-b")
+	if _, err := d.client.StopConversation(ctx, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.NewDelegates(d.Store).Revoke(ctx, apitest.Scope, grant.Credential, ledger.Actor{Kind: ledger.ActorMember, ID: memberOf(t, d.Daemon)}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := d.client.DecideApproval(ctx, revoked.ID, api.DecideApproval{Digest: revoked.SubjectDigest, Allow: true})
+	refusedWith(t, err, http.StatusConflict, api.CodeRequestClosed)
+	if order, err := d.Client.WorkOrder(ctx, "wo-b"); err != nil || order.State == workorders.Canceled {
+		t.Errorf("a revoked assistant's card ran: %+v %v", order, err)
+	}
+}
+
+// Signing out everywhere voids the open cards of every assistant credential of the member: an earlier
+// generation's, a stopped conversation's, a deleted conversation's, and a running one's.
+func TestSigningOutEverywhereVoidsEveryAssistantCard(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	earlier, _, first := d.assistantCard(t, "conv-1", "wo-a")
+	if _, err := d.workers.AssistantCredential(ctx, ledger.AssistantCredentialRequest{
+		Auth: d.auth, Epoch: d.epoch, Conversation: earlier.ID, Lane: earlier.RunLane, Generation: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, stopped := d.assistantCard(t, "conv-2", "wo-b")
+	deleted, _, gone := d.assistantCard(t, "conv-3", "wo-c")
+	if err := d.client.DeleteConversation(ctx, deleted.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, _, live := d.assistantCard(t, "conv-4", "wo-d")
+	if err := d.client.Do(ctx, http.MethodPost, api.SignOutAllPath, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, card := range map[string]authority.Approval{"an earlier generation's": first, "a stopped conversation's": stopped, "a deleted conversation's": gone, "a running conversation's": live} {
+		if state := d.cardState(t, card.ID); state != authority.ApprovalVoid {
+			t.Errorf("%s card is %s", name, state)
+		}
+	}
+}

@@ -446,7 +446,7 @@ func (c *Conversations) Create(ctx context.Context, scope ledger.WorkspaceID, in
 	if err != nil {
 		return Opened{}, err
 	}
-	c.revokeAll(ctx, scope, opened.Stopped, actor)
+	c.revokeAll(ctx, scope, opened.Stopped, authority.DelegateEndStopped, actor)
 	return opened, nil
 }
 
@@ -469,7 +469,7 @@ func (c *Conversations) Open(ctx context.Context, scope ledger.WorkspaceID, id, 
 	if err != nil {
 		return Opened{}, err
 	}
-	c.revokeAll(ctx, scope, opened.Stopped, actor)
+	c.revokeAll(ctx, scope, opened.Stopped, authority.DelegateEndStopped, actor)
 	return opened, nil
 }
 
@@ -515,7 +515,7 @@ func (c *Conversations) stop(ctx context.Context, scope ledger.WorkspaceID, id, 
 	if err != nil {
 		return conversations.Conversation{}, err
 	}
-	c.revokeAll(ctx, scope, []conversations.Conversation{record}, actor)
+	c.revokeAll(ctx, scope, []conversations.Conversation{record}, authority.DelegateEndStopped, actor)
 	return record, nil
 }
 
@@ -574,7 +574,7 @@ func (c *Conversations) Delete(ctx context.Context, scope ledger.WorkspaceID, id
 	if err != nil {
 		return err
 	}
-	c.revokeAll(ctx, scope, []conversations.Conversation{record}, actor)
+	c.revokeAll(ctx, scope, []conversations.Conversation{record}, authority.DelegateEndStopped, actor)
 	return nil
 }
 
@@ -629,7 +629,7 @@ func (c *Conversations) Clear(ctx context.Context, scope ledger.WorkspaceID, id 
 	if err != nil {
 		return conversations.Conversation{}, err
 	}
-	c.revoke(ctx, scope, before.ID, record.Generation, actor)
+	c.revoke(ctx, scope, before.ID, record.Generation, authority.DelegateEndGeneration, actor)
 	return record, nil
 }
 
@@ -711,7 +711,7 @@ func (c *Conversations) Send(ctx context.Context, scope ledger.WorkspaceID, id s
 	if err != nil {
 		return Sent{}, err
 	}
-	c.revokeAll(ctx, scope, sent.Stopped, actor)
+	c.revokeAll(ctx, scope, sent.Stopped, authority.DelegateEndStopped, actor)
 	return sent, nil
 }
 
@@ -836,7 +836,7 @@ func (c *Conversations) IdleStop(ctx context.Context, scope ledger.WorkspaceID, 
 		}
 		if moved {
 			stopped = append(stopped, id)
-			c.revokeAll(ctx, scope, []conversations.Conversation{record}, actor)
+			c.revokeAll(ctx, scope, []conversations.Conversation{record}, authority.DelegateEndIdle, actor)
 		}
 	}
 	return stopped, nil
@@ -872,7 +872,7 @@ func (c *Conversations) StopMember(ctx context.Context, scope ledger.WorkspaceID
 	if err != nil {
 		return nil, err
 	}
-	c.revokeAll(ctx, scope, stopped, actor)
+	c.revokeAll(ctx, scope, stopped, authority.DelegateEndSignedOut, actor)
 	ids := make([]string, 0, len(stopped))
 	for _, row := range stopped {
 		ids = append(ids, row.ID)
@@ -883,22 +883,22 @@ func (c *Conversations) StopMember(ctx context.Context, scope ledger.WorkspaceID
 // errNothingToStop rolls back a transaction that found nothing to change.
 var errNothingToStop = errors.New("nothing to stop")
 
-// revokeAll ends every credential of each conversation's sessions.
-func (c *Conversations) revokeAll(ctx context.Context, scope ledger.WorkspaceID, rows []conversations.Conversation, actor ledger.Actor) {
+// revokeAll ends every credential of each conversation's sessions, for a reason.
+func (c *Conversations) revokeAll(ctx context.Context, scope ledger.WorkspaceID, rows []conversations.Conversation, reason string, actor ledger.Actor) {
 	for _, row := range rows {
-		c.revoke(ctx, scope, row.ID, 0, actor)
+		c.revoke(ctx, scope, row.ID, 0, reason, actor)
 	}
 }
 
 // revoke ends the credentials of a conversation's sessions below a generation, and every one of them when
 // it is zero. A failure leaves a credential its generation no longer passes, so the gate still refuses it.
-func (c *Conversations) revoke(ctx context.Context, scope ledger.WorkspaceID, conversation string, below int64, actor ledger.Actor) {
-	_ = revokeAssistant(ctx, c.store.Installation(scope), conversation, below, actor)
+func (c *Conversations) revoke(ctx context.Context, scope ledger.WorkspaceID, conversation string, below int64, reason string, actor ledger.Actor) {
+	_ = revokeAssistant(ctx, c.store.Installation(scope), conversation, below, reason, actor)
 }
 
 // revokeAssistant ends the active credentials of a conversation's sessions below a generation, or every one
-// when below is zero, in one installation transaction with an event for each.
-func revokeAssistant(ctx context.Context, installation ports.Installation, conversation string, below int64, actor ledger.Actor) error {
+// when below is zero, for a reason, in one installation transaction with an event for each.
+func revokeAssistant(ctx context.Context, installation ports.Installation, conversation string, below int64, reason string, actor ledger.Actor) error {
 	err := installation.Write(ctx, "delegate.revoke", func(tx ports.SharedTx) error {
 		credentials, err := tx.Members().ConversationDelegates(conversation)
 		if err != nil {
@@ -909,14 +909,14 @@ func revokeAssistant(ctx context.Context, installation ports.Installation, conve
 			if credential.State(tx.Now()) != authority.DelegateActive || (below != 0 && credential.Generation >= below) {
 				continue
 			}
-			done, err := tx.Members().RevokeDelegate(credential.ID, tx.Now())
+			done, err := tx.Members().RevokeDelegate(credential.ID, tx.Now(), reason)
 			if err != nil {
 				return err
 			}
 			if !done {
 				continue
 			}
-			credential.RevokedAt = tx.Now()
+			credential.RevokedAt, credential.EndedReason = tx.Now(), reason
 			if err := appendDelegate(tx, EventDelegateRevoked, credential, actor); err != nil {
 				return err
 			}

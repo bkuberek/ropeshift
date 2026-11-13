@@ -259,10 +259,10 @@ func requesterActs(members ports.MemberReader, card authority.Approval) (bool, e
 	if errors.Is(err, ports.ErrNotFound) {
 		return false, nil
 	}
-	// An assistant's credential ends with its generation, which says nothing against what it prepared: a
-	// member confirms its card after the session stopped. A revocation a member made voids its open cards
-	// when it happens, as every delegate's.
-	if err == nil && record.Assistant() {
+	// An assistant's credential ends routinely with its generation or its session, which says nothing against
+	// what it prepared: a member confirms its card after the session stopped. A member's revocation, or their
+	// signing out of every session, ends what it prepared, as every delegate's.
+	if err == nil && record.Assistant() && record.EndedRoutinely() {
 		return true, nil
 	}
 	return err == nil && record.RevokedAt == 0, err

@@ -978,8 +978,10 @@ type MemberWriter interface {
 	InsertDelegate(authority.DelegateCredential) error
 	// TouchDelegate records when a credential last acted.
 	TouchDelegate(id string, at int64) error
-	// RevokeDelegate ends a credential at a time, once, and reports whether it was not revoked before.
-	RevokeDelegate(id string, at int64) (bool, error)
+	// RevokeDelegate ends a credential at a time, once, for a reason, and reports whether it changed it. A
+	// routine reason ends only an active credential; an explicit one also turns a routine end into its own,
+	// keeping when the credential ended.
+	RevokeDelegate(id string, at int64, reason string) (bool, error)
 	// DropDelegate removes a credential's record.
 	DropDelegate(id string) error
 }

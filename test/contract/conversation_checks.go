@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
@@ -35,6 +36,7 @@ var ConversationChecks = []Check{
 	{"CV13", "desired state names each running conversation on its worker, with its messages", checkAssistantDesired},
 	{"CV14", "a worker can run the assistant only when connected, headless, and holding every repository", checkAssistantPlacement},
 	{"CV15", "a message to an orchestrator is refused unless it runs and serves the project, and walks its states as a wake item", checkOrchestratorMessages},
+	{"CV16", "an assistant credential's end says why: a routine end never overwrites a member's, and a member's revocation or sign-out overwrites a routine one", checkAssistantCredentialEnd},
 }
 
 var theOtherMember = ledger.Actor{Kind: ledger.ActorMember, ID: "member-2"}
@@ -1035,6 +1037,105 @@ func checkOrchestratorMessages(r *Rig) error {
 	}}})
 	if err == nil && len(answer.Rejected) == 0 {
 		return Violatedf("another worker spoke for a message to this worker's orchestrator")
+	}
+	return nil
+}
+
+func checkAssistantCredentialEnd(r *Rig) error {
+	t, err := newTalkRig(r)
+	if err != nil {
+		return err
+	}
+	credentialOf := func(record conversations.Conversation) (authority.DelegateCredential, error) {
+		if _, err := t.plane.AssistantCredential(r.Ctx, ledger.AssistantCredentialRequest{
+			Auth: t.auth, Epoch: t.epoch, Conversation: record.ID, Lane: record.RunLane, Generation: 1,
+		}); err != nil {
+			return authority.DelegateCredential{}, err
+		}
+		var credential authority.DelegateCredential
+		err := t.store.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
+			rows, err := tx.Members().ConversationDelegates(record.ID)
+			if err == nil && len(rows) == 1 {
+				credential = rows[0]
+			}
+			return err
+		})
+		return credential, err
+	}
+	read := func(id string) (authority.DelegateCredential, error) {
+		var credential authority.DelegateCredential
+		err := t.store.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
+			var err error
+			credential, err = tx.Members().Delegate(id)
+			return err
+		})
+		return credential, err
+	}
+	revoke := func(id, reason string) (bool, error) {
+		var changed bool
+		err := t.store.Installation(r.Scope).Write(r.Ctx, "delegate.revoke", func(tx ports.SharedTx) error {
+			var err error
+			changed, err = tx.Members().RevokeDelegate(id, tx.Now()+1, reason)
+			return err
+		})
+		return changed, err
+	}
+	stoppedCredential := func() (authority.DelegateCredential, error) {
+		opened, err := t.create(theMember, "")
+		if err != nil {
+			return authority.DelegateCredential{}, err
+		}
+		record, err := t.running(opened.Conversation)
+		if err != nil {
+			return authority.DelegateCredential{}, err
+		}
+		credential, err := credentialOf(record)
+		if err != nil {
+			return authority.DelegateCredential{}, err
+		}
+		if _, err := t.convs.Stop(r.Ctx, r.Scope, record.ID, theMember); err != nil {
+			return authority.DelegateCredential{}, err
+		}
+		return read(credential.ID)
+	}
+	revoked, err := stoppedCredential()
+	if err != nil {
+		return err
+	}
+	if revoked.RevokedAt == 0 || revoked.EndedReason != authority.DelegateEndStopped || !revoked.EndedRoutinely() {
+		return Violatedf("a stopped conversation's credential reads %+v", revoked)
+	}
+	if changed, err := revoke(revoked.ID, authority.DelegateEndGeneration); err != nil || changed {
+		return Violatedf("a routine end overwrote another: %v %v", changed, err)
+	}
+	if _, err := control.NewDelegates(t.store).Revoke(r.Ctx, r.Scope, revoked.ID, theMember); err != nil {
+		return err
+	}
+	after, err := read(revoked.ID)
+	if err != nil {
+		return err
+	}
+	if after.EndedReason != authority.DelegateEndRevoked || after.RevokedAt != revoked.RevokedAt || after.EndedRoutinely() {
+		return Violatedf("a member's revocation of a routine end reads %+v", after)
+	}
+	for _, reason := range []string{authority.DelegateEndStopped, authority.DelegateEndSignedOut} {
+		if changed, err := revoke(revoked.ID, reason); err != nil || changed {
+			return Violatedf("%s overwrote a member's revocation: %v %v", reason, changed, err)
+		}
+	}
+	signedOut, err := stoppedCredential()
+	if err != nil {
+		return err
+	}
+	ended, err := control.NewSessions(t.store, nil).EndAll(r.Ctx, r.Scope, theMember)
+	if err != nil {
+		return err
+	}
+	if after, err = read(signedOut.ID); err != nil {
+		return err
+	}
+	if after.EndedReason != authority.DelegateEndSignedOut || !slices.Contains(ended.Ended, signedOut.ID) || slices.Contains(ended.Delegates, signedOut.ID) {
+		return Violatedf("signing out everywhere left %+v, ending %+v", after, ended)
 	}
 	return nil
 }

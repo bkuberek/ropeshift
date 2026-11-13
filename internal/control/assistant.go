@@ -172,7 +172,7 @@ func (w *Workers) AssistantCredential(ctx context.Context, request ledger.Assist
 	if err != nil && !errors.Is(err, errNothingToStop) {
 		return ledger.AssistantGrant{}, err
 	}
-	if err := revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, record.Generation, worker); err != nil {
+	if err := revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, record.Generation, authority.DelegateEndGeneration, worker); err != nil {
 		return ledger.AssistantGrant{}, err
 	}
 	token, err := newSecret()
@@ -398,11 +398,11 @@ func (w *Workers) afterAssistantUpload(ctx context.Context, worker string, e led
 	if err != nil {
 		return
 	}
-	below := record.Generation
+	below, reason := record.Generation, authority.DelegateEndGeneration
 	if e.Type == ledger.UploadLaneEnded {
-		below = 0
+		below, reason = 0, authority.DelegateEndStopped
 	}
-	_ = revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, below, ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
+	_ = revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, below, reason, ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
 }
 
 // AssistantActs refuses an assistant credential unless its conversation's session runs the credential's

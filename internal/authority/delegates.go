@@ -52,6 +52,23 @@ const (
 	DelegateRevoked DelegateState = "revoked"
 )
 
+// Why a revoked credential ended. An assistant credential ends routinely when its generation ends or its
+// conversation's session stops, by a member's stop, an idle stop, a delete, or the session's own end, and a
+// card it prepared still waits for a member. A member ends one explicitly by revoking it or by signing out
+// of every session, and nothing it prepared stands after that.
+const (
+	DelegateEndGeneration = "generation_ended"
+	DelegateEndStopped    = "session_stopped"
+	DelegateEndIdle       = "idle_stopped"
+	DelegateEndRevoked    = "revoked"
+	DelegateEndSignedOut  = "signed_out"
+)
+
+// RoutineEnd says a reason is a routine end, which says nothing against what the credential prepared.
+func RoutineEnd(reason string) bool {
+	return reason == DelegateEndGeneration || reason == DelegateEndStopped || reason == DelegateEndIdle
+}
+
 // The refusals of a delegate.
 var (
 	// ErrBadDelegate means a request carries a delegate credential that is not known, was revoked, or
@@ -82,6 +99,8 @@ type DelegateCredential struct {
 	RevokedAt    int64              `json:"revoked_at,omitempty"`
 	Conversation string             `json:"conversation_id,omitempty"`
 	Generation   int64              `json:"generation,omitempty"`
+	// EndedReason says why a revoked credential ended, and is empty while it acts.
+	EndedReason string `json:"ended_reason,omitempty"`
 }
 
 // State reads a credential at a time. A revoked credential stays revoked after it would have expired.
@@ -97,6 +116,11 @@ func (d DelegateCredential) State(now int64) DelegateState {
 
 // Assistant says the credential is one the control plane made for an assistant's session.
 func (d DelegateCredential) Assistant() bool { return d.Kind == DelegateAssistant }
+
+// EndedRoutinely says the credential was revoked by a routine end, not by a member.
+func (d DelegateCredential) EndedRoutinely() bool {
+	return d.RevokedAt != 0 && RoutineEnd(d.EndedReason)
+}
 
 // AssistantLabel is the label of every assistant credential.
 const AssistantLabel = "assistant"

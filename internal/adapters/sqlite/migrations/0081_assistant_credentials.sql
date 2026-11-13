@@ -16,18 +16,25 @@ CREATE TABLE delegate_credentials_next (
   revoked_at      BIGINT,
   conversation_id TEXT,
   generation      BIGINT,
+  ended_reason    TEXT,
   PRIMARY KEY (workspace_id, id),
   CONSTRAINT delegate_kind CHECK (kind IN ('external', 'assistant')),
   CONSTRAINT delegate_life CHECK ((kind = 'external' AND expires_at > created_at) OR (kind = 'assistant' AND expires_at = 0)),
   CONSTRAINT delegate_label CHECK (label <> ''),
   CONSTRAINT delegate_assistant_names_its_session CHECK (
     (kind = 'assistant' AND conversation_id IS NOT NULL AND generation IS NOT NULL)
-    OR (kind = 'external' AND conversation_id IS NULL AND generation IS NULL))
+    OR (kind = 'external' AND conversation_id IS NULL AND generation IS NULL)),
+  -- Why a revoked credential ended: an assistant's generation or session ended, which leaves its cards to a
+  -- member, or a member revoked it or signed out of every session, which ends them.
+  CONSTRAINT delegate_end CHECK (
+    (revoked_at IS NULL AND ended_reason IS NULL)
+    OR (revoked_at IS NOT NULL AND ended_reason IN ('generation_ended', 'session_stopped', 'idle_stopped', 'revoked', 'signed_out')))
 );
 
 INSERT INTO delegate_credentials_next
-  (workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at)
-SELECT workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at
+  (workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at, ended_reason)
+SELECT workspace_id, id, digest, member_id, project_id, label, kind, created_at, expires_at, last_used_at, revoked_at,
+       CASE WHEN revoked_at IS NOT NULL THEN 'revoked' END
 FROM delegate_credentials;
 
 DROP TABLE delegate_credentials;

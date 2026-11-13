@@ -154,7 +154,7 @@ func (h *handler) signOutAll(w http.ResponseWriter, r *http.Request, actor ledge
 	}
 	var revoked []authority.DelegateCredential
 	err = h.Installation.Read(r.Context(), func(tx ports.SharedReadTx) error {
-		for _, id := range ended.Delegates {
+		for _, id := range ended.Ended {
 			credential, err := tx.Members().Delegate(id)
 			if err != nil {
 				return err
