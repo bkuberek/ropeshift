@@ -20,6 +20,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/sqlite"
 	"ropeshift.com/ropeshift/internal/adapters/sqlstore"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/contract"
@@ -366,7 +367,7 @@ func (r *randomRun) awaitRefusal(actor string, fence int64, wrote int) error {
 }
 
 // drain finishes with no kills: every lease a dead worker left must expire and
-// resolve, so a stuck work order shows, and the failure names it.
+// resolve, and failed work is retried, so a stuck work order shows, and the failure names it.
 func (r *randomRun) drain() error {
 	w := r.world
 	ops := w.rig.NewOps(w.store)
@@ -386,9 +387,16 @@ func (r *randomRun) drain() error {
 				continue
 			}
 			unsettled = append(unsettled, fmt.Sprintf("%s %s at fence %d", row.ID, row.State, row.Fence))
-			if row.State == workorders.Lapsed {
+			switch row.State {
+			case workorders.Lapsed:
 				if err := ops.Reassign(w.rig.Ctx, w.rig.Scope, row.ID, "drain", w.rig.Actor); err != nil {
 					return fmt.Errorf("reassign %s: %w", row.ID, err)
+				}
+			case workorders.Failed:
+				// Failed work stays failed until a member retries it (ADR-0014), as the children's maintain does.
+				_, err := control.NewRecoveries(w.store).Retry(w.rig.Ctx, w.rig.Scope, row.ID, "drain", w.rig.Actor)
+				if err != nil && !errors.Is(err, workorders.ErrIllegalMove) {
+					return fmt.Errorf("retry %s: %w", row.ID, err)
 				}
 			}
 		}
