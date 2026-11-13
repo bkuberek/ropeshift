@@ -114,6 +114,9 @@ const (
 	// operation: a delegate may prepare one, and only a member's decision runs it, so no row below may ever
 	// grant it.
 	ActionChangeRoster Action = "roster.change"
+	// ActionSetLaneCaps sets a machine's lane caps, per worker and per sign-in (FR-PROJ-7). They protect the
+	// machine and the sign-in, which are a person's, so no agent has this, and no row below may ever grant it.
+	ActionSetLaneCaps Action = "worker.lane_caps"
 )
 
 // Actions lists every action, so a test can hold each one to the function.
@@ -127,6 +130,7 @@ func Actions() []Action {
 		ActionRecover, ActionPassRecovery, ActionDecideRecovery,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
 		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
+		ActionSetLaneCaps,
 	}
 }
 

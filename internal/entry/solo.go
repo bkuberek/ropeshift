@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -242,6 +243,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		return err
 	}
 	batches, windows := soloBatches(paths), soloWindows(paths)
+	local := &soloWorker{}
 	webListener, err := listenWeb(opts.web, stderr)
 	if err != nil {
 		return err
@@ -254,6 +256,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Telemetry: telemetry.store,
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
 		Checkouts: kept, ModelClasses: soloModelClasses(paths),
+		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
 	}
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
@@ -280,7 +283,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 			fmt.Fprintf(stderr, "ropeshiftd: %s tick: %v\n", name, err)
 		})
 	}()
-	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, stderr)
+	workerDone, err := startSoloWorker(ctx, paths, store, opts, laneRuntime, telemetry, local, stderr)
 	if err != nil {
 		return err
 	}
@@ -357,7 +360,8 @@ func startWeb(config server.Config, listener net.Listener, stdout, stderr io.Wri
 // start makes its own join token, because the person who started the daemon owns
 // the control plane.
 func startSoloWorker(
-	ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, stderr io.Writer,
+	ctx context.Context, paths api.Paths, store ports.Store, opts soloOptions, runtime *worker.LaneRuntime, telemetry *soloTelemetry, local *soloWorker,
+	stderr io.Writer,
 ) (<-chan struct{}, error) {
 	if err := keepStableBinary(ctx, paths, osexec.Runner{}); err != nil {
 		return nil, err
@@ -393,6 +397,7 @@ func startSoloWorker(
 			fmt.Fprintf(stderr, "ropeshiftd: worker: %v\n", err)
 		},
 	})
+	local.worker.Store(subject)
 	socketDone := make(chan struct{})
 	go func() {
 		defer close(socketDone)
@@ -411,6 +416,21 @@ func startSoloWorker(
 		<-socketDone
 	}()
 	return done, nil
+}
+
+// soloWorker holds the worker this daemon runs, once it has one, for the routes that act on its machine.
+type soloWorker struct {
+	worker atomic.Pointer[worker.Worker]
+}
+
+// id names the daemon's worker once it has registered.
+func (s *soloWorker) id(context.Context) (string, error) {
+	if subject := s.worker.Load(); subject != nil {
+		if id := subject.Auth().WorkerID; id != "" {
+			return id, nil
+		}
+	}
+	return "", errors.New("this daemon's worker has not registered yet")
 }
 
 // soloManifest is what this worker says of itself. The worker states its capacity, the cap in force

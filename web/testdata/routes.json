@@ -101,6 +101,16 @@
   },
   {
     "method": "GET",
+    "pattern": "/v1/workers/{id}/caps",
+    "command": "worker caps"
+  },
+  {
+    "method": "PUT",
+    "pattern": "/v1/workers/{id}/caps",
+    "command": "worker caps"
+  },
+  {
+    "method": "GET",
     "pattern": "/v1/autonomy/risk",
     "command": "worker risk"
   },

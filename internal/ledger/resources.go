@@ -108,3 +108,26 @@ type ResourceWarning struct {
 	Threshold float64 `json:"threshold"`
 	Message   string  `json:"message"`
 }
+
+// WorkerCaps is a worker's lane caps as a member sets them, with what is in force and the recommendation
+// beside them (FR-PROJ-7). MaxLanes null follows the recommendation and zero caps nothing;
+// MaxLanesPerSignIn zero caps nothing. The recommendation is the one the worker last reported, and is
+// absent until it reports one.
+type WorkerCaps struct {
+	Worker            string              `json:"worker"`
+	MaxLanes          *int64              `json:"max_lanes"`
+	MaxLanesPerSignIn int64               `json:"max_lanes_per_sign_in"`
+	EffectiveMaxLanes int64               `json:"effective_max_lanes"`
+	Recommendation    *LaneRecommendation `json:"recommendation,omitempty"`
+	ReportedAt        int64               `json:"reported_at,omitempty"`
+	// Warning says a per-worker cap stands above the recommendation, which is saved all the same.
+	Warning *CapWarning `json:"warning,omitempty"`
+}
+
+// CapWarning is a per-worker cap above the recommendation: the recommendation, why, and the words a
+// member reads.
+type CapWarning struct {
+	Recommended int64  `json:"recommended"`
+	Reason      string `json:"reason"`
+	Message     string `json:"message"`
+}

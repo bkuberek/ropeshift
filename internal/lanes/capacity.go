@@ -338,3 +338,18 @@ func ResourceWarnings(m ledger.MachineResources, t Thresholds) []ledger.Resource
 	}
 	return out
 }
+
+// LaneCapSettings is what a member sets of a machine's lane caps (FR-PROJ-7). MaxLanes nil follows the
+// recommendation and zero caps nothing; MaxLanesPerSignIn zero caps nothing. Neither has an upper bound.
+type LaneCapSettings struct {
+	MaxLanes          *int64
+	MaxLanesPerSignIn int64
+}
+
+// Check refuses a cap below zero.
+func (s LaneCapSettings) Check() error {
+	if (s.MaxLanes != nil && *s.MaxLanes < 0) || s.MaxLanesPerSignIn < 0 {
+		return fmt.Errorf("%w: a lane cap is a positive number, or 0 for no cap", ErrBadProfile)
+	}
+	return nil
+}

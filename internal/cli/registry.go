@@ -163,6 +163,7 @@ func registry() []section {
 			command("worker doctor", "", "report which agent CLIs are usable here", (*invocation).workerDoctor),
 			command("worker autonomy", "<id>", "show a worker's level and run window", (*invocation).workerAutonomy),
 			command("worker level", "<id> manual|attended|unattended", "choose a worker's level", (*invocation).workerLevel),
+			command("worker caps", "<id> [--max-lanes N|none|recommended] [--per-sign-in N|none]", "show or set a worker's lane caps, beside its recommendation", (*invocation).workerCaps),
 			command("worker risk", "", "print the stated risk and its digest", (*invocation).workerRisk),
 			command("worker acknowledge-risk", "<id> --digest D", "stand behind the stated risk, for one worker", (*invocation).workerAcknowledge),
 			command("worker window-open", "<id> [--for D] [--id I]", "let an attended worker claim for a while", (*invocation).workerWindowOpen),

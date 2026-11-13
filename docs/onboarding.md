@@ -204,7 +204,7 @@ max_lanes = 6
 max_lanes_per_sign_in = 3
 ```
 
-`max_lanes` caps the lanes this machine runs. With no value, the worker's recommendation caps them; `0` caps nothing, and any positive number stands, with no upper bound. `max_lanes_per_sign_in` caps the lanes on one agent sign-in, because every session on a subscription draws from the same usage limits; `0`, or no value, caps nothing. Only lanes count: a worker's orchestrator never does, and a cap never holds it back. A lane a cap holds keeps its claim, its work order says why in a note, and it starts once a lane ends.
+`max_lanes` caps the lanes this machine runs. With no value, the worker's recommendation caps them; `0` caps nothing, and any positive number stands, with no upper bound. `ropeshift worker caps <id> --max-lanes N --per-sign-in N` sets both in this file and shows the recommendation beside them; a value above the recommendation is saved with a warning that says why it is the recommendation. The worker reads a change at its next start and its next measure, with no restart. `max_lanes_per_sign_in` caps the lanes on one agent sign-in, because every session on a subscription draws from the same usage limits; `0`, or no value, caps nothing. Only lanes count: a worker's orchestrator never does, and a cap never holds it back. A lane a cap holds keeps its claim, its work order says why in a note, and it starts once a lane ends.
 
 The worker recommends a cap from what the machine can run: its cores and its memory, less a reserve for the system, the daemon, the orchestrator, and the assistant, each divided by what one lane takes, and the lower of the two, never below one:
 
