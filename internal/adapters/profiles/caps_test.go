@@ -42,8 +42,9 @@ func TestEditLaneCapsKeepsTheRestOfTheLayer(t *testing.T) {
 	}{
 		{"an empty layer gains the table", "", capsOf(lanesCap(6), 3), "[admission]\nmax_lanes = 6\nmax_lanes_per_sign_in = 3\n"},
 		{"a layer with no table gains one at its end", "name = \"mine\"\n", capsOf(lanesCap(0), 0), "name = \"mine\"\n\n[admission]\nmax_lanes = 0\n"},
-		{"each cap changes in place", kept, capsOf(lanesCap(9), 2),
-			"# my layer\nname = \"mine\"\n\n[agent]\nmodel = \"sonnet\"\n\n[admission]\n# keep this comment\nmax_lanes = 9\nmax_lanes_per_sign_in = 2\nmin_free_memory_mb = 512\n\n[telemetry]\ntraces = true\n"},
+		{"each cap changes in place and keeps its comment", kept, capsOf(lanesCap(9), 2),
+			"# my layer\nname = \"mine\"\n\n[agent]\nmodel = \"sonnet\"\n\n[admission]\n# keep this comment\nmax_lanes = 9   # four\nmax_lanes_per_sign_in = 2\nmin_free_memory_mb = 512\n\n[telemetry]\ntraces = true\n"},
+		{"a comment with no space before it stays", "[admission]\nmax_lanes = 4# keep me\r\n", capsOf(lanesCap(5), 0), "[admission]\nmax_lanes = 5# keep me\n"},
 		{"the recommendation and no sign-in cap leave no keys", kept, capsOf(nil, 0),
 			"# my layer\nname = \"mine\"\n\n[agent]\nmodel = \"sonnet\"\n\n[admission]\n# keep this comment\nmin_free_memory_mb = 512\n\n[telemetry]\ntraces = true\n"},
 		{"a key the table lacks goes after its last key", "[admission]\nmin_free_memory_mb = 512\n\n[telemetry]\ntraces = true\n", capsOf(lanesCap(5), 0),

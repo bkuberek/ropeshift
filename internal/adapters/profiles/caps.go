@@ -44,7 +44,7 @@ func laneCapsOf(text string) (lanes.LaneCapSettings, error) {
 }
 
 // EditLaneCaps writes a member's caps into the [admission] table of a user's layer and leaves every other
-// line as it was, comments included. A cap that follows the recommendation, and a sign-in cap of zero,
+// line as it was, comments included, and a cap line it changes keeps the comment it ended with. A cap that follows the recommendation, and a sign-in cap of zero,
 // leave no key, because no key means the same. The edit is read back, and a layer that does not parse, or
 // that sets its caps where a line edit cannot reach, is refused.
 func EditLaneCaps(text string, caps lanes.LaneCapSettings) (string, error) {
@@ -98,7 +98,7 @@ func EditLaneCaps(text string, caps lanes.LaneCapSettings) (string, error) {
 		for _, line := range lines[start+1 : end] {
 			if match := capKey.FindStringSubmatch(line); match != nil {
 				if value, ok := want[match[1]]; ok {
-					table = append(table, match[1]+" = "+value+"\n")
+					table = append(table, match[1]+" = "+value+trailingComment(line)+"\n")
 					delete(want, match[1])
 					last = len(table)
 				}
@@ -121,6 +121,21 @@ func EditLaneCaps(text string, caps lanes.LaneCapSettings) (string, error) {
 		return "", errCannotEdit
 	}
 	return edited, nil
+}
+
+// trailingComment is the comment a cap's line ends with, with the space before it, or nothing. A cap's value
+// is a number, so the first # on its line starts the comment.
+func trailingComment(line string) string {
+	line = strings.TrimRight(line, "\r\n")
+	at := strings.IndexByte(line, '#')
+	if at < 0 {
+		return ""
+	}
+	start := at
+	for start > 0 && (line[start-1] == ' ' || line[start-1] == '\t') {
+		start--
+	}
+	return line[start:]
 }
 
 // newKeys are the lines of the keys still to write, in a fixed order.
