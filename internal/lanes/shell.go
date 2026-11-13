@@ -12,12 +12,14 @@ type shellWord struct {
 }
 
 // shellCommand is one simple command, with the targets of its writing redirects and of its reading ones,
-// and whether a here-document feeds it.
+// whether a here-document feeds it, and whether a comment follows it. A comment on a line of its own is a
+// command with no words.
 type shellCommand struct {
 	words   []shellWord
 	writes  []shellWord
 	reads   []shellWord
 	heredoc bool
+	comment bool
 }
 
 // maxShellDepth bounds how far a command inside a command is read. Past it a command is
@@ -58,7 +60,7 @@ func parseShell(text string) ([]shellCommand, []string) {
 }
 
 func (p *shellParser) endCommand() {
-	if len(p.current.words) != 0 || len(p.current.writes) != 0 {
+	if len(p.current.words) != 0 || len(p.current.writes) != 0 || p.current.comment {
 		p.commands = append(p.commands, p.current)
 	}
 	p.current = shellCommand{}
@@ -74,6 +76,7 @@ func (p *shellParser) step() {
 		p.endCommand()
 		p.skipHeredocs()
 	case '#':
+		p.current.comment = true
 		if end := strings.IndexByte(p.text[p.at:], '\n'); end >= 0 {
 			p.at += end
 		} else {

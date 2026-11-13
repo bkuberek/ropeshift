@@ -25,8 +25,8 @@ func reasonProgram(program string) string {
 
 // runsOnly says a command line runs the one program and nothing else: one simple command whose first word
 // is the program's name, with no assignment or wrapper before it, no substitution, variable, or unquoted
-// `~`, `*`, `?`, `[`, or `{` in any word, no here-document or here-string, and no redirect but one that
-// joins a descriptor to another. With commands, the words after the program name one of them, and no word
+// `~`, `*`, `?`, `[`, or `{` in any word, no here-document or here-string, no comment, and no redirect but
+// one that joins a descriptor to another. With commands, the words after the program name one of them, and no word
 // is one of the refused flags in any form. Anything else reads as another command, because this hook fails
 // closed.
 func runsOnly(text, program string, commands, refused []string) bool {
@@ -35,7 +35,7 @@ func runsOnly(text, program string, commands, refused []string) bool {
 		return false
 	}
 	command := parsed[0]
-	if command.heredoc || len(command.writes) != 0 || len(command.words) == 0 || command.words[0].text != program {
+	if command.heredoc || command.comment || len(command.writes) != 0 || len(command.words) == 0 || command.words[0].text != program {
 		return false
 	}
 	for _, word := range command.words {
@@ -44,7 +44,7 @@ func runsOnly(text, program string, commands, refused []string) bool {
 		}
 	}
 	for _, read := range command.reads {
-		if !isNumber(read.text) && read.text != "-" {
+		if !isNumber(read.text) {
 			return false
 		}
 	}

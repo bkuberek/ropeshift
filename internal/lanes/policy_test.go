@@ -813,3 +813,26 @@ func TestASessionHeldToOneProgramTakesNoRefusedFlag(t *testing.T) {
 		t.Errorf("a plain command was denied: %s", reason)
 	}
 }
+
+// A session held to one program fails closed on a comment, which a shell drops and a reader could take as
+// part of the command, and on a redirect to or from `-`, which closes a descriptor.
+func TestASessionHeldToOneProgramTakesNoCommentOrClosedDescriptor(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/w", Program: "ropeshift", Commands: []string{"lane list"}})
+	for _, command := range []string{
+		"ropeshift lane list # and then",
+		"ropeshift lane list #",
+		"# ropeshift lane list",
+		"ropeshift lane list\n# after",
+		"ropeshift lane list 2>&-",
+		"ropeshift lane list >&-",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: "/w"}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	for _, command := range []string{"ropeshift lane list --why 'issue #42'", "ropeshift lane list 2>&1"} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: "/w"}); denied {
+			t.Errorf("%q was denied: %s", command, reason)
+		}
+	}
+}
