@@ -30,6 +30,7 @@ func refusedWith(t *testing.T, err error, status int, code string) {
 // TestAHumanDecisionWithNoSessionIsRefused holds FR-AUTH-3: the socket admits the owning
 // user, and a lane runs as that user, so reaching the socket proves nothing.
 func TestAHumanDecisionWithNoSessionIsRefused(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
@@ -51,6 +52,7 @@ func TestAHumanDecisionWithNoSessionIsRefused(t *testing.T) {
 }
 
 func TestASessionExpires(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
@@ -65,6 +67,7 @@ func TestASessionExpires(t *testing.T) {
 }
 
 func TestALiveSessionNamesItsMember(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
@@ -86,6 +89,7 @@ func TestALiveSessionNamesItsMember(t *testing.T) {
 }
 
 func TestASessionCannotOutliveALogin(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
@@ -102,6 +106,7 @@ func TestASessionCannotOutliveALogin(t *testing.T) {
 // TestAWrongPassphraseOpensNothingAndStaysVisible holds what the design promises in solo
 // mode: an agent can try, and a try is on record with no trace of what it tried.
 func TestAWrongPassphraseOpensNothingAndStaysVisible(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	client := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer client.Close()
@@ -128,6 +133,7 @@ func TestAWrongPassphraseOpensNothingAndStaysVisible(t *testing.T) {
 }
 
 func TestNobodySignsInBeforeAPassphraseIsSet(t *testing.T) {
+	t.Parallel()
 	d := apitest.StartWith(t, apitest.Options{NoMember: true})
 	_, err := d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase})
 	refusedWith(t, err, http.StatusUnauthorized, api.CodeNotEnrolled)
@@ -146,6 +152,7 @@ func TestNobodySignsInBeforeAPassphraseIsSet(t *testing.T) {
 
 // TestTheLedgerHoldsATokenOnlyAsADigest reads what a session leaves behind.
 func TestTheLedgerHoldsATokenOnlyAsADigest(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	sum := sha256.Sum256([]byte(d.Session))
 	err := d.Store.Read(t.Context(), apitest.Scope, func(tx ports.ReadTx) error {
@@ -206,6 +213,7 @@ func reached(path string) string {
 // TestEveryChangingRouteNeedsASession reads the routes from the source, so none can be
 // left out, and calls each one with no session.
 func TestEveryChangingRouteNeedsASession(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
@@ -247,6 +255,7 @@ func TestEveryChangingRouteNeedsASession(t *testing.T) {
 }
 
 func TestAMemberClaimNeedsASession(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	createReady(t, d, "w1")
 	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
@@ -256,6 +265,7 @@ func TestAMemberClaimNeedsASession(t *testing.T) {
 }
 
 func TestAnAnswerNeedsAMemberSession(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	if _, err := d.Client.RecordQuestion(t.Context(), api.RecordQuestion{ID: "q1", Text: "What is the retry budget?"}); err != nil {
 		t.Fatal(err)
@@ -274,6 +284,7 @@ func TestAnAnswerNeedsAMemberSession(t *testing.T) {
 }
 
 func TestAnAnsweredQuestionRefusesASecondAnswer(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	if _, err := d.Client.RecordQuestion(t.Context(), api.RecordQuestion{ID: "q1", Text: "What is the retry budget?"}); err != nil {
 		t.Fatal(err)

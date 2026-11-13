@@ -45,6 +45,7 @@ func readView[T any](t *testing.T, d *apitest.Daemon, name, category string) T {
 }
 
 func TestEveryViewHasAReadModelAndAStamp(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	for _, name := range api.Views {
 		t.Run(name, func(t *testing.T) {
@@ -59,6 +60,7 @@ func TestEveryViewHasAReadModelAndAStamp(t *testing.T) {
 // What a page reads is what every surface reads, so no secret may stand in it: a member's session, a
 // worker's credential, or anything the agent CLIs sign in with, which the ledger never holds.
 func TestNoViewHoldsASecret(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	for _, name := range api.Views {
 		t.Run(name, func(t *testing.T) {
@@ -86,6 +88,7 @@ func TestNoViewHoldsASecret(t *testing.T) {
 
 // A read needs no session on the socket (D26).
 func TestAViewOnTheSocketNeedsNoSession(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	anonymous := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
 	defer anonymous.Close()
@@ -98,6 +101,7 @@ func TestAViewOnTheSocketNeedsNoSession(t *testing.T) {
 }
 
 func TestNeedsYouPutsTheLongestWaitFirst(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
 	if len(view.Items) == 0 {
@@ -150,6 +154,7 @@ func workNeed(t *testing.T, view api.NeedsYou, why string) *api.WorkNeed {
 }
 
 func TestNeedsYouCarriesWhatItTakesToAnswer(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
 	batch := needOf(t, view, api.NeedQuestions).Batch
@@ -186,6 +191,7 @@ func TestNeedsYouCarriesWhatItTakesToAnswer(t *testing.T) {
 // Reviewed work waits for a member with the review's verdict for each criterion, its reasons and its citations
 // in hand, so the person decides on what the review found and not on a bare request (FR-MERGE-4).
 func TestNeedsYouShowsTheVerdictsOfReviewedWork(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
 	need := workNeed(t, view, api.ReasonAcceptance)
@@ -212,6 +218,7 @@ func TestNeedsYouShowsTheVerdictsOfReviewedWork(t *testing.T) {
 }
 
 func TestSomethingAnsweredLeavesNeedsYou(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	ctx := t.Context()
 	view := readView[api.NeedsYou](t, d, api.ViewNeedsYou, "")
@@ -237,6 +244,7 @@ func TestSomethingAnsweredLeavesNeedsYou(t *testing.T) {
 
 // An effect a person cannot run again does not offer that.
 func TestAnEffectOfAnEndedLaneOffersTwoAnswers(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	lane := w.Running("wo-gone", "Clean up")
 	lane.Effect("lane-wo-gone/1/hook/lane_created", "hook", 1)
@@ -253,6 +261,7 @@ func TestAnEffectOfAnEndedLaneOffersTwoAnswers(t *testing.T) {
 }
 
 func TestRoadmapStatesProgress(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.Roadmap](t, d, api.ViewRoadmap, "")
 	if len(view.Goals) < 2 {
@@ -271,6 +280,7 @@ func TestRoadmapStatesProgress(t *testing.T) {
 }
 
 func TestPlansListEachContractVersion(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.Plans](t, d, api.ViewPlans, "")
 	for _, plan := range view.Plans {
@@ -299,6 +309,7 @@ func plansRow(t *testing.T, d *apitest.Daemon, title string) api.PlanDetail {
 // them, so the view carries the plan's milestones and the ID each contract's file gave it. It also says
 // which version of the plan waits for a member's approval.
 func TestPlansNameTheirMilestonesTheirContractsKeysAndAVersionThatWaits(t *testing.T) {
+	t.Parallel()
 	clock := apitest.NewClock()
 	d := apitest.StartWith(t, apitest.Options{Clock: clock.Dialect})
 	project := apitest.Factory(apitest.NewWorld(t, d), clock)
@@ -338,6 +349,7 @@ func TestPlansNameTheirMilestonesTheirContractsKeysAndAVersionThatWaits(t *testi
 }
 
 func TestPlansShowAReviewAndWhatItLeftOpen(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	plan := readView[api.Plans](t, d, api.ViewPlans, "").Plans[0]
 	review, err := d.Client.ReviewPlan(t.Context(), plan.Plan.ID, api.ReviewPlan{ID: "review-1"})
@@ -359,6 +371,7 @@ func TestPlansShowAReviewAndWhatItLeftOpen(t *testing.T) {
 }
 
 func TestDocumentsListWithNoBody(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.Documents](t, d, api.ViewDocuments, "")
 	if len(view.Documents) != 1 || view.Documents[0].Path != "design.md" || view.Documents[0].Body != "" {
@@ -367,6 +380,7 @@ func TestDocumentsListWithNoBody(t *testing.T) {
 }
 
 func TestDocumentsSayWhatKindEachIs(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.Documents](t, d, api.ViewDocuments, "")
 	if len(view.Documents) != 1 || view.Documents[0].Kind != planning.DocumentDesign {
@@ -388,6 +402,7 @@ func (s slowSource) List(ctx context.Context) ([]ports.KnowledgeDocument, error)
 
 // A source runs git for each file, which is no work to do inside a read of the ledger.
 func TestDocumentsListOutsideAnyRead(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	source := &slowSource{KnowledgeSource: fake.NewKnowledgeSource()}
 	source.store = d.Store
@@ -404,6 +419,7 @@ func TestDocumentsListOutsideAnyRead(t *testing.T) {
 }
 
 func TestDecisionsCarryTheirLineage(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.Decisions](t, d, api.ViewDecisions, "")
 	lines := map[string]api.DecisionLine{}
@@ -421,6 +437,7 @@ func TestDecisionsCarryTheirLineage(t *testing.T) {
 }
 
 func TestOpenQuestionsFilterByCategory(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	all := readView[api.Questions](t, d, api.ViewQuestions, "")
 	if len(all.Questions) != 2 || !slices.Contains(all.Categories, questions.CategoryProduct) {
@@ -436,6 +453,7 @@ func TestOpenQuestionsFilterByCategory(t *testing.T) {
 
 // A filter comes from a link, so its text is a name to match and never a pattern to run.
 func TestACategoryFilterIsNeverAPattern(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	for _, category := range []string{"%", "pro%", "produc_", `product"%`, `\`} {
 		t.Run(category, func(t *testing.T) {
@@ -450,6 +468,7 @@ func TestACategoryFilterIsNeverAPattern(t *testing.T) {
 }
 
 func TestOpenQuestionsLeaveOutAnsweredOnes(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	all := readView[api.Questions](t, d, api.ViewQuestions, "")
 	if _, err := d.Client.AnswerQuestion(t.Context(), all.Questions[0].ID, api.AnswerQuestion{ID: "answered", Answer: "Yes"}); err != nil {
@@ -461,6 +480,7 @@ func TestOpenQuestionsLeaveOutAnsweredOnes(t *testing.T) {
 }
 
 func TestInProgressHoldsClaimedAndRunningWork(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.InProgress](t, d, api.ViewInProgress, "")
 	var ids []string
@@ -483,6 +503,7 @@ func TestInProgressHoldsClaimedAndRunningWork(t *testing.T) {
 }
 
 func TestOnHoldSaysWhatEachWaitsFor(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.OnHold](t, d, api.ViewOnHold, "")
 	if len(view.Items) != 1 {
@@ -497,6 +518,7 @@ func TestOnHoldSaysWhatEachWaitsFor(t *testing.T) {
 // A lane parked on a question says which question in Needs you, so a person reads what would move it
 // before resuming it by hand.
 func TestAParkedLaneSaysWhatItWaitsFor(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	work := workNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""), api.ReasonResume)
 	if len(work.Wakes) != 1 || work.Wakes[0].Expression != lanes.QuestionWake([]string{"question-1"}) || work.Wakes[0].ID == "" {
@@ -510,6 +532,7 @@ func TestAParkedLaneSaysWhatItWaitsFor(t *testing.T) {
 }
 
 func TestStuckListsTheDesignsFive(t *testing.T) {
+	t.Parallel()
 	d, _, clock := aWorld(t)
 	clock.Advance(25 * time.Hour)
 	view := readView[api.Stuck](t, d, api.ViewStuck, "")
@@ -529,6 +552,7 @@ func TestStuckListsTheDesignsFive(t *testing.T) {
 
 // A parked lane that waits on a person and has waited long is one thing, and it keeps its way out.
 func TestALongParkedLaneStandsOnceInNeedsYou(t *testing.T) {
+	t.Parallel()
 	d, _, clock := aWorld(t)
 	clock.Advance(25 * time.Hour)
 	var found []api.NeedItem
@@ -546,6 +570,7 @@ func TestALongParkedLaneStandsOnceInNeedsYou(t *testing.T) {
 }
 
 func TestAParkedLaneIsNotStuckBeforeItsTime(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	for _, item := range readView[api.Stuck](t, d, api.ViewStuck, "").Items {
 		if item.Reason == api.ReasonLongParked {
@@ -555,6 +580,7 @@ func TestAParkedLaneIsNotStuckBeforeItsTime(t *testing.T) {
 }
 
 func TestCompletedHoldsOutcomesWithArtifacts(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.Completed](t, d, api.ViewCompleted, "")
 	// The review that judged the work is read with it, in its standing, and is not listed as work of its own.
@@ -575,6 +601,7 @@ func TestCompletedHoldsOutcomesWithArtifacts(t *testing.T) {
 
 // Work that ended is outcomes to a person, whichever way it ended, and each says why when it can.
 func TestCompletedHoldsEveryWayWorkEnds(t *testing.T) {
+	t.Parallel()
 	d, w, clock := aWorld(t)
 	w.Running("wo-failed", "Try the impossible").End(workorders.OutcomeFailed, "crashed")
 	clock.Advance(time.Minute)
@@ -615,6 +642,7 @@ func TestCompletedHoldsEveryWayWorkEnds(t *testing.T) {
 }
 
 func TestInProgressSaysSinceWhenTheLongestFirst(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.InProgress](t, d, api.ViewInProgress, "")
 	for i, item := range view.Items {
@@ -629,6 +657,7 @@ func TestInProgressSaysSinceWhenTheLongestFirst(t *testing.T) {
 
 // Work with no contract belongs to no plan, and it must stand somewhere a person can find it.
 func TestPlansListWorkNoPlanHolds(t *testing.T) {
+	t.Parallel()
 	d, w, _ := aWorld(t)
 	w.Created("wo-loose", "Not planned yet")
 	view := readView[api.Plans](t, d, api.ViewPlans, "")
@@ -647,6 +676,7 @@ func TestPlansListWorkNoPlanHolds(t *testing.T) {
 // Recording a review makes a plan and a contract to carry it, which is how the ledger holds work and
 // nothing a person planned. A review stands under the plan it reads.
 func TestAReviewAddsNoPlanToWhatAPersonReads(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	before := readView[api.Plans](t, d, api.ViewPlans, "")
 	plan := before.Plans[0]
@@ -667,6 +697,7 @@ func TestAReviewAddsNoPlanToWhatAPersonReads(t *testing.T) {
 }
 
 func TestPlansLeaveOutOfUnplannedWhatAPlanHolds(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	plan := readView[api.Plans](t, d, api.ViewPlans, "").Plans[0]
 	if _, err := d.Client.ReviewPlan(t.Context(), plan.Plan.ID, api.ReviewPlan{ID: "review-1"}); err != nil {
@@ -678,6 +709,7 @@ func TestPlansLeaveOutOfUnplannedWhatAPlanHolds(t *testing.T) {
 }
 
 func TestShopFloorSeparatesObservedFromLastReported(t *testing.T) {
+	t.Parallel()
 	d, _, clock := aWorld(t)
 	view := readView[api.ShopFloor](t, d, api.ViewShopFloor, "")
 	if len(view.Workers) != 1 || view.Workers[0].Worker.ID != apitest.WorldWorker {
@@ -695,6 +727,7 @@ func TestShopFloorSeparatesObservedFromLastReported(t *testing.T) {
 
 // A lane's ID says nothing to a person, so the shop floor names the work each lane runs.
 func TestShopFloorNamesTheWorkOfEachLane(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	titles := map[string]string{}
 	var raw struct {
@@ -717,6 +750,7 @@ func TestShopFloorNamesTheWorkOfEachLane(t *testing.T) {
 }
 
 func TestOperationsCountTheFleet(t *testing.T) {
+	t.Parallel()
 	d, _, _ := aWorld(t)
 	view := readView[api.Operations](t, d, api.ViewOperations, "")
 	if view.Workers != 1 || view.WorkOrders[workorders.Running] == 0 || view.Lanes["working"] == 0 {

@@ -37,6 +37,7 @@ func repositoriesOf(t *testing.T, client *api.ProjectClient) map[string]api.Repo
 // resolves, with the safe defaults; a repository another project holds is refused, naming that project,
 // and the others are still registered; a dry run says the same and records nothing.
 func TestAddingRepositoriesRegistersAFolderOfClones(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "beta")
 	machine := in.Checkouts
 	machine.Place(ports.Clone{Path: "/work/api", ID: "id-api", Remote: "git@example.invalid:acme/api.git", DefaultBranch: "main"})
@@ -131,6 +132,7 @@ func TestAddingRepositoriesRegistersAFolderOfClones(t *testing.T) {
 }
 
 func TestOnlyAMemberAddsRepositories(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t)
 	in.Checkouts.Place(ports.Clone{Path: "/work/api", ID: "id-api", DefaultBranch: "main"})
 	plain := api.NewUnixClient(in.Socket).Project(apitest.ProjectName)
@@ -150,6 +152,7 @@ func TestOnlyAMemberAddsRepositories(t *testing.T) {
 // worker's checkouts, and another project may then register it. The first project registering it again
 // is then refused, naming the project that holds it.
 func TestARemovedRepositoryMayJoinAnotherProject(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "beta")
 	in.Checkouts.Place(ports.Clone{Path: "/work/api", ID: "id-api", Remote: "git@example.invalid:acme/api.git", DefaultBranch: "main"})
 	home, _, client := in.In(t, apitest.ProjectName)
@@ -193,6 +196,7 @@ func TestARemovedRepositoryMayJoinAnotherProject(t *testing.T) {
 
 // A project registering again a repository it removed brings its record back, with its name and settings.
 func TestARepositoryRegisteredAgainComesBack(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t)
 	in.Checkouts.Place(ports.Clone{Path: "/work/api", ID: "id-api", DefaultBranch: "main"})
 	_, _, client := in.In(t, apitest.ProjectName)

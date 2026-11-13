@@ -104,6 +104,7 @@ func recorded(t *testing.T, plan api.PlanDocuments, id string) api.RecordedDocum
 }
 
 func TestTheDocumentsViewListsAPlansRecordedDocumentsWithEveryVersion(t *testing.T) {
+	t.Parallel()
 	d, w, _ := documentsWorld(t)
 	source := retrySource("The first draft.")
 	w.Planned(source)
@@ -123,6 +124,7 @@ func TestTheDocumentsViewListsAPlansRecordedDocumentsWithEveryVersion(t *testing
 }
 
 func TestTheDocumentsViewSaysWhereEachVersionStandsInReview(t *testing.T) {
+	t.Parallel()
 	d, w, _ := documentsWorld(t)
 	source := retrySource("The first draft.")
 	w.Planned(source)
@@ -153,6 +155,7 @@ func TestTheDocumentsViewSaysWhereEachVersionStandsInReview(t *testing.T) {
 }
 
 func TestTheDocumentsViewTracesEachRequirementToItsCriteriaAndWork(t *testing.T) {
+	t.Parallel()
 	d, w, _ := documentsWorld(t)
 	source := fake.NewWorkSource()
 	source.Write("plan.md", []byte(tracedPlan))
@@ -198,6 +201,7 @@ func TestTheDocumentsViewTracesEachRequirementToItsCriteriaAndWork(t *testing.T)
 // ADR-0023: a requirement the code already meets shows as met by existing code with its evidence, rather
 // than by criteria and verdicts.
 func TestTheDocumentsViewShowsARequirementTheCodeMeetsWithItsEvidence(t *testing.T) {
+	t.Parallel()
 	d, w, _ := documentsWorld(t)
 	source := fake.NewWorkSource()
 	source.Write("plan.md", []byte(tracedPlan))
@@ -218,6 +222,7 @@ func TestTheDocumentsViewShowsARequirementTheCodeMeetsWithItsEvidence(t *testing
 // A live file a plan recorded names its record, so a page lists it once, from the ledger, and keeps the
 // live listing for every file that is not one.
 func TestTheDocumentsViewMarksALiveFileAPlanRecorded(t *testing.T) {
+	t.Parallel()
 	d, w, _ := documentsWorld(t)
 	w.Planned(retrySource("The first draft."))
 	marks := map[string]string{}
@@ -232,6 +237,7 @@ func TestTheDocumentsViewMarksALiveFileAPlanRecorded(t *testing.T) {
 // A live file the ledger holds as a goal, a plan, or a contract has a page of its own, so it names that
 // record too, and a page lists it there and not among the repository's other files.
 func TestTheDocumentsViewMarksALiveFileTheLedgerHoldsAsAGoalPlanOrContract(t *testing.T) {
+	t.Parallel()
 	d, w, knowledge := documentsWorld(t)
 	goal := "+++\nkind = \"goal\"\nid = \"reliable\"\ntitle = \"A reliable API\"\n+++\n\nWhy.\n"
 	source := retrySource("The first draft.")
@@ -256,6 +262,7 @@ func TestTheDocumentsViewMarksALiveFileTheLedgerHoldsAsAGoalPlanOrContract(t *te
 }
 
 func TestARecordedVersionKeepsItsBodyAfterTheFileMovesOn(t *testing.T) {
+	t.Parallel()
 	d, w, _ := documentsWorld(t)
 	source := retrySource("The first draft.")
 	w.Planned(source)

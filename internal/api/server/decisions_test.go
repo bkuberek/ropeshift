@@ -83,6 +83,7 @@ func draftRuling(id string, status questions.DecisionStatus) questions.Ruling {
 // TestOneWayCategoryRefused holds FR-ORCH-5 at the API: an orchestrator's ruling on a
 // one-way category leaves nothing behind.
 func TestOneWayCategoryRefused(t *testing.T) {
+	t.Parallel()
 	r := newRulingRig(t)
 	r.onRung(t, "q1", "May audit data leave the region?", questions.CategorySecurity, questions.RungDecide)
 	_, err := r.rule(t, "q1", draftRuling("d1", questions.DecisionDecided))
@@ -97,6 +98,7 @@ func TestOneWayCategoryRefused(t *testing.T) {
 }
 
 func TestRungsWriteThroughTheAPI(t *testing.T) {
+	t.Parallel()
 	r := newRulingRig(t)
 	r.onRung(t, "q1", "What is the retry budget?", questions.CategoryProduct, questions.RungDecide)
 	decided, err := r.rule(t, "q1", draftRuling("d1", questions.DecisionDecided))
@@ -129,6 +131,7 @@ func TestRungsWriteThroughTheAPI(t *testing.T) {
 }
 
 func TestARulingNeedsTheWorkersOwnSession(t *testing.T) {
+	t.Parallel()
 	r := newRulingRig(t)
 	r.onRung(t, "q1", "What is the retry budget?", questions.CategoryProduct, questions.RungDecide)
 	_, err := r.daemon.Client.WithCredential("wrong").Rule(t.Context(), testWorker, questions.WorkerRuling{
@@ -142,6 +145,7 @@ func TestARulingNeedsTheWorkersOwnSession(t *testing.T) {
 }
 
 func TestRulingRefusalsHaveTheirOwnCodes(t *testing.T) {
+	t.Parallel()
 	r := newRulingRig(t)
 	r.onRung(t, "q1", "What is the retry budget?", questions.CategoryProduct, questions.RungDecide)
 	_, err := r.rule(t, "q1", draftRuling("d1", questions.DecisionAssumed))
@@ -162,6 +166,7 @@ max_assumptions_per_work_order = 2
 `
 
 func TestAPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	before, err := daemon.Client.Policies(ctx)
@@ -191,6 +196,7 @@ func TestAPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
 }
 
 func TestALanePolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	before, err := daemon.Client.LanePolicies(ctx)
@@ -243,6 +249,7 @@ command_prefix = "go test"
 
 // A new workspace delegates nothing, and what a member publishes is what a store holds in force.
 func TestADelegationPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	before, err := daemon.Client.DelegationPolicies(ctx)
@@ -283,6 +290,7 @@ func TestADelegationPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
 // A version older than the one in force is refused even where nothing holds that number, because
 // a publish must not hand back what a member took away.
 func TestADelegationPolicyOnlyMovesForward(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	if _, err := daemon.Client.PublishPolicy(t.Context(), strings.Replace(delegationBody, "version = 2", "version = 5", 1)); err != nil {
 		t.Fatal(err)
@@ -292,6 +300,7 @@ func TestADelegationPolicyOnlyMovesForward(t *testing.T) {
 }
 
 func TestADelegationPolicyBodyMustBeComplete(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	tests := []struct{ name, body string }{
 		{"a misspelled key", strings.Replace(delegationBody, "command_prefix", "command_start", 1)},
@@ -309,6 +318,7 @@ func TestADelegationPolicyBodyMustBeComplete(t *testing.T) {
 }
 
 func TestALanePolicyBodyMustBeComplete(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	base := strings.Replace(authority.BuiltInLanePolicyBody, "version = 1", "version = 2", 1)
 	tests := []struct{ name, body string }{
@@ -327,6 +337,7 @@ func TestALanePolicyBodyMustBeComplete(t *testing.T) {
 }
 
 func TestAPolicyBodyMustBeComplete(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	tests := []struct{ name, body string }{
 		{"not TOML", "[decision_policy"},
@@ -349,6 +360,7 @@ func TestAPolicyBodyMustBeComplete(t *testing.T) {
 // TestTheBuiltInBodySaysTheDefaultPolicy keeps the two forms of the first version together,
 // because the ledger stores both.
 func TestTheBuiltInBodySaysTheDefaultPolicy(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	body := strings.Replace(questions.BuiltInPolicyBody, "version = 1", "version = 2", 1)
@@ -375,6 +387,7 @@ func TestTheBuiltInBodySaysTheDefaultPolicy(t *testing.T) {
 }
 
 func TestAMemberOverturnsThroughTheAPI(t *testing.T) {
+	t.Parallel()
 	r := newRulingRig(t)
 	ctx := t.Context()
 	r.onRung(t, "q1", "Which log level do retries use?", questions.CategoryProduct, questions.RungAssume)
@@ -401,6 +414,7 @@ func TestAMemberOverturnsThroughTheAPI(t *testing.T) {
 }
 
 func TestOverturnNeedsASession(t *testing.T) {
+	t.Parallel()
 	r := newRulingRig(t)
 	r.onRung(t, "q1", "Which log level do retries use?", questions.CategoryProduct, questions.RungAssume)
 	if _, err := r.rule(t, "q1", draftRuling("d1", questions.DecisionAssumed)); err != nil {
@@ -417,6 +431,7 @@ func TestOverturnNeedsASession(t *testing.T) {
 // A new workspace runs on the built-in recovery policy, and what a member publishes is what a store holds in
 // force. An orchestrator is held to it, so only a member's session reaches the route.
 func TestARecoveryPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	before, err := daemon.Client.PoliciesOf(ctx, authority.PolicyRecovery)
@@ -459,6 +474,7 @@ func TestARecoveryPolicyIsPublishedAndReviewedThroughTheAPI(t *testing.T) {
 }
 
 func TestARecoveryPolicyBodyMustBeComplete(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	base := strings.Replace(authority.BuiltInRecoveryPolicyBody, "version = 1", "version = 2", 1)
 	tests := []struct{ name, body string }{

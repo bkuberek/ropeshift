@@ -141,6 +141,7 @@ func launchPlan(t *testing.T, daemon *apitest.Daemon) api.PlanProgress {
 }
 
 func TestRoadmapListsMilestonesInPriorityOrderWithTheirProgress(t *testing.T) {
+	t.Parallel()
 	daemon := launchDaemon(t)
 	plan := launchPlan(t, daemon)
 	type row struct {
@@ -177,6 +178,7 @@ func TestRoadmapListsMilestonesInPriorityOrderWithTheirProgress(t *testing.T) {
 }
 
 func TestRoadmapShowsWhichWorkCanRunTogether(t *testing.T) {
+	t.Parallel()
 	daemon := launchDaemon(t)
 	ids := idsByTitle(t, daemon)
 	layers := launchPlan(t, daemon).Layers
@@ -198,6 +200,7 @@ func TestRoadmapShowsWhichWorkCanRunTogether(t *testing.T) {
 }
 
 func TestRoadmapShowsTheCriticalPathByRemainingWeight(t *testing.T) {
+	t.Parallel()
 	daemon := launchDaemon(t)
 	ids := idsByTitle(t, daemon)
 	path := launchPlan(t, daemon).CriticalPath
@@ -235,6 +238,7 @@ func TestRoadmapShowsTheCriticalPathByRemainingWeight(t *testing.T) {
 }
 
 func TestRoadmapOfAPlanWithoutMilestonesStillShowsItsWorkInLayers(t *testing.T) {
+	t.Parallel()
 	daemon := plannedDaemon(t)
 	plan := readView[api.Roadmap](t, daemon, api.ViewRoadmap, "").Goals[0].Plans[0]
 	if plan.Milestones == nil || len(plan.Milestones) != 0 {
@@ -249,6 +253,7 @@ func TestRoadmapOfAPlanWithoutMilestonesStillShowsItsWorkInLayers(t *testing.T) 
 }
 
 func TestRoadmapWeighsCanceledWorkAsNothingAndFailedWorkAsItself(t *testing.T) {
+	t.Parallel()
 	daemon := launchDaemon(t)
 	ids := idsByTitle(t, daemon)
 	// Failed work has to be redone, so it keeps its weight on the path.
@@ -273,6 +278,7 @@ func TestRoadmapWeighsCanceledWorkAsNothingAndFailedWorkAsItself(t *testing.T) {
 // A layer and the critical path name work orders by ID, which says nothing to a person, so the plan names
 // each work order it places: its title, state, size, and milestone.
 func TestRoadmapNamesEachWorkOrderItPlaces(t *testing.T) {
+	t.Parallel()
 	daemon := launchDaemon(t)
 	ids := idsByTitle(t, daemon)
 	plan := launchPlan(t, daemon)
@@ -302,6 +308,7 @@ func TestRoadmapNamesEachWorkOrderItPlaces(t *testing.T) {
 // ADR-0023: a milestone the code already delivers reads as existing, and the milestone after it does not
 // wait for it.
 func TestRoadmapShowsAMilestoneTheCodeDelivers(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	source := fake.NewWorkSource()
 	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"launch\"\ntitle = \"Launch\"\n+++\n\nHow.\n"))

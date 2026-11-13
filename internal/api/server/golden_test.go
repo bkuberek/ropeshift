@@ -105,6 +105,7 @@ func readAny(t *testing.T, d *apitest.Daemon, name string) any {
 // TestGoldenReadModels writes what the web tests read, from a real ledger on a clock that repeats, so
 // a test of the page runs on what the API serves and nothing a test author imagined.
 func TestGoldenReadModels(t *testing.T) {
+	t.Parallel()
 	d := aDetailedWorld(t)
 	for _, name := range api.Views {
 		t.Run(name, func(t *testing.T) {
@@ -116,6 +117,7 @@ func TestGoldenReadModels(t *testing.T) {
 // TestGoldenDocument writes one document as a page reads it, with the text an attacker could commit, and
 // the newest version of a planning document as the ledger stored it.
 func TestGoldenDocument(t *testing.T) {
+	t.Parallel()
 	d := aDetailedWorld(t)
 	ref := api.DocumentRef{Path: apitest.WorldSpecPath}
 	document, err := d.Client.Document(t.Context(), ref)
@@ -159,6 +161,7 @@ func aWorldInEveryState(t *testing.T) *apitest.Daemon {
 // which `every-state.test.tsx` holds to the views. A new state fails here until a walk reaches it and
 // a read model shows it, and then fails there until a view has words for it.
 func TestFixtureCoversEveryState(t *testing.T) {
+	t.Parallel()
 	for _, state := range workorders.States() {
 		if apitest.WorkWalks[state] == nil {
 			t.Fatalf("no walk reaches %s", state)
@@ -220,12 +223,14 @@ func TestFixtureCoversEveryState(t *testing.T) {
 // TestGoldenWebRoutes writes the closed list of what the web listener serves, so a web test can hold
 // the application's own client to it.
 func TestGoldenWebRoutes(t *testing.T) {
+	t.Parallel()
 	holdsGolden(t, "routes", pretty(t, api.WebRoutes()))
 }
 
 // TestGoldenPaneKeys writes the closed list of keys a member may press in a lane's pane, so a web test
 // can hold the page's buttons to it.
 func TestGoldenPaneKeys(t *testing.T) {
+	t.Parallel()
 	holdsGolden(t, "pane-keys", pretty(t, api.PaneKeys))
 }
 
@@ -233,6 +238,7 @@ func TestGoldenPaneKeys(t *testing.T) {
 // to. It is no part of that plan: it counts in no milestone, lies in no layer, is on no critical path,
 // and is not planned work in a plan's list, and the plan holds it so it is not listed as unplanned.
 func TestAReviewIsNoPartOfThePlanItsContractBelongsTo(t *testing.T) {
+	t.Parallel()
 	d := aDetailedWorld(t)
 	every, err := d.Client.WorkOrders(t.Context(), "")
 	if err != nil {
@@ -287,6 +293,7 @@ func TestAReviewIsNoPartOfThePlanItsContractBelongsTo(t *testing.T) {
 // TestGoldenSettingsReads writes what the projects, repositories, settings, agents, members, and audit
 // pages read, from a real ledger, so their tests run on what the API serves.
 func TestGoldenSettingsReads(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "beta")
 	in.Checkouts.Place(ports.Clone{Path: "/work/api", ID: "id-api", Remote: "git@example.invalid:acme/api.git", DefaultBranch: "main"})
 	in.Checkouts.Place(ports.Clone{Path: "/work/web", ID: "id-web", Remote: "https://example.invalid/acme/web.git", DefaultBranch: "trunk"})

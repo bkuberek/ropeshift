@@ -11,6 +11,7 @@ import (
 )
 
 func TestQuestionsAreRecordsMembersFind(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	first, err := daemon.Client.RecordQuestion(ctx, api.RecordQuestion{
@@ -66,6 +67,7 @@ func TestQuestionsAreRecordsMembersFind(t *testing.T) {
 }
 
 func TestDecisionsAndCandidates(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	decided, err := daemon.Client.RecordDecision(ctx, api.RecordDecision{
@@ -98,6 +100,7 @@ func TestDecisionsAndCandidates(t *testing.T) {
 }
 
 func TestCategoriesExtend(t *testing.T) {
+	t.Parallel()
 	daemon := apitest.Start(t)
 	ctx := t.Context()
 	if err := daemon.Client.AddCategory(ctx, "pricing"); err != nil {

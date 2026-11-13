@@ -68,6 +68,7 @@ func memberActs(client *api.ProjectClient) map[string]func(*testing.T) error {
 // as the same user, so it reaches this socket, and it holds what a lane holds: a token, the worker's
 // credential if it read the file, and whatever it can guess. None of it is a member's session.
 func TestAnAgentCannotOpenAWindowOrAcknowledgeTheRisk(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	credential, _ := joinWorker(t, d)
 	spent, err := d.Client.SignIn(t.Context(), api.SignIn{Passphrase: apitest.Passphrase, TTLMs: 1})
@@ -122,6 +123,7 @@ func TestAnAgentCannotOpenAWindowOrAcknowledgeTheRisk(t *testing.T) {
 // The worker's own route carries an orchestrator's acts, and a window is not one of them, whatever it
 // is called.
 func TestAWorkerCarriesNoSuchAct(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	credential, epoch := joinWorker(t, d)
 	running, err := d.Client.SetOrchestrator(t.Context(), aSubscriptionWorker, api.SetOrchestrator{Desired: ledger.OrchestratorRunning})
@@ -143,6 +145,7 @@ func TestAWorkerCarriesNoSuchAct(t *testing.T) {
 }
 
 func TestAMemberOpensAWindowAndReadsItBack(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	joinWorker(t, d)
 	window, err := d.Client.OpenWindow(t.Context(), aSubscriptionWorker, api.OpenWindow{ID: "w1", LengthMs: 60_000})
@@ -170,6 +173,7 @@ func TestAMemberOpensAWindowAndReadsItBack(t *testing.T) {
 }
 
 func TestUnattendedAsksForTheAcknowledgementFirst(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	joinWorker(t, d)
 	err := d.Client.SetAutonomy(t.Context(), aSubscriptionWorker, api.SetAutonomy{Level: authority.LevelUnattended})
@@ -200,6 +204,7 @@ func TestUnattendedAsksForTheAcknowledgementFirst(t *testing.T) {
 
 // A policy states what it means: a key left out would loosen a bound nobody chose to loosen.
 func TestAnAutonomyPolicyStatesEveryKey(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	cases := []struct {
 		name string

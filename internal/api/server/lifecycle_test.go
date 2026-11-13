@@ -34,6 +34,7 @@ func lifecycleEvents(t *testing.T, in *apitest.Installation, id ledger.Workspace
 // TestTheProjectLifecycle holds ADR-0021's lifecycle through the API: create, rename, archive, restore,
 // and remove, each a member's step that records an installation event.
 func TestTheProjectLifecycle(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t)
 	created, err := in.Client.CreateProject(t.Context(), api.CreateProject{Name: "beta", DisplayName: "Beta"})
 	if err != nil {
@@ -79,6 +80,7 @@ func TestTheProjectLifecycle(t *testing.T) {
 
 // TestEveryLifecycleStepNeedsAMember holds that no step of a project's lifecycle runs with no session.
 func TestEveryLifecycleStepNeedsAMember(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	anonymous := api.NewUnixClient(in.Socket)
 	defer anonymous.Close()
@@ -115,6 +117,7 @@ func TestEveryLifecycleStepNeedsAMember(t *testing.T) {
 // TestAnArchivedProjectIsReadOnly holds that an archived project takes no change in any route, claims
 // included, until it is restored, and still reads and backs up.
 func TestAnArchivedProjectIsReadOnly(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	_, _, acme := in.In(t, "acme")
 	createWork(t, acme, "wo-1", "Ship the invoice export")
@@ -142,6 +145,7 @@ func TestAnArchivedProjectIsReadOnly(t *testing.T) {
 
 // TestArchivingWaitsForEveryLane holds that a project is archived only once every lane of it ended.
 func TestArchivingWaitsForEveryLane(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	project, store, acme := in.In(t, "acme")
 	createWork(t, acme, "wo-1", "Ship the invoice export")
@@ -175,6 +179,7 @@ func TestArchivingWaitsForEveryLane(t *testing.T) {
 // TestRemovingAProjectNeedsAllItAsks holds remove's guards: an archived project, its name as confirmation,
 // and one choice about a backup, which it writes before the database goes.
 func TestRemovingAProjectNeedsAllItAsks(t *testing.T) {
+	t.Parallel()
 	in := apitest.StartInstallation(t, "acme")
 	project, _, acme := in.In(t, "acme")
 	createWork(t, acme, "wo-1", "Ship the invoice export")

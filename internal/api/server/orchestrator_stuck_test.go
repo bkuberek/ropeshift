@@ -23,6 +23,7 @@ func stuckOrchestrators(t *testing.T, d *apitest.Daemon) []api.StuckItem {
 }
 
 func TestATrippedOrchestratorAsksAPersonAndAStartResetsIt(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	w.Orchestrator(orchestratorStatus("tripped"))
@@ -56,6 +57,7 @@ func TestATrippedOrchestratorAsksAPersonAndAStartResetsIt(t *testing.T) {
 // A stalled session has no breaker to reset, so a start replaces it. The worker stops a run that is no
 // longer the one asked for, which leaves the work of the old run to nobody.
 func TestAStalledOrchestratorAsksAPersonAndAStartReplacesIt(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	w.Orchestrator(orchestratorStatus("working", "stalled"))
@@ -76,6 +78,7 @@ func TestAStalledOrchestratorAsksAPersonAndAStartReplacesIt(t *testing.T) {
 }
 
 func TestAnOrchestratorAtWorkOrStoppedIsNotStuck(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	w := apitest.NewWorld(t, d)
 	w.Orchestrator(orchestratorStatus("working"))
@@ -92,6 +95,7 @@ func TestAnOrchestratorAtWorkOrStoppedIsNotStuck(t *testing.T) {
 }
 
 func TestAWebPageReachesAnOrchestrator(t *testing.T) {
+	t.Parallel()
 	if !slices.ContainsFunc(api.WebRoutes(), func(route api.WebRoute) bool {
 		return route.Pattern == "/v1/workers/{id}/orchestrator" && route.Command == "orchestrator start"
 	}) {

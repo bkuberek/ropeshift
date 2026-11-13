@@ -70,6 +70,7 @@ func gapless(t *testing.T, events []api.StreamEvent, after int64) {
 // A browser may hold a stream's headers back until the first byte of its body, as WebKit does, and a
 // page says it is live only when its stream opens. So a stream on a quiet ledger speaks at once.
 func TestAQuietStreamSpeaksAtOnce(t *testing.T) {
+	t.Parallel()
 	r := webOn(t, apitest.Start(t))
 	cookies, _ := r.signedIn(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -96,6 +97,7 @@ func TestAQuietStreamSpeaksAtOnce(t *testing.T) {
 }
 
 func TestAStreamCarriesEveryEventInOrder(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -119,6 +121,7 @@ func TestAStreamCarriesEveryEventInOrder(t *testing.T) {
 // A reader that loses its connection comes back with the last revision it saw, and whatever happened
 // while it was away arrives, with nothing missed and nothing twice.
 func TestAStreamResumesFromLastEventIDAndMissesNothing(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -146,6 +149,7 @@ func TestAStreamResumesFromLastEventIDAndMissesNothing(t *testing.T) {
 }
 
 func TestAStreamHoldsMoreThanOnePage(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -162,6 +166,7 @@ func TestAStreamHoldsMoreThanOnePage(t *testing.T) {
 }
 
 func TestAStreamRefusesAResumePointThatIsNoRevision(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://ropeshift"+apitest.Route(api.EventsPath), nil)
 	if err != nil {
@@ -180,6 +185,7 @@ func TestAStreamRefusesAResumePointThatIsNoRevision(t *testing.T) {
 
 // What moves a lane reaches a reader as a record's name, and the record stays behind a view.
 func TestAStreamNamesWhatChangedAndCarriesNoContent(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
