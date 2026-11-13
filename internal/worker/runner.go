@@ -71,9 +71,12 @@ type laneRun struct {
 	model      string
 
 	// handleLock guards the generation and the handle, because a heartbeat and a hook read
-	// them while a start writes them.
+	// them while a start writes them. It guards handled too.
 	handleLock sync.Mutex
 	handle     ports.SessionHandle
+	// handled is the newest request for a new generation this run has taken, as the ledger counts them.
+	// It only rises, and a generation beginning does not reset it, so a request is acted on once.
+	handled int64
 
 	profileDigest string
 	version       string
@@ -142,7 +145,8 @@ type laneRun struct {
 	// process is the generation whose process runs now, which a clear does not move. The handle's
 	// lock guards it.
 	process int64
-	// respawnAsked is the request this run is acting on, as the ledger counts them.
+	// respawnAsked is the request this run has taken and no generation has begun on, as the ledger counts
+	// them, and zero when none waits. handleLock guards its writes.
 	respawnAsked atomic.Int64
 	// sending says a goroutine is handing the ledger what this lane raised.
 	sending atomic.Bool
@@ -192,6 +196,7 @@ func (w *Worker) resumedRun(lease ledger.DesiredLease, record lanes.Record) *lan
 	run.worktree = record.Worktree
 	run.instruction, run.blocking, run.carried = record.Progress.Instruction, record.Blocking, record.Progress.Carried
 	run.packRead, run.process = record.Progress.Pack, record.Process
+	run.handled = record.RespawnsSeen
 	run.owesBrief.Store(record.Progress.OwesBrief)
 	run.state.keepContext(record.Progress)
 	run.inheritedFrom(record.Handoff)
@@ -306,11 +311,12 @@ func (r *laneRun) lost(ctx context.Context) {
 }
 
 // reach says the driver holds this generation's session. A stop asked of a session it does not hold
-// yet fails, and would spend the generation's one stop, so a lane that lost its lease before this is
-// stopped here. lost sets what this reads before it reads what this sets, so one of them stops it.
+// yet fails, and would spend the generation's one stop, so a lane that lost its lease before this, or
+// was asked for a new generation, is stopped here. lost and respawn set what this reads before they read
+// what this sets, so one of them stops it.
 func (r *laneRun) reach(ctx context.Context) {
 	r.reached.Store(true)
-	if r.stopAsked.Load() && !r.sessionOver.Load() {
+	if (r.stopAsked.Load() || r.respawnAsked.Load() != 0) && !r.sessionOver.Load() {
 		r.stop(ctx, ports.StopInterrupt)
 	}
 }
@@ -1015,9 +1021,19 @@ func (r *laneRun) verdict(ctx context.Context, end *ports.SessionEnd) workorders
 // stop runs apart from the event loop, because a stop waits for the session to end and
 // the loop must keep reading its stream.
 func (r *laneRun) stop(ctx context.Context, how ports.StopMode) {
+	r.stopWith(ctx, r.generationStop(), how)
+}
+
+// generationStop is the one stop the generation running now has.
+func (r *laneRun) generationStop() *sync.Once {
 	r.handleLock.Lock()
-	once := r.stopOnce
-	r.handleLock.Unlock()
+	defer r.handleLock.Unlock()
+	return r.stopOnce
+}
+
+// stopWith spends a generation's stop. A caller that decides from what another goroutine moves takes the
+// stop before it decides, so a decision about one generation never spends the next one's.
+func (r *laneRun) stopWith(ctx context.Context, once *sync.Once, how ports.StopMode) {
 	once.Do(func() {
 		r.stopped.Go(func() {
 			ctx := context.WithoutCancel(ctx)

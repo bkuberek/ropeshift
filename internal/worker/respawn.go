@@ -34,13 +34,45 @@ func (w *Worker) respawnLanes(ctx context.Context) {
 }
 
 // respawn stops this generation's session, and supervision begins the next.
+//
+// A pass reads the journal and then acts, so it can hand a run a request the run has acted on, and ask
+// refuses it. A stop asked of a session the driver does not hold yet fails and spends the generation's
+// one stop, so a request that comes before reach waits for it, and reach stops the session then. ask sets
+// what reach reads before this reads what reach sets, so one of them stops it. This takes the
+// generation's stop first, and reads sessionOver before reached, because enterGeneration clears reached
+// first: a pass that stalls across a generation's end never spends the next generation's stop.
 func (r *laneRun) respawn(ctx context.Context, asked int64) {
-	if r.currentFlight() != nil || r.fenced.Load() {
+	if r.currentFlight() != nil || r.fenced.Load() || !r.ask(asked) {
 		return
 	}
-	r.respawnAsked.Store(asked)
 	r.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
-	r.stop(ctx, ports.StopInterrupt)
+	once := r.generationStop()
+	if !r.sessionOver.Load() && r.reached.Load() {
+		r.stopWith(ctx, once, ports.StopInterrupt)
+	}
+}
+
+// ask takes a request, and reports whether this run had not taken it. The ledger counts requests, so one
+// no newer than what the run took is one it acted on, or one a pass read before the run's generation began.
+func (r *laneRun) ask(asked int64) bool {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if asked <= r.handled {
+		return false
+	}
+	r.handled = asked
+	r.respawnAsked.Store(asked)
+	return true
+}
+
+// answered says a generation began with the requests up to asked recorded as seen. A request that came
+// after that read still waits.
+func (r *laneRun) answered(asked int64) {
+	r.handleLock.Lock()
+	defer r.handleLock.Unlock()
+	if r.respawnAsked.Load() == asked {
+		r.respawnAsked.Store(0)
+	}
 }
 
 // respawning says a request stopped this generation, and a lane that reported has nothing to go on
@@ -61,7 +93,5 @@ func (r *laneRun) respawnGeneration(ctx context.Context) bool {
 		return false
 	}
 	r.signal(ctx, lanes.OnNextGeneration)
-	moved := r.nextGeneration(ctx, next, ledger.StartUserRespawn)
-	r.respawnAsked.Store(0)
-	return moved
+	return r.nextGeneration(ctx, next, ledger.StartUserRespawn)
 }
