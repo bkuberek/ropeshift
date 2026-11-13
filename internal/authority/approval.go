@@ -38,6 +38,10 @@ const (
 	// KindMerge covers the merge of a work order's reviewed commit: its digest is that commit, so a new
 	// commit voids it. It belongs to a work order and no lane, and only a member decides it (ADR-0020).
 	KindMerge = "merge"
+	// KindConfirm is a confirmation card: an operation a delegate called and only a member's confirmation
+	// runs (ADR-0024). Its digest covers the subject of the operation as the card was prepared, so a change
+	// to that subject voids it. It belongs to no lane, and only a member decides it.
+	KindConfirm = "confirm"
 )
 
 // The subjects of a merge request.
@@ -55,6 +59,10 @@ const (
 	ChannelHook = "hook"
 	// ChannelTerminal is a person at a pane, which a tool's end shows and nothing proves.
 	ChannelTerminal = "terminal"
+	// ChannelWeb is a card a member confirmed or declined on the web listener, and ChannelCLI one they did
+	// on the local socket.
+	ChannelWeb = "web"
+	ChannelCLI = "cli"
 )
 
 // ApprovalState is where a request stands.
@@ -77,6 +85,9 @@ const (
 	// ApprovalSuperseded is a plan approval that a newer version of the plan replaced before anyone
 	// decided it. The newer version has its own request.
 	ApprovalSuperseded ApprovalState = "superseded"
+	// ApprovalFailed is a confirmed card whose operation the API refused when it ran as the member. Reason
+	// keeps the refusal.
+	ApprovalFailed ApprovalState = "failed"
 )
 
 // The ways a decision is refused.
@@ -154,7 +165,7 @@ type Decision struct {
 // MembersOnly says only a member decides a request: a plan sets scope, a recovery act was outside the policy
 // that bounds every orchestrator, and a merge is the person's to allow, so no delegation reaches any of them.
 func (a Approval) MembersOnly() bool {
-	return a.Kind == KindPlan || a.Kind == KindRecovery || a.Kind == KindMerge
+	return a.Kind == KindPlan || a.Kind == KindRecovery || a.Kind == KindMerge || a.Kind == KindConfirm
 }
 
 // Open says a request still waits on a decision.
@@ -169,8 +180,10 @@ func (a Approval) Decided() bool { return a.State != ApprovalPending }
 // Validate refuses a request that binds to nothing.
 func (a Approval) Validate() error {
 	switch {
-	case a.ID == "" || a.Subject == "" || (a.Lane == "" && a.Kind != KindPlan && a.Kind != KindRecovery && a.Kind != KindMerge):
+	case a.ID == "" || a.Subject == "" || (a.Lane == "" && a.Kind != KindPlan && a.Kind != KindRecovery && a.Kind != KindMerge && a.Kind != KindConfirm):
 		return fmt.Errorf("%w: it names no lane or subject", ErrBadApproval)
+	case a.Kind == KindConfirm && (a.Lane != "" || a.WorkOrder != "" || a.Generation != 0 || a.Input != "" || a.Detail == ""):
+		return fmt.Errorf("%w: a card belongs to no lane or work order, and holds the operation it runs", ErrBadApproval)
 	case a.Kind == KindRecovery && (a.WorkOrder == "" || !KnownRecoveryAct(RecoveryAct(a.Subject))):
 		return fmt.Errorf("%w: a recovery request names a work order and a recovery act", ErrBadApproval)
 	case a.Kind == KindMerge && (a.WorkOrder == "" || a.Lane != "" || (a.Subject != MergeApprove && a.Subject != MergeHeld)):
@@ -179,7 +192,7 @@ func (a Approval) Validate() error {
 		return fmt.Errorf("%w: it binds to no digest", ErrBadApproval)
 	case a.RequestedBy == "":
 		return fmt.Errorf("%w: it names no requester", ErrBadApproval)
-	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract && a.Kind != KindPlan && a.Kind != KindRecovery && a.Kind != KindMerge:
+	case a.Kind != KindToolCall && a.Kind != KindArtifact && a.Kind != KindContract && a.Kind != KindPlan && a.Kind != KindRecovery && a.Kind != KindMerge && a.Kind != KindConfirm:
 		return fmt.Errorf("%w: kind %q", ErrBadApproval, a.Kind)
 	case a.Kind == KindToolCall && a.SubjectDigest != LandingDigest(a.Subject, a.Input, a.Path):
 		return fmt.Errorf("%w: its digest does not cover its tool call", ErrBadApproval)
@@ -203,7 +216,8 @@ func startedAgent(tool, input string) string {
 // Decide applies a decision. Each check repeats in the store where it can, and none reads anything
 // a lane wrote: the digest is the one a decider saw, and the principal is the one a session proved.
 func (a Approval) Decide(decision Decision, actor ledger.Actor, policy, at int64) (Approval, error) {
-	if actor.Kind != ledger.ActorMember && (actor.Kind != ledger.ActorOrchestrator || a.MembersOnly()) {
+	delegated := actor.Kind == ledger.ActorOrchestrator || actor.Kind == ledger.ActorDelegate
+	if actor.Kind != ledger.ActorMember && (!delegated || a.MembersOnly()) {
 		return a, fmt.Errorf("%w: %s", ErrDeciderKind, actor.Kind)
 	}
 	principal := Principal(actor)
@@ -632,10 +646,10 @@ func (p DelegationPolicy) Covers(a Approval) bool {
 	return false
 }
 
-// CheckDelegated holds an orchestrator to the policy in force, and a member to none. A body that no
-// longer matches its digest stops the decision, because a member reviewed other text.
+// CheckDelegated holds an orchestrator and a delegate to the policy in force, and a member to none. A body
+// that no longer matches its digest stops the decision, because a member reviewed other text.
 func CheckDelegated(a Approval, version PolicyVersion, actor ledger.Actor) error {
-	if actor.Kind != ledger.ActorOrchestrator {
+	if actor.Kind != ledger.ActorOrchestrator && actor.Kind != ledger.ActorDelegate {
 		return nil
 	}
 	policy, err := ReadDelegation(version)

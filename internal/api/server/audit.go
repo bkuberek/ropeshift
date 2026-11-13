@@ -126,6 +126,9 @@ func (h *handler) projectAudit(w http.ResponseWriter, r *http.Request) {
 		if page, err = readAudit(tx.Events, head, q); err != nil {
 			return err
 		}
+		if err := labelAudit(tx.Members(), page.Events); err != nil {
+			return err
+		}
 		page.AsOf, err = tx.Now()
 		return err
 	})
@@ -157,6 +160,9 @@ func (h *handler) installationAudit(w http.ResponseWriter, r *http.Request) {
 		if page, err = readAudit(tx.Events, head, q); err != nil {
 			return err
 		}
+		if err := labelAudit(tx.Members(), page.Events); err != nil {
+			return err
+		}
 		page.AsOf, err = tx.Now()
 		return err
 	})
@@ -166,4 +172,19 @@ func (h *handler) installationAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Scope = "installation"
 	reply(w, http.StatusOK, page)
+}
+
+// labelAudit names each delegate a page of the audit holds by its credential's label.
+func labelAudit(members ports.MemberReader, events []api.AuditEvent) error {
+	stream := make([]api.StreamEvent, len(events))
+	for i := range events {
+		stream[i] = events[i].StreamEvent
+	}
+	if err := labelsOf(members, stream); err != nil {
+		return err
+	}
+	for i := range events {
+		events[i].StreamEvent = stream[i]
+	}
+	return nil
 }

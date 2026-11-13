@@ -148,6 +148,13 @@ func (a *Approvals) Decide(ctx context.Context, scope ledger.WorkspaceID, decisi
 		if row.Kind == authority.KindMerge && !authority.Allowed(actor, authority.ActionDecideMerge) {
 			return workorders.ErrForbidden
 		}
+		// A card runs its operation when a member confirms it, which Confirm does, so no decision reaches one.
+		if row.Kind == authority.KindConfirm {
+			if !authority.Allowed(actor, authority.ActionConfirmCard) {
+				return workorders.ErrForbidden
+			}
+			return fmt.Errorf("%w: %s is a card, which a member confirms or declines", authority.ErrBadApproval, row.ID)
+		}
 		if row.Repeats(decision, actor) {
 			record = row
 			return nil
@@ -366,8 +373,9 @@ func expireApproval(tx ports.WriteTx, row authority.Approval) error {
 	return noteApproval(tx, next, row.State, approvalExpiry)
 }
 
-// ExpireDue closes the requests past their time, each in a short transaction of its own. A list a
-// tick read with no lock can be stale, so each is read again.
+// ExpireDue closes the requests past their time, each in a short transaction of its own, and fails the
+// cards a crash left running (FailInterrupted). A list a tick read with no lock can be stale, so each is
+// read again.
 func (a *Approvals) ExpireDue(ctx context.Context, scope ledger.WorkspaceID) ([]string, error) {
 	var due []string
 	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
@@ -395,7 +403,8 @@ func (a *Approvals) ExpireDue(ctx context.Context, scope ledger.WorkspaceID) ([]
 		}
 		expired = append(expired, id)
 	}
-	return expired, nil
+	interrupted, err := a.FailInterrupted(ctx, scope, CardRunMs)
+	return append(expired, interrupted...), err
 }
 
 // List reads the requests of a workspace, oldest first, which a state narrows.
@@ -576,4 +585,25 @@ func (w *Workers) DecideApproval(ctx context.Context, decision authority.WorkerD
 	}
 	actor := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: decision.Auth.WorkerID}
 	return NewApprovals(w.store).Decide(ctx, w.scope, decision.Decision, actor)
+}
+
+// Covered says the delegation policy in force lets an orchestrator, and so a delegate, decide a request.
+func (a *Approvals) Covered(ctx context.Context, scope ledger.WorkspaceID, request authority.Approval) (bool, error) {
+	var covered bool
+	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		version, err := tx.Policies().InForce(authority.PolicyDelegation)
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		policy, err := authority.ReadDelegation(version)
+		if err != nil {
+			return err
+		}
+		covered = !request.MembersOnly() && policy.Covers(request)
+		return nil
+	})
+	return covered, err
 }

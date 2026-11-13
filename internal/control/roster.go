@@ -432,3 +432,37 @@ func agentProblem(reader ports.RosterReader, order workorders.WorkOrder) (string
 	}
 	return "", err
 }
+
+// Preview reads a project's layer as it stands and as a change, or a revert to a version, would leave it,
+// each in its stored form, with no write. A card for a roster change shows the two.
+func (r *Roster) Preview(ctx context.Context, target RosterTarget, change *roster.Change, revert int64) (string, string, error) {
+	var before, after string
+	err := target.Store.Read(ctx, target.Project, func(tx ports.ReadTx) error {
+		installation, _, err := layerOf(tx.Roster(), roster.ScopeInstallation)
+		if err != nil {
+			return err
+		}
+		layer, _, err := layerOf(tx.Roster(), roster.ScopeProject)
+		if err != nil {
+			return err
+		}
+		var next roster.Layer
+		if change != nil {
+			if next, err = roster.Apply(layer, roster.Resolve(installation, roster.Layer{}), *change); err != nil {
+				return err
+			}
+		} else {
+			found, err := tx.Roster().Version(roster.ScopeProject, revert)
+			if err != nil {
+				return err
+			}
+			next = found.Body
+		}
+		if before, _, err = roster.Encode(layer); err != nil {
+			return err
+		}
+		after, _, err = roster.Encode(next)
+		return err
+	})
+	return before, after, err
+}

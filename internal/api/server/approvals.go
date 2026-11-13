@@ -46,9 +46,12 @@ func (h *handler) decideApproval(w http.ResponseWriter, r *http.Request, actor l
 		invalid(w, "a decision names the digest it saw")
 		return
 	}
-	record, err := h.approvals.Decide(r.Context(), h.Scope, authority.Decision{
-		ID: r.PathValue("id"), Digest: in.Digest, Allow: in.Allow, Reason: in.Reason,
-	}, actor)
+	decision := authority.Decision{ID: r.PathValue("id"), Digest: in.Digest, Allow: in.Allow, Reason: in.Reason}
+	if row, err := h.approvals.Get(r.Context(), h.Scope, decision.ID); err == nil && row.Kind == authority.KindConfirm {
+		h.confirmCard(w, r, decision, actor)
+		return
+	}
+	record, err := h.approvals.Decide(r.Context(), h.Scope, decision, actor)
 	if err != nil {
 		fail(w, err)
 		return
