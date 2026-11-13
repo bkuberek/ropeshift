@@ -12,6 +12,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/api/server"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -71,6 +72,15 @@ func TestTheShopFloorCarriesWhatAWorkerReported(t *testing.T) {
 // joinWorker registered, with that machine's user's layer. A session of "" calls with none.
 func capsListener(t *testing.T, d *apitest.Daemon, profile ports.UserProfile, local, session string) *api.Client {
 	t.Helper()
+	client := api.NewUnixClient(capsServe(t, d, profile, local))
+	t.Cleanup(client.Close)
+	client.UseSession(session)
+	return client
+}
+
+// capsServe serves that second listener and returns its socket.
+func capsServe(t *testing.T, d *apitest.Daemon, profile ports.UserProfile, local string) string {
+	t.Helper()
 	config := d.Config
 	config.Profile = profile
 	config.LocalWorker = func(context.Context) (string, error) { return local, nil }
@@ -82,10 +92,7 @@ func capsListener(t *testing.T, d *apitest.Daemon, profile ports.UserProfile, lo
 	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = httpServer.Serve(listener) }()
 	t.Cleanup(func() { _ = httpServer.Close() })
-	client := api.NewUnixClient(socket)
-	t.Cleanup(client.Close)
-	client.UseSession(session)
-	return client
+	return socket
 }
 
 func lanesOf(value int64) *int64 { return &value }
@@ -162,4 +169,25 @@ func TestALanesCapIsSetOnItsOwnMachine(t *testing.T) {
 	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
 	_, err = d.Client.LaneCaps(t.Context(), aSubscriptionWorker)
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+}
+
+// TestADelegateCannotSetALanesCap holds a machine's lane caps to its member (ADR-0024): they change the
+// user's profile and what the machine admits, which no card can bind to as a ledger record, so a delegate's
+// call is refused outright and changes nothing.
+func TestADelegateCannotSetALanesCap(t *testing.T) {
+	d := apitest.Start(t)
+	joinWorker(t, d)
+	profile := fake.NewProfileSource()
+	socket := capsServe(t, d, profile, aSubscriptionWorker)
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegate := asDelegate(t, socket, created.Token, apitest.ProjectName)
+	err := delegate.Do(t.Context(), http.MethodPut, "/v1/workers/"+aSubscriptionWorker+"/caps", api.SetLaneCaps{MaxLanes: lanesOf(99)}, nil)
+	refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
+	if user := profile.User(); user != "" {
+		t.Errorf("a delegate's call wrote %q", user)
+	}
+	op, ok := authority.OperationOf(authority.OpWorkerLaneCaps)
+	if !ok || op.Class != authority.ClassMemberOnly || op.DelegateMayRun() || authority.Allowed(ledger.Actor{Kind: ledger.ActorDelegate, ID: "m/d"}, authority.ActionSetLaneCaps) {
+		t.Errorf("the operation reads %+v", op)
+	}
 }

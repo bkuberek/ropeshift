@@ -113,6 +113,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/workers/{id}/autonomy/acknowledgement":   fixed(authority.OpAutonomyAcknowledge),
 	"POST /v1/workers/{id}/windows":                    fixed(authority.OpAutonomyWindow),
 	"DELETE /v1/workers/{id}/windows":                  fixed(authority.OpAutonomyWindow),
+	"PUT /v1/workers/{id}/caps":                        fixed(authority.OpWorkerLaneCaps),
 	"PUT /v1/workers/{id}/orchestrator":                fixed(authority.OpOrchestratorRun),
 	"POST /v1/roster/changes":                          fixed(authority.OpRosterChange).about("roster").named(rosterScope).showing(rosterChanges),
 	"POST /v1/roster/revert":                           fixed(authority.OpRosterChange).about("roster").named(rosterScope).showing(rosterChanges),
