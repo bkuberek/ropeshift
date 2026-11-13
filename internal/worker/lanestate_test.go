@@ -26,6 +26,15 @@ type gate struct {
 
 func newGate() *gate { return &gate{reached: make(chan struct{}), release: make(chan struct{})} }
 
+// free lets a session at the gate go on. It is safe to call after the test has released the gate itself.
+func (g *gate) free() {
+	select {
+	case <-g.release:
+	default:
+		close(g.release)
+	}
+}
+
 func (g *gate) step() fake.DriverStep {
 	return fake.DriverStep{Do: func(ports.SessionSpec) {
 		close(g.reached)
@@ -91,9 +100,9 @@ func (r *laneRig) dispatched() *laneRig {
 
 func (r *laneRig) finishLater(g *gate) {
 	r.t.Cleanup(func() {
-		close(g.release)
+		g.free()
 		r.driver.StopEverySession()
-		r.subject.Wait()
+		r.waitForTheLane(r.t)
 	})
 }
 
