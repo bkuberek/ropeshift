@@ -302,6 +302,10 @@ func TestAnOrchestratorsTokenReachesOnlyItsOwnTools(t *testing.T) {
 		"a report": {Report: &report},
 		"a wait":   {Wait: &lanes.WaitDeclaration{Minutes: 1}},
 		"an ask":   {Ask: &lanes.AskRequest{Text: "Why?"}},
+		// Its one exception is exactly a reply: a reply that carries a lane's request is still refused.
+		"a reply with a report": {Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}, Report: &report},
+		"a reply with a wait":   {Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}, Wait: &lanes.WaitDeclaration{Minutes: 1}},
+		"a reply with an ask":   {Reply: &lanes.ReplyRequest{ReplyTo: "m", Body: "b"}, Ask: &lanes.AskRequest{Text: "Why?"}},
 	} {
 		if got := ask(request); got.OK || got.Code != lanes.CodeForbidden {
 			t.Errorf("%s: %+v", name, got)
