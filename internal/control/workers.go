@@ -342,7 +342,11 @@ func saveReport(ctx context.Context, installation ports.Installation, beat ledge
 	if beat.Report == nil {
 		return ""
 	}
-	if err := installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, *beat.Report); err != nil {
+	report, err := ledger.BoundReport(*beat.Report)
+	if err == nil {
+		err = installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, report)
+	}
+	if err != nil {
 		return err.Error()
 	}
 	return ""
@@ -1054,7 +1058,8 @@ func (w *Workers) ReportFreshness(tx ports.ReadTx, worker ledger.Worker) (string
 	if err != nil {
 		return "", err
 	}
-	if now-min(worker.ReportedAt, now) <= freshnessBeats*max(worker.Report.IntervalMs, w.options.HeartbeatMs) {
+	interval := min(max(worker.Report.IntervalMs, w.options.HeartbeatMs), ledger.MaxReportIntervalMs)
+	if now-min(worker.ReportedAt, now) <= freshnessBeats*interval {
 		return ledger.FreshnessObserved, nil
 	}
 	return ledger.FreshnessLastReported, nil

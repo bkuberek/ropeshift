@@ -1,5 +1,11 @@
 package ledger
 
+import (
+	"encoding/json"
+	"errors"
+	"unicode/utf8"
+)
+
 // The kinds of session a worker measures (FR-OBS-8). Only a lane counts toward the lane caps.
 const (
 	SessionLane         = "lane"
@@ -132,4 +138,74 @@ type CapWarning struct {
 	Recommended int64  `json:"recommended"`
 	Reason      string `json:"reason"`
 	Message     string `json:"message"`
+}
+
+// The bounds of a report the control plane keeps. A report is a worker's word, so what it holds is
+// limited, and its interval stays within what a freshness window can count.
+const (
+	MaxReportSessions   = 512
+	MaxReportWarnings   = 64
+	MaxReportVolumes    = 64
+	MaxReportRoles      = 8
+	MaxReportText       = 1024
+	MaxReportBytes      = 256 << 10
+	MinReportIntervalMs = 1_000
+	MaxReportIntervalMs = 24 * 60 * 60 * 1000
+)
+
+// errReportTooLarge refuses a report that stays past MaxReportBytes once its lists and text are bounded.
+var errReportTooLarge = errors.New("a resource report larger than the control plane keeps")
+
+// BoundReport is a report as the control plane keeps it: its interval within its bounds, each list cut at
+// its limit, and each text a worker wrote cut at MaxReportText on a character's edge. It changes nothing
+// of the report it was given, and refuses one still too large.
+func BoundReport(report ResourceReport) (ResourceReport, error) {
+	out := report
+	out.IntervalMs = min(max(report.IntervalMs, MinReportIntervalMs), MaxReportIntervalMs)
+	if report.Recommendation != nil {
+		recommendation := *report.Recommendation
+		recommendation.Basis, recommendation.Reason = clip(recommendation.Basis), clip(recommendation.Reason)
+		out.Recommendation = &recommendation
+	}
+	out.Machine.Volumes = make([]VolumeResources, 0, min(len(report.Machine.Volumes), MaxReportVolumes))
+	for _, volume := range report.Machine.Volumes[:min(len(report.Machine.Volumes), MaxReportVolumes)] {
+		roles := make([]string, 0, min(len(volume.Roles), MaxReportRoles))
+		for _, role := range volume.Roles[:min(len(volume.Roles), MaxReportRoles)] {
+			roles = append(roles, clip(role))
+		}
+		volume.Roles = roles
+		out.Machine.Volumes = append(out.Machine.Volumes, volume)
+	}
+	out.Sessions = make([]SessionResources, 0, min(len(report.Sessions), MaxReportSessions))
+	for _, session := range report.Sessions[:min(len(report.Sessions), MaxReportSessions)] {
+		session.Kind, session.Project, session.Lane = clip(session.Kind), clip(session.Project), clip(session.Lane)
+		out.Sessions = append(out.Sessions, session)
+	}
+	if report.Warnings != nil {
+		out.Warnings = make([]ResourceWarning, 0, min(len(report.Warnings), MaxReportWarnings))
+		for _, warning := range report.Warnings[:min(len(report.Warnings), MaxReportWarnings)] {
+			warning.Measure, warning.Volume, warning.Message = clip(warning.Measure), clip(warning.Volume), clip(warning.Message)
+			out.Warnings = append(out.Warnings, warning)
+		}
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return ResourceReport{}, err
+	}
+	if len(raw) > MaxReportBytes {
+		return ResourceReport{}, errReportTooLarge
+	}
+	return out, nil
+}
+
+// clip cuts a text at MaxReportText bytes, on the edge of a character.
+func clip(text string) string {
+	if len(text) <= MaxReportText {
+		return text
+	}
+	cut := MaxReportText
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
