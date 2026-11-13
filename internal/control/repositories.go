@@ -94,6 +94,9 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 		if record = look.record; err != nil || !look.moved {
 			return err
 		}
+		if err := appendUnshadowed(tx, look, actor); err != nil {
+			return err
+		}
 		event, err := repositoryEvent(ledger.EventRepositoryDetected, found.ID, detectedEvent{Name: look.named, Remote: found.Remote, DefaultBranch: found.DefaultBranch}, actor)
 		if err != nil {
 			return err
@@ -110,6 +113,8 @@ func (r *Repositories) Detect(ctx context.Context, scope ledger.WorkspaceID, fou
 // detection is what one look at a repository did to its record.
 type detection struct {
 	record ledger.Repository
+	// unshadowed are the records the look named again, because each name spelled the new record's identity.
+	unshadowed []changedEvent
 	// named is the name the look gave the record, if it gave one.
 	named string
 	// made says the look made the record, and moved that it changed it, because a look that finds the
@@ -128,6 +133,10 @@ func errRemoved(record ledger.Repository) error {
 func detectIn(repositories ports.RepositoryWriter, found DetectedRepository, claimed map[string]bool) (detection, error) {
 	record, err := repositories.Repository(found.ID)
 	if errors.Is(err, ports.ErrNotFound) {
+		unshadowed, err := unshadow(repositories, found.ID, claimed)
+		if err != nil {
+			return detection{}, err
+		}
 		record = ledger.NewRepository(found.ID)
 		record.Remote, record.DefaultBranch = found.Remote, found.DefaultBranch
 		if record.Name, err = freeName(repositories, found, claimed); err != nil {
@@ -136,7 +145,7 @@ func detectIn(repositories ports.RepositoryWriter, found DetectedRepository, cla
 		if _, err := repositories.Insert(record); err != nil {
 			return detection{}, err
 		}
-		return detection{record: record, named: record.Name, made: true, moved: true}, nil
+		return detection{record: record, unshadowed: unshadowed, named: record.Name, made: true, moved: true}, nil
 	}
 	if err != nil {
 		return detection{}, err
@@ -169,6 +178,20 @@ func detectIn(repositories ports.RepositoryWriter, found DetectedRepository, cla
 	return detection{record: record, named: named, moved: true}, nil
 }
 
+// appendUnshadowed records each rename a look made to keep a new identity its own record's.
+func appendUnshadowed(tx ports.WriteTx, look detection, actor ledger.Actor) error {
+	for _, change := range look.unshadowed {
+		event, err := repositoryEvent(ledger.EventRepositoryChanged, change.After.ID, change, actor)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Append(event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // freeName names a repository as ADR-0022 does, among the names the project's records hold and the ones
 // claimed.
 func freeName(repositories ports.RepositoryReader, found DetectedRepository, claimed map[string]bool) (string, error) {
@@ -184,11 +207,47 @@ func freeName(repositories ports.RepositoryReader, found DetectedRepository, cla
 		taken[record.Name] = true
 	}
 	shadows := func(name string) bool {
-		return slices.ContainsFunc(all, func(record ledger.Repository) bool {
+		return ledger.IdentityShaped(name) || slices.ContainsFunc(all, func(record ledger.Repository) bool {
 			return record.ID != found.ID && ledger.ShadowsIdentity(name, record.ID)
 		})
 	}
 	return ledger.NameRepository(found.Directory, found.Remote, found.ID, func(name string) bool { return taken[name] || shadows(name) }), nil
+}
+
+// unshadow names again each record whose name spells a new repository's identity, or a prefix that would
+// name it, as automatic naming names a record, so that identity names only its own record. Each rename is
+// a change the caller records.
+func unshadow(repositories ports.RepositoryWriter, id string, claimed map[string]bool) ([]changedEvent, error) {
+	all, err := repositories.Repositories()
+	if err != nil {
+		return nil, err
+	}
+	taken := maps.Clone(claimed)
+	if taken == nil {
+		taken = map[string]bool{}
+	}
+	for _, record := range all {
+		taken[record.Name] = true
+	}
+	shadows := func(name string) bool {
+		return ledger.IdentityShaped(name) || ledger.ShadowsIdentity(name, id) || slices.ContainsFunc(all, func(record ledger.Repository) bool {
+			return ledger.ShadowsIdentity(name, record.ID)
+		})
+	}
+	var renamed []changedEvent
+	for _, record := range all {
+		if record.Name == "" || !ledger.ShadowsIdentity(record.Name, id) {
+			continue
+		}
+		before := record
+		record.Name = ledger.NameRepository(record.Name, "", record.ID, func(name string) bool { return taken[name] || shadows(name) })
+		taken[record.Name] = true
+		if err := repositories.Settings(record); err != nil {
+			return nil, err
+		}
+		renamed = append(renamed, changedEvent{Before: before, After: record})
+	}
+	return renamed, nil
 }
 
 // Change applies a member's settings to a repository. The record that results must hold together, and a
@@ -360,6 +419,9 @@ func nameIsFree(repositories ports.RepositoryReader, record ledger.Repository) e
 	if err := ledger.CheckRepositoryName(record.Name); err != nil {
 		return err
 	}
+	if ledger.IdentityShaped(record.Name) {
+		return fmt.Errorf("%w: name %q has the shape of a repository's identity", ledger.ErrInvalidRepository, record.Name)
+	}
 	all, err := repositories.Repositories()
 	if err != nil {
 		return err
@@ -450,12 +512,18 @@ func (r *Repositories) List(ctx context.Context, scope ledger.WorkspaceID) ([]le
 	return records, err
 }
 
-// Resolve finds the record a name, an ID, or a unique prefix of an ID names, because an identity is a
-// commit hash and nobody types forty characters. A name comes first, because a person chose it.
+// Resolve finds the record an ID, a name, or a unique prefix of an ID names, because an identity is a
+// commit hash and nobody types forty characters. A whole identity comes first, so it always names its own
+// record whatever another record is called, then a name, because a person chose it, then a prefix.
 func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, name string) (ledger.Repository, error) {
 	all, err := r.List(ctx, scope)
 	if err != nil {
 		return ledger.Repository{}, err
+	}
+	for _, record := range all {
+		if record.ID == name {
+			return record, nil
+		}
 	}
 	for _, record := range all {
 		if record.Name != "" && record.Name == name {
@@ -464,10 +532,7 @@ func (r *Repositories) Resolve(ctx context.Context, scope ledger.WorkspaceID, na
 	}
 	var found []ledger.Repository
 	for _, record := range all {
-		switch {
-		case record.ID == name:
-			return record, nil
-		case len(name) >= ledger.MinRepositoryPrefix && len(record.ID) > len(name) && record.ID[:len(name)] == name:
+		if len(name) >= ledger.MinRepositoryPrefix && len(record.ID) > len(name) && record.ID[:len(name)] == name {
 			found = append(found, record)
 		}
 	}

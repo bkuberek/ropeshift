@@ -83,8 +83,9 @@ func TestARepositoryCardBindsTheRecordItsNameOrPrefixNames(t *testing.T) {
 }
 
 // TestACardReplaysOnlyAgainstItsRecord holds the replay to the record the card binds even where a name
-// held before names were checked reads as that record's identity: the card goes void, and neither record
-// changes.
+// that spells that record's identity reached another record after the card was prepared, as a ledger
+// could hold one from before names were checked: the call runs on the bound record, and the other record
+// does not change.
 func TestACardReplaysOnlyAgainstItsRecord(t *testing.T) {
 	d := apitest.Start(t)
 	twoRepositories(t, d)
@@ -93,33 +94,16 @@ func TestACardReplaysOnlyAgainstItsRecord(t *testing.T) {
 	raised := ledger.ReviewApproves
 	_, err := asDelegate(t, d.Socket, created.Token, apitest.ProjectName).SetRepository(ctx, aRepository, api.RepositoryChange{MergeAuthority: &raised})
 	card := preparedCard(t, err)
-	// A name that reads as the other record's identity, as a ledger could hold one from before names were
-	// checked. It is an event about the record it renames, so the card's own digest does not move.
-	err = d.Store.Write(ctx, apitest.Scope, "test.rename", func(tx ports.WriteTx) error {
-		record, err := tx.Repositories().Repository(anotherRepository)
-		if err != nil {
-			return err
-		}
-		record.Name = aRepository
-		if err := tx.Repositories().Settings(record); err != nil {
-			return err
-		}
-		_, err = tx.Append(ledger.EventDraft{Type: "test.renamed", Actor: ledger.Actor{Kind: ledger.ActorSystem, ID: "test"}, Subject: ledger.Subject{Kind: ledger.SubjectRepository, ID: anotherRepository}})
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
+	forceName(t, d, anotherRepository, aRepository)
+	confirmed, err := d.Client.DecideApproval(ctx, card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: true})
+	if err != nil || confirmed.State != authority.ApprovalUsed {
+		t.Fatalf("the confirmation: %+v %v", confirmed, err)
 	}
-	_, err = d.Client.DecideApproval(ctx, card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: true})
-	refusedWith(t, err, http.StatusConflict, api.CodeStaleDigest)
-	for _, id := range []string{aRepository, anotherRepository} {
-		if record := repositoryRecord(t, d, id); record.Level() != ledger.PersonMerges {
-			t.Errorf("repository %s is at %s", id, record.Level())
-		}
+	if record := repositoryRecord(t, d, aRepository); record.Level() != ledger.ReviewApproves {
+		t.Errorf("the bound repository is at %s", record.Level())
 	}
-	row, err := d.Client.Approval(ctx, card.ID)
-	if err != nil || row.State != authority.ApprovalVoid {
-		t.Errorf("the card is %+v: %v", row, err)
+	if record := repositoryRecord(t, d, anotherRepository); record.Level() != ledger.PersonMerges {
+		t.Errorf("the repository whose name spells the bound identity is at %s", record.Level())
 	}
 }
 
