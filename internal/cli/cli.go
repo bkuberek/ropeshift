@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
@@ -119,6 +120,10 @@ func Run(args []string, stdout, stderr io.Writer, opts Options) int {
 	if opts.Session != "" && opts.Delegate != "" {
 		fmt.Fprintf(stderr, "%s: %s and %s are both set: a command acts as a member or as a delegate, so unset one\n", program, authority.EnvMemberToken, authority.EnvDelegateToken)
 		return ExitUsage
+	}
+	if opts.Delegate != "" && slices.Contains(authority.MachineLocalCommands, found.Name) {
+		fmt.Fprintf(stderr, "%s %s: a delegate acts only through the API, and this command acts on this machine: a member runs it\n", program, found.Name)
+		return ExitForbidden
 	}
 	base.name, base.command, base.inProject = found.Name, found.Command, !found.installation
 	code := found.run(base, rest)

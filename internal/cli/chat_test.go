@@ -243,3 +243,30 @@ func TestLaneAttachFollowsAHeadlessLane(t *testing.T) {
 		t.Errorf("the line was not sent as a message: %q", sent)
 	}
 }
+
+// A delegate acts only through the API, so a command that acts on this machine itself is refused before
+// it touches anything, whatever the command line asks.
+func TestADelegateRunsNoMachineLocalCommand(t *testing.T) {
+	ran := false
+	opts := cli.Options{
+		Socket: "/nonexistent.sock", Delegate: "a-delegate-token", Terminal: strings.NewReader(""),
+		InstallService:   func(context.Context, string, []string) (cli.Service, error) { ran = true; return cli.Service{}, nil },
+		UninstallService: func(context.Context, string) (cli.Service, error) { ran = true; return cli.Service{}, nil },
+		StartDaemon:      func(context.Context) (func() error, error) { ran = true; return func() error { return nil }, nil },
+		Doctor:           func(context.Context) (ledger.Manifest, error) { ran = true; return ledger.Manifest{}, nil },
+		StateDir:         t.TempDir(),
+	}
+	for _, args := range [][]string{
+		{"service", "install"}, {"service", "uninstall"}, {"init"}, {"worker", "doctor"}, {"login"}, {"passphrase", "set"},
+		{"lane", "attach", "l1"}, {"plan", "start"}, {"adopt"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(args, &stdout, &stderr, opts)
+		if code != cli.ExitForbidden || !strings.Contains(stderr.String(), "delegate") {
+			t.Errorf("%v: exit %d %q", args, code, stderr.String())
+		}
+	}
+	if ran {
+		t.Error("a machine-local command ran for a delegate")
+	}
+}

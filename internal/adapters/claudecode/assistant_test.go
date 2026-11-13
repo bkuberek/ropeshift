@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -109,5 +110,19 @@ func TestAnAssistantsTextIsReadAsReplies(t *testing.T) {
 	}
 	if p.event.Kind == ports.EventReply || p.event.Text != "" {
 		t.Errorf("a lane's text was read: %+v", p.event)
+	}
+}
+
+// An assistant's rules deny every ropeshift command that acts on the machine rather than through the API,
+// though `ropeshift *` is allowed, because a deny rule beats an allow rule.
+func TestAnAssistantIsDeniedMachineLocalCommands(t *testing.T) {
+	deny := generateSettings(assistantSpec(t)).Permissions.Deny
+	for _, command := range authority.MachineLocalCommands {
+		if want := "Bash(ropeshift " + command + "*)"; !slices.Contains(deny, want) {
+			t.Errorf("deny lacks %s", want)
+		}
+	}
+	if len(authority.MachineLocalCommands) < 6 {
+		t.Fatalf("machine-local commands %v", authority.MachineLocalCommands)
 	}
 }

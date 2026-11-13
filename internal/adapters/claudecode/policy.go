@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -152,6 +153,9 @@ func denyRules(spec ports.SessionSpec) []string {
 	}
 	if spec.Assistant {
 		rules = append(rules, assistantDenied...)
+		for _, command := range authority.MachineLocalCommands {
+			rules = append(rules, "Bash(ropeshift "+command+"*)")
+		}
 	}
 	for _, dir := range spec.ReadOnlyDirs {
 		rules = append(rules, "Edit(/"+dir+")", "Edit(/"+dir+"/**)")
