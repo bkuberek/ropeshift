@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -353,6 +354,8 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 			Notebook string `json:"notebook_path"`
 			// Path is what a search or a listing reads.
 			Path string `json:"path"`
+			// Pattern is what a Glob matches, which can name a place of its own.
+			Pattern string `json:"pattern"`
 		} `json:"tool_input"`
 	}
 	if json.Unmarshal(input, &call) != nil {
@@ -381,8 +384,8 @@ func decide(cfg config, input []byte) (verdict, []byte) {
 	if target == "" {
 		target = call.Input.Path
 	}
-	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Cwd: call.Cwd}
-	reason, denied := policy.WithLinks(diskLink).Decide(tool)
+	tool := lanes.ToolCall{Tool: call.Tool, Command: call.Input.Command, Path: target, Pattern: call.Input.Pattern, Cwd: call.Cwd}
+	reason, denied := policy.WithLinks(diskLink).WithRealPaths(filepath.EvalSymlinks).Decide(tool)
 	if denied {
 		return callDenied, denial(reason)
 	}

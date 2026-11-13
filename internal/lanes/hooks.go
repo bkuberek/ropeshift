@@ -287,6 +287,8 @@ type DenyPolicy struct {
 	Ground Grounding `json:"ground,omitzero"`
 	// links reads the disk for a file program's links (WithLinks). It is the reader's, not the file's.
 	links LinkReader
+	// real reads where a path leads on the disk (WithRealPaths). It is the reader's, not the file's.
+	real RealPathReader
 }
 
 // ToolQuestion is the vendor's tool that asks the terminal. A lane must not ask there,

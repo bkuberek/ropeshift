@@ -168,8 +168,19 @@ type ToolCall struct {
 	Tool    string
 	Command string
 	Path    string
+	// Pattern is what a Glob matches, which can name a place of its own.
+	Pattern string
 	// Cwd is where the session stands, which a relative path is read against.
 	Cwd string
+}
+
+// RealPathReader says where a path leads on the disk a policy guards, through every link in it.
+type RealPathReader func(path string) (string, error)
+
+// WithRealPaths gives a policy the disk it guards, which it reads to hold a read to where a path leads.
+func (p DenyPolicy) WithRealPaths(real RealPathReader) DenyPolicy {
+	p.real = real
+	return p
 }
 
 // WithLinks gives a policy the disk it guards, which it reads only for a file program that runs with no
@@ -213,26 +224,104 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 }
 
 // readable says a file tool reads under a read root. A search with no path reads where the session
-// stands, and a path the policy cannot read reads as outside, because this hook fails closed.
+// stands, and a path the policy cannot read reads as outside, because this hook fails closed. A Glob's
+// pattern names a place too: the part of it before its first wildcard must lie under a read root, and no
+// part after one may climb out with `..`.
 func (p DenyPolicy) readable(call ToolCall) bool {
 	target := call.Path
 	if target == "" {
 		target = call.Cwd
 	}
+	if !p.readsUnder(target, call.Cwd) {
+		return false
+	}
+	if call.Tool != "Glob" || call.Pattern == "" {
+		return true
+	}
+	prefix, ok := globPrefix(call.Pattern)
+	if !ok {
+		return false
+	}
+	switch {
+	case prefix == "":
+		return true
+	case path.IsAbs(prefix):
+		return p.readsUnder(prefix, call.Cwd)
+	}
+	if !path.IsAbs(target) {
+		target = call.Cwd + "/" + target
+	}
+	return p.readsUnder(target+"/"+prefix, call.Cwd)
+}
+
+// readsUnder says a path lies under a read root, by its name and, with the disk, by where it leads through
+// every link in it: a link in a tree leads wherever the tree's content says. A path that leads nowhere
+// reads as outside, because this hook fails closed.
+func (p DenyPolicy) readsUnder(target, cwd string) bool {
 	// A tool may read `~` or a variable as a place the policy cannot see, so neither reads as inside.
 	if strings.HasPrefix(target, "~") || strings.Contains(target, "$") {
 		return false
 	}
-	resolved, ok := p.resolve(shellWord{text: target}, call.Cwd)
-	if !ok {
+	resolved, ok := p.resolve(shellWord{text: target}, cwd)
+	if !ok || !under(resolved, p.ReadRoots) {
 		return false
 	}
+	if p.real == nil {
+		return true
+	}
+	// The name as the tool gave it, uncleaned, so `link/..` climbs from where the link leads, as the system
+	// reads it.
+	raw := target
+	if !path.IsAbs(raw) {
+		raw = cwd + "/" + raw
+	}
+	leads, err := p.real(raw)
+	if err != nil {
+		return false
+	}
+	var roots []string
 	for _, root := range p.ReadRoots {
-		if resolved == root || strings.HasPrefix(resolved, root+"/") {
+		if real, err := p.real(root); err == nil {
+			roots = append(roots, real)
+		}
+	}
+	return under(leads, roots)
+}
+
+// under says a path is one of roots or lies below one.
+func under(target string, roots []string) bool {
+	for _, root := range roots {
+		if target == root || strings.HasPrefix(target, root+"/") {
 			return true
 		}
 	}
 	return false
+}
+
+// globPrefix is the directory a Glob pattern names before its first wildcard, empty when it names none. A
+// pattern that reads a place the policy cannot see, or climbs with `..` past a wildcard, has none to give.
+func globPrefix(pattern string) (string, bool) {
+	if strings.HasPrefix(pattern, "~") || strings.Contains(pattern, "$") {
+		return "", false
+	}
+	wild := strings.IndexAny(pattern, "*?[{")
+	head := pattern
+	if wild >= 0 {
+		head = pattern[:wild]
+		for _, part := range strings.Split(pattern[wild:], "/") {
+			if part == ".." {
+				return "", false
+			}
+		}
+	}
+	slash := strings.LastIndex(head, "/")
+	switch {
+	case slash < 0:
+		return "", true
+	case slash == 0:
+		return "/", true
+	}
+	return head[:slash], true
 }
 
 // commandWrappers run the command that follows them.

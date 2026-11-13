@@ -657,3 +657,66 @@ func TestASessionHeldToOneProgramRunsNothingElse(t *testing.T) {
 		t.Error("a session held to no program was held to one")
 	}
 }
+
+// readRootsOnDisk is a session directory and a read-only tree whose links lead out of the read roots, to
+// nowhere, and back in, with a directory beside them that no root holds.
+func readRootsOnDisk(t *testing.T) (session, tree, outside string) {
+	t.Helper()
+	base := t.TempDir()
+	session, tree, outside = filepath.Join(base, "session"), filepath.Join(base, "tree"), filepath.Join(base, "outside")
+	for _, dir := range []string{session, filepath.Join(tree, "src"), filepath.Join(outside, "dir")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, file := range []string{filepath.Join(outside, "secret.txt"), filepath.Join(outside, "dir", "key.txt"), filepath.Join(tree, "real.txt")} {
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, to := range map[string]string{
+		"secret-link": filepath.Join(outside, "secret.txt"), "dir-link": filepath.Join(outside, "dir"), "dangling": filepath.Join(tree, "missing"),
+		"chain-1": "chain-2", "chain-2": "real.txt",
+	} {
+		if err := os.Symlink(to, filepath.Join(tree, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return session, tree, outside
+}
+
+// With the disk, a read holds to where a path leads: a link in a read-only tree that leads out of the read
+// roots, through a file or a directory, or to nothing, is denied, and a chain of links that ends inside is
+// read. A Glob pattern whose fixed part lies outside the roots is denied too.
+func TestAReadThroughALinkHoldsToWhereItLeads(t *testing.T) {
+	session, tree, outside := readRootsOnDisk(t)
+	policy := CompilePolicy(PolicySpec{Worktree: session, ReadRoots: []string{session, tree}}).WithRealPaths(filepath.EvalSymlinks)
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: filepath.Join(tree, "secret-link"), Cwd: session},
+		{Tool: "Read", Path: filepath.Join(tree, "dir-link", "key.txt"), Cwd: session},
+		{Tool: "Grep", Path: filepath.Join(tree, "dir-link"), Cwd: session},
+		{Tool: "Read", Path: filepath.Join(tree, "dangling"), Cwd: session},
+		{Tool: "Read", Path: "secret-link", Cwd: tree},
+		{Tool: "Glob", Path: tree, Pattern: outside + "/*", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "../outside/*", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "dir-link/*", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "**/../../outside/*", Cwd: session},
+		{Tool: "Glob", Pattern: "/*", Cwd: session},
+	} {
+		if reason, denied := policy.Decide(call); !denied || reason != ReasonReadOutside {
+			t.Errorf("%+v: %q %v", call, reason, denied)
+		}
+	}
+	for _, call := range []ToolCall{
+		{Tool: "Read", Path: filepath.Join(tree, "chain-1"), Cwd: session},
+		{Tool: "Read", Path: filepath.Join(tree, "real.txt"), Cwd: session},
+		{Tool: "Grep", Path: tree, Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "**/*.go", Cwd: session},
+		{Tool: "Glob", Path: tree, Pattern: "src/*.go", Cwd: session},
+		{Tool: "Glob", Pattern: "*.md", Cwd: session},
+	} {
+		if reason, denied := policy.Decide(call); denied {
+			t.Errorf("%+v was denied: %s", call, reason)
+		}
+	}
+}
