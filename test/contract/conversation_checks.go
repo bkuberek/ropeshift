@@ -41,16 +41,16 @@ var theOtherMember = ledger.Actor{Kind: ledger.ActorMember, ID: "member-2"}
 
 // talkRig is a project with one repository and one worker that can run the assistant on it.
 type talkRig struct {
-	r       *Rig
-	store   ports.Store
-	plane   *control.Workers
-	convs   *control.Conversations
-	auth    ledger.WorkerAuth
-	epoch   int64
-	seq     int64
-	repo    string
-	hosts   map[string]control.AssistantHost
-	epochs  map[string]int64
+	r      *Rig
+	store  ports.Store
+	plane  *control.Workers
+	convs  *control.Conversations
+	auth   ledger.WorkerAuth
+	epoch  int64
+	seq    int64
+	repo   string
+	hosts  map[string]control.AssistantHost
+	epochs map[string]int64
 }
 
 func newTalkRig(r *Rig) (*talkRig, error) {

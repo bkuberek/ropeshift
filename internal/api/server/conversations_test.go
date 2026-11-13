@@ -44,7 +44,9 @@ func startTalk(t *testing.T) *talkDaemon {
 	t.Helper()
 	d := &talkDaemon{Daemon: apitest.Start(t), hosts: map[string]control.AssistantHost{}}
 	config := d.Config
-	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) { return d.hosts, nil }
+	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+		return d.hosts, nil
+	}
 	d.socket = filepath.Join(apitest.ShortDir(t), api.ControlSocketName)
 	listener, err := net.Listen("unix", d.socket)
 	if err != nil {
@@ -236,7 +238,10 @@ func TestAnAssistantCredentialActsOnlyWhileItsGenerationRuns(t *testing.T) {
 		t.Fatalf("the assistant reads its member's conversations: %+v %v", list, err)
 	}
 	for _, call := range []func() error{
-		func() error { _, err := assistant.CreateConversation(ctx, api.CreateConversation{ID: "conv-x"}); return err },
+		func() error {
+			_, err := assistant.CreateConversation(ctx, api.CreateConversation{ID: "conv-x"})
+			return err
+		},
 		func() error { _, err := assistant.StopConversation(ctx, "conv-1"); return err },
 		func() error { return assistant.DeleteConversation(ctx, "conv-1") },
 		func() error {
@@ -536,7 +541,7 @@ func TestSigningOutEverywhereStopsTheMembersConversations(t *testing.T) {
 	ctx := t.Context()
 	_, _, grant := d.assistant(t)
 	var out api.SignedOutAll
-	if err := d.client.Client.Do(ctx, http.MethodPost, api.SignOutAllPath, nil, &out); err != nil {
+	if err := d.client.Do(ctx, http.MethodPost, api.SignOutAllPath, nil, &out); err != nil {
 		t.Fatal(err)
 	}
 	if len(out.Conversations) != 1 || out.Conversations[0] != "conv-1" || !strings.HasPrefix(grant.Credential, authority.DelegateIDPrefix) {

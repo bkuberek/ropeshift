@@ -36,7 +36,9 @@ func newTalking(t *testing.T) *talking {
 	t.Helper()
 	s := &talking{t: t, daemon: apitest.Start(t), hosts: map[string]control.AssistantHost{}}
 	config := s.daemon.Config
-	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) { return s.hosts, nil }
+	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+		return s.hosts, nil
+	}
 	s.socket = filepath.Join(apitest.ShortDir(t), api.ControlSocketName)
 	listener, err := net.Listen("unix", s.socket)
 	if err != nil {

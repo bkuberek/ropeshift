@@ -27,13 +27,17 @@ var ErrNoWorker = errors.New("no worker can run the assistant")
 // MaxID bounds a conversation's ID, which its client generates.
 const MaxID = 64
 
+func idMark(r rune) bool {
+	return r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r == '-' || r == '_'
+}
+
 // CheckID refuses an ID a client cannot have generated: letters, digits, '-', and '_', up to 64.
 func CheckID(id string) error {
 	if id == "" || len(id) > MaxID {
 		return fmt.Errorf("%w: a conversation's ID is 1 to %d characters", ErrInvalid, MaxID)
 	}
 	for _, r := range id {
-		if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r == '-' || r == '_') {
+		if !idMark(r) {
 			return fmt.Errorf("%w: a conversation's ID holds letters, digits, '-', and '_'", ErrInvalid)
 		}
 	}

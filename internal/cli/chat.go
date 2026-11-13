@@ -579,7 +579,9 @@ func headless(client *api.ProjectClient, ctx context.Context, lane string) (bool
 func (c *invocation) followLane(client *api.ProjectClient, lane string) int {
 	c.say("Following lane %s, which runs headless. Type a message and press Enter; end input to leave, which stops nothing.\n", lane)
 	err := c.followStream(following{
-		read: func(ctx context.Context, q api.TalkQuery) (api.TalkPage, error) { return client.LaneStream(ctx, lane, q) },
+		read: func(ctx context.Context, q api.TalkQuery) (api.TalkPage, error) {
+			return client.LaneStream(ctx, lane, q)
+		},
 		send: func(ctx context.Context, body string) error {
 			id, err := newID()
 			if err != nil {

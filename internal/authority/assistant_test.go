@@ -74,7 +74,7 @@ func TestAMemberMakesOnlyExternalCredentials(t *testing.T) {
 		t.Errorf("a member asked for an assistant credential: %v", err)
 	}
 	credential := authority.DelegateCredential{ID: "dlg_1", Member: "m1", Kind: authority.DelegateAssistant, Conversation: "c1", Generation: 3, CreatedAt: 1}
-	if credential.State(1 << 62) != authority.DelegateActive {
+	if credential.State(1<<62) != authority.DelegateActive {
 		t.Errorf("an assistant credential with no expiry reads %s", credential.State(1<<62))
 	}
 	if !credential.Assistant() {
