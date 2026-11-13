@@ -140,9 +140,16 @@ func (j splitJournal) EndLane(ctx context.Context, id string, event ledger.Uploa
 	return j.Journal.Append(ctx, event)
 }
 
-// laneScript is one session that reports completed and ends its turn.
-func laneScript(journal ports.Journal, ctx context.Context) fake.DriverScript {
+// laneScript is one session that reports completed and ends its turn. A lane with a session has left
+// `pending`, whichever process began it, so a script that finds the lane there hands that to stray:
+// the lane then ends as it would have, and nothing else says it never moved.
+func laneScript(journal ports.Journal, ctx context.Context, stray func(error)) fake.DriverScript {
 	report := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		if record, err := journal.Lane(ctx, spec.Lane); err != nil {
+			stray(err)
+		} else if record.Actual == lanes.Pending {
+			stray(fmt.Errorf("lane %s has a session and still reads %s", spec.Lane, record.Actual))
+		}
 		raw, err := json.Marshal(workorders.Report{Outcome: workorders.OutcomeCompleted})
 		if err == nil {
 			_, err = journal.SaveReport(ctx, spec.Lane, raw)
@@ -176,7 +183,13 @@ func roleWorkerLane(c *child) error {
 	client := api.NewUnixClient(c.spec.Socket).Project(ledger.DefaultProjectName)
 	defer client.Close()
 	driver := fake.NewAgentDriver()
-	driver.Play(laneScript(journal, c.ctx))
+	strays := make(chan error, 1)
+	driver.Play(laneScript(journal, c.ctx, func(err error) {
+		select {
+		case strays <- err:
+		default:
+		}
+	}))
 	worktrees := fake.NewWorktrees()
 	subject := worker.New(workerlink.New(client.Client), opened, clock.System{}, worker.Config{
 		Name:      "child",
@@ -206,7 +219,15 @@ func roleWorkerLane(c *child) error {
 	if err != nil && !errors.As(err, &refused) {
 		return err
 	}
-	return subject.Converge(c.ctx)
+	if err := subject.Converge(c.ctx); err != nil {
+		return err
+	}
+	select {
+	case err := <-strays:
+		return err
+	default:
+		return nil
+	}
 }
 
 // roleWorkerUpload journals one event once and uploads it. A retry finds the event
