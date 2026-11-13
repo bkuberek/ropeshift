@@ -186,11 +186,18 @@ func ParseBytes(text string) (int64, error) {
 	if !ok || number == "" {
 		return 0, fmt.Errorf("%q is not a size", text)
 	}
+	// math.MaxInt64 is 2^63 as a float, which is one past what an int64 holds, so a size reaching it is
+	// refused, and a conversion that still lands below zero is too. Zero is a size: no reserve, or no
+	// warning.
 	value, err := strconv.ParseFloat(number, 64)
-	if err != nil || value < 0 || value*float64(scale) > math.MaxInt64 {
+	if err != nil || value < 0 || value*float64(scale) >= math.MaxInt64 {
 		return 0, fmt.Errorf("%q is not a size", text)
 	}
-	return int64(value * float64(scale)), nil
+	size := int64(value * float64(scale))
+	if size < 0 {
+		return 0, fmt.Errorf("%q is not a size", text)
+	}
+	return size, nil
 }
 
 // BytesWords says a size as a person reads it, in binary units with one decimal.

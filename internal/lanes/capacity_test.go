@@ -26,9 +26,10 @@ func TestParseBytes(t *testing.T) {
 			t.Errorf("%q: %d, %v", tt.text, got, err)
 		}
 	}
-	for _, text := range []string{"", "lots", "-1GiB", "2 parsecs"} {
-		if _, err := lanes.ParseBytes(text); err == nil {
-			t.Errorf("%q passed", text)
+	// A size past what an int64 holds is refused, never wrapped to a negative one: 2^63 bytes is one past.
+	for _, text := range []string{"", "lots", "-1GiB", "2 parsecs", "8388608TiB", "9223372036854775807", "99999999TB"} {
+		if got, err := lanes.ParseBytes(text); err == nil {
+			t.Errorf("%q passed as %d", text, got)
 		}
 	}
 }
