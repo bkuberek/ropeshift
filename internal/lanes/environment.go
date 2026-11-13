@@ -55,10 +55,10 @@ var (
 	ErrRelativePath = errors.New("a spawn names an absolute path")
 )
 
-// sessionVariable reports a name that belongs to an agent session, or to the member who
-// could approve what one asks (D26).
+// sessionVariable reports a name that belongs to an agent session, to the member who could
+// approve what one asks (D26), or to a delegate acting for that member (ADR-0024).
 func sessionVariable(name string) bool {
-	return name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_") || name == authority.EnvMemberToken
+	return name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_") || name == authority.EnvMemberToken || name == authority.EnvDelegateToken
 }
 
 // EnvForgeConfig is where the forge's CLI reads its configuration and its sign-in

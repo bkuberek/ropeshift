@@ -125,6 +125,36 @@
     "command": "audit"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/sessions/end-all",
+    "command": "sign-out"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/delegates",
+    "command": "delegate list"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/delegates",
+    "command": "delegate create"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/delegates/{id}/revoke",
+    "command": "delegate revoke"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/delegates/{id}/remove",
+    "command": "delegate remove"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/operations",
+    "command": "operation list"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/roster",
     "command": "agent list"

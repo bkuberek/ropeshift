@@ -13,6 +13,9 @@ const (
 	PartyOrchestrator Party = "orchestrator"
 	PartyLane         Party = "lane"
 	PartySystem       Party = "system"
+	// PartyDelegate is an agent outside ropeshift acting with a member's delegate credential. It is not
+	// the person, so nothing it does counts as a person's word.
+	PartyDelegate Party = "delegate"
 )
 
 // PartyOf reads one actor. A member is a person, and a worker or a tick is the system.
@@ -24,10 +27,12 @@ func PartyOf(actor ledger.Actor) Party {
 		return PartyOrchestrator
 	case ledger.ActorLane:
 		return PartyLane
+	case ledger.ActorDelegate:
+		return PartyDelegate
 	}
 	return PartySystem
 }
 
-// Agent says an orchestrator or a lane acted: an agent, whose choices the overturn rate holds to
-// account.
-func (p Party) Agent() bool { return p == PartyOrchestrator || p == PartyLane }
+// Agent says an orchestrator, a lane, or a delegate acted: an agent, whose choices the overturn rate holds
+// to account.
+func (p Party) Agent() bool { return p == PartyOrchestrator || p == PartyLane || p == PartyDelegate }

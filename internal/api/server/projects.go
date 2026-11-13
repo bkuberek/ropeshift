@@ -29,6 +29,8 @@ type router struct {
 	// served holds the handler of each project that a call has reached, by the project's ID, which a
 	// rename keeps.
 	served map[ledger.WorkspaceID]*served
+	// root is the whole API, which each project's handler holds to run a confirmed card's call again.
+	root http.Handler
 }
 
 // served is one project's handler, with its routes as they read under /v1.
@@ -73,7 +75,9 @@ func (rt *router) project(ctx context.Context, name string) (ledger.Project, *se
 	if rt.config.Matching != nil {
 		config.Matcher = rt.config.Matching(store)
 	}
-	s := rt.serve(newHandler(config))
+	h := newHandler(config)
+	h.root = rt.root
+	s := rt.serve(h)
 	rt.served[project.ID] = s
 	return project, s, nil
 }
@@ -95,7 +99,7 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if refuseArchived(w, inner, project) {
 		return
 	}
-	s.routes.ServeHTTP(w, inner)
+	s.routes.ServeHTTP(w, inner.WithContext(withProject(inner.Context(), project)))
 }
 
 // backupRoute is the one change an archived project takes, because a backup changes nothing in it.

@@ -11,6 +11,12 @@ import (
 func (h *handler) sessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/sessions", h.signIn)
 	mux.HandleFunc("POST /v1/sessions/end", h.member(h.signOut))
+	mux.HandleFunc("POST /v1/sessions/end-all", h.member(h.signOutAll))
+	mux.HandleFunc("GET /v1/delegates", h.member(h.listDelegates))
+	mux.HandleFunc("POST /v1/delegates", h.member(h.createDelegate))
+	mux.HandleFunc("POST /v1/delegates/{id}/revoke", h.member(h.revokeDelegate))
+	mux.HandleFunc("POST /v1/delegates/{id}/remove", h.member(h.removeDelegate))
+	mux.HandleFunc("GET "+api.OperationsPath, h.operations)
 	mux.HandleFunc("GET /v1/passphrase", h.passphrase)
 	mux.HandleFunc("PUT /v1/passphrase", h.setPassphrase)
 }
@@ -27,20 +33,6 @@ func (h *handler) passphrase(w http.ResponseWriter, r *http.Request) {
 }
 
 func sessionOf(r *http.Request) string { return r.Header.Get(api.HeaderSession) }
-
-// member runs a handler for a signed-in member. The socket admits only the owning user
-// (NFR-SEC-2), and a lane runs as that user, so reaching the socket proves nothing. A read
-// needs no session, and everything a member changes passes through here (D26).
-func (h *handler) member(next func(http.ResponseWriter, *http.Request, ledger.Actor)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		actor, err := h.sessions.Member(r.Context(), h.Scope, sessionOf(r))
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		next(w, r, actor)
-	}
-}
 
 func (h *handler) signIn(w http.ResponseWriter, r *http.Request) {
 	var in api.SignIn

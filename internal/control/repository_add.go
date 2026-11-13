@@ -117,6 +117,9 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		if look.made {
 			added.Outcome = ledger.Registered
 		}
+		if err := appendUnshadowed(tx, look, actor); err != nil {
+			return err
+		}
 		if look.moved {
 			kind := ledger.EventRepositoryDetected
 			if look.made {

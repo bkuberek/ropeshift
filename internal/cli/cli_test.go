@@ -319,7 +319,7 @@ func TestExitCodesAreDocumented(t *testing.T) {
 		documented = append(documented, match[1])
 	}
 	want := fmt.Sprint([]int{cli.ExitOK, cli.ExitError, cli.ExitUsage, cli.ExitNotFound, cli.ExitConflict,
-		cli.ExitFenced, cli.ExitLapsed, cli.ExitNotReady, cli.ExitForbidden, cli.ExitUnreachable})
+		cli.ExitFenced, cli.ExitLapsed, cli.ExitNotReady, cli.ExitForbidden, cli.ExitUnreachable, cli.ExitPrepared})
 	if got := "[" + strings.Join(documented, " ") + "]"; got != want {
 		t.Errorf("documented %s, want %s", got, want)
 	}

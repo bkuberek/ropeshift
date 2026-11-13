@@ -110,40 +110,47 @@ func checkRung(tx ports.WriteTx, question questions.Question, record questions.D
 // admit stamps a decision and holds it to the policy, unless a person is deciding. An orchestrator decides a reversible choice outside
 // every one-way category, and says how it stands to each decision it overlaps. Replacing a
 // decision is deciding its question again, so that decision's categories count too, and an
-// orchestrator replaces only what is recorded as reversible (FR-QD-8).
+// orchestrator replaces only what is recorded as reversible (FR-QD-8). A delegate's decision runs
+// outside those bounds only when the delegate policy exempted it, and never in a one-way category.
 func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
-	if err := stamp(tx, record, policy); err != nil {
+	return bound(tx.Questions(), record, policy, actor)
+}
+
+func bound(reader ports.QuestionReader, record *questions.Decision, policy questions.Policy, actor ledger.Actor) error {
+	if err := stamp(reader, record, policy); err != nil {
 		return err
 	}
 	var old questions.Decision
 	var err error
 	if record.Supersedes != "" {
-		if old, err = tx.Questions().Decision(record.Supersedes); err != nil {
+		if old, err = reader.Decision(record.Supersedes); err != nil {
 			return err
 		}
 		if !old.Status.InForce() {
 			return fmt.Errorf("%w: %s is %s", questions.ErrDecisionEnded, old.ID, old.Status)
 		}
 	}
-	if authority.Allowed(actor, authority.ActionDecideUnbound) {
+	unbound := authority.Allowed(actor, authority.ActionDecideUnbound)
+	if unbound && authority.Allowed(actor, authority.ActionDecideOneWay) {
 		return nil
 	}
-	if err := record.CheckBound(); err != nil {
-		return err
-	}
-	categories := slices.Concat(record.Categories, old.Categories)
-	if record.QuestionID != "" {
-		question, err := tx.Questions().Question(record.QuestionID)
-		if err != nil {
+	if !unbound {
+		if err := record.CheckBound(); err != nil {
 			return err
 		}
-		categories = slices.Concat(categories, question.Categories)
 	}
-	if !policy.Open(categories) {
+	categories, err := categoriesOf(reader, *record, old)
+	if err != nil {
+		return err
+	}
+	if !policy.Open(categories) || (unbound && record.Reversibility == questions.OneWay) {
 		return fmt.Errorf("%w: %v", questions.ErrOneWay, categories)
 	}
 	if record.Supersedes != "" && old.Reversibility != questions.Reversible {
 		return fmt.Errorf("%w: %s is not recorded as reversible", questions.ErrOneWay, old.ID)
+	}
+	if unbound {
+		return nil
 	}
 	if unstated := record.Unstated(record.Overlaps); len(unstated) != 0 {
 		return &questions.OverlapError{Overlapping: unstated}
@@ -151,10 +158,24 @@ func admit(tx ports.WriteTx, record *questions.Decision, policy questions.Policy
 	return nil
 }
 
+// categoriesOf are the categories a decision is held to: its own, the ones of the decision it replaces,
+// and the ones of the question it answers.
+func categoriesOf(reader ports.QuestionReader, record, old questions.Decision) ([]string, error) {
+	categories := slices.Concat(record.Categories, old.Categories)
+	if record.QuestionID != "" {
+		question, err := reader.Question(record.QuestionID)
+		if err != nil {
+			return nil, err
+		}
+		categories = slices.Concat(categories, question.Categories)
+	}
+	return categories, nil
+}
+
 // stamp fills in what a decision records about the moment it was made.
-func stamp(tx ports.WriteTx, record *questions.Decision, policy questions.Policy) error {
+func stamp(reader ports.QuestionReader, record *questions.Decision, policy questions.Policy) error {
 	record.PolicyVersion = policy.Version
-	overlapping, err := tx.Questions().Overlapping(record.Scope)
+	overlapping, err := reader.Overlapping(record.Scope)
 	if err != nil {
 		return err
 	}
@@ -163,6 +184,80 @@ func stamp(tx ports.WriteTx, record *questions.Decision, policy questions.Policy
 		record.Overlaps = append(record.Overlaps, row.ID)
 	}
 	return nil
+}
+
+// policyProbe is who a decision is held to when the question is whether an orchestrator could record it.
+var policyProbe = ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "policy-probe"}
+
+// DecisionStanding says where a decision would stand under the decision policy in force: whether an
+// orchestrator could record it as it is, and whether it falls in a one-way category.
+type DecisionStanding struct {
+	WithinPolicy bool
+	OneWay       bool
+}
+
+// readPolicy reads the decision policy in force, or the built-in one, with no write.
+func readPolicy(tx ports.ReadTx) (questions.Policy, error) {
+	version, err := tx.Policies().InForce(authority.PolicyDecision)
+	if errors.Is(err, ports.ErrNotFound) {
+		if version, err = builtInPolicy(builtInPolicyAuthor, 0); err != nil {
+			return questions.Policy{}, err
+		}
+	} else if err != nil {
+		return questions.Policy{}, err
+	}
+	return questions.ReadPolicy(version)
+}
+
+// Weigh reads where a decision would stand, with no write. A delegate's decision that an orchestrator
+// could record is operational, and any other is consent (ADR-0024).
+func (q *Questions) Weigh(ctx context.Context, scope ledger.WorkspaceID, draft questions.Decision) (DecisionStanding, error) {
+	record, err := questions.NewDecision(draft)
+	if err != nil {
+		return DecisionStanding{}, err
+	}
+	var standing DecisionStanding
+	err = q.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		policy, err := readPolicy(tx)
+		if err != nil {
+			return err
+		}
+		var old questions.Decision
+		if record.Supersedes != "" {
+			if old, err = tx.Questions().Decision(record.Supersedes); err != nil && !errors.Is(err, ports.ErrNotFound) {
+				return err
+			}
+		}
+		categories, err := categoriesOf(tx.Questions(), record, old)
+		if err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		standing.OneWay = !policy.Open(categories) || record.Reversibility == questions.OneWay ||
+			(record.Supersedes != "" && old.Reversibility != questions.Reversible)
+		probe := record
+		standing.WithinPolicy = !standing.OneWay && bound(tx.Questions(), &probe, policy, policyProbe) == nil
+		return nil
+	})
+	return standing, err
+}
+
+// AnswerStanding says whether answering a question decides in a one-way category, which no delegate
+// policy exempts.
+func (q *Questions) AnswerStanding(ctx context.Context, scope ledger.WorkspaceID, id string) (bool, error) {
+	var oneWay bool
+	err := q.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		question, err := tx.Questions().Question(id)
+		if err != nil {
+			return err
+		}
+		policy, err := readPolicy(tx)
+		if err != nil {
+			return err
+		}
+		oneWay = question.EscalationReason == questions.ReasonOneWay || !policy.MayDecide(question)
+		return nil
+	})
+	return oneWay, err
 }
 
 // recordAdmitted writes a decision and ends the one it replaces, with no rework implied.
@@ -516,7 +611,7 @@ func succeed(tx ports.WriteTx, old questions.Decision, overturn questions.Overtu
 	if err != nil {
 		return questions.Decision{}, err
 	}
-	if err := stamp(tx, &record, policy); err != nil {
+	if err := stamp(tx.Questions(), &record, policy); err != nil {
 		return questions.Decision{}, err
 	}
 	if err := insertDecision(tx, record, actor); err != nil {

@@ -67,16 +67,23 @@ func (h *handler) streamEvents(w http.ResponseWriter, r *http.Request) {
 	quiet := time.Now()
 	for {
 		var page []ledger.Event
+		var said []api.StreamEvent
 		err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 			var err error
-			page, err = tx.Events(after, streamPage)
-			return err
+			if page, err = tx.Events(after, streamPage); err != nil {
+				return err
+			}
+			said = make([]api.StreamEvent, len(page))
+			for i, event := range page {
+				said[i] = api.StreamEventOf(event)
+			}
+			return labelsOf(tx.Members(), said)
 		})
 		if err != nil {
 			return
 		}
-		for _, event := range page {
-			raw, err := json.Marshal(api.StreamEventOf(event))
+		for i, event := range page {
+			raw, err := json.Marshal(said[i])
 			if err != nil {
 				return
 			}

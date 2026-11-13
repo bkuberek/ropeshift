@@ -127,6 +127,19 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 		return
 	}
 	var record authority.PolicyVersion
+	if holdsTable(in.Body, delegatePolicyTable) {
+		draft, err := readDelegatePolicy(in.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record, err = h.approvals.PublishDelegatePolicy(r.Context(), h.Scope, draft, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, http.StatusCreated, record)
+		return
+	}
 	if holdsTable(in.Body, notifyTable) {
 		draft, err := readNotify(in.Body)
 		if err != nil {
@@ -208,6 +221,9 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 // policyVersions reads the versions of the kind a request names, and the decision policy when it
 // names none.
 func (h *handler) policyVersions(r *http.Request) ([]authority.PolicyVersion, error) {
+	if r.URL.Query().Get("kind") == string(authority.PolicyDelegate) {
+		return h.approvals.DelegatePolicyVersions(r.Context(), h.Scope)
+	}
 	if r.URL.Query().Get("kind") == string(authority.PolicyNotify) {
 		return h.notices.NotifyVersions(r.Context(), h.Scope)
 	}

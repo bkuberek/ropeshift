@@ -36,7 +36,7 @@ func TestBuildEnvironment(t *testing.T) {
 			want: []string{"HOME=/home/someone", "LANG=C.UTF-8", "LOGNAME=someone", "PATH=/usr/bin", "TERM=xterm", "USER=someone"},
 			refused: []string{
 				"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_ENTRYPOINT", "ANTHROPIC_API_KEY",
-				"ANTHROPIC_BASE_URL", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "TMUX", "TMUX_PANE", "ROPESHIFT_SOCKET", authority.EnvMemberToken,
+				"ANTHROPIC_BASE_URL", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "TMUX", "TMUX_PANE", "ROPESHIFT_SOCKET", authority.EnvMemberToken, authority.EnvDelegateToken,
 				"NODE_OPTIONS", "OLDPWD", "PWD", "GIT_DIR", "BASH_ENV", "ENV", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
 			},
 		},
@@ -142,6 +142,19 @@ func TestAMemberSessionCannotBeNamedToALane(t *testing.T) {
 		t.Fatalf("a reference: got %v, want ErrSessionVariable", err)
 	}
 	spec := EnvironmentSpec{Lookup: lookup, Tags: map[string]string{authority.EnvMemberToken: "x"}}
+	if _, err := BuildEnvironment(spec); !errors.Is(err, ErrSessionVariable) {
+		t.Fatalf("a tag: got %v, want ErrSessionVariable", err)
+	}
+}
+
+// TestADelegateCredentialCannotBeNamedToALane holds a delegate credential to what holds a member's
+// session: no profile names it to a lane, and no tag sets it (ADR-0024).
+func TestADelegateCredentialCannotBeNamedToALane(t *testing.T) {
+	lookup := func(name string) (string, bool) { return "held-by-an-agent", name == authority.EnvDelegateToken }
+	if _, err := BuildEnvironment(EnvironmentSpec{Lookup: lookup, SecretRefs: []string{"env:" + authority.EnvDelegateToken}}); !errors.Is(err, ErrSessionVariable) {
+		t.Fatalf("a reference: got %v, want ErrSessionVariable", err)
+	}
+	spec := EnvironmentSpec{Lookup: lookup, Tags: map[string]string{authority.EnvDelegateToken: "x"}}
 	if _, err := BuildEnvironment(spec); !errors.Is(err, ErrSessionVariable) {
 		t.Fatalf("a tag: got %v, want ErrSessionVariable", err)
 	}
