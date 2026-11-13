@@ -330,6 +330,9 @@ func (d *Driver) Preflight(_ context.Context, spec ports.SessionSpec) (ports.Pre
 	if spec.Assistant && len(spec.Commands) == 0 {
 		problem("an assistant's session names no command its shell may run")
 	}
+	if spec.Assistant && spec.RunMode == ports.RunModeInteractive {
+		problem("an assistant's session never runs in a pane, whose launch file would hold its credential")
+	}
 	if info, err := os.Stat(spec.Dir); err != nil || !info.IsDir() {
 		problem("no worktree at %s", spec.Dir)
 	}

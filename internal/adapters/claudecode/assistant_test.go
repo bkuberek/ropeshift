@@ -190,3 +190,17 @@ func TestAnAssistantHoldsOnlyItsOwnToolsAndServers(t *testing.T) {
 		t.Error("a lane is held as an assistant")
 	}
 }
+
+// The driver refuses an assistant's session in a pane before anything starts, because the pane's launch
+// file would hold its credential.
+func TestAnAssistantIsRefusedAPane(t *testing.T) {
+	spec := assistantSpec(t)
+	spec.Commands, spec.RunMode = []string{"lane list"}, ports.RunModeInteractive
+	report, err := New(nil, Options{}).Preflight(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(report.Problems, func(problem string) bool { return strings.Contains(problem, "pane") }) {
+		t.Errorf("an assistant in a pane passed preflight: %v", report.Problems)
+	}
+}

@@ -416,3 +416,20 @@ func TestDeletingAConversationLeavesNothingOfItOnTheWorker(t *testing.T) {
 		t.Errorf("the journal holds what the member wrote: %s", scanned)
 	}
 }
+
+// An assistant never runs in a pane, where its credential would sit in the pane's launch file: on a sign-in
+// that offers no headless session its conversation cannot start, and says so, where a lane falls back to
+// tmux.
+func TestAnAssistantNeverFallsBackToAPane(t *testing.T) {
+	a := newAssistantRig(t, script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	a.driver.SetHeadless(false)
+	if _, err := a.convs.Create(t.Context(), scope, control.NewConversation{ID: "conv-1"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "a conversation that could not start", func() bool { return a.conversation(t, "conv-1").Actual == conversations.Failed })
+	for _, spec := range a.driver.Specs() {
+		if spec.Assistant {
+			t.Errorf("an assistant's session started in %s", spec.RunMode)
+		}
+	}
+}
