@@ -305,8 +305,22 @@ func (r *laneRun) lost(ctx context.Context) {
 	if !r.stopAsked.Swap(true) {
 		r.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
 	}
-	if r.reached.Load() && !r.sessionOver.Load() {
-		r.stop(ctx, ports.StopInterrupt)
+	r.stopReached(ctx)
+}
+
+// stopReached stops the session the driver holds for the generation running now, unless that session ended.
+// It is for a caller that runs beside the lane's own goroutine, which can begin the next generation while the
+// caller is between two reads.
+//
+// A stop asked of a session the driver does not hold yet fails and spends the generation's one stop, so a
+// decision about one generation must not spend the next one's. This takes the generation's stop before it
+// reads anything, so what it reads is never older than the stop it spends. It reads sessionOver before
+// reached, because enterGeneration clears reached first: a read of the last session as over, or of the next
+// as not reached, stops nothing.
+func (r *laneRun) stopReached(ctx context.Context) {
+	once := r.generationStop()
+	if !r.sessionOver.Load() && r.reached.Load() {
+		r.stopWith(ctx, once, ports.StopInterrupt)
 	}
 }
 
