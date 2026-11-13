@@ -266,6 +266,16 @@ func (in *install) waitFor(what string, done func() bool) {
 	}
 }
 
+// waitForProgress is waitFor for a scenario of many steps, such as a fleet of lanes going through their
+// sessions one after another: progress reads how far it has got, and the wait gives up only when the
+// reading has not changed for the ceiling.
+func (in *install) waitForProgress(what string, done func() bool, progress func() string) {
+	in.t.Helper()
+	if happened, why := exitWaits.awaitProgress(done, progress); !happened {
+		in.t.Fatalf("%s did not happen: the wait %s%s%s", what, why, in.productState(), in.daemonOutput())
+	}
+}
+
 // stderrTailLines bounds what a failed wait prints of each daemon's stderr.
 const stderrTailLines = 200
 

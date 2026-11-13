@@ -1,6 +1,7 @@
 package exit
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,6 +74,45 @@ func (in *install) allRead(ids []string, state workorders.State) func() bool {
 	}
 }
 
+// fleetProgress reads how far a fleet has got, for a wait that goes on while the fleet moves: each work
+// order's state, and how many generations each lane has started and ended. A read that fails gives the
+// last reading again, so a failure alone is no progress.
+func (in *install) fleetProgress() func() string {
+	last := "unread"
+	return func() string {
+		var orders api.WorkOrderList
+		var lanes api.LaneList
+		if code, stdout, _ := in.run("work", "list", "--json"); code != 0 || json.Unmarshal([]byte(stdout), &orders) != nil {
+			return last
+		}
+		if code, stdout, _ := in.run("lane", "list", "--json"); code != 0 || json.Unmarshal([]byte(stdout), &lanes) != nil {
+			return last
+		}
+		var rows []string
+		for _, order := range orders.WorkOrders {
+			rows = append(rows, fmt.Sprintf("work order %s %s", order.ID, order.State))
+		}
+		for _, lane := range lanes.Lanes {
+			ended := 0
+			for _, generation := range lane.Generations {
+				if generation.EndedAt != 0 {
+					ended++
+				}
+			}
+			rows = append(rows, fmt.Sprintf("lane %s started %d ended %d", lane.ID, len(lane.Generations), ended))
+		}
+		slices.Sort(rows)
+		last = strings.Join(rows, "; ")
+		return last
+	}
+}
+
+// waitForFleet waits for every work order to read state, for as long as the fleet keeps moving.
+func (in *install) waitForFleet(what string, ids []string, state workorders.State) {
+	in.t.Helper()
+	in.waitForProgress(what, in.allRead(ids, state), in.fleetProgress())
+}
+
 // spans reads the scripted sessions' own record of when each was at work, and says how many ran
 // at once at the worst moment.
 func spans(t *testing.T, dir string) (count, most int) {
@@ -129,7 +169,7 @@ func TestUsageLimitParksAndResumes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(doubles.BinDir(in.path), "limit-reached"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in.waitFor("every lane's outcome", in.allRead(ids, workorders.Acceptance))
+	in.waitForFleet("every lane's outcome", ids, workorders.Acceptance)
 	in.noneRunning(t, 6)
 	for i := 1; i <= 6; i++ {
 		view, ok := in.laneView(fmt.Sprintf("lane-%d", i))
@@ -179,7 +219,7 @@ func (in *install) noneRunning(t *testing.T, count int) {
 func TestALimitWithNoResetProbesAndBacksOff(t *testing.T) {
 	in := newInstall(t)
 	running, ids := in.fleet(t, "limit-fleet-unknown", 6)
-	in.waitFor("every lane's outcome", in.allRead(ids, workorders.Acceptance))
+	in.waitForFleet("every lane's outcome", ids, workorders.Acceptance)
 	view, ok := in.laneView("lane-6")
 	running.kill()
 	if !ok || len(view.Generations) != 3 {
@@ -247,10 +287,10 @@ func TestAnExpiredSignInParksUntilItIsBack(t *testing.T) {
 	if err := os.WriteFile(mark, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in.waitFor("every lane to park", in.allRead(ids, workorders.Parked))
+	in.waitForFleet("every lane to park", ids, workorders.Parked)
 	if err := os.Remove(mark); err != nil {
 		t.Fatal(err)
 	}
-	in.waitFor("every lane's outcome", in.allRead(ids, workorders.Acceptance))
+	in.waitForFleet("every lane's outcome", ids, workorders.Acceptance)
 	running.kill()
 }
