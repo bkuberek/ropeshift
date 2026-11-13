@@ -56,6 +56,9 @@ type laneState struct {
 	baselined  bool
 	compact    compaction
 	canCompact bool
+	// clearedMs is when the clear that began this generation fired, by the clock of the hook that said
+	// so. A hook stamped before it describes the session the clear ended.
+	clearedMs int64
 	// held says this run has a session's tools held, and has not lifted that.
 	held       bool
 	stallAfter time.Duration
@@ -205,6 +208,22 @@ func (s *laneState) newGeneration(now time.Time, baseline int64) {
 	s.compact = compaction{}
 }
 
+// noteCleared keeps when the clear that began this generation fired.
+func (s *laneState) noteCleared(atMs int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clearedMs = max(s.clearedMs, atMs)
+}
+
+// beforeClear says a hook fired before the clear that began this generation. It can reach the worker
+// late and twice, from a spool that a clear overtook, and it says nothing about the session since. A
+// hook with no time cannot be placed.
+func (s *laneState) beforeClear(event lanes.HookEvent) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return event.AtMs > 0 && event.AtMs < s.clearedMs
+}
+
 // noteContext keeps the context of one API call. The first of a session is what every path
 // carries. It says what to record of a generation that has recorded nothing, and zero otherwise.
 // The first call after a compaction's boundary is its verdict, because nothing else shows it worked.
@@ -301,11 +320,16 @@ func (r *laneRun) callRefused(ctx context.Context, lane lanes.Record, digest str
 
 // signal moves the lane and keeps where it stands, so an adopted run goes on from there.
 func (r *laneRun) signal(ctx context.Context, signals ...lanes.Signal) {
+	r.signalAt(ctx, 0, signals...)
+}
+
+// signalAt is signal for a hook's signals, which carry the time the hook fired.
+func (r *laneRun) signalAt(ctx context.Context, atMs int64, signals ...lanes.Signal) {
 	s := r.state
 	s.mu.Lock()
 	moved := false
 	for _, signal := range signals {
-		if s.tracker.Apply(signal) {
+		if s.tracker.ApplyAt(signal, atMs) {
 			moved = true
 			s.since = r.w.clock.Now()
 		}
@@ -404,16 +428,19 @@ func (r *laneRun) observeEvent(ctx context.Context, event ports.DriverEvent) {
 // started and not finished is a wait, not a stall.
 func (r *laneRun) observeHook(ctx context.Context, event lanes.HookEvent) {
 	s := r.state
+	if s.beforeClear(event) {
+		return
+	}
 	switch event.Event {
 	case hookPreCompact:
 		r.progressed()
-		r.signal(ctx, lanes.OnCompactionStarted)
+		r.signalAt(ctx, event.AtMs, lanes.OnCompactionStarted)
 	case hookPostCompact:
 		r.progressed()
-		r.signal(ctx, lanes.OnCompactionFinished)
+		r.signalAt(ctx, event.AtMs, lanes.OnCompactionFinished)
 	case hookSessionStart:
 		if event.Detail == lanes.SourceClear {
-			r.cleared(ctx, event.SessionID)
+			r.cleared(ctx, event.SessionID, event.AtMs)
 		}
 	case hookPreToolUse:
 		r.progressed()

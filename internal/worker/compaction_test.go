@@ -153,6 +153,42 @@ func TestATurnsEndClosesACompactionWithNoEnd(t *testing.T) {
 	r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
 }
 
+// A compaction's start can reach the worker again after its end, and after the turn that followed.
+// The end is the later time, so the repeat starts nothing, or a lane at rest reads `compacting` for
+// the rest of its generation. A compaction that starts after the end still counts.
+func TestACompactionStartHeardAgainAfterItsEndMovesNothing(t *testing.T) {
+	t.Parallel()
+	for path, deliver := range repeatedHooks {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+			r := laneRigWith(t, profileAt+"[lifecycle]\nask_wait = \"5m\"\n")
+			g := newGate()
+			r.finishLater(g)
+			r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.asking("What is the retry budget?"), g.step(), completed(0.01)}))
+			r.atGate(g)
+			began := lanes.HookEvent{Lane: "lane-1", Generation: 1, Event: "PreCompact", Subject: "s", Detail: "auto", AtMs: 1}
+			r.hook(t, began)
+			r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "s", Detail: "auto", AtMs: 2})
+			g.release <- struct{}{}
+			r.eventually("a lane at rest", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Idle) })
+			deliver(t, r, began)
+			if view := r.read(); view.ActualState != string(lanes.Idle) {
+				t.Fatalf("after the repeat the lane reads %s", view.ActualState)
+			}
+			later := began
+			later.AtMs = 3
+			deliver(t, r, later)
+			if view := r.read(); view.ActualState != string(lanes.Compacting) {
+				t.Fatalf("a compaction after the end reads %s", view.ActualState)
+			}
+			r.hook(t, lanes.HookEvent{Event: "PostCompact", Subject: "s", Detail: "auto", AtMs: 4})
+			if view := r.read(); view.ActualState != string(lanes.Idle) {
+				t.Errorf("after the later compaction the lane reads %s", view.ActualState)
+			}
+		})
+	}
+}
+
 // A figure can come after the turn it belongs to, and nothing saves a turn that has ended. A verdict
 // has to be kept where it lands, or a restart reads a compaction still waiting on a call that came.
 func TestAVerdictThatComesAfterItsTurnIsKept(t *testing.T) {

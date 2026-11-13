@@ -136,6 +136,46 @@ func TestCompactionReturnsToTheStateItLeft(t *testing.T) {
 	}
 }
 
+// A compaction's start belongs to the compaction whose time it carries, not to whichever hook came
+// last: one at or before the last end repeats a compaction that is over, and moves nothing.
+func TestACompactionStartNoLaterThanTheLastEndMovesNothing(t *testing.T) {
+	for _, from := range []lanes.ActualState{lanes.Working, lanes.Idle} {
+		tracker := lanes.NewTracker(from)
+		steps := []struct {
+			signal lanes.Signal
+			atMs   int64
+			moved  bool
+			state  lanes.ActualState
+		}{
+			{lanes.OnCompactionStarted, 10, true, lanes.Compacting},
+			{lanes.OnCompactionStarted, 10, false, lanes.Compacting},
+			{lanes.OnCompactionFinished, 20, true, from},
+			{lanes.OnCompactionStarted, 10, false, from},
+			{lanes.OnCompactionStarted, 20, false, from},
+			{lanes.OnCompactionStarted, 30, true, lanes.Compacting},
+			{lanes.OnCompactionFinished, 40, true, from},
+		}
+		for i, step := range steps {
+			if moved := tracker.ApplyAt(step.signal, step.atMs); moved != step.moved || tracker.State() != step.state {
+				t.Fatalf("from %s step %d: %s at %d moved=%v to %s, want moved=%v to %s",
+					from, i, step.signal, step.atMs, moved, tracker.State(), step.moved, step.state)
+			}
+		}
+	}
+}
+
+// An end heard first still dates the compaction, and a signal with no time takes its order of arrival.
+func TestAnEndHeardBeforeItsStartAndASignalWithNoTime(t *testing.T) {
+	tracker := lanes.NewTracker(lanes.Idle)
+	tracker.ApplyAt(lanes.OnCompactionFinished, 20)
+	if tracker.ApplyAt(lanes.OnCompactionStarted, 10) {
+		t.Errorf("a start before an end heard first moved the lane to %s", tracker.State())
+	}
+	if !tracker.ApplyAt(lanes.OnCompactionStarted, 0) || tracker.State() != lanes.Compacting {
+		t.Errorf("a start with no time reads %s", tracker.State())
+	}
+}
+
 // A lane moves only on what happened: no signal is a person saying it is ready.
 func TestNoSignalMarksALaneReadyOrBriefed(t *testing.T) {
 	for _, signal := range lanes.Signals {
