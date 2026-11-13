@@ -194,8 +194,8 @@ func (h *handler) voidCardsOf(ctx context.Context, credentials []authority.Deleg
 func labelsOf(members ports.MemberReader, events []api.StreamEvent) error {
 	labels := map[string]string{}
 	for i := range events {
-		credential := events[i].ActorLabel
-		if events[i].ActorKind != string(ledger.ActorDelegate) || credential == "" {
+		_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(events[i].ActorKind), ID: events[i].ActorID})
+		if !ok {
 			continue
 		}
 		label, seen := labels[credential]

@@ -318,3 +318,36 @@ func TestACardsBindingMovesWithItsSubject(t *testing.T) {
 		t.Errorf("a tool call read as a card: %v", err)
 	}
 }
+
+// TestADelegatePastTheGateStillDecidesNoRequestOutsideItsReach holds what the use cases enforce for
+// approval.decide, whose tool-call form needs only an action a delegate holds: a request of a kind only a
+// member decides refuses a delegate by its kind, and any other request refuses one the delegation policy
+// does not cover, so a defect in the class gate still decides nothing.
+func TestADelegatePastTheGateStillDecidesNoRequestOutsideItsReach(t *testing.T) {
+	if !authority.Allowed(delegate, authority.ActionDecideApproval) {
+		t.Fatal("a delegate lacks the action a covered request needs, so nothing below proves a guard")
+	}
+	empty, err := authority.NewDelegationVersion("p1", "m1", authority.DelegationDraft{Body: "empty", Policy: authority.DelegationPolicy{Version: 1}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, err := authority.ReadToolCall("Bash", []byte(`{"command":"git tag v1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{authority.KindToolCall, authority.KindArtifact, authority.KindContract} {
+		request := authority.Approval{
+			ID: "a1", Lane: "l1", WorkOrder: "w1", Kind: kind, Subject: "Bash", SubjectDigest: call.Digest, Input: call.Input,
+			Command: call.Command, RequestedBy: "worker:w1", State: authority.ApprovalPending,
+		}
+		if err := authority.CheckDelegated(request, empty, delegate); !errors.Is(err, authority.ErrNotDelegated) {
+			t.Errorf("a delegate decides a %s request no class covers: %v", kind, err)
+		}
+	}
+	for _, kind := range []string{authority.KindPlan, authority.KindRecovery, authority.KindMerge, authority.KindConfirm} {
+		request := authority.Approval{ID: "a2", Kind: kind, Subject: "s", SubjectDigest: "sha256:aa", RequestedBy: "system:x", State: authority.ApprovalPending}
+		if _, err := request.Decide(authority.Decision{ID: "a2", Digest: "sha256:aa", Allow: true}, delegate, 1, 10); !errors.Is(err, authority.ErrDeciderKind) {
+			t.Errorf("a delegate decides a %s request: %v", kind, err)
+		}
+	}
+}
