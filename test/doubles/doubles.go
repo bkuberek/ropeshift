@@ -349,10 +349,67 @@ func NewTmux(t testing.TB) (*tmux.Terminal, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	remember(terminal, socket, env)
 	return terminal, func() {
 		endTmuxServer(socket, env, t.Logf)
 		_ = os.RemoveAll(dir)
 	}
+}
+
+// tmuxServer is where a test's terminal reaches its server, so a test can read and set the server's options.
+type tmuxServer struct {
+	socket string
+	env    []string
+}
+
+// servers maps each terminal a test made to its server.
+var servers sync.Map
+
+func remember(terminal *tmux.Terminal, socket string, env []string) {
+	servers.Store(terminal, tmuxServer{socket: socket, env: env})
+}
+
+// tmuxCall runs one tmux command on the server of a terminal this package made.
+func tmuxCall(t testing.TB, terminal *tmux.Terminal, args ...string) string {
+	t.Helper()
+	found, ok := servers.Load(terminal)
+	if !ok {
+		t.Fatal("the terminal was not made by NewTmux or TmuxOn")
+	}
+	server := found.(tmuxServer)
+	binary, err := exec.LookPath(tmux.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binary, append([]string{"-S", server.socket}, args...)...)
+	cmd.Env = server.env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tmux %v: %v: %s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// SetTmuxOption sets a global option on the server of a terminal this package made. The server must be running.
+func SetTmuxOption(t testing.TB, terminal *tmux.Terminal, name, value string) {
+	t.Helper()
+	tmuxCall(t, terminal, "set-option", "-g", name, value)
+}
+
+// pasteMargin is what WaitOutPaste adds to the server's paste window, so a key typed after the wait is
+// past the window and not on its edge.
+const pasteMargin = 10 * time.Millisecond
+
+// WaitOutPaste waits longer than the server's assume-paste-time. Keys a client reads within that window
+// of its attach are taken as a paste and go to the pane, so a test that types a binding such as the
+// detach keys right after an attach must wait first.
+func WaitOutPaste(t testing.TB, terminal *tmux.Terminal) {
+	t.Helper()
+	window, err := strconv.Atoi(tmuxCall(t, terminal, "show-options", "-gv", "assume-paste-time"))
+	if err != nil {
+		t.Fatalf("the server's assume-paste-time: %v", err)
+	}
+	time.Sleep(time.Duration(window)*time.Millisecond + pasteMargin)
 }
 
 // TmuxOn returns a terminal on a server something else started, and ends that server when
@@ -364,6 +421,7 @@ func TmuxOn(t testing.TB, socket string) *tmux.Terminal {
 	if err != nil {
 		t.Fatal(err)
 	}
+	remember(terminal, socket, env)
 	t.Cleanup(func() { endTmuxServer(socket, env, t.Logf) })
 	return terminal
 }

@@ -73,10 +73,11 @@ func (p *plannerRun) signIn(t *testing.T) {
 
 // person is a command run on a terminal of its own, as a person runs it in a shell.
 type person struct {
-	t       *testing.T
-	screen  *doubles.PTY
-	command *exec.Cmd
-	exited  chan error
+	t        *testing.T
+	terminal *tmux.Terminal
+	screen   *doubles.PTY
+	command  *exec.Cmd
+	exited   chan error
 }
 
 // run starts `ropeshift args...` with the person's terminal as its stdin, stdout, and stderr.
@@ -102,31 +103,24 @@ func (p *plannerRun) run(t *testing.T, args ...string) *person {
 		case <-time.After(5 * time.Second):
 		}
 	})
-	return &person{t: t, screen: screen, command: cmd, exited: exited}
+	return &person{t: t, terminal: p.terminal, screen: screen, command: cmd, exited: exited}
 }
 
 // detaches presses the detach keys and says the command ended cleanly, which a person who detaches
 // from a session that goes on expects.
-// It presses them again every two seconds until the command ends, because a tmux client that has
-// just drawn its first frame can miss keys typed at once; a press after the command ended goes
-// nowhere.
+// It first waits out the server's paste window, because a tmux client takes keys that arrive within
+// assume-paste-time of its attach as a paste and sends them to the pane, not to its own bindings.
 func (p *person) detaches() error {
-	deadline := time.After(20 * time.Second)
-	again := time.NewTicker(2 * time.Second)
-	defer again.Stop()
+	doubles.WaitOutPaste(p.t, p.terminal)
 	p.screen.Type(p.t, detachKeys)
-	for {
-		select {
-		case err := <-p.exited:
-			if err != nil {
-				return fmt.Errorf("the command ended badly after the detach: %v: %q", err, p.screen.Drawn())
-			}
-			return nil
-		case <-again.C:
-			p.screen.Type(p.t, detachKeys)
-		case <-deadline:
-			return fmt.Errorf("the command did not end after the detach keys: %q", p.screen.Drawn())
+	select {
+	case err := <-p.exited:
+		if err != nil {
+			return fmt.Errorf("the command ended badly after the detach: %v: %q", err, p.screen.Drawn())
 		}
+		return nil
+	case <-time.After(20 * time.Second):
+		return fmt.Errorf("the command did not end after the detach keys: %q", p.screen.Drawn())
 	}
 }
 
