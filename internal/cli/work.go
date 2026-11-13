@@ -666,14 +666,18 @@ func (c *invocation) workerList(args []string) int {
 	}
 	client := c.client()
 	defer client.Close()
-	workers, err := client.Workers(c.ctx)
-	if workers == nil {
-		workers = []ledger.Worker{}
+	list, err := client.WorkerList(c.ctx)
+	if list.Workers == nil {
+		list.Workers = []ledger.Worker{}
 	}
-	return c.finish(err, api.WorkerList{Workers: workers}, func() string {
+	return c.finish(err, list, func() string {
 		var out strings.Builder
-		for _, worker := range workers {
-			fmt.Fprintf(&out, "%s\t%s\tepoch %d\tprotocol %d\n", worker.ID, worker.Name, worker.Epoch, worker.Protocol)
+		for _, worker := range list.Workers {
+			fmt.Fprintf(&out, "%s\t%s\tepoch %d\tprotocol %d\t%s", worker.ID, worker.Name, worker.Epoch, worker.Protocol, api.ResourceWords(worker.Report))
+			if worker.Report != nil {
+				fmt.Fprintf(&out, "  measured %s ago", api.AgeWords(list.AsOf-worker.ReportedAt))
+			}
+			out.WriteString("\n")
 		}
 		return out.String()
 	})

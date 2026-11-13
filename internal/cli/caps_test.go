@@ -102,3 +102,20 @@ func TestWorkerCapsSetsAnyNumberAndWarnsAboveTheRecommendation(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkerListShowsWhatEachWorkerMeasured holds FR-UI-10 for the worker list: the machine as the worker
+// last measured it, its cap beside the recommendation, and how long ago, with a measure the machine could
+// not provide said as unavailable.
+func TestWorkerListShowsWhatEachWorkerMeasured(t *testing.T) {
+	d, _, _ := capsDaemon(t)
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"worker", "list"}, &stdout, &stderr, cli.Options{Socket: d.Socket, Session: d.Session}); code != cli.ExitOK {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"worker-caps\tcaps\tepoch 1\t", "cpu unavailable  load unavailable  memory unavailable  disk unavailable  cap 7, the recommendation", "measured "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in:\n%s", want, out)
+		}
+	}
+}

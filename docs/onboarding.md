@@ -249,6 +249,8 @@ The `[resources]` table of your own layer sets how often the worker measures and
 
 A threshold of `0` turns its warning off. These settings are the machine's, so a repository's or a lane's layer cannot change them.
 
+`ropeshift worker list` and `ropeshift top` show what each worker last measured and how long ago, with each lane's process tree in `top`. A worker that has not reported yet says so.
+
 ### Where a lane starts
 
 A lane's worktree starts from the repository's base branch, and never from the commit your checkout has out. The base branch is the repository's default branch, which the daemon reads from git, until you name another:
