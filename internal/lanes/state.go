@@ -163,6 +163,8 @@ type Tracker struct {
 	state ActualState
 	// resume is the state a compaction left.
 	resume ActualState
+	// compacted is when the last compaction ended, by the clock of the hook that said so.
+	compacted int64
 }
 
 // NewTracker starts from a state a journal kept.
@@ -200,6 +202,22 @@ func (t *Tracker) Apply(signal Signal) bool {
 	}
 	t.state = next
 	return true
+}
+
+// ApplyAt is Apply for a signal a hook raised at a time, in milliseconds by the hook's clock. A hook
+// can reach a worker twice and late, so the times say which compaction a hook belongs to: a start at
+// or before the last end repeats a compaction that is over, and it moves nothing, because no end
+// would follow it. A signal with no time takes its order of arrival.
+func (t *Tracker) ApplyAt(signal Signal, atMs int64) bool {
+	if atMs > 0 {
+		switch {
+		case signal == OnCompactionFinished:
+			t.compacted = max(t.compacted, atMs)
+		case signal == OnCompactionStarted && atMs <= t.compacted:
+			return false
+		}
+	}
+	return t.Apply(signal)
 }
 
 // Condition is a flag on a state, not a state.

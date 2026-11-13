@@ -42,7 +42,7 @@ func (r *laneRun) setProcess(generation int64) {
 // with. Two things can say one clear happened, and a session's ID says it is the same one. It runs
 // on a hook's goroutine, so it answers before a session's next hook can arrive, and only the
 // journal, which keeps the move and its events in one write, hears of it first.
-func (r *laneRun) cleared(ctx context.Context, session string) {
+func (r *laneRun) cleared(ctx context.Context, session string, atMs int64) {
 	report := func(err error) { r.w.config.Report(fmt.Errorf("lane %s: a clear: %w", r.lease.Lane, err)) }
 	record, err := r.w.journal.Lane(ctx, r.lease.Lane)
 	if err != nil {
@@ -78,6 +78,7 @@ func (r *laneRun) cleared(ctx context.Context, session string) {
 	crashpoint.Hit("worker.clear", "cleared")
 	// What a generation reports resets before the generation moves, so a save that reads this one
 	// reads nothing of the last.
+	r.state.noteCleared(atMs)
 	r.state.newGeneration(r.w.clock.Now(), 0)
 	r.handleLock.Lock()
 	r.generation, r.instruction = stored.Generation, ""
