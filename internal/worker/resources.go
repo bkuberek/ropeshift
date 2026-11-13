@@ -176,8 +176,9 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 	trees, treesErr := rt.Machine.ProcessTrees(ctx, roots)
 	now := w.clock.Now()
 
+	// The lock guards the state alone: the journal's write of the peaks waits until it is released, so a
+	// heartbeat that reads the report never waits on a disk.
 	w.resources.lock.Lock()
-	defer w.resources.lock.Unlock()
 	if sampleErr == nil {
 		w.steady(&sample)
 	}
@@ -186,10 +187,9 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 		w.resources.ticks = sample.CPU
 	}
 	report.Sessions = w.meterSessions(running, trees, treesErr == nil, now)
+	var keep []lanes.LanePeak
 	if ended := w.endSessions(running, settings.ObservedWindow); ended {
-		if err := w.journal.SaveLanePeaks(ctx, w.resources.peaks); err != nil {
-			w.config.Report(fmt.Errorf("keeping the lanes' peaks: %w", err))
-		}
+		keep = slices.Clone(w.resources.peaks)
 	}
 	recommendation := w.recommendLocked(settings)
 	report.Recommendation = &recommendation
@@ -200,6 +200,13 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 	report.Warnings = lanes.ResourceWarnings(report.Machine, thresholds)
 	w.resources.seq++
 	w.resources.report, w.resources.at = &report, now
+	w.resources.lock.Unlock()
+	// One measure runs at a time, so the peaks reach the journal in the order they were kept.
+	if keep != nil {
+		if err := w.journal.SaveLanePeaks(ctx, keep); err != nil {
+			w.config.Report(fmt.Errorf("keeping the lanes' peaks: %w", err))
+		}
+	}
 	return report, nil
 }
 

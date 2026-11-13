@@ -396,3 +396,58 @@ func TestAReportTheControlPlaneDidNotKeepGoesAgain(t *testing.T) {
 		t.Error("a report the control plane did not keep was marked sent")
 	}
 }
+
+// slowPeaks is a journal whose write of the lanes' peaks waits until a test lets it go, as a slow disk's
+// does.
+type slowPeaks struct {
+	ports.Journal
+	entered, release chan struct{}
+}
+
+func (j *slowPeaks) SaveLanePeaks(ctx context.Context, peaks []lanes.LanePeak) error {
+	close(j.entered)
+	<-j.release
+	return j.Journal.SaveLanePeaks(ctx, peaks)
+}
+
+// TestAHeartbeatDoesNotWaitOnTheJournal keeps a slow write of the lanes' peaks from holding the heartbeat,
+// which reads the report while a measure writes.
+func TestAHeartbeatDoesNotWaitOnTheJournal(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &slowPeaks{Journal: base.journal, entered: make(chan struct{}), release: make(chan struct{})}
+	base.workerJournal = journal
+	r := newLaneRigFor(t, base)
+	measured(r)
+	r.dispatched()
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, {Hold: true}}))
+	r.start()
+	r.awaitGeneration(t, 1)
+	r.measure()
+	r.driver.StopEverySession()
+	r.subject.Wait()
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(journal.release)
+		}
+	})
+	measuring := make(chan error, 1)
+	go func() {
+		_, err := r.subject.Measure(context.Background())
+		measuring <- err
+	}()
+	<-journal.entered
+	read := make(chan bool, 1)
+	go func() { read <- worker.ReportPending(r.subject) }()
+	select {
+	case <-read:
+	case <-time.After(2 * time.Second):
+		t.Error("reading the report waited on the journal's write")
+	}
+	released = true
+	close(journal.release)
+	if err := <-measuring; err != nil {
+		t.Fatal(err)
+	}
+}
