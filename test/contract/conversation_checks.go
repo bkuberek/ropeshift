@@ -37,6 +37,7 @@ var ConversationChecks = []Check{
 	{"CV14", "a worker can run the assistant only when connected, headless, and holding every repository", checkAssistantPlacement},
 	{"CV15", "a message to an orchestrator is refused unless it runs and serves the project, and walks its states as a wake item", checkOrchestratorMessages},
 	{"CV16", "an assistant credential's end says why: a routine end never overwrites a member's, and a member's revocation or sign-out overwrites a routine one", checkAssistantCredentialEnd},
+	{"CV17", "a conversation ID names one conversation of its project for good, and its credentials are its member's in its project alone", checkConversationIDScoped},
 }
 
 var theOtherMember = ledger.Actor{Kind: ledger.ActorMember, ID: "member-2"}
@@ -646,7 +647,7 @@ func checkAssistantCredential(r *Rig) error {
 		return Violatedf("a stopped conversation's credential: %v", err)
 	}
 	err = t.store.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
-		rows, err := tx.Members().ConversationDelegates(record.ID)
+		rows, err := tx.Members().ConversationDelegates(r.Scope, theMember.ID, record.ID)
 		if err != nil {
 			return err
 		}
@@ -1081,7 +1082,7 @@ func checkAssistantCredentialEnd(r *Rig) error {
 		}
 		var credential authority.DelegateCredential
 		err := t.store.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
-			rows, err := tx.Members().ConversationDelegates(record.ID)
+			rows, err := tx.Members().ConversationDelegates(r.Scope, theMember.ID, record.ID)
 			if err == nil && len(rows) == 1 {
 				credential = rows[0]
 			}
@@ -1163,6 +1164,84 @@ func checkAssistantCredentialEnd(r *Rig) error {
 	}
 	if after.EndedReason != authority.DelegateEndSignedOut || !slices.Contains(ended.Ended, signedOut.ID) || slices.Contains(ended.Delegates, signedOut.ID) {
 		return Violatedf("signing out everywhere left %+v, ending %+v", after, ended)
+	}
+	return nil
+}
+
+func checkConversationIDScoped(r *Rig) error {
+	t, err := newTalkRig(r)
+	if err != nil {
+		return err
+	}
+	opened, err := t.create(theMember, "")
+	if err != nil {
+		return err
+	}
+	record, err := t.running(opened.Conversation)
+	if err != nil {
+		return err
+	}
+	if _, err := t.plane.AssistantCredential(r.Ctx, ledger.AssistantCredentialRequest{
+		Auth: t.auth, Epoch: t.epoch, Conversation: record.ID, Lane: record.RunLane, Generation: 1,
+	}); err != nil {
+		return err
+	}
+	// Credentials under the same conversation ID that another project, or another member, holds.
+	foreign := []authority.DelegateCredential{
+		{ID: r.ID("dlg"), Digest: r.ID("digest"), Member: theMember.ID, Project: ledger.WorkspaceID(r.ID("other-project")), Label: authority.AssistantLabel},
+		{ID: r.ID("dlg"), Digest: r.ID("digest"), Member: theOtherMember.ID, Project: r.Scope, Label: authority.AssistantLabel},
+	}
+	err = t.store.Installation(r.Scope).Write(r.Ctx, "delegate.assistant", func(tx ports.SharedTx) error {
+		for _, credential := range foreign {
+			credential.Kind, credential.CreatedAt, credential.Conversation, credential.Generation = authority.DelegateAssistant, tx.Now(), record.ID, 1
+			if err := tx.Members().InsertDelegate(credential); err != nil {
+				return err
+			}
+			if _, err := tx.Append(ledger.EventDraft{
+				Type: control.EventDelegateCreated, Actor: theMember, Subject: ledger.Subject{Kind: "delegate", ID: credential.ID}, Data: []byte(`{}`),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	var listed []authority.DelegateCredential
+	err = t.store.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
+		var err error
+		listed, err = tx.Members().ConversationDelegates(r.Scope, theMember.ID, record.ID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if len(listed) != 1 || listed[0].Project != r.Scope || listed[0].Member != theMember.ID {
+		return Violatedf("the conversation's credentials read %+v", listed)
+	}
+	if err := t.convs.Delete(r.Ctx, r.Scope, record.ID, theMember); err != nil {
+		return err
+	}
+	err = t.store.Installation(r.Scope).Read(r.Ctx, func(tx ports.SharedReadTx) error {
+		for _, credential := range foreign {
+			row, err := tx.Members().Delegate(credential.ID)
+			if err != nil {
+				return err
+			}
+			if row.RevokedAt != 0 {
+				return Violatedf("deleting a conversation revoked %s's credential in %s", row.Member, row.Project)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, actor := range []ledger.Actor{theMember, theOtherMember} {
+		if _, err := t.convs.Create(r.Ctx, r.Scope, control.NewConversation{ID: record.ID}, actor); !errors.Is(err, conversations.ErrInvalid) {
+			return Violatedf("a deleted conversation's ID was taken again by %s: %v", actor.ID, err)
+		}
 	}
 	return nil
 }

@@ -62,7 +62,8 @@ VALUES (:workspace_id, :id, :digest, :member_id, :project_id, :label, :kind, :cr
  ORDER BY created_at, id`)
 
 	stmtConversationDelegates = define("delegate.of_conversation",
-		`SELECT `+delegateColumns+` FROM delegate_credentials WHERE workspace_id = :workspace_id AND conversation_id = :conversation_id
+		`SELECT `+delegateColumns+` FROM delegate_credentials
+ WHERE workspace_id = :workspace_id AND project_id = :project_id AND member_id = :member_id AND conversation_id = :conversation_id
  ORDER BY created_at, id`)
 
 	stmtTouchDelegate = define("delegate.touch",
@@ -211,8 +212,8 @@ func (t memberTx) Delegates(member string) ([]authority.DelegateCredential, erro
 	return t.delegates(stmtListDelegates, params{"member_id": member})
 }
 
-func (t memberTx) ConversationDelegates(conversation string) ([]authority.DelegateCredential, error) {
-	return t.delegates(stmtConversationDelegates, params{"conversation_id": conversation})
+func (t memberTx) ConversationDelegates(project ledger.WorkspaceID, member, conversation string) ([]authority.DelegateCredential, error) {
+	return t.delegates(stmtConversationDelegates, params{"project_id": string(project), "member_id": member, "conversation_id": conversation})
 }
 
 func (t memberTx) delegates(st *statement, p params) ([]authority.DelegateCredential, error) {

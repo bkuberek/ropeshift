@@ -687,3 +687,40 @@ func TestALanesStreamHoldsTheAssistantsMessages(t *testing.T) {
 		t.Errorf("the member's message reads %+v (%v)", from, ok)
 	}
 }
+
+// A card names a conversation only when the conversation is its credential's member's: a credential that
+// names another member's conversation reads as from a deleted one.
+func TestACardNamesOnlyItsMembersConversation(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	opened, err := d.client.CreateConversation(ctx, api.CreateConversation{ID: "conv-1", Name: "Harbor merges"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := authority.DelegateCredential{
+		ID: "dlg_other", Digest: "digest-other", Member: "member-2", Project: apitest.Scope, Label: authority.AssistantLabel,
+		Kind: authority.DelegateAssistant, Conversation: opened.Conversation.ID, Generation: 1,
+	}
+	err = d.Store.Installation(apitest.Scope).Write(ctx, "delegate.assistant", func(tx ports.SharedTx) error {
+		other.CreatedAt = tx.Now()
+		if err := tx.Members().InsertDelegate(other); err != nil {
+			return err
+		}
+		_, err := tx.Append(ledger.EventDraft{Type: control.EventDelegateCreated, Actor: talkMember, Subject: ledger.Subject{Kind: "delegate", ID: other.ID}, Data: []byte(`{}`)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := authority.Approval{RequestedBy: authority.Principal(other.Actor())}
+	err = d.Store.Read(ctx, apitest.Scope, func(tx ports.ReadTx) error {
+		named, err := server.CardConversation(tx.Members(), tx.Conversations(), card)
+		if err == nil && (named == nil || named.Name != "" || !named.Deleted) {
+			t.Errorf("a card of member-2's credential names %+v", named)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

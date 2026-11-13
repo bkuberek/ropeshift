@@ -69,7 +69,7 @@ func (h *handler) workerNames(ctx context.Context) (map[string]string, error) {
 func (h *handler) conversationView(ctx context.Context, record conversations.Conversation, names map[string]string) (api.Conversation, error) {
 	view := api.Conversation{Conversation: record, WorkerName: names[record.Worker]}
 	err := h.Store.Read(ctx, h.Scope, func(tx ports.ReadTx) error {
-		cards, err := control.ConversationCards(tx.Members(), tx.Approvals(), record.ID)
+		cards, err := control.ConversationCards(tx.Members(), tx.Approvals(), h.Scope, record)
 		for _, card := range cards {
 			if card.State == authority.ApprovalPending {
 				view.OpenCards++

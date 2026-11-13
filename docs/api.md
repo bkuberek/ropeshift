@@ -120,7 +120,7 @@ A member talks to one target at a time: their assistant in a project, the orches
 | Route | Body | Answer |
 |-------|------|--------|
 | `GET /v1/conversations` | | `{"as_of", "conversations", "workers"}`: the member's conversations, newest activity first, and each registered worker with `available` and, when it is not, `reason` |
-| `POST /v1/conversations` | `{"id", "name", "worker"}` | 201 with `conversation` and `stopped`, the running conversation it stopped first. `id` is the client's, so a retry makes one |
+| `POST /v1/conversations` | `{"id", "name", "worker"}` | 201 with `conversation` and `stopped`, the running conversation it stopped first. `id` is the client's, so a retry makes one; an ID another member's conversation holds, or a deleted conversation held, is refused with 400 `invalid` |
 | `GET /v1/conversations/{id}` | | One conversation |
 | `POST /v1/conversations/{id}/open` | `{"worker"}` | Starts its session, resuming what it had, with `stopped` |
 | `POST /v1/conversations/{id}/stop` | `{}` | Stops its session; the conversation stays |

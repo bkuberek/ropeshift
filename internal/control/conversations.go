@@ -426,6 +426,13 @@ func (c *Conversations) Create(ctx context.Context, scope ledger.WorkspaceID, in
 		if !errors.Is(err, ports.ErrNotFound) {
 			return err
 		}
+		// An ID names one conversation of the project for good: a deleted one's credentials and cards still
+		// name it, and would read as the new one's.
+		if used, err := tx.EventsAbout(ledger.Subject{Kind: conversations.SubjectConversation, ID: in.ID}); err != nil {
+			return err
+		} else if len(used) != 0 {
+			return refuseWith(conversations.ErrInvalid, "Conversation ID %s was used before.", in.ID)
+		}
 		worker, err := place(workers, in.Worker, "")
 		if err != nil {
 			return err
@@ -629,7 +636,7 @@ func (c *Conversations) Clear(ctx context.Context, scope ledger.WorkspaceID, id 
 	if err != nil {
 		return conversations.Conversation{}, err
 	}
-	c.revoke(ctx, scope, before.ID, record.Generation, authority.DelegateEndGeneration, actor)
+	c.revoke(ctx, scope, before, record.Generation, authority.DelegateEndGeneration, actor)
 	return record, nil
 }
 
@@ -666,7 +673,7 @@ func (c *Conversations) Send(ctx context.Context, scope ledger.WorkspaceID, id s
 			return err
 		}
 		record, stopped := opened.Conversation, opened.Stopped
-		pending, err := cardPending(tx.Members(), tx.Approvals(), record.ID)
+		pending, err := cardPending(tx.Members(), tx.Approvals(), scope, record)
 		if err != nil {
 			return err
 		}
@@ -749,8 +756,8 @@ func firstMemberEntry(tx ports.WriteTx, conversation string) (bool, error) {
 }
 
 // cardPending says a card the assistant prepared in this conversation waits for the member.
-func cardPending(members ports.MemberReader, approvals ports.ApprovalReader, conversation string) (bool, error) {
-	cards, err := conversationCards(members, approvals, conversation)
+func cardPending(members ports.MemberReader, approvals ports.ApprovalReader, project ledger.WorkspaceID, record conversations.Conversation) (bool, error) {
+	cards, err := conversationCards(members, approvals, project, record)
 	if err != nil {
 		return false, err
 	}
@@ -759,8 +766,8 @@ func cardPending(members ports.MemberReader, approvals ports.ApprovalReader, con
 
 // conversationCards lists the cards the assistant prepared under the credentials of one conversation's
 // sessions, oldest first.
-func conversationCards(members ports.MemberReader, approvals ports.ApprovalReader, conversation string) ([]authority.Approval, error) {
-	credentials, err := members.ConversationDelegates(conversation)
+func conversationCards(members ports.MemberReader, approvals ports.ApprovalReader, project ledger.WorkspaceID, record conversations.Conversation) ([]authority.Approval, error) {
+	credentials, err := members.ConversationDelegates(project, record.Member, record.ID)
 	if err != nil || len(credentials) == 0 {
 		return nil, err
 	}
@@ -886,21 +893,22 @@ var errNothingToStop = errors.New("nothing to stop")
 // revokeAll ends every credential of each conversation's sessions, for a reason.
 func (c *Conversations) revokeAll(ctx context.Context, scope ledger.WorkspaceID, rows []conversations.Conversation, reason string, actor ledger.Actor) {
 	for _, row := range rows {
-		c.revoke(ctx, scope, row.ID, 0, reason, actor)
+		c.revoke(ctx, scope, row, 0, reason, actor)
 	}
 }
 
 // revoke ends the credentials of a conversation's sessions below a generation, and every one of them when
 // it is zero. A failure leaves a credential its generation no longer passes, so the gate still refuses it.
-func (c *Conversations) revoke(ctx context.Context, scope ledger.WorkspaceID, conversation string, below int64, reason string, actor ledger.Actor) {
-	_ = revokeAssistant(ctx, c.store.Installation(scope), conversation, below, reason, actor)
+func (c *Conversations) revoke(ctx context.Context, scope ledger.WorkspaceID, record conversations.Conversation, below int64, reason string, actor ledger.Actor) {
+	_ = revokeAssistant(ctx, c.store.Installation(scope), scope, record, below, reason, actor)
 }
 
 // revokeAssistant ends the active credentials of a conversation's sessions below a generation, or every one
-// when below is zero, for a reason, in one installation transaction with an event for each.
-func revokeAssistant(ctx context.Context, installation ports.Installation, conversation string, below int64, reason string, actor ledger.Actor) error {
+// when below is zero, for a reason, in one installation transaction with an event for each. Only the
+// conversation's member's credentials in this project are its own.
+func revokeAssistant(ctx context.Context, installation ports.Installation, project ledger.WorkspaceID, record conversations.Conversation, below int64, reason string, actor ledger.Actor) error {
 	err := installation.Write(ctx, "delegate.revoke", func(tx ports.SharedTx) error {
-		credentials, err := tx.Members().ConversationDelegates(conversation)
+		credentials, err := tx.Members().ConversationDelegates(project, record.Member, record.ID)
 		if err != nil {
 			return err
 		}
@@ -934,8 +942,8 @@ func revokeAssistant(ctx context.Context, installation ports.Installation, conve
 }
 
 // ConversationCards lists the cards the assistant prepared in one conversation, oldest first.
-func ConversationCards(members ports.MemberReader, approvals ports.ApprovalReader, conversation string) ([]authority.Approval, error) {
-	return conversationCards(members, approvals, conversation)
+func ConversationCards(members ports.MemberReader, approvals ports.ApprovalReader, project ledger.WorkspaceID, record conversations.Conversation) ([]authority.Approval, error) {
+	return conversationCards(members, approvals, project, record)
 }
 
 // RecordAction adds what a call of an assistant's credential did to the conversation the credential acts in,

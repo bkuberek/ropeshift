@@ -174,7 +174,7 @@ func (w *Workers) AssistantCredential(ctx context.Context, request ledger.Assist
 	}
 	// Every credential of the conversation ends before the new one exists: an earlier generation's, and
 	// this generation's own from an earlier call, which a retry leaves unused.
-	if err := revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, record.Generation+1, authority.DelegateEndGeneration, worker); err != nil {
+	if err := revokeAssistant(ctx, w.store.Installation(w.scope), w.scope, record, record.Generation+1, authority.DelegateEndGeneration, worker); err != nil {
 		return ledger.AssistantGrant{}, err
 	}
 	token, err := newSecret()
@@ -408,7 +408,7 @@ func (w *Workers) afterAssistantUpload(ctx context.Context, worker string, e led
 	if e.Type == ledger.UploadLaneEnded {
 		below, reason = 0, authority.DelegateEndStopped
 	}
-	_ = revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, below, reason, ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
+	_ = revokeAssistant(ctx, w.store.Installation(w.scope), w.scope, record, below, reason, ledger.Actor{Kind: ledger.ActorWorker, ID: worker})
 }
 
 // AssistantActs refuses an assistant credential unless its conversation's session runs the credential's

@@ -1256,7 +1256,8 @@ func cardNeed(members ports.MemberReader, threads ports.ConversationReader, card
 }
 
 // cardConversation names the conversation a card came from, when an assistant's credential prepared it,
-// and nothing for any other card. A conversation since deleted reads with no name.
+// and nothing for any other card. A conversation since deleted reads with no name, and so does one that is
+// not the credential's member's.
 func cardConversation(members ports.MemberReader, threads ports.ConversationReader, card authority.Approval) (*api.CardConversation, error) {
 	kind, id, _ := strings.Cut(card.RequestedBy, ":")
 	_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
@@ -1271,7 +1272,7 @@ func cardConversation(members ports.MemberReader, threads ports.ConversationRead
 		return nil, err
 	}
 	thread, err := threads.Conversation(record.Conversation)
-	if errors.Is(err, ports.ErrNotFound) {
+	if errors.Is(err, ports.ErrNotFound) || (err == nil && thread.Member != record.Member) {
 		return &api.CardConversation{ID: record.Conversation, Deleted: true}, nil
 	}
 	if err != nil {

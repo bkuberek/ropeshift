@@ -957,8 +957,9 @@ type MemberReader interface {
 	DelegateByDigest(digest string) (authority.DelegateCredential, error)
 	// Delegates lists a member's delegate credentials, oldest first.
 	Delegates(member string) ([]authority.DelegateCredential, error)
-	// ConversationDelegates lists the assistant credentials of one conversation's sessions, oldest first.
-	ConversationDelegates(conversation string) ([]authority.DelegateCredential, error)
+	// ConversationDelegates lists the assistant credentials of one conversation's sessions, oldest first: its
+	// member's in its project, since another project may name a conversation of its own the same.
+	ConversationDelegates(project ledger.WorkspaceID, member, conversation string) ([]authority.DelegateCredential, error)
 }
 
 // MemberWriter writes who can sign in and who has.
