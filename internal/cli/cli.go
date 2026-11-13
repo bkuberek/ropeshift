@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 
 	"ropeshift.com/ropeshift/internal/api"
@@ -195,6 +196,18 @@ func (c *invocation) parse(set *flag.FlagSet, args []string) ([]string, bool) {
 		args = args[1:]
 	}
 }
+
+// readLocal reads a file on this machine that a command names. A delegate's command reads none, because a
+// delegate acts only through the API, and a file it named could lie past what its own reads may reach.
+func (c *invocation) readLocal(path string) ([]byte, error) {
+	if c.delegate != "" {
+		return nil, errDelegateReadsNoFile
+	}
+	return os.ReadFile(path)
+}
+
+// errDelegateReadsNoFile is why a delegate's command named a file in vain.
+var errDelegateReadsNoFile = errors.New("a delegate acts only through the API and reads no file on this machine: a member runs this with a file")
 
 func (c *invocation) usageError(format string, args ...any) int {
 	fmt.Fprintf(c.stderr, "ropeshift %s: "+format+"\n", append([]any{c.name}, args...)...)

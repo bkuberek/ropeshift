@@ -3,7 +3,6 @@ package cli
 import (
 	"crypto/rand"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -521,7 +520,7 @@ func (c *invocation) laneStart(args []string) int {
 		return ExitUsage
 	}
 	if *layer != "" {
-		raw, err := os.ReadFile(*layer)
+		raw, err := c.readLocal(*layer)
 		if err != nil {
 			return c.usageError("%v", err)
 		}

@@ -22,11 +22,13 @@ const (
 	MaxDelegateLabel       = 64
 )
 
-// MachineLocalCommands are the commands that act on the machine they run on, not through the API: a
-// service, the first run, the doctor, a passphrase typed on a terminal, and a pane a person attaches to.
-// No class gates them, so a delegate runs none of them (ADR-0024).
+// MachineLocalCommands are the commands that act on the machine they run on, not through the API alone: a
+// service, the first run, the doctor, a passphrase typed on a terminal, a pane a person attaches to, a copy
+// written to a file the caller names, and clones registered from paths on this machine. No class gates
+// what they do to the machine, so a delegate runs none of them (ADR-0024).
 var MachineLocalCommands = []string{
 	"service install", "service uninstall", "init", "worker doctor", "login", "passphrase set", "lane attach", "plan start", "adopt",
+	"backup", "repository add",
 }
 
 // DelegateIDPrefix starts the ID of every delegate credential.

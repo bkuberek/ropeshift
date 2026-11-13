@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -258,7 +259,7 @@ func TestADelegateRunsNoMachineLocalCommand(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"service", "install"}, {"service", "uninstall"}, {"init"}, {"worker", "doctor"}, {"login"}, {"passphrase", "set"},
-		{"lane", "attach", "l1"}, {"plan", "start"}, {"adopt"},
+		{"lane", "attach", "l1"}, {"plan", "start"}, {"adopt"}, {"backup", "/tmp/copy.db"}, {"repository", "add", "."},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := cli.Run(args, &stdout, &stderr, opts)
@@ -268,5 +269,28 @@ func TestADelegateRunsNoMachineLocalCommand(t *testing.T) {
 	}
 	if ran {
 		t.Error("a machine-local command ran for a delegate")
+	}
+}
+
+// A delegate's command reads no file on this machine, because a delegate acts only through the API and its
+// own reads stop at its trees: each flag that names a file is refused before anything is read or sent.
+func TestADelegateReadsNoFileOnThisMachine(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "layer.toml")
+	if err := os.WriteFile(file, []byte("[agent]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := cli.Options{Socket: "/nonexistent.sock", Delegate: "a-delegate-token", StateDir: t.TempDir()}
+	for _, args := range [][]string{
+		{"lane", "start", "WO-1", "--profile", file},
+		{"agent", "add", "x", "--file", file},
+		{"agent", "set", "x", "purpose=@" + file, "--project", "p"},
+		{"agent", "guide", "set", "@" + file, "--project", "p"},
+		{"policy", "publish", "--file", file},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(args, &stdout, &stderr, opts)
+		if code == cli.ExitOK || code == cli.ExitUnreachable || !strings.Contains(stderr.String(), "reads no file") {
+			t.Errorf("%v: exit %d %q", args, code, stderr.String())
+		}
 	}
 }
