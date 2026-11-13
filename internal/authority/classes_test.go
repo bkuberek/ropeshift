@@ -48,7 +48,7 @@ func TestEveryOperationHasOneClassAndALabel(t *testing.T) {
 func TestADelegateHoldsOnlyWhatItsOperationsNeed(t *testing.T) {
 	needed := map[authority.Action]bool{}
 	for _, op := range authority.Operations() {
-		if op.Installation || !(op.Class == authority.ClassOperational || (op.Class == authority.ClassConsent && op.Exemptable)) {
+		if op.Installation || op.Class == authority.ClassMemberOnly || (op.Class == authority.ClassConsent && !op.Exemptable) {
 			continue
 		}
 		for _, action := range op.Actions {
@@ -311,8 +311,8 @@ func TestACardsBindingMovesWithItsSubject(t *testing.T) {
 	if authority.PolicyBinding(authority.PolicyDecision, "p1") == authority.PolicyBinding(authority.PolicyDecision, "p2") {
 		t.Error("a newer version in force leaves the binding where it was")
 	}
-	if authority.ArgumentsDigest(`{"a":1}`) != authority.ArgumentsDigest(`{"a":1}`) {
-		t.Error("the same arguments bind apart")
+	if authority.ArgumentsDigest(`{"a":1}`) == authority.ArgumentsDigest(`{"a":2}`) {
+		t.Error("other arguments bind alike")
 	}
 	if _, err := authority.CardDetailOf(authority.Approval{ID: "a1", Kind: authority.KindToolCall}); !errors.Is(err, authority.ErrBadApproval) {
 		t.Errorf("a tool call read as a card: %v", err)

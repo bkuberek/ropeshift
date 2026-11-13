@@ -201,6 +201,14 @@ func (r *Repositories) Change(ctx context.Context, scope ledger.WorkspaceID, id 
 		if err := after.Validate(); err != nil {
 			return err
 		}
+		// Raising merge authority and moving review to a pull request are never a delegate's to run with no
+		// member, so each needs an action of its own beyond changing a repository's settings (ADR-0024).
+		if after.Level().Rank() > before.Level().Rank() && !authority.Allowed(actor, authority.ActionRaiseMergeAuthority) {
+			return workorders.ErrForbidden
+		}
+		if after.ReviewTarget == ledger.ReviewOnPullRequest && before.ReviewTarget != ledger.ReviewOnPullRequest && !authority.Allowed(actor, authority.ActionReviewPullRequest) {
+			return workorders.ErrForbidden
+		}
 		if err := needsBinding(after, change); err != nil {
 			return err
 		}

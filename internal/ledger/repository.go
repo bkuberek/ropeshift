@@ -106,6 +106,17 @@ const (
 // PersonDecides reports a level at which a member answers for each change after the review.
 func (a MergeAuthority) PersonDecides() bool { return a != ReviewApproves }
 
+// Rank orders the levels by how much each leaves to ropeshift: a higher level raises merge authority.
+func (a MergeAuthority) Rank() int {
+	switch a {
+	case PersonApproves:
+		return 1
+	case ReviewApproves:
+		return 2
+	}
+	return 0
+}
+
 // ErrInvalidRepository marks a record, or a change to one, that the ledger must not accept.
 var ErrInvalidRepository = errors.New("invalid repository")
 

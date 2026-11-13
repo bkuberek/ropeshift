@@ -10,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // What sign-in leaves in the installation's log, because members are every project's. Each names a
@@ -133,6 +134,9 @@ func (s *Sessions) Member(ctx context.Context, scope ledger.WorkspaceID, token s
 
 // End closes a session for good, so its token opens nothing, even in a browser that keeps it.
 func (s *Sessions) End(ctx context.Context, scope ledger.WorkspaceID, token string, actor ledger.Actor) error {
+	if !authority.Allowed(actor, authority.ActionManageSessions) {
+		return workorders.ErrForbidden
+	}
 	return s.store.Installation(scope).Write(ctx, "member.sign_out", func(tx ports.SharedTx) error {
 		if err := tx.Members().DropSession(digestOf(token)); err != nil {
 			return err

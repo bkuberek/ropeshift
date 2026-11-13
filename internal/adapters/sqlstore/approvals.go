@@ -137,10 +137,10 @@ func (t approvalTx) Due(now int64) ([]string, error) {
 }
 
 func (t approvalTx) Insert(a authority.Approval) (bool, error) {
-	// A plan approval belongs to a plan and not to a lane, and the table holds no empty lane for any
-	// other kind, so the lane, the work order, and the generation are empty only for that kind.
+	// A plan approval belongs to a plan and a card to the operation it runs, not to a lane, and the table
+	// holds no empty lane for any other kind, so the generation is empty only for those kinds.
 	var generation sql.NullInt64
-	if a.Kind != authority.KindPlan {
+	if a.Kind != authority.KindPlan && a.Kind != authority.KindConfirm {
 		generation = sql.NullInt64{Int64: a.Generation, Valid: true}
 	}
 	planVersion := sql.NullInt64{Int64: a.PlanVersion, Valid: a.PlanVersion != 0}

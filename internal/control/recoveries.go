@@ -579,3 +579,15 @@ func recoveryMoved(tx ports.WriteTx, request authority.Approval) (bool, error) {
 	}
 	return subject.digest(act) != request.SubjectDigest, nil
 }
+
+// AttemptsLeft says whether a work order has an attempt left under the recovery policy in force, which
+// decides whether a delegate's retry is operational or consent (ADR-0024).
+func (r *Recoveries) AttemptsLeft(ctx context.Context, scope ledger.WorkspaceID, order workorders.WorkOrder) (bool, error) {
+	var left bool
+	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		byDefault, err := defaultAttempts(tx.Policies())
+		left = order.AttemptsLeft(byDefault)
+		return err
+	})
+	return left, err
+}

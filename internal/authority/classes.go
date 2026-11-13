@@ -259,13 +259,18 @@ func Strictest(ops []Operation) OperationClass {
 	return class
 }
 
-// delegateGrants are the actions an operation a delegate may run needs: an operational or exemptable
-// consent operation of a project. A delegate reaches no installation route, so it holds nothing an
+// DelegateMayRun says an operation is one a delegate's call can run as the delegate: an operational or
+// exemptable consent operation of a project. A delegate reaches no installation route.
+func (o Operation) DelegateMayRun() bool {
+	return !o.Installation && (o.Class == ClassOperational || (o.Class == ClassConsent && o.Exemptable))
+}
+
+// delegateGrants are the actions an operation a delegate may run needs. A delegate holds nothing an
 // installation operation needs, and a never-exempt or member-only operation needs something it lacks.
 var delegateGrants = func() map[Action]bool {
 	grants := map[Action]bool{}
 	for _, op := range operations {
-		if op.Installation || !(op.Class == ClassOperational || (op.Class == ClassConsent && op.Exemptable)) {
+		if !op.DelegateMayRun() {
 			continue
 		}
 		for _, action := range op.Actions {
