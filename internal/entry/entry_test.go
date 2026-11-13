@@ -285,6 +285,26 @@ func TestAPackBudgetComesFromTheUserLayer(t *testing.T) {
 	}
 }
 
+func TestALaneBranchPrefixComesFromTheUserLayer(t *testing.T) {
+	dir := t.TempDir()
+	paths := api.Paths{StateDir: dir}
+	if got := soloLaneBranchPrefix(paths); got != "lane/" {
+		t.Errorf("no layer gives the prefix %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, profiles.UserFile), []byte("[worktree]\nbranch_prefix = \"rs/\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := soloLaneBranchPrefix(paths); got != "rs/" {
+		t.Errorf("the user layer gives %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, profiles.UserFile), []byte("not toml ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := soloLaneBranchPrefix(paths); got != "lane/" {
+		t.Errorf("a layer that does not parse gives %q, and the built-in layer names the prefix", got)
+	}
+}
+
 func TestBatchLimitsComeFromTheUserLayer(t *testing.T) {
 	dir := t.TempDir()
 	paths := api.Paths{StateDir: dir}

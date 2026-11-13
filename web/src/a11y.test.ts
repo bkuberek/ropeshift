@@ -65,6 +65,23 @@ async function answer(route: Route): Promise<void> {
   if (admin[path]) {
     return json(admin[path] ?? "{}");
   }
+  // A plan, a request to approve one that has no plan yet, the outline of a planning lane, and the sources the
+  // daemon reads.
+  if (path.startsWith("/v1/plans/adopt-approval")) {
+    return json(JSON.stringify({ error: { code: "not_found", message: "no such plan" } }), 404);
+  }
+  if (path.startsWith("/v1/plans/") && goldens.plan) {
+    return json(goldens.plan);
+  }
+  if (path === "/v1/approvals/adopt-approval" && goldens["approval-adopted"]) {
+    return json(goldens["approval-adopted"]);
+  }
+  if (/^\/v1\/lanes\/[^/]+\/outline$/.test(path) && goldens.outline) {
+    return json(goldens.outline);
+  }
+  if (path === "/v1/sources") {
+    return json(JSON.stringify({ sources: [] }));
+  }
   if (path === "/v1/events") {
     return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": open\n\n" });
   }
@@ -78,9 +95,19 @@ const views = [
   "/needs-you?item=plan_approval%3Agenerated-11",
   "/projects/default/roadmap",
   "/projects/default/plans",
+  "/projects/default/plan?id=generated-1&version=6",
+  "/projects/default/plan?id=generated-1&version=5",
+  "/projects/default/plan?id=adopt-approval&version=1",
+  "/projects/default/planning",
+  "/projects/default/planning?lane=lane-wo-running",
   "/projects/default/documents?kind=requirements",
   "/projects/default/documents?kind=spec",
+  "/projects/default/documents?id=spec%3Afactory-api",
+  "/projects/default/documents?id=spec%3Afactory-api&version=2&against=1",
+  "/projects/default/documents?kind=requirements&key=FAC-2",
   "/projects/default/documents?path=docs%2Fspecs%2Fretry.md",
+  "/projects/default/traceability",
+  "/projects/default/traceability?key=FAC-2",
   "/projects/default/decisions",
   "/projects/default/questions",
   "/projects/default/work?group=all",
@@ -209,6 +236,18 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         await page.getByRole("menuitem").first().click();
         await page.getByRole("dialog").waitFor();
         found.push(...(await audit(page)).map((violation) => `lane act dialog ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.goto(`${base}/projects/default/roadmap`);
+        await ready(page);
+        await page.getByRole("button", { name: "Start planning session" }).first().click();
+        await page.getByRole("dialog", { name: "Start planning session" }).waitFor();
+        found.push(...(await audit(page)).map((violation) => `start planning session dialog ${violation}`));
+        await page.keyboard.press("Escape");
+        await page.goto(`${base}/projects/default/plan?id=generated-1&version=6`);
+        await ready(page);
+        await page.getByRole("button", { name: "Decline…" }).click();
+        await page.getByRole("dialog", { name: "Decline version 6" }).waitFor();
+        found.push(...(await audit(page)).map((violation) => `decline dialog ${violation}`));
         await page.keyboard.press("Escape");
         if (size === "phone") {
           await page.getByRole("button", { name: "Views" }).click();

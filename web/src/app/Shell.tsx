@@ -24,6 +24,7 @@ export const navGroups: { name: string; items: NavItem[] }[] = [
     items: [
       { view: "roadmap", icon: "roadmap" },
       { view: "plans", icon: "plan" },
+      { view: "planning", icon: "flag" },
       { view: "documents", icon: "doc" },
       { view: "decisions", icon: "decision" },
       { view: "questions", icon: "question" },

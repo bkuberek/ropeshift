@@ -197,7 +197,8 @@ describe("Import an existing project", () => {
     await userEvent.click(await screen.findByRole("radio", { name: /web/ }));
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
     await userEvent.click(screen.getByRole("button", { name: "Start adopt session" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/projects/tidewater/lane"));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/tidewater/planning"));
+    expect(window.location.search).toMatch(/^\?lane=[0-9A-Z]{26}$/);
     const steps = sent.filter((call) => call.method !== "GET").map((call) => `${call.method} ${call.project || "-"} ${call.path.replace(/\/[0-9A-Z]{26}(\/|$)/, "/ID$1")}`);
     expect(steps).toEqual([
       "POST - /v1/projects",
@@ -240,6 +241,28 @@ describe("Settings", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
     expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toContain("[recovery_policy]\nversion = 3\n");
+  });
+
+  it("keeps an edit made the moment the saved policy appears", async () => {
+    serveAdmin();
+    openPage(here("/settings?section=recovery"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Recovery policy" })).toBeTruthy();
+    // The edit lands as the fields are inserted, before React has run the effects of the render that
+    // brought the saved policy.
+    const edit = await new Promise<void>((done) => {
+      const watch = new MutationObserver(() => {
+        const field = screen.queryByLabelText(/Attempts per work order/);
+        if (field) {
+          watch.disconnect();
+          fireEvent.change(field, { target: { value: "5" } });
+          done();
+        }
+      });
+      watch.observe(document.body, { childList: true, subtree: true });
+    });
+    await edit;
+    expect(await screen.findByText("max_attempts 3 → 5")).toBeTruthy();
+    expect((screen.getByLabelText(/Attempts per work order/) as HTMLInputElement).value).toBe("5");
   });
 
   it("reverts to an earlier version by recording it as the newest", async () => {

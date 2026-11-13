@@ -255,6 +255,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Identity: localauth.New(store, localauth.DefaultParams), Batches: batches, Windows: windows, PackTokens: soloPackTokens(paths),
 		Telemetry: telemetry.store,
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
+		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
 		Checkouts: kept, ModelClasses: soloModelClasses(paths),
 		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
 	}
@@ -626,16 +627,24 @@ func soloStarts(opts soloOptions, kept ports.Checkouts) *control.Starts {
 	return &control.Starts{Bases: gitcli.Worktrees{}, Checkout: checkoutOf(opts, kept)}
 }
 
-// acceptedCommits reads a project's repository at the commit a person accepted, under the same directory
-// the daemon reads it in. A lane's branch lives in the repository its worktree came from.
-func acceptedCommits(opts soloOptions, kept ports.Checkouts, project ledger.WorkspaceID) control.PlanSource {
+// branchSource opens a project's repository at a branch or a commit, under the same directory the daemon
+// reads it in. A lane's branch lives in the repository its worktree came from.
+func branchSource(opts soloOptions, kept ports.Checkouts) server.BranchSource {
 	repository := checkoutOf(opts, kept)
-	return func(ctx context.Context, id, commit string) (ports.WorkSource, error) {
+	return func(ctx context.Context, project ledger.WorkspaceID, id, ref string) (ports.WorkSource, error) {
 		path, err := repository(ctx, project, id)
 		if err != nil {
 			return nil, err
 		}
-		return repofiles.New(repofiles.Config{Repository: path, Ref: commit, Directory: opts.directory}), nil
+		return repofiles.New(repofiles.Config{Repository: path, Ref: ref, Directory: opts.directory}), nil
+	}
+}
+
+// acceptedCommits reads a project's repository at the commit a person accepted.
+func acceptedCommits(opts soloOptions, kept ports.Checkouts, project ledger.WorkspaceID) control.PlanSource {
+	open := branchSource(opts, kept)
+	return func(ctx context.Context, id, commit string) (ports.WorkSource, error) {
+		return open(ctx, project, id, commit)
 	}
 }
 
@@ -712,6 +721,20 @@ func soloPackTokens(paths api.Paths) int64 {
 		return 0
 	}
 	return profile.Context.PackBudgetTokens
+}
+
+// soloLaneBranchPrefix reads what the name of a lane's branch begins with from the user's layer. A layer
+// that does not parse leaves the built-in prefix, and a lane that reads it reports the fault.
+func soloLaneBranchPrefix(paths api.Paths) string {
+	raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		raw = nil
+	}
+	profile, err := profiles.Resolve(string(raw))
+	if err != nil {
+		profile, _ = profiles.Resolve("")
+	}
+	return profile.Worktree.BranchPrefix
 }
 
 // soloWindows reads how long a message stays useful from the user's layer. A layer that does not

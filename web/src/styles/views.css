@@ -515,12 +515,6 @@ p + .kv {
   font-weight: 500;
 }
 
-.chips > li.chip-critical {
-  color: var(--text);
-  border-color: var(--text);
-  font-weight: 600;
-}
-
 .list-rows,
 .record-list {
   display: flex;
@@ -638,10 +632,6 @@ a.list-row-title:hover {
   font-size: var(--fs-14);
   line-height: var(--lh-reading);
   max-width: 72ch;
-}
-
-.statement-page {
-  margin-bottom: var(--s-12);
 }
 
 .lineage {
@@ -766,23 +756,10 @@ details.older[open] > summary {
   margin-bottom: var(--s-2);
 }
 
-/* Roadmap and plans */
-.plan-map {
-  display: grid;
-  gap: var(--s-16);
-}
-
-.plan-part + .plan-part,
-.chips + .plan-part,
 .progress + .chips {
   margin-top: var(--s-16);
 }
 
-.chips + .plan-part {
-  margin-top: var(--s-16);
-}
-
-.plan-part-title,
 .version-title {
   font-size: var(--fs-12);
   line-height: var(--lh-12);
@@ -796,69 +773,14 @@ details.older[open] > summary {
 .milestones {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--r-6);
-  overflow: hidden;
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
 
-.milestone {
-  padding: var(--s-8) var(--s-12);
-  border-top: 1px solid var(--border);
-}
-
-.milestone:first-child {
-  border-top: 0;
-}
-
-.milestone-title {
-  font-weight: 500;
-}
-
-.milestone .progress,
 .list-row .progress {
   margin-top: var(--s-6);
   max-width: 420px;
-}
-
-.layers {
-  list-style: none;
-}
-
-.layer-title {
-  font-size: var(--fs-11);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-3);
-}
-
-.layer-works {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-6);
-}
-
-.layer-work {
-  border: 1px solid var(--border);
-  border-radius: var(--r-6);
-  background: var(--surface);
-  padding: var(--s-6) var(--s-8);
-  font-size: var(--fs-12);
-  line-height: var(--lh-12);
-}
-
-.layer-work-critical {
-  border-color: var(--text);
-  box-shadow: inset 2px 0 0 var(--text);
-}
-
-.layer-work-title {
-  font-weight: 500;
-  font-size: var(--fs-13);
-}
-
-.plan-waiting {
-  margin-top: var(--s-8);
 }
 
 .contract-work-title {
@@ -942,11 +864,6 @@ details.older[open] > summary {
   display: flex;
   flex-direction: column;
   gap: var(--s-8);
-}
-
-.trace-key {
-  font-family: var(--font-mono);
-  font-size: var(--fs-12);
 }
 
 /* Measures */
@@ -1097,4 +1014,211 @@ details.older[open] > summary {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
+}
+
+/* ---------- Planning pane ---------- */
+.planning {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  height: auto;
+}
+
+.planning .grid-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+.convo-head {
+  padding: var(--s-12) var(--s-16);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: inset 0 3px 0 var(--t);
+}
+
+.convo-head-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  min-width: 0;
+}
+
+.convo-title {
+  font-size: var(--fs-16);
+  line-height: var(--lh-16);
+  min-width: 0;
+}
+
+.convo-which {
+  margin-top: var(--s-6);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  display: flex;
+  gap: var(--s-6);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.convo-can {
+  margin-top: var(--s-4);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-2);
+}
+
+.convo-term {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.convo-term .pane {
+  margin-top: 0;
+  padding: var(--s-12) var(--s-16);
+}
+
+.convo-term .pane-screen {
+  max-height: none;
+  min-height: 240px;
+}
+
+.pane-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  padding: var(--s-6) var(--s-12);
+  font-size: var(--fs-12);
+  background: var(--t-bg);
+  color: var(--t);
+  border-bottom: 1px solid var(--border);
+  min-height: 32px;
+}
+
+.pane-parked {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+}
+
+.outline {
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  overflow: auto;
+}
+
+.outline-title {
+  margin-bottom: var(--s-4);
+}
+
+/* ---------- Documents and traceability ---------- */
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.tree-title {
+  padding: var(--s-12) var(--s-8) var(--s-4);
+}
+
+.tree-title:first-child {
+  padding-top: 0;
+}
+
+.tree-none {
+  padding: 0 var(--s-8);
+}
+
+.reqs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--s-12);
+}
+
+.req a.id {
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.req a.id:hover {
+  text-decoration: underline;
+}
+
+.doc-meta {
+  margin-bottom: var(--s-8);
+}
+
+.doc-facts {
+  margin-bottom: var(--s-12);
+}
+
+.compare {
+  margin-bottom: var(--s-12);
+}
+
+.trace-gap {
+  color: var(--warning);
+}
+
+.trace-panel .trace {
+  max-width: 100%;
+}
+
+tr.selected td {
+  background: var(--selected);
+}
+
+/* ---------- Roadmap ---------- */
+.plan-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-12);
+  flex-wrap: wrap;
+}
+
+.plan-title {
+  font-size: var(--fs-14);
+}
+
+.layer-cards {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+
+.wo-card.legend {
+  display: inline-block;
+  padding: 0 var(--s-6);
+}
+
+/* ---------- Plan approval ---------- */
+.sticky {
+  position: sticky;
+  top: var(--s-16);
+}
+
+.diff-title {
+  margin-bottom: var(--s-6);
+}
+
+.drafts {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* The traceability matrix wraps a requirement's text, which runs long. */
+.table.matrix td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.table.matrix td .id {
+  display: inline;
+  max-width: none;
 }

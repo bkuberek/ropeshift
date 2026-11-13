@@ -71,6 +71,7 @@ var operations = map[string]string{
 	"GET /v1/workers":                                  "worker list",
 	"GET /v1/lanes":                                    "lane list",
 	"GET /v1/lanes/{id}":                               "lane show",
+	"GET /v1/lanes/{id}/outline":                       "lane outline",
 	"GET /v1/fleet":                                    "fleet show",
 	"PUT /v1/fleet/mode":                               "fleet run",
 	"PUT /v1/fleet/caps":                               "fleet caps",

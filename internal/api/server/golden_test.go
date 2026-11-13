@@ -15,8 +15,10 @@ import (
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/roster"
 	"ropeshift.com/ropeshift/internal/workorders"
@@ -215,6 +217,93 @@ func TestFixtureCoversEveryState(t *testing.T) {
 		}
 	}
 	holdsGolden(t, "every-state", steady(pretty(t, fixture)))
+}
+
+// TestGoldenPlan writes a plan as the plan approval page reads it: with its versions, and with the request
+// that waits and the one a member decided, which a version asked for by number gives.
+func TestGoldenPlan(t *testing.T) {
+	d := aDetailedWorld(t)
+	var id string
+	for _, row := range readView[api.Plans](t, d, api.ViewPlans, "").Plans {
+		if row.PendingVersion != 0 {
+			id = row.Plan.ID
+		}
+	}
+	if id == "" {
+		t.Fatal("the world holds no plan with a version that waits")
+	}
+	waiting, err := d.Client.Plan(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "plan", steady(pretty(t, waiting)))
+	for _, line := range waiting.Versions {
+		if line.State != authority.ApprovalApproved {
+			continue
+		}
+		approved, err := d.Client.PlanVersion(t.Context(), id, line.Version)
+		if err != nil {
+			t.Fatal(err)
+		}
+		holdsGolden(t, "plan-approved", steady(pretty(t, approved)))
+		return
+	}
+	t.Fatal("the plan has no approved version")
+}
+
+// TestGoldenAdoptedApproval writes the request to approve an adopted plan's first version, which the
+// ledger holds no plan for yet, as the plan approval page reads it.
+func TestGoldenAdoptedApproval(t *testing.T) {
+	d, _, _ := aWorld(t)
+	adoption := planning.Adoption{
+		Exists:    []planning.ExistingRecord{{Ref: "requirement:SHOP-1", Title: "One client", Evidence: []string{"shop:client.go", "shop:client_test.go"}, Cites: []string{"requirement:SHOP-2"}}},
+		Continues: []planning.ContinuedWork{{Contract: "contract:retry", WorkOrder: "retry-finish", Title: "Finish the retry", Repo: "shop", Branch: "feature/retry"}},
+		New:       []planning.NewRecord{{Ref: "milestone:m2", Title: "Saved carts", WorkOrders: []string{"carts-storage"}}},
+		LeftOut:   []planning.LeftOut{{Ref: "branch:spike/old-ui", Reason: "Abandoned in favor of the new checkout"}},
+		Changes: []planning.FileChange{
+			{Status: planning.ChangeAdded, Path: "plans/plan.md"}, {Status: planning.ChangeMoved, Path: "docs/payments.md", From: "notes/payments.md"},
+			{Status: planning.ChangeChanged, Path: "docs/requirements.md"},
+		},
+	}
+	detail, err := json.Marshal(planning.PlanDetail{Title: "Adopt shop", Ref: "shop", Counts: map[string]int{"requirements": 1, "milestone": 2, "contract": 3}, Decisions: 1, Adoption: &adoption, Source: "abc1234"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := authority.Approval{
+		ID: "adopt-approval", Kind: authority.KindPlan, WorkOrder: "adopt-1", Subject: "shop@1", SubjectDigest: "sha256:abc", Summary: "Plan Adopt shop, version 1",
+		RequestedBy: "lane:lane-1", State: authority.ApprovalPending, RaisedAt: 1, PlanVersion: 1, Detail: string(detail),
+	}
+	err = d.Store.Write(t.Context(), apitest.Scope, "test.approval", func(tx ports.WriteTx) error {
+		if _, err := tx.Approvals().Insert(request); err != nil {
+			return err
+		}
+		event, err := authority.ApprovalEvent(request, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"})
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown authority.Approval
+	if err := d.Client.Do(t.Context(), http.MethodGet, d.Client.Route("/v1/approvals/adopt-approval"), nil, &shown); err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "approval-adopted", steady(pretty(t, shown)))
+}
+
+// TestGoldenOutline writes the outline of a planning session as the planning pane reads it.
+func TestGoldenOutline(t *testing.T) {
+	d, w, _ := aPlanningSession(t)
+	askedBy(t, w, "question-blocking", "Hourly or daily?", true)
+	outline, err := d.Client.Outline(t.Context(), outlineLane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdsGolden(t, "outline", steady(pretty(t, outline)))
+	holdsGolden(t, "outline-unread", pretty(t, api.PlanOutline{Unread: "the lane recorded no commit its branch began at"}))
 }
 
 // TestGoldenWebRoutes writes the closed list of what the web listener serves, so a web test can hold

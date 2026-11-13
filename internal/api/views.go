@@ -278,16 +278,18 @@ type PlanReview struct {
 }
 
 // PlanDetail is a plan, its contract versions, and its review results. Milestones are the plan's
-// milestones in priority order, which a contract names by ID, and PendingVersion is the plan version
-// whose approval waits for a member, or 0 when none does.
+// milestones in priority order, which a contract names by ID, PendingVersion is the plan version
+// whose approval waits for a member, or 0 when none does, and ApprovedVersion is the newest version a
+// member approved, which is the one in force, or 0 when none is.
 type PlanDetail struct {
-	Plan           planning.Plan          `json:"plan"`
-	Goal           *planning.Goal         `json:"goal,omitempty"`
-	Contracts      []ContractHistory      `json:"contracts"`
-	Reviews        []PlanReview           `json:"reviews"`
-	WorkOrders     []workorders.WorkOrder `json:"work_orders"`
-	Milestones     []MilestoneProgress    `json:"milestones"`
-	PendingVersion int64                  `json:"pending_version,omitempty"`
+	Plan            planning.Plan          `json:"plan"`
+	Goal            *planning.Goal         `json:"goal,omitempty"`
+	Contracts       []ContractHistory      `json:"contracts"`
+	Reviews         []PlanReview           `json:"reviews"`
+	WorkOrders      []workorders.WorkOrder `json:"work_orders"`
+	Milestones      []MilestoneProgress    `json:"milestones"`
+	PendingVersion  int64                  `json:"pending_version,omitempty"`
+	ApprovedVersion int64                  `json:"approved_version,omitempty"`
 }
 
 // Plans is the plans and contracts view. Unplanned is work no plan holds, which stands nowhere else

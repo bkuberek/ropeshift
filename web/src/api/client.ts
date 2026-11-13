@@ -1,5 +1,5 @@
 import { splitProject } from "../app/route";
-import type { DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, ProjectList, RecordedRead, Search, WorkAction } from "./types";
+import type { ApprovalRecord, DocumentRef, DocumentRow, DocumentVersions, EffectOutcome, NeedsYou, PlanOutline, PlanView, ProjectList, RecordedRead, Search, WorkAction } from "./types";
 
 function documentQuery({ path, instance, version }: DocumentRef): URLSearchParams {
   const query = new URLSearchParams({ path });
@@ -54,6 +54,9 @@ export const paths = {
   documentRead: (ref: DocumentRef) => project(`/documents/read?${documentQuery(ref)}`),
   documentVersions: (ref: DocumentRef) => project(`/documents/versions?${documentQuery(ref)}`),
   documentRecorded: (id: string, version = "") => project(`/documents/recorded?${new URLSearchParams(version ? { id, version } : { id })}`),
+  plan: (id: string, version = "") => project(`/plans/${encodeURIComponent(id)}${version ? `?${new URLSearchParams({ version })}` : ""}`),
+  approval: (id: string) => project(`/approvals/${encodeURIComponent(id)}`),
+  outline: (lane: string) => project(`/lanes/${encodeURIComponent(lane)}/outline`),
   answer: (id: string) => project(`/questions/${encodeURIComponent(id)}/answer`),
   decideApproval: (id: string) => project(`/approvals/${encodeURIComponent(id)}/decide`),
   decideEffect: (id: string) => project(`/effects/${encodeURIComponent(id)}/decide`),
@@ -172,6 +175,22 @@ export function readDocumentVersions(ref: DocumentRef): Promise<DocumentVersions
 // readRecorded reads a version of a planning document as the ledger stored it. No version reads the newest.
 export function readRecorded(id: string, version = ""): Promise<RecordedRead> {
   return call("GET", paths.documentRecorded(id, version));
+}
+
+// readPlan reads a plan with the request to approve it: the one waiting or the newest, or the one of a
+// version asked for by number.
+export function readPlan(id: string, version = ""): Promise<PlanView> {
+  return call("GET", paths.plan(id, version));
+}
+
+// readApproval reads one request, which is how a plan version the ledger holds no plan for yet is read.
+export function readApproval(id: string): Promise<ApprovalRecord> {
+  return call("GET", paths.approval(id));
+}
+
+// readOutline reads the plan a planning lane has committed to its branch.
+export function readOutline(lane: string): Promise<PlanOutline> {
+  return call("GET", paths.outline(lane));
 }
 
 export function signIn(passphrase: string): Promise<unknown> {
