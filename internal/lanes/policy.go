@@ -126,6 +126,8 @@ type PolicySpec struct {
 	ReadOnly bool
 	// ReadRoots, when set, are the only directories the session may read with a file tool.
 	ReadRoots []string
+	// Program, when set, is the one program the session may run in a shell.
+	Program string
 }
 
 // ReasonHandOff is what a held lane reads at its next tool call.
@@ -157,6 +159,7 @@ func CompilePolicy(spec PolicySpec) DenyPolicy {
 		OwnTools: spec.OwnTools, Roots: roots, Home: spec.Home, DefaultBranches: spec.DefaultBranches, Kept: spec.Kept, ReadOnlyRoots: spec.ReadOnlyRoots, Deny: deny, Ground: spec.Ground, QuestionTool: spec.QuestionTool,
 		AttachedMarker: spec.AttachedMarker,
 		ApprovalWaitMs: spec.ApprovalWaitMs, Gates: spec.Gates, ReadRoots: slices.Clone(spec.ReadRoots),
+		Program: spec.Program,
 	}
 }
 
@@ -185,6 +188,9 @@ func (p DenyPolicy) Decide(call ToolCall) (string, bool) {
 		if rule.Tool == call.Tool && strings.HasPrefix(call.Command, rule.CommandPrefix) {
 			return rule.Reason, true
 		}
+	}
+	if call.Tool == ToolBash && p.Program != "" && !runsOnly(call.Command, p.Program) {
+		return reasonProgram(p.Program), true
 	}
 	switch call.Tool {
 	case ToolBash:

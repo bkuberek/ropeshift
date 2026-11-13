@@ -65,12 +65,16 @@ func TestAnAssistantReadsOnlyItsTreesAndRunsOnlyRopeshift(t *testing.T) {
 		{Tool: "Grep", Path: filepath.Dir(spec.ConfigDir), Cwd: spec.Dir},
 		{Tool: "WebFetch", Cwd: spec.Dir},
 		{Tool: "WebSearch", Cwd: spec.Dir},
+		{Tool: "Bash", Command: "cat /proc/1/environ", Cwd: spec.Dir},
+		{Tool: "Bash", Command: "ropeshift lane list && ls ..", Cwd: spec.Dir},
 	} {
 		if _, denied := policy.Decide(call); !denied {
 			t.Errorf("the hook's policy lets an assistant %+v", call)
 		}
 	}
-	for _, call := range []lanes.ToolCall{{Tool: "Read", Path: tree + "/main.go", Cwd: spec.Dir}, {Tool: "Grep", Cwd: spec.Dir}} {
+	for _, call := range []lanes.ToolCall{
+		{Tool: "Read", Path: tree + "/main.go", Cwd: spec.Dir}, {Tool: "Grep", Cwd: spec.Dir}, {Tool: "Bash", Command: "ropeshift lane list", Cwd: spec.Dir},
+	} {
 		if reason, denied := policy.Decide(call); denied {
 			t.Errorf("the hook's policy denies %+v: %s", call, reason)
 		}

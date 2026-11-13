@@ -90,7 +90,11 @@ var commitRules = []string{"Bash(git add *)", "Bash(git commit *)", "Bash(git rm
 // read roots: a shell for `ropeshift` commands, which act with its credential. Any other command has no
 // rule, so it would ask, and the worker's hook denies it with a reason; every edit, every write, and the
 // web are denied outright (ADR-0024).
-var assistantRules = []string{"Bash(ropeshift *)"}
+var assistantRules = []string{"Bash(" + assistantProgram + " *)"}
+
+// assistantProgram is the one program an assistant's session runs in a shell, which its hook holds it to
+// whatever its rules or its mode let through.
+const assistantProgram = "ropeshift"
 
 // assistantDenied are the tools an assistant's session never runs: the web, through which anything it read
 // would leave.

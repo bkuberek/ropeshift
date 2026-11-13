@@ -298,3 +298,17 @@ func TestAMessageToTheOrchestratorWalksItsStates(t *testing.T) {
 		t.Fatalf("the reply reads %+v (%v)", row, err)
 	}
 }
+
+// Whatever the member's profile runs lanes in, an assistant's session runs in the mode that asks, so a
+// call no rule allows reaches the hook, which denies it.
+func TestAnAssistantRunsInTheModeThatAsks(t *testing.T) {
+	a := newAssistantRig(t, script([]fake.DriverStep{{Bound: true}, completed(0.01)}))
+	a.config.Provisioner.Profiles.(*fake.ProfileSource).PutUser(orchestratorProfile + "[agent]\npermission_mode = \"auto\"\n")
+	if _, err := a.convs.Create(t.Context(), scope, control.NewConversation{ID: "conv-1"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "an assistant's session", func() bool { return len(a.assistantSpecs()) == 1 })
+	if mode := a.assistantSpecs()[0].PermissionMode; mode != "default" {
+		t.Fatalf("an assistant runs in %q", mode)
+	}
+}

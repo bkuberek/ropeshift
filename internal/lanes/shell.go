@@ -9,10 +9,11 @@ type shellWord struct {
 	dynamic bool
 }
 
-// shellCommand is one simple command, with the targets of its writing redirects.
+// shellCommand is one simple command, with the targets of its writing redirects and of its reading ones.
 type shellCommand struct {
 	words  []shellWord
 	writes []shellWord
+	reads  []shellWord
 }
 
 // maxShellDepth bounds how far a command inside a command is read. Past it a command is
@@ -156,6 +157,7 @@ func (p *shellParser) takeWord(word shellWord) {
 		p.pending = redirectNone
 		return
 	case redirectRead:
+		p.current.reads = append(p.current.reads, word)
 		p.pending = redirectNone
 		return
 	}

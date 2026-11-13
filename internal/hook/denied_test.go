@@ -202,3 +202,23 @@ func TestTheHookDeniesASearchOutsideTheReadRoots(t *testing.T) {
 		t.Error("a search where the session stands was denied")
 	}
 }
+
+// The hook holds a session to its one program from the policy file, whatever its mode let through.
+func TestTheHookHoldsASessionToItsProgram(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "policy.json")
+	raw, err := json.Marshal(lanes.CompilePolicy(lanes.PolicySpec{Worktree: "/run/a/session", Program: "ropeshift"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policy, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{event: eventPreToolUse, policy: policy}
+	if verdict, answer := decide(cfg, []byte(`{"tool_name":"Bash","cwd":"/run/a/session","tool_input":{"command":"cat /etc/hosts"}}`)); verdict != callDenied || !strings.Contains(string(answer), "deny") {
+		t.Errorf("another program: %v %s", verdict, answer)
+	}
+	if verdict, _ := decide(cfg, []byte(`{"tool_name":"Bash","cwd":"/run/a/session","tool_input":{"command":"ropeshift lane list"}}`)); verdict == callDenied {
+		t.Error("the session's program was denied")
+	}
+}

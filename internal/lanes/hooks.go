@@ -265,6 +265,9 @@ type DenyPolicy struct {
 	// ReadRoots, when set, are the only directories a file tool may read: a read, a search, or a listing
 	// anywhere else is denied, whatever a rule allowed. None reads anywhere.
 	ReadRoots []string `json:"read_roots,omitempty"`
+	// Program, when set, is the one program a shell may run: alone, with no substitution, variable, or
+	// redirect to or from a file. Any other command is denied, whatever a rule or the session's mode allowed.
+	Program string `json:"program,omitempty"`
 	// QuestionTool says what a call of the agent's own question tool becomes.
 	QuestionTool string `json:"question_tool,omitempty"`
 	// AttachedMarker is the file a worker touches while a person is attached to the lane's pane. A

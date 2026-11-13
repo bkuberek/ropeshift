@@ -387,3 +387,15 @@ func (r *laneRun) compactWhenAsked(ctx context.Context, asked int64) {
 func assistantApproval() lanes.Reply {
 	return answer(lanes.ApprovalDeny, assistantDenial, "")
 }
+
+// assistantMode is the one permission mode an assistant's session runs in: the mode that asks, so a call no
+// rule allows reaches the hook, which denies it, whatever mode the member's profile gives lanes.
+const assistantMode = "default"
+
+// permissionMode is the mode a session runs in: its profile's, except for an assistant's.
+func (r *laneRun) permissionMode(profile lanes.Profile) string {
+	if r.assisting() {
+		return assistantMode
+	}
+	return profile.Agent.PermissionMode
+}

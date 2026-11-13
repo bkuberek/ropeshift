@@ -59,8 +59,9 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		}
 	}
 	var readRoots []string
+	program := ""
 	if spec.Assistant {
-		readRoots = readRootsOf(spec)
+		readRoots, program = readRootsOf(spec), assistantProgram
 	}
 	policy := lanes.CompilePolicy(lanes.PolicySpec{
 		Worktree: worktree, WorktreeReal: real, Home: homeOf(spec), DefaultBranches: defaultBranches(spec), Kept: spec.Kept, Writable: writable,
@@ -68,6 +69,7 @@ func compilePolicy(spec ports.SessionSpec) lanes.DenyPolicy {
 		QuestionTool:  questionTool(spec), AttachedMarker: attachedMarker(spec), OwnTools: toolRule(""), ReadOnly: spec.ReadOnly || spec.Assistant,
 		Ground:         lanes.Grounding{Contract: spec.Contract, ContractVersion: spec.ContractVersion, Pack: spec.SystemPromptFile},
 		ApprovalWaitMs: spec.ApprovalWait.Milliseconds(), Gates: deferredGates(spec), ReadRoots: readRoots,
+		Program: program,
 	})
 	if spec.Assistant {
 		for _, tool := range assistantDenied {

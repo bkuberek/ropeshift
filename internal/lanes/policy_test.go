@@ -616,3 +616,44 @@ func TestAReadOutsideTheReadRootsIsDenied(t *testing.T) {
 		t.Error("a lane with no read roots was held to them")
 	}
 }
+
+// A session held to one program runs it alone in a shell: another program, a second command, a
+// substitution, a variable, or a redirect to or from a file is denied whatever a rule or a mode allowed.
+func TestASessionHeldToOneProgramRunsNothingElse(t *testing.T) {
+	policy := CompilePolicy(PolicySpec{Worktree: "/run/a/session", Program: "ropeshift"})
+	cwd := "/run/a/session"
+	for _, command := range []string{
+		"cat /home/x/.ssh/id_ed25519",
+		"ls",
+		"ropeshift lane list && cat /etc/hosts",
+		"ropeshift lane list; ls",
+		"ropeshift lane list | sh",
+		"ropeshift lane list > /tmp/out",
+		"ropeshift orchestrator attach < /home/x/.ssh/id_ed25519",
+		"ropeshift message send --body \"$(cat /etc/hosts)\"",
+		"ropeshift message send --body \"$HOME\"",
+		"ropeshift message send --body `id`",
+		"FOO=1 ropeshift lane list",
+		"env ropeshift lane list",
+		"/usr/local/bin/ropeshift lane list",
+		"$R lane list",
+		"ropeshift lane list\ncat /etc/hosts",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); !denied || !strings.Contains(reason, "ropeshift") {
+			t.Errorf("%q: %q %v", command, reason, denied)
+		}
+	}
+	for _, command := range []string{
+		"ropeshift lane list",
+		"ropeshift lane list --json 2>&1",
+		"ropeshift message send --orchestrator atlas --body 'done; next: the $5 fix'",
+		"'ropeshift' work show WO-1",
+	} {
+		if reason, denied := policy.Decide(ToolCall{Tool: ToolBash, Command: command, Cwd: cwd}); denied {
+			t.Errorf("%q was denied: %s", command, reason)
+		}
+	}
+	if _, denied := CompilePolicy(PolicySpec{Worktree: "/w"}).Decide(ToolCall{Tool: ToolBash, Command: "ls", Cwd: "/w"}); denied {
+		t.Error("a session held to no program was held to one")
+	}
+}
