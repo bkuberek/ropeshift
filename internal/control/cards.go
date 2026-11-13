@@ -308,6 +308,27 @@ func (a *Approvals) Finish(ctx context.Context, scope ledger.WorkspaceID, id str
 	return record, err
 }
 
+// Void ends a confirmed card whose call no longer addresses what it was bound to, before the call runs.
+func (a *Approvals) Void(ctx context.Context, scope ledger.WorkspaceID, id, reason string, actor ledger.Actor) (authority.Approval, error) {
+	if !authority.Allowed(actor, authority.ActionConfirmCard) {
+		return authority.Approval{}, workorders.ErrForbidden
+	}
+	var record authority.Approval
+	err := a.store.Write(ctx, scope, "card.void", func(tx ports.WriteTx) error {
+		row, err := tx.Approvals().Approval(id)
+		if err != nil {
+			return err
+		}
+		if row.Kind != authority.KindConfirm || row.State != authority.ApprovalApproved {
+			return fmt.Errorf("%w: it is %s", authority.ErrApprovalClosed, row.State)
+		}
+		record = row
+		record.State, record.Reason = authority.ApprovalVoid, reason
+		return noteApproval(tx, record, row.State, actor)
+	})
+	return record, err
+}
+
 // Exempted records a consent operation a delegate ran with no card, naming the delegate policy version
 // that exempted it.
 func (a *Approvals) Exempted(ctx context.Context, scope ledger.WorkspaceID, subject ledger.Subject, detail authority.CardDetail, version int64, actor ledger.Actor) error {

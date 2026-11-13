@@ -273,6 +273,8 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 	if _, err := d.Client.ChangeRoster(t.Context(), roster.Change{Op: roster.OpDisable, Agent: "lookup"}); err != nil {
 		t.Fatal(err)
 	}
+	// A repository route finds its record before it says what the call would do.
+	detected(t, d, "w1", "main")
 	// bodies are what a route needs before it can say what a card would change.
 	bodies := map[string]any{
 		"POST /v1/roster/changes": api.RosterChange{Scope: roster.ScopeProject, Change: roster.Change{Op: roster.OpEnable, Agent: "lookup"}},

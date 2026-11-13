@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -35,13 +36,31 @@ type changer func(h *handler, r *http.Request, body []byte) (any, error)
 
 // routeOperation is what a changing route runs, as the class table names it (ADR-0024). ids are every
 // operation the route can run, and resolve picks among them for one call. kind is the kind of the record
-// a card for it binds to, and subject names that record when the path's {id} does not.
+// a card for it binds to, and subject names that record when the path's {id} does not. canonical reads
+// the record a path's {id} names, for a route whose handler takes a name or a prefix as well as an
+// identity, so a delegate's call, and the card it becomes, address that one record by its identity.
 type routeOperation struct {
-	ids     []string
-	resolve resolver
-	kind    string
-	subject func(h *handler, r *http.Request, body []byte) string
-	changes changer
+	ids       []string
+	resolve   resolver
+	kind      string
+	subject   func(h *handler, r *http.Request, body []byte) string
+	changes   changer
+	canonical canonicalizer
+}
+
+// canonicalizer reads the identity of the record a name, a prefix, or an identity names.
+type canonicalizer func(h *handler, ctx context.Context, named string) (string, error)
+
+func (o routeOperation) resolving(canonical canonicalizer) routeOperation {
+	o.canonical = canonical
+	return o
+}
+
+// repositoryID reads the identity of the repository a name, a prefix, or an identity names, as the
+// repository routes' handlers read it.
+func repositoryID(h *handler, ctx context.Context, named string) (string, error) {
+	record, err := h.repositories.Resolve(ctx, h.Scope, named)
+	return record.ID, err
 }
 
 func fixed(id string) routeOperation { return routeOperation{ids: []string{id}} }
@@ -135,8 +154,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/policies":                                resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
 	"POST /v1/categories":                              fixed(authority.OpCategoryAdd).about(subjectCategory).named(bodyField("name")),
 	"POST /v1/repositories":                            fixed(authority.OpRepositoryRegister),
-	"PATCH /v1/repositories/{id}":                      resolved(repositoryOperation, repositoryOperations...).about(ledger.SubjectRepository).showing(repositoryChanges),
-	"POST /v1/repositories/{id}/remove":                fixed(authority.OpRepositoryRemove).about(ledger.SubjectRepository),
+	"PATCH /v1/repositories/{id}":                      resolved(repositoryOperation, repositoryOperations...).about(ledger.SubjectRepository).showing(repositoryChanges).resolving(repositoryID),
+	"POST /v1/repositories/{id}/remove":                fixed(authority.OpRepositoryRemove).about(ledger.SubjectRepository).resolving(repositoryID),
 	"POST /v1/approvals/{id}/decide":                   resolved(approvalOperation, authority.OpApprovalDecideDelegated, authority.OpApprovalDecide, authority.OpCardConfirm).about(authority.SubjectApproval),
 	"POST /v1/effects/{id}/decide":                     fixed(authority.OpEffectDecide).about(ledger.SubjectEffect),
 	"POST /v1/messages":                                fixed(authority.OpMessageSend),
@@ -357,6 +376,16 @@ func (h *handler) delegated(w http.ResponseWriter, r *http.Request, credential a
 	if !known && !changes(r.Method) {
 		return actor, nil, true
 	}
+	// A record a handler finds by a name or a prefix is found once, here, and the call goes on naming it by
+	// its identity, so the class, the card, and the handler all read the same record.
+	if known && route.canonical != nil {
+		id, err := route.canonical(h, r.Context(), r.PathValue("id"))
+		if err != nil {
+			fail(w, err)
+			return actor, nil, false
+		}
+		r.SetPathValue("id", id)
+	}
 	var ids []string
 	var oneWay bool
 	if known {
@@ -459,9 +488,33 @@ func (h *handler) cardDetail(r *http.Request, body []byte, route routeOperation,
 	}, binding, nil
 }
 
+// routePath is a call's path as its route's pattern spells it with the request's path values, so a value
+// read again, such as a record's identity in place of its name, is the one the path holds.
+func routePath(r *http.Request) string {
+	_, pattern, found := strings.Cut(r.Pattern, " ")
+	if !found {
+		return r.URL.EscapedPath()
+	}
+	var b strings.Builder
+	for {
+		start := strings.Index(pattern, "{")
+		if start < 0 {
+			b.WriteString(pattern)
+			return b.String()
+		}
+		end := strings.Index(pattern[start:], "}")
+		if end < 0 {
+			return r.URL.EscapedPath()
+		}
+		b.WriteString(pattern[:start])
+		b.WriteString(url.PathEscape(r.PathValue(pattern[start+1 : start+end])))
+		pattern = pattern[start+end+1:]
+	}
+}
+
 // projectPath is the full project-scoped path of a call a project's routes serve.
 func projectPath(r *http.Request) string {
-	path := r.URL.EscapedPath()
+	path := routePath(r)
 	if project, ok := projectOf(r.Context()); ok {
 		path = projectPrefix + url.PathEscape(project.Name) + strings.TrimPrefix(path, "/v1")
 	}
@@ -549,6 +602,16 @@ func (h *handler) confirmCard(w http.ResponseWriter, r *http.Request, decision a
 		reply(w, http.StatusOK, confirmed.Card)
 		return
 	}
+	if moved, err := h.movedSince(r.Context(), confirmed.Card); err != nil || moved != "" {
+		if err == nil {
+			_, err = h.approvals.Void(r.Context(), h.Scope, confirmed.Card.ID, moved, actor)
+		}
+		if err == nil {
+			err = fmt.Errorf("%w: %s", authority.ErrStaleDigest, moved)
+		}
+		fail(w, err)
+		return
+	}
 	ran, refusal := h.replay(r, confirmed.Card)
 	finished, err := h.approvals.Finish(r.Context(), h.Scope, confirmed.Card.ID, ran, refusal, actor)
 	if err != nil {
@@ -556,6 +619,24 @@ func (h *handler) confirmCard(w http.ResponseWriter, r *http.Request, decision a
 		return
 	}
 	reply(w, http.StatusOK, finished)
+}
+
+// movedSince says why a confirmed card no longer addresses what it was bound to, or nothing when it
+// still does. A repository's call reaches its record by a name or a prefix as well as its identity, so the
+// identity the card holds must still read as that record and no other.
+func (h *handler) movedSince(ctx context.Context, card authority.Approval) (string, error) {
+	kind, id, _ := strings.Cut(card.Subject, ":")
+	if kind != ledger.SubjectRepository {
+		return "", nil
+	}
+	resolved, err := repositoryID(h, ctx, id)
+	if err == nil && resolved == id {
+		return "", nil
+	}
+	if err != nil && !errors.Is(err, ports.ErrNotFound) && !errors.Is(err, ledger.ErrInvalidRepository) {
+		return "", err
+	}
+	return "The record the card names no longer reads as the one it was prepared for.", nil
 }
 
 // replay runs a card's call as the member who confirmed it, and says whether the API ran it, with its
