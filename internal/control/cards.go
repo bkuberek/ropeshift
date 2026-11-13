@@ -329,6 +329,55 @@ func (a *Approvals) Void(ctx context.Context, scope ledger.WorkspaceID, id, reas
 	return record, err
 }
 
+// CardRunMs is how long a confirmed card's call may run before a sweep takes it for interrupted. A call
+// runs in the request that confirmed the card and takes far less, so a card approved this long ago with
+// no outcome lost its call to a crash.
+const CardRunMs int64 = 10 * 60 * 1000
+
+// interrupted is what a card whose call a crash interrupted says.
+const interrupted = "interrupted; check the audit"
+
+var cardSweep = ledger.Actor{Kind: ledger.ActorSystem, ID: "card-sweep"}
+
+// FailInterrupted fails each confirmed card approved more than bound milliseconds ago whose call recorded
+// no outcome, because a crash between the approval and the outcome leaves it running for good. The audit
+// says whether its call ran. Each is read again in a transaction of its own.
+func (a *Approvals) FailInterrupted(ctx context.Context, scope ledger.WorkspaceID, bound int64) ([]string, error) {
+	var running []string
+	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
+		now, err := tx.Now()
+		if err != nil {
+			return err
+		}
+		running, err = tx.Approvals().Running(now - bound)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	var failed []string
+	for _, id := range running {
+		var changed bool
+		err := a.store.Write(ctx, scope, "card.interrupted", func(tx ports.WriteTx) error {
+			row, err := tx.Approvals().Approval(id)
+			if err != nil || row.Kind != authority.KindConfirm || row.State != authority.ApprovalApproved || row.DecidedAt > tx.Now()-bound {
+				return err
+			}
+			next := row
+			next.State, next.Reason = authority.ApprovalFailed, interrupted
+			changed = true
+			return noteApproval(tx, next, row.State, cardSweep)
+		})
+		if err != nil {
+			return failed, err
+		}
+		if changed {
+			failed = append(failed, id)
+		}
+	}
+	return failed, nil
+}
+
 // Exempted records a consent operation a delegate ran with no card, naming the delegate policy version
 // that exempted it.
 func (a *Approvals) Exempted(ctx context.Context, scope ledger.WorkspaceID, subject ledger.Subject, detail authority.CardDetail, version int64, actor ledger.Actor) error {

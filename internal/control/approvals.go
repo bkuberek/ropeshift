@@ -373,8 +373,9 @@ func expireApproval(tx ports.WriteTx, row authority.Approval) error {
 	return noteApproval(tx, next, row.State, approvalExpiry)
 }
 
-// ExpireDue closes the requests past their time, each in a short transaction of its own. A list a
-// tick read with no lock can be stale, so each is read again.
+// ExpireDue closes the requests past their time, each in a short transaction of its own, and fails the
+// cards a crash left running (FailInterrupted). A list a tick read with no lock can be stale, so each is
+// read again.
 func (a *Approvals) ExpireDue(ctx context.Context, scope ledger.WorkspaceID) ([]string, error) {
 	var due []string
 	err := a.store.Read(ctx, scope, func(tx ports.ReadTx) error {
@@ -402,7 +403,8 @@ func (a *Approvals) ExpireDue(ctx context.Context, scope ledger.WorkspaceID) ([]
 		}
 		expired = append(expired, id)
 	}
-	return expired, nil
+	interrupted, err := a.FailInterrupted(ctx, scope, CardRunMs)
+	return append(expired, interrupted...), err
 }
 
 // List reads the requests of a workspace, oldest first, which a state narrows.

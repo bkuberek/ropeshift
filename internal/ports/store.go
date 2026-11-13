@@ -536,6 +536,9 @@ type ApprovalReader interface {
 	OfWorkOrder(workOrder string) ([]authority.Approval, error)
 	// All lists every request, oldest first.
 	All() ([]authority.Approval, error)
+	// Running lists the confirmed cards a member approved by a time whose call has recorded no outcome,
+	// oldest first.
+	Running(before int64) ([]string, error)
 	// Due lists the live requests past their time. A tick reads this with no lock, so each is read
 	// again in its own transaction.
 	Due(now int64) ([]string, error)

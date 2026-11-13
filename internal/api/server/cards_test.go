@@ -1,14 +1,18 @@
 package server_test
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/api/server"
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
 
@@ -115,5 +119,40 @@ func TestACardReplaysOnlyAgainstItsRecord(t *testing.T) {
 	row, err := d.Client.Approval(ctx, card.ID)
 	if err != nil || row.State != authority.ApprovalVoid {
 		t.Errorf("the card is %+v: %v", row, err)
+	}
+}
+
+// TestAConfirmedCardRunsWhenItsClientGoesAway holds a confirmation to its end: the card was approved, so
+// its call runs and its outcome is kept even when the member's client disconnects before the answer.
+func TestAConfirmedCardRunsWhenItsClientGoesAway(t *testing.T) {
+	d := apitest.Start(t)
+	createReady(t, d, "w1")
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	_, err := asDelegate(t, d.Socket, created.Token, apitest.ProjectName).CancelWork(t.Context(), "w1", api.CancelWork{Reason: "Dropped."})
+	card := preparedCard(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	server.WhenConfirmed(t, func(served context.Context) {
+		cancel()
+		select {
+		case <-served.Done():
+		case <-time.After(5 * time.Second):
+		}
+	})
+	if _, err := d.Client.DecideApproval(ctx, card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: true}); err == nil {
+		t.Fatal("the confirmation answered a client that went away")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	var row authority.Approval
+	for time.Now().Before(deadline) {
+		if row, err = d.Client.Approval(t.Context(), card.ID); err == nil && row.State != authority.ApprovalApproved {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if row.State != authority.ApprovalUsed {
+		t.Fatalf("the card is %s: %s", row.State, row.Reason)
+	}
+	if order, err := d.Client.WorkOrder(t.Context(), "w1"); err != nil || order.State != workorders.Canceled {
+		t.Errorf("the confirmed call left %+v: %v", order, err)
 	}
 }

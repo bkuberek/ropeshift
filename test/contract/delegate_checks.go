@@ -29,6 +29,7 @@ var DelegateChecks = []Check{
 	{"DL7", "a delegate decides a request only within the delegation policy, and the record names it", checkDelegateDecides},
 	{"DL8", "past every gate, a delegate still cannot raise merge authority or move review to a pull request", checkDelegateRepositoryBounds},
 	{"DL9", "past every gate, a delegate still cannot decide or answer in a one-way category", checkDelegateOneWayBounds},
+	{"DL10", "a card a crash left running past its bound fails, naming why, and a younger one keeps running", checkInterruptedCards},
 }
 
 var theDelegateRequest = authority.DelegateRequest{Member: theMember.ID, Label: "planning assistant", ExpiresInMs: authority.MaxDelegateTTLMs}
@@ -466,6 +467,36 @@ func checkDelegateOneWayBounds(r *Rig) error {
 	}
 	if _, err := ops.Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: r.ID("d"), Statement: "Never."}, theMember); err != nil {
 		return Violatedf("the same answer from a member: %v", err)
+	}
+	return nil
+}
+
+func checkInterruptedCards(r *Rig) error {
+	s := r.Store()
+	approvals := control.NewApprovals(s)
+	card, err := prepareCard(r, s, authority.OpRepositoryRaiseMergeAuthority, "repository", "r1", raiseArguments)
+	if err != nil {
+		return err
+	}
+	if _, err := approvals.Confirm(r.Ctx, r.Scope, authority.Decision{ID: card.ID, Digest: card.SubjectDigest, Allow: true}, theMember, authority.ChannelCLI); err != nil {
+		return err
+	}
+	if failed, err := approvals.FailInterrupted(r.Ctx, r.Scope, 60*60*1000); err != nil || len(failed) != 0 {
+		return Violatedf("a card approved a moment ago was taken for interrupted: %v %v", failed, err)
+	}
+	failed, err := approvals.FailInterrupted(r.Ctx, r.Scope, 0)
+	if err != nil || len(failed) != 1 || failed[0] != card.ID {
+		return Violatedf("the sweep failed %v: %v", failed, err)
+	}
+	row, err := approvals.Get(r.Ctx, r.Scope, card.ID)
+	if err != nil {
+		return err
+	}
+	if row.State != authority.ApprovalFailed || row.Reason != "interrupted; check the audit" || row.DecidedBy != authority.Principal(theMember) {
+		return Violatedf("the interrupted card is %+v", row)
+	}
+	if again, err := approvals.FailInterrupted(r.Ctx, r.Scope, 0); err != nil || len(again) != 0 {
+		return Violatedf("a second sweep failed %v: %v", again, err)
 	}
 	return nil
 }

@@ -588,6 +588,9 @@ func (h *handler) subjectName(ctx context.Context, binding control.Binding) stri
 	return binding.ID
 }
 
+// onConfirmed runs between a card's approval and its call, which a test uses to act at that moment.
+var onConfirmed = func(context.Context) {}
+
 // confirmCard applies a member's word on a card. A confirmation that stands runs the card's exact call
 // through the project's own routes, as the member whose session made this one, so the operation takes
 // the same checks and leaves the same events as the member's own call. What the API answered decides
@@ -602,9 +605,13 @@ func (h *handler) confirmCard(w http.ResponseWriter, r *http.Request, decision a
 		reply(w, http.StatusOK, confirmed.Card)
 		return
 	}
-	if moved, err := h.movedSince(r.Context(), confirmed.Card); err != nil || moved != "" {
+	onConfirmed(r.Context())
+	// The card is approved, so its call runs and its outcome is kept whatever becomes of this request: a
+	// member's client that goes away must not leave a card running for good.
+	ctx := context.WithoutCancel(r.Context())
+	if moved, err := h.movedSince(ctx, confirmed.Card); err != nil || moved != "" {
 		if err == nil {
-			_, err = h.approvals.Void(r.Context(), h.Scope, confirmed.Card.ID, moved, actor)
+			_, err = h.approvals.Void(ctx, h.Scope, confirmed.Card.ID, moved, actor)
 		}
 		if err == nil {
 			err = fmt.Errorf("%w: %s", authority.ErrStaleDigest, moved)
@@ -612,8 +619,8 @@ func (h *handler) confirmCard(w http.ResponseWriter, r *http.Request, decision a
 		fail(w, err)
 		return
 	}
-	ran, refusal := h.replay(r, confirmed.Card)
-	finished, err := h.approvals.Finish(r.Context(), h.Scope, confirmed.Card.ID, ran, refusal, actor)
+	ran, refusal := h.replay(ctx, r, confirmed.Card)
+	finished, err := h.approvals.Finish(ctx, h.Scope, confirmed.Card.ID, ran, refusal, actor)
 	if err != nil {
 		fail(w, err)
 		return
@@ -641,7 +648,7 @@ func (h *handler) movedSince(ctx context.Context, card authority.Approval) (stri
 
 // replay runs a card's call as the member who confirmed it, and says whether the API ran it, with its
 // refusal when it did not.
-func (h *handler) replay(r *http.Request, card authority.Approval) (bool, string) {
+func (h *handler) replay(ctx context.Context, r *http.Request, card authority.Approval) (bool, string) {
 	detail, err := authority.CardDetailOf(card)
 	if err != nil {
 		return false, err.Error()
@@ -654,7 +661,7 @@ func (h *handler) replay(r *http.Request, card authority.Approval) (bool, string
 	if args := bytes.TrimSpace(detail.Arguments); len(args) != 0 && !bytes.Equal(args, []byte("null")) {
 		body = bytes.NewReader(args)
 	}
-	inner, err := http.NewRequestWithContext(r.Context(), detail.Method, path, body)
+	inner, err := http.NewRequestWithContext(ctx, detail.Method, path, body)
 	if err != nil {
 		return false, err.Error()
 	}
