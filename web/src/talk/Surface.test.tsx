@@ -293,6 +293,28 @@ describe("switching the target", () => {
     expect(changes(sent)[0]).toMatchObject({ method: "POST", path: "/v1/messages", body: { to: { lane: "L-88" }, kind: "instruction", body: "Use two retries" } });
   });
 
+  it("styles as the member's own only what the signed-in member sent, not another member's message to the same lane", async () => {
+    withLanes();
+    const other = (id: string, member: string, body: string) => ({
+      id,
+      at: Date.now(),
+      kind: "member" as const,
+      from: { kind: "member", id: member, label: member === "member-2" ? "Robin Park" : member },
+      body,
+      message: { id, state: "queued" as const, created_at: Date.now(), kind: "instruction", body, to: { lane: "L-88", generation: 2 }, from: { kind: "member", id: member, seq: 1 } },
+    });
+    state.lane.entries.push(other("mine", "member-1", "Retry twice, please"), other("theirs", "member-2", "Use three"));
+    const { dock } = await open(state);
+    await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: /Lane.*L-88/ }));
+    const log = await within(dock).findByRole("log", { name: "Event stream of lane L-88" });
+    const block = (text: string) => within(log).getByText(text).closest(".msg-block") as HTMLElement;
+    expect(block("Retry twice, please").classList.contains("from-me")).toBe(true);
+    expect(within(block("Retry twice, please")).getByText("You")).toBeTruthy();
+    expect(block("Use three").classList.contains("from-me")).toBe(false);
+    expect(within(block("Use three")).getByText("Robin Park")).toBeTruthy();
+  });
+
   it("keeps one draft for each target", async () => {
     withLanes();
     const { dock } = await open(state);

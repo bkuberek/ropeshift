@@ -133,11 +133,12 @@ export function Stream({ entries, read, label, chip, member, you, conversation, 
       const before = row.beforeClear ? <span className="before-clear">before the clear</span> : null;
       switch (entry.kind) {
         case "member": {
-          const own = entry.from?.kind === "member" || !entry.from;
+          // Only what the signed-in member sent is theirs: another member who talks to the same lane is not.
+          const own = entry.from?.kind === "member" && entry.from.id === you;
           return (
             <div key={row.key} className={`msg-block${own ? " from-me" : ""}${row.beforeClear ? " is-before-clear" : ""}`}>
               <div className="msg-meta">
-                {own ? <strong>{named(entry)}</strong> : <Actor kind={entry.from?.kind ?? "member"} id={entry.from?.id ?? ""} label={entry.from?.label} delegateKind={entry.from?.delegate_kind} actorFor={member} you={you} />}
+                {own || entry.from?.kind === "member" || !entry.from ? <strong>{named(entry)}</strong> : <Actor kind={entry.from?.kind ?? "member"} id={entry.from?.id ?? ""} label={entry.from?.label} delegateKind={entry.from?.delegate_kind} actorFor={member} you={you} />}
                 <span>{clockOf(entry.at)}</span>
                 {entry.message ? <StateBadge table={deliveryStates} state={entry.message.state} /> : null}
                 {before}
