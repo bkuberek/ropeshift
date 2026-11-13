@@ -400,6 +400,81 @@
     "command": "agent revert"
   },
   {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/messages",
+    "command": "message send"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/conversation-targets",
+    "command": "chat targets"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/conversations",
+    "command": "chat list"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations",
+    "command": "chat new"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/conversations/{id}",
+    "command": "chat show"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/conversations/{id}/entries",
+    "command": "chat show"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations/{id}/open",
+    "command": "chat open"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations/{id}/stop",
+    "command": "chat stop"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations/{id}/rename",
+    "command": "chat rename"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations/{id}/delete",
+    "command": "chat delete"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations/{id}/compact",
+    "command": "chat compact"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations/{id}/clear",
+    "command": "chat clear"
+  },
+  {
+    "method": "POST",
+    "pattern": "/v1/projects/{project}/conversations/{id}/messages",
+    "command": "chat send"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/lanes/{id}/stream",
+    "command": "lane attach"
+  },
+  {
+    "method": "GET",
+    "pattern": "/v1/projects/{project}/orchestrators/{worker}/stream",
+    "command": "orchestrator attach"
+  },
+  {
     "method": "GET",
     "pattern": "/v1/projects/{project}/views/needs-you",
     "command": "view needs-you"

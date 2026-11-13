@@ -59,14 +59,19 @@ func (c *invocation) laneAttach(args []string) int {
 	if c.terminal == nil {
 		return c.usageError("attaching needs a terminal: run this in one")
 	}
-	if c.panes == nil {
-		return c.refuse(ExitError, "this machine has no tmux, so it holds no pane to attach to")
-	}
 	client, exit := c.projectClient()
 	if client == nil {
 		return exit
 	}
 	defer client.Close()
+	// A headless lane has no pane: its stream is what a person follows, and a line typed there is a message.
+	// A read that fails leaves the pane to say what it can.
+	if streamed, err := headless(client, c.ctx, positional[0]); err == nil && streamed {
+		return c.followLane(client, positional[0])
+	}
+	if c.panes == nil {
+		return c.refuse(ExitError, "this machine has no tmux, so it holds no pane to attach to")
+	}
 	return c.attach(client, positional[0])
 }
 

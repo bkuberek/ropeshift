@@ -32,6 +32,8 @@ var workerPlane = map[string]string{
 	"POST /v1/workers/{id}/approvals/decide":         "a worker's credential",
 	"POST /v1/workers/{id}/orchestrator/digest":      "a worker's credential",
 	"POST /v1/workers/{id}/orchestrator/acts/{verb}": "a worker's credential",
+	"POST /v1/workers/{id}/assistant-credentials":    "a worker's credential",
+	"POST /v1/workers/{id}/assistant-entries":        "a worker's credential",
 }
 
 // operations names the command of every other route, so a new route fails here until it has one.
@@ -140,12 +142,26 @@ var operations = map[string]string{
 	"GET /v1/roster/history":                           "agent history",
 	"POST /v1/roster/changes":                          "agent set",
 	"POST /v1/roster/revert":                           "agent revert",
+	"GET /v1/conversations":                            "chat list",
+	"POST /v1/conversations":                           "chat new",
+	"GET /v1/conversations/{id}":                       "chat show",
+	"POST /v1/conversations/{id}/open":                 "chat open",
+	"POST /v1/conversations/{id}/stop":                 "chat stop",
+	"POST /v1/conversations/{id}/rename":               "chat rename",
+	"POST /v1/conversations/{id}/delete":               "chat delete",
+	"POST /v1/conversations/{id}/compact":              "chat compact",
+	"POST /v1/conversations/{id}/clear":                "chat clear",
+	"GET /v1/conversations/{id}/entries":               "chat show",
+	"POST /v1/conversations/{id}/messages":             "chat send",
+	"GET /v1/lanes/{id}/stream":                        "lane attach",
+	"GET /v1/orchestrators/{worker}/stream":            "orchestrator attach",
 }
 
 // namedRoutes are the routes the source spells through a constant.
 var namedRoutes = map[string]string{
 	"api.EventsPath": "events", "api.RiskPath": "worker risk", "api.NeedsYouPath": "needs", "api.PanePath": "lane attach", "api.PaneInputPath": "lane attach",
 	"api.AuditPath": "audit", "api.MembersPath": "member list", "api.OperationsPath": "operation list", "api.ImportUploadPath": "project import", "api.BackupDownloadPath": "backup", "api.InstallationBackupDownloadPath": "backup",
+	"api.ConversationTargetsPath": "chat targets",
 }
 
 var (

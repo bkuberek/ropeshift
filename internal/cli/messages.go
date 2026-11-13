@@ -9,7 +9,11 @@ import (
 
 // messageLine says how far a message got, and why, which is all a sender is told.
 func messageLine(m messages.Message) string {
-	line := fmt.Sprintf("%s  %s  to %s generation %d  %s", m.ID, m.Kind, m.To.Lane, m.To.Generation, m.State)
+	to := m.To.ID()
+	if m.To.Of() != messages.TargetLane {
+		to = string(m.To.Of()) + " " + to
+	}
+	line := fmt.Sprintf("%s  %s  to %s generation %d  %s", m.ID, m.Kind, to, m.To.Generation, m.State)
 	if m.Reason != "" {
 		line += " (" + m.Reason + ")"
 	}
@@ -29,12 +33,16 @@ func (c *invocation) messageSend(args []string) int {
 	set.StringVar(&draft.Body, "body", "", "what the message says")
 	set.StringVar(&draft.ReplyTo, "reply-to", "", "what this answers")
 	set.Int64Var(&draft.To.Generation, "generation", 0, "the generation it is for, the current one when left out")
+	orchestrator := set.String("orchestrator", "", "the worker whose orchestrator the message is for, in place of a lane")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
 	}
-	if len(positional) != 1 {
-		return c.usageError("takes one lane")
+	switch {
+	case *orchestrator != "" && len(positional) != 0:
+		return c.usageError("a message is for one lane or one orchestrator")
+	case *orchestrator == "" && len(positional) != 1:
+		return c.usageError("takes one lane, or --orchestrator")
 	}
 	if draft.Body == "" {
 		return c.usageError("--body is required")
@@ -46,7 +54,12 @@ func (c *invocation) messageSend(args []string) int {
 		}
 		draft.ID = id
 	}
-	draft.To.Lane, draft.Kind = positional[0], messages.Kind(kind)
+	draft.Kind = messages.Kind(kind)
+	if *orchestrator != "" {
+		draft.To = messages.To(messages.TargetOrchestrator, *orchestrator, draft.To.Generation)
+	} else {
+		draft.To.Lane = positional[0]
+	}
 	client, exit := c.projectClient()
 	if client == nil {
 		return exit
