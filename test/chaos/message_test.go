@@ -117,13 +117,34 @@ func roleWorkerMessage(c *child) error {
 			Repository:  func(context.Context, string, string) (string, error) { return "/repository", nil },
 		},
 	})
-	if err := subject.Start(c.ctx); err != nil {
+	// Run's own start is the only one this process makes, so it opens one epoch. A start of its own, to
+	// learn the worker's ID, would open a second when Run began: a retry with nothing left to do ends Run
+	// before it stored that epoch, and the closing upload went out under the first, which the ledger refuses.
+	running, stop := context.WithCancel(c.ctx)
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_ = subject.Run(running)
+	}()
+	err = serveMessage(c, subject, journal, client, ended)
+	stop()
+	<-ended
+	if err != nil {
+		return err
+	}
+	return subject.Upload(c.ctx)
+}
+
+// serveMessage claims and dispatches the lane once the worker has a session and an ID, then passes until
+// the message has an end on record. A claim and a dispatch the first process made are refused again.
+func serveMessage(c *child, subject *worker.Worker, journal *sqlite.Journal, client *api.ProjectClient, ended <-chan struct{}) error {
+	if err := awaitSession(subject, ended); err != nil {
 		return err
 	}
 	if _, err := apitest.SignIn(c.ctx, client); err != nil {
 		return err
 	}
-	_, err = client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
+	_, err := client.Claim(c.ctx, c.spec.WorkOrder, api.ClaimRequest{
 		ClaimID: c.spec.ClaimID, WorkerID: subject.Auth().WorkerID, TTLMs: longTTL,
 	})
 	var refused *api.Error
@@ -134,16 +155,23 @@ func roleWorkerMessage(c *child) error {
 	if err != nil && !errors.As(err, &refused) {
 		return err
 	}
-	running, stop := context.WithCancel(c.ctx)
-	defer stop()
-	done := make(chan error, 1)
-	go func() { done <- subject.Run(running) }()
-	if err := messagePasses(c, subject, journal, client); err != nil {
-		return err
+	return messagePasses(c, subject, journal, client)
+}
+
+// awaitSession waits for the worker's first start to finish, which is when it holds its ID and its epoch.
+func awaitSession(subject *worker.Worker, ended <-chan struct{}) error {
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if subject.Session().Epoch != 0 {
+			return nil
+		}
+		select {
+		case <-ended:
+			return errors.New("the worker ended before it opened a session")
+		case <-time.After(5 * time.Millisecond):
+		}
 	}
-	stop()
-	<-done
-	return subject.Upload(c.ctx)
+	return errors.New("the worker opened no session")
 }
 
 // messagePasses waits on a daemon's own loop, until the message's effect has an end or the worker
