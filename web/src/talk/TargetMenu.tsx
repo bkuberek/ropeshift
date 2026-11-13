@@ -11,8 +11,9 @@ import type { Target, TalkKind } from "./target";
 type Props = {
   targets: ConversationTargets | null;
   current: Target;
-  // assistantName is the conversation the assistant row names: the one the member is in, or else the newest.
-  assistantName: string;
+  // assistant is the conversation choosing the assistant row opens: the one the member is in, or else the newest.
+  // With none, the row says so, and choosing it only switches the target.
+  assistant: { id: string; name: string } | null;
   onChoose: (kind: TalkKind, id: string, name?: string) => void;
   onNew: () => void;
   // openSignal opens the menu each time it changes, which the T key does.
@@ -24,7 +25,7 @@ type Row = { kind: TalkKind; id: string; main: string; note?: string; name?: str
 // TargetMenu is Switch target: the assistant, an orchestrator, a planning session, and a lane, each row with
 // its target chip and which one it is, the checked one being what the member talks to. A target that is not
 // running shows its state. Choosing is the only thing that switches the target.
-export function TargetMenu({ targets, current, assistantName, onChoose, onNew, openSignal }: Props) {
+export function TargetMenu({ targets, current, assistant, onChoose, onNew, openSignal }: Props) {
   const { open, setOpen, close, anchor, popover } = usePopover("end");
   const menu = useId();
   useEffect(() => {
@@ -39,7 +40,7 @@ export function TargetMenu({ targets, current, assistantName, onChoose, onNew, o
   }, [open, popover]);
 
   const groups: { kind: TalkKind; title: string; rows: Row[] }[] = [
-    { kind: "assistant", title: "Assistant", rows: [{ kind: "assistant", id: current.kind === "assistant" ? current.id : "", main: assistantName }] },
+    { kind: "assistant", title: "Assistant", rows: [{ kind: "assistant", id: assistant?.id ?? "", main: assistant?.name ?? "No conversation yet" }] },
     {
       kind: "orchestrator",
       title: "Orchestrator",

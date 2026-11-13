@@ -40,6 +40,14 @@ describe("the target a project shows", () => {
   });
 });
 
+describe("the assistant's draft", () => {
+  it("is one for the assistant, whichever of its conversations the member is in", () => {
+    const state = rememberDraft(empty, { project: "harbor", kind: "assistant", id: "" }, "Which merges wait?");
+    expect(drafting(state, { project: "harbor", kind: "assistant", id: "conv-1" })).toBe("Which merges wait?");
+    expect(drafting(state, { project: "kestrel", kind: "assistant", id: "" })).toBe("");
+  });
+});
+
 describe("what a target says of itself", () => {
   it("gives each kind its own label, icon, and color, and no two share one", () => {
     const rows = Object.values(kinds);

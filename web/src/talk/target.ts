@@ -45,14 +45,18 @@ export function selectTarget(state: TalkState, target: Target): TalkState {
   return { ...state, targets: { ...state.targets, [target.project]: { kind: target.kind, id: target.id } } };
 }
 
-export const drafting = (state: TalkState, target: Target): string => state.drafts[targetKey(target)] ?? "";
+// A draft belongs to a target, and the assistant is one target whichever of its conversations the member is in,
+// so what a member began writing to it stays when the conversation it opens is chosen.
+const draftKey = (target: Target): string => targetKey(target.kind === "assistant" ? { ...target, id: "" } : target);
+
+export const drafting = (state: TalkState, target: Target): string => state.drafts[draftKey(target)] ?? "";
 
 export function rememberDraft(state: TalkState, target: Target, text: string): TalkState {
   const drafts = { ...state.drafts };
   if (text === "") {
-    delete drafts[targetKey(target)];
+    delete drafts[draftKey(target)];
   } else {
-    drafts[targetKey(target)] = text;
+    drafts[draftKey(target)] = text;
   }
   return { ...state, drafts };
 }

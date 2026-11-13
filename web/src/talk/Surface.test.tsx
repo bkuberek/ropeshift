@@ -395,3 +395,34 @@ describe("switching the target", () => {
     expect(within(dock).getByText("WO-233 · L-91 · atlas")).toBeTruthy();
   });
 });
+
+describe("the switcher's assistant row", () => {
+  const onLane = async (dock: HTMLElement) => {
+    await userEvent.click(await within(dock).findByRole("button", { name: "Switch target" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: /Lane.*L-88/ }));
+    await within(dock).findByRole("log", { name: "Event stream of lane L-88" });
+    await userEvent.click(within(dock).getByRole("button", { name: "Switch target" }));
+    return screen.findByRole("menu", { name: "Switch conversation target" });
+  };
+
+  it("names the conversation choosing it opens, from another kind of target", async () => {
+    state.targets = { ...state.targets, lanes: [lane()] };
+    state.conversations = [aConversation({ name: "harbor-web merges" })];
+    const { dock } = await open(state);
+    const menu = await onLane(dock);
+    expect(within(menu).getByRole("menuitemradio", { name: /Assistant.*harbor-web merges/ })).toBeTruthy();
+    expect(within(menu).queryByText("New conversation")).toBeNull();
+  });
+
+  it("says there is no conversation yet, and choosing it only switches the target", async () => {
+    state.targets = { ...state.targets, lanes: [lane()] };
+    state.conversations = [];
+    state.entries = [];
+    const { sent, dock } = await open(state);
+    const menu = await onLane(dock);
+    await userEvent.click(within(menu).getByRole("menuitemradio", { name: /Assistant.*No conversation yet/ }));
+    expect(await within(dock).findByRole("log", { name: "Messages with the assistant" })).toBeTruthy();
+    await new Promise((done) => setTimeout(done, 300));
+    expect(changes(sent)).toEqual([]);
+  });
+});

@@ -272,7 +272,7 @@ export function Surface({ live, variant, onClose, projectLabel, after }: Props) 
           <TargetMenu
             targets={targets.view}
             current={target}
-            assistantName={conversation?.name ?? "New conversation"}
+            assistant={conversation ?? targets.view?.assistant.conversation ?? null}
             openSignal={menuSignal}
             onChoose={(kind, id, name) => talk.select(kind, id, { name, start: kind === "assistant" })}
             onNew={assistant.newConversation}
