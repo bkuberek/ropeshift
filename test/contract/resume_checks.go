@@ -397,7 +397,7 @@ func checkPreferredAffinity(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(AffinityDelayMs - 1000)
+	r.DB.ShiftClock(AffinityDelayMs - marginMs)
 	if _, err := r.NewOps(s.store).WakeTick(r.Ctx, r.Scope, r.Actor); err != nil {
 		return err
 	}
@@ -408,7 +408,7 @@ func checkPreferredAffinity(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	r.DB.ShiftClock(2000)
+	r.DB.ShiftClock(marginMs + 1000)
 	if _, err := r.NewOps(s.store).WakeTick(r.Ctx, r.Scope, r.Actor); err != nil {
 		return err
 	}
