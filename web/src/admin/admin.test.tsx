@@ -242,6 +242,28 @@ describe("Settings", () => {
     expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toContain("[recovery_policy]\nversion = 3\n");
   });
 
+  it("keeps an edit made the moment the saved policy appears", async () => {
+    serveAdmin();
+    openPage(here("/settings?section=recovery"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Recovery policy" })).toBeTruthy();
+    // The edit lands as the fields are inserted, before React has run the effects of the render that
+    // brought the saved policy.
+    const edit = await new Promise<void>((done) => {
+      const watch = new MutationObserver(() => {
+        const field = screen.queryByLabelText(/Attempts per work order/);
+        if (field) {
+          watch.disconnect();
+          fireEvent.change(field, { target: { value: "5" } });
+          done();
+        }
+      });
+      watch.observe(document.body, { childList: true, subtree: true });
+    });
+    await edit;
+    expect(await screen.findByText("max_attempts 3 → 5")).toBeTruthy();
+    expect((screen.getByLabelText(/Attempts per work order/) as HTMLInputElement).value).toBe("5");
+  });
+
   it("reverts to an earlier version by recording it as the newest", async () => {
     const sent = serveAdmin((call) => (call.method === "POST" && call.path === "/v1/policies" ? { status: 201, body: { version: 3 } } : undefined));
     openPage(here("/settings?section=recovery"));
