@@ -186,16 +186,20 @@ func (w *Worker) Start(ctx context.Context) error {
 	return nil
 }
 
-// manifest asks the driver what this machine can run. A doctor that fails advertises no
-// driver and stops nothing, because a worker must still hold what it holds.
+// manifest asks the driver what this machine can run, and says the per-worker cap in force. A doctor that
+// fails advertises no driver and stops nothing, because a worker must still hold what it holds.
 func (w *Worker) manifest(ctx context.Context) ledger.Manifest {
 	if w.config.Lanes == nil {
 		return w.config.Manifest
 	}
-	manifest, err := BuildManifest(ctx, w.config.Lanes.Driver, w.config.Manifest)
+	base := w.config.Manifest
+	if limit, ok := w.workerCap(ctx); ok {
+		base.Capacity.MaxLanes = limit
+	}
+	manifest, err := BuildManifest(ctx, w.config.Lanes.Driver, base)
 	if err != nil {
 		w.config.Report(fmt.Errorf("the doctor: %w", err))
-		return w.config.Manifest
+		return base
 	}
 	return manifest
 }

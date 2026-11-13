@@ -385,7 +385,7 @@ func startSoloWorker(
 		JoinToken: func(ctx context.Context) (string, error) {
 			return plane.CreateJoinToken(ctx, tickActor("solo"))
 		},
-		Manifest:  soloManifest(paths),
+		Manifest:  soloManifest(),
 		Spool:     paths.Spool(),
 		Lanes:     runtime,
 		Telemetry: telemetry.emitter,
@@ -413,16 +413,10 @@ func startSoloWorker(
 	return done, nil
 }
 
-// soloManifest is what this worker says of itself. A user's layer that does not parse
-// leaves capacity unstated, and a lane that reads it reports the fault.
-func soloManifest(paths api.Paths) ledger.Manifest {
-	var maxLanes int64
-	if raw, err := os.ReadFile(filepath.Join(paths.StateDir, profiles.UserFile)); err == nil || errors.Is(err, os.ErrNotExist) {
-		if profile, err := profiles.Resolve(string(raw)); err == nil {
-			maxLanes = profile.Admission.MaxLanes
-		}
-	}
-	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: localauth.Member}, maxLanes)
+// soloManifest is what this worker says of itself. The worker states its capacity, the cap in force
+// from the user's layer and its recommendation, when it opens a session.
+func soloManifest() ledger.Manifest {
+	return worker.BaseManifest(ledger.Owner{Kind: string(ledger.ActorMember), MemberID: localauth.Member}, 0)
 }
 
 // soloModelClasses reads the model this worker's profile maps each capability class to, from the user's
@@ -465,12 +459,12 @@ func laneRunner(goos string, getenv func(string) string, stderr io.Writer) ports
 
 // runDoctor is `ropeshift worker doctor`. It needs no daemon, because a person runs it
 // when nothing works yet.
-func runDoctor(ctx context.Context, paths api.Paths) (ledger.Manifest, error) {
+func runDoctor(ctx context.Context) (ledger.Manifest, error) {
 	env, err := lanes.BuildEnvironment(lanes.EnvironmentSpec{Lookup: os.LookupEnv})
 	if err != nil {
 		return ledger.Manifest{}, err
 	}
-	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env), soloManifest(paths))
+	return worker.BuildManifest(ctx, soloDriver(osexec.Runner{}, nil, env), soloManifest())
 }
 
 // soloLanes wires what a lane runs on: the unmodified agent CLI, the repositories this

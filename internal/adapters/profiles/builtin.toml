@@ -68,8 +68,9 @@ retention_age = "168h"
 retention_bytes = 268435456
 export_account_attributes = false
 
+# max_lanes is unset, so the worker's recommendation caps its lanes, and max_lanes_per_sign_in is unset,
+# so no sign-in is capped (FR-PROJ-7). The recommendation's estimates, its reserve, how often the
+# worker measures, and where a measure warns take the defaults docs/onboarding.md lists.
 [admission]
-max_lanes = 4
-max_lanes_per_sign_in = 4
 min_free_memory_mb = 0
 min_free_cpu_percent = 0

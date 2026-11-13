@@ -204,9 +204,28 @@ max_lanes = 6
 max_lanes_per_sign_in = 3
 ```
 
-`max_lanes` caps the lanes this machine runs, and `max_lanes_per_sign_in` the lanes on one agent sign-in, because every session on a subscription draws from the same usage limits. `0`, or no value, caps nothing. Only lanes count: a worker's orchestrator never does, and a cap never holds it back. A lane a cap holds keeps its claim, its work order says why in a note, and it starts once a lane ends.
+`max_lanes` caps the lanes this machine runs. With no value, the worker's recommendation caps them; `0` caps nothing, and any positive number stands, with no upper bound. `max_lanes_per_sign_in` caps the lanes on one agent sign-in, because every session on a subscription draws from the same usage limits; `0`, or no value, caps nothing. Only lanes count: a worker's orchestrator never does, and a cap never holds it back. A lane a cap holds keeps its claim, its work order says why in a note, and it starts once a lane ends.
 
-A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer can lower either cap for their own lanes, and cannot raise it: a layer that sets a higher value than yours, or no cap where you set one, is refused, and the lane does not start. Each project's own caps, which `ropeshift fleet caps` sets, still hold inside that project, so a cap per worker in one project keeps it from taking every lane on the machine.
+The worker recommends a cap from what the machine can run: its cores and its memory, less a reserve for the system, the daemon, the orchestrator, and the assistant, each divided by what one lane takes, and the lower of the two, never below one:
+
+```text
+recommended = max(1, min(floor((cores - reserve_cpu) / lane_cpu), floor((memory - reserve_memory) / lane_memory)))
+```
+
+What one lane takes starts as the estimates below. Once `observed_min` lanes have run on the worker, it is the highest peak among the last `observed_window` lanes instead: the cores a lane's process tree kept busy, and its resident memory. These settings are the machine's, so only your own layer sets them:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `lane_cpu_estimate` | `1.0` | Cores one lane takes, until enough lanes have run |
+| `lane_memory_estimate` | `"2GiB"` | Memory one lane takes, until enough lanes have run |
+| `reserve_cpu` | `1.0` | Cores kept for the system, the daemon, the orchestrator, and the assistant |
+| `reserve_memory` | `"4GiB"` | Memory kept the same way |
+| `observed_window` | `50` | Recent lanes whose peaks replace the estimates |
+| `observed_min` | `10` | Lanes that must have run before their peaks apply |
+
+A size is a number of bytes, or a number with `KiB`, `MiB`, `GiB`, or `TiB`, or `KB`, `MB`, `GB`, or `TB`. The defaults are starting values to tune, not measurements. A worker that cannot read its machine has no recommendation, and then no value for `max_lanes` caps nothing.
+
+A repository's `.ropeshift/profile.toml` and a lane's `--profile` layer can lower either cap for their own lanes, and cannot raise it: a layer that sets a higher value than yours, or no cap where you set one or left the recommendation, is refused, and the lane does not start. Where you left the recommendation, a layer's value holds only up to it. Each project's own caps, which `ropeshift fleet caps` sets, still hold inside that project, so a cap per worker in one project keeps it from taking every lane on the machine.
 
 ### Where a lane starts
 
