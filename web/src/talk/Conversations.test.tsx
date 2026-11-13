@@ -39,13 +39,14 @@ describe("the Conversations view", () => {
     expect(document.title).toBe("Conversations - ropeshift");
     const list = title.closest("section") as HTMLElement;
     const yours = await within(list).findByRole("list", { name: "Your conversations" });
+    await waitFor(() => expect(within(yours).getAllByRole("button")).toHaveLength(2));
     const rows = within(yours).getAllByRole("button");
-    expect(rows).toHaveLength(2);
     expect(rows[0]?.textContent).toContain("Running");
     expect(rows[0]?.textContent).toContain("1 open card");
     expect(rows[1]?.textContent).toContain("Why is analytics blocked?");
     expect(rows[1]?.textContent).toContain("Stopped");
     const sessions = await within(list).findByRole("list", { name: "Sessions you can talk to" });
+    await waitFor(() => expect(within(sessions).getAllByRole("button")).toHaveLength(3));
     expect(within(sessions).getAllByRole("button").map((row) => row.textContent)).toEqual([
       expect.stringContaining("Orchestratoratlas · serves default · stopped"),
       expect.stringContaining("Planning sessionWO-233 · L-91"),

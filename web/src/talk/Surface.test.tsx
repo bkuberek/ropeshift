@@ -87,6 +87,19 @@ describe("starting the session", () => {
     expect((box as HTMLTextAreaElement).value).toBe("Which merges wait?");
   });
 
+  it("starts nothing on a key after a session failed to start, and starts it on Resume", async () => {
+    state.conversations = [aConversation({ actual_state: "failed", desired_state: "stopped", stopped_reason: "could_not_start" })];
+    const { sent, dock } = await open(state);
+    const box = await within(dock).findByRole("textbox", { name: "Message to the assistant" });
+    expect(within(dock).getByText("Could not start")).toBeTruthy();
+    await userEvent.type(box, "Hi");
+    await new Promise((done) => setTimeout(done, 300));
+    expect(changes(sent)).toEqual([]);
+    await userEvent.click(within(dock).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(changes(sent)).toHaveLength(1));
+    expect(changes(sent)[0]?.path).toBe("/v1/conversations/conv-1/open");
+  });
+
   it("starts nothing for a conversation whose session already runs", async () => {
     const { sent, dock } = await open(state);
     await userEvent.type(await within(dock).findByRole("textbox", { name: "Message to the assistant" }), "hi");

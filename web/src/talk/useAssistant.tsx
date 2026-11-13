@@ -80,7 +80,9 @@ export function useAssistant({ conversation, workers, refresh }: Options): Assis
   const warmed = useRef(0);
 
   const stateOf = conversation?.actual_state ?? "stopped";
-  const asleep = !conversation || stateOf === "stopped" || stateOf === "failed";
+  // A key starts a session only from a stop. One that could not start is started again by Resume, so typing
+  // does not ask for it again and again.
+  const asleep = !conversation || stateOf === "stopped";
 
   const act = async <T,>(what: () => Promise<T>): Promise<T | undefined> => {
     if (running.current) {
