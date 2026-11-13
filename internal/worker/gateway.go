@@ -254,6 +254,7 @@ func (w *Worker) takeReport(ctx context.Context, lane lanes.Record, report worko
 	if err != nil {
 		return refused(lanes.CodeInvalid, err.Error())
 	}
+	w.drainBeforeActing(ctx)
 	first, err := w.journal.SaveReport(ctx, lane.ID, raw)
 	if err != nil {
 		return refused(lanes.CodeUnavailable, err.Error())
@@ -278,11 +279,17 @@ func (w *Worker) takeReport(ctx context.Context, lane lanes.Record, report worko
 // is at-least-once, and a repeat merges by meaning, so reading a line twice is safe. A
 // spool is a file anything this user runs can write, so a line counts only if its seal
 // comes from the token of the lane it names, as a call on the socket does.
+//
+// Passes take turns. One that comes while another is partway through the file waits for it, so it returns
+// with every line the spool held when it came applied, and none removes a file another is reading. An empty
+// spool costs a failed open and a failed rename.
 func (w *Worker) DrainSpool(ctx context.Context) error {
 	path := w.config.Spool
 	if path == "" {
 		return nil
 	}
+	w.spoolLock.Lock()
+	defer w.spoolLock.Unlock()
 	draining := path + DrainingSuffix
 	if err := w.drainFile(ctx, draining); err != nil {
 		return err
@@ -294,6 +301,23 @@ func (w *Worker) DrainSpool(ctx context.Context) error {
 		return err
 	}
 	return w.drainFile(ctx, draining)
+}
+
+// drainBeforeActing takes the spool ahead of a decision about a lane. A hook waits milliseconds for its ack and
+// spools its event when none comes, and the next hook, report, or end of turn then reaches the worker ahead of
+// the pass that takes the spool. A clear whose hook spooled reads as no clear until then: the turn it ends draws
+// a nudge, the cleared session is never briefed, a report is kept ahead of the clear, and the session's end
+// ends the token its line needs.
+//
+// spoolLock is the outermost lock. Its callers are a run's goroutine between two stream events, a socket
+// handler, and the worker's pass, and none holds another lock here. A drain writes the journal, holds a run's or
+// the worker's mutex briefly, and starts goroutines it does not wait for, so it waits on nothing its callers
+// hold. It delivers hooks, which a driver turns into stream events for the run's goroutine to read once the
+// drain has returned, so it never asks for the lock it holds.
+func (w *Worker) drainBeforeActing(ctx context.Context) {
+	if err := w.DrainSpool(ctx); err != nil && ctx.Err() == nil {
+		w.config.Report(err)
+	}
 }
 
 func (w *Worker) drainFile(ctx context.Context, path string) error {

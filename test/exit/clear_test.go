@@ -15,7 +15,9 @@ import (
 // TestACompactionAndAClearRunAcrossALane walks the hook sequences on the real binary, in both run
 // modes. A compaction nobody asked for re-grounds the session and moves nothing, a clear begins a
 // generation in the same process, the session it leaves is told its work, and the token that
-// process started with reports the outcome as the generation it is in now.
+// process started with reports the outcome as the generation it is in now. The pane fixture clears
+// inside a turn, and deliberately races the turn's Stop against the clear: the clear's hook may
+// spool, and the worker reads the spool before it acts on the Stop.
 func TestACompactionAndAClearRunAcrossALane(t *testing.T) {
 	for name, profile := range map[string]string{"headless": "", "pane": paneProfile} {
 		t.Run(name, func(t *testing.T) {

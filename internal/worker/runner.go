@@ -848,8 +848,12 @@ func (r *laneRun) watch(ctx context.Context, events <-chan ports.DriverEvent) wo
 			r.saveProgress(ctx, event.Seq)
 			continue
 		}
-		// A turn that ends while its generation owes a brief is the clear's. It is read before the
-		// lane reads idle, because from then a pass may brief the session and settle what it owes.
+		// A turn that ends while its generation owes a brief is the clear's. A clear whose hook spooled
+		// owes none until the spool is read, so it is read first. The debt is read before the lane reads
+		// idle, because from then a pass may brief the session and settle what it owes.
+		if event.Kind == ports.EventTurnEnded {
+			r.w.drainBeforeActing(ctx)
+		}
 		clears := event.Kind == ports.EventTurnEnded && r.owesBrief.Load()
 		r.observeEvent(ctx, event)
 		switch event.Kind {
@@ -881,6 +885,8 @@ func (r *laneRun) expireToken(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	// A spooled line counts only while its lane has a token, so what the session spooled is read first.
+	r.w.drainBeforeActing(ctx)
 	if err := r.w.journal.ExpireToken(ctx, r.lease.Lane); err != nil {
 		r.w.config.Report(fmt.Errorf("lane %s: %w", r.lease.Lane, err))
 	}
