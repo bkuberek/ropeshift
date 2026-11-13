@@ -11,14 +11,20 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // backup copies this handler's project to a file a member names. It changes nothing in the ledger, and
 // it needs a member's session all the same, because it writes a file that holds every record of the
 // project, at a path the caller chose.
-func (h *handler) backup(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
+func (h *handler) backup(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if !authority.Allowed(actor, authority.ActionBackupProject) {
+		fail(w, workorders.ErrForbidden)
+		return
+	}
 	var in api.BackupRequest
 	if !decode(w, r, &in) {
 		return
@@ -73,7 +79,11 @@ func (h *handler) self(ctx context.Context) (ledger.Project, error) {
 // downloadBackup answers a copy of this handler's project in the response, which a browser saves as a
 // download. The copy is made the way a backup to a file is, into a directory of its own that is gone
 // when the answer ends, so nothing of it stays on the daemon's machine.
-func (h *handler) downloadBackup(w http.ResponseWriter, r *http.Request, _ ledger.Actor) {
+func (h *handler) downloadBackup(w http.ResponseWriter, r *http.Request, actor ledger.Actor) {
+	if !authority.Allowed(actor, authority.ActionBackupProject) {
+		fail(w, workorders.ErrForbidden)
+		return
+	}
 	if !decode(w, r, &struct{}{}) {
 		return
 	}
