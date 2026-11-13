@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import type { Prefs } from "../admin/Settings";
 import { readView } from "../api/client";
-import type { Decisions as DecisionsView, DocumentKind, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Roadmap as RoadmapView, Stamp } from "../api/types";
+import type { Decisions as DecisionsView, Documents, NeedsYou, Operations as OperationsView, Plans, Project, Questions, Stamp } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { FloorPage } from "../floor/Floor";
@@ -13,14 +13,15 @@ import { WorkOrderPage, WorkOrdersPage } from "../floor/WorkOrders";
 import { LanePage } from "../lanes/LanePane";
 import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
-import { DocumentList, DocumentPage, OneRequirement, Requirements } from "../planning/Documents";
+import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
 import { OpenQuestions } from "../planning/OpenQuestions";
+import { PlanApprovalPage } from "../planning/PlanApproval";
+import { PlanningPage } from "../planning/Planning";
 import { PlanList, PlanPage } from "../planning/Plans";
-import { RecordedPage } from "../planning/Recorded";
-import { Roadmap } from "../planning/Roadmap";
-import { LinkTabs } from "../ui/controls";
+import { StartSession } from "../planning/StartSession";
+import { RoadmapPage } from "../planning/Roadmap";
 import { Banner, EmptyState, SkeletonRows } from "../ui/display";
-import { addressOf, Link } from "./route";
+import { Link } from "./route";
 import type { View } from "./routes";
 import { titleOf } from "./routes";
 
@@ -35,6 +36,7 @@ type Spec<T> = {
   title: string | ((view: T | null) => string);
   note?: (view: T) => string;
   crumbs?: ReactNode;
+  actions?: ReactNode;
   // above stands between the title and the view's body, such as its tabs.
   above?: ReactNode;
   body: (view: T) => ReactNode;
@@ -43,12 +45,12 @@ type Spec<T> = {
 // ViewPage follows one read model. The title stands from the first moment, so a person who moved here
 // has somewhere for focus to land, and skeleton rows stand where the body will be. A failed read shows
 // in place of the body, and a view that has data keeps it under a banner that says it is not current.
-function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, note, crumbs, above, body }: Spec<T>) {
+function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, note, crumbs, actions, above, body }: Spec<T>) {
   const read = useView<T>(() => readView<T>(name, category), `${name}?${category}`, live, gapMs);
   const now = useClock();
   const view = read.view;
   return (
-    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined} crumbs={crumbs}>
+    <Page title={typeof title === "function" ? title(view) : title} note={view && note ? note(view) : undefined} crumbs={crumbs} actions={actions}>
       {above}
       <div className={above ? "tab-body" : undefined}>
         {read.failure ? <Banner tone="danger">{view ? `What this view shows is not current. ${read.failure}` : read.failure}</Banner> : null}
@@ -72,72 +74,35 @@ function ViewPage<T extends Stamp>({ name, live, category = "", gapMs, title, no
 
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? "" : "s"}`;
 
-const documentKinds: { kind: DocumentKind; label: string; empty: string }[] = [
-  { kind: "requirements", label: "Requirements", empty: "No requirements yet." },
-  { kind: "spec", label: "Specs", empty: "No specs yet." },
-  { kind: "design", label: "Designs", empty: "No designs yet." },
-  { kind: "other", label: "Other", empty: "No other documents yet." },
-];
-
-function documentsPage(live: Live, params: URLSearchParams) {
-  const param = (name: string) => params.get(name) ?? "";
-  if (param("id")) {
-    return <RecordedPage id={param("id")} version={param("version")} live={live} />;
-  }
-  if (param("path")) {
-    return <DocumentPage reference={{ path: param("path"), instance: param("instance"), version: param("version") }} live={live} />;
-  }
-  const kind = documentKinds.find((row) => row.kind === param("kind"))?.kind ?? "requirements";
-  const key = param("key");
-  const tabs = (
-    <LinkTabs
-      label="Kinds"
-      tabs={documentKinds.map((row) => ({ to: addressOf("/documents", { kind: row.kind }), label: row.label, current: row.kind === kind && !key }))}
-    />
-  );
-  if (kind === "requirements" && key) {
-    const find = (view: Documents | null) => view?.requirements.find((requirement) => requirement.key === key);
-    return (
-      <ViewPage<Documents>
-        name="documents"
-        live={live}
-        gapMs={documentsGapMs}
-        title={(view) => (view === null || find(view) ? key : "No such requirement")}
-        crumbs={
-          <>
-            <Link to="/documents?kind=requirements">Requirements</Link>
-            <span aria-hidden="true">›</span>
-            <span>{key}</span>
-          </>
-        }
-        body={(view) => {
-          const requirement = find(view);
-          return requirement ? (
-            <OneRequirement requirement={requirement} />
-          ) : (
-            <EmptyState icon="trace" title="No requirement with that key" action={<Link to="/documents?kind=requirements">All requirements</Link>} />
-          );
-        }}
-      />
-    );
-  }
-  const spec = documentKinds.find((row) => row.kind === kind);
+// The documents view and the traceability matrix are one view with two tabs, each with an address of its own.
+function documentsPage(live: Live, params: URLSearchParams, project: string, tab: "reader" | "traceability") {
+  const keyed = params.get("key") ?? "";
   return (
     <ViewPage<Documents>
       name="documents"
       live={live}
       gapMs={documentsGapMs}
       title="Documents"
-      above={tabs}
-      body={(view) => (kind === "requirements" ? <Requirements view={view} /> : <DocumentList view={view} kind={kind} empty={spec?.empty ?? "None yet."} />)}
+      note={() => "Requirements, specs, and designs at their versions, traced to criteria, work, and verdicts."}
+      actions={<DocumentsTabs tab={tab} keyed={keyed} />}
+      body={(view) => <DocumentsBody view={view} live={live} params={params} tab={tab} project={project} />}
     />
   );
 }
 
-function plansPage(live: Live, id: string) {
+function plansPage(live: Live, id: string, project: string) {
   const find = (view: Plans | null) => view?.plans.find((row) => row.plan.id === id);
   if (!id) {
-    return <ViewPage<Plans> name="plans" live={live} title="Plans" note={(view) => count(view.plans.length, "plan")} body={(view) => <PlanList view={view} />} />;
+    return (
+      <ViewPage<Plans>
+        name="plans"
+        live={live}
+        title="Plans"
+        note={(view) => count(view.plans.length, "plan")}
+        actions={<StartSession project={project} />}
+        body={(view) => <PlanList view={view} project={project} />}
+      />
+    );
   }
   return (
     <ViewPage<Plans>
@@ -153,7 +118,7 @@ function plansPage(live: Live, id: string) {
       }
       body={(view) => {
         const detail = find(view);
-        return detail ? <PlanPage detail={detail} /> : <EmptyState icon="plan" title="No plan with that ID" action={<Link to="/plans">All plans</Link>} />;
+        return detail ? <PlanPage detail={detail} live={live} /> : <EmptyState icon="plan" title="No plan with that ID" action={<Link to="/plans">All plans</Link>} />;
       }}
     />
   );
@@ -212,11 +177,17 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
   const scope = scoped ? "project" : "installation";
   switch (view) {
     case "roadmap":
-      return <ViewPage<RoadmapView> name="roadmap" live={live} title="Roadmap" body={(read) => <Roadmap view={read} />} />;
+      return <RoadmapPage live={live} project={project} />;
     case "plans":
-      return plansPage(live, param("plan"));
+      return plansPage(live, param("plan"), project);
+    case "plan":
+      return <PlanApprovalPage key={`${param("id")}:${param("version")}`} live={live} id={param("id")} version={param("version")} after={after} />;
+    case "planning":
+      return <PlanningPage live={live} project={project} label={label} lane={param("lane")} after={after} />;
     case "documents":
-      return documentsPage(live, params);
+      return documentsPage(live, params, project, "reader");
+    case "traceability":
+      return documentsPage(live, params, project, "traceability");
     case "decisions":
       return (
         <ViewPage<DecisionsView>

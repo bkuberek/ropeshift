@@ -1,206 +1,87 @@
-import { useId } from "react";
-
-import { readDocument, readDocumentVersions } from "../api/client";
-import type { DocumentKind, DocumentRef, DocumentRow, Documents as View, Requirement } from "../api/types";
-import { useView } from "../api/useView";
+import type { Documents } from "../api/types";
 import type { Live } from "../api/useView";
-import { addressOf, Link } from "../app/route";
-import { Fact, LongFact, Page, Section } from "../parts/parts";
-import { DocumentText } from "./DocumentText";
-import { kindWord, PlanSections, recordedOf, RecordedRows, Traces } from "./Recorded";
+import { LinkTabs } from "../ui/controls";
+import { EmptyState } from "../ui/display";
+import { Icon } from "../ui/Icon";
+import { Link } from "../app/route";
+import { documentAddress, homes, homeWords, openedDocument, treeOf } from "./documentTree";
+import type { TreeItem } from "./documentTree";
+import { FileReader, RecordedReader } from "./Reader";
+import { StartSession } from "./StartSession";
+import { Matrix, TracePanel } from "./Trace";
+import { documentsAddress } from "./requirementTrace";
 
-// The kinds of file that have a page of their own.
-const homes: DocumentKind[] = ["requirements", "spec", "design", "other"];
-
-function DocumentRows({ documents }: { documents: DocumentRow[] }) {
+// DocumentsTabs are the view's two tabs. Each has an address of its own, so switching between them changes the
+// address, and a requirement a person selected goes with it.
+export function DocumentsTabs({ tab, keyed }: { tab: "reader" | "traceability"; keyed: string }) {
   return (
-    <ol className="list-rows" role="list">
-      {documents.map((document) => (
-        <li key={`${document.instance}:${document.path}`} className="list-row">
-          <Link className="list-row-title" to={addressOf("/documents", { path: document.path, instance: document.instance })}>
-            {document.title}
-          </Link>
-          <p className="mono muted">{document.path}</p>
-          <ul className="chips" aria-label="Kind">
-            <li>{kindWord(document.kind)}</li>
-          </ul>
-        </li>
-      ))}
-    </ol>
+    <LinkTabs
+      label="Documents view"
+      tabs={[
+        { to: documentsAddress("reader", keyed), label: "Reader", current: tab === "reader" },
+        { to: documentsAddress("traceability", keyed), label: "Traceability", current: tab === "traceability" },
+      ]}
+    />
   );
 }
 
-// A kind this build has no page for lists with the rest, so no document falls out of every list. A file a
-// plan recorded lists once, under its plan, with its version and where it stands in review. A goal, a
-// plan, or a contract shows on its own page, and every other file of the repository lists as it stands.
-export function DocumentList({ view, kind, empty }: { view: View; kind: DocumentKind; empty: string }) {
-  const homeOf = (document: DocumentRow) => (homes.includes(document.kind) ? document.kind : "other");
-  const documents = view.documents.filter((document) => homeOf(document) === kind && !document.record);
-  const recorded = recordedOf(view.plans, kind);
-  if (recorded.length === 0) {
-    return documents.length ? <DocumentRows documents={documents} /> : <p className="empty">{empty}</p>;
-  }
+// Tree lists the documents by kind, the one that is open marked. A file a plan recorded lists once, from the
+// ledger, with the other files as they stand.
+function Tree({ view, open, keyed }: { view: Documents; open: TreeItem | undefined; keyed: string }) {
+  const tree = treeOf(view);
   return (
-    <>
-      <PlanSections plans={view.plans} home={kind} />
-      {documents.length ? (
-        <Section title="Other repository files">
-          <DocumentRows documents={documents} />
-        </Section>
-      ) : null}
-    </>
-  );
-}
-
-function RequirementRow({ requirement }: { requirement: Requirement }) {
-  return (
-    <li className="list-row">
-      <Link className="list-row-title mono" to={addressOf("/documents", { kind: "requirements", key: requirement.key })}>
-        {requirement.key}
-      </Link>
-      <p>{requirement.text}</p>
-      <ul className="chips">
-        <li>Version {requirement.version}</li>
-        {requirement.source ? <li className="mono">{requirement.source}</li> : null}
-      </ul>
-    </li>
-  );
-}
-
-// Requirements lists every requirement, then follows each plan's requirements to the criteria and work
-// that serve them, then names the documents that hold them: those a plan recorded, and the other files.
-export function Requirements({ view }: { view: View }) {
-  const documents = view.documents.filter((document) => document.kind === "requirements" && !document.record);
-  const recorded = recordedOf(view.plans, "requirements").flatMap((row) => row.documents);
-  const traced = view.plans.filter((plan) => plan.requirements.length > 0);
-  if (view.requirements.length === 0 && documents.length === 0 && recorded.length === 0) {
-    return <p className="empty">No requirements yet.</p>;
-  }
-  return (
-    <>
-      {view.requirements.length ? (
-        <ol className="list-rows" role="list">
-          {view.requirements.map((requirement) => (
-            <RequirementRow key={requirement.key} requirement={requirement} />
+    <nav className="tree" aria-label="Documents">
+      {homes.map((home) => (
+        <div key={home}>
+          <p className="overline tree-title">{homeWords[home]}</p>
+          {tree[home].length === 0 ? <p className="tree-none small subtle">None yet</p> : null}
+          {tree[home].map((item) => (
+            <Link key={item.key} to={documentAddress(item, { key: item.key === open?.key ? keyed : "" })} aria-current={item.key === open?.key ? "page" : undefined} title={item.path}>
+              <Icon name="doc" size="sm" />
+              <span className="truncate">{item.title}</span>
+            </Link>
           ))}
-        </ol>
-      ) : null}
-      {traced.map((plan) => (
-        <Traces key={plan.plan.id} plan={plan} />
+        </div>
       ))}
-      {documents.length || recorded.length ? (
-        <Section title="Documents that hold them">
-          {recorded.length ? <RecordedRows documents={recorded} /> : null}
-          {documents.length ? <DocumentRows documents={documents} /> : null}
-        </Section>
-      ) : null}
-    </>
+    </nav>
   );
 }
 
-export function OneRequirement({ requirement }: { requirement: Requirement }) {
-  return (
-    <>
-      <p className="back">
-        <Link to="/documents?kind=requirements">All requirements</Link>
-      </p>
-      <p className="statement statement-page">{requirement.text}</p>
-      <dl className="kv facts-page">
-        <Fact name="Version">{requirement.version}</Fact>
-        {requirement.source ? (
-          <Fact name="Source" mono>
-            {requirement.source}
-          </Fact>
-        ) : null}
-        <Fact name="Digest" mono>
-          {requirement.digest}
-        </Fact>
-      </dl>
-    </>
-  );
-}
-
-function Versions({ reference, current, still }: { reference: DocumentRef; current: string; still: Live }) {
-  const read = useView(() => readDocumentVersions(reference), `${reference.instance}:${reference.path}`, still);
-  const heading = useId();
-  return (
-    <section className="group" aria-labelledby={heading}>
-      <h2 className="group-title" id={heading}>
-        Versions
-      </h2>
-      {read.view ? (
-        <ol className="list-rows" role="list">
-          {read.view.versions.map(({ version, digest }) => (
-            <li key={version} className="list-row">
-              {version === current ? (
-                <p className="mono" aria-current="true">
-                  {version} (this one)
-                </p>
-              ) : (
-                <Link className="mono" to={addressOf("/documents", { ...reference, version })}>
-                  {version}
-                </Link>
-              )}
-              <p className="mono muted">{digest}</p>
-            </li>
-          ))}
-        </ol>
-      ) : null}
-    </section>
-  );
-}
-
-export function DocumentPage({ reference, live }: { reference: DocumentRef; live: Live }) {
-  const heading = useId();
-  // A document comes from a repository and not from the ledger, so nothing on the stream changes it,
-  // and each read here runs git.
-  const still: Live = { heard: 0, checkSession: live.checkSession };
-  const read = useView(() => readDocument(reference), `${reference.instance}:${reference.path}:${reference.version}`, still);
-  const document = read.view;
-  const failure = read.failure ? (
-    <p className="refusal" role="alert">
-      {read.failure}
-    </p>
-  ) : null;
-  if (read.refusedCode === "not_found" || reference.path === "") {
+// DocumentsBody is the reader and the matrix: three columns, a document tree by kind, the reader with its
+// version selector and review state, and the trace panel for the requirement the address selects.
+export function DocumentsBody({ view, live, params, tab, project }: { view: Documents; live: Live; params: URLSearchParams; tab: "reader" | "traceability"; project: string }) {
+  const keyed = params.get("key") ?? "";
+  if (tab === "traceability") {
+    return <Matrix view={view} keyed={keyed} />;
+  }
+  const open = openedDocument(view, params);
+  const none = view.documents.length === 0 && view.plans.every((plan) => plan.documents.length === 0);
+  if (none) {
     return (
-      <Page title="No such document">
-        {failure}
-        <p className="back">
-          <Link to="/documents">All documents</Link>
-        </p>
-      </Page>
+      <div className="panel">
+        <EmptyState icon="doc" title="No documents yet" action={<StartSession project={project} variant="primary" />}>
+          Documents appear when a plan or an adoption adds them.
+        </EmptyState>
+      </div>
     );
   }
   return (
-    <Page title={document?.title ?? "Document"}>
-      {failure}
-      {document ? (
-        <>
-          <dl className="kv facts-page">
-            <Fact name="Kind">{kindWord(document.kind)}</Fact>
-            <Fact name="Path" mono>
-              {document.path}
-            </Fact>
-          </dl>
-          <dl className="facts-long">
-            <LongFact name="Source" value={document.source} />
-            <LongFact name="Digest" value={document.digest} />
-          </dl>
-          <p className="outside" role="note">
-            This text comes from a repository, as anyone with a commit wrote it. It is shown as text: nothing in it runs, loads, or links.
-          </p>
-          <section aria-labelledby={heading} className="group">
-            <h2 className="visually-hidden" id={heading}>
-              The document
-            </h2>
-            <DocumentText body={document.body ?? ""} title={document.title} />
-          </section>
-          <Versions reference={reference} current={document.version} still={still} />
-        </>
-      ) : failure ? null : (
-        <p className="muted">Reading.</p>
+    <div className="grid grid-docs">
+      <Tree view={view} open={open} keyed={keyed} />
+      {open ? (
+        open.recorded ? (
+          <RecordedReader key={`${open.key}:${params.get("version") ?? ""}`} item={open} view={view} live={live} params={params} />
+        ) : (
+          <FileReader key={`${open.key}:${params.get("version") ?? ""}`} item={open} live={live} params={params} />
+        )
+      ) : (
+        <div className="panel">
+          <EmptyState icon="doc" title={params.get("id") || params.get("path") ? "No such document" : "No document of that kind"}>
+            {params.get("id") || params.get("path") ? "No document with that address is held." : "Choose another kind in the list."}
+          </EmptyState>
+        </div>
       )}
-    </Page>
+      <TracePanel view={view} keyed={keyed} />
+    </div>
   );
 }

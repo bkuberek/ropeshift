@@ -69,6 +69,12 @@ type Config struct {
 	// Starts places the lane of every claim: the base it begins from, fetched, and the wait for the merge
 	// of the work it depends on. Nil places none, and a worker begins a branch where its checkout is.
 	Starts *control.Starts
+	// Branches opens a project's repository at a branch, in the checkout of the machine the daemon runs on,
+	// so the outline of a planning session reads what its lane has committed. Nil reads none.
+	Branches BranchSource
+	// LaneBranchPrefix is what the name of a lane's branch begins with, which the lane's profile sets. The
+	// branch a lane works on is the prefix and the lane's ID, unless its work order keeps one.
+	LaneBranchPrefix string
 	// Panes is the worker's terminal as the web pane reaches it. Nil reaches none, as on a control
 	// plane whose worker has no tmux, and the pane's routes refuse.
 	Panes Panes

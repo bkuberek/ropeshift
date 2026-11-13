@@ -1,0 +1,386 @@
+{
+  "plan": {
+    "id": "generated-1",
+    "goal_id": "generated-2",
+    "title": "The factory floor",
+    "status": "active",
+    "source": "plans/factory/plan.md@16"
+  },
+  "goal": {
+    "id": "generated-2",
+    "title": "Run the factory",
+    "status": "active",
+    "success_measures": [
+      "A plan is approved in one step",
+      "Shared work is built first"
+    ],
+    "statement": "One person plans, and the factory builds.\n",
+    "source": "plans/factory/goal.md@7"
+  },
+  "contracts": [
+    {
+      "id": "generated-3",
+      "version": 1,
+      "plan_id": "generated-1",
+      "title": "The API client",
+      "digest": "sha256:964587ca63ba06d5454a7510067214fb54c4a043fb2b1bdffdd2a131c82342bc",
+      "source": "plans/factory/client.md@8",
+      "statement": "What The API client is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "Every call retries once",
+          "requirements": [
+            "FAC-2"
+          ]
+        }
+      ],
+      "milestone": "build",
+      "shared": true,
+      "work_orders": [
+        {
+          "ref": "work_order:client-1",
+          "digest": "sha256:2c1761e16218a799b909777ae21cbeeec22ca1e869f282446e8b8d91e472ce6c"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "id": "generated-4",
+      "version": 2,
+      "plan_id": "generated-1",
+      "title": "The planning core",
+      "digest": "sha256:40eec804f2316be29e61dbebe45f3d1c36defc4a140f2f3fee5977670d20b8e6",
+      "source": "plans/factory/core.md@16",
+      "statement": "What The planning core is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "A plan version has one digest, over every record",
+          "requirements": [
+            "FAC-1"
+          ]
+        },
+        {
+          "id": "c2",
+          "text": "A changed criterion asks again",
+          "requirements": [
+            "FAC-1"
+          ]
+        }
+      ],
+      "milestone": "build",
+      "uses": [
+        "client"
+      ],
+      "work_orders": [
+        {
+          "ref": "work_order:core-1",
+          "digest": "sha256:f80304cc0d00851b8c62bc40ec5cb51700cb9911b18b3b0ce6105de426364116"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "id": "generated-5",
+      "version": 2,
+      "plan_id": "generated-1",
+      "title": "The approval page",
+      "digest": "sha256:615d875c9711c97b1c14d358549ee4b248d1b98f696d5f371c88fac0b10f489b",
+      "source": "plans/factory/ui.md@16",
+      "statement": "What The approval page is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "A member approves a plan in one press",
+          "requirements": [
+            "FAC-1"
+          ]
+        },
+        {
+          "id": "c2",
+          "text": "The roadmap shows parallel work",
+          "requirements": [
+            "FAC-3"
+          ]
+        }
+      ],
+      "milestone": "ship",
+      "work_orders": [
+        {
+          "ref": "work_order:ui-1",
+          "digest": "sha256:96270ea48e348a72042413ffe7839941c101c93c6eee453a7f9320d0f55df598"
+        },
+        {
+          "ref": "work_order:ui-2",
+          "digest": "sha256:4c610486718bfa9e2720632e76137f561e27553f0127fed395538548e9f2be66"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "id": "generated-6",
+      "version": 1,
+      "plan_id": "generated-1",
+      "title": "The newcomer guide",
+      "digest": "sha256:b61f13d5f15ab7f8d305adbc3738a4572be88abcf792d89f0c0933e268b93106",
+      "source": "plans/factory/guide.md@11",
+      "statement": "What The newcomer guide is for.\n",
+      "criteria": [
+        {
+          "id": "c1",
+          "text": "The guide shows which work runs at once",
+          "requirements": [
+            "FAC-3"
+          ]
+        }
+      ],
+      "milestone": "guide",
+      "work_orders": [
+        {
+          "ref": "work_order:guide-1",
+          "digest": "sha256:5caac72c1a0be9c5420b137523e6ae8369a27869f2a16302c29b1f6729eba42f"
+        }
+      ],
+      "status": "active"
+    }
+  ],
+  "work_orders": [
+    {
+      "id": "generated-7",
+      "kind": "change",
+      "state": "done",
+      "title": "Write the API client",
+      "repository_id": "memory",
+      "size": "large",
+      "contract_id": "generated-3",
+      "contract_version": 1,
+      "fence": 2,
+      "reviewed_by": "member-1",
+      "rev": 1
+    },
+    {
+      "id": "generated-8",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "Build the planning core",
+      "repository_id": "memory",
+      "size": "medium",
+      "contract_id": "generated-4",
+      "contract_version": 2
+    },
+    {
+      "id": "generated-9",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "Build the approval page",
+      "repository_id": "memory",
+      "size": "small",
+      "contract_id": "generated-5",
+      "contract_version": 2
+    },
+    {
+      "id": "generated-10",
+      "kind": "change",
+      "state": "contract_review",
+      "title": "Show the critical path",
+      "repository_id": "memory",
+      "size": "small",
+      "contract_id": "generated-5",
+      "contract_version": 2
+    },
+    {
+      "id": "generated-11",
+      "kind": "change",
+      "state": "ready",
+      "title": "Write the guide",
+      "repository_id": "memory",
+      "size": "small",
+      "contract_id": "generated-6",
+      "contract_version": 1,
+      "reviewed_by": "member-1"
+    }
+  ],
+  "approval": {
+    "approval": {
+      "id": "generated-12",
+      "lane_id": "",
+      "work_order_id": "",
+      "generation": 0,
+      "kind": "plan",
+      "subject": "generated-1@5",
+      "subject_digest": "sha256:612217d1fef3effec6eabbd3abb456fc7ece81f13a7fd8c30f73d3d440e96992",
+      "summary": "Plan The factory floor, version 5: 4 contract, 3 milestone, 1 requirements, 1 spec",
+      "requested_by": "system:intake",
+      "state": "approved",
+      "decided_by": "member:member-1",
+      "decided_kind": "member",
+      "decided_digest": "sha256:612217d1fef3effec6eabbd3abb456fc7ece81f13a7fd8c30f73d3d440e96992",
+      "decided_at": 1790000124000,
+      "policy_version": 1,
+      "raised_at": 1790000064000,
+      "channel": "hook",
+      "plan_id": "generated-1",
+      "plan_version": 5,
+      "detail": "{\"title\":\"The factory floor\",\"ref\":\"factory\",\"counts\":{\"contract\":4,\"milestone\":3,\"requirements\":1,\"spec\":1},\"difference\":{\"added\":[\"contract:client\",\"contract:core\",\"contract:guide\",\"contract:ui\",\"milestone:build\",\"milestone:guide\",\"milestone:ship\",\"plan:factory\",\"requirements:factory\",\"spec:factory-api\"]},\"source\":\"plans/factory/plan.md@7\"}"
+    },
+    "detail": {
+      "title": "The factory floor",
+      "ref": "factory",
+      "counts": {
+        "contract": 4,
+        "milestone": 3,
+        "requirements": 1,
+        "spec": 1
+      },
+      "difference": {
+        "added": [
+          "contract:client",
+          "contract:core",
+          "contract:guide",
+          "contract:ui",
+          "milestone:build",
+          "milestone:guide",
+          "milestone:ship",
+          "plan:factory",
+          "requirements:factory",
+          "spec:factory-api"
+        ]
+      },
+      "source": "plans/factory/plan.md@7"
+    },
+    "records": [
+      {
+        "ref": "plan:factory",
+        "digest": "sha256:68e304f0e74ca62866b1926e8b21b370beb32c2af8a9a363dfb689d6f13ecb96"
+      },
+      {
+        "ref": "milestone:build",
+        "digest": "sha256:96a26ad40a30cbbf37d0661a1949df53887baae5108fc9a52b0ebc50ca2a1bcb",
+        "record": "milestone:build"
+      },
+      {
+        "ref": "milestone:guide",
+        "digest": "sha256:a8d3269770f074491ca303bb90fa5001b1f2ed3b2735c8c1fa3deb84551c5635",
+        "record": "milestone:guide"
+      },
+      {
+        "ref": "milestone:ship",
+        "digest": "sha256:445d14cc5a6cd94b153f48aa0f63b6e76b30966e8cf4052310783754f65720a5",
+        "record": "milestone:ship"
+      },
+      {
+        "ref": "requirements:factory",
+        "digest": "sha256:cffebe81280e19a2096b3167d568a8aa5e7a696902ecdaa6e41680112548d6fc",
+        "record": "requirements:factory"
+      },
+      {
+        "ref": "spec:factory-api",
+        "digest": "sha256:cd2ff1c8dfea4c91782f67156f10c6f5a6c5fb2a0cf12033394b9704788520c7",
+        "record": "spec:factory-api"
+      },
+      {
+        "ref": "contract:client",
+        "digest": "sha256:964587ca63ba06d5454a7510067214fb54c4a043fb2b1bdffdd2a131c82342bc",
+        "record": "generated-3",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:a5b5246c4eca3d6cb8c332d9d86f95945538ed5ce2e182cb0bb71a411093ddf8"
+          },
+          {
+            "ref": "work_order:client-1",
+            "digest": "sha256:2c1761e16218a799b909777ae21cbeeec22ca1e869f282446e8b8d91e472ce6c"
+          }
+        ]
+      },
+      {
+        "ref": "contract:core",
+        "digest": "sha256:94b92bbe5eea5220126039a9be1fb11ccfea6cab5851c5f36bf32eeacc0a038b",
+        "record": "generated-4",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:6e6b54da50d3540c2146efa7bc38e297823f3835ac0e9021c57ca7faa36e8702"
+          },
+          {
+            "ref": "work_order:core-1",
+            "digest": "sha256:f80304cc0d00851b8c62bc40ec5cb51700cb9911b18b3b0ce6105de426364116"
+          }
+        ]
+      },
+      {
+        "ref": "contract:ui",
+        "digest": "sha256:60976679df571d15765d2f69ec9f9ba9d1d1d7257da6f6f7a701a77702084dfe",
+        "record": "generated-5",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:b0366e5e53997826a7d5b277c532045ba806cae4e82eb747333911be06a0013f"
+          },
+          {
+            "ref": "criterion:c2",
+            "digest": "sha256:e66f4e6f18aa37e63478013f7d9f2c4076b75c7bfc214e2ce51f3c434150466e"
+          },
+          {
+            "ref": "work_order:ui-1",
+            "digest": "sha256:96270ea48e348a72042413ffe7839941c101c93c6eee453a7f9320d0f55df598"
+          }
+        ]
+      },
+      {
+        "ref": "contract:guide",
+        "digest": "sha256:b61f13d5f15ab7f8d305adbc3738a4572be88abcf792d89f0c0933e268b93106",
+        "record": "generated-6",
+        "parts": [
+          {
+            "ref": "criterion:c1",
+            "digest": "sha256:9a918a45cca30cbb67021edfaf719159db92987c4da0e806a96147682079d3bb"
+          },
+          {
+            "ref": "work_order:guide-1",
+            "digest": "sha256:5caac72c1a0be9c5420b137523e6ae8369a27869f2a16302c29b1f6729eba42f"
+          }
+        ]
+      }
+    ]
+  },
+  "versions": [
+    {
+      "version": 6,
+      "digest": "sha256:e86a2a838f6bb9b66bb8817e866d11764a989566982a6cb03a69f0cce3d156a3",
+      "approval": "generated-13",
+      "state": "pending"
+    },
+    {
+      "version": 5,
+      "digest": "sha256:612217d1fef3effec6eabbd3abb456fc7ece81f13a7fd8c30f73d3d440e96992",
+      "approval": "generated-12",
+      "state": "approved"
+    },
+    {
+      "version": 4,
+      "digest": "sha256:a7f7a9b5934ed43c9376ffcd7889069eafa1799ae36d7d9db77f40719c80d239",
+      "approval": "generated-14",
+      "state": "superseded"
+    },
+    {
+      "version": 3,
+      "digest": "sha256:2376b97ee28622d50429c59e2eefba67b80be06fc8a3857d0cf3d3bcc8b04faa",
+      "approval": "generated-15",
+      "state": "superseded"
+    },
+    {
+      "version": 2,
+      "digest": "sha256:7cba5a26f5555337635b5266e4c4f4dd731a0ce173003fb696d5313b01c1bef0",
+      "approval": "generated-16",
+      "state": "superseded"
+    },
+    {
+      "version": 1,
+      "digest": "sha256:404239203c58c5f6c778960c165ee726d0ffcd825099d6895fe2f87dc5e88c8b",
+      "approval": "generated-17",
+      "state": "superseded"
+    }
+  ]
+}

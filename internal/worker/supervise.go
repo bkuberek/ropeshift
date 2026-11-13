@@ -346,7 +346,8 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64, reason ledger.
 		resume, meter = "", lanes.CostMeter{}
 		record.Handoff, r.inherited = nil, nil
 	}
-	if asked := r.respawnAsked.Load(); asked != 0 {
+	asked := r.respawnAsked.Load()
+	if asked != 0 {
 		record.RespawnsSeen = asked
 	}
 	payload, err := json.Marshal(ledger.GenerationStart{Reason: reason})
@@ -370,6 +371,7 @@ func (r *laneRun) nextGeneration(ctx context.Context, next int64, reason ledger.
 		r.w.config.Report(err)
 	}
 	r.enterGeneration(next, resume, record.Progress)
+	r.answered(asked)
 	r.inheritedFrom(record.Handoff)
 	return true
 }

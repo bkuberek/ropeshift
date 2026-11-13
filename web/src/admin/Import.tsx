@@ -128,7 +128,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
     });
     if (lane) {
       await reload();
-      go(`/projects/${encodeURIComponent(project)}/lane?id=${encodeURIComponent(lane)}`);
+      go(`/projects/${encodeURIComponent(project)}/planning?lane=${encodeURIComponent(lane)}`);
     }
   };
 
@@ -305,7 +305,7 @@ export function ImportPage({ projects, chosen, reload }: { projects: Project[]; 
                     ? `Registering would add ${registering} ${registering === 1 ? "repository" : "repositories"} to ${label}.`
                     : step === 3
                       ? "The adopt session writes the plan, and the onboarded documents, to this repository on a branch of its own."
-                      : `Registers ${registering} ${registering === 1 ? "repository" : "repositories"} in ${label}, writes the inventory, and starts the session's lane, whose pane opens next. The session asks you what only you can answer.`}
+                      : `Registers ${registering} ${registering === 1 ? "repository" : "repositories"} in ${label}, writes the inventory, and starts the session's lane, whose planning pane opens next. The session asks you what only you can answer.`}
               </p>
               <p className="muted">Nothing reaches a default branch until you approve the plan and the adoption branch merges.</p>
               {step === 4 && change.failure ? <Refusal>{change.failure}</Refusal> : null}

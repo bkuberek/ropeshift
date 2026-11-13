@@ -16,7 +16,10 @@ import {
   pressPaneKey,
   readDocument,
   readDocumentVersions,
+  readApproval,
   readNeedsYou,
+  readOutline,
+  readPlan,
   readProjects,
   readRecorded,
   readView,
@@ -63,6 +66,9 @@ describe("the client", () => {
     await readDocument({ path: "docs/a b.md", instance: "repository", version: "1" });
     await readDocumentVersions({ path: "docs/a b.md" });
     await readRecorded("spec:a b", "2");
+    await readPlan("plan a", "3");
+    await readApproval("approval a");
+    await readOutline("lane:a b");
     await typeIntoPane("lane:a b", "A planning tool", true);
     await pressPaneKey("lane:a b", "Ctrl-C");
     expect(sent.length).toBeGreaterThan(20);

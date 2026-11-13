@@ -1,0 +1,59 @@
+{
+  "commit": "0000000000000000000000000000000000000005",
+  "documents": [
+    {
+      "path": "docs/requirements.md",
+      "kind": "requirements",
+      "title": "Search",
+      "status": "changed"
+    },
+    {
+      "path": "plans/m4.md",
+      "kind": "milestone",
+      "title": "Saved searches v2",
+      "status": "new"
+    },
+    {
+      "path": "plans/saved.md",
+      "kind": "plan",
+      "title": "Saved searches",
+      "status": "new"
+    },
+    {
+      "path": "plans/storage.md",
+      "kind": "contract",
+      "title": "Saved search storage",
+      "status": "new"
+    }
+  ],
+  "milestones": [
+    {
+      "id": "m4",
+      "title": "Saved searches v2",
+      "priority": 4
+    }
+  ],
+  "contracts": [
+    {
+      "id": "storage",
+      "title": "Saved search storage",
+      "criteria": 2,
+      "work_orders": 1
+    }
+  ],
+  "decisions": [
+    {
+      "id": "dd-10",
+      "question": "Whose are they?",
+      "answer": "One member's"
+    }
+  ],
+  "questions": [
+    {
+      "id": "question-blocking",
+      "text": "Hourly or daily?",
+      "blocking": true
+    }
+  ],
+  "not_submitted": "A blocking question is open, so the session has not submitted this version for approval."
+}

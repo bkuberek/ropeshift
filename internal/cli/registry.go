@@ -119,6 +119,7 @@ func registry() []section {
 			command("lane attach", "<lane>", "put your terminal on an interactive lane's pane, which detaching leaves running", (*invocation).laneAttach),
 			command("lane list", "", "list lanes, each with its freshness", (*invocation).laneList),
 			command("lane show", "<lane>", "show one lane, with its freshness", (*invocation).laneShow),
+			command("lane outline", "<lane>", "show the plan a planning lane has committed to its branch", (*invocation).laneOutline),
 			command("lane reset", "<work-order>", "let a lane its breaker stopped start again", (*invocation).laneReset),
 			command("lane respawn", "<work-order>", "ask for a running lane's next generation", (*invocation).laneRespawn),
 			command("lane resume", "<work-order>", "give a parked lane a member's word", (*invocation).laneResume),

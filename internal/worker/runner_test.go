@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -32,6 +33,22 @@ type laneRig struct {
 	stopWorker func()
 	// telemetry is what the worker emitted.
 	telemetry *fake.Telemetry
+	// problemLock guards problemList, which holds what the worker reported it could not do.
+	problemLock sync.Mutex
+	problemList []error
+}
+
+func (r *laneRig) noteProblem(err error) {
+	r.problemLock.Lock()
+	defer r.problemLock.Unlock()
+	r.problemList = append(r.problemList, err)
+}
+
+// problems are the failures the worker reported and went on from.
+func (r *laneRig) problems() []error {
+	r.problemLock.Lock()
+	defer r.problemLock.Unlock()
+	return slices.Clone(r.problemList)
 }
 
 func newLaneRig(t *testing.T) *laneRig {
@@ -82,6 +99,7 @@ func newLaneRigWith(t *testing.T, base *rig, setup func(*fake.AgentDriver)) *lan
 		Lanes:     config,
 		Spool:     filepath.Join(dir, "spool"),
 		Telemetry: r.telemetry,
+		Report:    r.noteProblem,
 	})
 	if err := r.subject.Start(t.Context()); err != nil {
 		t.Fatal(err)

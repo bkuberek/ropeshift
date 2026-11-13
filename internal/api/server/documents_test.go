@@ -195,6 +195,56 @@ func TestTheDocumentsViewTracesEachRequirementToItsCriteriaAndWork(t *testing.T)
 	}
 }
 
+// A criterion's work order carries the latest verdict that speaks for its current attempt and commit: the
+// outcome and the commit it read, and none before a review has judged that criterion.
+func TestTheDocumentsViewShowsEachTracedWorkOrdersVerdictForTheCriterion(t *testing.T) {
+	d, w, _ := documentsWorld(t)
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte(tracedPlan))
+	source.Write("requirements.md", []byte(tracedRequirements))
+	source.Write("budget.md", []byte(tracedContract))
+	w.Planned(source)
+	w.ApprovePlan("Traced")
+	orders, err := d.Client.WorkOrders(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	for _, order := range orders {
+		if order.Title == "Add the budget" {
+			id = order.ID
+		}
+	}
+	verdictOf := func(trace api.RequirementTrace, criterion string) *api.TracedVerdict {
+		t.Helper()
+		for _, row := range trace.Criteria {
+			if row.Criterion == criterion && len(row.WorkOrders) == 1 {
+				return row.WorkOrders[0].Verdict
+			}
+		}
+		t.Fatalf("%s traces no work to %s: %+v", trace.Key, criterion, trace.Criteria)
+		return nil
+	}
+	if got := verdictOf(planDocuments(t, d, "Traced").Requirements[0], "c1"); got != nil {
+		t.Errorf("work no review has judged carries the verdict %+v", got)
+	}
+	w.Run(id).Finish(workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/budget", Head: "abc123"})
+	w.Reviewed(id,
+		workorders.CriterionVerdict{Criterion: "c1", Verdict: workorders.VerdictPass, Reasons: "It retries twice."},
+		workorders.CriterionVerdict{Criterion: "c2", Verdict: workorders.VerdictFail, Reasons: "It never stops."},
+	)
+	plan := planDocuments(t, d, "Traced")
+	if got := verdictOf(plan.Requirements[0], "c1"); got == nil || got.Verdict != workorders.VerdictPass || got.Commit != "abc123" {
+		t.Errorf("c1 of R-1 reads %+v", got)
+	}
+	if got := verdictOf(plan.Requirements[0], "c2"); got == nil || got.Verdict != workorders.VerdictFail || got.Commit != "abc123" {
+		t.Errorf("c2 of R-1 reads %+v", got)
+	}
+	if got := verdictOf(plan.Requirements[1], "c2"); got == nil || got.Verdict != workorders.VerdictFail {
+		t.Errorf("c2 of R-2 reads %+v", got)
+	}
+}
+
 // ADR-0023: a requirement the code already meets shows as met by existing code with its evidence, rather
 // than by criteria and verdicts.
 func TestTheDocumentsViewShowsARequirementTheCodeMeetsWithItsEvidence(t *testing.T) {

@@ -11,9 +11,11 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // reviewMark is where one digest of a document stands in review, and the plan version that puts it there.
@@ -132,6 +134,7 @@ func planTraces(tx ports.ReadTx, plan string, documents []planning.DocumentRecor
 		newest = append(newest, contract)
 	}
 	work := map[string][]api.TracedWork{}
+	verdicts := map[string]map[string]api.TracedVerdict{}
 	for _, contract := range newest {
 		orders, err := tx.WorkOrders().ByContract(contract.ID)
 		if err != nil {
@@ -140,6 +143,11 @@ func planTraces(tx ports.ReadTx, plan string, documents []planning.DocumentRecor
 		work[contract.ID] = []api.TracedWork{}
 		for _, order := range orders {
 			work[contract.ID] = append(work[contract.ID], api.TracedWork{ID: order.ID, Title: order.Title, State: order.State})
+			if _, read := verdicts[order.ID]; !read {
+				if verdicts[order.ID], err = latestVerdicts(tx, order.ID); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 	traces := []api.RequirementTrace{}
@@ -167,7 +175,7 @@ func planTraces(tx ports.ReadTx, plan string, documents []planning.DocumentRecor
 					}
 					trace.Criteria = append(trace.Criteria, api.TracedCriterion{
 						Contract: contract.ID, ContractTitle: contract.Title, ContractVersion: contract.Version, Criterion: criterion.ID,
-						Text: criterion.Text, WorkOrders: work[contract.ID],
+						Text: criterion.Text, WorkOrders: judged(work[contract.ID], verdicts, criterion.ID),
 					})
 				}
 			}
@@ -175,6 +183,39 @@ func planTraces(tx ports.ReadTx, plan string, documents []planning.DocumentRecor
 		}
 	}
 	return traces, nil
+}
+
+// latestVerdicts reads, for each criterion of a work order, the latest verdict that speaks for the attempt
+// it is at and the commit that attempt left. A verdict on another commit or attempt stays on record and is
+// not shown here.
+func latestVerdicts(tx ports.ReadTx, order string) (map[string]api.TracedVerdict, error) {
+	standing, err := control.StandingIn(tx, order)
+	if err != nil {
+		return nil, err
+	}
+	latest := map[string]workorders.Verdict{}
+	for _, verdict := range standing.Verdicts {
+		if held, seen := latest[verdict.Criterion]; !seen || verdict.CreatedAt >= held.CreatedAt {
+			latest[verdict.Criterion] = verdict
+		}
+	}
+	out := map[string]api.TracedVerdict{}
+	for criterion, verdict := range latest {
+		out[criterion] = api.TracedVerdict{Verdict: verdict.Verdict, Commit: verdict.Commit}
+	}
+	return out, nil
+}
+
+// judged copies a contract's work orders with what each one's review found of one criterion.
+func judged(orders []api.TracedWork, verdicts map[string]map[string]api.TracedVerdict, criterion string) []api.TracedWork {
+	out := make([]api.TracedWork, len(orders))
+	for i, order := range orders {
+		out[i] = order
+		if verdict, found := verdicts[order.ID][criterion]; found {
+			out[i].Verdict = &verdict
+		}
+	}
+	return out
 }
 
 // recordedPlans reads, for each plan whose files recorded a document, those documents with every version

@@ -434,6 +434,7 @@
       ]
     },
     {
+      "approved_version": 5,
       "contracts": [
         {
           "id": "generated-19",

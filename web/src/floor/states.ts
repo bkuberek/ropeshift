@@ -108,6 +108,8 @@ export const approvalStates: Record<string, StateLook> = {
   open: { label: "Open", tone: "warning", glyph: "half" },
   granted: { label: "Granted", tone: "success", glyph: "check" },
   confirmed: { label: "Confirmed", tone: "success", glyph: "check" },
+  approved: { label: "Approved", tone: "success", glyph: "check" },
+  superseded: { label: "Superseded", tone: "neutral", glyph: "slash" },
   denied: { label: "Denied", tone: "neutral", glyph: "cross" },
   declined: { label: "Declined", tone: "neutral", glyph: "cross" },
   void: { label: "Void", tone: "neutral", glyph: "slash" },

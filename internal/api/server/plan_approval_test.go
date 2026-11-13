@@ -284,3 +284,71 @@ func TestAPlanApprovalNeedCarriesWhatAnAdoptionGroups(t *testing.T) {
 		t.Errorf("the need groups %+v, want %+v", need.Adoption, adoption)
 	}
 }
+
+// approvedThenChanged is a plan whose first version a member approved and whose second waits.
+func approvedThenChanged(t *testing.T) (*apitest.Daemon, string) {
+	t.Helper()
+	d, w, _ := aWorld(t)
+	source := retrySource("The first draft.")
+	w.Planned(source)
+	first := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	if _, err := d.Client.DecideApproval(t.Context(), first.Approval.ID, api.DecideApproval{Digest: first.Approval.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	source.Write("spec.md", []byte("+++\nkind = \"spec\"\nid = \"api\"\ntitle = \"The API\"\nplan = \"retry\"\n+++\n\nThe second draft.\n"))
+	w.Planned(source)
+	second := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	return d, second.Approval.Plan
+}
+
+func TestShowingAPlanListsEachVersionWithItsApprovalState(t *testing.T) {
+	d, plan := approvedThenChanged(t)
+	view, err := d.Client.Plan(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Versions) != 2 {
+		t.Fatalf("versions %+v", view.Versions)
+	}
+	newest, oldest := view.Versions[0], view.Versions[1]
+	if newest.Version != 2 || newest.State != authority.ApprovalPending || newest.Approval == "" || newest.Digest == "" {
+		t.Errorf("newest %+v", newest)
+	}
+	if oldest.Version != 1 || oldest.State != authority.ApprovalApproved || oldest.Approval == "" || oldest.Digest == newest.Digest {
+		t.Errorf("oldest %+v", oldest)
+	}
+	if view.Approval == nil || view.Approval.Approval.PlanVersion != 2 {
+		t.Errorf("with no version the answer stays the open request: %+v", view.Approval)
+	}
+}
+
+func TestShowingAPlanByVersionReadsThatVersionsApproval(t *testing.T) {
+	d, plan := approvedThenChanged(t)
+	first, err := d.Client.PlanVersion(t.Context(), plan, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Approval == nil || first.Approval.Approval.PlanVersion != 1 || first.Approval.Approval.State != authority.ApprovalApproved ||
+		first.Approval.Approval.DecidedBy == "" || len(first.Approval.Drafts) != 1 || len(first.Versions) != 2 {
+		t.Errorf("version 1 reads %+v", first.Approval)
+	}
+	second, err := d.Client.PlanVersion(t.Context(), plan, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Approval == nil || second.Approval.Approval.PlanVersion != 2 || !second.Approval.Approval.Open() ||
+		!slices.Equal(second.Approval.Detail.Difference.Changed, []string{"spec:api"}) {
+		t.Errorf("version 2 reads %+v", second.Approval)
+	}
+}
+
+func TestShowingAPlanVersionItNeverHadIsRefused(t *testing.T) {
+	d, plan := approvedThenChanged(t)
+	_, err := d.Client.PlanVersion(t.Context(), plan, 9)
+	refusedWith(t, err, http.StatusNotFound, api.CodeNotFound)
+	var out api.PlanView
+	err = d.Client.Do(t.Context(), http.MethodGet, d.Client.Route("/v1/plans/"+plan+"?version=zero"), nil, &out)
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	err = d.Client.Do(t.Context(), http.MethodGet, d.Client.Route("/v1/plans/"+plan+"?version=0"), nil, &out)
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+}

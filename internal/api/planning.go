@@ -24,8 +24,20 @@ type PlanView struct {
 	Goal       *planning.Goal         `json:"goal,omitempty"`
 	Contracts  []planning.Contract    `json:"contracts"`
 	WorkOrders []workorders.WorkOrder `json:"work_orders"`
-	// Approval is the request to approve the plan: the open one, or else the newest.
+	// Approval is the request to approve the plan: the open one, or else the newest. Asked for one version,
+	// it is that version's.
 	Approval *PlanApprovalView `json:"approval,omitempty"`
+	// Versions lists every version of the plan, newest first, with where its approval stands.
+	Versions []PlanVersionLine `json:"versions"`
+}
+
+// PlanVersionLine is one version of a plan and where the request to approve it stands: the request's ID and
+// state, or neither when nobody asked about that version.
+type PlanVersionLine struct {
+	Version  int64                   `json:"version"`
+	Digest   string                  `json:"digest,omitempty"`
+	Approval string                  `json:"approval,omitempty"`
+	State    authority.ApprovalState `json:"state,omitempty"`
 }
 
 // PlanApprovalView is a request to approve a plan version with everything a member reads before
@@ -167,11 +179,20 @@ type RecordedDocument struct {
 	Versions []RecordedVersion `json:"versions"`
 }
 
-// TracedWork is a work order that carries a criterion, and where it stands.
+// TracedVerdict is what a review found of one criterion on the commit it read.
+type TracedVerdict struct {
+	Verdict workorders.VerdictKind `json:"verdict"`
+	Commit  string                 `json:"commit"`
+}
+
+// TracedWork is a work order that carries a criterion, and where it stands. Verdict is the latest verdict
+// of that criterion that speaks for the work order's current attempt and the commit it left, and it is
+// absent until a review has judged the criterion.
 type TracedWork struct {
-	ID    string           `json:"id"`
-	Title string           `json:"title"`
-	State workorders.State `json:"state"`
+	ID      string           `json:"id"`
+	Title   string           `json:"title"`
+	State   workorders.State `json:"state"`
+	Verdict *TracedVerdict   `json:"verdict,omitempty"`
 }
 
 // TracedCriterion is a criterion of a contract's newest version that serves a requirement, with the work
@@ -240,6 +261,14 @@ func (c *ProjectClient) Plans(ctx context.Context) ([]planning.Plan, error) {
 func (c *ProjectClient) Plan(ctx context.Context, id string) (PlanView, error) {
 	var out PlanView
 	err := c.do(ctx, http.MethodGet, "/v1/plans/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+
+// PlanVersion reads one plan with the request to approve one of its versions, which is a refusal for a
+// version the plan never had.
+func (c *ProjectClient) PlanVersion(ctx context.Context, id string, version int64) (PlanView, error) {
+	var out PlanView
+	err := c.do(ctx, http.MethodGet, "/v1/plans/"+url.PathEscape(id)+"?version="+strconv.FormatInt(version, 10), nil, &out)
 	return out, err
 }
 

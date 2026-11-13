@@ -7,7 +7,6 @@ import { useView } from "../api/useView";
 import { Button } from "../ui/controls";
 import { Banner, SkeletonRows } from "../ui/display";
 import { Icon } from "../ui/Icon";
-import type { DiffLine } from "./logic";
 
 // useRead follows one read, and reads again after a change this page made, as well as when the stream
 // says the ledger moved.
@@ -81,30 +80,6 @@ export function base64Of(file: Blob): Promise<string> {
   });
 }
 
-// Diff shows a difference by line: what goes in green with a plus, what goes out in red with a minus.
-export function Diff({ lines, label }: { lines: DiffLine[]; label: string }) {
-  if (lines.length === 0) {
-    return <p className="small muted">No difference.</p>;
-  }
-  return (
-    <div className="diff">
-      <table className="diff-table" aria-label={label}>
-        <tbody>
-          {lines.map((line, at) => (
-            <tr key={at} className={line.kind === "same" ? undefined : line.kind}>
-              <td className="sign">
-                {line.kind === "add" ? "+" : line.kind === "del" ? "−" : ""}
-                <span className="visually-hidden">{line.kind === "add" ? "added" : line.kind === "del" ? "removed" : ""}</span>
-              </td>
-              <td>{line.text}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 // SaveBar keeps a long form's unsaved changes in view, with Discard and Save, at the bottom of its panel.
 export function SaveBar({ summary, onDiscard, onSave, saving = false, saveLabel = "Save", disabled = false }: {
   summary: string;
@@ -158,13 +133,21 @@ export function timeOf(at: number): string {
 
 // useDraft is a form's draft of a saved record. A read that brings the same record again leaves the
 // draft alone, so a live update never undoes what a person is typing; a record that changed resets it.
+// The reset happens in the render that sees the new record, not in an effect after it, so no render shows
+// a field with the old record's draft where an edit could still be undone.
 export function useDraft<T>(saved: T): [T, (next: T | ((was: T) => T)) => void, T] {
   const content = JSON.stringify(saved);
   // The saved value is kept by its content, so a new object with the same content changes nothing.
   const stable = useMemo(() => saved, [content]);
-  const [draft, setDraft] = useState<T>(stable);
-  useEffect(() => setDraft(stable), [stable]);
-  return [draft, setDraft, stable];
+  const [state, setState] = useState<{ draft: T; of: T }>({ draft: stable, of: stable });
+  const setDraft = useCallback((next: T | ((was: T) => T)) => {
+    setState((was) => ({ ...was, draft: typeof next === "function" ? (next as (was: T) => T)(was.draft) : next }));
+  }, []);
+  if (state.of !== stable) {
+    setState({ draft: stable, of: stable });
+    return [stable, setDraft, stable];
+  }
+  return [state.draft, setDraft, stable];
 }
 
 // GridField is a field in a form grid: its label in the left column, and the control with its help and
