@@ -10,11 +10,16 @@ import (
 // role name the program this way, and its hook reads the word back to the path.
 func CommandWord(path string) string {
 	for _, c := range path {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/._+-", c)) {
+		if !plainInShell(c) {
 			return ShellQuote(path)
 		}
 	}
 	return path
+}
+
+// plainInShell says a shell reads a character of a word as itself.
+func plainInShell(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/._+-", c)
 }
 
 // reasonProgram is what a session held to one program is told of any other shell command.
