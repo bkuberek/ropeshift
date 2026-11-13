@@ -34,7 +34,7 @@ func TestAStreamNamesTheAssistantByItsCredentialsKind(t *testing.T) {
 }
 
 func TestWhatAnAgentOrAMemberCalledThingsCannotMoveATerminal(t *testing.T) {
-	if got := cli.Plain("a\x1b[2Jb​c‮d\n"); got != "a?[2Jb?c?d?" {
+	if got := cli.Plain("a\x1b[2Jb\u200bc\u202ed\n"); got != "a?[2Jb?c?d?" {
 		t.Errorf("got %q", got)
 	}
 	line := cli.TalkLine(memberEntry(api.TalkFrom{Kind: "delegate", ID: "member-1/x", Label: "evil\x1b[31m", DelegateKind: "external"}))
