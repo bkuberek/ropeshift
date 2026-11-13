@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { laneStates, workStates } from "../floor/states";
 import { Button, FilterChip, IconButton, Segmented, TabPanel, Tabs } from "./controls";
-import { Absent, Badge, EmptyState, Freshness, LaneBadge, SkeletonRows, StateBadge, TargetChip, WorkBadge } from "./display";
+import { Absent, Actor, Badge, EmptyState, Freshness, LaneBadge, SkeletonRows, StateBadge, TargetChip, WorkBadge } from "./display";
 import { Field, Select } from "./forms";
 import { Icon } from "./Icon";
 import { iconNames } from "./iconPaths";
@@ -95,6 +95,21 @@ describe("a target chip", () => {
     const { container } = render(<TargetChip kind={kind} />);
     expect(container.textContent).toBe(label);
     expect(container.firstElementChild?.className).toContain(`t-${kind}`);
+  });
+});
+
+describe("an actor", () => {
+  it("shows the assistant as its target chip and the member it acts for, and an outside delegate as a key", () => {
+    const { container, rerender } = render(<Actor kind="delegate" id="member-1/dlg_a" label="assistant" actorFor="Sam Rivera" />);
+    expect(container.querySelector(".target-chip.t-assistant")?.textContent).toBe("Assistant");
+    expect(container.textContent).toContain("for Sam Rivera");
+    expect(container.querySelectorAll("svg")).toHaveLength(1);
+    rerender(<Actor kind="delegate" id="member-1/dlg_b" label="planning assistant" actorFor="Sam Rivera" />);
+    expect(container.querySelector(".target-chip")).toBeNull();
+    expect(container.textContent).toContain("planning assistant");
+    expect(container.textContent).toContain("for Sam Rivera");
+    expect(container.querySelectorAll("svg")).toHaveLength(1);
+    expect(container.querySelector(".actor-delegate > svg")).not.toBeNull();
   });
 });
 

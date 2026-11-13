@@ -23,15 +23,18 @@ type DecisionCardProps = {
   // resolution replaces the actions once the record is decided.
   resolution?: ReactNode;
   className?: string;
+  // compact is the card inline in a conversation: the same parts in a narrower frame, under a smaller heading.
+  compact?: boolean;
   children?: ReactNode;
 };
 
 // DecisionCard is one decision a member makes, in one form everywhere it appears: a kind line, a title
 // that says what will happen, who asked, what it changes and why, what it binds to, and its buttons.
-export function DecisionCard({ kind, project, title, state, provenance, binding, actions, resolution, className = "", children }: DecisionCardProps) {
+export function DecisionCard({ kind, project, title, state, provenance, binding, actions, resolution, className = "", compact = false, children }: DecisionCardProps) {
   const heading = useId();
+  const Title = compact ? "h3" : "h2";
   return (
-    <article className={`decision${className ? ` ${className}` : ""}`} aria-labelledby={heading}>
+    <article className={`decision${compact ? " decision-compact" : ""}${className ? ` ${className}` : ""}`} aria-labelledby={heading}>
       <header className="decision-head">
         <div className="decision-heading">
           <p className="decision-kind">
@@ -44,9 +47,9 @@ export function DecisionCard({ kind, project, title, state, provenance, binding,
               </>
             ) : null}
           </p>
-          <h2 id={heading} className="decision-title">
+          <Title id={heading} className="decision-title">
             {title}
-          </h2>
+          </Title>
           {provenance ? <p className="decision-provenance">{provenance}</p> : null}
         </div>
         {state ? <div className="decision-state">{state}</div> : null}

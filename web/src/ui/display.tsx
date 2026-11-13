@@ -258,6 +258,9 @@ export function Digest({ value, length = 12 }: { value: string; length?: number 
   );
 }
 
+// assistantLabel is the label of every assistant credential.
+const assistantLabel = "assistant";
+
 type ActorProps = {
   kind: string;
   id: string;
@@ -269,7 +272,7 @@ type ActorProps = {
 };
 
 // Actor shows who acted, distinct by kind (FR-AUTH-10): a member by name in bold, a delegate by its key, its
-// label, and the member it acted for, the orchestrator by its target chip and worker, a lane by its ID,
+// label, and the member it acted for, the assistant by its target chip and the member it acted for, the orchestrator by its target chip and worker, a lane by its ID,
 // and a worker or the control plane in quieter text.
 export function Actor({ kind, id, actorFor, label, you }: ActorProps) {
   switch (kind) {
@@ -277,6 +280,15 @@ export function Actor({ kind, id, actorFor, label, you }: ActorProps) {
       return <strong className="actor">{you && id === you ? "you" : id}</strong>;
     case "delegate": {
       const [member = "", credential = ""] = id.split(/\/(.*)/);
+      // The assistant's credential is labeled `assistant`, and it shows as the assistant's target chip.
+      if (label === assistantLabel) {
+        return (
+          <span className="actor actor-delegate">
+            <TargetChip kind="assistant" small />
+            <span className="muted">for {actorFor || member}</span>
+          </span>
+        );
+      }
       return (
         <span className="actor actor-delegate">
           <Icon name="key" size="sm" />

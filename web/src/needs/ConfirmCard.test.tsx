@@ -100,7 +100,7 @@ describe("a confirmation card", () => {
     rerender({ ...view, items: view.items.filter((row) => row.id !== item.id) });
     const resolved = await screen.findByRole("status");
     expect(resolved.textContent).toContain("Confirmed");
-    expect(resolved.textContent).toContain("by member-1 on the command line");
+    expect(resolved.textContent).toMatch(/by member-1 from the CLI at \d{2}:\d{2}/);
     expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
     // The Confirm button left the page with the card's buttons, so focus goes to the outcome in their place.
     await waitFor(() => expect(document.activeElement).toBe(resolved));

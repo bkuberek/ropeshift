@@ -2,21 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { decideApproval, inProjectOf, readApproval } from "../api/client";
+import type { Place } from "../api/client";
 import type { Approval, BodyChange, CardNeed, FieldChange } from "../api/types";
 import { cardStates } from "../floor/states";
-import { timeOf } from "../admin/parts";
 import { Button } from "../ui/controls";
 import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
 import { Diff } from "../ui/Diff";
-import { Actor, Refusal, StateBadge } from "../ui/display";
+import { Refusal, TargetChip } from "../ui/display";
+import { Resolved } from "../ui/resolution";
 import { Icon } from "../ui/Icon";
 import { lineDiff } from "../ui/lineDiff";
 import type { Frame } from "./frame";
 import { useAct } from "./useAct";
 
 const voidWords = "The subject changed since the card was prepared. Ask the delegate to prepare it again.";
-
-const channelWords: Record<string, string> = { web: "on the web", cli: "on the command line" };
 
 const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
 
@@ -59,8 +58,6 @@ function Changes({ changes, operation, subject }: { changes: CardNeed["detail"][
 // Resolution says how a card came out, who decided it, where, and when. A card's buttons leave the page
 // once it is decided, so the outcome takes the focus that would otherwise fall to the page itself.
 function Resolution({ approval }: { approval: Approval }) {
-  const [kind = "", id = ""] = (approval.decided_by ?? "").split(/:(.*)/);
-  const where = channelWords[approval.channel ?? ""];
   const note = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (document.activeElement === document.body || document.activeElement === null) {
@@ -69,30 +66,36 @@ function Resolution({ approval }: { approval: Approval }) {
   }, []);
   return (
     <div className="resolved-note" role="status" tabIndex={-1} ref={note}>
-      <StateBadge table={cardStates} state={approval.state} />
-      <span className="small muted">
-        {approval.decided_by ? (
-          <>
-            by <Actor kind={kind} id={id} />
-          </>
-        ) : null}
-        {where ? ` ${where}` : ""}
-        {approval.decided_at ? `, ${timeOf(approval.decided_at)}` : ""}
-      </span>
+      <Resolved table={cardStates} state={approval.state} by={approval.decided_by} channel={approval.channel} at={approval.decided_at} />
     </div>
   );
 }
 
-type Props = { need: CardNeed; after: () => Promise<void>; frame: Frame; outcome?: Approval };
+// voidAsk is what a member sends the assistant to have a void card prepared again.
+export const voidAsk = (title: string) => `The card "${title}" went void because its subject changed. Prepare it again if it still applies.`
+
+type Props = {
+  need: CardNeed;
+  after: () => Promise<void>;
+  frame: Frame;
+  outcome?: Approval;
+  // compact is the card inline in a conversation, and place where a decision made there is recorded.
+  compact?: boolean;
+  place?: Place;
+  // askAgain, given for an assistant's card, offers a void one to the assistant again.
+  askAgain?: () => void;
+  // openConversation, given for an assistant's card in Needs you, goes to the conversation that prepared it.
+  openConversation?: () => void;
+};
 
 // ConfirmCard is a confirmation card a delegate prepared (ADR-0024): the exact call it runs, why the
 // delegate proposes it, and what it changes, bound to its subject as the card was prepared. Confirm runs
 // that call as this member, with the digest on this page, so a card whose subject moved is void instead.
-export function ConfirmCard({ need, after, frame, outcome }: Props) {
+export function ConfirmCard({ need, after, frame, outcome, compact = false, place, askAgain, openConversation }: Props) {
   const { act, busy, failure } = useAct(after);
   const { approval, detail } = need;
   const card = outcome ?? approval;
-  const decide = (allow: boolean) => act(() => decideApproval(approval.id, approval.subject_digest, allow, ""));
+  const decide = (allow: boolean) => act(() => decideApproval(approval.id, approval.subject_digest, allow, "", place));
   const open = card.state === "pending";
   let resolution: ReactNode = null;
   if (!open) {
@@ -100,6 +103,7 @@ export function ConfirmCard({ need, after, frame, outcome }: Props) {
   }
   return (
     <DecisionCard
+      compact={compact}
       className={open ? "card-confirm" : "card-confirm is-resolved"}
       kind={{ icon: "card", name: "Confirmation card" }}
       project={frame.project}
@@ -107,11 +111,16 @@ export function ConfirmCard({ need, after, frame, outcome }: Props) {
       provenance={
         <>
           Prepared by{" "}
-          <span className="actor">
-            <Icon name="key" size="sm" />
-            <strong>{need.label}</strong>
-          </span>
+          {need.conversation ? (
+            <TargetChip kind="assistant" small />
+          ) : (
+            <span className="actor">
+              <Icon name="key" size="sm" />
+              <strong>{need.label}</strong>
+            </span>
+          )}
           {need.member ? ` for ${need.member}` : ""}
+          {need.conversation && !compact ? <> in {need.conversation.deleted ? "a deleted conversation" : `“${need.conversation.name}”`}</> : null}
           {frame.provenance ? <> · {frame.provenance}</> : null}
         </>
       }
@@ -125,6 +134,11 @@ export function ConfirmCard({ need, after, frame, outcome }: Props) {
       resolution={resolution ?? undefined}
       actions={
         <>
+          {openConversation && need.conversation && !need.conversation.deleted ? (
+            <Button variant="ghost" onClick={openConversation}>
+              Open conversation
+            </Button>
+          ) : null}
           <Button disabled={busy} onClick={() => void decide(false)}>
             Decline
           </Button>
@@ -147,7 +161,16 @@ export function ConfirmCard({ need, after, frame, outcome }: Props) {
         </pre>
       </details>
       {card.state === "failed" && card.reason ? <Refusal>{card.reason}</Refusal> : null}
-      {card.state === "void" ? <p className="small">{voidWords}</p> : null}
+      {card.state === "void" ? (
+        <p className="small">
+          {voidWords}{" "}
+          {askAgain ? (
+            <Button small onClick={askAgain}>
+              Ask the assistant again
+            </Button>
+          ) : null}
+        </p>
+      ) : null}
       {failure && open ? <Refusal>{failure}</Refusal> : null}
     </DecisionCard>
   );
@@ -155,7 +178,7 @@ export function ConfirmCard({ need, after, frame, outcome }: Props) {
 
 // ResolvedCard shows how a card that left Needs you came out, as the project's ledger holds it now: here
 // after a member decided it, or in another place.
-export function ResolvedCard({ need, project, after, frame }: { need: CardNeed; project: string; after: () => Promise<void>; frame: Frame }) {
+export function ResolvedCard({ need, project, after, frame, askAgain }: { need: CardNeed; project: string; after: () => Promise<void>; frame: Frame; askAgain?: () => void }) {
   const [outcome, setOutcome] = useState<Approval | null>(null);
   useEffect(() => {
     let live = true;
@@ -168,5 +191,5 @@ export function ResolvedCard({ need, project, after, frame }: { need: CardNeed; 
       live = false;
     };
   }, [need.approval.id, project]);
-  return outcome ? <ConfirmCard need={need} after={after} frame={frame} outcome={outcome} /> : null;
+  return outcome ? <ConfirmCard need={need} after={after} frame={frame} outcome={outcome} askAgain={askAgain} /> : null;
 }

@@ -137,6 +137,29 @@ export const delegateStates: Record<string, StateLook> = {
   revoked: { label: "Revoked", tone: "neutral", glyph: "cross" },
 };
 
+// conversationStates are where an assistant's session stands (ADR-0024): running waits for the member, and
+// working is a turn in progress.
+export const conversationStates: Record<string, StateLook> = {
+  starting: { label: "Starting", tone: "active", glyph: "dot" },
+  running: { label: "Running", tone: "active", glyph: "dot" },
+  working: { label: "Working", tone: "active", glyph: "half" },
+  stopping: { label: "Stopping", tone: "neutral", glyph: "ring" },
+  stopped: { label: "Stopped", tone: "neutral", glyph: "pause" },
+  failed: { label: "Could not start", tone: "danger", glyph: "cross" },
+};
+
+// deliveryStates are where a message stands between the ledger and the session it is for. Only a reply
+// confirms a message was read, so no earlier state says so.
+export const deliveryStates: Record<string, StateLook> = {
+  queued: { label: "Queued", tone: "neutral", glyph: "ring" },
+  at_worker: { label: "At the worker", tone: "neutral", glyph: "ring" },
+  handed_off: { label: "Handed off", tone: "active", glyph: "half" },
+  admitted: { label: "Admitted", tone: "active", glyph: "dot" },
+  replied: { label: "Replied", tone: "success", glyph: "check" },
+  refused: { label: "Refused", tone: "danger", glyph: "cross" },
+  expired: { label: "Expired", tone: "neutral", glyph: "slash" },
+};
+
 export const projectStates: Record<string, StateLook> = {
   active: { label: "Active", tone: "active", glyph: "dot" },
   archived: { label: "Archived", tone: "neutral", glyph: "slash" },

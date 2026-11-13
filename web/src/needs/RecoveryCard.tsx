@@ -1,4 +1,5 @@
 import { decideApproval } from "../api/client";
+import type { Place } from "../api/client";
 import type { Approval } from "../api/types";
 import { Button } from "../ui/controls";
 import { DecisionCard } from "../ui/DecisionCard";
@@ -10,12 +11,13 @@ import { useAct } from "./useAct";
 
 // A recovery request is an act an orchestrator's policy did not allow. Approving it runs that act as this
 // member's decision, on the subject this page read: a work order or lane that moved since makes it void.
-export function RecoveryCard({ approval, after, frame }: { approval: Approval; after: () => Promise<void>; frame: Frame }) {
+export function RecoveryCard({ approval, after, frame, compact = false, place }: { approval: Approval; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place }) {
   const detail = detailOf(approval);
   const { act, busy, failure } = useAct(after);
-  const decide = (allow: boolean) => act(() => decideApproval(approval.id, approval.subject_digest, allow, ""));
+  const decide = (allow: boolean) => act(() => decideApproval(approval.id, approval.subject_digest, allow, "", place));
   return (
     <DecisionCard
+      compact={compact}
       kind={{ icon: "restart", name: "Recovery request" }}
       project={frame.project}
       title={frame.title}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { decideApproval } from "../api/client";
+import type { Place } from "../api/client";
 import type { Approval } from "../api/types";
 import { Button } from "../ui/controls";
 import { DecisionCard, DecisionSection } from "../ui/DecisionCard";
@@ -13,12 +14,13 @@ import { useAct } from "./useAct";
 
 // The digest sent is the one on this page, so a call that changed since this read is refused, and a
 // person never approves something they did not read.
-export function ApprovalCard({ approval, after, frame }: { approval: Approval; after: () => Promise<void>; frame: Frame }) {
+export function ApprovalCard({ approval, after, frame, compact = false, place }: { approval: Approval; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place }) {
   const [reason, setReason] = useState("");
   const { act, busy, failure } = useAct(after);
-  const decide = (allow: boolean) => act(() => decideApproval(approval.id, approval.subject_digest, allow, reason.trim()));
+  const decide = (allow: boolean) => act(() => decideApproval(approval.id, approval.subject_digest, allow, reason.trim(), place));
   return (
     <DecisionCard
+      compact={compact}
       kind={kindOf({ kind: "approval", approval, id: approval.id, since: 0 })}
       project={frame.project}
       title={frame.title}
