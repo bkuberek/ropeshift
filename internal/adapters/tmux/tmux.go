@@ -40,8 +40,9 @@ const (
 var ErrNoTmux = errors.New("tmux is not on PATH")
 
 // absent is how tmux says a server or a pane is not there. Anything else is a read that
-// did not finish, which is never the same answer.
-var absent = []string{"can't find", "no server running", "error connecting", "server exited"}
+// did not finish, which is never the same answer. A server that is still running but holds no
+// sessions says "no current target" for any target, since there is no session to resolve it against.
+var absent = []string{"can't find", "no server running", "error connecting", "server exited", "no current target"}
 
 // Options configures a terminal.
 type Options struct {
