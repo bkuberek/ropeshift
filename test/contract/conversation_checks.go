@@ -606,6 +606,16 @@ func checkAssistantCredential(r *Rig) error {
 		return err
 	}
 	grant = next
+	retried, err := t.plane.AssistantCredential(r.Ctx, ledger.AssistantCredentialRequest{
+		Auth: t.auth, Epoch: t.epoch, Conversation: record.ID, Lane: record.RunLane, Generation: 2,
+	})
+	if err != nil {
+		return err
+	}
+	if err := acts(); !errors.Is(err, authority.ErrBadDelegate) {
+		return Violatedf("a generation's earlier credential acts after a retry made another: %v", err)
+	}
+	grant = retried
 	if err := acts(); err != nil {
 		return Violatedf("the next generation's credential: %v", err)
 	}

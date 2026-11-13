@@ -172,7 +172,9 @@ func (w *Workers) AssistantCredential(ctx context.Context, request ledger.Assist
 	if err != nil && !errors.Is(err, errNothingToStop) {
 		return ledger.AssistantGrant{}, err
 	}
-	if err := revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, record.Generation, authority.DelegateEndGeneration, worker); err != nil {
+	// Every credential of the conversation ends before the new one exists: an earlier generation's, and
+	// this generation's own from an earlier call, which a retry leaves unused.
+	if err := revokeAssistant(ctx, w.store.Installation(w.scope), record.ID, record.Generation+1, authority.DelegateEndGeneration, worker); err != nil {
 		return ledger.AssistantGrant{}, err
 	}
 	token, err := newSecret()
