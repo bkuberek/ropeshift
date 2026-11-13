@@ -3,6 +3,7 @@ package worker_test
 import (
 	"encoding/json"
 	"errors"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ func contextLane(t *testing.T) *laneRig {
 	r := laneRigWith(t, contextProfile)
 	t.Cleanup(func() {
 		r.driver.StopEverySession()
-		r.subject.Wait()
+		r.waitForTheLane(t)
 	})
 	return r
 }
@@ -76,7 +77,26 @@ func (r *laneRig) awaitSent(t *testing.T, text string) ports.Input {
 func (r *laneRig) awaitOrderState(t *testing.T, state workorders.State) {
 	t.Helper()
 	r.awaitOrder(t, state)
-	r.subject.Wait()
+	r.waitForTheLane(t)
+}
+
+// waitForTheLane waits for the lane to end, for as long as any other wait of a test. A lane that does not end
+// fails the test with every goroutine's stack, where an unbounded wait would hang it until the package's timeout
+// and say nothing of what the lane waited on.
+func (r *laneRig) waitForTheLane(t *testing.T) {
+	t.Helper()
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		r.subject.Wait()
+	}()
+	select {
+	case <-ended:
+	case <-time.After(20 * time.Second):
+		stacks := make([]byte, 1<<20)
+		stacks = stacks[:runtime.Stack(stacks, true)]
+		t.Errorf("the lane never ended; goroutines:\n%s", stacks)
+	}
 }
 
 // reach waits for a session at its gate. A threshold crossed before it moves the lane on, so the
@@ -95,14 +115,20 @@ func (r *laneRig) reach(t *testing.T, g *gate) {
 // because a rig's cleanup waits for the session.
 func (g *gate) letGoOnFailure(t *testing.T) {
 	t.Cleanup(func() {
-		select {
-		case <-g.release:
-		default:
-			if t.Failed() {
-				close(g.release)
-			}
+		if t.Failed() {
+			g.free()
 		}
 	})
+}
+
+// gates registers each gate to be let go if the test fails, as soon as the test has them. A test that fails
+// before it reaches a gate would otherwise leave a session at it, which no stop interrupts, and the rig's
+// cleanup would wait for that session.
+func (r *laneRig) gates(gs ...*gate) {
+	r.t.Helper()
+	for _, g := range gs {
+		g.letGoOnFailure(r.t)
+	}
 }
 
 // admit is a session's stream saying it took an input.
