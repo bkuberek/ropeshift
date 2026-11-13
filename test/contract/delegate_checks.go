@@ -32,6 +32,7 @@ var DelegateChecks = []Check{
 	{"DL9", "past every gate, a delegate still cannot decide or answer in a one-way category", checkDelegateOneWayBounds},
 	{"DL10", "a card a crash left running past its bound fails, naming why, and a younger one keeps running", checkInterruptedCards},
 	{"DL11", "a delegate holds at most a bounded number of open cards in a project", checkOpenCardLimit},
+	{"DL12", "past every gate, a delegate adds an attempt to failed work only where the delegate policy exempts it", checkDelegateRetryBounds},
 }
 
 var theDelegateRequest = authority.DelegateRequest{Member: theMember.ID, Label: "planning assistant", ExpiresInMs: authority.MaxDelegateTTLMs}
@@ -544,6 +545,53 @@ func checkOpenCardLimit(r *Rig) error {
 	}
 	if _, err := prepareCardAs(r, s, actor, authority.OpRepositoryRaiseMergeAuthority, "repository", "one-more", raiseArguments); err != nil {
 		return Violatedf("a card once a member declined one: %v", err)
+	}
+	return nil
+}
+
+// failedWork runs work to failure once, under a bound of attempts.
+func failedWork(r *Rig, s ports.Store, attempts int64) (string, error) {
+	r.MaxAttempts = attempts
+	defer func() { r.MaxAttempts = 0 }()
+	id, err := r.Ready(s)
+	if err != nil {
+		return "", err
+	}
+	holder, err := r.Running(s, id, "a")
+	if err != nil {
+		return "", err
+	}
+	return id, r.NewOps(s).EndLane(r.Ctx, r.Scope, holder, laneResult(workorders.OutcomeFailed, workorders.ReasonCrashed), r.worker("a"))
+}
+
+func checkDelegateRetryBounds(r *Rig) error {
+	s := r.Store()
+	actor := authority.DelegateActor(theMember.ID, "dlg_1")
+	recoveries := control.NewRecoveries(s)
+	left, err := failedWork(r, s, 2)
+	if err != nil {
+		return err
+	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, left, "the network came back", actor); err != nil {
+		return Violatedf("a delegate's retry with an attempt left: %v", err)
+	}
+	none, err := failedWork(r, s, 1)
+	if err != nil {
+		return err
+	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, none, "one more try", actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate added an attempt the delegate policy does not exempt: %v", err)
+	}
+	if w, err := r.WorkOrder(s, none); err != nil || w.State != workorders.Failed || w.MaxAttempts != 1 {
+		return Violatedf("the refused retry left %+v: %v", w, err)
+	}
+	body := "[delegate_policy]\nversion = 2\nexempt = [\"work_order.retry_extra\"]\n"
+	draft := authority.DelegatePolicyDraft{Body: body, Policy: authority.DelegatePolicy{Version: 2, Exempt: []string{authority.OpWorkOrderRetryExtra}}}
+	if _, err := control.NewApprovals(s).PublishDelegatePolicy(r.Ctx, r.Scope, draft, theMember); err != nil {
+		return err
+	}
+	if _, err := recoveries.Retry(r.Ctx, r.Scope, none, "one more try", actor); err != nil {
+		return Violatedf("a delegate's exempt retry with no attempt left: %v", err)
 	}
 	return nil
 }

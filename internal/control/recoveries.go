@@ -148,6 +148,17 @@ func retryWork(tx ports.WriteTx, current workorders.WorkOrder, reason string, ac
 	}
 	bound := current.MaxAttempts
 	if !current.AttemptsLeft(byDefault) {
+		// An extra attempt is a consent operation: a delegate adds one only where the delegate policy in
+		// force exempts it, so the class gate is not the only thing between a delegate and another attempt.
+		if _, _, delegated := authority.ActingFor(actor); delegated {
+			exempt, err := delegateExempts(tx.Policies(), authority.OpWorkOrderRetryExtra)
+			if err != nil {
+				return "", err
+			}
+			if !exempt {
+				return "", fmt.Errorf("%w: work order %s has no attempt left, and adding one waits for a member", workorders.ErrForbidden, current.ID)
+			}
+		}
 		bound = max(current.AttemptBound(byDefault), current.Attempts) + 1
 		change.MaxAttempts = bound
 	}

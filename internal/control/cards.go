@@ -500,6 +500,23 @@ func builtInDelegatePolicy(id string, createdAt int64) (authority.PolicyVersion,
 	return authority.NewDelegatePolicyVersion(id, builtInPolicyAuthor, draft, createdAt)
 }
 
+// delegateExempts says the delegate policy in force lets a delegate run a consent operation with no card.
+func delegateExempts(policies policyReader, id string) (bool, error) {
+	version, err := policies.InForce(authority.PolicyDelegate)
+	if errors.Is(err, ports.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	policy, err := authority.ReadDelegatePolicy(version)
+	if err != nil {
+		return false, err
+	}
+	op, ok := authority.OperationOf(id)
+	return ok && policy.Exempts([]authority.Operation{op}, false), nil
+}
+
 // DelegatePolicyInForce reads the delegate policy a project runs on now, and the built-in one when no member
 // has published any. It writes nothing.
 func (a *Approvals) DelegatePolicyInForce(ctx context.Context, scope ledger.WorkspaceID) (authority.PolicyVersion, authority.DelegatePolicy, error) {
