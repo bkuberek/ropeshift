@@ -35,7 +35,10 @@ async function answer(route: Route): Promise<void> {
     return json(projects);
   }
   if (path === "/v1/needs-you") {
-    return json(goldens["needs-you"] ?? "{}");
+    // Needs you with the confirmation cards a delegate prepared beside every other kind.
+    const needs = JSON.parse(goldens["needs-you"] ?? "{}") as { items: unknown[] };
+    const cards = JSON.parse(goldens["needs-you-cards"] ?? "{}") as { items: unknown[] };
+    return json(JSON.stringify({ ...needs, items: [...needs.items, ...cards.items] }));
   }
   const view = /^\/v1\/views\/([a-z-]+)$/.exec(path)?.[1];
   if (view && goldens[view]) {
@@ -62,6 +65,17 @@ async function answer(route: Route): Promise<void> {
     "/v1/workers": JSON.stringify({ workers: [{ id: "worker-1", name: "atlas", manifest: { capacity: { max_lanes: 6 } } }] }),
     "/v1/categories": JSON.stringify({ categories: ["security", "data"] }),
   };
+  // What the delegates panel, the delegate policy, and the audit's delegate rows read.
+  if (path === "/v1/policies" && url.searchParams.get("kind") === "delegate") {
+    return json(goldens["policies-delegate"] ?? "{}");
+  }
+  if (path === "/v1/audit" && url.searchParams.get("actor") === "delegate") {
+    return json(goldens["audit-delegates"] ?? "{}");
+  }
+  const delegates: Record<string, string | undefined> = { "/v1/delegates": goldens.delegates, "/v1/operations": goldens["operation-classes"] };
+  if (delegates[path]) {
+    return json(delegates[path] ?? "{}");
+  }
   if (admin[path]) {
     return json(admin[path] ?? "{}");
   }
@@ -93,6 +107,8 @@ const views = [
   "/needs-you",
   "/needs-you?item=questions%3Agenerated-7",
   "/needs-you?item=plan_approval%3Agenerated-11",
+  "/needs-you?kind=cards&item=confirm%3Agenerated-1",
+  "/needs-you?kind=cards&item=confirm%3Agenerated-2",
   "/projects/default/roadmap",
   "/projects/default/plans",
   "/projects/default/plan?id=generated-1&version=6",
@@ -123,11 +139,13 @@ const views = [
   "/settings?section=admission",
   "/projects/default/settings?section=recovery",
   "/projects/default/settings?section=fleet",
+  "/projects/default/settings?section=delegate-policy",
   "/agents",
   "/projects/default/agents?agent=heavy-implementation",
   "/projects/default/agents?tab=history",
   "/projects/default/repositories?repo=id-api",
   "/projects/default/audit",
+  "/projects/default/audit?actor=delegate",
   "/audit",
 ];
 

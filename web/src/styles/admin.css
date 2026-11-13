@@ -225,3 +225,13 @@
     background: Canvas;
   }
 }
+
+/* The consent operations of a delegate policy, one a line with the reason one is never exempt. */
+.check-list {
+  display: grid;
+  gap: 6px;
+}
+
+.check-item .help {
+  margin: 2px 0 0 24px;
+}
