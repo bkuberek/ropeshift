@@ -245,12 +245,16 @@ func assistantContext(tx ports.ReadTx, record conversations.Conversation) (ledge
 	return out, nil
 }
 
-// assistantHistory is a conversation's newest entries, oldest first, as a fresh generation's first prompt
-// states them.
+// assistantHistory is a conversation's newest entries since its last clear, oldest first, as a fresh
+// generation's first prompt states them. A clear starts the next generation with an empty context, so
+// nothing from before it reaches a session again (ADR-0024).
 func assistantHistory(reader ports.ConversationReader, conversation string) ([]ledger.AssistantHistoryEntry, error) {
 	rows, err := reader.Entries(conversation, 0, conversations.HistoryEntries)
 	if err != nil {
 		return nil, err
+	}
+	if cleared := slices.IndexFunc(rows, func(row conversations.Entry) bool { return row.BeforeClear }); cleared >= 0 {
+		rows = rows[:cleared]
 	}
 	slices.Reverse(rows)
 	out := make([]ledger.AssistantHistoryEntry, 0, len(rows))

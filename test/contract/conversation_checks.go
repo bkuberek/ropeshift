@@ -460,6 +460,23 @@ func checkConversationCompactClear(r *Rig) error {
 	if markers, err := t.markers(id); err != nil || strings.Join(markers, ",") != "started,compacted,cleared" {
 		return Violatedf("markers %v (%v)", markers, err)
 	}
+	// The next generation starts with an empty context: its first prompt holds nothing from before the clear.
+	if _, err := t.send(theMember, id, "Second question"); err != nil {
+		return err
+	}
+	grant, err := t.plane.AssistantCredential(r.Ctx, ledger.AssistantCredentialRequest{
+		Auth: t.auth, Epoch: t.epoch, Conversation: id, Lane: cleared.RunLane, Generation: 1,
+	})
+	if err != nil {
+		return err
+	}
+	var history []string
+	for _, entry := range grant.History {
+		history = append(history, entry.Body)
+	}
+	if text := strings.Join(history, "|"); strings.Contains(text, "First question") || !strings.Contains(text, "Second question") {
+		return Violatedf("the first prompt after a clear holds %q", text)
+	}
 	if _, err := t.convs.Stop(r.Ctx, r.Scope, id, theMember); err != nil {
 		return err
 	}
