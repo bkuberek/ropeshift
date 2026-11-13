@@ -60,6 +60,20 @@
     "observed",
     "last_reported"
   ],
+  "card_states": [
+    "pending",
+    "approved",
+    "used",
+    "failed",
+    "denied",
+    "void",
+    "expired"
+  ],
+  "delegate_states": [
+    "active",
+    "expired",
+    "revoked"
+  ],
   "views": {
     "completed": {
       "as_of": 1790000133001,

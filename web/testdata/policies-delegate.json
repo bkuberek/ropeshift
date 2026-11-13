@@ -1,0 +1,24 @@
+{
+  "versions": [
+    {
+      "id": "generated-1",
+      "kind": "delegate",
+      "version": 2,
+      "digest": "sha256:0913cb4cb84cf00b219774dfc3bc21509e0e6045c760f2081805133e83aaf78c",
+      "body": "[delegate_policy]\nversion = 2\nexempt = [\"work_order.accept\"]\n",
+      "settings": "{\"version\":2,\"exempt\":[\"work_order.accept\"]}",
+      "authored_by": "member-1",
+      "created_at": 1794000000000
+    },
+    {
+      "id": "generated-2",
+      "kind": "delegate",
+      "version": 1,
+      "digest": "sha256:70a0ff1ebeaf591d218195679843bcc1bc6cc0b1dde0692cd8a8176385a70ade",
+      "body": "[delegate_policy]\nversion = 1\nexempt = []\n",
+      "settings": "{\"version\":1,\"exempt\":[]}",
+      "authored_by": "built-in",
+      "created_at": 1794000000000
+    }
+  ]
+}

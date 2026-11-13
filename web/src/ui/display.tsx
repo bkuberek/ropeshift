@@ -257,3 +257,45 @@ export function Digest({ value, length = 12 }: { value: string; length?: number 
     </span>
   );
 }
+
+type ActorProps = {
+  kind: string;
+  id: string;
+  // actorFor and label are a delegate's: the member it acted for, and its credential's label.
+  actorFor?: string;
+  label?: string;
+  // you is the current member, whom an act of theirs names as "you".
+  you?: string;
+};
+
+// Actor shows who acted, distinct by kind (FR-AUTH-10): a member by name in bold, a delegate by its key, its
+// label, and the member it acted for, the orchestrator by its target chip and worker, a lane by its ID,
+// and a worker or the control plane in quieter text.
+export function Actor({ kind, id, actorFor, label, you }: ActorProps) {
+  switch (kind) {
+    case "member":
+      return <strong className="actor">{you && id === you ? "you" : id}</strong>;
+    case "delegate": {
+      const [member = "", credential = ""] = id.split(/\/(.*)/);
+      return (
+        <span className="actor actor-delegate">
+          <Icon name="key" size="sm" />
+          <span>{label || credential || id}</span>
+          <span className="muted">for {actorFor || member}</span>
+        </span>
+      );
+    }
+    case "orchestrator":
+      return (
+        <span className="actor">
+          <TargetChip kind="orchestrator" small />
+          <span className="mono">{id}</span>
+        </span>
+      );
+    case "lane":
+      return <Id value={id} />;
+    case "worker":
+      return <span className="actor text-2">Worker {id}</span>;
+  }
+  return <span className="actor text-2">Control plane</span>;
+}

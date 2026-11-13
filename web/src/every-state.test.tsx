@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { Lane, ShopFloor, Stuck } from "./api/types";
-import { conditionWords, laneStates, workStates } from "./floor/states";
+import { cardStates, conditionWords, delegateStates, laneStates, workStates } from "./floor/states";
 import { openPage } from "./opening";
 import { golden, serveViews } from "./testing";
 
@@ -16,6 +16,8 @@ type Fixture = {
   liveness: string[];
   reach: string[];
   freshness: string[];
+  card_states: string[];
+  delegate_states: string[];
   views: Record<string, unknown>;
 };
 
@@ -160,5 +162,20 @@ describe("what stands beside a lane's state", () => {
 
   it("holds both kinds of freshness in the fixture", () => {
     expect(new Set(floor.lanes.map((lane) => lane.freshness))).toEqual(new Set(fixture.freshness));
+  });
+});
+
+// A confirmation card's states and a delegate credential's, as the API lists them: each has words here,
+// and none here is a state the API dropped.
+describe("every card and delegate state", () => {
+  it("has words for each state a card passes through, and no other", () => {
+    expect(Object.keys(cardStates).sort()).toEqual([...fixture.card_states].sort());
+    for (const state of fixture.card_states) {
+      expect(cardStates[state]?.label, state).toBeTruthy();
+    }
+  });
+
+  it("has words for each state of a delegate credential, and no other", () => {
+    expect(Object.keys(delegateStates).sort()).toEqual([...fixture.delegate_states].sort());
   });
 });

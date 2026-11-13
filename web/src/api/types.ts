@@ -39,7 +39,33 @@ export type Approval = {
   plan_version?: number;
   // detail is JSON a member reads beyond the summary: a recovery request's is a RecoveryDetail.
   detail?: string;
+  // Who decided a request, when, and where: `web` from the web listener, `cli` from the socket.
+  decided_by?: string;
+  decided_at?: number;
+  channel?: string;
+  reason?: string;
 };
+
+// A change a confirmation card makes: one field of a record from its value to another, one argument the
+// call sends, or a whole body it replaces.
+export type FieldChange = { field: string; from?: unknown; to: unknown };
+export type BodyChange = { before: string; after: string };
+
+// CardDetail is the exact call a confirmation card runs when a member confirms it, why the delegate
+// proposes it, and what it changes.
+export type CardDetail = {
+  operation: string;
+  label: string;
+  method: string;
+  path: string;
+  arguments: unknown;
+  why: string;
+  changes: FieldChange[] | BodyChange;
+};
+
+// CardNeed is a confirmation card that waits for a member, with the delegate that prepared it: its
+// credential's label and the member it acts for.
+export type CardNeed = { approval: Approval; detail: CardDetail; label: string; member: string };
 
 // RecoveryDetail is what an orchestrator asked to do outside its recovery policy, why, and the limit it
 // went past.
@@ -197,6 +223,7 @@ export type NeedItem = {
   | { kind: "work"; work: WorkNeed }
   | { kind: "plan_approval"; plan_approval: PlanApprovalNeed }
   | { kind: "contract_review"; contract_review: ContractReviewNeed }
+  | { kind: "confirm"; card: CardNeed }
 );
 
 // NeedsProject is one project's part of the combined Needs you: where its ledger stood, and how much waits.
