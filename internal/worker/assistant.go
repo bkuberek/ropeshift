@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -427,6 +428,66 @@ func (w *Worker) tendAssistants(ctx context.Context) {
 		}
 		run.compactWhenAsked(ctx, desired.Compactions)
 	}
+}
+
+// forgetAssistants removes what this worker holds of each deleted conversation desired state names, once
+// none of the conversation's runs goes on here: the directory its sessions ran in with the session it kept,
+// each run's own directories, and, in the journal, the messages to it and its runs' records. The journal's
+// word that it forgot goes to the control plane, which then names the conversation no more. The vendor's
+// own record of a session, where its CLI keeps one, is the vendor's, and stays.
+func (w *Worker) forgetAssistants(ctx context.Context) {
+	if w.config.Lanes == nil {
+		return
+	}
+	state, err := w.desired(ctx)
+	if err != nil {
+		w.config.Report(fmt.Errorf("reading the conversations to forget: %w", err))
+		return
+	}
+	running := map[string]bool{}
+	for _, run := range w.runs() {
+		running[run.lease.Lane] = true
+	}
+	forgot := false
+	for _, forget := range state.Forget {
+		if slices.ContainsFunc(forget.Lanes, func(lane string) bool { return running[lane] }) {
+			continue
+		}
+		if err := w.forgetAssistant(ctx, forget); err != nil {
+			w.config.Report(fmt.Errorf("forgetting conversation %s: %w", forget.Conversation, err))
+			continue
+		}
+		forgot = true
+	}
+	if forgot {
+		if err := w.Upload(ctx); err != nil {
+			w.config.Report(err)
+		}
+	}
+}
+
+// forgetAssistant removes what this machine keeps of one deleted conversation, the files first, so the word
+// that it forgot follows what it says.
+func (w *Worker) forgetAssistant(ctx context.Context, forget ledger.DesiredForget) error {
+	rt := w.config.Lanes
+	paths := []string{rt.assistantHome(forget.Conversation)}
+	for _, lane := range forget.Lanes {
+		paths = append(paths, rt.configDir(lane))
+		if dir := rt.tempDir(lane); dir != "" {
+			paths = append(paths, dir)
+		}
+	}
+	for _, path := range paths {
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+	}
+	payload, err := json.Marshal(ledger.AssistantForgotten{Conversation: forget.Conversation})
+	if err != nil {
+		return err
+	}
+	_, err = w.journal.ForgetLanes(ctx, forget.Lanes, w.event(ledger.UploadAssistantForgotten, lanes.Record{Project: forget.Project}, payload))
+	return err
 }
 
 // compactWhenAsked asks a session at rest to compact once for each compaction its member asked for. A

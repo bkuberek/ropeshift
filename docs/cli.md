@@ -155,7 +155,7 @@ One worker per machine serves every active project, and one orchestrator per mac
 | `ropeshift chat new [--name T] [--worker W]` | Starts a new conversation, which stops your running one first and says so |
 | `ropeshift chat open <id> [--worker W]` | Starts a conversation's session, resuming what it had, which stops your running one first |
 | `ropeshift chat rename <id> <name>` | Names a conversation, 1 to 80 characters |
-| `ropeshift chat delete <id>` | Stops a conversation and removes it with every message it holds. Its actions and the cards it prepared stay in the audit |
+| `ropeshift chat delete <id>` | Stops a conversation and removes it with every message it holds, on the control plane and on each worker that ran it. Its actions and the cards it prepared stay in the audit. The agent CLI's own record of a session, where the CLI keeps one, is outside ropeshift's control |
 | `ropeshift chat stop <id>` | Stops a conversation's session. The conversation stays, and resumes when you send |
 | `ropeshift chat compact <id>` | Asks a running conversation's session to compact its context. A conversation whose session is not running exits 4 |
 | `ropeshift chat clear <id>` | Starts a running conversation's next generation with an empty context, in the same conversation. Earlier entries stay readable, marked as before the clear. A conversation whose session is not running exits 4 |

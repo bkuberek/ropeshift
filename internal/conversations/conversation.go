@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -214,6 +215,34 @@ type entryData struct {
 // EntryEvent records an entry's addition: its conversation, ID, seq, and kind.
 func EntryEvent(e Entry, actor ledger.Actor) (ledger.EventDraft, error) {
 	return event(EventEntryAdded, e.Conversation, entryData{Conversation: e.Conversation, ID: e.ID, Seq: e.Seq, Kind: e.Kind}, actor)
+}
+
+// Forget is what a worker still holds of a deleted conversation it ran: the run lanes it ran it under. It
+// holds no text, and stands until the worker says it removed what those runs left.
+type Forget struct {
+	Conversation string
+	Worker       string
+	Lanes        []string
+	DeletedAt    int64
+}
+
+// RunsOf reads, from a conversation's events, the run lanes each worker ran it under, in the order they
+// started.
+func RunsOf(events []ledger.Event) (map[string][]string, error) {
+	runs := map[string][]string{}
+	for _, event := range events {
+		if event.Type != EventChanged {
+			continue
+		}
+		var data changedData
+		if err := json.Unmarshal(event.Data, &data); err != nil {
+			return nil, err
+		}
+		if data.Worker != "" && data.RunLane != "" && !slices.Contains(runs[data.Worker], data.RunLane) {
+			runs[data.Worker] = append(runs[data.Worker], data.RunLane)
+		}
+	}
+	return runs, nil
 }
 
 // DeletedEvent records a conversation's deletion.

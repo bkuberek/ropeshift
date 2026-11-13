@@ -722,6 +722,32 @@ func (j *Journal) BeginLane(ctx context.Context, lane lanes.Record, event ledger
 	return event, tx.Commit()
 }
 
+// laneTables are the journal's tables that hold rows of a lane, by the column that names it.
+var laneTables = []struct{ table, column string }{
+	{"messages", "lane"}, {"hook_events", "lane"}, {"lane_restarts", "lane"}, {"lane_allocations", "lane"}, {"open_approvals", "lane"},
+	{"lanes", "id"},
+}
+
+// ForgetLanes removes what the journal holds of lanes that ended for good, and stores an event, together.
+func (j *Journal) ForgetLanes(ctx context.Context, ids []string, event ledger.UploadEvent) (ledger.UploadEvent, error) {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, id := range ids {
+		for _, held := range laneTables {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM `+held.table+` WHERE `+held.column+` = ?1`, id); err != nil {
+				return ledger.UploadEvent{}, err
+			}
+		}
+	}
+	if event, err = insertEvent(ctx, tx, event); err != nil {
+		return ledger.UploadEvent{}, err
+	}
+	return event, tx.Commit()
+}
+
 // EndLane ends a lane and stores its last event together.
 func (j *Journal) EndLane(ctx context.Context, id string, event ledger.UploadEvent) (ledger.UploadEvent, error) {
 	tx, err := j.db.BeginTx(ctx, nil)

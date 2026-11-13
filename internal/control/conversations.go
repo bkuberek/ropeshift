@@ -568,6 +568,9 @@ func (c *Conversations) Delete(ctx context.Context, scope ledger.WorkspaceID, id
 		if _, err := tx.Messages().DropTo(messages.TargetAssistant, id); err != nil {
 			return err
 		}
+		if err := forgetOnWorkers(tx, id); err != nil {
+			return err
+		}
 		if err := tx.Conversations().Delete(id); err != nil {
 			return err
 		}
@@ -582,6 +585,26 @@ func (c *Conversations) Delete(ctx context.Context, scope ledger.WorkspaceID, id
 		return err
 	}
 	c.revokeAll(ctx, scope, []conversations.Conversation{record}, authority.DelegateEndStopped, actor)
+	return nil
+}
+
+// forgetOnWorkers asks each worker that ran a conversation to remove what it holds of it: the messages to
+// it and the records of the runs it ran it under, and the directory its sessions ran in. The vendor's own
+// record of a session, where its CLI keeps one, is the vendor's, and no worker removes it.
+func forgetOnWorkers(tx ports.WriteTx, conversation string) error {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: conversations.SubjectConversation, ID: conversation})
+	if err != nil {
+		return err
+	}
+	runs, err := conversations.RunsOf(events)
+	if err != nil {
+		return err
+	}
+	for worker, lanes := range runs {
+		if err := tx.Conversations().AddForget(conversations.Forget{Conversation: conversation, Worker: worker, Lanes: lanes, DeletedAt: tx.Now()}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

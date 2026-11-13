@@ -439,6 +439,8 @@ type DesiredState struct {
 	// Assistants are the conversations a member runs on this worker, each the assistant's session for one
 	// member in one project (ADR-0024).
 	Assistants []DesiredAssistant `json:"assistants,omitempty"`
+	// Forget are the deleted conversations whose text this worker still holds, until it says it forgot it.
+	Forget []DesiredForget `json:"forget,omitempty"`
 }
 
 // WatchRequest opens the stream of revision hints.
@@ -508,6 +510,9 @@ const (
 	// UploadDriverQualified carries what a worker's probe observed of a CLI version, which belongs
 	// to the worker and no lane.
 	UploadDriverQualified = "driver_qualified"
+	// UploadAssistantForgotten carries a worker's word that it removed what it held of a deleted
+	// conversation, which belongs to no lane.
+	UploadAssistantForgotten = "assistant_forgotten"
 )
 
 // EventDriverQualified records a probe's result for one worker's driver: a version, its surfaces,
@@ -593,6 +598,20 @@ type DesiredAssistant struct {
 	Fresh        bool             `json:"fresh,omitempty"`
 	Compactions  int64            `json:"compactions,omitempty"`
 	Messages     []DesiredMessage `json:"messages,omitempty"`
+}
+
+// DesiredForget is a deleted conversation this worker ran: the run lanes whose messages and records its
+// journal keeps, and, by the conversation, the directory its sessions ran in. It names no text. The worker
+// removes all of it once none of those runs goes on, and says so with UploadAssistantForgotten.
+type DesiredForget struct {
+	Project      string   `json:"project,omitempty"`
+	Conversation string   `json:"conversation"`
+	Lanes        []string `json:"lanes"`
+}
+
+// AssistantForgotten is a worker's word that it removed what it held of a deleted conversation.
+type AssistantForgotten struct {
+	Conversation string `json:"conversation"`
 }
 
 // AssistantCredentialRequest asks for the credential of one generation of an assistant's run, where the

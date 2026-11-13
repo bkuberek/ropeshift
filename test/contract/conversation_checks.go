@@ -375,7 +375,48 @@ func checkConversationDeleted(r *Rig) error {
 	if kept < 4 {
 		return Violatedf("%d events of the conversation stay", kept)
 	}
+	// The worker that ran it is told to forget what it holds of it, by its run lanes and with no text, until
+	// it says it did.
+	state, err := t.plane.Desired(r.Ctx, ledger.DesiredRequest{Auth: t.auth})
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(raw), "launch codes") || len(state.Assistants) != 0 {
+		return Violatedf("desired state after a delete reads %s", raw)
+	}
+	if len(state.Forget) != 1 || state.Forget[0].Conversation != id || !slices.Equal(state.Forget[0].Lanes, []string{opened.Conversation.RunLane}) {
+		return Violatedf("desired state forgets %+v", state.Forget)
+	}
+	if err := t.forgotten(id); err != nil {
+		return err
+	}
+	if state, err = t.plane.Desired(r.Ctx, ledger.DesiredRequest{Auth: t.auth}); err != nil {
+		return err
+	}
+	if len(state.Forget) != 0 {
+		return Violatedf("desired state still forgets %+v after the worker forgot", state.Forget)
+	}
 	return nil
+}
+
+// forgotten says, as the worker would, that it forgot what it held of a deleted conversation.
+func (t *talkRig) forgotten(conversation string) error {
+	raw, err := json.Marshal(ledger.AssistantForgotten{Conversation: conversation})
+	if err != nil {
+		return err
+	}
+	t.seq++
+	reply, err := t.plane.Upload(t.r.Ctx, ledger.UploadBatch{Auth: t.auth, Epoch: t.epoch, Events: []ledger.UploadEvent{{
+		Epoch: t.epoch, Seq: t.seq, Type: ledger.UploadAssistantForgotten, Payload: raw, OccurredAt: 1,
+	}}})
+	if err == nil && len(reply.Rejected) != 0 {
+		return Violatedf("the worker's word that it forgot was refused: %+v", reply.Rejected)
+	}
+	return err
 }
 
 func checkConversationEventsHoldNoBody(r *Rig) error {

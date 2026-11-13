@@ -365,6 +365,13 @@ func (p *Plane) Desired(ctx context.Context, request ledger.DesiredRequest) (led
 			assistant.Project = name
 			state.Assistants = append(state.Assistants, assistant)
 		}
+		for _, forget := range part.Forget {
+			if record.Protocol != 0 && record.Protocol < ledger.ProtocolAssistants {
+				break
+			}
+			forget.Project = name
+			state.Forget = append(state.Forget, forget)
+		}
 	}
 	return state, nil
 }

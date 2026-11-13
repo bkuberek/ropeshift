@@ -442,7 +442,14 @@ func desiredIn(tx ports.ReadTx, worker string, state *ledger.DesiredState) error
 	}
 	state.Woken = append(state.Woken, woken...)
 	assistants, err := desiredAssistants(tx, worker)
+	if err != nil {
+		return err
+	}
 	state.Assistants = append(state.Assistants, assistants...)
+	forgets, err := tx.Conversations().Forgets(worker)
+	for _, forget := range forgets {
+		state.Forget = append(state.Forget, ledger.DesiredForget{Conversation: forget.Conversation, Lanes: forget.Lanes})
+	}
 	return err
 }
 
@@ -771,6 +778,9 @@ func storeOrchestratorEvent(ctx context.Context, installation ports.Installation
 func applyUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
 	if e.Type == ledger.UploadEffectUnknown || e.Type == ledger.UploadEffectSettled {
 		return effectUpload(tx, worker, id, e)
+	}
+	if e.Type == ledger.UploadAssistantForgotten {
+		return forgottenUpload(tx, worker, id, e)
 	}
 	if e.WorkOrder == "" && e.Lane != "" {
 		if handled, err := assistantUpload(tx, worker, id, e); handled {

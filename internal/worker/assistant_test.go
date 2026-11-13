@@ -3,6 +3,9 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -360,5 +363,52 @@ func TestAnAssistantResumesInItsOwnDirectoryAndStartsOverWhenRefused(t *testing.
 	a.awaitAssistant(t, "a later start", func() bool { return len(a.driver.Resumed()) == 2 })
 	if resumed := a.driver.Resumed(); resumed[1].SessionID != "session-b" {
 		t.Errorf("a later start resumed %+v", resumed)
+	}
+}
+
+// Deleting a conversation removes what its worker holds of it, once its session stopped: the messages to
+// it and its runs' records in the journal, and the directory its sessions ran in with the session it kept.
+// Nothing anyone wrote in it stays in the journal, its cached desired state included, and the control plane
+// hears that the worker forgot it.
+func TestDeletingAConversationLeavesNothingOfItOnTheWorker(t *testing.T) {
+	reply := []fake.DriverStep{{Reply: "Two merges wait.", ReplyID: "msg_01"}, completed(0.01)}
+	a := newAssistantRig(t, script([]fake.DriverStep{{Bound: true}, completed(0.01)}, reply, []fake.DriverStep{{Hold: true}}))
+	ctx := t.Context()
+	if _, err := a.convs.Create(ctx, scope, control.NewConversation{ID: "conv-1"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "a session at rest", func() bool { return a.conversation(t, "conv-1").Actual == conversations.Running })
+	if _, err := a.convs.Send(ctx, scope, "conv-1", control.MemberMessage{ID: "m-1", Body: "The launch codes are 1234"}, member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "a reply", func() bool { return len(a.replies(t, "conv-1")) == 1 })
+	run := a.assistantSpecs()[0].Lane
+	home := filepath.Join(a.dir, "assistants", "conv-1")
+	if _, err := os.Stat(home); err != nil {
+		t.Fatalf("the conversation's directory: %v", err)
+	}
+	if err := a.convs.Delete(ctx, scope, "conv-1", member); err != nil {
+		t.Fatal(err)
+	}
+	a.awaitAssistant(t, "the worker forgetting the conversation", func() bool {
+		state, err := a.journal.Desired(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, gone := os.Stat(home)
+		return len(state.Forget) == 0 && len(state.Assistants) == 0 && errors.Is(gone, os.ErrNotExist)
+	})
+	if _, err := a.journal.Message(ctx, "m-1"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("the journal still holds the message: %v", err)
+	}
+	if _, err := a.journal.Lane(ctx, run); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("the journal still holds the run's record: %v", err)
+	}
+	scanned, err := json.Marshal(journalOf(t, a.orchestratorRig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(scanned), "launch codes") {
+		t.Errorf("the journal holds what the member wrote: %s", scanned)
 	}
 }

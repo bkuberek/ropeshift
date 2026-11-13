@@ -523,6 +523,8 @@ type ConversationReader interface {
 	Entry(conversation, id string) (conversations.Entry, error)
 	// NextSeq is a conversation's next entry position, from 1.
 	NextSeq(conversation string) (int64, error)
+	// Forgets lists the deleted conversations whose text a worker still holds, oldest first.
+	Forgets(worker string) ([]conversations.Forget, error)
 }
 
 // ConversationWriter writes members' conversations with the assistant, and what each holds.
@@ -538,6 +540,10 @@ type ConversationWriter interface {
 	AddEntry(conversations.Entry) error
 	// MarkBeforeClear marks every entry of a conversation up to a seq as earlier than a clear.
 	MarkBeforeClear(conversation string, through int64) error
+	// AddForget records what a worker still holds of a deleted conversation.
+	AddForget(conversations.Forget) error
+	// DropForget ends a worker's forget of a conversation, and says whether one stood.
+	DropForget(conversation, worker string) (bool, error)
 }
 
 // PackReader reads context packs. No read here stops at a page, because each one decides who hears

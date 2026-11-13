@@ -312,6 +312,24 @@ func (w *Workers) AssistantEntry(ctx context.Context, request ledger.AssistantEn
 	return err
 }
 
+// forgottenUpload ends a worker's forget of a deleted conversation, once it says it removed what it held.
+// A word on a forget that no longer stands changes nothing and is still kept.
+func forgottenUpload(tx ports.WriteTx, worker, id string, e ledger.UploadEvent) error {
+	var forgotten ledger.AssistantForgotten
+	if err := json.Unmarshal(e.Payload, &forgotten); err != nil || forgotten.Conversation == "" {
+		return fmt.Errorf("%w: a worker forgets a named conversation", workorders.ErrInvalid)
+	}
+	if _, err := tx.Conversations().DropForget(forgotten.Conversation, worker); err != nil {
+		return err
+	}
+	draft, err := uploadedDraft(tx, worker, id, ledger.UploadEvent{Epoch: e.Epoch, Seq: e.Seq, Type: e.Type, OccurredAt: e.OccurredAt})
+	if err != nil {
+		return err
+	}
+	_, err = tx.Append(draft)
+	return err
+}
+
 // assistantStates are the conversation states a run's lane state reads as.
 var assistantStates = map[lanes.ActualState]conversations.ActualState{
 	lanes.Working: conversations.Working, lanes.Compacting: conversations.Working, lanes.Briefing: conversations.Working,

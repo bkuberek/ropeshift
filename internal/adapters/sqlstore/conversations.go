@@ -75,6 +75,19 @@ VALUES (:workspace_id, :conversation_id, :id, :seq, :kind, :body, :data, :before
 		`SELECT coalesce(max(seq), 0) + 1 FROM conversation_entries
  WHERE workspace_id = :workspace_id AND conversation_id = :conversation_id`)
 
+	stmtInsertForget = define("conversation.insert_forget",
+		`INSERT INTO assistant_forgets (workspace_id, conversation_id, worker_id, lanes, deleted_at)
+VALUES (:workspace_id, :conversation_id, :worker_id, :lanes, :deleted_at)
+ON CONFLICT (workspace_id, conversation_id, worker_id) DO UPDATE SET lanes = :lanes`)
+
+	stmtWorkerForgets = define("conversation.worker_forgets",
+		`SELECT conversation_id, worker_id, lanes, deleted_at FROM assistant_forgets
+ WHERE workspace_id = :workspace_id AND worker_id = :worker_id
+ ORDER BY deleted_at, conversation_id`)
+
+	stmtDropForget = define("conversation.drop_forget",
+		`DELETE FROM assistant_forgets WHERE workspace_id = :workspace_id AND conversation_id = :conversation_id AND worker_id = :worker_id`)
+
 	stmtMarkBeforeClear = define("conversation.mark_before_clear",
 		`UPDATE conversation_entries SET before_clear = 1
  WHERE workspace_id = :workspace_id AND conversation_id = :conversation_id AND seq <= :through`)
@@ -239,6 +252,43 @@ func (t conversationTx) AddEntry(e conversations.Entry) error {
 func (t conversationTx) MarkBeforeClear(conversation string, through int64) error {
 	_, err := t.exec(stmtMarkBeforeClear, t.params(params{"conversation_id": conversation, "through": through}))
 	return err
+}
+
+func (t conversationTx) AddForget(f conversations.Forget) error {
+	lanes, err := json.Marshal(f.Lanes)
+	if err != nil {
+		return err
+	}
+	_, err = t.exec(stmtInsertForget, t.params(params{
+		"conversation_id": f.Conversation, "worker_id": f.Worker, "lanes": string(lanes), "deleted_at": f.DeletedAt,
+	}))
+	return err
+}
+
+func (t conversationTx) Forgets(worker string) ([]conversations.Forget, error) {
+	rows, err := t.rows(stmtWorkerForgets, t.params(params{"worker_id": worker}))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []conversations.Forget
+	for rows.Next() {
+		var f conversations.Forget
+		var lanes string
+		if err := rows.Scan(&f.Conversation, &f.Worker, &lanes, &f.DeletedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(lanes), &f.Lanes); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (t conversationTx) DropForget(conversation, worker string) (bool, error) {
+	n, err := t.exec(stmtDropForget, t.params(params{"conversation_id": conversation, "worker_id": worker}))
+	return n > 0, err
 }
 
 func (t *readTx) Conversations() ports.ConversationReader {
