@@ -330,7 +330,7 @@ func (r *laneRun) stopOrchestrator(ctx context.Context) {
 		return
 	}
 	r.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
-	if r.sessionHandle().ID != "" {
-		r.stop(ctx, ports.StopInterrupt)
+	if handle, once := r.generationSession(); handle.ID != "" {
+		r.stopWith(ctx, once, ports.StopInterrupt)
 	}
 }

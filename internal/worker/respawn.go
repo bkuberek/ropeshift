@@ -6,7 +6,6 @@ import (
 
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
-	"ropeshift.com/ropeshift/internal/ports"
 )
 
 // respawnLanes acts on the requests for a lane's next generation. A count the worker compares with
@@ -38,18 +37,13 @@ func (w *Worker) respawnLanes(ctx context.Context) {
 // A pass reads the journal and then acts, so it can hand a run a request the run has acted on, and ask
 // refuses it. A stop asked of a session the driver does not hold yet fails and spends the generation's
 // one stop, so a request that comes before reach waits for it, and reach stops the session then. ask sets
-// what reach reads before this reads what reach sets, so one of them stops it. This takes the
-// generation's stop first, and reads sessionOver before reached, because enterGeneration clears reached
-// first: a pass that stalls across a generation's end never spends the next generation's stop.
+// what reach reads before stopReached reads what reach sets, so one of them stops it.
 func (r *laneRun) respawn(ctx context.Context, asked int64) {
 	if r.currentFlight() != nil || r.fenced.Load() || !r.ask(asked) {
 		return
 	}
 	r.signal(ctx, lanes.OnStopRequested, lanes.OnLaneEnding)
-	once := r.generationStop()
-	if !r.sessionOver.Load() && r.reached.Load() {
-		r.stopWith(ctx, once, ports.StopInterrupt)
-	}
+	r.stopReached(ctx)
 }
 
 // ask takes a request, and reports whether this run had not taken it. The ledger counts requests, so one

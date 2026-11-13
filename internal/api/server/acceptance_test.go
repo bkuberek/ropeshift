@@ -17,6 +17,7 @@ func laneEnd(checks ...workorders.CheckResult) workorders.LaneResult {
 }
 
 func TestAMemberAcceptsWhatOnlyItsLaneVouchesFor(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	d.Completed(t, "wo", laneEnd(workorders.CheckResult{Name: "unit", Criterion: "c1", Passed: true}))
 	view, err := d.Client.Acceptance(t.Context(), "wo")
@@ -46,6 +47,7 @@ func TestAMemberAcceptsWhatOnlyItsLaneVouchesFor(t *testing.T) {
 }
 
 func TestNoEvidenceReadsAsEmptyLists(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	d.Completed(t, "wo", workorders.LaneResult{Report: workorders.Report{Outcome: workorders.OutcomeCompleted}})
 	view, err := d.Client.Acceptance(t.Context(), "wo")
@@ -58,6 +60,7 @@ func TestNoEvidenceReadsAsEmptyLists(t *testing.T) {
 }
 
 func TestAcceptanceRefusals(t *testing.T) {
+	t.Parallel()
 	failed := workorders.CheckResult{Name: "unit", Criterion: "c1", Passed: false}
 	tests := []struct {
 		name   string
@@ -95,6 +98,7 @@ func TestAcceptanceRefusals(t *testing.T) {
 }
 
 func TestAReworkLeavesAcceptanceOnce(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	d.Completed(t, "wo", laneEnd())
 	first, err := d.Client.Rework(t.Context(), "wo", api.ReworkRequest{Reason: "the retries do not stop"})
@@ -109,6 +113,7 @@ func TestAReworkLeavesAcceptanceOnce(t *testing.T) {
 }
 
 func TestAcceptanceTakesAMembersSession(t *testing.T) {
+	t.Parallel()
 	d := apitest.Start(t)
 	d.Completed(t, "wo", laneEnd())
 	bare := api.NewUnixClient(d.Socket).Project(apitest.ProjectName)
