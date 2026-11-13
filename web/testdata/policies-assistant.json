@@ -1,0 +1,24 @@
+{
+  "versions": [
+    {
+      "id": "generated-1",
+      "kind": "assistant",
+      "version": 2,
+      "digest": "sha256:956642ff554da95c565dafea465a4009862d060676a6586240356d6c2aed5c65",
+      "body": "[assistant]\nversion = 2\nidle_stop = \"30m\"\nwarm_idle_stop = \"2m\"\n",
+      "settings": "{\"version\":2,\"idle_stop\":\"30m\",\"warm_idle_stop\":\"2m\"}",
+      "authored_by": "member-1",
+      "created_at": 1794000000000
+    },
+    {
+      "id": "generated-2",
+      "kind": "assistant",
+      "version": 1,
+      "digest": "sha256:668a48f0778c22fb18fc7767ebaaf68f2d8c46e5329856a50997cad96a9b6845",
+      "body": "[assistant]\nversion = 1\nidle_stop = \"15m\"\nwarm_idle_stop = \"2m\"\n",
+      "settings": "{\"version\":1,\"idle_stop\":\"15m\",\"warm_idle_stop\":\"2m\"}",
+      "authored_by": "built-in",
+      "created_at": 1794000000000
+    }
+  ]
+}

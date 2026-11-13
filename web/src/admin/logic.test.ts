@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentLines, changedFields, newID, nextVersion, outcomeOf, policyBody, projectNameOf, settingsOf, tomlString } from "./logic";
+import { agentLines, changedFields, minutesOf, newID, nextVersion, outcomeOf, policyBody, policySettings, projectNameOf, settingsOf, tomlString } from "./logic";
 
 
 describe("policy bodies", () => {
@@ -34,6 +34,29 @@ describe("policy bodies", () => {
   it("names the version a save records: one past the newest", () => {
     expect(nextVersion([{ version: 3 }, { version: 1 }])).toBe(4);
     expect(nextVersion([])).toBe(1);
+  });
+});
+
+describe("the assistant policy", () => {
+  it("writes each stop as a duration in minutes", () => {
+    expect(policyBody("assistant", 3, { idle_stop: 30, warm_idle_stop: 2 })).toBe('[assistant]\nversion = 3\nidle_stop = "30m"\nwarm_idle_stop = "2m"\n');
+  });
+
+  it("reads a duration the way the policy writes one, in whole minutes", () => {
+    expect(minutesOf("15m")).toBe(15);
+    expect(minutesOf("2h")).toBe(120);
+    expect(minutesOf("1h30m")).toBe(90);
+    expect(minutesOf("24h")).toBe(1440);
+    expect(minutesOf("90s")).toBe(2);
+    expect(minutesOf("never")).toBeNull();
+    expect(minutesOf("")).toBeNull();
+  });
+
+  it("reads a version's stops as minutes, and leaves another policy's settings as they are", () => {
+    expect(policySettings("assistant", '{"version":2,"idle_stop":"30m","warm_idle_stop":"2m"}')).toEqual({ version: 2, idle_stop: 30, warm_idle_stop: 2 });
+    // A version that names no warm idle stop runs on the two minutes the policy gives it.
+    expect(policySettings("assistant", '{"version":1,"idle_stop":"15m"}')).toEqual({ version: 1, idle_stop: 15, warm_idle_stop: 2 });
+    expect(policySettings("recovery", '{"max_attempts":3}')).toEqual({ max_attempts: 3 });
   });
 });
 

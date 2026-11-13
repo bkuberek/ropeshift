@@ -408,6 +408,10 @@ func TestGoldenSettingsReads(t *testing.T) {
 	if _, err := project.PublishPolicy(t.Context(), recovery); err != nil {
 		t.Fatal(err)
 	}
+	assistant := "[assistant]\nversion = 2\nidle_stop = \"30m\"\nwarm_idle_stop = \"2m\"\n"
+	if _, err := project.PublishPolicy(t.Context(), assistant); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := project.ChangeRoster(t.Context(), roster.Change{Op: roster.OpSet, Agent: "heavy-implementation", Fields: map[string]string{"effort": "max"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -419,6 +423,11 @@ func TestGoldenSettingsReads(t *testing.T) {
 		"roster-history":     func() (any, error) { return project.RosterHistory(t.Context(), "") },
 		"members":            func() (any, error) { return in.Client.Members(t.Context()) },
 		"audit":              func() (any, error) { return project.Audit(t.Context(), api.AuditQuery{Limit: 8}) },
+		"policies-assistant": func() (any, error) {
+			var out api.PolicyList
+			err := in.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/policies?kind=assistant"), nil, &out)
+			return out, err
+		},
 		"policies-recovery": func() (any, error) {
 			var out api.PolicyList
 			err := in.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/policies?kind=recovery"), nil, &out)
