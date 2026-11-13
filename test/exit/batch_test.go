@@ -39,8 +39,15 @@ func (in *install) ledgerOf() *sqlstore.Store {
 // escalate climbs a question the way an orchestrator does, up to a person.
 func escalate(t *testing.T, ctx context.Context, store ports.Store, id, category string) {
 	t.Helper()
+	escalateWithin(t, ctx, store, id, category, standInWindowMs)
+}
+
+// escalateWithin is escalate with the batch window the stand-in opens, for a test whose
+// escalations are spread over more than the default window on a loaded machine.
+func escalateWithin(t *testing.T, ctx context.Context, store ports.Store, id, category string, windowMs int64) {
+	t.Helper()
 	orchestrator := ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}
-	use := control.NewQuestions(store, questions.BatchPolicy{WindowMs: standInWindowMs, MaxWaitMs: 60_000})
+	use := control.NewQuestions(store, questions.BatchPolicy{WindowMs: windowMs, MaxWaitMs: 60_000})
 	if _, err := use.Take(ctx, soloScope, id, 60_000, orchestrator); err != nil {
 		t.Fatal(err)
 	}
