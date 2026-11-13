@@ -74,6 +74,9 @@ type Worker struct {
 	holding map[string]string
 
 	uploading sync.Mutex
+	// spoolLock makes the passes that take the spool take turns, because each renames, reads, and removes the
+	// same files.
+	spoolLock sync.Mutex
 	// sign is what this worker knows of its sign-in, as the journal holds it, and polledAt is when
 	// it last asked the doctor. signLock guards both, and is held across the journal write, so two
 	// lanes that reach one limit take turns.
@@ -458,9 +461,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 // tick is one reconcile pass that outlives its own failure.
 func (w *Worker) tick(ctx context.Context) {
-	if err := w.DrainSpool(ctx); err != nil && ctx.Err() == nil {
-		w.config.Report(err)
-	}
+	w.drainBeforeActing(ctx)
 	if _, err := w.Reconcile(ctx); err != nil && ctx.Err() == nil {
 		w.config.Report(err)
 	}

@@ -314,6 +314,233 @@ func (r *laneRig) spool(t *testing.T, event lanes.HookEvent) {
 	}
 }
 
+// clearHook is the SessionStart a clear runs, as its hook sends it, stamped now.
+func clearHook() lanes.HookEvent {
+	return lanes.HookEvent{
+		Lane: "lane-1", Generation: 1, Event: "SessionStart", Subject: clearedSession, SessionID: clearedSession,
+		Detail: lanes.SourceClear, AtMs: time.Now().UnixMilli(),
+	}
+}
+
+// leaveInSpool writes one sealed line to the spool and drains nothing, as a hook leaves it when its ack
+// came too late. The worker takes the spool on its next pass, and this test has none.
+func (r *laneRig) leaveInSpool(t *testing.T, event lanes.HookEvent) {
+	t.Helper()
+	r.spoolLine(t, sealedLine(t, r.token(t), event))
+}
+
+// laneReport reaches the worker the way a session's `lane_report` does.
+func (r *laneRig) laneReport(t *testing.T, report workorders.Report) lanes.Reply {
+	t.Helper()
+	line, err := json.Marshal(lanes.Request{Version: lanes.SocketProtocol, Token: r.token(t), Report: &report})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r.subject.AnswerLane(t.Context(), line)
+}
+
+// nudges counts the nudges the worker sent.
+func (r *laneRig) nudges() int {
+	sent := 0
+	for _, input := range r.driver.Sent() {
+		if input.Text == lanes.Nudge {
+			sent++
+		}
+	}
+	return sent
+}
+
+// A hook that gets no ack in time spools its event, and the worker takes the spool on its next pass. A
+// clear's hook spooled, and the turn it ends is read from the stream before that pass: the worker reads the
+// spool first, or it nudges a session that is owed its brief, and the clear has no generation until the pass.
+func TestASpooledClearIsReadBeforeTheTurnItEndsIsActedOn(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &passAtRest{Journal: base.journal, pass: func() {}, decided: make(chan struct{})}
+	base.workerJournal = journal
+	r := newLaneRigFor(t, base).dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step(), completed(0.01)}, []fake.DriverStep{{Hold: true}}))
+	r.start()
+	select {
+	case <-g.reached:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the session never reached its gate")
+	}
+	r.eventually("a turn in progress", func(view ledger.LaneView) bool { return view.ActualState == string(lanes.Working) })
+	r.leaveInSpool(t, clearHook())
+	r.hook(t, lanes.HookEvent{Event: "Stop", Subject: clearedSession, SessionID: clearedSession, AtMs: time.Now().UnixMilli()})
+	journal.armed.Store(true)
+	g.release <- struct{}{}
+	select {
+	case <-journal.decided:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the run never decided on the turn")
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Generation != 2 || record.SessionID != clearedSession || !record.Progress.OwesBrief {
+		t.Errorf("after the turn the journal holds generation %d on %q, owing a brief: %v", record.Generation, record.SessionID, record.Progress.OwesBrief)
+	}
+	if got := r.nudges(); got != 0 {
+		t.Errorf("a clear's turn drew %d nudges: %+v", got, r.driver.Sent())
+	}
+	r.eventually("the brief", func(ledger.LaneView) bool {
+		if _, err := r.subject.Reconcile(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		return r.briefs() == 1
+	})
+	if got := r.nudges(); got != 0 {
+		t.Errorf("the cleared session was nudged %d times: %+v", got, r.driver.Sent())
+	}
+}
+
+// A report is kept for the lane and not for a generation, so one kept ahead of a spooled clear puts the
+// outcome before a clear that came first, and the pass that takes the clear applies it after the outcome.
+func TestASpooledClearIsAppliedBeforeAReportIsKept(t *testing.T) {
+	t.Parallel()
+	r, g := aLaneAtWork(t)
+	r.leaveInSpool(t, clearHook())
+	if reply := r.laneReport(t, workorders.Report{Outcome: workorders.OutcomeCompleted}); !reply.OK {
+		t.Fatalf("the report was refused: %+v", reply)
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Generation != 2 || record.SessionID != clearedSession || len(record.Report) == 0 {
+		t.Fatalf("after the report the journal holds generation %d on %q, with a report: %v", record.Generation, record.SessionID, len(record.Report) != 0)
+	}
+	g.release <- struct{}{}
+	r.driver.StopEverySession()
+	r.subject.Wait()
+	if err := r.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.noLineWasDropped(t)
+	if generations := r.readGenerations(t); len(generations) != 2 || generations[1].SessionID != clearedSession {
+		t.Errorf("generations %+v", generations)
+	}
+}
+
+// A session's end ends its token, and a spooled line counts only while its lane has one. A clear that
+// spooled is read before the token goes, or the pass that takes it finds a lane with no token and counts the
+// clear for nothing.
+func TestASpooledClearIsAppliedBeforeTheSessionsTokenEnds(t *testing.T) {
+	t.Parallel()
+	r, g := aLaneAtWork(t)
+	r.leaveInSpool(t, clearHook())
+	g.release <- struct{}{}
+	r.driver.StopEverySession()
+	r.subject.Wait()
+	if err := r.subject.DrainSpool(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.noLineWasDropped(t)
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Generation != 2 || record.SessionID != clearedSession {
+		t.Errorf("the journal holds generation %d on %q", record.Generation, record.SessionID)
+	}
+	if generations := r.readGenerations(t); len(generations) != 2 || generations[1].SessionID != clearedSession {
+		t.Errorf("generations %+v", generations)
+	}
+}
+
+// noLineWasDropped fails a test when the worker counted a spooled line for nothing.
+func (r *laneRig) noLineWasDropped(t *testing.T) {
+	t.Helper()
+	for _, problem := range r.problems() {
+		if strings.Contains(problem.Error(), "prove no lane") {
+			t.Errorf("the worker dropped a spooled line: %v", problem)
+		}
+	}
+}
+
+// heldMerge holds the first hook it is handed once armed, until a test lets it go, and counts every hook it
+// is handed from then.
+type heldMerge struct {
+	ports.Journal
+	armed   atomic.Bool
+	merges  atomic.Int32
+	once    sync.Once
+	let     sync.Once
+	inside  chan struct{}
+	release chan struct{}
+}
+
+func (j *heldMerge) letGo() { j.let.Do(func() { close(j.release) }) }
+
+func (j *heldMerge) MergeHook(ctx context.Context, event lanes.HookEvent) error {
+	held := false
+	if j.armed.Load() {
+		j.merges.Add(1)
+		j.once.Do(func() { held = true })
+	}
+	if held {
+		close(j.inside)
+		<-j.release
+	}
+	return j.Journal.MergeHook(ctx, event)
+}
+
+// Two passes can take the spool at once: the worker's own tick, a hook's turn end, and a report each do. A
+// pass that comes while another is partway through the file waits for it, so it returns with every line
+// that was in the spool when it came applied, and no line is delivered twice or lost to the other's cleanup.
+func TestTwoDrainsOfTheSpoolTakeTurns(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	journal := &heldMerge{Journal: base.journal, inside: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(journal.letGo)
+	base.workerJournal = journal
+	r := newLaneRigFor(t, base).dispatched()
+	g := newGate()
+	r.finishLater(g)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, g.step()}))
+	r.atGate(g)
+	r.leaveInSpool(t, clearHook())
+	journal.armed.Store(true)
+	drained := func() chan error {
+		done := make(chan error, 1)
+		go func() { done <- r.subject.DrainSpool(t.Context()) }()
+		return done
+	}
+	first := drained()
+	select {
+	case <-journal.inside:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no pass took the line")
+	}
+	second := drained()
+	select {
+	case err := <-second:
+		t.Fatalf("a second pass returned while the first was partway through the file: %v", err)
+	case <-time.After(5 * superviseStep):
+	}
+	journal.letGo()
+	for _, done := range []chan error{first, second} {
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}
+	if got := journal.merges.Load(); got != 1 {
+		t.Errorf("the line was delivered %d times", got)
+	}
+	record, err := r.journal.Lane(t.Context(), "lane-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Generation != 2 {
+		t.Errorf("the journal holds generation %d", record.Generation)
+	}
+}
+
 // The ways a hook the worker already heard can reach it again. A hook waits 25 ms for an ack and
 // spools its event when none comes, so the worker may hold the event twice, and it takes the spool on
 // every pass.
