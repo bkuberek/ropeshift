@@ -261,7 +261,8 @@ func (s *Sessions) EndAll(ctx context.Context, scope ledger.WorkspaceID, actor l
 		}
 		for _, credential := range credentials {
 			active := credential.State(tx.Now()) == authority.DelegateActive
-			if !active && !(credential.Assistant() && credential.EndedRoutinely()) {
+			routine := credential.Assistant() && credential.EndedRoutinely()
+			if !active && !routine {
 				continue
 			}
 			revoked, err := tx.Members().RevokeDelegate(credential.ID, tx.Now(), authority.DelegateEndSignedOut)
