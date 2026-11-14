@@ -7,6 +7,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/contextpacks"
 	"ropeshift.com/ropeshift/internal/conversations"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/messages"
@@ -52,11 +53,43 @@ type Store interface {
 	// change its answer. Like Renew it takes no revision and appends no event: it runs after
 	// the transaction that evaluated, on one row, and it only schedules (FR-PARK-5).
 	ScheduleWake(ctx context.Context, scope ledger.WorkspaceID, id string, nextEvalAt int64) error
+	// Fold runs fn in one short transaction that keeps the delivery read models (ADR-0026). It reads as Read
+	// does and writes only rows derived from the log, so like Renew it takes no revision and appends no event.
+	Fold(ctx context.Context, scope ledger.WorkspaceID, fn func(FoldTx) error) error
 	// Installation is where the records every project shares change (ADR-0021): the installation's
 	// database, or, for a store that keeps them itself, its own database under scope.
 	Installation(scope ledger.WorkspaceID) Installation
 	// Close releases the database.
 	Close() error
+}
+
+// FoldTx is one transaction of the delivery fold: a view of the workspace, and its delivery read models.
+type FoldTx interface {
+	ReadTx
+	Delivery() DeliveryWriter
+}
+
+// DeliveryWriter reads and writes the delivery read models (ADR-0026): the fold's state, each finished work
+// order's timeline and each finished change's or rework's delivery record, and the spans in which the
+// workspace's work-in-progress cap was full. Every row is derived from the log, and Clear drops them all for
+// a new derivation version.
+type DeliveryWriter interface {
+	// FoldState returns the fold's state, or ErrNotFound before its first run.
+	FoldState() (delivery.FoldState, error)
+	SaveFoldState(state delivery.FoldState) error
+	// WIPFull returns every span the work-in-progress cap was full, by start.
+	WIPFull() ([]delivery.Span, error)
+	AddWIPFull(span delivery.Span) error
+	// Timeline and Record return one work order's, or ErrNotFound.
+	Timeline(workOrder string) (delivery.Timeline, error)
+	Record(workOrder string) (delivery.Record, error)
+	// Records returns every delivery record, by end.
+	Records() ([]delivery.Record, error)
+	// Save keeps a finished work order's timeline, and its record, or none when record is nil.
+	Save(timeline delivery.Timeline, record *delivery.Record) error
+	// Forget drops a work order's timeline and record, because it left its terminal state.
+	Forget(workOrder string) error
+	Clear() error
 }
 
 // ReadTx is one consistent view of a workspace.

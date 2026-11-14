@@ -85,8 +85,10 @@ type soloOptions struct {
 	forgeTick time.Duration
 	// telemetryTick is how often the ledger is read into spans, and the emitter flushes at twice it.
 	telemetryTick time.Duration
-	leaseTTL      time.Duration
-	heartbeat     time.Duration
+	// deliveryTick is how often the delivery fold reads what each project's log added (ADR-0026).
+	deliveryTick time.Duration
+	leaseTTL     time.Duration
+	heartbeat    time.Duration
 }
 
 type repeatedFlag []string
@@ -127,6 +129,7 @@ func soloFlags(opts *soloOptions) *flag.FlagSet {
 	flags.DurationVar(&opts.notifyTick, "notify-tick", 30*time.Second, "how often members are told what waits")
 	flags.DurationVar(&opts.forgeTick, "forge-tick", time.Minute, "how often the worker reads gh's sign-in and watched pull requests")
 	flags.DurationVar(&opts.telemetryTick, "telemetry-tick", defaultSpansEvery, "how often the ledger is read into spans and metrics")
+	flags.DurationVar(&opts.deliveryTick, "delivery-tick", 30*time.Second, "how often each project's timelines and delivery records are folded from its log")
 	flags.DurationVar(&opts.leaseTTL, "lease-ttl", 60*time.Second, "the policy's lease")
 	flags.DurationVar(&opts.heartbeat, "heartbeat", 15*time.Second, "how often the worker beats")
 	return flags
@@ -807,6 +810,11 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 		}),
 		tick("messages", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
 			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
+			return err
+		}),
+		// Each finished work order's timeline and delivery record, folded from the log past its cursor.
+		tick("delivery", opts.deliveryTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
+			_, err := control.NewDeliveryFold(store).Fold(ctx, p.ID)
 			return err
 		}),
 		// An assistant's session idle past the assistant policy stops; closing a view stops nothing.

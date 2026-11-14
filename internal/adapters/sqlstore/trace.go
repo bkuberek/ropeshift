@@ -42,4 +42,5 @@ const (
 	OpWakeNextEval           = "wake.next_eval"
 	OpSaveReport             = "worker.save_report"
 	OpBeat                   = "worker.beat"
+	OpFold                   = "delivery.fold"
 )

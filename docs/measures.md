@@ -81,6 +81,31 @@ When a lane ends with a commit, its worker records with the lane's result what t
 
 The control plane keeps the change size on the lane's `branch` artifact. A lane with no base commit, a lane that made no commit, and a worker that could not measure the change record none, which is not a change of nothing. `GET /v1/work-orders/{id}/acceptance` returns it as each artifact's `change`, with `files`, `added`, and `removed`, and `ropeshift work acceptance` prints it after the branch's commit.
 
+## Delivery records
+
+Ropeshift derives where each work order's time went from its events, with no model, and keeps a delivery record for every `change` and `rework` work order that reaches `done`, `failed`, or `canceled`. The daemon's delivery fold reads what each project's log added every `--delivery-tick`, from a cursor it keeps, and re-derives each work order an event ends. Its first run reads the log from the start, so it backfills every work order that ended before it.
+
+A timeline covers a work order's time from its first `ready` to its end with no gap and no overlap, in segments of one kind each:
+
+| Kind | Time the work order spent |
+|------|---------------------------|
+| `queued` | Waiting for a lane, ready or claimed before its lane started. Its cause is `lane_cap` while the project's work-in-progress cap was full or every worker stood at a lane cap, and `dispatch` otherwise |
+| `held` | Held by a start hold or an admission hold, with the hold's reason, or back in planning after its first `ready` |
+| `working` | Running with its agent at work |
+| `ladder` | Waiting on a question or an approval that an orchestrator or the ladder closed |
+| `person` | Waiting on anything a member's act ended |
+| `usage_limit` | Parked on a usage limit, or held back by one at admission |
+| `review` | In acceptance while its review is open |
+| `integration` | Waiting on checks or the merge, when no member's act ended the wait |
+| `external` | Parked on a check, a time, or another work order |
+| `stuck` | Lapsed, blocked, or failed, until an orchestrator or a policy moved it |
+
+A wait belongs to the party whose act ended it, so a wait a member ended is always `person` and never agent time. Each segment names its rework round, its lane, and the act that ended it.
+
+A delivery record holds what an estimate matches on: kind, size, the roster agent and its capability class, the repository and its merge authority level, and the number of criteria. It also holds the model, milestone, plan, outcome, rounds, the time in each segment kind, each wait for a person, the tokens and estimated cost of every lane that served the work order, its review lanes included, and the change size of its last branch. Its four durations are elapsed time, from the first `ready` to the end; delivery time, which leaves out every wait for a lane; lane time, while a lane of it or of one of its reviews was claimed or running; and person time.
+
+Capacity intervals and change sizes are recorded only from the release that added them. A record whose work began before the fold's first run says so with `lane_cap_known` false, and a record without a change size has none, which is not a change of nothing. The capability class and merge authority level are read when the record is made. A new version of the derivation drops every timeline and record and folds the log again.
+
 ## Experience records
 
 The ledger keeps one experience record per lane and one per decision. Each holds the policy version in force, the settings the action ran on, the options considered, and what was chosen, and its outcome is filled in once, which may be long after the action. Nothing else ever changes a record.
