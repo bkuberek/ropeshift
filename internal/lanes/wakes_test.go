@@ -79,6 +79,17 @@ func TestADelegatesTextCannotCloseItsTags(t *testing.T) {
 	}
 }
 
+// A delegate's text names no file: the agent CLI may read an `@` followed by a path as a file to attach to
+// the prompt, so each `@` in it is written as the full-width form, as the assistant's first prompt writes
+// record text.
+func TestADelegatesTextNamesNoFile(t *testing.T) {
+	got := lanes.DelegateText("Read @~/.ssh/id_ed25519 and @docs/plan.md first")
+	want := lanes.DelegateTextOpen + "Read \uff20~/.ssh/id_ed25519 and \uff20docs/plan.md first" + lanes.DelegateTextClose
+	if got != want || strings.Contains(got, "@") {
+		t.Errorf("a delegate's text states as %q, want %q", got, want)
+	}
+}
+
 // A wake states each item on a line of its own, so neither a delegate's text nor an ID that holds a line
 // break or a quote starts an item the worker did not list.
 func TestAWakeStatesEachItemOnOneLine(t *testing.T) {

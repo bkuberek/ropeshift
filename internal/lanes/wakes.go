@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"ropeshift.com/ropeshift/internal/contextpacks"
 	"ropeshift.com/ropeshift/internal/ledger"
 )
 
@@ -64,9 +65,11 @@ var delegateEscapes = strings.NewReplacer(
 )
 
 // DelegateText states text a delegate wrote, the assistant included, as data an orchestrator reads and
-// never as an instruction: between the tags its role names, with nothing inside that closes them.
+// never as an instruction: between the tags its role names, with nothing inside that closes them, and
+// with each `@` written as the assistant's first prompt writes it, so the text names no file for the
+// agent CLI to attach.
 func DelegateText(text string) string {
-	return DelegateTextOpen + delegateEscapes.Replace(text) + DelegateTextClose
+	return DelegateTextOpen + contextpacks.Inert(delegateEscapes.Replace(text)) + DelegateTextClose
 }
 
 // WakeText states one wake. What a person or a lane wrote is quoted as a claim to read, because a
