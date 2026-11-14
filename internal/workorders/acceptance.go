@@ -147,6 +147,32 @@ func strongest(a, b Need) Need {
 	return NeedNothing
 }
 
+// Verified says an attempt's every criterion passed on a check the lane did not write, no check failed, and
+// every check the base branch requires is green on the pull request the work lands through, when it lands
+// through one. It is the only acceptance a delegate policy may leave without a card (ADR-0024).
+func Verified(assessment Assessment, pullRequest []ledger.PullRequestCheck) bool {
+	if assessment.Needs != NeedNothing || len(assessment.Failed) != 0 {
+		return false
+	}
+	for _, check := range pullRequest {
+		if check.Required && check.State != ledger.CheckPassed {
+			return false
+		}
+	}
+	return true
+}
+
+// FailedVerdict says a verdict failed among those that count for an attempt. A rework it stands behind is
+// the only one a delegate policy may leave without a card (ADR-0024).
+func FailedVerdict(verdicts []Verdict) bool {
+	for _, v := range verdicts {
+		if v.Verdict == VerdictFail {
+			return true
+		}
+	}
+	return false
+}
+
 // AcceptanceView is a work order's standing, with everything linked to it. Assessment reads
 // the current attempt, and Artifacts and Checks hold every attempt's.
 type AcceptanceView struct {
@@ -172,3 +198,15 @@ type AcceptanceView struct {
 	// them, oldest first. While the work is `integrating`, Why says what its merge waits on.
 	Integrations []ledger.IntegrationRecord `json:"integrations,omitempty"`
 }
+
+// Verified says the current attempt is verified work, as Verified reads it.
+func (v AcceptanceView) Verified() bool {
+	var checks []ledger.PullRequestCheck
+	if v.PullRequest != nil {
+		checks = v.PullRequest.Checks
+	}
+	return Verified(v.Assessment, checks)
+}
+
+// FailedVerdict says a verdict that counts for the current attempt failed.
+func (v AcceptanceView) FailedVerdict() bool { return FailedVerdict(v.Verdicts) }

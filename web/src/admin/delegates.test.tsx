@@ -148,23 +148,26 @@ describe("Delegate policy in Settings", () => {
     const roster = within(field).getByRole("checkbox", { name: /Change the agent roster/ });
     expect((roster as HTMLInputElement).disabled).toBe(true);
     expect(roster.closest("label")?.parentElement?.textContent).toContain("ADR-0025");
-    await userEvent.click(within(field).getByRole("checkbox", { name: /Cancel work/ }));
+    const cancel = within(field).getByRole("checkbox", { name: /Cancel work/ });
+    expect((cancel as HTMLInputElement).disabled).toBe(true);
+    expect(cancel.closest("label")?.parentElement?.textContent).toContain("exempts only accepting verified work");
+    await userEvent.click(within(field).getByRole("checkbox", { name: /work_order\.rework$/ }));
     await userEvent.click(screen.getByRole("button", { name: "Review change" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Save version 3" }));
     await waitFor(() => expect(sentTo(sent, "POST", "/v1/policies")).toHaveLength(1));
-    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.cancel"]\n');
+    expect((sentTo(sent, "POST", "/v1/policies")[0]?.body as { body: string }).body).toBe('[delegate_policy]\nversion = 3\nexempt = ["work_order.accept", "work_order.rework"]\n');
   });
 
   it("shows the API's refusal at the field", async () => {
-    serveDelegates((call) => (call.method === "POST" && call.path === "/v1/policies" ? refusal(400, "invalid", "the delegate policy cannot exempt work_order.cancel is a member's alone") : undefined));
+    serveDelegates((call) => (call.method === "POST" && call.path === "/v1/policies" ? refusal(400, "invalid", "the delegate policy cannot exempt work_order.rework is no operation") : undefined));
     openPage(here("/settings?section=delegate-policy"));
     const field = await screen.findByRole("group", { name: /Consent operations a delegate runs without a card/ });
-    await userEvent.click(await within(field).findByRole("checkbox", { name: /Cancel work/ }));
+    await userEvent.click(await within(field).findByRole("checkbox", { name: /work_order\.rework$/ }));
     await userEvent.click(screen.getByRole("button", { name: "Review change" }));
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save version 3" }));
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Keep editing" }));
-    expect((await within(field).findByRole("alert")).textContent).toContain("cannot exempt work_order.cancel");
+    expect((await within(field).findByRole("alert")).textContent).toContain("cannot exempt work_order.rework");
   });
 });
 

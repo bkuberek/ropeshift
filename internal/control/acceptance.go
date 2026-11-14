@@ -207,6 +207,9 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		if !authority.Allowed(actor, acceptAction(assessment.Needs)) {
 			return workorders.ErrForbidden
 		}
+		if err := delegateAccepts(tx, current, assessment, actor); err != nil {
+			return err
+		}
 		if current.State == workorders.Done {
 			return nil
 		}
@@ -246,6 +249,47 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		return "", err
 	}
 	return state, nil
+}
+
+// delegateAccepts holds a delegate's own acceptance to verified work, read in the transaction that accepts:
+// every check the base requires must be green on the pull request the work lands through, besides the
+// criteria a delegate's action already holds it to (ADR-0024). Any other acceptance is a member's.
+func delegateAccepts(tx ports.WriteTx, current workorders.WorkOrder, assessment workorders.Assessment, actor ledger.Actor) error {
+	if _, _, delegated := authority.ActingFor(actor); !delegated {
+		return nil
+	}
+	var checks []ledger.PullRequestCheck
+	pr, err := tx.Forge().PullRequest(current.ID)
+	switch {
+	case err == nil:
+		checks = pr.Checks
+	case !errors.Is(err, ports.ErrNotFound):
+		return err
+	}
+	if !workorders.Verified(assessment, checks) {
+		return fmt.Errorf("%w: a delegate accepts only work whose every criterion passed with every required check green", workorders.ErrForbidden)
+	}
+	return nil
+}
+
+// delegateReworks holds a delegate's own rework to work a failed verdict of its attempt stands behind, read in
+// the transaction that sends it back (ADR-0024). Any other rework is a member's.
+func delegateReworks(tx ports.WriteTx, id string, actor ledger.Actor) error {
+	if _, _, delegated := authority.ActingFor(actor); !delegated {
+		return nil
+	}
+	current, err := tx.WorkOrders().Get(id)
+	if err != nil {
+		return err
+	}
+	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), current)
+	if err != nil {
+		return err
+	}
+	if !workorders.FailedVerdict(at.verdicts) {
+		return fmt.Errorf("%w: a delegate sends work to rework only after a verdict of its attempt failed", workorders.ErrForbidden)
+	}
+	return nil
 }
 
 func accept(tx ports.WriteTx, id string, assessment workorders.Assessment, actor ledger.Actor, moved func()) error {
@@ -324,6 +368,9 @@ func (a *Acceptances) Rework(ctx context.Context, scope ledger.WorkspaceID, id, 
 	}
 	var state workorders.State
 	err := a.store.Write(ctx, scope, "acceptance.rework", func(tx ports.WriteTx) error {
+		if err := delegateReworks(tx, id, actor); err != nil {
+			return err
+		}
 		if err := endOpenReviews(tx, id, actor); err != nil {
 			return err
 		}

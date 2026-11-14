@@ -3,6 +3,8 @@ package workorders
 import (
 	"slices"
 	"testing"
+
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 func check(criterion string, source EvidenceSource, status CheckStatus) Evidence {
@@ -102,5 +104,55 @@ func TestAssessFollowsTheAcceptanceTable(t *testing.T) {
 				t.Errorf("failed %v, want %d", got.Failed, tt.failed)
 			}
 		})
+	}
+}
+
+// TestVerifiedWorkPassedEveryCriterionWithEveryRequiredCheckGreen holds the only acceptance a delegate policy
+// may leave without a card: every criterion passed on a check the lane did not write, nothing failed, and
+// every check the base requires is green on the pull request the work lands through.
+func TestVerifiedWorkPassedEveryCriterionWithEveryRequiredCheckGreen(t *testing.T) {
+	covered := Assess([]string{"c1", "c2"}, []Evidence{check("c1", SourceForge, CheckPassed), check("c2", SourceForge, CheckPassed)})
+	green := ledger.PullRequestCheck{Name: "CI result", State: ledger.CheckPassed, Required: true}
+	optional := ledger.PullRequestCheck{Name: "lint", State: ledger.CheckFailed}
+	tests := []struct {
+		name string
+		view AcceptanceView
+		want bool
+	}{
+		{"every criterion covered, no pull request", AcceptanceView{Assessment: covered}, true},
+		{"every criterion covered, every required check green", AcceptanceView{Assessment: covered, PullRequest: &ledger.PullRequest{Checks: []ledger.PullRequestCheck{green, optional}}}, true},
+		{"a required check still running", AcceptanceView{Assessment: covered, PullRequest: &ledger.PullRequest{Checks: []ledger.PullRequestCheck{green, {Name: "e2e", State: ledger.CheckPending, Required: true}}}}, false},
+		{"a required check failed", AcceptanceView{Assessment: covered, PullRequest: &ledger.PullRequest{Checks: []ledger.PullRequestCheck{{Name: "e2e", State: ledger.CheckFailed, Required: true}}}}, false},
+		{"a criterion only the lane vouches for", AcceptanceView{Assessment: Assess([]string{"c1", "c2"}, []Evidence{check("c1", SourceForge, CheckPassed), check("c2", SourceLane, CheckPassed)})}, false},
+		{"a criterion no check maps to", AcceptanceView{Assessment: Assess([]string{"c1", "c2"}, []Evidence{check("c1", SourceForge, CheckPassed)})}, false},
+		{"a failed check", AcceptanceView{Assessment: Assess([]string{"c1"}, []Evidence{check("c1", SourceForge, CheckPassed), {Name: "vet", Status: CheckFailed, Source: SourceForge}})}, false},
+		{"no criteria", AcceptanceView{Assessment: Assess(nil, nil)}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.view.Verified(); got != tt.want {
+			t.Errorf("%s: verified %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// TestAFailedVerdictIsOneThatCounts holds the only rework a delegate policy may leave without a card: one a
+// failed verdict of the attempt stands behind.
+func TestAFailedVerdictIsOneThatCounts(t *testing.T) {
+	verdict := func(kind VerdictKind) Verdict {
+		return Verdict{CriterionVerdict: CriterionVerdict{Criterion: "c1", Verdict: kind}}
+	}
+	for _, tt := range []struct {
+		name     string
+		verdicts []Verdict
+		want     bool
+	}{
+		{"no verdict", nil, false},
+		{"every verdict passed", []Verdict{verdict(VerdictPass)}, false},
+		{"a criterion no review could judge", []Verdict{verdict(VerdictCannotJudge)}, false},
+		{"a verdict failed", []Verdict{verdict(VerdictPass), verdict(VerdictFail)}, true},
+	} {
+		if got := (AcceptanceView{Verdicts: tt.verdicts}).FailedVerdict(); got != tt.want {
+			t.Errorf("%s: a failed verdict %v, want %v", tt.name, got, tt.want)
+		}
 	}
 }

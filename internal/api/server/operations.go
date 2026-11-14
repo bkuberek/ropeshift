@@ -163,8 +163,8 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders/{id}/lane-archive":           fixed(authority.OpLaneArchive),
 	"POST /v1/work-orders/{id}/replan":                 fixed(authority.OpWorkOrderReplan),
 	"POST /v1/work-orders/{id}/retry":                  resolved(retryOperation, authority.OpWorkOrderRetry, authority.OpWorkOrderRetryExtra).about(subjectWorkOrder),
-	"POST /v1/work-orders/{id}/accept":                 fixed(authority.OpWorkOrderAccept).about(subjectWorkOrder),
-	"POST /v1/work-orders/{id}/rework":                 fixed(authority.OpWorkOrderRework).about(subjectWorkOrder),
+	"POST /v1/work-orders/{id}/accept":                 resolved(acceptOperation, authority.OpWorkOrderAccept, authority.OpWorkOrderAcceptUnverified).about(subjectWorkOrder),
+	"POST /v1/work-orders/{id}/rework":                 resolved(reworkOperation, authority.OpWorkOrderRework, authority.OpWorkOrderReworkWithoutFailedVerdict).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/cancel":                 fixed(authority.OpWorkOrderCancel).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/reassign":               fixed(authority.OpWorkOrderReassign).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/send-back":              fixed(authority.OpWorkOrderSendBack).about(subjectWorkOrder),
@@ -901,6 +901,33 @@ func retryOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, erro
 		return []string{authority.OpWorkOrderRetry}, false, nil
 	}
 	return []string{authority.OpWorkOrderRetryExtra}, false, nil
+}
+
+// acceptOperation reads the class of an acceptance from the work as it stands when the call comes: work whose
+// every criterion passed on a check the lane did not write, with every check its base requires green, is the
+// acceptance a delegate policy may exempt, and any other is one that asks.
+func acceptOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, error) {
+	view, err := h.accepting.Standing(r.Context(), h.Scope, r.PathValue("id"))
+	if err != nil {
+		return nil, false, err
+	}
+	if view.Verified() {
+		return []string{authority.OpWorkOrderAccept}, false, nil
+	}
+	return []string{authority.OpWorkOrderAcceptUnverified}, false, nil
+}
+
+// reworkOperation reads the class of a rework from the verdicts of the attempt: one a failed verdict stands
+// behind is the rework a delegate policy may exempt, and any other is one that asks.
+func reworkOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, error) {
+	view, err := h.accepting.Standing(r.Context(), h.Scope, r.PathValue("id"))
+	if err != nil {
+		return nil, false, err
+	}
+	if view.FailedVerdict() {
+		return []string{authority.OpWorkOrderRework}, false, nil
+	}
+	return []string{authority.OpWorkOrderReworkWithoutFailedVerdict}, false, nil
 }
 
 func fleetModeOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {

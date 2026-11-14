@@ -65,16 +65,39 @@ func TestADelegateHoldsOnlyWhatItsOperationsNeed(t *testing.T) {
 	}
 }
 
+// gateOnly are the never-exempt operations whose use case checks only actions an operation a delegate runs
+// needs too, so the class gate alone keeps them to a card, and why.
+var gateOnly = map[string]string{
+	authority.OpWorkOrderReview:                     "passing a review needs what passing a plan review needs",
+	authority.OpWorkOrderRetryExtra:                 "a retry needs one action, and the use case refuses a delegate an extra attempt",
+	authority.OpWorkOrderReworkWithoutFailedVerdict: "a rework needs one action, and the use case refuses a delegate a rework no failed verdict stands behind",
+	authority.OpWorkOrderResolve:                    "resolving blocked work needs what replanning it needs",
+	authority.OpWorkOrderWrite:                      "writing under a claim checks no action",
+	authority.OpWorkOrderRelease:                    "releasing a claim checks no action",
+	authority.OpFleetRun:                            "running the fleet needs what pausing it needs",
+	authority.OpFleetCaps:                           "setting the fleet's caps needs what pausing it needs",
+	authority.OpQuestionRecord:                      "recording a question checks no action",
+	authority.OpRepositoryForge:                     "a forge binding is a repository setting",
+	authority.OpPaneInput:                           "typing into a pane checks no action",
+}
+
 // TestNoGateDefectRunsAMemberOnlyOrNeverExemptOperation holds the second line: every operation a delegate
 // may never run without a member needs an action no delegate holds, so a defect in the class gate still
-// leaves it to a member.
+// leaves it to a member, except the few whose use case shares its actions with an operation a delegate
+// runs. Each of those shares every action, or it would need one a delegate lacks.
 func TestNoGateDefectRunsAMemberOnlyOrNeverExemptOperation(t *testing.T) {
 	for _, op := range authority.Operations() {
 		if op.Class == authority.ClassOperational || op.Exemptable {
 			continue
 		}
-		if !slices.ContainsFunc(op.Actions, func(a authority.Action) bool { return !authority.Allowed(delegate, a) }) {
-			t.Errorf("%s (%s) needs no action a delegate lacks: %v", op.ID, op.Class, op.Actions)
+		lacks := slices.ContainsFunc(op.Actions, func(a authority.Action) bool { return !authority.Allowed(delegate, a) })
+		if _, shared := gateOnly[op.ID]; shared == lacks {
+			t.Errorf("%s (%s) needs %v, and a delegate lacks one of them: %v; listed as resting on the gate alone: %v", op.ID, op.Class, op.Actions, lacks, shared)
+		}
+	}
+	for id := range gateOnly {
+		if op, ok := authority.OperationOf(id); !ok || op.Class != authority.ClassConsent || op.Exemptable {
+			t.Errorf("%s rests on the gate alone, and is %+v", id, op)
 		}
 	}
 	for _, action := range []authority.Action{
@@ -94,8 +117,8 @@ func TestNoGateDefectRunsAMemberOnlyOrNeverExemptOperation(t *testing.T) {
 
 // TestCreatingWorkIsConsentForAnOutsideDelegateAndOperationalForTheAssistant holds the class of every call
 // that creates a work order: an orchestrator reads a work order's title, so an outside delegate's call is a
-// card a member confirms, unless the delegate policy exempts it as it may any question it records. The
-// assistant acts in a member's own conversation, and its call runs at once.
+// card a member confirms, unless the delegate policy exempts it, as its fixed list allows. The assistant acts
+// in a member's own conversation, and its call runs at once.
 func TestCreatingWorkIsConsentForAnOutsideDelegateAndOperationalForTheAssistant(t *testing.T) {
 	for _, c := range []struct {
 		outside, assistant string
@@ -119,6 +142,41 @@ func TestCreatingWorkIsConsentForAnOutsideDelegateAndOperationalForTheAssistant(
 		}
 		if err := (authority.DelegatePolicy{Version: 2, Exempt: []string{c.assistant}}).Check(); !errors.Is(err, authority.ErrInvalid) {
 			t.Errorf("a policy exempts the operational %s: %v", c.assistant, err)
+		}
+	}
+}
+
+// TestADelegatePolicyMayExemptOnlyTheReversibleList holds the delegate policy to its fixed list of reversible
+// acts (ADR-0024): accepting work whose every criterion passed with every required check green, sending work
+// to rework after a failed verdict, creating work, and starting a contract review. Every other consent
+// operation asks, and a version that lists one is refused, naming it.
+func TestADelegatePolicyMayExemptOnlyTheReversibleList(t *testing.T) {
+	want := []string{authority.OpPlanStartReview, authority.OpWorkOrderAccept, authority.OpWorkOrderCreate, authority.OpWorkOrderRework}
+	var got []string
+	for _, op := range authority.Operations() {
+		if op.Exemptable {
+			got = append(got, op.ID)
+		}
+		if op.Class != authority.ClassConsent || op.Exemptable {
+			continue
+		}
+		err := (authority.DelegatePolicy{Version: 2, Exempt: []string{op.ID}}).Check()
+		if !errors.Is(err, authority.ErrInvalid) || !strings.Contains(err.Error(), op.ID) || op.NeverReason == "" {
+			t.Errorf("a policy that lists %s: %v", op.ID, err)
+		}
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("the policy may exempt %v, want %v", got, want)
+	}
+	// An accept or a rework short of its condition is an operation of its own, which stays a card.
+	accept, _ := authority.OperationOf(authority.OpWorkOrderAccept)
+	if !slices.Equal(accept.Actions, []authority.Action{authority.ActionAccept}) {
+		t.Errorf("an exempt accept needs %v, want only what verified work needs", accept.Actions)
+	}
+	for _, id := range []string{authority.OpWorkOrderAcceptUnverified, authority.OpWorkOrderReworkWithoutFailedVerdict} {
+		if op, ok := authority.OperationOf(id); !ok || op.Class != authority.ClassConsent || op.Exemptable {
+			t.Errorf("%s is %+v, want consent no policy exempts", id, op)
 		}
 	}
 }
@@ -212,18 +270,18 @@ func TestANewDelegateIsCheckedBeforeItIsKept(t *testing.T) {
 }
 
 func TestADelegatePolicyExemptsOnlyExemptableConsent(t *testing.T) {
-	policy := authority.DelegatePolicy{Version: 2, Exempt: []string{"work_order.accept", "work_order.cancel"}}
+	policy := authority.DelegatePolicy{Version: 2, Exempt: []string{"work_order.accept", "work_order.rework"}}
 	if err := policy.Check(); err != nil {
 		t.Fatalf("a good policy: %v", err)
 	}
 	refused := authority.DelegatePolicy{Version: 2, Exempt: []string{
-		"work_order.teleport", "work_order.claim", "delegate.create", "roster.change", "work_order.accept",
+		"work_order.teleport", "work_order.claim", "delegate.create", "roster.change", "work_order.cancel", "work_order.accept",
 	}}
 	err := refused.Check()
 	if !errors.Is(err, authority.ErrInvalid) {
 		t.Fatalf("got %v", err)
 	}
-	for _, id := range []string{"work_order.teleport", "work_order.claim", "delegate.create", "roster.change"} {
+	for _, id := range []string{"work_order.teleport", "work_order.claim", "delegate.create", "roster.change", "work_order.cancel"} {
 		if !strings.Contains(err.Error(), id) {
 			t.Errorf("the refusal does not name %s: %v", id, err)
 		}
@@ -237,22 +295,29 @@ func TestADelegatePolicyExemptsOnlyExemptableConsent(t *testing.T) {
 }
 
 func TestADelegatePolicyNeverExemptsInAOneWayCategory(t *testing.T) {
-	policy := authority.DelegatePolicy{Version: 2, Exempt: []string{"question.answer", "work_order.accept"}}
-	answer, _ := authority.OperationOf("question.answer")
+	oneWay := authority.Operation{ID: "example.one_way", Label: "Decide", Class: authority.ClassConsent, Exemptable: true, OneWay: true}
+	policy := authority.DelegatePolicy{Version: 2, Exempt: []string{oneWay.ID, "work_order.accept"}}
 	accept, _ := authority.OperationOf("work_order.accept")
-	cancel, _ := authority.OperationOf("work_order.cancel")
+	rework, _ := authority.OperationOf("work_order.rework")
 	operational, _ := authority.OperationOf("work_order.claim")
-	if !policy.Exempts([]authority.Operation{answer}, false) {
-		t.Error("an exempt answer outside a one-way category is not exempt")
+	if !policy.Exempts([]authority.Operation{oneWay}, false) {
+		t.Error("an exempt operation outside a one-way category is not exempt")
 	}
-	if policy.Exempts([]authority.Operation{answer}, true) {
-		t.Error("an answer in a one-way category is exempt")
+	if policy.Exempts([]authority.Operation{oneWay}, true) {
+		t.Error("an operation in a one-way category is exempt")
 	}
-	if policy.Exempts([]authority.Operation{accept, cancel}, false) {
+	if policy.Exempts([]authority.Operation{accept, rework}, false) {
 		t.Error("a call with one consent operation the policy does not list is exempt")
 	}
 	if !policy.Exempts([]authority.Operation{accept, operational}, false) {
 		t.Error("an exempt consent operation beside an operational one is not exempt")
+	}
+	// A version published while the list was longer still exempts nothing outside it.
+	for _, id := range []string{"work_order.cancel", "question.answer", "question.record", "work_order.retry_extra"} {
+		op, _ := authority.OperationOf(id)
+		if (authority.DelegatePolicy{Version: 2, Exempt: []string{id}}).Exempts([]authority.Operation{op}, false) {
+			t.Errorf("a stored version that lists %s exempts it", id)
+		}
 	}
 	if builtIn := authority.BuiltInDelegatePolicy(); builtIn.Version != 1 || len(builtIn.Exempt) != 0 || builtIn.Check() != nil {
 		t.Errorf("the built-in policy reads %+v", builtIn)
