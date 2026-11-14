@@ -79,6 +79,7 @@ var gateOnly = map[string]string{
 	authority.OpQuestionRecord:                      "recording a question checks no action",
 	authority.OpRepositoryForge:                     "a forge binding is a repository setting",
 	authority.OpPaneInput:                           "typing into a pane checks no action",
+	authority.OpMessageSend:                         "an outside delegate's message to a lane needs what the assistant's needs",
 }
 
 // TestNoGateDefectRunsAMemberOnlyOrNeverExemptOperation holds the second line: every operation a delegate

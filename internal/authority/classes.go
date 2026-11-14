@@ -118,6 +118,7 @@ const (
 	OpCardConfirm                         = "card.confirm"
 	OpEffectDecide                        = "effect.decide"
 	OpMessageSend                         = "message.send"
+	OpMessageSendByAssistant              = "message.send_by_assistant"
 	OpMessageOrchestrator                 = "message.send_orchestrator"
 	OpPaneInput                           = "pane.input"
 	OpConversationCreate                  = "conversation.create"
@@ -269,7 +270,10 @@ var operations = append(onInstallation(
 	never(OpApprovalDecide, "Decide a request", neverApproval, ActionDecideApproval, ActionApprovePlan, ActionDecideRecovery, ActionDecideMerge),
 	memberOnly(OpCardConfirm, "Confirm a card", ActionConfirmCard),
 	consent(OpEffectDecide, "Decide an effect", ActionDecideEffect),
-	operational(OpMessageSend, "Send a message", ActionSendMessage),
+	// A message steers what a lane does next, so an outside delegate's message to a lane is a card, as its
+	// work is. The assistant acts in a member's own conversation, so its message goes at once.
+	consent(OpMessageSend, "Send a message", ActionSendMessage),
+	operational(OpMessageSendByAssistant, "Send a message", ActionSendMessage),
 	// An orchestrator holds tools such as approval_decide and lane_start, so a message to one is a member's
 	// alone: a delegate, the assistant included, cannot instruct it. Its reply tool is not a message.
 	memberOnly(OpMessageOrchestrator, "Send a message to an orchestrator", ActionMessageOrchestrator),

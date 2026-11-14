@@ -470,6 +470,13 @@
     {
       "id": "message.send",
       "label": "Send a message",
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
+    },
+    {
+      "id": "message.send_by_assistant",
+      "label": "Send a message",
       "class": "operational",
       "exemptable": false
     },

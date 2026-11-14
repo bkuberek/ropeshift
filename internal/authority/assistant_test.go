@@ -183,8 +183,14 @@ func TestOnlyAMemberMessagesAnOrchestrator(t *testing.T) {
 			}
 		}
 	}
-	lane, ok := authority.OperationOf(authority.OpMessageSend)
-	if !ok || lane.Class != authority.ClassOperational {
-		t.Errorf("a message to a lane is %+v", lane)
+	// A message to a lane steers what the lane does next: an outside delegate's is a card no policy exempts,
+	// and the assistant's, in a member's own conversation, goes at once. Both run the same use case.
+	outside, ok := authority.OperationOf(authority.OpMessageSend)
+	if !ok || outside.Class != authority.ClassConsent || outside.Exemptable {
+		t.Errorf("an outside delegate's message to a lane is %+v", outside)
+	}
+	assistant, ok := authority.OperationOf(authority.OpMessageSendByAssistant)
+	if !ok || assistant.Class != authority.ClassOperational || assistant.Label != outside.Label || !slices.Equal(assistant.Actions, outside.Actions) {
+		t.Errorf("the assistant's message to a lane is %+v", assistant)
 	}
 }

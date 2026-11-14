@@ -186,7 +186,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/repositories/{id}/remove":                fixed(authority.OpRepositoryRemove).about(ledger.SubjectRepository).resolving(repositoryID),
 	"POST /v1/approvals/{id}/decide":                   resolved(approvalOperation, authority.OpApprovalDecideDelegated, authority.OpApprovalDecide, authority.OpCardConfirm).about(authority.SubjectApproval),
 	"POST /v1/effects/{id}/decide":                     fixed(authority.OpEffectDecide).about(ledger.SubjectEffect),
-	"POST /v1/messages":                                resolved(messageOperation, authority.OpMessageSend, authority.OpMessageOrchestrator),
+	"POST /v1/messages":                                resolved(messageOperation, authority.OpMessageSend, authority.OpMessageSendByAssistant, authority.OpMessageOrchestrator).about(messages.SubjectMessage).named(bodyField("id")).checked(laneMessage),
 	"POST " + api.PaneInputPath:                        fixed(authority.OpPaneInput).about(subjectLane),
 	"POST /v1/conversations":                           fixed(authority.OpConversationCreate),
 	"POST /v1/conversations/{id}/open":                 fixed(authority.OpConversationOpen),
@@ -972,13 +972,32 @@ func policyOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, 
 
 // messageOperation reads the class of a message from who it is for: only a member instructs an orchestrator,
 // which holds tools such as approval_decide and lane_start. A body that does not say who it is for takes
-// the stricter class.
-func messageOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {
+// the stricter class. A message to a lane takes its class from the credential that sends it, as work does.
+func messageOperation(h *handler, r *http.Request, body []byte) ([]string, bool, error) {
 	var in messages.Draft
 	if err := json.Unmarshal(body, &in); err != nil || in.To.Of() == messages.TargetOrchestrator {
 		return []string{authority.OpMessageOrchestrator}, false, nil
 	}
-	return []string{authority.OpMessageSend}, false, nil
+	return byKind(authority.OpMessageSend, authority.OpMessageSendByAssistant)(h, r, body)
+}
+
+// laneMessage refuses a delegate's message to a lane that could not be sent before it becomes a card, which
+// names the message by its ID: the ID is plain, and the draft is one a lane receives. A message to the
+// assistant goes through its conversation. A body that is not a draft, and a message to an orchestrator,
+// take their class from the resolver.
+func laneMessage(body []byte) error {
+	var in messages.Draft
+	if err := json.Unmarshal(body, &in); err != nil || in.To.Of() == messages.TargetOrchestrator {
+		return nil
+	}
+	if in.To.Of() == messages.TargetAssistant {
+		return fmt.Errorf("%w: a message to the assistant goes through its conversation", messages.ErrInvalid)
+	}
+	if !ledger.PlainID(in.ID) {
+		return fmt.Errorf("%w: the id is 1 to %d letters, digits, '-', and '_'", messages.ErrInvalid, ledger.MaxRecordID)
+	}
+	_, err := messages.New(in, messages.Sender{}, 0, messages.DefaultWindow)
+	return err
 }
 
 // byKind reads the class of a call that creates a work order from the credential that makes it. An
