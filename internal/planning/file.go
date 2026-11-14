@@ -106,7 +106,8 @@ type WorkOrderSpec struct {
 // the files written before a criterion could name its own; a pack reads it together with the
 // criteria's. Milestone, Shared, and Uses are kept as written, and Documents cites the documents the
 // contract depends on, each as `<kind>:<id>`. Existing says the code already delivers the contract, so it
-// has no work orders and every dependency on it is resolved from the start (ADR-0023).
+// has no work orders and every dependency on it is resolved from the start (ADR-0023). Reads names, by their
+// names in the project, other repositories its lanes read beside those its dependencies target (ADR-0022).
 type ContractFile struct {
 	Kind         FileKind        `toml:"kind" json:"kind"`
 	ID           string          `toml:"id" json:"id"`
@@ -116,6 +117,7 @@ type ContractFile struct {
 	Shared       bool            `toml:"shared" json:"shared,omitempty"`
 	Uses         []string        `toml:"uses" json:"uses,omitempty"`
 	Documents    []string        `toml:"documents" json:"documents,omitempty"`
+	Reads        []string        `toml:"reads" json:"reads,omitempty"`
 	Requirements []string        `toml:"requirements" json:"requirements,omitempty"`
 	Decisions    []string        `toml:"decisions" json:"decisions,omitempty"`
 	Existing     bool            `toml:"existing" json:"existing,omitempty"`
@@ -591,6 +593,12 @@ func (f ContractFile) Normalize() (ContractFile, error) {
 		return f, fmt.Errorf("%w: contract %s uses itself", ErrBadFile, f.ID)
 	}
 	f.Uses = uses
+	for _, name := range f.Reads {
+		if err := ledger.CheckRepositoryName(name); err != nil {
+			return f, fmt.Errorf("%w: contract %s reads: %v", ErrBadFile, f.ID, err)
+		}
+	}
+	f.Reads = cleanList(f.Reads)
 	if f.Existing && len(f.WorkOrders) > 0 {
 		return f, fmt.Errorf("%w: contract %s exists already and lists work orders; an existing contract records work the code delivers, and has none", ErrBadFile, f.ID)
 	}

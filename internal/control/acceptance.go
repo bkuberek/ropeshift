@@ -918,7 +918,19 @@ func reviewStart(tx ports.ReadTx, review workorders.WorkOrder) (workorders.Start
 	if err != nil || hold != nil {
 		return workorders.Start{}, hold, err
 	}
-	return workorders.Start{Ref: branch.URI, Commit: branch.Digest}, nil, nil
+	start := workorders.Start{Ref: branch.URI, Commit: branch.Digest}
+	// The review reads the other repositories at the commits the lane it reviews read, so it judges the work
+	// against the code its writer saw (ADR-0022, FR-REPO-11).
+	if branch.Lane != "" {
+		claim, err := tx.Claims().OfLane(branch.Lane)
+		switch {
+		case err == nil:
+			start.Reads = claim.Reads
+		case !errors.Is(err, ports.ErrNotFound):
+			return workorders.Start{}, nil, err
+		}
+	}
+	return start, nil, nil
 }
 
 // desiredAttempt tells a review lane's worker what it judges: the attempt, its commit, and where the
