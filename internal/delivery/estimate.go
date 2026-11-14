@@ -52,19 +52,30 @@ func (p EstimatePolicy) Check() error {
 	return nil
 }
 
-// Confidence is how far an estimate can be trusted from what it rests on (FR-EST-6, FR-EST-7).
+// Status says whether an estimate has a band: `estimated`, or `no_history` when no comparable work ever
+// finished, which has no number.
+type Status string
+
+// The statuses.
+const (
+	Estimated Status = "estimated"
+	NoHistory Status = "no_history"
+)
+
+// Confidence is how far an estimated band can be trusted from what it rests on (FR-EST-6, FR-EST-7): confident
+// on at least min_samples comparable records, low on fewer. An estimate with no history has none.
 type Confidence string
 
-// The confidences. A confident estimate rests on at least min_samples comparable records; a low one on fewer;
-// and an estimate with no history rests on none and has no number.
+// The confidences.
 const (
 	Confident Confidence = "confident"
 	Low       Confidence = "low"
-	NoHistory Confidence = "no_history"
 )
 
-// The keys beyond kind and size a tier may match on, in the order the tiers drop them back to front.
+// The keys a tier may match on. Every tier matches kind and size; the rest it may drop, back to front.
 const (
+	KeyKind            = "kind"
+	KeySize            = "size"
 	KeyCapabilityClass = "capability_class"
 	KeyRepository      = "repository"
 	KeyMergeAuthority  = "merge_authority"
@@ -97,33 +108,45 @@ type CostBand struct {
 }
 
 // Estimate is one work order's band of delivery time and estimated cost, and everything it rests on, so a
-// person can trace each number to the work it came from (FR-EST-6, FR-EST-7, FR-EST-14). Matched and Dropped
-// name the keys beyond kind and size the tier matched and those it set aside; Drawn names the work orders of
-// the project it drew on, newest first, and Pooled says it drew on the installation's pool, whose records
-// name no work order. P85Open says no record bounds 85 percent of outcomes, so the p85 is the longest record
-// and reads as more than it; CostAtLeast says a record's cost was a lower bound. Explanation is the text every
-// surface shows.
+// person can trace each number to the work it came from (FR-EST-6, FR-EST-7, FR-EST-14). Its fields follow the
+// estimate's data model. Keys are the keys its tier matched, kind and size always among them, and DroppedKeys
+// those it set aside. SampleIDs names the work orders of the project it drew on, newest first, and PoolSamples
+// counts the records of other projects it drew from the installation's pool, which name no work order. The
+// band holds the 50th and 85th percentiles and the least and most of what it drew on, for time and cost apart.
+// P85Open says no record bounds 85 percent of outcomes, so the p85 is the longest record and reads as more than
+// it; CostAtLeast says a record's cost was a lower bound. Explanation is the text every surface shows.
 type Estimate struct {
-	WorkOrder        string     `json:"work_order,omitempty"`
-	Confidence       Confidence `json:"confidence"`
+	WorkOrder        string     `json:"work_order_id,omitempty"`
+	Status           Status     `json:"status"`
+	Confidence       Confidence `json:"confidence,omitempty"`
 	Tier             int        `json:"tier,omitempty"`
-	Matched          []string   `json:"matched"`
-	Dropped          []string   `json:"dropped"`
-	Samples          int        `json:"samples"`
+	Keys             []string   `json:"keys"`
+	DroppedKeys      []string   `json:"dropped_keys"`
+	SampleCount      int        `json:"sample_count"`
 	MinSamples       int64      `json:"min_samples"`
-	Drawn            []string   `json:"drawn"`
-	Pooled           bool       `json:"pooled,omitempty"`
-	ShortestMs       int64      `json:"shortest_ms,omitempty"`
-	LongestMs        int64      `json:"longest_ms,omitempty"`
-	Time             *Band      `json:"time,omitempty"`
-	Cost             *CostBand  `json:"cost,omitempty"`
-	P85Open          bool       `json:"p85_open,omitempty"`
-	CostAtLeast      bool       `json:"cost_at_least,omitempty"`
+	SampleIDs        []string   `json:"sample_ids"`
+	PoolSamples      int        `json:"pool_samples"`
+	DeliveryP50Ms    int64      `json:"delivery_p50_ms"`
+	DeliveryP85Ms    int64      `json:"delivery_p85_ms"`
+	DeliveryMinMs    int64      `json:"delivery_min_ms"`
+	DeliveryMaxMs    int64      `json:"delivery_max_ms"`
+	CostP50USD       float64    `json:"cost_p50_usd"`
+	CostP85USD       float64    `json:"cost_p85_usd"`
+	CostMinUSD       float64    `json:"cost_min_usd"`
+	CostMaxUSD       float64    `json:"cost_max_usd"`
+	P85Open          bool       `json:"p85_open"`
+	CostAtLeast      bool       `json:"cost_at_least"`
 	Rev              int64      `json:"rev"`
 	EstimatorVersion int        `json:"estimator_version"`
 	PolicyVersion    int64      `json:"policy_version"`
 	Explanation      string     `json:"explanation"`
 }
+
+// Time is the estimate's delivery time band.
+func (e Estimate) Time() Band { return Band{P50: e.DeliveryP50Ms, P85: e.DeliveryP85Ms} }
+
+// Cost is the estimate's cost band.
+func (e Estimate) Cost() CostBand { return CostBand{P50: e.CostP50USD, P85: e.CostP85USD} }
 
 // EstimateInput is what one estimate is made from: the keys of the work order being estimated, which are known
 // before it starts; the project's delivery records; the installation's pool, read only when the policy shares
@@ -147,7 +170,7 @@ type EstimateInput struct {
 // explains itself in plain words from its own fields.
 func EstimateOf(in EstimateInput) Estimate {
 	out := Estimate{
-		WorkOrder: in.WorkOrder, Confidence: NoHistory, Matched: []string{}, Dropped: []string{}, Drawn: []string{}, MinSamples: in.Policy.MinSamples,
+		WorkOrder: in.WorkOrder, Status: NoHistory, Keys: []string{}, DroppedKeys: []string{}, SampleIDs: []string{}, MinSamples: in.Policy.MinSamples,
 		Rev: in.Rev, EstimatorVersion: EstimatorVersion, PolicyVersion: in.PolicyVersion,
 	}
 	candidates := make([][]Record, 0, len(tiers)+1)
@@ -160,14 +183,14 @@ func EstimateOf(in EstimateInput) Estimate {
 	chosen := -1
 	for i, records := range candidates {
 		if int64(len(records)) >= in.Policy.MinSamples {
-			chosen, out.Confidence = i, Confident
+			chosen, out.Status, out.Confidence = i, Estimated, Confident
 			break
 		}
 	}
 	if chosen < 0 {
 		for i, records := range candidates {
 			if len(records) > 0 && (chosen < 0 || len(records) > len(candidates[chosen])) {
-				chosen, out.Confidence = i, Low
+				chosen, out.Status, out.Confidence = i, Estimated, Low
 			}
 		}
 	}
@@ -176,22 +199,25 @@ func EstimateOf(in EstimateInput) Estimate {
 		return out
 	}
 	records := candidates[chosen]
-	out.Tier, out.Samples, out.Pooled = chosen+1, len(records), chosen+1 == poolTier
+	out.Tier, out.SampleCount = chosen+1, len(records)
+	pooled := out.Tier == poolTier
 	matched := []string{}
-	if !out.Pooled {
+	if !pooled {
 		matched = tiers[chosen]
 	}
-	out.Matched = slices.Clone(matched)
+	out.Keys = append([]string{KeyKind, KeySize}, matched...)
 	for _, key := range tiers[0] {
 		if !slices.Contains(matched, key) {
-			out.Dropped = append(out.Dropped, key)
+			out.DroppedKeys = append(out.DroppedKeys, key)
 		}
 	}
 	times := make([]int64, 0, len(records))
 	costs := make([]float64, 0, len(records))
 	for _, r := range records {
-		if !out.Pooled {
-			out.Drawn = append(out.Drawn, r.WorkOrder)
+		if pooled {
+			out.PoolSamples++
+		} else {
+			out.SampleIDs = append(out.SampleIDs, r.WorkOrder)
 		}
 		times = append(times, r.DeliveryMs)
 		costs = append(costs, r.Usage.CostUSD)
@@ -199,14 +225,15 @@ func EstimateOf(in EstimateInput) Estimate {
 	}
 	slices.Sort(times)
 	slices.Sort(costs)
-	out.ShortestMs, out.LongestMs = times[0], times[len(times)-1]
+	out.DeliveryMinMs, out.DeliveryMaxMs = times[0], times[len(times)-1]
+	out.CostMinUSD, out.CostMaxUSD = costs[0], costs[len(costs)-1]
 	p50, p85 := rank(len(times), 0.5), rank(len(times), 0.85)
 	if out.Confidence == Low {
 		p50, out.P85Open = lowRank(len(times), 0.5), lowRank(len(times), 0.85) >= len(times)
 		p85 = min(lowRank(len(times), 0.85), len(times)-1)
 	}
-	out.Time = &Band{P50: times[p50], P85: times[p85]}
-	out.Cost = &CostBand{P50: costs[p50], P85: costs[p85]}
+	out.DeliveryP50Ms, out.DeliveryP85Ms = times[p50], times[p85]
+	out.CostP50USD, out.CostP85USD = costs[p50], costs[p85]
 	out.Explanation = explain(out, in.Keys, in.Policy)
 	return out
 }
@@ -276,50 +303,53 @@ var keyWords = map[string]string{
 // and how far apart they were; an estimate with no history says what is missing.
 func explain(e Estimate, keys Keys, policy EstimatePolicy) string {
 	work := func(n int) string { return workWords(keys, n) }
-	switch e.Confidence {
-	case NoHistory:
+	if e.Status == NoHistory {
 		text := "No estimate: no " + work(1) + " has finished in this project yet"
 		if policy.ShareHistory {
 			return text + " or in the installation pool."
 		}
 		return text + ", and this project does not share history with other projects."
-	case Confident:
-		text := fmt.Sprintf("Based on %d finished %s", e.Samples, work(e.Samples))
-		switch {
-		case e.Pooled:
-			return text + " in the installation pool."
-		case len(e.Matched) > 0:
-			words := make([]string, 0, len(e.Matched))
-			for _, key := range e.Matched {
+	}
+	pooled := e.Tier == poolTier
+	if e.Confidence == Confident {
+		text := fmt.Sprintf("Based on %d finished %s", e.SampleCount, work(e.SampleCount))
+		var words []string
+		for _, key := range e.Keys {
+			if key != KeyKind && key != KeySize {
 				words = append(words, keyWords[key])
 			}
+		}
+		switch {
+		case pooled:
+			return text + " in the installation pool."
+		case len(words) > 0:
 			return text + " with the same " + list(words) + "."
 		}
 		return text + "."
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "Low confidence. Based on %d finished %s; a confident estimate needs %d.", e.Samples, work(e.Samples), e.MinSamples)
-	if len(e.Dropped) > 0 || e.Pooled {
-		words := make([]string, 0, len(e.Dropped))
-		for _, key := range e.Dropped {
+	fmt.Fprintf(&out, "Low confidence. Based on %d finished %s; a confident estimate needs %d.", e.SampleCount, work(e.SampleCount), e.MinSamples)
+	if len(e.DroppedKeys) > 0 || pooled {
+		words := make([]string, 0, len(e.DroppedKeys))
+		for _, key := range e.DroppedKeys {
 			words = append(words, "the "+keyWords[key])
 		}
 		fmt.Fprintf(&out, " To find them, ropeshift ignored %s", list(words))
-		if e.Pooled {
+		if pooled {
 			out.WriteString(", and drew on the installation pool")
 		}
 		out.WriteString(".")
 	}
 	switch {
-	case e.Samples == 1:
-		fmt.Fprintf(&out, " It took %s.", durationWords(e.ShortestMs))
-	case e.ShortestMs == e.LongestMs:
-		fmt.Fprintf(&out, " They each took %s.", durationWords(e.ShortestMs))
+	case e.SampleCount == 1:
+		fmt.Fprintf(&out, " It took %s.", durationWords(e.DeliveryMinMs))
+	case e.DeliveryMinMs == e.DeliveryMaxMs:
+		fmt.Fprintf(&out, " They each took %s.", durationWords(e.DeliveryMinMs))
 	default:
-		fmt.Fprintf(&out, " They took from %s to %s.", durationWords(e.ShortestMs), durationWords(e.LongestMs))
+		fmt.Fprintf(&out, " They took from %s to %s.", durationWords(e.DeliveryMinMs), durationWords(e.DeliveryMaxMs))
 	}
 	if e.P85Open {
-		fmt.Fprintf(&out, " With fewer than %d, the 85th percentile cannot be read from them, so the band is open above %s.", openBelow, durationWords(e.LongestMs))
+		fmt.Fprintf(&out, " With fewer than %d, the 85th percentile cannot be read from them, so the band is open above %s.", openBelow, durationWords(e.DeliveryMaxMs))
 	}
 	return out.String()
 }

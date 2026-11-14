@@ -46,17 +46,17 @@ func TestTheFirstTierWithEnoughRecordsGivesAConfidentEstimate(t *testing.T) {
 	records = append(records, finished("same", 50, 30*hour, 30, nil))
 	records = append(records, delivery.Record{WorkOrder: "failed", Keys: estimated, Outcome: workorders.Failed, Ended: 200, DeliveryMs: hour})
 	e := estimateOf(records, delivery.DefaultEstimatePolicy())
-	if e.Confidence != delivery.Confident || e.Tier != 2 || e.Samples != 11 || e.MinSamples != 10 {
+	if e.Status != delivery.Estimated || e.Confidence != delivery.Confident || e.Tier != 2 || e.SampleCount != 11 || e.MinSamples != 10 {
 		t.Fatalf("estimate %+v", e)
 	}
 	// Eleven delivery times 1h to 10h and 30h: nearest rank p50 is the 6th, 6h; p85 the 10th, 10h.
-	if *e.Time != (delivery.Band{P50: 6 * hour, P85: 10 * hour}) || *e.Cost != (delivery.CostBand{P50: 6, P85: 10}) || e.P85Open {
-		t.Errorf("bands %+v %+v", *e.Time, *e.Cost)
+	if e.Time() != (delivery.Band{P50: 6 * hour, P85: 10 * hour}) || e.Cost() != (delivery.CostBand{P50: 6, P85: 10}) || e.P85Open {
+		t.Errorf("bands %+v %+v", e.Time(), e.Cost())
 	}
-	if !reflect.DeepEqual(e.Dropped, []string{delivery.KeyCriteria}) || len(e.Matched) != 3 || len(e.Drawn) != 11 || e.Drawn[0] != "t2-09" {
-		t.Errorf("basis matched %v dropped %v drawn %v", e.Matched, e.Dropped, e.Drawn)
+	if !reflect.DeepEqual(e.DroppedKeys, []string{delivery.KeyCriteria}) || len(e.Keys) != 5 || len(e.SampleIDs) != 11 || e.SampleIDs[0] != "t2-09" {
+		t.Errorf("basis keys %v dropped %v drawn %v", e.Keys, e.DroppedKeys, e.SampleIDs)
 	}
-	if e.ShortestMs != hour || e.LongestMs != 30*hour || e.Rev != 77 || e.PolicyVersion != 3 || e.EstimatorVersion != delivery.EstimatorVersion {
+	if e.DeliveryMinMs != hour || e.DeliveryMaxMs != 30*hour || e.CostMinUSD != 1 || e.CostMaxUSD != 30 || e.Rev != 77 || e.PolicyVersion != 3 || e.EstimatorVersion != delivery.EstimatorVersion {
 		t.Errorf("trace %+v", e)
 	}
 	if want := "Based on 11 finished medium changes with the same capability class, repository, and merge authority level."; e.Explanation != want {
@@ -71,8 +71,8 @@ func TestOnlyTheMostRecentComparableRecordsCount(t *testing.T) {
 		records = append(records, finished(fmt.Sprintf("r-%02d", i), int64(i), hour, 1, nil))
 	}
 	e := estimateOf(records, delivery.DefaultEstimatePolicy())
-	if e.Tier != 1 || e.Samples != 50 || e.Drawn[0] != "r-59" || e.Drawn[49] != "r-10" {
-		t.Errorf("estimate drew %d from tier %d: %v", e.Samples, e.Tier, e.Drawn)
+	if e.Tier != 1 || e.SampleCount != 50 || e.SampleIDs[0] != "r-59" || e.SampleIDs[49] != "r-10" {
+		t.Errorf("estimate drew %d from tier %d: %v", e.SampleCount, e.Tier, e.SampleIDs)
 	}
 }
 
@@ -87,12 +87,12 @@ func TestBelowTheMinimumTheEstimateIsLowConfidenceWithItsReasons(t *testing.T) {
 		finished("d", 4, 11*hour, 4, otherRepository),
 	}
 	e := estimateOf(records, delivery.DefaultEstimatePolicy())
-	if e.Confidence != delivery.Low || e.Tier != 3 || e.Samples != 4 {
+	if e.Status != delivery.Estimated || e.Confidence != delivery.Low || e.Tier != 3 || e.SampleCount != 4 {
 		t.Fatalf("estimate %+v", e)
 	}
 	// n = 4: p50 at rank ceil(2.5) = 3, 7h; p85 rank ceil(4.25) = 5 is past n, so open above the longest.
-	if *e.Time != (delivery.Band{P50: 7 * hour, P85: 11 * hour}) || !e.P85Open || *e.Cost != (delivery.CostBand{P50: 3, P85: 4}) {
-		t.Errorf("bands %+v %+v open %v", *e.Time, *e.Cost, e.P85Open)
+	if e.Time() != (delivery.Band{P50: 7 * hour, P85: 11 * hour}) || !e.P85Open || e.Cost() != (delivery.CostBand{P50: 3, P85: 4}) {
+		t.Errorf("bands %+v %+v open %v", e.Time(), e.Cost(), e.P85Open)
 	}
 	want := "Low confidence. Based on 4 finished medium changes; a confident estimate needs 10. To find them, ropeshift ignored the repository and the number of criteria. " +
 		"They took from 2h to 11h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 11h."
@@ -105,12 +105,12 @@ func TestBelowTheMinimumTheEstimateIsLowConfidenceWithItsReasons(t *testing.T) {
 func TestALowEstimateGoesBroaderOnlyWhenThatAddsRecords(t *testing.T) {
 	records := []delivery.Record{finished("a", 1, 4*hour, 1, nil), finished("b", 2, 6*hour, 1, nil)}
 	e := estimateOf(records, delivery.DefaultEstimatePolicy())
-	if e.Confidence != delivery.Low || e.Tier != 1 || len(e.Dropped) != 0 {
-		t.Errorf("two records of tier 1 estimated from tier %d dropping %v", e.Tier, e.Dropped)
+	if e.Confidence != delivery.Low || e.Tier != 1 || len(e.DroppedKeys) != 0 {
+		t.Errorf("two records of tier 1 estimated from tier %d dropping %v", e.Tier, e.DroppedKeys)
 	}
 	one := estimateOf([]delivery.Record{finished("a", 1, 4*hour, 1.5, nil)}, delivery.DefaultEstimatePolicy())
-	if *one.Time != (delivery.Band{P50: 4 * hour, P85: 4 * hour}) || !one.P85Open {
-		t.Errorf("one record reads %+v open %v", *one.Time, one.P85Open)
+	if one.Time() != (delivery.Band{P50: 4 * hour, P85: 4 * hour}) || !one.P85Open {
+		t.Errorf("one record reads %+v open %v", one.Time(), one.P85Open)
 	}
 	if want := "Low confidence. Based on 1 finished medium change; a confident estimate needs 10. It took 4h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 4h."; one.Explanation != want {
 		t.Errorf("explanation %q", one.Explanation)
@@ -122,7 +122,7 @@ func TestALowEstimateGoesBroaderOnlyWhenThatAddsRecords(t *testing.T) {
 func TestWithNoComparableWorkThereIsNoNumber(t *testing.T) {
 	other := finished("x", 1, hour, 1, func(k *delivery.Keys) { k.Size = "large" })
 	e := estimateOf([]delivery.Record{other}, delivery.DefaultEstimatePolicy())
-	if e.Confidence != delivery.NoHistory || e.Time != nil || e.Cost != nil || e.Samples != 0 {
+	if e.Status != delivery.NoHistory || e.Confidence != "" || e.SampleCount != 0 || e.DeliveryP50Ms != 0 {
 		t.Fatalf("estimate %+v", e)
 	}
 	if want := "No estimate: no medium change has finished in this project yet, and this project does not share history with other projects."; e.Explanation != want {
@@ -136,10 +136,10 @@ func TestWithNoComparableWorkThereIsNoNumber(t *testing.T) {
 	}
 	pool := []delivery.Record{{Keys: delivery.Keys{Kind: estimated.Kind, Size: estimated.Size}, Outcome: workorders.Done, Ended: 1, DeliveryMs: 3 * hour, Usage: delivery.Usage{CostUSD: 2}}}
 	e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: sharing})
-	if e.Confidence != delivery.Low || e.Tier != 6 || e.Samples != 1 || len(e.Drawn) != 0 || !e.Pooled {
+	if e.Confidence != delivery.Low || e.Tier != 6 || e.SampleCount != 1 || len(e.SampleIDs) != 0 {
 		t.Errorf("a pooled estimate %+v", e)
 	}
-	if e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: delivery.DefaultEstimatePolicy()}); e.Confidence != delivery.NoHistory {
+	if e = delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: pool, Policy: delivery.DefaultEstimatePolicy()}); e.Status != delivery.NoHistory {
 		t.Errorf("a project that does not share drew on the pool: %+v", e)
 	}
 }
@@ -197,25 +197,25 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 		for _, r := range records {
 			byID[r.WorkOrder] = r
 		}
-		if e.Confidence == delivery.NoHistory {
-			if e.Time != nil || e.Samples != 0 {
+		if e.Status == delivery.NoHistory {
+			if e.SampleCount != 0 || e.Confidence != "" {
 				t.Fatalf("run %d: no history with %+v", run, e)
 			}
 			continue
 		}
-		if e.Samples != len(e.Drawn) || (e.Confidence == delivery.Confident) != (int64(e.Samples) >= policy.MinSamples) || (e.P85Open && (e.Confidence != delivery.Low || e.Samples >= 6)) {
+		if e.SampleCount != len(e.SampleIDs) || (e.Confidence == delivery.Confident) != (int64(e.SampleCount) >= policy.MinSamples) || (e.P85Open && (e.Confidence != delivery.Low || e.SampleCount >= 6)) {
 			t.Fatalf("run %d: estimate %+v", run, e)
 		}
 		times, costs := map[int64]bool{}, map[float64]bool{}
-		for _, id := range e.Drawn {
+		for _, id := range e.SampleIDs {
 			r, ok := byID[id]
 			if !ok || r.Outcome != workorders.Done || r.Size != estimated.Size {
 				t.Fatalf("run %d: drew on %q, which is no finished comparable record", run, id)
 			}
 			times[r.DeliveryMs], costs[r.Usage.CostUSD] = true, true
 		}
-		if !times[e.Time.P50] || !times[e.Time.P85] || !costs[e.Cost.P50] || !costs[e.Cost.P85] || e.Time.P50 > e.Time.P85 || e.Explanation == "" {
-			t.Fatalf("run %d: a band %+v %+v not drawn from its records", run, *e.Time, *e.Cost)
+		if !times[e.DeliveryP50Ms] || !times[e.DeliveryP85Ms] || !costs[e.CostP50USD] || !costs[e.CostP85USD] || e.DeliveryP50Ms > e.DeliveryP85Ms || e.Explanation == "" {
+			t.Fatalf("run %d: a band %+v %+v not drawn from its records", run, e.Time(), e.Cost())
 		}
 	}
 }
