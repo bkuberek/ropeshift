@@ -223,9 +223,11 @@ func TestARemovedOrArchivedProjectLeavesThePool(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	var shares int
-	if err := db.QueryRow(`SELECT count(*) FROM delivery_pool_shares`).Scan(&shares); err != nil || shares != 0 {
-		t.Errorf("%d shares are left: %v", shares, err)
+	// The removed project leaves no trace; the archived one keeps an empty share with the policy version that
+	// decided it, so a share read before that version still changes nothing after a restore.
+	var shares, sharing int
+	if err := db.QueryRow(`SELECT count(*), count(CASE WHEN digest <> '' THEN 1 END) FROM delivery_pool_shares`).Scan(&shares, &sharing); err != nil || shares != 1 || sharing != 0 {
+		t.Errorf("%d shares are left, %d of them sharing: %v", shares, sharing, err)
 	}
 	// A share read before the archive cannot put the records back while the project stands archived.
 	if err := archivedStore.Installation(archived.ID).SharePool(ctx, archived.ID, 2, "sha256:late", []delivery.Record{{Keys: delivery.Keys{Kind: "change", Size: "medium"}, Outcome: workorders.Done}}); err != nil {
@@ -313,4 +315,90 @@ func columnsOf(t *testing.T, db *sql.DB, table string) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// TestAnArchiveKeepsThePolicyVersionThatStoppedTheShare holds the fence across an archive: a tick that read the
+// policy while the project still shared cannot put its records back after a member stopped sharing, archived the
+// project, and restored it, because the archive keeps the version that took the share out.
+func TestAnArchiveKeepsThePolicyVersionThatStoppedTheShare(t *testing.T) {
+	state := openState(t, t.TempDir())
+	reader, readerStore := createProject(t, state, "pr", "reader")
+	alpha, alphaStore := sharing(t, state, "pa", "alpha")
+	ctx := t.Context()
+	var stale []delivery.Record
+	if err := alphaStore.Read(ctx, alpha.ID, func(tx ports.ReadTx) error {
+		var err error
+		stale, err = tx.Deliveries().Records()
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stale = delivery.Pooled(stale)
+	shareHistory(t, alphaStore, alpha.ID, 3, false)
+	if _, err := state.SetState(ctx, alpha.ID, ledger.ProjectArchived, member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.SetState(ctx, alpha.ID, ledger.ProjectActive, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := alphaStore.Installation(alpha.ID).SharePool(ctx, alpha.ID, 2, delivery.PoolDigest(stale), stale); err != nil {
+		t.Fatal(err)
+	}
+	if shared := poolOf(t, readerStore, reader.ID); len(shared) != 0 {
+		t.Errorf("a share read under version 2 came back after version 3 stopped it and an archive: %+v", shared)
+	}
+}
+
+// failingShare is a project store whose installation refuses every change to the pool, as a busy or broken
+// installation database would.
+type failingShare struct{ ports.Store }
+
+func (f failingShare) Installation(scope ledger.WorkspaceID) ports.Installation {
+	return refusingShare{f.Store.Installation(scope)}
+}
+
+type refusingShare struct{ ports.Installation }
+
+func (refusingShare) SharePool(context.Context, ledger.WorkspaceID, int64, string, []delivery.Record) error {
+	return errors.New("the installation database is locked")
+}
+
+// TestAPolicyThatStopsSharingIsPublishedEvenWhenTheTakeOutWaits publishes a policy that stops sharing as the
+// policy in force even when taking the records out of the pool fails: the answer says the take-out is pending, and
+// the next delivery tick takes them out.
+func TestAPolicyThatStopsSharingIsPublishedEvenWhenTheTakeOutWaits(t *testing.T) {
+	state := openState(t, t.TempDir())
+	reader, readerStore := createProject(t, state, "pr", "reader")
+	alpha, alphaStore := sharing(t, state, "pa", "alpha")
+	ctx := t.Context()
+	body := "[estimate_policy]\nversion = 3\nmin_samples = 10\nrecent_samples = 50\nforecast_trials = 2000\nshare_history = false\n"
+	draft := delivery.EstimatePolicyDraft{Body: body, Policy: delivery.EstimatePolicy{Version: 3, MinSamples: 10, RecentSamples: 50, ForecastTrials: 2000}}
+	published, err := control.NewEstimatePolicies(failingShare{alphaStore}).PublishEstimatePolicy(ctx, alpha.ID, draft, member)
+	if err != nil || published.Version.Version != 3 || !published.TakeOutPending {
+		t.Fatalf("publishing while the take-out fails answered %+v: %v", published, err)
+	}
+	var inForce delivery.EstimatePolicy
+	if err := alphaStore.Read(ctx, alpha.ID, func(tx ports.ReadTx) error {
+		version, err := tx.Policies().InForce(delivery.PolicyEstimate)
+		if err != nil {
+			return err
+		}
+		inForce, err = delivery.ReadEstimatePolicy(version)
+		return err
+	}); err != nil || inForce.Version != 3 || inForce.ShareHistory {
+		t.Fatalf("the policy in force is %+v: %v", inForce, err)
+	}
+	if shared := poolOf(t, readerStore, reader.ID); len(shared) != 1 {
+		t.Fatalf("before the tick, the pool holds %+v", shared)
+	}
+	if err := control.DeliveryTick(ctx, alphaStore, alpha.ID); err != nil {
+		t.Fatal(err)
+	}
+	if shared := poolOf(t, readerStore, reader.ID); len(shared) != 0 {
+		t.Errorf("after the tick, the pool holds %+v", shared)
+	}
+	again, err := control.NewEstimatePolicies(alphaStore).PublishEstimatePolicy(ctx, alpha.ID, draft, member)
+	if err != nil || again.TakeOutPending || again.Version.Version != 3 {
+		t.Errorf("a retry once the take-out works answered %+v: %v", again, err)
+	}
 }

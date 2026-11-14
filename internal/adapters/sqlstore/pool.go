@@ -26,6 +26,9 @@ var (
 	stmtPoolDrop = defineInstallation("pool.drop",
 		`DELETE FROM delivery_pool WHERE workspace_id = :workspace_id AND project_id = :project_id`)
 
+	stmtPoolEmptyShare = defineInstallation("pool.empty_share",
+		`UPDATE delivery_pool_shares SET digest = '' WHERE workspace_id = :workspace_id AND project_id = :project_id`)
+
 	stmtPoolDropShare = defineInstallation("pool.drop_share",
 		`DELETE FROM delivery_pool_shares WHERE workspace_id = :workspace_id AND project_id = :project_id`)
 
@@ -120,8 +123,14 @@ func (t poolTx) share() (string, int64, error) {
 }
 
 // takeOut drops a project's records and its share from the pool.
-func (t poolTx) takeOut() error {
-	for _, st := range []*statement{stmtPoolDrop, stmtPoolDropShare} {
+func (t poolTx) takeOut() error { return t.execAll(stmtPoolDrop, stmtPoolDropShare) }
+
+// empty drops a project's records from the pool and empties its share, which keeps the policy version that last
+// decided it.
+func (t poolTx) empty() error { return t.execAll(stmtPoolDrop, stmtPoolEmptyShare) }
+
+func (t poolTx) execAll(first, second *statement) error {
+	for _, st := range []*statement{first, second} {
 		if _, err := t.exec(st, t.scoped(params{})); err != nil {
 			return err
 		}
@@ -132,7 +141,8 @@ func (t poolTx) takeOut() error {
 // sharePool replaces a project's share of the pool in one short transaction, with no revision and no event,
 // because the share is derived from the project's delivery records. An empty digest takes the share out, and
 // keeps the policy version that did. A share under an earlier policy version than the one that last decided
-// changes nothing, and a project the registry does not hold as active keeps nothing in the pool.
+// changes nothing. A project the registry no longer holds keeps nothing in the pool, and an archived one keeps
+// only its empty share, with the policy version that last decided it.
 func (s *Store) sharePool(ctx context.Context, scope, project ledger.WorkspaceID, policyVersion int64, digest string, records []delivery.Record) error {
 	if err := project.Validate(); err != nil {
 		return err
@@ -149,13 +159,18 @@ func (s *Store) sharePool(ctx context.Context, scope, project ledger.WorkspaceID
 	}
 	registered, err := readProject(t.session, stmtReadProject, params{"id": string(project)})
 	switch {
-	case errors.Is(err, ports.ErrNotFound) || (err == nil && registered.State != ledger.ProjectActive):
+	case errors.Is(err, ports.ErrNotFound):
 		if err := t.takeOut(); err != nil {
 			return err
 		}
 		return t.commit(tx)
 	case err != nil:
 		return err
+	case registered.State != ledger.ProjectActive:
+		if err := t.empty(); err != nil {
+			return err
+		}
+		return t.commit(tx)
 	}
 	if _, decided, err := t.share(); err != nil {
 		return err
