@@ -53,6 +53,7 @@ You need Go at the version `go.mod` names, Node.js and npm for the web UI, and g
 | `make bench`, `make sizing` | When a change can move performance. Never beside each other or beside `make chaos` |
 | `make service-test`, `make service-container` | After a change to the service manager adapters. The second needs Docker |
 | `make snapshot`, `make install-test`, `make exit-container` | After a change to packaging, `install.sh`, or the first run. They need GoReleaser and Docker |
+| `make screenshots` | When the images of the web UI need refreshing: every view on a sample project with the fake agent CLI ([docs/screenshots.md](docs/screenshots.md)). It needs tmux |
 | `make real`, `make qualify` | Only when a person asks by name |
 
 `make real` and `make qualify` start real agent CLI sessions on the signed-in account. They never run in continuous integration. The real-session suites compile only with the `realsession` build tag, skip unless `ROPESHIFT_REAL_SESSIONS=1` is set, count every turn before it runs, and stop at the first failure with no retry. Every other target puts a `claude` canary first on `PATH` that fails the run if anything executes it, so a test that needs an agent uses the fake CLI in `test/doubles`.

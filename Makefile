@@ -12,7 +12,7 @@ REAL_PATH := $(PATH)
 CANARY := $(CURDIR)/test/doubles/canary
 export PATH := $(CANARY):$(PATH)
 
-.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container
+.PHONY: check format vet lint test web-test web-build licenses cross bench sizing check-postgres chaos canary real qualify service-test service-container linux-bundle release-check snapshot install-test exit-container screenshots
 
 check: format vet lint test web-test licenses release-check canary
 
@@ -27,7 +27,7 @@ canary:
 
 vet:
 	$(GO) vet ./...
-	$(GO) vet -tags 'chaos postgres bench sizing realsession service install container' ./...
+	$(GO) vet -tags 'chaos postgres bench sizing realsession service install container screenshots' ./...
 
 lint:
 	golangci-lint run ./...
@@ -152,7 +152,7 @@ release-check:
 	else \
 		echo "release-check: goreleaser is not installed, so the release configuration was not checked"; \
 	fi
-	@sh -n install.sh scripts/release.sh scripts/release-ui.sh scripts/homebrew-formula.sh scripts/service-container.sh
+	@sh -n install.sh scripts/release.sh scripts/release-ui.sh scripts/homebrew-formula.sh scripts/service-container.sh scripts/screenshots.sh
 
 # A release as a tag would build it, from this commit with no tag and no publishing: the four
 # archives with the web UI embedded, the .deb and .rpm packages, the checksums, the release notes, and
@@ -186,6 +186,18 @@ exit-container:
 	@if [ -z "$(EXIT_DIST)" ]; then $(MAKE) --no-print-directory snapshot; fi
 	ROPESHIFT_DIST="$(if $(EXIT_DIST),$(abspath $(EXIT_DIST)),$(CURDIR)/dist)" \
 		$(GO) test -tags container -count=1 -v -timeout 20m -run '^(TestNoOutboundConnections|TestExitE1FirstWorkOrder)$$' ./test/exit/
+	@$(MAKE) --no-print-directory canary
+
+# Every view of the web UI at desktop and phone width in both themes, and `ropeshift top`, on a sample
+# project in an isolated installation with the fake agent CLI (docs/screenshots.md). It never runs in
+# `make check`. SHOTS_OUT names the directory, by default .scratch/shots/<version>, SHOTS_REF a commit or tag
+# to build in place of this checkout, and SHOTS_KEEP=1 keeps the installation for debugging.
+SHOTS_OUT ?=
+SHOTS_REF ?=
+SHOTS_KEEP ?=
+
+screenshots:
+	sh scripts/screenshots.sh $(if $(SHOTS_OUT),-o "$(SHOTS_OUT)") $(if $(SHOTS_REF),-r "$(SHOTS_REF)") $(if $(SHOTS_KEEP),-k)
 	@$(MAKE) --no-print-directory canary
 
 # The release's qualification suite: the production probe on the installed CLI, which ends with that

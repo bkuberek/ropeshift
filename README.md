@@ -137,6 +137,7 @@ A subscription worker starts at `attended`, where it claims work only inside a r
 - [Product measures](docs/measures.md): the north star and how each measure is computed.
 - [Versioning](docs/versioning.md): how versions are chosen, and what `ropeshift version` reports.
 - [Releasing](docs/releasing.md): how a release is built, tested, and published, each install channel, and how branches relate to stability.
+- [Screenshots](docs/screenshots.md): how the images of the web UI and `ropeshift top` are captured on a sample project.
 
 ## License and contributions
 
