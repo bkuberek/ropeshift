@@ -68,7 +68,6 @@ func TestADelegateHoldsOnlyWhatItsOperationsNeed(t *testing.T) {
 // gateOnly are the never-exempt operations whose use case checks only actions an operation a delegate runs
 // needs too, so the class gate alone keeps them to a card, and why.
 var gateOnly = map[string]string{
-	authority.OpWorkOrderReview:                     "passing a review needs what passing a plan review needs",
 	authority.OpWorkOrderRetryExtra:                 "a retry needs one action, and the use case refuses a delegate an extra attempt",
 	authority.OpWorkOrderReworkWithoutFailedVerdict: "a rework needs one action, and the use case refuses a delegate a rework no failed verdict stands behind",
 	authority.OpWorkOrderResolve:                    "resolving blocked work needs what replanning it needs",
@@ -179,6 +178,24 @@ func TestADelegatePolicyMayExemptOnlyTheReversibleList(t *testing.T) {
 		if op, ok := authority.OperationOf(id); !ok || op.Class != authority.ClassConsent || op.Exemptable {
 			t.Errorf("%s is %+v, want consent no policy exempts", id, op)
 		}
+	}
+}
+
+// TestPassingAReviewIsAMembersWord holds every review that makes work claimable to a member (ADR-0024): a
+// delegate's call to pass one, planning work's included and the assistant's included, is a card no policy
+// exempts, and no delegate holds what passing one needs, so its acceptance of a contract review passes none
+// of the work it read. Starting a contract review is a separate act a delegate may run.
+func TestPassingAReviewIsAMembersWord(t *testing.T) {
+	for _, id := range []string{authority.OpWorkOrderReview, authority.OpWorkOrderReviewPlan} {
+		if op, ok := authority.OperationOf(id); !ok || op.Class != authority.ClassConsent || op.Exemptable {
+			t.Errorf("%s is %+v, want consent no policy exempts", id, op)
+		}
+	}
+	if authority.Allowed(delegate, authority.ActionPassReview) {
+		t.Error("a delegate holds what passing a review needs")
+	}
+	if !authority.Allowed(delegate, authority.ActionStartReview) || !slices.Contains(authority.Actions(), authority.ActionStartReview) {
+		t.Error("a delegate lacks what starting a contract review needs")
 	}
 }
 

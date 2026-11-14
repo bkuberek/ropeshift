@@ -48,7 +48,7 @@ func newestContracts(planned ports.PlanningReader, plan string) ([]planning.Cont
 // review covers what it read. A member asked for it, so the review itself needs no review, and it
 // stands `ready` for a member to claim.
 func (w *WorkOrders) ReviewPlan(ctx context.Context, scope ledger.WorkspaceID, id, plan string, actor ledger.Actor) (workorders.WorkOrder, error) {
-	if !authority.Allowed(actor, authority.ActionPassReview) {
+	if !authority.Allowed(actor, authority.ActionStartReview) {
 		return workorders.WorkOrder{}, workorders.ErrForbidden
 	}
 	var record workorders.WorkOrder

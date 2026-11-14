@@ -507,16 +507,8 @@ func TestTheClassOfACallTurnsOnTheCall(t *testing.T) {
 			t.Errorf("%s: a card of %s, want %s", name, detail.Operation, operation)
 		}
 	}
-	ran := func(name string, err error) {
-		t.Helper()
-		var prepared *api.Prepared
-		var refused *api.Error
-		if errors.As(err, &prepared) || (errors.As(err, &refused) && (refused.Detail.Code == api.CodeMemberOnly || refused.Detail.Code == api.CodeBadDelegate)) {
-			t.Errorf("%s: got %v, want the call to run", name, err)
-		}
-	}
 
-	// A review: planning work is operational, and any other is consent.
+	// A review: passing one makes work claimable, so planning work's is consent, as any other is.
 	createReady(t, d, "w1")
 	if _, err := control.NewWorkOrders(d.Store).Create(ctx, apitest.Scope, workorders.WorkOrder{ID: "p1", Kind: workorders.KindPlan, Title: "Plan the release"}, ledger.Actor{Kind: ledger.ActorMember, ID: "m"}); err != nil {
 		t.Fatal(err)
@@ -524,7 +516,7 @@ func TestTheClassOfACallTurnsOnTheCall(t *testing.T) {
 	_, err := delegate.Review(ctx, "w1")
 	cardFor("a review", err, authority.OpWorkOrderReview)
 	_, err = delegate.Review(ctx, "p1")
-	ran("a planning review", err)
+	cardFor("a planning review", err, authority.OpWorkOrderReviewPlan)
 
 	// A retry: with no attempt left it is consent, and with one left it is operational.
 	w.Running("w2", "Try the flaky call").End(workorders.OutcomeFailed, workorders.ReasonCrashed)

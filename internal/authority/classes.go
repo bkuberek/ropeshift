@@ -213,7 +213,8 @@ var operations = append(onInstallation(
 	// states what it wrote as a delegate's text.
 	exemptable(OpWorkOrderCreate, "Create work"),
 	operational(OpWorkOrderCreateByAssistant, "Create work"),
-	operational(OpWorkOrderReviewPlan, "Review planning work", ActionPassReview),
+	// Passing a review makes work claimable, planning work's included, so it is a member's word whoever asks.
+	consent(OpWorkOrderReviewPlan, "Review planning work", ActionPassReview),
 	consent(OpWorkOrderReview, "Pass a review", ActionPassReview),
 	operational(OpWorkOrderClaim, "Claim work"),
 	operational(OpLaneStart, "Start a lane", ActionDispatchLane),
@@ -241,8 +242,8 @@ var operations = append(onInstallation(
 	consent(OpFleetRun, "Run the fleet", ActionChangeFleet),
 	consent(OpFleetCaps, "Set the fleet's caps", ActionChangeFleet),
 	// A contract review is a work order, which the same rule holds.
-	exemptable(OpPlanStartReview, "Start a contract review", ActionPassReview),
-	operational(OpPlanStartReviewByAssistant, "Start a contract review", ActionPassReview),
+	exemptable(OpPlanStartReview, "Start a contract review", ActionStartReview),
+	operational(OpPlanStartReviewByAssistant, "Start a contract review", ActionStartReview),
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),

@@ -156,8 +156,9 @@
     {
       "id": "work_order.review_plan",
       "label": "Review planning work",
-      "class": "operational",
-      "exemptable": false
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "work_order.review",

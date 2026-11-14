@@ -34,6 +34,7 @@ var DelegateChecks = []Check{
 	{"DL11", "a delegate holds at most a bounded number of open cards in a project", checkOpenCardLimit},
 	{"DL12", "past every gate, a delegate never adds an attempt to failed work, and no delegate policy lets it", checkDelegateRetryBounds},
 	{"DL13", "past every gate, a delegate accepts only work every check verified, and sends work to rework only after a verdict of its attempt failed", checkDelegateAcceptanceBounds},
+	{"DL14", "past every gate, a delegate passes no review, and its acceptance of a contract review it started passes none of the work it read", checkDelegateReviewBounds},
 }
 
 var theDelegateRequest = authority.DelegateRequest{Member: theMember.ID, Label: "planning assistant", ExpiresInMs: authority.MaxDelegateTTLMs}
@@ -691,6 +692,76 @@ func checkDelegateAcceptanceBounds(r *Rig) error {
 	}
 	if state, err := ops.Rework(r.Ctx, r.Scope, failed, reworkReason, actor); err != nil || state != workorders.Ready {
 		return Violatedf("a delegate's rework after a failed verdict: %v, %v", state, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkDelegateReviewBounds(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	actor := authority.DelegateActor(theMember.ID, "dlg_1")
+	plan, _, err := r.APlan(s)
+	if err != nil {
+		return err
+	}
+	waiting := func() ([]string, error) {
+		var ids []string
+		err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+			orders, err := tx.WorkOrders().List()
+			for _, order := range orders {
+				if order.Kind == workorders.KindChange {
+					if order.State != workorders.ContractReview || order.ReviewedBy != "" {
+						return Violatedf("the plan's work %s is %s, reviewed by %q", order.ID, order.State, order.ReviewedBy)
+					}
+					ids = append(ids, order.ID)
+				}
+			}
+			return err
+		})
+		return ids, err
+	}
+	work, err := waiting()
+	if err != nil {
+		return err
+	}
+	if len(work) == 0 {
+		return Violatedf("the plan holds no work to review")
+	}
+	if _, err := ops.Pass(r.Ctx, r.Scope, work[0], actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate passed a review: %v", err)
+	}
+	review, err := control.NewWorkOrders(s).ReviewPlan(r.Ctx, r.Scope, r.ID("review"), plan, actor)
+	if err != nil {
+		return Violatedf("a delegate's start of a contract review: %v", err)
+	}
+	head := r.ID("commit")
+	if err := r.attempt(s, review.ID, LaneFinished(head)); err != nil {
+		return err
+	}
+	if err := r.finishReviews(s, review.ID); err != nil {
+		return err
+	}
+	order, err := r.WorkOrder(s, review.ID)
+	if err != nil {
+		return err
+	}
+	err = s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
+		if err := tx.Evidence().Record(workorders.Evidence{
+			ID: "forge-" + review.ID, WorkOrder: review.ID, Fence: order.Fence, Criterion: reviewCriterion, Name: "ci", Status: workorders.CheckPassed, Source: workorders.SourceForge,
+		}); err != nil {
+			return err
+		}
+		_, err := tx.Append(r.noteDraft(review.ID))
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, review.ID, actor); err != nil {
+		return Violatedf("a delegate's acceptance of a verified contract review: %v", err)
+	}
+	if _, err := waiting(); err != nil {
+		return err
 	}
 	return r.CheckProjection(s)
 }

@@ -560,9 +560,9 @@ func untagged(value any) []string {
 }
 
 // TestNewWorkNamesItsRequirementsAndRepositoryPlainly holds the two fields of new work that work_candidates
-// states with no tags around them, and a caller sets: its requirement keys and its repository. The assistant
-// passes its own plan review, so its planning work reaches an orchestrator with nothing else between. A key
-// is what a requirements file names, such as FR-LANE-1, and a repository is named by its ID.
+// states with no tags around them, and a caller sets: its requirement keys and its repository. The member
+// confirms the assistant's plan review, so its planning work reaches an orchestrator. A key is what a
+// requirements file names, such as FR-LANE-1, and a repository is named by its ID.
 func TestNewWorkNamesItsRequirementsAndRepositoryPlainly(t *testing.T) {
 	d := startTalk(t)
 	ctx := t.Context()
@@ -600,9 +600,8 @@ func TestNewWorkNamesItsRequirementsAndRepositoryPlainly(t *testing.T) {
 	if _, err := assistant.CreateWorkOrder(ctx, work); err != nil {
 		t.Fatalf("plain keys: %v", err)
 	}
-	if _, err := assistant.Review(ctx, "wo-plain"); err != nil {
-		t.Fatalf("the assistant's plan review: %v", err)
-	}
+	_, err := assistant.Review(ctx, "wo-plain")
+	confirmCard(t, d.Daemon, err)
 	if _, err := d.Client.SetFleetMode(ctx, api.SetFleetMode{Mode: ledger.FleetRun}); err != nil {
 		t.Fatal(err)
 	}
@@ -800,4 +799,41 @@ func TestWhatACardMadeNamesTheDelegateThatProposedIt(t *testing.T) {
 	if text := reads["q-card"]; !marked(text) {
 		t.Errorf("question_search states the confirmed question %q", text)
 	}
+}
+
+// TestPassingAPlanReviewIsACardForEveryDelegate holds the review of planning work to a member: passing it
+// makes the work claimable, so a delegate's call to pass it, the assistant's included, is a card no delegate
+// policy exempts, and the work waits in review until a member confirms one.
+func TestPassingAPlanReviewIsACardForEveryDelegate(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	_, assistant, _ := d.assistant(t)
+	outside := asDelegate(t, d.socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	member := memberOf(t, d.Daemon)
+	work := d.workIn("wo-plan", "Plan the harbor")
+	work.Kind = workorders.KindPlan
+	if _, err := assistant.CreateWorkOrder(ctx, work); err != nil {
+		t.Fatalf("the assistant's planning work: %v", err)
+	}
+	cards := map[string]authority.Approval{}
+	for name, client := range map[string]*api.ProjectClient{"the assistant": assistant, "an outside delegate": outside} {
+		_, err := client.Review(ctx, "wo-plan")
+		card := preparedCard(t, err)
+		if detail := cardDetail(t, card); detail.Operation != authority.OpWorkOrderReviewPlan || card.Subject != workorders.SubjectKind+":wo-plan" {
+			t.Errorf("%s's plan review is the card %+v holding %+v", name, card, detail)
+		}
+		cards[name] = card
+	}
+	if order, err := d.Client.WorkOrder(ctx, "wo-plan"); err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		t.Fatalf("planning work left review before a member confirmed it: %+v %v", order, err)
+	}
+	card := cards["the assistant"]
+	if confirmed, err := d.Client.DecideApproval(ctx, card.ID, api.DecideApproval{Digest: card.SubjectDigest, Allow: true}); err != nil || confirmed.State != authority.ApprovalUsed {
+		t.Fatalf("the confirmation: %+v %v", confirmed, err)
+	}
+	if order, err := d.Client.WorkOrder(ctx, "wo-plan"); err != nil || order.State != workorders.Ready || order.ReviewedBy != member {
+		t.Errorf("the confirmed plan review left %+v: %v", order, err)
+	}
+	_, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.review_plan\"]\n")
+	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 }
