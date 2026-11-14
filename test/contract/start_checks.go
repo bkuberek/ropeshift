@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -30,6 +31,7 @@ var StartChecks = []Check{
 	{"SB8", "a woken lane keeps the base it started from, whatever the branch holds now", checkWokenLaneKeepsItsBase},
 	{"SB10", "a worker is told the base its lane starts from, and a client reads it on the lane", checkWorkerAndLaneViewCarryTheBase},
 	{"SB9", "a hold replays from the log, and a granted claim clears it", checkHoldReplays},
+	{"SB11", "work in a repository this machine keeps no checkout of waits as no_checkout, and a checkout that cannot be read stays base_unavailable", checkNoCheckoutHoldsTheClaim},
 }
 
 const startRepository = "repo-b"
@@ -576,6 +578,39 @@ func checkWorkerAndLaneViewCarryTheBase(r *Rig) error {
 	view, err := plane.Lane(r.Ctx, lane)
 	if err != nil || view.BaseRef != "main" || view.BaseCommit != tip {
 		return Violatedf("the lane reads base %s at %s: %v", view.BaseRef, view.BaseCommit, err)
+	}
+	return nil
+}
+
+func checkNoCheckoutHoldsTheClaim(r *Rig) error {
+	s := r.Store()
+	w := r.startWorld(s)
+	w.git.Grow(w.path(startRepository), "main")
+	id, err := w.order(startRepository, "")
+	if err != nil {
+		return err
+	}
+	kept := w.starts.Checkout
+	w.starts.Checkout = func(_ context.Context, _ ledger.WorkspaceID, repository string) (string, error) {
+		return "", fmt.Errorf("%w: this worker keeps no checkout of repository %s", ports.ErrNotFound, repository)
+	}
+	hold, err := w.refused(id, workorders.HoldNoCheckout)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(hold.Detail, startRepository) {
+		return Violatedf("the hold names no repository: %+v", hold)
+	}
+	// A lookup that fails for any other reason says nothing of whether the clone is there.
+	w.starts.Checkout = func(context.Context, ledger.WorkspaceID, string) (string, error) {
+		return "", errors.New("the checkouts file cannot be read")
+	}
+	if _, err := w.refused(id, workorders.HoldBaseUnavailable); err != nil {
+		return err
+	}
+	w.starts.Checkout = kept
+	if claim, err := w.claim(id); err != nil || claim.BaseRef != "main" {
+		return Violatedf("once the clone is kept the claim reads %+v: %v", claim, err)
 	}
 	return nil
 }

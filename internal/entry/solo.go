@@ -589,7 +589,7 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 				}
 			}
 		}
-		return "", fmt.Errorf("this worker keeps no checkout of repository %q in project %s", id, project)
+		return "", fmt.Errorf("%w: this worker keeps no checkout of repository %q in project %s", ports.ErrNotFound, id, project)
 	}
 }
 

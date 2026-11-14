@@ -32,9 +32,13 @@ const (
 	// HoldDependenciesDiverge says the accepted work of the dependencies is on separate lines, and
 	// none of it holds the others.
 	HoldDependenciesDiverge HoldReason = "dependencies_diverge"
-	// HoldBaseUnavailable says the base branch could not be read: the fetch failed, or no such branch
-	// exists. A lane never starts from anything else.
+	// HoldBaseUnavailable says the base branch could not be read in the repository's checkout: the fetch
+	// failed, or no such branch exists. A lane never starts from anything else.
 	HoldBaseUnavailable HoldReason = "base_unavailable"
+	// HoldNoCheckout says the worker placing the start keeps no checkout of the work's repository, so it has
+	// no clone to start a lane in. Ropeshift clones nothing; registering the clone on that worker ends it
+	// (ADR-0022).
+	HoldNoCheckout HoldReason = "no_checkout"
 	// HoldContinuedBranchMissing says the in-flight branch the work continues is on neither the repository's
 	// remote nor its checkout (ADR-0023).
 	HoldContinuedBranchMissing HoldReason = "continued_branch_missing"

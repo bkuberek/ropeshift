@@ -22,7 +22,8 @@ type Starts struct {
 	// Bases answers what git says of a repository.
 	Bases ports.Bases
 	// Checkout names the directory a repository's lanes branch from, by its project and the repository's
-	// identity: the checkout the worker on this machine keeps.
+	// identity: the checkout the worker on this machine keeps. An error that is ports.ErrNotFound says the
+	// worker keeps none.
 	Checkout func(ctx context.Context, project ledger.WorkspaceID, repository string) (string, error)
 }
 
@@ -360,6 +361,9 @@ func (s *Starts) latestMerge(ctx context.Context, path string, merged []string) 
 // checkout's HEAD.
 func (s *Starts) place(ctx context.Context, in startInput, seen *pass) (workorders.Start, *workorders.StartHold) {
 	path, err := seen.checkout(ctx, s.Checkout, in.order.RepositoryID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return workorders.Start{}, &workorders.StartHold{Reason: workorders.HoldNoCheckout, Detail: err.Error()}
+	}
 	if err != nil {
 		return workorders.Start{}, unavailable("no checkout of repository %s: %v", in.order.RepositoryID, err)
 	}
