@@ -60,18 +60,19 @@ type Ending struct {
 	Actor  ledger.Actor `json:"actor"`
 }
 
-// Segment is one stretch of a work order's time with one kind. Round is 1 until the first `rework` and one
-// more after each. Lane names the lane while one held the work, and Review the review work order of a
-// review segment. Ended is absent on the last segment of work that has not ended.
+// Segment is one stretch of a work order's time with one kind, in one state of the work order. Round is 1
+// until the first `rework` and one more after each. Lane names the lane while one held the work, and Review
+// the review work order of a review segment. Ended is absent on the last segment of work that has not ended.
 type Segment struct {
-	Kind   Kind    `json:"kind"`
-	Cause  string  `json:"cause,omitempty"`
-	Round  int64   `json:"round"`
-	Lane   string  `json:"lane,omitempty"`
-	Review string  `json:"review,omitempty"`
-	From   int64   `json:"from"`
-	To     int64   `json:"to"`
-	Ended  *Ending `json:"ended,omitempty"`
+	Kind   Kind             `json:"kind"`
+	State  workorders.State `json:"state"`
+	Cause  string           `json:"cause,omitempty"`
+	Round  int64            `json:"round"`
+	Lane   string           `json:"lane,omitempty"`
+	Review string           `json:"review,omitempty"`
+	From   int64            `json:"from"`
+	To     int64            `json:"to"`
+	Ended  *Ending          `json:"ended,omitempty"`
 }
 
 // Timeline is where one work order's time went, from its first `ready` to its terminal state, or to now
