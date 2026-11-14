@@ -1,11 +1,13 @@
 package control
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/contextpacks"
@@ -213,8 +215,15 @@ func (r *fileRecorder) document() (itemOutcome, error) {
 		}
 	}
 	outcome, err := r.documentVersion(head, plan)
-	if err != nil || outcome.problem != "" || r.item.Requirements == nil {
+	if err != nil || outcome.problem != "" {
 		return outcome, err
+	}
+	if manifest := r.item.File.Repositories; manifest != nil {
+		outcome.problem, err = r.manifestProblems(*manifest)
+		return outcome, err
+	}
+	if r.item.Requirements == nil {
+		return outcome, nil
 	}
 	held, err := r.requirements()
 	if err != nil {
@@ -224,6 +233,40 @@ func (r *fileRecorder) document() (itemOutcome, error) {
 	outcome.conflicts += held.conflicts
 	outcome.problem = strings.TrimPrefix(outcome.problem+"; "+held.problem, "; ")
 	return outcome, nil
+}
+
+// manifestProblems says what a member should know of a manifest intake read (ADR-0022): each key it holds
+// that the format does not have, which has no effect, because a manifest never sets a member's settings, and
+// each repository of the project it does not list, which stays in the project until a member removes it. The
+// planning repository holds the manifest, so it is in the project whether or not the manifest lists it.
+func (r *fileRecorder) manifestProblems(manifest planning.RepositoriesFile) (string, error) {
+	var problems []string
+	if len(manifest.Ignored) != 0 {
+		problems = append(problems, fmt.Sprintf("the keys %s of manifest %s have no effect: a manifest names repositories, and the review "+
+			"target, merge method, start_from, forge binding, and merge authority are a member's settings, which ropeshift repository set "+
+			"changes", strings.Join(manifest.Ignored, ", "), manifest.ID))
+	}
+	listed := map[string]bool{}
+	for _, repository := range manifest.Repositories {
+		listed[repository.Name] = true
+	}
+	all, err := r.tx.Repositories().Repositories()
+	if err != nil {
+		return "", err
+	}
+	var unlisted []string
+	for _, record := range all {
+		if record.Removed() || record.ID == r.item.Key.Instance || listed[record.Name] {
+			continue
+		}
+		unlisted = append(unlisted, strconv.Quote(cmp.Or(record.Name, record.ID)))
+	}
+	slices.Sort(unlisted)
+	if len(unlisted) != 0 {
+		problems = append(problems, fmt.Sprintf("manifest %s does not list %s, which the project holds; ropeshift removes no repository, "+
+			"and a member removes one with ropeshift repository remove", manifest.ID, strings.Join(unlisted, ", ")))
+	}
+	return strings.Join(problems, "; "), nil
 }
 
 // documentVersion gives a document its next version when its file changed. A document is known by its

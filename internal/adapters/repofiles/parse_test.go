@@ -364,6 +364,27 @@ func TestParseFile(t *testing.T) {
 			},
 		},
 		{
+			name:    "a repository manifest names each repository, and keeps the keys it cannot set apart",
+			fixture: "repositories.md",
+			check: func(t *testing.T, doc planning.Document) {
+				m := doc.Repositories
+				if doc.Kind != planning.FileRepositories || m == nil || m.ID != "platform" || m.Plan != "platform-v1" || len(m.Repositories) != 2 {
+					t.Fatalf("manifest %+v", m)
+				}
+				api := m.Repositories[0]
+				if api.Name != "api" || api.Remote != "git@github.com:acme/api.git" || api.Path != "../api" || api.Description != "The public API" {
+					t.Errorf("repository %+v", api)
+				}
+				if !slices.Equal(m.Ignored, []string{"merge_authority", "repository.review_target"}) {
+					t.Errorf("the keys with no effect read %v", m.Ignored)
+				}
+				head, ok := doc.Head()
+				if !ok || head.Ref() != "repositories:platform" || head.Plan != "platform-v1" || strings.Contains(string(head.Fields), "review") {
+					t.Errorf("the ledger's head %+v with fields %s", head, head.Fields)
+				}
+			},
+		},
+		{
 			name:    "a requirement the code meets cites its evidence",
 			fixture: "requirements-met.md",
 			check: func(t *testing.T, doc planning.Document) {
@@ -417,6 +438,10 @@ func TestParseFile(t *testing.T) {
 		{name: "a front matter with no end", fixture: "unclosed.md", wantErr: planning.ErrBadFile},
 		{name: "a size the format does not name", fixture: "bad-size.md", wantErr: planning.ErrBadFile},
 		{name: "a base git would take as an option", fixture: "bad-base.md", wantErr: planning.ErrBadFile},
+		{name: "a manifest that names one repository twice", fixture: "repositories-repeated.md", wantErr: planning.ErrBadFile},
+		{name: "a manifest path that holds on one machine only", fixture: "repositories-absolute.md", wantErr: planning.ErrBadFile},
+		{name: "a manifest entry whose name names no repository", fixture: "repositories-bad-name.md", wantErr: planning.ErrBadFile},
+		{name: "a manifest entry with no path", fixture: "repositories-no-path.md", wantErr: planning.ErrBadFile},
 		{name: "a read that names no repository", fixture: "bad-reads.md", wantErr: planning.ErrBadFile},
 		{name: "one work order twice", fixture: "repeated-order.md", wantErr: planning.ErrBadFile},
 		{name: "a plain document", fixture: "no-front-matter.md", wantErr: planning.ErrNotOurs},
