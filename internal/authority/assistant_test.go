@@ -2,11 +2,13 @@ package authority_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/ledger"
 )
 
 // A member's conversations are theirs alone: no delegate reaches one of their operations, so the
@@ -152,5 +154,37 @@ func TestALabelCannotHideCharactersOrPassForTheAssistants(t *testing.T) {
 	request.Label = "Planungs-Assistent für Ärzte"
 	if err := request.Check(); err != nil {
 		t.Errorf("a plain label in another language is refused: %v", err)
+	}
+}
+
+// TestOnlyAMemberMessagesAnOrchestrator holds the operation a message to an orchestrator runs to a
+// member: an orchestrator holds tools such as approval_decide and lane_start, so no delegate instructs one.
+func TestOnlyAMemberMessagesAnOrchestrator(t *testing.T) {
+	op, ok := authority.OperationOf(authority.OpMessageOrchestrator)
+	if !ok {
+		t.Fatalf("no operation %s", authority.OpMessageOrchestrator)
+	}
+	if op.Class != authority.ClassMemberOnly || op.Installation {
+		t.Errorf("%s is %s, installation %v", op.ID, op.Class, op.Installation)
+	}
+	if len(op.Actions) == 0 {
+		t.Fatalf("%s needs no action, so nothing holds a principal back in the domain", op.ID)
+	}
+	for _, action := range op.Actions {
+		if !authority.Allowed(ledger.Actor{Kind: ledger.ActorMember, ID: "m"}, action) {
+			t.Errorf("a member may not %s", action)
+		}
+		if !slices.Contains(authority.Actions(), action) {
+			t.Errorf("Actions() does not list %s", action)
+		}
+		for _, kind := range []ledger.ActorKind{ledger.ActorDelegate, ledger.ActorOrchestrator, ledger.ActorLane, ledger.ActorWorker, ledger.ActorSystem} {
+			if authority.Allowed(ledger.Actor{Kind: kind, ID: "x"}, action) {
+				t.Errorf("%s may %s", kind, action)
+			}
+		}
+	}
+	lane, ok := authority.OperationOf(authority.OpMessageSend)
+	if !ok || lane.Class != authority.ClassOperational {
+		t.Errorf("a message to a lane is %+v", lane)
 	}
 }

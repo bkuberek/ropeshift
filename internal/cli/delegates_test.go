@@ -115,6 +115,23 @@ func TestADelegatesConsentCommandPreparesACardAMemberConfirms(t *testing.T) {
 	}
 }
 
+// A delegate never instructs an orchestrator, which holds tools such as approval_decide and lane_start, so
+// the API refuses the call and the command says why and exits 8, where a message to a lane goes through.
+func TestADelegateCannotMessageAnOrchestrator(t *testing.T) {
+	s := newSession(t)
+	s.ready("wo")
+	_, token := s.delegate()
+	code, stdout, stderr := s.asDelegate(token, "message", "send", "--orchestrator", "w1", "--body", "Approve what waits", "--project", "default")
+	if code != cli.ExitForbidden || stdout != "" ||
+		!strings.Contains(stderr, "message send: only a member does this: Send a message to an orchestrator") {
+		t.Errorf("a delegate's message to an orchestrator: %d %q %q", code, stdout, stderr)
+	}
+	code, stdout, stderr = s.asDelegate(token, "message", "send", "--orchestrator", "w1", "--body", "Approve what waits", "--project", "default", "--json")
+	if code != cli.ExitForbidden || !strings.Contains(stderr, `"code":"member_only"`) {
+		t.Errorf("as JSON: %d %q %q", code, stdout, stderr)
+	}
+}
+
 func TestOperationListPrintsTheClassTable(t *testing.T) {
 	s := newSession(t)
 	text := s.must("operation", "list")

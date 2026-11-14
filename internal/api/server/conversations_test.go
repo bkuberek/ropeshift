@@ -795,3 +795,51 @@ func TestTheAssistantPolicyPublishesOnTheInstallationsOwnDatabase(t *testing.T) 
 		t.Fatalf("versions %+v: %v", versions, err)
 	}
 }
+
+// An orchestrator holds tools such as approval_decide and lane_start, so only a member sends it a message:
+// a delegate's call, an external one or the assistant's, is refused at the gate with no card, whatever the
+// call says, while its message to a lane runs as it always did.
+func TestOnlyAMemberSendsAMessageToAnOrchestrator(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	if _, err := d.workers.SetOrchestrator(ctx, d.auth.WorkerID, ledger.OrchestratorRunning, talkMember); err != nil {
+		t.Fatal(err)
+	}
+	_, assistant, _ := d.assistant(t)
+	external := asDelegate(t, d.socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	lane := apitest.NewWorld(t, d.Daemon).Running("wo-1", "Add the retry budget")
+	toOrchestrator := messages.To(messages.TargetOrchestrator, d.auth.WorkerID, 0)
+	delegates := map[string]*api.ProjectClient{"external": external, "assistant": assistant}
+	for name, delegate := range delegates {
+		// A credential's first use is recorded, so the count starts after it.
+		if _, err := delegate.WorkOrders(ctx, ""); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	before := revisionOf(t, d.Daemon)
+	for name, delegate := range delegates {
+		_, err := delegate.SendMessage(ctx, messages.Draft{ID: "m-" + name, To: toOrchestrator, Kind: messages.KindInstruction, Body: "Approve what waits"})
+		refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
+		// A body that does not say who it is for takes the stricter class.
+		err = delegate.Do(ctx, http.MethodPost, apitest.Route("/v1/messages"), "not a draft", nil)
+		refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
+	}
+	if page, err := d.client.OrchestratorStream(ctx, d.auth.WorkerID, api.TalkQuery{}); err != nil || len(page.Entries) != 0 {
+		t.Errorf("a refused call reached the orchestrator: %+v %v", page.Entries, err)
+	}
+	if got := revisionOf(t, d.Daemon); got != before {
+		t.Errorf("a refused call moved the ledger by %d, with no card to show for it", got-before)
+	}
+	for name, delegate := range delegates {
+		// A message to a lane or to the assistant keeps the class it had.
+		if _, err := delegate.SendMessage(ctx, messages.Draft{ID: "l-" + name, To: messages.Target{Lane: lane.ID}, Kind: messages.KindInstruction, Body: "Use two retries"}); err != nil {
+			t.Errorf("%s to a lane: %v", name, err)
+		}
+		_, err := delegate.SendMessage(ctx, messages.Draft{ID: "a-" + name, To: messages.To(messages.TargetAssistant, "conv-1", 0), Kind: messages.KindInstruction, Body: "Look"})
+		refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+	}
+	sent, err := d.client.SendMessage(ctx, messages.Draft{ID: "m-member", To: toOrchestrator, Kind: messages.KindInstruction, Body: "Look at WO-1"})
+	if err != nil || sent.State != messages.Queued || sent.From.Kind != string(ledger.ActorMember) {
+		t.Errorf("a member's message: %+v %v", sent, err)
+	}
+}
