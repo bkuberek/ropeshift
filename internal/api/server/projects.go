@@ -76,7 +76,7 @@ func (rt *router) project(ctx context.Context, name string) (ledger.Project, *se
 		config.Matcher = rt.config.Matching(store)
 	}
 	h := newHandler(config)
-	h.root = rt.root
+	h.root, h.plane = rt.root, rt.home.handler.plane
 	s := rt.serve(h)
 	rt.served[project.ID] = s
 	return project, s, nil

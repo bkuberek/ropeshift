@@ -237,6 +237,7 @@ func (p *Plane) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.He
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
 	}
+	recordBeat(ctx, p.installation, beat)
 	reply := ledger.HeartbeatReply{Nonce: beat.Nonce, Leases: []ledger.RenewedLease{}, Fenced: []ledger.FencedLease{}}
 	actor := ledger.Actor{Kind: ledger.ActorWorker, ID: beat.Auth.WorkerID}
 	for _, held := range beat.Leases {

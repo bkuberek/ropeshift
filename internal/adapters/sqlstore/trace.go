@@ -41,4 +41,5 @@ const (
 	OpRenew                  = "lease.renew"
 	OpWakeNextEval           = "wake.next_eval"
 	OpSaveReport             = "worker.save_report"
+	OpBeat                   = "worker.beat"
 )

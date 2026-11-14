@@ -35,13 +35,18 @@ var ConversationChecks = []Check{
 	{"CV11", "a message that reads as assent leaves the card open", checkAssentDecidesNothing},
 	{"CV12", "a run's states move its conversation, and its end stops it", checkAssistantRunStates},
 	{"CV13", "desired state names each running conversation on its worker, with its messages", checkAssistantDesired},
-	{"CV14", "a worker can run the assistant only when connected, headless, and holding every repository", checkAssistantPlacement},
+	{"CV14", "a worker can run the assistant only when connected by its session or its last heartbeat, headless, and holding every repository", checkAssistantPlacement},
 	{"CV15", "a message to an orchestrator is refused unless it runs and serves the project, and walks its states as a wake item", checkOrchestratorMessages},
 	{"CV16", "an assistant credential's end says why: a routine end never overwrites a member's, and a member's revocation or sign-out overwrites a routine one", checkAssistantCredentialEnd},
 	{"CV17", "a conversation ID names one conversation of its project for good, and its credentials are its member's in its project alone", checkConversationIDScoped},
 }
 
 var theOtherMember = ledger.Actor{Kind: ledger.ActorMember, ID: "member-2"}
+
+// talkHeartbeatMs is what the talk rig's workers beat at. Database time runs with the wall clock, and three
+// of these beats are far longer than any check takes on a loaded machine, so a worker the rig registered
+// stays connected until a check moves the clock past them.
+const talkHeartbeatMs = int64(60_000)
 
 // talkRig is a project with one repository and one worker that can run the assistant on it.
 type talkRig struct {
@@ -59,7 +64,7 @@ type talkRig struct {
 
 func newTalkRig(r *Rig) (*talkRig, error) {
 	t := &talkRig{r: r, store: r.Store(), hosts: map[string]control.AssistantHost{}, epochs: map[string]int64{}}
-	t.plane = control.NewWorkers(t.store, r.Scope, control.WorkerOptions{HeartbeatMs: statusHeartbeatMs, LeaseTTLMs: TTLMs})
+	t.plane = control.NewWorkers(t.store, r.Scope, control.WorkerOptions{HeartbeatMs: talkHeartbeatMs, LeaseTTLMs: TTLMs})
 	worker, err := t.register("atlas")
 	if err != nil {
 		return nil, err
@@ -73,7 +78,7 @@ func newTalkRig(r *Rig) (*talkRig, error) {
 	}
 	t.repo = repository.ID
 	t.hosts[worker.WorkerID] = control.AssistantHost{Headless: true, Checkouts: map[string]bool{t.repo: true}}
-	t.convs = control.NewConversations(t.store, nil).Hosting(t.hostsOf, statusHeartbeatMs)
+	t.convs = control.NewConversations(t.store, nil).Hosting(t.hostsOf, talkHeartbeatMs)
 	return t, nil
 }
 
@@ -96,6 +101,12 @@ func (t *talkRig) register(name string) (ledger.WorkerAuth, error) {
 	session, err := t.plane.OpenSession(t.r.Ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest})
 	t.epochs[id] = session.Epoch
 	return auth, err
+}
+
+// beat sends one heartbeat of a worker's current session, as a connected worker does at every heartbeat.
+func (t *talkRig) beat(auth ledger.WorkerAuth) error {
+	_, err := t.plane.Heartbeat(t.r.Ctx, ledger.Heartbeat{Auth: auth, Epoch: t.epochs[auth.WorkerID], Protocol: ledger.ProtocolVersion, Nonce: t.r.ID("beat")})
+	return err
 }
 
 func (t *talkRig) create(actor ledger.Actor, name string) (control.Opened, error) {
@@ -546,7 +557,7 @@ func checkConversationIdleStop(r *Rig) error {
 	}
 	tick := ledger.Actor{Kind: ledger.ActorSystem, ID: "tick"}
 	r.DB.ShiftClock(10 * 60 * 1000)
-	if _, err := t.plane.OpenSession(r.Ctx, ledger.SessionRequest{Auth: t.auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest}); err != nil {
+	if err := t.beat(t.auth); err != nil {
 		return err
 	}
 	young, err := t.create(theOtherMember, "")
@@ -978,17 +989,23 @@ func checkAssistantPlacement(r *Rig) error {
 		return err
 	}
 	t.hosts[cedar.WorkerID] = control.AssistantHost{Headless: true, Checkouts: map[string]bool{t.repo: true}}
-	r.DB.ShiftClock(10 * statusHeartbeatMs)
+	r.DB.ShiftClock(10 * talkHeartbeatMs)
 	err = create("")
 	want := "No worker can run the assistant: atlas is disconnected; basalt is disconnected; cedar is disconnected."
 	if !errors.Is(err, conversations.ErrNoWorker) || err.Error() != want {
 		return Violatedf("none connected: %v", err)
 	}
-	for _, auth := range []ledger.WorkerAuth{t.auth, basalt, cedar} {
-		if _, err := t.plane.OpenSession(r.Ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest}); err != nil {
+	// A heartbeat connects a worker again, long after its session opened, as a new session does.
+	for _, auth := range []ledger.WorkerAuth{t.auth, basalt} {
+		if err := t.beat(auth); err != nil {
 			return err
 		}
 	}
+	session, err := t.plane.OpenSession(r.Ctx, ledger.SessionRequest{Auth: cedar, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest})
+	if err != nil {
+		return err
+	}
+	t.epochs[cedar.WorkerID] = session.Epoch
 	delete(t.hosts, cedar.WorkerID)
 	err = create("")
 	want = "No worker can run the assistant: atlas runs no headless session; basalt has no checkout of harbor-api; cedar runs no headless session."

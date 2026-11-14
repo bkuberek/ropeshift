@@ -14,7 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
-const workerColumns = `id, name, epoch, protocol, capabilities, proof_digest, last_handshake_at, report, reported_at`
+const workerColumns = `id, name, epoch, protocol, capabilities, proof_digest, last_handshake_at, last_beat_at, report, reported_at`
 
 const capacityColumns = `worker_id, cap, cap_value, epoch, started_at, seen_at, ended_at`
 
@@ -43,6 +43,10 @@ RETURNING epoch`)
 
 	stmtSaveReport = define(OpSaveReport,
 		`UPDATE workers SET report = :report, reported_at = :reported_at
+ WHERE workspace_id = :workspace_id AND id = :id AND epoch = :epoch`)
+
+	stmtBeat = define(OpBeat,
+		`UPDATE workers SET last_beat_at = :now
  WHERE workspace_id = :workspace_id AND id = :id AND epoch = :epoch`)
 
 	stmtStandingCapacity = define("capacity.standing",
@@ -237,7 +241,7 @@ func scanWorker(row scanner) (ledger.WorkerRecord, error) {
 	var w ledger.WorkerRecord
 	var manifest, report string
 	var handshake sql.NullInt64
-	err := row.Scan(&w.ID, &w.Name, &w.Epoch, &w.Protocol, &manifest, &w.ProofDigest, &handshake, &report, &w.ReportedAt)
+	err := row.Scan(&w.ID, &w.Name, &w.Epoch, &w.Protocol, &manifest, &w.ProofDigest, &handshake, &w.LastBeatAt, &report, &w.ReportedAt)
 	if err != nil {
 		return ledger.WorkerRecord{}, err
 	}
@@ -290,6 +294,31 @@ func (s *Store) saveReport(ctx context.Context, scope ledger.WorkspaceID, worker
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("%s: commit: %w", OpSaveReport, err)
+	}
+	return nil
+}
+
+// beat records that a worker's session beat, dated by database time: one short transaction on the worker's
+// row, with no revision and no event, because every heartbeat writes it. A stale epoch matches no row.
+func (s *Store) beat(ctx context.Context, scope ledger.WorkspaceID, worker string, epoch int64) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	tx, err := s.begin(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	t := workerTx{session: s.session(ctx, tx, ModeWrite, OpBeat), scope: scope}
+	now, err := t.readClock()
+	if err != nil {
+		return err
+	}
+	if _, err := t.exec(stmtBeat, t.scoped(params{"id": worker, "epoch": epoch, "now": now})); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%s: commit: %w", OpBeat, err)
 	}
 	return nil
 }

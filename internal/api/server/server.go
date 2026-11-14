@@ -108,7 +108,8 @@ type handler struct {
 	accepting  *control.Acceptances
 	questions  *control.Questions
 	workers    *control.Workers
-	// plane serves the plane protocol across every project, which only the first project's handler holds.
+	// plane serves the plane protocol across every project. The first project's handler serves its routes,
+	// and every project's handler reads the workers and orchestrators every project shares through it.
 	plane        *control.Plane
 	fleet        *control.Fleet
 	wakes        *control.Wakes

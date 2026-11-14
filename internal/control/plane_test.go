@@ -400,6 +400,38 @@ func TestAReportThatFailsToSaveStillAnswersTheHeartbeat(t *testing.T) {
 	}
 }
 
+// failingBeats is an installation whose every beat write fails, as a busy or broken store's would.
+type failingBeats struct {
+	ports.Installation
+}
+
+func (failingBeats) Beat(context.Context, string, int64) error {
+	return errors.New("the store is busy")
+}
+
+// TestABeatThatFailsToRecordStillAnswersTheHeartbeat keeps the write that marks a worker connected from
+// costing it its lease answers, as a report's write does: the worker reads as connected again at its next
+// beat.
+func TestABeatThatFailsToRecordStillAnswersTheHeartbeat(t *testing.T) {
+	r := newPlaneRig(t, ledger.ProtocolVersion)
+	r.ready("pa", "wo")
+	if err := r.claim("pa", "wo"); err != nil {
+		t.Fatal(err)
+	}
+	held := r.desired().Leases[0]
+	plane := control.NewPlane(r.state, failingBeats{r.state.Installation}, "pa", control.WorkerOptions{}, nil)
+	reply, err := plane.Heartbeat(t.Context(), ledger.Heartbeat{
+		Auth: r.auth, Epoch: r.epoch, Protocol: ledger.ProtocolVersion, Nonce: "n",
+		Leases: []ledger.HeldLease{{Project: held.Project, WorkOrder: held.WorkOrder, Claim: held.ClaimID, Fence: held.Fence}},
+	})
+	if err != nil {
+		t.Fatalf("a beat that did not record failed the heartbeat: %v", err)
+	}
+	if len(reply.Leases) != 1 || reply.Nonce != "n" {
+		t.Errorf("reply %+v", reply)
+	}
+}
+
 // TestAReportIsKeptWithinBounds keeps only what a bounded report holds, so a worker cannot fill the
 // installation's record or overflow the window its freshness reads.
 func TestAReportIsKeptWithinBounds(t *testing.T) {

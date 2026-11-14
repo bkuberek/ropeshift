@@ -568,6 +568,9 @@ type Worker struct {
 	Protocol        int      `json:"protocol"`
 	Manifest        Manifest `json:"manifest"`
 	LastHandshakeAt int64    `json:"last_handshake_at,omitempty"`
+	// LastBeatAt is when the worker's session last beat, by the control plane's clock, which tells a
+	// connected worker from one that stopped. Zero until it beats.
+	LastBeatAt int64 `json:"-"`
 	// Report is what the worker last measured of its machine and its sessions, and ReportedAt when it
 	// measured it, by the control plane's clock. Both are absent until a worker reports.
 	Report     *ResourceReport `json:"report,omitempty"`

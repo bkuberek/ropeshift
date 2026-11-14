@@ -72,5 +72,5 @@ func CheckRevisionFirst(entries []sqlstore.TraceEntry) (int, error) {
 
 // IsRenewal names the transactions that hold no revision.
 func IsRenewal(op string) bool {
-	return op == sqlstore.OpRenew || op == sqlstore.OpWakeNextEval || op == sqlstore.OpSaveReport
+	return op == sqlstore.OpRenew || op == sqlstore.OpWakeNextEval || op == sqlstore.OpSaveReport || op == sqlstore.OpBeat
 }
