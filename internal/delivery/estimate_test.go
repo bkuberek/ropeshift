@@ -219,3 +219,37 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 		}
 	}
 }
+
+// TestAnyPolicyGivesASafeEstimate holds the estimator to its floor whatever policy it is handed: an empty
+// policy reads as the default, no recent window reads as the default window, and a window narrower than the
+// minimum widens to it, so no estimate panics, hides history, or rests on fewer records than it has.
+func TestAnyPolicyGivesASafeEstimate(t *testing.T) {
+	var eight []delivery.Record
+	for i := range 8 {
+		eight = append(eight, finished(fmt.Sprintf("r-%d", i), int64(i), int64(i+1)*hour, float64(i+1), nil))
+	}
+	if e := estimateOf(eight, delivery.EstimatePolicy{}); e.Status != delivery.Estimated || e.Confidence != delivery.Low || e.SampleCount != 8 || e.MinSamples != 10 {
+		t.Errorf("an empty policy gave %+v", e)
+	}
+	if e := estimateOf(eight, delivery.EstimatePolicy{MinSamples: 10}); e.Status != delivery.Estimated || e.SampleCount != 8 {
+		t.Errorf("no recent window gave %+v", e)
+	}
+	if e := estimateOf(eight, delivery.EstimatePolicy{MinSamples: 10, RecentSamples: 3}); e.SampleCount != 8 {
+		t.Errorf("a window of 3 under a minimum of 10 drew %d of 8", e.SampleCount)
+	}
+	if e := estimateOf(eight, delivery.EstimatePolicy{MinSamples: 2, RecentSamples: 50}); e.Confidence != delivery.Confident || e.MinSamples != delivery.MinSamplesFloor {
+		t.Errorf("a minimum below the floor gave %+v", e)
+	}
+}
+
+// TestASizeLeftOutReadsAsUnknown matches a work order that declares no size with the records of unknown size, as
+// delivery records keep them.
+func TestASizeLeftOutReadsAsUnknown(t *testing.T) {
+	unknown := finished("a", 1, hour, 1, func(k *delivery.Keys) { k.Size = "unknown" })
+	keys := estimated
+	keys.Size = ""
+	e := delivery.EstimateOf(delivery.EstimateInput{Keys: keys, Records: []delivery.Record{unknown}, Policy: delivery.DefaultEstimatePolicy()})
+	if e.Status != delivery.Estimated || e.SampleCount != 1 {
+		t.Errorf("a work order of no size estimated %+v", e)
+	}
+}

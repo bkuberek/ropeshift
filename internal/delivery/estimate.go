@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -61,6 +62,21 @@ const (
 	Estimated Status = "estimated"
 	NoHistory Status = "no_history"
 )
+
+// effective is a policy as the estimator applies it, whatever it was handed: an unset minimum or window takes
+// its default, a minimum below the floor rises to it, and a window narrower than the minimum widens to it.
+func (p EstimatePolicy) effective() EstimatePolicy {
+	defaults := DefaultEstimatePolicy()
+	if p.MinSamples <= 0 {
+		p.MinSamples = defaults.MinSamples
+	}
+	p.MinSamples = max(p.MinSamples, MinSamplesFloor)
+	if p.RecentSamples <= 0 {
+		p.RecentSamples = defaults.RecentSamples
+	}
+	p.RecentSamples = max(p.RecentSamples, p.MinSamples)
+	return p
+}
 
 // Confidence is how far an estimated band can be trusted from what it rests on (FR-EST-6, FR-EST-7): confident
 // on at least min_samples comparable records, low on fewer. An estimate with no history has none.
@@ -161,7 +177,8 @@ type EstimateInput struct {
 	Rev           int64
 }
 
-// EstimateOf estimates one `change` or `rework` work order from comparable finished work (ADR-0026). It reads
+// EstimateOf estimates one `change` or `rework` work order from comparable finished work (ADR-0026), under the
+// policy as the estimator applies it, and with a size left out read as unknown, as delivery records keep it. It reads
 // the tiers narrowest first, each from the policy's most recent comparable records that ended `done`. The
 // first tier with at least min_samples gives a confident band at the 50th and 85th percentiles by nearest
 // rank. Below that at every tier, the tier with the most records, the narrowest among equals, gives a low
@@ -169,6 +186,10 @@ type EstimateInput struct {
 // the band open above the longest record. With no record at any tier there is no number. The estimate
 // explains itself in plain words from its own fields.
 func EstimateOf(in EstimateInput) Estimate {
+	in.Policy = in.Policy.effective()
+	if in.Keys.Size == "" {
+		in.Keys.Size = measures.SizeUnknown
+	}
 	out := Estimate{
 		WorkOrder: in.WorkOrder, Status: NoHistory, Keys: []string{}, DroppedKeys: []string{}, SampleIDs: []string{}, MinSamples: in.Policy.MinSamples,
 		Rev: in.Rev, EstimatorVersion: EstimatorVersion, PolicyVersion: in.PolicyVersion,
