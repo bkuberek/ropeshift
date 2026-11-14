@@ -53,21 +53,7 @@ func startTalkWith(t *testing.T, options apitest.Options) *talkDaemon {
 	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
 		return d.hosts, nil
 	}
-	d.socket = filepath.Join(apitest.ShortDir(t), api.ControlSocketName)
-	listener, err := net.Listen("unix", d.socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = httpServer.Serve(listener)
-	}()
-	t.Cleanup(func() {
-		_ = httpServer.Close()
-		<-done
-	})
+	d.socket = serveOn(t, config)
 	client := api.NewUnixClient(d.socket)
 	t.Cleanup(client.Close)
 	client.UseSession(d.Session)
@@ -96,6 +82,27 @@ func startTalkWith(t *testing.T, options apitest.Options) *talkDaemon {
 	d.repo = repository.ID
 	d.hosts[d.auth.WorkerID] = control.AssistantHost{Headless: true, Checkouts: map[string]bool{d.repo: true}}
 	return d
+}
+
+// serveOn serves the API on config, on a socket of its own, until the test ends, and returns the socket.
+func serveOn(t *testing.T, config server.Config) string {
+	t.Helper()
+	socket := filepath.Join(apitest.ShortDir(t), api.ControlSocketName)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := &http.Server{Handler: server.New(config), ReadHeaderTimeout: 10 * time.Second}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = httpServer.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		_ = httpServer.Close()
+		<-done
+	})
+	return socket
 }
 
 // running reports a conversation's session at rest, as its worker would.
@@ -211,6 +218,59 @@ func TestNoWorkerThatCanRunTheAssistantIsAConflict(t *testing.T) {
 	var refused *api.Error
 	if errors.As(err, &refused) && refused.Detail.Message != "No worker can run the assistant: atlas has no checkout of harbor-api." {
 		t.Errorf("the refusal says %q", refused.Detail.Message)
+	}
+}
+
+// TestEveryProjectServesItsConversations holds the conversation surface on a project other than the first:
+// one the installation held when the daemon started, and one a member created after. Each names the
+// installation's workers and their orchestrators, which every project shares.
+func TestEveryProjectServesItsConversations(t *testing.T) {
+	t.Parallel()
+	in := apitest.StartInstallation(t, "acme")
+	ctx := t.Context()
+	hosts := map[string]control.AssistantHost{}
+	config := in.Config
+	config.AssistantHosts = func(context.Context, ledger.WorkspaceID) (map[string]control.AssistantHost, error) {
+		return hosts, nil
+	}
+	client := api.NewUnixClient(serveOn(t, config))
+	t.Cleanup(client.Close)
+	client.UseSession(in.Session)
+	if _, err := client.CreateProject(ctx, api.CreateProject{Name: "beta"}); err != nil {
+		t.Fatal(err)
+	}
+	workers := control.NewWorkers(in.Store, apitest.Scope, control.WorkerOptions{HeartbeatMs: apitest.HeartbeatMs, LeaseTTLMs: apitest.LeaseTTL})
+	token, err := workers.CreateJoinToken(ctx, talkMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := workers.Register(ctx, ledger.Registration{JoinToken: token, WorkerID: "worker-atlas", Name: "atlas"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := ledger.WorkerAuth{WorkerID: "worker-atlas", Credential: credential.Credential}
+	if _, err := workers.OpenSession(ctx, ledger.SessionRequest{Auth: auth, Protocol: ledger.ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	hosts[auth.WorkerID] = control.AssistantHost{Headless: true}
+	for _, name := range []string{"acme", "beta"} {
+		project := client.Project(name)
+		opened, err := project.CreateConversation(ctx, api.CreateConversation{ID: "conv-" + name})
+		if err != nil {
+			t.Fatalf("%s: creating a conversation: %v", name, err)
+		}
+		if opened.Conversation.WorkerName != "atlas" {
+			t.Errorf("%s: opened %+v", name, opened)
+		}
+		if list, err := project.Conversations(ctx); err != nil || len(list.Conversations) != 1 || list.Conversations[0].WorkerName != "atlas" {
+			t.Errorf("%s: listed %+v, %v", name, list, err)
+		}
+		if targets, err := project.ConversationTargets(ctx); err != nil || len(targets.Assistant.Workers) != 1 || !targets.Assistant.Workers[0].Available {
+			t.Errorf("%s: targets %+v, %v", name, targets, err)
+		}
+		if _, err := project.OrchestratorStream(ctx, auth.WorkerID, api.TalkQuery{Limit: api.TalkMaxLimit}); err != nil {
+			t.Errorf("%s: the orchestrator's stream: %v", name, err)
+		}
 	}
 }
 
