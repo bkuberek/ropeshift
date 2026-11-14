@@ -51,27 +51,27 @@ Ropeshift also needs git, tmux for lanes in a terminal pane, and the Claude Code
 
 ## Screenshots
 
-These are the web UI of `v0.1.0-alpha.2` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting.
+These are the web UI of `v0.1.0-alpha.14` and `ropeshift top`, running locally with sample data. The web UI follows the system's light or dark setting.
 
 Needs you puts what waits for a person first, oldest first: work to accept, work its lane could not finish, a parked lane, and questions an orchestrator could not settle, with its recommendation marked.
 
-![Needs you, with work to accept and work its lane could not finish](docs/assets/screenshots/needs-you-light.png#gh-light-mode-only)
-![Needs you, with work to accept and work its lane could not finish](docs/assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
+![Needs you, with work to accept and the review's verdict on each criterion](docs/assets/screenshots/needs-you-light.png#gh-light-mode-only)
+![Needs you, with work to accept and the review's verdict on each criterion](docs/assets/screenshots/needs-you-dark.png#gh-dark-mode-only)
 
 Decisions lists what members and orchestrators decided or assumed, with the question each answers and what it cites.
 
 ![Decisions, with a decision and an assumption and their scope, question, and citations](docs/assets/screenshots/decisions-light.png#gh-light-mode-only)
 ![Decisions, with a decision and an assumption and their scope, question, and citations](docs/assets/screenshots/decisions-dark.png#gh-dark-mode-only)
 
-The shop floor shows each worker and each lane, with its state, liveness, and generation.
+Floor shows each worker and its lanes, with each lane's work order, state, reach, generation, and freshness.
 
-![The shop floor, with one worker and four lanes](docs/assets/screenshots/shop-floor-light.png#gh-light-mode-only)
-![The shop floor, with one worker and four lanes](docs/assets/screenshots/shop-floor-dark.png#gh-dark-mode-only)
+![Floor, with one worker and its lanes in the working, ended, parked, and needs-a-decision states](docs/assets/screenshots/floor-light.png#gh-light-mode-only)
+![Floor, with one worker and its lanes in the working, ended, parked, and needs-a-decision states](docs/assets/screenshots/floor-dark.png#gh-dark-mode-only)
 
-Operations shows the fleet mode, its limits, and how many work orders and lanes are in each state, followed by the sources and the product measures.
+Measures shows the fleet mode, its limits, and how many work orders and lanes are in each state, followed by the sources and the product measures.
 
-![Operations, with the fleet mode, limits, and counts of work orders and lanes by state](docs/assets/screenshots/operations-light.png#gh-light-mode-only)
-![Operations, with the fleet mode, limits, and counts of work orders and lanes by state](docs/assets/screenshots/operations-dark.png#gh-dark-mode-only)
+![Measures, with the fleet mode, limits, and counts of work orders and lanes by state](docs/assets/screenshots/measures-light.png#gh-light-mode-only)
+![Measures, with the fleet mode, limits, and counts of work orders and lanes by state](docs/assets/screenshots/measures-dark.png#gh-dark-mode-only)
 
 `ropeshift top` watches the same fleet from a terminal.
 
