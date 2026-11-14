@@ -42,7 +42,8 @@ type Store interface {
 	// fn decides the transaction. It commits only if fn returns nil and appended
 	// at least one event: a transaction that changes nothing rolls back and
 	// leaves no gap in the revisions. op names the transaction in traces and
-	// crash steps.
+	// crash steps. A context that names a proposer (WithProposer) names it on
+	// every event fn appends.
 	Write(ctx context.Context, scope ledger.WorkspaceID, op string, fn func(WriteTx) error) error
 	// Renew extends a lease. It is the one write that takes no revision and
 	// appends no event: one guarded statement on one row, because every heartbeat
@@ -1121,4 +1122,19 @@ type WorkerWriter interface {
 	ReplaceProof(id, digest string) error
 	// OpenEpoch moves a worker to its next epoch and returns it.
 	OpenEpoch(worker ledger.Worker) (int64, error)
+}
+
+type proposerKey struct{}
+
+// WithProposer names who prepared the call a context carries, such as the delegate whose confirmation card
+// a member confirmed (ADR-0024). Every event a Store's Write appends under that context names the proposer
+// beside its actor.
+func WithProposer(ctx context.Context, proposer ledger.Actor) context.Context {
+	return context.WithValue(ctx, proposerKey{}, proposer)
+}
+
+// ProposerOf reads the proposer a context names.
+func ProposerOf(ctx context.Context) (ledger.Actor, bool) {
+	proposer, ok := ctx.Value(proposerKey{}).(ledger.Actor)
+	return proposer, ok && proposer.Kind != "" && proposer.ID != ""
 }

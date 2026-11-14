@@ -72,21 +72,21 @@ RETURNING rev`)
 	stmtAppendEvent = define("event.append",
 		`INSERT INTO events
   (workspace_id, rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
-   data, occurred_at, recorded_at, traceparent)
+   data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id)
 VALUES
   (:workspace_id, :rev, :id, :type, :actor_kind, :actor_id, :subject_kind, :subject_id,
-   :data, :occurred_at, :recorded_at, :traceparent)`)
+   :data, :occurred_at, :recorded_at, :traceparent, :proposer_kind, :proposer_id)`)
 
 	stmtEventsAbout = define("event.about",
 		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
-       data, occurred_at, recorded_at, traceparent
+       data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id
   FROM events
  WHERE workspace_id = :workspace_id AND subject_kind = :subject_kind AND subject_id = :subject_id
  ORDER BY rev`)
 
 	stmtListEvents = define("event.list",
 		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
-       data, occurred_at, recorded_at, traceparent
+       data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id
   FROM events
  WHERE workspace_id = :workspace_id AND rev > :after
  ORDER BY rev
@@ -94,7 +94,7 @@ VALUES
 
 	stmtFindEvent = define("event.find",
 		`SELECT rev, id, type, actor_kind, actor_id, subject_kind, subject_id,
-       data, occurred_at, recorded_at, traceparent
+       data, occurred_at, recorded_at, traceparent, proposer_kind, proposer_id
   FROM events
  WHERE workspace_id = :workspace_id AND id = :id`)
 

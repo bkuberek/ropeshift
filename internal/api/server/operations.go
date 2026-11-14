@@ -799,12 +799,15 @@ func (h *handler) movedSince(ctx context.Context, card authority.Approval) (stri
 }
 
 // replay runs a card's call as the member who confirmed it, and says whether the API ran it, with its
-// refusal when it did not.
+// refusal when it did not. Every event the call appends names the delegate that prepared the card as its
+// proposer, so what the card made still reads as that delegate's text wherever an orchestrator reads it.
 func (h *handler) replay(ctx context.Context, r *http.Request, card authority.Approval) (bool, string) {
 	detail, err := authority.CardDetailOf(card)
 	if err != nil {
 		return false, err.Error()
 	}
+	kind, id, _ := strings.Cut(card.RequestedBy, ":")
+	ctx = ports.WithProposer(ctx, ledger.Actor{Kind: ledger.ActorKind(kind), ID: id})
 	path := detail.Path
 	if project, ok := projectOf(r.Context()); ok {
 		path = retarget(path, project.Name)

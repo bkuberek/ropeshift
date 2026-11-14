@@ -34,6 +34,10 @@ type StreamEvent struct {
 	// DelegateKind is the kind of that credential, `external` or `assistant`, which a surface decides how to
 	// show it on and never its label. It is empty once the credential's record was removed.
 	DelegateKind string `json:"delegate_kind,omitempty"`
+	// ProposerKind and ProposerID name who prepared the call the actor ran: the delegate whose card a member
+	// confirmed. Both are empty when the actor's call was its own.
+	ProposerKind string `json:"proposer_kind,omitempty"`
+	ProposerID   string `json:"proposer_id,omitempty"`
 }
 
 // StreamEventOf is what the stream says of one event. A delegate's label reads as its credential's ID
@@ -42,6 +46,7 @@ func StreamEventOf(event ledger.Event) StreamEvent {
 	out := StreamEvent{
 		Rev: event.Rev, Type: event.Type, SubjectKind: event.Subject.Kind, SubjectID: event.Subject.ID,
 		ActorKind: string(event.Actor.Kind), ActorID: event.Actor.ID, OccurredAt: event.OccurredAt, RecordedAt: event.RecordedAt,
+		ProposerKind: string(event.Proposer.Kind), ProposerID: event.Proposer.ID,
 	}
 	if member, credential, ok := authority.ActingFor(event.Actor); ok {
 		out.ActorFor, out.ActorLabel = member, credential

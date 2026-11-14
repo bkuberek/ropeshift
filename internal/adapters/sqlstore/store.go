@@ -402,7 +402,7 @@ func eventsAbout(se *session, scope ledger.WorkspaceID, subject ledger.Subject) 
 	defer rows.Close()
 	var events []ledger.Event
 	for rows.Next() {
-		e, err := scanEvent(rows)
+		e, err := scanLedgerEvent(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -517,7 +517,7 @@ func (t *writeTx) Event(id string) (ledger.Event, error) {
 	if err != nil {
 		return ledger.Event{}, err
 	}
-	e, err := scanEvent(row)
+	e, err := scanLedgerEvent(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ledger.Event{}, fmt.Errorf("event %s: %w", id, ports.ErrNotFound)
 	}
@@ -554,8 +554,12 @@ func (t *writeTx) Wakes() ports.WakeWriter {
 }
 
 // Append adds one event. The transaction's first event uses the revision taken at
-// the start, and each later one increments it again.
+// the start, and each later one increments it again. A draft that names no proposer
+// takes the one the transaction's context names.
 func (t *writeTx) Append(draft ledger.EventDraft) (ledger.Event, error) {
+	if proposer, ok := ports.ProposerOf(t.ctx); ok && draft.Proposer == (ledger.Actor{}) {
+		draft.Proposer = proposer
+	}
 	if err := draft.Validate(); err != nil {
 		return ledger.Event{}, err
 	}
@@ -576,18 +580,20 @@ func (t *writeTx) Append(draft ledger.EventDraft) (ledger.Event, error) {
 		data = "{}"
 	}
 	_, err := t.exec(stmtAppendEvent, params{
-		"workspace_id": string(t.scope),
-		"rev":          t.rev,
-		"id":           draft.ID,
-		"type":         draft.Type,
-		"actor_kind":   string(draft.Actor.Kind),
-		"actor_id":     draft.Actor.ID,
-		"subject_kind": draft.Subject.Kind,
-		"subject_id":   draft.Subject.ID,
-		"data":         data,
-		"occurred_at":  nullInt(draft.OccurredAt),
-		"recorded_at":  t.now,
-		"traceparent":  nullText(draft.Traceparent),
+		"workspace_id":  string(t.scope),
+		"rev":           t.rev,
+		"id":            draft.ID,
+		"type":          draft.Type,
+		"actor_kind":    string(draft.Actor.Kind),
+		"actor_id":      draft.Actor.ID,
+		"subject_kind":  draft.Subject.Kind,
+		"subject_id":    draft.Subject.ID,
+		"data":          data,
+		"occurred_at":   nullInt(draft.OccurredAt),
+		"recorded_at":   t.now,
+		"traceparent":   nullText(draft.Traceparent),
+		"proposer_kind": string(draft.Proposer.Kind),
+		"proposer_id":   draft.Proposer.ID,
 	})
 	if err != nil {
 		return ledger.Event{}, err
@@ -603,6 +609,7 @@ func (t *writeTx) Append(draft ledger.EventDraft) (ledger.Event, error) {
 		OccurredAt:  draft.OccurredAt,
 		RecordedAt:  t.now,
 		Traceparent: draft.Traceparent,
+		Proposer:    draft.Proposer,
 	}, nil
 }
 
@@ -639,7 +646,7 @@ func listEvents(se *session, scope ledger.WorkspaceID, after int64, limit int) (
 	defer rows.Close()
 	var events []ledger.Event
 	for rows.Next() {
-		e, err := scanEvent(rows)
+		e, err := scanLedgerEvent(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -648,13 +655,26 @@ func listEvents(se *session, scope ledger.WorkspaceID, after int64, limit int) (
 	return events, rows.Err()
 }
 
+// scanEvent reads an event of the installation's log, whose rows name no proposer.
 func scanEvent(row scanner) (ledger.Event, error) {
+	return scanEventWith(row)
+}
+
+// scanLedgerEvent reads an event of a project's log, with who proposed the call its actor ran.
+func scanLedgerEvent(row scanner) (ledger.Event, error) {
+	var proposerKind, proposerID string
+	e, err := scanEventWith(row, &proposerKind, &proposerID)
+	e.Proposer = ledger.Actor{Kind: ledger.ActorKind(proposerKind), ID: proposerID}
+	return e, err
+}
+
+func scanEventWith(row scanner, more ...any) (ledger.Event, error) {
 	var e ledger.Event
 	var actorKind, data string
 	var occurredAt sql.NullInt64
 	var traceparent sql.NullString
-	err := row.Scan(&e.Rev, &e.ID, &e.Type, &actorKind, &e.Actor.ID, &e.Subject.Kind, &e.Subject.ID,
-		&data, &occurredAt, &e.RecordedAt, &traceparent)
+	err := row.Scan(append([]any{&e.Rev, &e.ID, &e.Type, &actorKind, &e.Actor.ID, &e.Subject.Kind, &e.Subject.ID,
+		&data, &occurredAt, &e.RecordedAt, &traceparent}, more...)...)
 	if err != nil {
 		return ledger.Event{}, err
 	}
