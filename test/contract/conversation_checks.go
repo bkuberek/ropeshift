@@ -43,6 +43,11 @@ var ConversationChecks = []Check{
 
 var theOtherMember = ledger.Actor{Kind: ledger.ActorMember, ID: "member-2"}
 
+// talkHeartbeatMs is what the talk rig's workers beat at. Database time runs with the wall clock, and three
+// of these beats are far longer than any check takes on a loaded machine, so a worker the rig registered
+// stays connected until a check moves the clock past them.
+const talkHeartbeatMs = int64(60_000)
+
 // talkRig is a project with one repository and one worker that can run the assistant on it.
 type talkRig struct {
 	r      *Rig
@@ -59,7 +64,7 @@ type talkRig struct {
 
 func newTalkRig(r *Rig) (*talkRig, error) {
 	t := &talkRig{r: r, store: r.Store(), hosts: map[string]control.AssistantHost{}, epochs: map[string]int64{}}
-	t.plane = control.NewWorkers(t.store, r.Scope, control.WorkerOptions{HeartbeatMs: statusHeartbeatMs, LeaseTTLMs: TTLMs})
+	t.plane = control.NewWorkers(t.store, r.Scope, control.WorkerOptions{HeartbeatMs: talkHeartbeatMs, LeaseTTLMs: TTLMs})
 	worker, err := t.register("atlas")
 	if err != nil {
 		return nil, err
@@ -73,7 +78,7 @@ func newTalkRig(r *Rig) (*talkRig, error) {
 	}
 	t.repo = repository.ID
 	t.hosts[worker.WorkerID] = control.AssistantHost{Headless: true, Checkouts: map[string]bool{t.repo: true}}
-	t.convs = control.NewConversations(t.store, nil).Hosting(t.hostsOf, statusHeartbeatMs)
+	t.convs = control.NewConversations(t.store, nil).Hosting(t.hostsOf, talkHeartbeatMs)
 	return t, nil
 }
 
@@ -552,7 +557,7 @@ func checkConversationIdleStop(r *Rig) error {
 	}
 	tick := ledger.Actor{Kind: ledger.ActorSystem, ID: "tick"}
 	r.DB.ShiftClock(10 * 60 * 1000)
-	if _, err := t.plane.OpenSession(r.Ctx, ledger.SessionRequest{Auth: t.auth, Protocol: ledger.ProtocolVersion, Manifest: UsableManifest}); err != nil {
+	if err := t.beat(t.auth); err != nil {
 		return err
 	}
 	young, err := t.create(theOtherMember, "")
@@ -984,7 +989,7 @@ func checkAssistantPlacement(r *Rig) error {
 		return err
 	}
 	t.hosts[cedar.WorkerID] = control.AssistantHost{Headless: true, Checkouts: map[string]bool{t.repo: true}}
-	r.DB.ShiftClock(10 * statusHeartbeatMs)
+	r.DB.ShiftClock(10 * talkHeartbeatMs)
 	err = create("")
 	want := "No worker can run the assistant: atlas is disconnected; basalt is disconnected; cedar is disconnected."
 	if !errors.Is(err, conversations.ErrNoWorker) || err.Error() != want {
