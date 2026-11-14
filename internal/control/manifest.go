@@ -3,6 +3,7 @@ package control
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -22,8 +23,9 @@ import (
 // registered, says why, and a later approval or a member's registration by hand registers it. A repository
 // the project holds is named as held, and nothing changes its settings. A repository a member removed stays
 // removed, said with why, because only a member's own registration brings one back. Registration is a
-// member's act, so only the member who approves a plan runs this, never a tick or a delegate. Until the version is approved it registers
-// nothing, and a dry run, which a member reads before approving, says what approving would register.
+// member's act, so only the member who approves a plan runs this, never a tick or a delegate. Until the
+// version is approved it registers nothing, and a dry run, which a member reads before approving, says what
+// approving would register. Approving records the outcome on the approval, which RegistrationOf reads.
 func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
@@ -36,7 +38,7 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 			return err
 		}
 		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
-			entries, err = versionManifest(tx, row)
+			entries, err = VersionManifest(tx, row)
 		}
 		cause = registrationCause{Approval: row.ID, Plan: row.Plan, PlanVersion: row.PlanVersion}
 		return err
@@ -44,7 +46,65 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 	if err != nil || len(entries) == 0 {
 		return nil, err
 	}
-	return r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause}, actor)
+	added, err := r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun, cause: cause}, actor)
+	if dryRun {
+		return added, err
+	}
+	// The approval keeps what it registered, so a member who approved on a card, or reads it later, sees it.
+	record := ledger.ManifestRegistration{Repositories: outcomesOf(added)}
+	if err != nil {
+		record.Problem = err.Error()
+	}
+	if failed := r.recordRegistration(ctx, scope, approval, record, actor); failed != nil {
+		return added, errors.Join(err, failed)
+	}
+	return added, err
+}
+
+// outcomesOf is what a registration from a manifest keeps of each outcome.
+func outcomesOf(added []Added) []ledger.ManifestOutcome {
+	out := make([]ledger.ManifestOutcome, 0, len(added))
+	for _, one := range added {
+		out = append(out, ledger.ManifestOutcome{
+			Name: one.Name, Path: one.Manifest, Resolved: one.Path, Remote: one.Remote, Outcome: one.Outcome,
+			Repository: one.Repository.ID, Checkout: one.Checkout, Reason: one.Reason,
+		})
+	}
+	return out
+}
+
+// recordRegistration appends what approving a plan version registered, about the approval.
+func (r *Repositories) recordRegistration(ctx context.Context, scope ledger.WorkspaceID, approval string, record ledger.ManifestRegistration, actor ledger.Actor) error {
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	return r.store.Write(ctx, scope, "approval.manifest_registered", func(tx ports.WriteTx) error {
+		_, err := tx.Append(ledger.EventDraft{
+			Type: ledger.EventManifestRegistered, Actor: actor, Subject: ledger.Subject{Kind: authority.SubjectApproval, ID: approval}, Data: data,
+		})
+		return err
+	})
+}
+
+// RegistrationOf reads what approving a plan version registered of its manifest's repositories, as the
+// approval recorded it last, or nil when it recorded nothing.
+func RegistrationOf(tx ports.ReadTx, approval string) (*ledger.ManifestRegistration, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: authority.SubjectApproval, ID: approval})
+	if err != nil {
+		return nil, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type != ledger.EventManifestRegistered {
+			continue
+		}
+		var record ledger.ManifestRegistration
+		if err := json.Unmarshal(events[i].Data, &record); err != nil {
+			return nil, fmt.Errorf("approval %s: rev %d: %w", approval, events[i].Rev, err)
+		}
+		return &record, nil
+	}
+	return nil, nil
 }
 
 // RegisterManifest registers what one manifest lists, as a member setting a project up by hand does with
@@ -58,10 +118,10 @@ func (r *Repositories) RegisterManifest(ctx context.Context, scope ledger.Worksp
 	return r.registerEntries(ctx, scope, manifest.Repositories, kept, manifestRun{dryRun: dryRun, restore: true, cause: registrationCause{Manifest: manifest.ID}}, actor)
 }
 
-// versionManifest lists the repositories the manifests of one plan version name, at the version of each
+// VersionManifest lists the repositories the manifests of one plan version name, at the version of each
 // manifest that plan version covers. A version the ledger does not hold yet, as a branch nothing has read,
 // names none, and a name two manifests list is read once.
-func versionManifest(tx ports.ReadTx, row authority.Approval) ([]planning.ManifestRepository, error) {
+func VersionManifest(tx ports.ReadTx, row authority.Approval) ([]planning.ManifestRepository, error) {
 	if row.Plan == "" {
 		return nil, nil
 	}
@@ -121,7 +181,6 @@ func manifestAt(planned ports.PlanningReader, entry planning.Entry) (planning.Re
 // path beside the planning repository's clone, under the manifest's name for it. Each is one transaction and
 // one audited event with the settings a person who chose nothing gets, as registering a clone by hand.
 func (r *Repositories) registerEntries(ctx context.Context, scope ledger.WorkspaceID, entries []planning.ManifestRepository, kept ports.Checkouts, run manifestRun, actor ledger.Actor) ([]Added, error) {
-	dryRun := run.dryRun
 	held, removed := map[string]ledger.Repository{}, map[string]ledger.Repository{}
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		all, err := tx.Repositories().Repositories()
@@ -154,63 +213,82 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 	claimed := map[string]bool{}
 	// The project's one repository plans in it until a member names one, so the first registration that
 	// adds a second one names it, or the next registration would find no planning repository.
-	var planning string
+	var naming string
 	if dir.root != "" && !dir.planner.Planning {
-		planning = dir.planner.ID
+		naming = dir.planner.ID
 	}
 	for _, entry := range entries {
-		at := entry.Path
-		if dir.root != "" {
-			at = filepath.Join(dir.root, filepath.FromSlash(entry.Path))
-		}
-		refused := func(path, reason string) Added {
-			return Added{Name: entry.Name, Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
-		}
-		if record, ok := held[entry.Name]; ok {
-			path, other := heldAs(ctx, kept, dir, entry, record, checkouts[record.ID], at)
-			if other != "" {
-				out = append(out, refused(path, fmt.Sprintf("its name is held by another repository: the project's %s is %s, and the manifest's is %s",
-					entry.Name, ledger.RepositoryIdentity(record.Remote, record.ID), other)))
-				continue
-			}
-			out = append(out, Added{Name: entry.Name, Path: path, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: checkouts[record.ID]})
-			continue
-		}
-		if record, ok := removed[entry.Name]; ok && !run.restore {
-			out = append(out, refused(at, staysRemoved(record)))
-			continue
-		}
-		if dir.root == "" {
-			out = append(out, refused(at, why))
-			continue
-		}
-		real, reason := placeOf(ctx, kept, dir, at)
-		if reason != "" {
-			out = append(out, refused(cmp.Or(real, at), reason))
-			continue
-		}
-		clone, reason := cloneAt(ctx, kept, entry, real)
-		if reason != "" {
-			out = append(out, refused(real, reason))
-			continue
-		}
-		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: dryRun, restore: run.restore, planning: planning, cause: run.cause}, actor)
+		added, err := r.registerEntry(ctx, scope, entry, kept, entryRun{manifestRun: run, dir: dir, why: why, held: held, removed: removed, checkouts: checkouts, claimed: claimed, planning: naming}, actor)
+		// Each outcome names what the manifest wrote for it, so a member reads what they consent to.
+		added.Name, added.Manifest, added.Remote = entry.Name, entry.Path, entry.Remote
+		out = append(out, added)
 		if err != nil {
 			return out, err
 		}
-		added.Name, added.Path = entry.Name, real
-		if added.Outcome == ledger.Registered && !dryRun {
-			planning = ""
+		if added.Outcome == ledger.Registered && !run.dryRun {
+			naming = ""
 		}
-		if added.Outcome != ledger.RegistrationRefused {
-			if added.Checkout, err = keepCheckout(ctx, kept, scope, checkouts, clone, dryRun); err != nil {
-				return out, err
-			}
-			claimed[added.Repository.Name] = true
-		}
-		out = append(out, added)
 	}
 	return out, nil
+}
+
+// entryRun is what registering one entry of a manifest reads: the run, where the planning repository's clone
+// is or why there is none, the records the project holds and removed by name, this worker's checkouts, the
+// names the run has taken, and the repository to name the planning repository, if any.
+type entryRun struct {
+	manifestRun
+	dir           planningDirectory
+	why           string
+	held, removed map[string]ledger.Repository
+	checkouts     map[string]string
+	claimed       map[string]bool
+	planning      string
+}
+
+// registerEntry registers one repository a manifest lists, or says why not. An error is one the store or
+// the worker's checkouts gave once the run had begun, and the outcome says how far this entry came.
+func (r *Repositories) registerEntry(ctx context.Context, scope ledger.WorkspaceID, entry planning.ManifestRepository, kept ports.Checkouts, run entryRun, actor ledger.Actor) (Added, error) {
+	dir := run.dir
+	at := entry.Path
+	if dir.root != "" {
+		at = filepath.Join(dir.root, filepath.FromSlash(entry.Path))
+	}
+	refused := func(path, reason string) Added {
+		return Added{Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
+	}
+	if record, ok := run.held[entry.Name]; ok {
+		path, other := heldAs(ctx, kept, dir, entry, record, run.checkouts[record.ID], at)
+		if other != "" {
+			return refused(path, fmt.Sprintf("its name is held by another repository: the project's %s is %s, and the manifest's is %s",
+				entry.Name, ledger.RepositoryIdentity(record.Remote, record.ID), other)), nil
+		}
+		return Added{Path: path, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: run.checkouts[record.ID]}, nil
+	}
+	if record, ok := run.removed[entry.Name]; ok && !run.restore {
+		return refused(at, staysRemoved(record)), nil
+	}
+	if dir.root == "" {
+		return refused(at, run.why), nil
+	}
+	real, reason := placeOf(ctx, kept, dir, at)
+	if reason != "" {
+		return refused(cmp.Or(real, at), reason), nil
+	}
+	clone, reason := cloneAt(ctx, kept, entry, real)
+	if reason != "" {
+		return refused(real, reason), nil
+	}
+	added, err := r.register(ctx, scope, clone, registration{claimed: run.claimed, dryRun: run.dryRun, restore: run.restore, planning: run.planning, cause: run.cause}, actor)
+	if err != nil {
+		return refused(real, err.Error()), err
+	}
+	added.Path = real
+	if added.Outcome == ledger.RegistrationRefused {
+		return added, nil
+	}
+	run.claimed[added.Repository.Name] = true
+	added.Checkout, err = keepCheckout(ctx, kept, scope, run.checkouts, clone, run.dryRun)
+	return added, err
 }
 
 // manifestRun is how a run registers what a manifest lists.

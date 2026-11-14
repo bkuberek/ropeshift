@@ -11,6 +11,7 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -288,5 +289,82 @@ func TestOnlyAMemberRegistersFromAManifest(t *testing.T) {
 	report, err := d.client.AddRepositories(ctx, api.RepositoryAdd{Manifest: manifestText})
 	if err != nil || len(report.Repositories) != 1 || report.Repositories[0].Outcome != ledger.Registered {
 		t.Fatalf("a member's registration from the manifest reads %+v: %v", report, err)
+	}
+}
+
+// ADR-0022: a member reads what approving a plan version registers before approving it, from the clones on
+// the daemon's worker's machine, and the approval keeps what it registered, which its own view and the
+// plan's read later. A delegate's read previews nothing.
+func TestAPlanApprovalShowsWhatItRegisters(t *testing.T) {
+	t.Parallel()
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/work/plan", ID: "id-plan", DefaultBranch: "main"})
+	machine.Place(ports.Clone{Path: "/work/billing", ID: "id-billing", Remote: "git@example.invalid:acme/billing.git", DefaultBranch: "main"})
+	d := startTalkWith(t, apitest.Options{Checkouts: machine})
+	ctx := t.Context()
+	if err := machine.Keep(ctx, apitest.Scope, d.repo, "/work/plan"); err != nil {
+		t.Fatal(err)
+	}
+	source := fake.NewWorkSource()
+	source.Write("plan.md", []byte("+++\nkind = \"plan\"\nid = \"platform-v1\"\ntitle = \"The platform\"\ndocuments = [\"repositories:platform\"]\n+++\n\nHow.\n"))
+	source.Write("repositories.md", []byte("+++\nkind = \"repositories\"\nid = \"platform\"\nplan = \"platform-v1\"\n\n[[repository]]\nname = \"billing\"\nremote = \"git@example.invalid:acme/billing.git\"\npath = \"../billing\"\n\n[[repository]]\nname = \"ghost\"\npath = \"../ghost\"\n+++\n"))
+	if _, err := control.NewIntake(d.Store).Poll(ctx, apitest.Scope, source); err != nil {
+		t.Fatal(err)
+	}
+	plans, err := d.client.Plans(ctx)
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans %+v: %v", plans, err)
+	}
+	view, err := d.client.Plan(ctx, plans[0].ID)
+	if err != nil || view.Approval == nil || view.Approval.Registration == nil {
+		t.Fatalf("the plan reads %+v: %v", view.Approval, err)
+	}
+	preview := view.Approval.Registration
+	want := map[string]api.RepositoryAdded{
+		"billing": {Name: "billing", ManifestPath: "../billing", Path: "/work/billing", Remote: "git@example.invalid:acme/billing.git", Outcome: ledger.Registered},
+		"ghost":   {Name: "ghost", ManifestPath: "../ghost", Path: "/work/ghost", Outcome: ledger.RegistrationRefused},
+	}
+	if !preview.Preview || len(preview.Repositories) != 2 {
+		t.Fatalf("the preview reads %+v", preview)
+	}
+	for _, got := range preview.Repositories {
+		w := want[got.Name]
+		if got.ManifestPath != w.ManifestPath || got.Path != w.Path || got.Remote != w.Remote || got.Outcome != w.Outcome {
+			t.Errorf("the preview of %s reads %+v, want %+v", got.Name, got, w)
+		}
+	}
+	if _, ok := repositoriesOf(t, d.client)["billing"]; ok {
+		t.Fatal("reading the preview registered billing")
+	}
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	delegated, err := asDelegate(t, d.socket, created.Token, apitest.ProjectName).Plan(ctx, plans[0].ID)
+	if err != nil || delegated.Approval == nil || delegated.Approval.Registration == nil || len(delegated.Approval.Registration.Repositories) != 0 ||
+		!strings.Contains(delegated.Approval.Registration.Problem, "member") {
+		t.Errorf("a delegate's read of the plan previews %+v: %v", delegated.Approval, err)
+	}
+	asked := view.Approval.Approval
+	if _, err := d.client.DecideApproval(ctx, asked.ID, api.DecideApproval{Digest: asked.SubjectDigest, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	var detail api.ApprovalDetail
+	err = d.client.Do(ctx, http.MethodGet, api.InProject(apitest.ProjectName, "/v1/approvals/"+asked.ID), nil, &detail)
+	if err != nil || detail.Registration == nil || detail.Registration.Preview || len(detail.Registration.Repositories) != 2 {
+		t.Fatalf("the approval reads %+v: %v", detail.Registration, err)
+	}
+	for _, got := range detail.Registration.Repositories {
+		switch got.Name {
+		case "billing":
+			if got.Outcome != ledger.Registered || got.Repository == nil || got.Repository.ID != "id-billing" || got.Checkout != "/work/billing" {
+				t.Errorf("the approval says billing %+v", got)
+			}
+		case "ghost":
+			if got.Outcome != ledger.RegistrationRefused || !strings.Contains(got.Reason, "/work/ghost") {
+				t.Errorf("the approval says ghost %+v", got)
+			}
+		}
+	}
+	after, err := d.client.Plan(ctx, plans[0].ID)
+	if err != nil || after.Approval == nil || after.Approval.Registration == nil || after.Approval.Registration.Preview {
+		t.Errorf("the plan after approval reads %+v: %v", after.Approval, err)
 	}
 }

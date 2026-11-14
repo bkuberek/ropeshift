@@ -456,7 +456,7 @@ func TestRepositoryAddRegistersWhatAManifestLists(t *testing.T) {
 		t.Errorf("a dry run: exit %d\n%s", code, stdout)
 	}
 	code, stdout, _ = s.run("repository", "add", "--manifest", file)
-	for _, want := range []string{"registered\tbilling\t", "refused\t/work/ghost\tghost is not registered: no git clone is at /work/ghost"} {
+	for _, want := range []string{"registered\tbilling\t../billing\t/work/billing\t-\n", "refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered: no git clone is at /work/ghost"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the run lacks %q:\n%s", want, stdout)
 		}
@@ -491,10 +491,33 @@ func TestPlanApproveRegistersWhatItsManifestAdds(t *testing.T) {
 	if err != nil || len(plans) != 1 {
 		t.Fatalf("plans %+v: %v", plans, err)
 	}
+	// Before approving, the member reads each repository the manifest lists, where its path leads, and
+	// whether approving registers it.
+	shown := s.must("plan", "show", plans[0].ID)
+	for _, want := range []string{
+		"  repositories approving would register, read now on the daemon's worker's machine:\n",
+		"    would register\tbilling\t../billing\t/work/billing\t-\n",
+		"    already registered\tplan\t.\t/work/plan\t-\n",
+		"    refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered: no git clone is at /work/ghost\n",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("plan show lacks %q:\n%s", want, shown)
+		}
+	}
+	if list := s.must("repository", "list"); strings.Contains(list, "billing") {
+		t.Errorf("reading the plan registered billing:\n%s", list)
+	}
 	text := s.must("plan", "approve", plans[0].ID)
-	for _, want := range []string{"approved The platform version 1", "registered\tbilling\t", "refused\t/work/ghost\tghost is not registered"} {
+	for _, want := range []string{"approved The platform version 1", "registered\tbilling\t../billing\t/work/billing\t-\n", "refused\tghost\t../ghost\t/work/ghost\t-\tghost is not registered"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("approve lacks %q:\n%s", want, text)
+		}
+	}
+	// Afterwards the approval says what it registered, however the member gave the word.
+	shown = s.must("plan", "show", plans[0].ID)
+	for _, want := range []string{"  repositories this approval registered:\n", "    registered\tbilling\t../billing\t/work/billing\t-\n", "    refused\tghost\t"} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("plan show after approval lacks %q:\n%s", want, shown)
 		}
 	}
 	if list := s.must("repository", "list"); !strings.Contains(list, "billing") || strings.Contains(list, "ghost") {

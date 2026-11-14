@@ -110,7 +110,9 @@ func (h *handler) addRepositories(w http.ResponseWriter, r *http.Request, actor 
 func addedViews(added []control.Added) []api.RepositoryAdded {
 	out := make([]api.RepositoryAdded, 0, len(added))
 	for _, one := range added {
-		view := api.RepositoryAdded{Path: one.Path, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason}
+		view := api.RepositoryAdded{
+			Name: one.Name, ManifestPath: one.Manifest, Remote: one.Remote, Path: one.Path, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason,
+		}
 		if one.Repository.ID != "" {
 			record := one.Repository
 			view.Repository = &record
@@ -118,6 +120,28 @@ func addedViews(added []control.Added) []api.RepositoryAdded {
 		out = append(out, view)
 	}
 	return out
+}
+
+// recordedViews is what a client reads of what a plan approval recorded it registered, with each record as it
+// stands now.
+func recordedViews(repositories ports.RepositoryReader, record *ledger.ManifestRegistration) (*api.ManifestRegistration, error) {
+	out := &api.ManifestRegistration{Repositories: make([]api.RepositoryAdded, 0, len(record.Repositories)), Problem: record.Problem}
+	for _, one := range record.Repositories {
+		view := api.RepositoryAdded{
+			Name: one.Name, ManifestPath: one.Path, Remote: one.Remote, Path: one.Resolved, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason,
+		}
+		if one.Repository != "" {
+			held, err := repositories.Repository(one.Repository)
+			switch {
+			case err == nil:
+				view.Repository = &held
+			case !errors.Is(err, ports.ErrNotFound):
+				return nil, err
+			}
+		}
+		out.Repositories = append(out.Repositories, view)
+	}
+	return out, nil
 }
 
 func (h *handler) listRepositories(w http.ResponseWriter, r *http.Request) {

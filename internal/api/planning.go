@@ -47,6 +47,21 @@ type PlanApprovalView struct {
 	Detail   planning.PlanDetail      `json:"detail"`
 	Records  []planning.Entry         `json:"records,omitempty"`
 	Drafts   []planning.DraftDecision `json:"drafts,omitempty"`
+	// Registration is what approving the version registers of the repositories its manifest lists, when it
+	// lists any: before a member decides, what approving would register, and after, what it did.
+	Registration *ManifestRegistration `json:"registration,omitempty"`
+}
+
+// ManifestRegistration is what approving a plan version registers of the repositories its manifest lists
+// (ADR-0022), one outcome for each with its name, its path as the manifest writes it, where that path leads
+// on the machine of the daemon's worker, and its remote. Before a member decides it is a preview, read on
+// that machine when the view is read, and registers nothing; after, it is what the approval registered, as
+// recorded then.
+type ManifestRegistration struct {
+	Preview      bool              `json:"preview,omitempty"`
+	Repositories []RepositoryAdded `json:"repositories"`
+	// Problem says why registration stopped short, or why no preview could be read.
+	Problem string `json:"problem,omitempty"`
 }
 
 // PlanDetailOf reads what a plan approval says of its version. A request of another kind says nothing.

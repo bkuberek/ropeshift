@@ -330,11 +330,35 @@ func (c *invocation) addFromManifest(path string, dryRun bool) int {
 	if report.Repositories == nil {
 		report.Repositories = []api.RepositoryAdded{}
 	}
-	code := c.finish(err, report, func() string { return addedText(report) })
+	code := c.finish(err, report, func() string { return manifestText(report.Repositories, report.DryRun, "") })
 	if code == ExitOK && report.Refused() > 0 {
 		return ExitConflict
 	}
 	return code
+}
+
+// manifestText prints one line for each repository a manifest lists: what became of it, or would, its name
+// and the path of its clone as the manifest writes them, where that path leads on the worker's machine, the
+// remote the manifest names, and why it was refused, each line after an indent.
+func manifestText(added []api.RepositoryAdded, wouldBe bool, indent string) string {
+	var out strings.Builder
+	for _, one := range added {
+		word := "registered"
+		switch {
+		case one.Outcome == ledger.RegistrationRefused:
+			word = "refused"
+		case one.Outcome == ledger.AlreadyRegistered:
+			word = "already registered"
+		case wouldBe:
+			word = "would register"
+		}
+		fmt.Fprintf(&out, "%s%s\t%s\t%s\t%s\t%s", indent, word, dashIfEmpty(one.Name), dashIfEmpty(one.ManifestPath), dashIfEmpty(one.Path), dashIfEmpty(one.Remote))
+		if one.Reason != "" {
+			fmt.Fprintf(&out, "\t%s", one.Reason)
+		}
+		out.WriteString("\n")
+	}
+	return out.String()
 }
 
 // addedText prints one line for each clone and each path: what became of it, the repository's name and

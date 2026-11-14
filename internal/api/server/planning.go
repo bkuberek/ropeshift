@@ -12,6 +12,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
@@ -81,6 +82,7 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 		wanted = parsed
 	}
 	view := api.PlanView{Contracts: []planning.Contract{}, WorkOrders: []workorders.WorkOrder{}, Versions: []api.PlanVersionLine{}}
+	var listed []planning.ManifestRepository
 	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		plan, err := tx.Planning().Plan(r.PathValue("id"))
 		if err != nil {
@@ -103,14 +105,51 @@ func (h *handler) showPlan(w http.ResponseWriter, r *http.Request) {
 		if wanted != 0 && !slices.ContainsFunc(view.Versions, func(line api.PlanVersionLine) bool { return line.Version == wanted }) {
 			return fmt.Errorf("plan %s has no version %d: %w", plan.ID, wanted, ports.ErrNotFound)
 		}
-		view.Approval, err = planApprovalView(tx, plan.ID, wanted)
+		if view.Approval, err = planApprovalView(tx, plan.ID, wanted); err != nil || view.Approval == nil || !view.Approval.Approval.Open() {
+			return err
+		}
+		listed, err = control.VersionManifest(tx, view.Approval.Approval)
 		return err
 	})
 	if err != nil {
 		fail(w, err)
 		return
 	}
+	if len(listed) != 0 {
+		view.Approval.Registration = h.previewRegistration(r, view.Approval.Approval)
+	}
 	reply(w, http.StatusOK, view)
+}
+
+// previewRegistration says what approving a plan version that waits would register of the repositories its
+// manifest lists, read now on the machine of the worker this daemon runs with nothing recorded, so a member
+// reads each path, where it leads, and whether it registers before consenting (ADR-0022). Only a member
+// approves a plan, so only a member's read runs it.
+func (h *handler) previewRegistration(r *http.Request, approval authority.Approval) *api.ManifestRegistration {
+	preview := &api.ManifestRegistration{Preview: true, Repositories: []api.RepositoryAdded{}}
+	actor, member := h.readingMember(r)
+	switch {
+	case h.Checkouts == nil:
+		preview.Problem = "this daemon runs no worker whose clones it can read, so approving registers nothing"
+	case !member:
+		preview.Problem = "only a member's session reads what approving would register"
+	default:
+		added, err := h.repositories.RegisterApproved(r.Context(), h.Scope, approval.ID, h.Checkouts, true, actor)
+		if err != nil {
+			preview.Problem = "reading what approving would register failed: " + err.Error()
+		}
+		preview.Repositories = addedViews(added)
+	}
+	return preview
+}
+
+// readingMember is the member whose session a read carries, when it carries one and no delegate's credential.
+func (h *handler) readingMember(r *http.Request) (ledger.Actor, bool) {
+	if _, ok := delegateOf(r.Context()); ok {
+		return ledger.Actor{}, false
+	}
+	actor, err := h.sessions.Member(r.Context(), h.Scope, sessionOf(r))
+	return actor, err == nil && authority.Allowed(actor, authority.ActionApprovePlan)
 }
 
 // betterApproval says whether a request stands in for another of the same plan: the one waiting, or else
@@ -151,7 +190,19 @@ func planApprovalView(tx ports.ReadTx, plan string, wanted int64) (*api.PlanAppr
 		return nil, err
 	}
 	view.Records, view.Drafts = version.Records, version.Decisions
+	if view.Registration, err = registrationView(tx, chosen.ID); err != nil {
+		return nil, err
+	}
 	return view, nil
+}
+
+// registrationView reads what a plan approval recorded it registered, or nil when it recorded nothing.
+func registrationView(tx ports.ReadTx, approval string) (*api.ManifestRegistration, error) {
+	record, err := control.RegistrationOf(tx, approval)
+	if err != nil || record == nil {
+		return nil, err
+	}
+	return recordedViews(tx.Repositories(), record)
 }
 
 // planVersions lists the versions a plan has, newest first: those the ledger holds and those a request

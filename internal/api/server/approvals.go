@@ -37,7 +37,10 @@ func (h *handler) showApproval(w http.ResponseWriter, r *http.Request) {
 	detail := api.ApprovalDetail{Approval: row}
 	err = h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
 		var err error
-		detail.Conversation, err = cardConversation(tx.Members(), tx.Conversations(), row)
+		if detail.Conversation, err = cardConversation(tx.Members(), tx.Conversations(), row); err != nil || row.Kind != authority.KindPlan {
+			return err
+		}
+		detail.Registration, err = registrationView(tx, row.ID)
 		return err
 	})
 	if err != nil {

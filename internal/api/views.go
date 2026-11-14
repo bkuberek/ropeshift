@@ -190,6 +190,8 @@ type CardConversation struct {
 type ApprovalDetail struct {
 	authority.Approval
 	Conversation *CardConversation `json:"conversation,omitempty"`
+	// Registration is what a plan approval registered of the repositories its version's manifest lists.
+	Registration *ManifestRegistration `json:"registration,omitempty"`
 }
 
 // NeedsYou is the default view: what a member can act on, the longest wait first (FR-UI-2). The combined

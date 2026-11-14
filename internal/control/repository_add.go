@@ -25,10 +25,13 @@ type RepositoryAdd struct {
 
 // Added is what became of one clone, or of a path that holds none.
 type Added struct {
-	// Name is the repository's name in the manifest that listed it, for a registration from one.
-	Name    string
-	Path    string
-	Outcome ledger.RepositoryOutcome
+	// Name, Manifest, and Remote are the repository's name, the path of its clone, and its remote as the
+	// manifest that listed it writes them, for a registration from one. Path is then where that path led.
+	Name     string
+	Manifest string
+	Remote   string
+	Path     string
+	Outcome  ledger.RepositoryOutcome
 	// Repository is the record as it stands, or as it would after a dry run. A path that holds no clone
 	// has none, and a refused clone has only what git said of it.
 	Repository ledger.Repository

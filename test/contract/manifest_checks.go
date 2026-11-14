@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -26,6 +27,7 @@ var ManifestChecks = []Check{
 	{"RM7", "the first registration from a manifest in a project of one repository names that repository the planning repository, in its transaction, so a later registration still reads paths beside its clone", checkManifestRegistrationNamesThePlanningRepository},
 	{"RM8", "approving a plan registers only what its own version's manifest lists, and never brings back a repository a member removed, which only a member's registration by hand does", checkApprovalLeavesRemovedRepositoriesOut},
 	{"RM9", "a manifest name the project holds for another repository, by remote or by the clone at its path, is a name collision and registers nothing; the same repository under its name reads as registered", checkManifestNameCollision},
+	{"RM10", "approving a plan records on the approval what it registered, an outcome for each repository its version's manifest lists with its path, where that led, and its remote, also when one fails and the others register; a dry run records nothing", checkApprovalRecordsWhatItRegistered},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -692,4 +694,102 @@ func checkManifestNameCollision(r *Rig) error {
 		return Violatedf("a manifest of collisions and held repositories moved the ledger from %d to %d: %v", before, after, err)
 	}
 	return nil
+}
+
+// failingFind is a worker's machine whose git cannot read one path.
+type failingFind struct {
+	*fake.Checkouts
+	at string
+}
+
+func (f failingFind) Find(ctx context.Context, paths []string, depth int) ([]ports.Clone, []ports.UnreadPath, error) {
+	if slices.Contains(paths, f.at) {
+		return nil, nil, errors.New("git cannot read " + f.at)
+	}
+	return f.Checkouts.Find(ctx, paths, depth)
+}
+
+// registrationOf reads what an approval recorded it registered.
+func (r *Rig) registrationOf(s ports.Store, approval string) (*ledger.ManifestRegistration, error) {
+	var record *ledger.ManifestRegistration
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		record, err = control.RegistrationOf(tx, approval)
+		return err
+	})
+	return record, err
+}
+
+func checkApprovalRecordsWhatItRegistered(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	files.Write("repositories.md", []byte(manifestText("", "api", "web", "billing", "search", "ledger")))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	machine, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	machine.Place(cloneOf("billing", "billing"))
+	machine.Place(cloneOf("search", "search"))
+	kept := failingFind{Checkouts: machine, at: "/work/search"}
+	repositories := r.repositories(s)
+	request, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	preview, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, true, r.member())
+	if err != nil {
+		return err
+	}
+	if billing, ok := outcomeNamed(preview, "billing"); !ok || billing.Outcome != ledger.Registered || billing.Manifest != "../billing" || billing.Path != "/work/billing" {
+		return Violatedf("the preview says billing would be %+v", billing)
+	}
+	if record, err := r.registrationOf(s, request.ID); err != nil || record != nil {
+		return Violatedf("a preview recorded %+v: %v", record, err)
+	}
+	if _, err := r.approve(s, request, true, r.member()); err != nil {
+		return err
+	}
+	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member()); err != nil {
+		return err
+	}
+	record, err := r.registrationOf(s, request.ID)
+	if err != nil || record == nil || len(record.Repositories) != 5 || record.Problem != "" {
+		return Violatedf("the approval recorded %+v: %v, want an outcome for each of five repositories", record, err)
+	}
+	outcome := func(name string) ledger.ManifestOutcome {
+		at := slices.IndexFunc(record.Repositories, func(o ledger.ManifestOutcome) bool { return o.Name == name })
+		if at < 0 {
+			return ledger.ManifestOutcome{}
+		}
+		return record.Repositories[at]
+	}
+	billing := outcome("billing")
+	if billing.Outcome != ledger.Registered || billing.Path != "../billing" || billing.Resolved != "/work/billing" || billing.Remote != "git@github.com:acme/billing.git" ||
+		billing.Repository != "repo-billing" || billing.Checkout != "/work/billing" {
+		return Violatedf("the record says billing %+v", billing)
+	}
+	if search := outcome("search"); search.Outcome != ledger.RegistrationRefused || !strings.Contains(search.Reason, "git cannot read /work/search") {
+		return Violatedf("the record says search, which git could not read, %+v", search)
+	}
+	if missing := outcome("ledger"); missing.Outcome != ledger.RegistrationRefused || !strings.Contains(missing.Reason, "/work/ledger") {
+		return Violatedf("the record says ledger, with no clone, %+v", missing)
+	}
+	for _, name := range []string{"api", "web"} {
+		if held := outcome(name); held.Outcome != ledger.AlreadyRegistered || held.Repository != "repo-"+name {
+			return Violatedf("the record says %s %+v", name, held)
+		}
+	}
+	if _, err := r.theRepository(s, "repo-billing"); err != nil {
+		return Violatedf("billing is not registered beside the failure: %v", err)
+	}
+	return r.CheckProjection(s)
 }

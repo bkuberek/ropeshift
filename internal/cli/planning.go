@@ -86,6 +86,17 @@ func writePlanApproval(out *strings.Builder, view api.PlanApprovalView) {
 	if view.Detail.Adoption != nil {
 		writeAdoption(out, *view.Detail.Adoption, "  ")
 	}
+	if registration := view.Registration; registration != nil {
+		if registration.Preview {
+			out.WriteString("  repositories approving would register, read now on the daemon's worker's machine:\n")
+		} else {
+			out.WriteString("  repositories this approval registered:\n")
+		}
+		out.WriteString(manifestText(registration.Repositories, registration.Preview, "    "))
+		if registration.Problem != "" {
+			fmt.Fprintf(out, "    %s\n", registration.Problem)
+		}
+	}
 	fmt.Fprintf(out, "  digest %s\n", approval.SubjectDigest)
 }
 
@@ -148,9 +159,7 @@ func (c *invocation) planApprove(args []string) int {
 		fmt.Fprintf(&out, "  %s\n", waiting.Detail.Difference.Summary())
 		// The approval registers what the plan's manifest adds, from the clones beside the planning
 		// repository's, and says what it could not.
-		if len(decided.Repositories) != 0 {
-			out.WriteString(addedText(api.RepositoryAddReport{Repositories: decided.Repositories}))
-		}
+		out.WriteString(manifestText(decided.Repositories, false, ""))
 		if decided.RepositoriesProblem != "" {
 			fmt.Fprintf(&out, "%s\n", decided.RepositoriesProblem)
 		}

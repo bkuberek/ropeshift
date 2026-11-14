@@ -77,8 +77,14 @@ type RepositoryAdd struct {
 
 // RepositoryAdded is what became of one clone, or of a path that holds none.
 type RepositoryAdded struct {
-	Path    string                   `json:"path"`
-	Outcome ledger.RepositoryOutcome `json:"outcome"`
+	// Name, ManifestPath, and Remote are the repository's name, the path of its clone, and its remote as a
+	// manifest writes them, for a registration from one, and Path is then where ManifestPath led on the
+	// worker's machine, every symbolic link followed.
+	Name         string                   `json:"name,omitempty"`
+	ManifestPath string                   `json:"manifest_path,omitempty"`
+	Remote       string                   `json:"remote,omitempty"`
+	Path         string                   `json:"path"`
+	Outcome      ledger.RepositoryOutcome `json:"outcome"`
 	// Repository is the record as it stands, or would after a dry run. A path with no clone has none.
 	Repository *ledger.Repository `json:"repository,omitempty"`
 	// Checkout is the path the worker keeps for the repository.
