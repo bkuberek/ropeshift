@@ -97,6 +97,23 @@ type DeliveryWriter interface {
 	Clear() error
 }
 
+// EstimateReader reads estimate sets and their estimates (ADR-0026).
+type EstimateReader interface {
+	// Set returns one set with its estimates, by work order, each saying whether it is still current, or
+	// ErrNotFound.
+	Set(id string) (delivery.EstimateSet, error)
+	// Current returns a work order's current estimate, the one its newest set holds, or ErrNotFound.
+	Current(workOrder string) (delivery.Estimate, error)
+}
+
+// EstimateWriter keeps estimate sets, which never change once kept.
+type EstimateWriter interface {
+	EstimateReader
+	// Add keeps a sealed set, and each of its estimates becomes its work order's current estimate in place of
+	// the one before.
+	Add(set delivery.EstimateSet) error
+}
+
 // ReadTx is one consistent view of a workspace.
 type ReadTx interface {
 	// Workspace reads the workspace record.
@@ -153,6 +170,8 @@ type ReadTx interface {
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Deliveries reads the delivery read models the fold keeps (ADR-0026).
 	Deliveries() DeliveryReader
+	// Estimates reads estimate sets and each work order's current estimate.
+	Estimates() EstimateReader
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
@@ -224,6 +243,10 @@ type WriteTx interface {
 	Search(query SearchQuery) ([]SearchHit, error)
 	// Index keeps one record's text for search, replacing what it held.
 	Index(kind, id, text string) error
+	// Deliveries reads the delivery read models the fold keeps, which an estimate draws on.
+	Deliveries() DeliveryReader
+	// Estimates reads and keeps estimate sets.
+	Estimates() EstimateWriter
 }
 
 // ForgeReader reads what the control plane asked workers to do on a forge, the pull request each work order

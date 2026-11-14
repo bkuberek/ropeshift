@@ -215,6 +215,9 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 	if err := (planningWriter{tx: tx, actor: intakeActor}).planVersion(next); err != nil {
 		return false, err
 	}
+	if err := estimatePlanVersion(tx, next); err != nil {
+		return false, err
+	}
 	record, err := tx.Planning().Plan(plan)
 	if err != nil {
 		return false, err

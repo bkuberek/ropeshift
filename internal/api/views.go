@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -549,4 +550,6 @@ type WorkDetail struct {
 	PullRequest *ledger.PullRequest `json:"pull_request,omitempty"`
 	// Integrations are the approvals of its reviewed commits for merge, and the merges that followed them.
 	Integrations []ledger.IntegrationRecord `json:"integrations,omitempty"`
+	// Estimate is its current estimate, with its confidence and explanation, once one was made.
+	Estimate *delivery.Estimate `json:"estimate,omitempty"`
 }

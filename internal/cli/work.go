@@ -151,7 +151,14 @@ func (c *invocation) workShow(args []string) int {
 	if err != nil {
 		return c.finish(err, row, nil)
 	}
-	detail := api.WorkDetail{WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest, Integrations: view.Integrations}
+	estimate, err := client.WorkEstimate(c.ctx, id)
+	if err != nil {
+		return c.finish(err, row, nil)
+	}
+	detail := api.WorkDetail{
+		WorkOrder: row, JudgedBy: view.Reviews, Verdicts: view.Verdicts, Why: view.Why, PullRequest: view.PullRequest, Integrations: view.Integrations,
+		Estimate: estimate.Estimate,
+	}
 	return c.finish(nil, detail, func() string { return workDetailText(detail) })
 }
 
@@ -179,6 +186,7 @@ func workDetailText(detail api.WorkDetail) string {
 		}
 		fmt.Fprintf(&out, "approved\t%s\tby %s\tat %s\t%s%s\n", shortCommit(record.ApprovedCommit), approver, record.MergeAuthority, merged, plan)
 	}
+	out.WriteString(estimateText(detail.Estimate))
 	switch {
 	case detail.Why == "":
 	case detail.State == workorders.Integrating:

@@ -19,6 +19,32 @@ func (h *handler) measureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/measures", h.readMeasures)
 	mux.HandleFunc("GET /v1/measures/delivery", h.readDelivery)
 	mux.HandleFunc("GET /v1/work-orders/{id}/timeline", h.readTimeline)
+	mux.HandleFunc("GET /v1/work-orders/{id}/estimate", h.readEstimate)
+}
+
+// readEstimate reads one work order's current estimate as it was made, with the explanation it showed, or none
+// when no estimate was made for it (FR-EST-14).
+func (h *handler) readEstimate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var view api.WorkEstimate
+	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
+		if _, err := tx.WorkOrders().Get(id); err != nil {
+			return err
+		}
+		e, err := tx.Estimates().Current(id)
+		switch {
+		case err == nil:
+			view.Estimate = &e
+		case !errors.Is(err, ports.ErrNotFound):
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, view)
 }
 
 // readDelivery reads look back over one window from the delivery records the fold keeps (FR-EST-5).

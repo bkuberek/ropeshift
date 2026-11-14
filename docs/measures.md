@@ -119,6 +119,14 @@ A group with no work in the window has no point, and elapsed and delivery time h
 
 Capacity intervals and change sizes are recorded only from the release that added them. A record whose work began before the fold's first run says so with `lane_cap_known` false, and a record without a change size has none, which is not a change of nothing. The capability class and merge authority level are read when the record is made. A new version of the derivation drops every timeline and record and folds the log again.
 
+## Estimates
+
+An estimate is a band of delivery time and estimated cost for one `change` or `rework` work order that has not ended, drawn from the delivery records of comparable work that reached `done`. It matches on what is known before the work starts: its kind; its size, `unknown` when it declares none; the capability class of the agent it names or the roster's default mapping gives it; its repository and that repository's merge authority level; and the number of criteria in its contract. It takes the narrowest match with at least `min_samples` records, from the `recent_samples` most recent, and gives their 50th and 85th percentiles; with fewer at every match it is labeled `low` confidence and says why, and with none it gives no number and says what is missing.
+
+Ropeshift makes estimates in sets. Intake makes one set for each plan version it records, in the same transaction, for every open work order of the contracts the version covers. The set is not part of the plan's digest, so new history never changes what an approval approved. Work made outside a plan, such as ledger work, a contract that names no plan, or the rework an overturned decision makes, is estimated when it is made. Each set records the ledger revision it read, the estimator version, the estimate policy version, and a digest of what its estimates say. A set never changes, and a work order's current estimate is the one its newest set holds.
+
+Each estimate keeps its confidence, the keys it matched and those it dropped, how many records it drew on against `min_samples`, their work order IDs, the shortest and longest of them, its percentiles, and the explanation it was made with, which every surface shows as it was written. `ropeshift work show` prints the current estimate as an `estimate` line under its label, and `GET /v1/work-orders/{id}/estimate` returns it as `estimate`, or `null` for work no estimate was made for.
+
 ## Estimate policy
 
 A project's `[estimate_policy]` sets how its estimates read its delivery records. It is a versioned policy of kind `estimate`, which only a member publishes, with `ropeshift policy publish` or `POST /v1/projects/{project}/policies`, and which `ropeshift policy list --kind estimate` lists. No calibration changes it on its own. A version states every setting, and each version is newer than the one in force. The built-in version is this one:

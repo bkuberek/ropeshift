@@ -56,6 +56,28 @@ func timelineText(id string, view api.WorkTimeline) string {
 	return out.String()
 }
 
+// estimateText prints a work order's current estimate: its label, its time and cost bands, and under them the
+// explanation it was made with (FR-EST-14). An open band reads as more than its longest record, and a cost
+// band with a lower-bound cost as at least. Work with no estimate prints nothing.
+func estimateText(e *delivery.Estimate) string {
+	if e == nil {
+		return ""
+	}
+	if e.Status == delivery.NoHistory {
+		return "estimate\tno history\n\t" + e.Explanation + "\n"
+	}
+	open := ""
+	if e.P85Open {
+		open = "more than "
+	}
+	bound := ""
+	if e.CostAtLeast {
+		bound = "at least "
+	}
+	return fmt.Sprintf("estimate\t%s\tdelivery p50 %s p85 %s%s\tcost %sp50 $%.2f p85 %s$%.2f\n\t%s\n",
+		e.Confidence, span(e.DeliveryP50Ms), open, span(e.DeliveryP85Ms), bound, e.CostP50USD, open, e.CostP85USD, e.Explanation)
+}
+
 func orDash(text string) string {
 	if text == "" {
 		return "-"

@@ -26,6 +26,21 @@ type WorkTimeline struct {
 // WorkTimelinePath is one work order's timeline.
 func WorkTimelinePath(id string) string { return "/v1/work-orders/" + url.PathEscape(id) + "/timeline" }
 
+// WorkEstimate is one work order's current estimate, or none when no estimate was made for it.
+type WorkEstimate struct {
+	Estimate *delivery.Estimate `json:"estimate"`
+}
+
+// WorkEstimatePath is one work order's current estimate.
+func WorkEstimatePath(id string) string { return "/v1/work-orders/" + url.PathEscape(id) + "/estimate" }
+
+// WorkEstimate reads one work order's current estimate (FR-EST-14).
+func (c *ProjectClient) WorkEstimate(ctx context.Context, id string) (WorkEstimate, error) {
+	var out WorkEstimate
+	err := c.do(ctx, http.MethodGet, WorkEstimatePath(id), nil, &out)
+	return out, err
+}
+
 // WorkTimeline reads where one work order's time went (FR-EST-1).
 func (c *ProjectClient) WorkTimeline(ctx context.Context, id string) (WorkTimeline, error) {
 	var out WorkTimeline

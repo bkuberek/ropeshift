@@ -737,6 +737,10 @@ func checkOverturnSteps(r *Rig) error {
 		if rework.Kind != workorders.KindRework || rework.State != workorders.ContractReview || rework.Title == "" {
 			return Violatedf("step 3: rework %+v", rework)
 		}
+		// Rework is made outside a plan, so it is estimated when it is made.
+		if e, set, err := r.currentOf(s, id); err != nil || e.Explanation == "" || set.Plan != "" {
+			return Violatedf("step 3: rework %s is estimated %+v: %v", id, e, err)
+		}
 		reworkOf = append(reworkOf, rework.ReworkOf)
 	}
 	slices.Sort(reworkOf)

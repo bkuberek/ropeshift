@@ -673,6 +673,9 @@ func insertRework(tx ports.WriteTx, id string, order workorders.WorkOrder, old q
 	if _, err := tx.Append(event); err != nil {
 		return err
 	}
+	if err := estimateMade(tx, record); err != nil {
+		return err
+	}
 	for _, trigger := range []workorders.Trigger{workorders.TriggerAccepted, workorders.TriggerContractSubmitted} {
 		if err := takeEdge(tx, id, trigger, actor); err != nil {
 			return err

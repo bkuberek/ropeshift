@@ -956,6 +956,13 @@ func (r *itemRecorder) recordOrder(contract planning.Contract, spec planning.Wor
 	if _, err := r.tx.Append(event); err != nil {
 		return false, err
 	}
+	// Work of a contract that names no plan is outside every plan version, so it is estimated when made; the
+	// plan version that covers the rest estimates it in one set.
+	if r.item.Contract.Plan == "" {
+		if err := estimateMade(r.tx, record); err != nil {
+			return false, err
+		}
+	}
 	if err := r.writer().link(workorders.SubjectKind, id, key); err != nil {
 		return false, err
 	}
