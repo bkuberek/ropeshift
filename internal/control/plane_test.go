@@ -372,7 +372,7 @@ type failingReports struct {
 	ports.Installation
 }
 
-func (failingReports) SaveReport(context.Context, string, int64, ledger.ResourceReport) error {
+func (failingReports) SaveReport(context.Context, string, int64, ledger.ResourceReport, int64) error {
 	return errors.New("the store is busy")
 }
 

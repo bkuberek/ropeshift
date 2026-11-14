@@ -62,6 +62,19 @@ A review fails work back to a lane by rule until its rounds are used up, so a pe
 
 `ropeshift repository show` prints the same figures for one repository, and the web UI's operations view shows them in its measures section.
 
+## Capacity intervals
+
+A worker's reports are not kept, so the control plane records from each one when the worker's running lanes stand at one of its lane caps: `max_lanes` or `max_lanes_per_sign_in`. The lanes stand at a cap when they reach it or pass it, counted as admission counts them, and a cap of 0 caps nothing. A capacity interval names the worker, the cap, and its value, and holds the first report that saw the cap, the last, and its end, each by the control plane's clock less the report's age.
+
+| A report | Does |
+|----------|------|
+| Sees a cap reached and no interval of it standing | Begins an interval at the report |
+| Sees the same cap at the same value | Keeps the interval standing until the report |
+| Sees the lanes below the cap, or the cap at another value | Ends the interval at the report |
+| Comes from a new session, or more than the window a report stays observed after the last report that saw the cap | Ends the interval at that last report, because the worker stopped reporting in between |
+
+An interval that stands ends, as far as anyone can read, at the last report that saw it, so a worker that stops reporting ends its intervals at its last heartbeat. Recording takes no revision and appends no event, as keeping the report does, and a report of a session that is no longer current records nothing. The intervals live in the installation database beside the workers they describe.
+
 ## Experience records
 
 The ledger keeps one experience record per lane and one per decision. Each holds the policy version in force, the settings the action ran on, the options considered, and what was chosen, and its outcome is filled in once, which may be long after the action. Nothing else ever changes a record.

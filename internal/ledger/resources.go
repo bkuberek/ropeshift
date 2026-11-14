@@ -41,8 +41,41 @@ type ResourceReport struct {
 	Machine        MachineResources    `json:"machine"`
 	Recommendation *LaneRecommendation `json:"recommendation,omitempty"`
 	Caps           LaneCaps            `json:"caps"`
-	Sessions       []SessionResources  `json:"sessions"`
-	Warnings       []ResourceWarning   `json:"warnings,omitempty"`
+	// RunningLanes counts the lanes that hold a place under the caps, as admission counts them: every lane
+	// that runs or that a restart has yet to pick up, and no orchestrator. It is absent when the worker did
+	// not count them.
+	RunningLanes *int64             `json:"running_lanes,omitempty"`
+	Sessions     []SessionResources `json:"sessions"`
+	Warnings     []ResourceWarning  `json:"warnings,omitempty"`
+}
+
+// The lane caps a capacity interval names (FR-OBS-14), by the setting that sets each.
+const (
+	CapMaxLanes          = "max_lanes"
+	CapMaxLanesPerSignIn = "max_lanes_per_sign_in"
+)
+
+// CapacityInterval is a span in which a worker's running lanes stood at one of its lane caps, with the cap's
+// kind and value, by the control plane's clock (FR-OBS-14). StartedAt is the first report that saw the cap
+// and SeenAt the last, Epoch the worker's session that reported them, and EndedAt is zero while the
+// interval stands.
+type CapacityInterval struct {
+	Worker    string `json:"worker"`
+	Cap       string `json:"cap"`
+	Value     int64  `json:"value"`
+	Epoch     int64  `json:"epoch"`
+	StartedAt int64  `json:"started_at"`
+	SeenAt    int64  `json:"seen_at"`
+	EndedAt   int64  `json:"ended_at,omitempty"`
+}
+
+// End is when the interval ended, or the last report that saw it while it stands, so a worker that stops
+// reporting ends its intervals at its last report.
+func (c CapacityInterval) End() int64 {
+	if c.EndedAt != 0 {
+		return c.EndedAt
+	}
+	return c.SeenAt
 }
 
 // MachineResources is the machine as a whole. CPUPercent is the share of every core that was busy since

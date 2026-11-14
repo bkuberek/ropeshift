@@ -359,6 +359,74 @@ func ResourceWarnings(m ledger.MachineResources, t Thresholds) []ledger.Resource
 	return out
 }
 
+// CapsReached names each lane cap a report's running lanes stand at, with its value (FR-OBS-14). The lanes
+// stand at a cap when they reach it or pass it, and a cap of zero caps nothing. A report that does not count
+// its lanes counts its lane sessions.
+func CapsReached(report ledger.ResourceReport) map[string]int64 {
+	var running int64
+	if report.RunningLanes != nil {
+		running = *report.RunningLanes
+	} else {
+		for _, session := range report.Sessions {
+			if session.Kind == ledger.SessionLane {
+				running++
+			}
+		}
+	}
+	out := map[string]int64{}
+	for kind, value := range map[string]int64{ledger.CapMaxLanes: report.Caps.MaxLanes, ledger.CapMaxLanesPerSignIn: report.Caps.MaxLanesPerSignIn} {
+		if value > 0 && running >= value {
+			out[kind] = value
+		}
+	}
+	return out
+}
+
+// CapacityStep is what one report does to a worker's capacity intervals: those it ends, those it still sees,
+// and those it begins, each as it now stands.
+type CapacityStep struct {
+	Ended, Seen, Begun []ledger.CapacityInterval
+}
+
+// StepCapacity moves a worker's standing capacity intervals by one report of its session epoch, measured at
+// at by the control plane's clock (FR-OBS-14). An interval the report still sees at the same value stands
+// until at. One the report sees below its cap, or at another value, ends at at. One of another session, or
+// whose last report is more than freshMs before this one, ends at its last report, because the worker
+// stopped reporting in between. A cap reached with no interval standing begins one at at, and never before
+// the end of the interval of that cap the report ended, so a worker's intervals of one cap never overlap. A
+// report dated before an interval's last report moves nothing of it back.
+func StepCapacity(open []ledger.CapacityInterval, worker string, epoch int64, report ledger.ResourceReport, at, freshMs int64) CapacityStep {
+	reached := CapsReached(report)
+	var step CapacityStep
+	standing, from := map[string]bool{}, map[string]int64{}
+	for _, interval := range open {
+		when := max(at, interval.SeenAt)
+		switch value, ok := reached[interval.Cap]; {
+		case interval.Epoch != epoch || when-interval.SeenAt > freshMs:
+			interval.EndedAt = interval.SeenAt
+			step.Ended = append(step.Ended, interval)
+			from[interval.Cap] = max(from[interval.Cap], interval.EndedAt)
+		case ok && value == interval.Value:
+			interval.SeenAt = when
+			step.Seen = append(step.Seen, interval)
+			standing[interval.Cap] = true
+		default:
+			interval.EndedAt = when
+			step.Ended = append(step.Ended, interval)
+			from[interval.Cap] = max(from[interval.Cap], interval.EndedAt)
+		}
+	}
+	for _, kind := range []string{ledger.CapMaxLanes, ledger.CapMaxLanesPerSignIn} {
+		value, ok := reached[kind]
+		if !ok || standing[kind] {
+			continue
+		}
+		start := max(at, from[kind])
+		step.Begun = append(step.Begun, ledger.CapacityInterval{Worker: worker, Cap: kind, Value: value, Epoch: epoch, StartedAt: start, SeenAt: start})
+	}
+	return step
+}
+
 // LaneCapSettings is what a member sets of a machine's lane caps (FR-PROJ-7). MaxLanes nil follows the
 // recommendation and zero caps nothing; MaxLanesPerSignIn zero caps nothing. Neither has an upper bound.
 type LaneCapSettings struct {

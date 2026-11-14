@@ -314,7 +314,7 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 			return ledger.HeartbeatReply{}, err
 		}
 	}
-	reply.ReportError = saveReport(ctx, w.store.Installation(w.scope), beat)
+	reply.ReportError = saveReport(ctx, w.store.Installation(w.scope), beat, w.options.HeartbeatMs)
 	shared, err := w.sharedRevision(ctx)
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
@@ -337,14 +337,15 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 // saveReport keeps what a heartbeat's worker measured, after its session was checked, and says why it
 // could not. A heartbeat that carries no report leaves the last one standing. A report it could not keep
 // fails nothing else: the leases it renewed and the ones it lost still reach the worker, which sends the
-// report again.
-func saveReport(ctx context.Context, installation ports.Installation, beat ledger.Heartbeat) string {
+// report again. The report also moves the worker's capacity intervals, which stand from one report to the
+// next while the next comes within the window a report stays observed (FR-OBS-14).
+func saveReport(ctx context.Context, installation ports.Installation, beat ledger.Heartbeat, heartbeatMs int64) string {
 	if beat.Report == nil {
 		return ""
 	}
 	report, err := ledger.BoundReport(*beat.Report)
 	if err == nil {
-		err = installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, report)
+		err = installation.SaveReport(ctx, beat.Auth.WorkerID, beat.Epoch, report, reportWindow(report.IntervalMs, heartbeatMs))
 	}
 	if err != nil {
 		return err.Error()
@@ -1082,11 +1083,16 @@ func (w *Workers) ReportFreshness(tx ports.ReadTx, worker ledger.Worker) (string
 	if err != nil {
 		return "", err
 	}
-	interval := min(max(worker.Report.IntervalMs, w.options.HeartbeatMs), ledger.MaxReportIntervalMs)
-	if now-min(worker.ReportedAt, now) <= freshnessBeats*interval {
+	if now-min(worker.ReportedAt, now) <= reportWindow(worker.Report.IntervalMs, w.options.HeartbeatMs) {
 		return ledger.FreshnessObserved, nil
 	}
 	return ledger.FreshnessLastReported, nil
+}
+
+// reportWindow is how long a report stays observed: a few of its intervals, or of heartbeats, whichever is
+// longer.
+func reportWindow(intervalMs, heartbeatMs int64) int64 {
+	return freshnessBeats * min(max(intervalMs, heartbeatMs), ledger.MaxReportIntervalMs)
 }
 
 // Lane reads one lane with its freshness.

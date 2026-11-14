@@ -234,6 +234,7 @@ Each worker measures its machine and its sessions every `report_interval`, and s
 - The machine's CPU use and core count, its load averages, its memory in all, used, and available, and its memory pressure where the system provides it.
 - The free space on the volumes that hold the state directory and the worktrees of the lanes that run.
 - The CPU and resident memory of each session's process tree: each lane and the orchestrator.
+- How many lanes hold a place under the lane caps, from which the control plane records when the worker stands at a cap ([capacity intervals](measures.md#capacity-intervals)).
 
 On Linux the worker reads `/proc` for CPU, load, memory, pressure, and each process, and `statfs` for free space; a process's CPU time includes the children it reaped. On macOS it runs `sysctl`, `vm_stat`, and `ps -S`, which adds each process's exited children to its time, and reports no machine CPU use and no memory pressure. A measure the machine cannot provide is reported as unavailable, never as zero.
 
