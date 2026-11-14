@@ -146,8 +146,9 @@
       "at": 1790000007000,
       "kind": "action",
       "action": {
-        "operation": "work_order.create",
+        "operation": "work_order.create_by_assistant",
         "label": "Create work",
+        "subject": "work_order:wo-plan",
         "outcome": "ran",
         "rev": 46
       }

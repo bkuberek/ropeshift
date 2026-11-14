@@ -614,9 +614,9 @@ func TestTheDelegatePolicyExemptsOnlyWhatItMay(t *testing.T) {
 	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
 	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
 	ctx := t.Context()
-	_, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.cancel\", \"work_order.create\", \"roster.change\", \"delegate.create\", \"work_order.teleport\"]\n")
+	_, err := d.Client.PublishPolicy(ctx, "[delegate_policy]\nversion = 2\nexempt = [\"work_order.cancel\", \"work_order.claim\", \"roster.change\", \"delegate.create\", \"work_order.teleport\"]\n")
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
-	for _, id := range []string{"work_order.create", "roster.change", "delegate.create", "work_order.teleport"} {
+	for _, id := range []string{"work_order.claim", "roster.change", "delegate.create", "work_order.teleport"} {
 		if !strings.Contains(err.Error(), id) {
 			t.Errorf("the refusal does not name %s: %v", id, err)
 		}
@@ -722,9 +722,9 @@ func TestTheAuditNamesADelegateByItsLabelAndMember(t *testing.T) {
 	ctx := t.Context()
 	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
 	delegate := asDelegate(t, d.Socket, created.Token, apitest.ProjectName)
-	if _, err := delegate.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "w1", Title: "Add the retry budget", Statement: "Retry twice."}); err != nil {
-		t.Fatal(err)
-	}
+	// The card an outside delegate's work becomes is an event by the delegate.
+	_, err := delegate.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "w1", Title: "Add the retry budget", Statement: "Retry twice."})
+	preparedCard(t, err)
 	member := memberOf(t, d)
 	byDelegate := func() api.AuditEvent {
 		t.Helper()

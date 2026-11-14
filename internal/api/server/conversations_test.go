@@ -307,7 +307,7 @@ func TestTheAssistantsCallsAreEntriesOfItsConversation(t *testing.T) {
 			cards = append(cards, entry)
 		}
 	}
-	if len(actions) != 2 || actions[0].Action.Operation != authority.OpWorkOrderCreate || actions[0].Action.Outcome != conversations.OutcomeRan ||
+	if len(actions) != 2 || actions[0].Action.Operation != authority.OpWorkOrderCreateByAssistant || actions[0].Action.Outcome != conversations.OutcomeRan ||
 		actions[0].Action.Rev == 0 || actions[1].Action.Operation != authority.OpLaneStart || actions[1].Action.PlanningLane != "lane-plan" {
 		t.Fatalf("actions %+v", actions)
 	}

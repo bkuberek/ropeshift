@@ -19,6 +19,7 @@ import (
 	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -89,6 +90,7 @@ func resolved(resolve resolver, ids ...string) routeOperation {
 // Subject kinds a card binds to: the ones the ledger's events name.
 const (
 	subjectWorkOrder = workorders.SubjectKind
+	subjectPlan      = planning.SubjectPlan
 	subjectQuestion  = "question"
 	subjectDecision  = "decision"
 	subjectCategory  = "category"
@@ -128,7 +130,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/delegates/{id}/remove":                   fixed(authority.OpDelegateRemove),
 	"POST /v1/backup":                                  fixed(authority.OpProjectBackup),
 	"POST " + api.BackupDownloadPath:                   fixed(authority.OpProjectBackup),
-	"POST /v1/work-orders":                             fixed(authority.OpWorkOrderCreate),
+	"POST /v1/work-orders":                             resolved(byKind(authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant), authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant).about(subjectWorkOrder).named(bodyField("id")),
 	"POST /v1/work-orders/{id}/review":                 resolved(reviewOperation, authority.OpWorkOrderReviewPlan, authority.OpWorkOrderReview).about(subjectWorkOrder),
 	"POST /v1/work-orders/{id}/claims":                 fixed(authority.OpWorkOrderClaim),
 	"POST /v1/work-orders/{id}/lanes":                  fixed(authority.OpLaneStart),
@@ -148,7 +150,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/work-orders/{id}/claims/{claim}/release": fixed(authority.OpWorkOrderRelease).about(subjectWorkOrder),
 	"PUT /v1/fleet/mode":                               resolved(fleetModeOperation, authority.OpFleetPause, authority.OpFleetRun).about(subjectWorkspace).named(theWorkspace),
 	"PUT /v1/fleet/caps":                               fixed(authority.OpFleetCaps).about(subjectWorkspace).named(theWorkspace).showing(capsChanges),
-	"POST /v1/plans/{id}/reviews":                      fixed(authority.OpPlanStartReview),
+	"POST /v1/plans/{id}/reviews":                      resolved(byKind(authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant), authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant).about(subjectPlan),
 	"POST /v1/questions":                               fixed(authority.OpQuestionRecord).about(subjectQuestion).named(bodyField("id")),
 	"POST /v1/questions/{id}/dismiss":                  fixed(authority.OpQuestionDismiss).about(subjectQuestion),
 	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion),
@@ -918,6 +920,19 @@ func messageOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool,
 		return []string{authority.OpMessageOrchestrator}, false, nil
 	}
 	return []string{authority.OpMessageSend}, false, nil
+}
+
+// byKind reads the class of a call that creates a work order from the credential that makes it. An
+// orchestrator holds tools such as approval_decide and lane_start, and its wake states the title of work to
+// claim, so an outside delegate's call takes the consent operation, outside. The assistant acts in a
+// member's own conversation, so its call takes the operational one, assistant.
+func byKind(outside, assistant string) resolver {
+	return func(_ *handler, r *http.Request, _ []byte) ([]string, bool, error) {
+		if credential, ok := delegateOf(r.Context()); ok && credential.Assistant() {
+			return []string{assistant}, false, nil
+		}
+		return []string{outside}, false, nil
+	}
 }
 
 func repositoryOperation(h *handler, r *http.Request, body []byte) ([]string, bool, error) {

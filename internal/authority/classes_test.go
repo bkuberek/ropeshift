@@ -92,6 +92,37 @@ func TestNoGateDefectRunsAMemberOnlyOrNeverExemptOperation(t *testing.T) {
 	}
 }
 
+// TestCreatingWorkIsConsentForAnOutsideDelegateAndOperationalForTheAssistant holds the class of every call
+// that creates a work order: an orchestrator reads a work order's title, so an outside delegate's call is a
+// card a member confirms, unless the delegate policy exempts it as it may any question it records. The
+// assistant acts in a member's own conversation, and its call runs at once.
+func TestCreatingWorkIsConsentForAnOutsideDelegateAndOperationalForTheAssistant(t *testing.T) {
+	for _, c := range []struct {
+		outside, assistant string
+	}{
+		{authority.OpWorkOrderCreate, authority.OpWorkOrderCreateByAssistant},
+		{authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant},
+	} {
+		outside, ok := authority.OperationOf(c.outside)
+		if !ok || outside.Class != authority.ClassConsent || !outside.Exemptable || outside.Installation {
+			t.Errorf("an outside delegate's %s is %+v, want exemptable consent", c.outside, outside)
+		}
+		assistant, ok := authority.OperationOf(c.assistant)
+		if !ok || assistant.Class != authority.ClassOperational || assistant.Installation {
+			t.Errorf("the assistant's %s is %+v, want operational", c.assistant, assistant)
+		}
+		if assistant.Label != outside.Label || !slices.Equal(assistant.Actions, outside.Actions) {
+			t.Errorf("%s and %s run different things: %+v and %+v", c.outside, c.assistant, outside, assistant)
+		}
+		if err := (authority.DelegatePolicy{Version: 2, Exempt: []string{c.outside}}).Check(); err != nil {
+			t.Errorf("a policy cannot exempt %s: %v", c.outside, err)
+		}
+		if err := (authority.DelegatePolicy{Version: 2, Exempt: []string{c.assistant}}).Check(); !errors.Is(err, authority.ErrInvalid) {
+			t.Errorf("a policy exempts the operational %s: %v", c.assistant, err)
+		}
+	}
+}
+
 func TestStrictestClassWins(t *testing.T) {
 	ops := func(ids ...string) []authority.Operation {
 		var out []authority.Operation
@@ -186,13 +217,13 @@ func TestADelegatePolicyExemptsOnlyExemptableConsent(t *testing.T) {
 		t.Fatalf("a good policy: %v", err)
 	}
 	refused := authority.DelegatePolicy{Version: 2, Exempt: []string{
-		"work_order.teleport", "work_order.create", "delegate.create", "roster.change", "work_order.accept",
+		"work_order.teleport", "work_order.claim", "delegate.create", "roster.change", "work_order.accept",
 	}}
 	err := refused.Check()
 	if !errors.Is(err, authority.ErrInvalid) {
 		t.Fatalf("got %v", err)
 	}
-	for _, id := range []string{"work_order.teleport", "work_order.create", "delegate.create", "roster.change"} {
+	for _, id := range []string{"work_order.teleport", "work_order.claim", "delegate.create", "roster.change"} {
 		if !strings.Contains(err.Error(), id) {
 			t.Errorf("the refusal does not name %s: %v", id, err)
 		}
@@ -210,7 +241,7 @@ func TestADelegatePolicyNeverExemptsInAOneWayCategory(t *testing.T) {
 	answer, _ := authority.OperationOf("question.answer")
 	accept, _ := authority.OperationOf("work_order.accept")
 	cancel, _ := authority.OperationOf("work_order.cancel")
-	operational, _ := authority.OperationOf("work_order.create")
+	operational, _ := authority.OperationOf("work_order.claim")
 	if !policy.Exempts([]authority.Operation{answer}, false) {
 		t.Error("an exempt answer outside a one-way category is not exempt")
 	}

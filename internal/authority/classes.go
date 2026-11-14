@@ -68,6 +68,7 @@ const (
 	OpDelegateRemove                    = "delegate.remove"
 	OpProjectBackup                     = "project.backup"
 	OpWorkOrderCreate                   = "work_order.create"
+	OpWorkOrderCreateByAssistant        = "work_order.create_by_assistant"
 	OpWorkOrderReviewPlan               = "work_order.review_plan"
 	OpWorkOrderReview                   = "work_order.review"
 	OpWorkOrderClaim                    = "work_order.claim"
@@ -91,6 +92,7 @@ const (
 	OpFleetRun                          = "fleet.run"
 	OpFleetCaps                         = "fleet.caps"
 	OpPlanStartReview                   = "plan.start_review"
+	OpPlanStartReviewByAssistant        = "plan.start_review_by_assistant"
 	OpQuestionRecord                    = "question.record"
 	OpQuestionDismiss                   = "question.dismiss"
 	OpQuestionAnswer                    = "question.answer"
@@ -192,7 +194,11 @@ var operations = append(onInstallation(
 ),
 	never(OpRosterChange, "Change the agent roster", neverRoster, ActionChangeRoster),
 	memberOnly(OpProjectBackup, "Back up the project", ActionBackupProject),
-	operational(OpWorkOrderCreate, "Create work"),
+	// An orchestrator holds tools such as approval_decide and lane_start, and its wake states the title of
+	// work to claim, so an outside delegate's call that creates a work order is a card, as a question it
+	// records is. The assistant acts in a member's own conversation, so its call runs at once.
+	consent(OpWorkOrderCreate, "Create work"),
+	operational(OpWorkOrderCreateByAssistant, "Create work"),
 	operational(OpWorkOrderReviewPlan, "Review planning work", ActionPassReview),
 	consent(OpWorkOrderReview, "Pass a review", ActionPassReview),
 	operational(OpWorkOrderClaim, "Claim work"),
@@ -215,7 +221,9 @@ var operations = append(onInstallation(
 	operational(OpFleetPause, "Pause the fleet", ActionChangeFleet),
 	consent(OpFleetRun, "Run the fleet", ActionChangeFleet),
 	consent(OpFleetCaps, "Set the fleet's caps", ActionChangeFleet),
-	operational(OpPlanStartReview, "Start a contract review", ActionPassReview),
+	// A contract review is a work order, which the same rule holds.
+	consent(OpPlanStartReview, "Start a contract review", ActionPassReview),
+	operational(OpPlanStartReviewByAssistant, "Start a contract review", ActionPassReview),
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),
