@@ -12,7 +12,7 @@ import { Button, LinkTabs } from "../ui/controls";
 import { Absent, Banner, EmptyState, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
 import { Dialog, useToast } from "../ui/overlays";
 import { Icon } from "../ui/Icon";
-import { bytes } from "./resources";
+import { bytes, sessionOf } from "./resources";
 import { laneLabel, workerStates } from "./states";
 
 type FloorRead = { project: string; view: ShopFloor };
@@ -38,13 +38,8 @@ function NotReported() {
   return <Absent>not reported</Absent>;
 }
 
-// sessionOf finds one session in a worker's last report: a lane by its ID, or the orchestrator.
-function sessionOf(report: ResourceReport | undefined, kind: SessionResources["kind"], lane?: string): SessionResources | undefined {
-  return report?.sessions.find((row) => row.kind === kind && (lane === undefined || row.lane === lane));
-}
-
 // SessionUse is a session's process tree as its worker last measured it.
-function SessionUse({ report, session }: { report?: ResourceReport; session?: SessionResources }) {
+export function SessionUse({ report, session }: { report?: ResourceReport; session?: SessionResources }) {
   if (!report) {
     return <NotReported />;
   }
