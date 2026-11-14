@@ -140,3 +140,31 @@ describe("the client", () => {
     expect(opened).toBe("/v1/projects/default/events?after=12");
   });
 });
+
+// The ledger takes a decision's ID of 1 to 64 letters, digits, '-', and '_'. An answer's decision is named
+// from its question, so a second send of one answer finds the first, whatever the question's ID holds.
+describe("the decision an answer becomes", () => {
+  const plain = /^[A-Za-z0-9_-]{1,64}$/;
+  const sentID = async (question: string): Promise<string> => {
+    const sent = serveApi(() => ({ status: 200, body: {} }));
+    await answerQuestion(question, "Two retries.");
+    return (sent[0]?.body as { id: string }).id;
+  };
+
+  it("is named after a plain question", async () => {
+    expect(await sentID("q1")).toBe("answer-q1");
+    expect(await sentID("01JD5Z8Q4M3N2P1R0S9T8V7W6X")).toBe("answer-01JD5Z8Q4M3N2P1R0S9T8V7W6X");
+  });
+
+  it("is a plain digest of a question whose name would not fit or holds another character", async () => {
+    const long = "q".repeat(60);
+    for (const question of [long, "q.1", "q:1", "older/question"]) {
+      const id = await sentID(question);
+      expect(id).toMatch(plain);
+      expect(id.startsWith("answer_")).toBe(true);
+      expect(await sentID(question)).toBe(id);
+    }
+    expect(await sentID(long)).not.toBe(await sentID("q".repeat(61)));
+    expect(await sentID("q.1")).not.toBe(await sentID("q:1"));
+  });
+});

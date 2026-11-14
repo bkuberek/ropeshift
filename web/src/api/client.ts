@@ -205,9 +205,24 @@ export function signOut(): Promise<void> {
 // recorded by the listener it came through.
 export type Place = "needs_you" | "conversation";
 
-// The decision's ID comes from the question, so a second send of one answer finds the first.
-export function answerQuestion(id: string, answer: string, place?: Place): Promise<unknown> {
-  return call("POST", paths.answer(id), { id: `answer-${id}`, answer, ...(place ? { place } : {}) });
+// A plain ID is what the ledger takes for a decision: 1 to 64 letters, digits, '-', and '_'.
+const plainID = /^[A-Za-z0-9_-]{1,64}$/;
+
+// decisionIDOf names the decision an answer becomes after its question, so a second send of one answer finds
+// the first. A question whose name would not fit, or holds another character as an older one may, gives a
+// digest of its ID instead, under a prefix the plain form never makes.
+export async function decisionIDOf(question: string): Promise<string> {
+  const named = `answer-${question}`;
+  if (plainID.test(named)) {
+    return named;
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(question));
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `answer_${hex.slice(0, 40)}`;
+}
+
+export async function answerQuestion(id: string, answer: string, place?: Place): Promise<unknown> {
+  return call("POST", paths.answer(id), { id: await decisionIDOf(id), answer, ...(place ? { place } : {}) });
 }
 
 export function decideApproval(id: string, digest: string, allow: boolean, reason: string, place?: Place): Promise<unknown> {
