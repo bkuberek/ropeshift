@@ -126,7 +126,7 @@ A card names the exact call, why the delegate proposes it, and what it changes, 
 
 A versioned `[delegate_policy]` lists the consent operations a delegate runs with no card, and the built-in version lists none, so every consent operation asks. It may list only four reversible acts:
 
-- `work_order.accept`: accepting work whose every criterion passed on a check the lane did not write, with no check failed and every check its base branch requires green on the pull request it lands through, as the work stands when the call comes.
+- `work_order.accept`: accepting work whose every criterion passed on a check the lane did not write, with no check failed, no verdict that counts for its attempt `fail` or `cannot_judge`, and every check its base branch requires green on the pull request it lands through, as the work stands when the call comes.
 - `work_order.rework`: sending work to rework once a verdict that counts for its attempt failed.
 - `work_order.create`: creating work.
 - `plan.start_review`: starting a contract review.

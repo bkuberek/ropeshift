@@ -207,7 +207,7 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 		if !authority.Allowed(actor, acceptAction(assessment.Needs)) {
 			return workorders.ErrForbidden
 		}
-		if err := delegateAccepts(tx, current, assessment, actor); err != nil {
+		if err := delegateAccepts(tx, current, actor); err != nil {
 			return err
 		}
 		if current.State == workorders.Done {
@@ -251,12 +251,17 @@ func (a *Acceptances) Accept(ctx context.Context, scope ledger.WorkspaceID, id s
 	return state, nil
 }
 
-// delegateAccepts holds a delegate's own acceptance to verified work, read in the transaction that accepts:
-// every check the base requires must be green on the pull request the work lands through, besides the
-// criteria a delegate's action already holds it to (ADR-0024). Any other acceptance is a member's.
-func delegateAccepts(tx ports.WriteTx, current workorders.WorkOrder, assessment workorders.Assessment, actor ledger.Actor) error {
+// delegateAccepts holds a delegate's own acceptance to verified work, read in the transaction that accepts: no
+// verdict that counts for the attempt failed or left a criterion unjudged, and every check the base requires is
+// green on the pull request the work lands through, besides the criteria a delegate's action already holds it
+// to (ADR-0024). Any other acceptance is a member's.
+func delegateAccepts(tx ports.WriteTx, current workorders.WorkOrder, actor ledger.Actor) error {
 	if _, _, delegated := authority.ActingFor(actor); !delegated {
 		return nil
+	}
+	at, err := readAttempt(tx.Planning(), tx.Evidence(), tx.Repositories(), current)
+	if err != nil {
+		return err
 	}
 	var checks []ledger.PullRequestCheck
 	pr, err := tx.Forge().PullRequest(current.ID)
@@ -266,8 +271,8 @@ func delegateAccepts(tx ports.WriteTx, current workorders.WorkOrder, assessment 
 	case !errors.Is(err, ports.ErrNotFound):
 		return err
 	}
-	if !workorders.Verified(assessment, checks) {
-		return fmt.Errorf("%w: a delegate accepts only work whose every criterion passed with every required check green", workorders.ErrForbidden)
+	if !workorders.Verified(at.assessment, at.verdicts, checks) {
+		return fmt.Errorf("%w: a delegate accepts only work whose every criterion passed, with no verdict failed or unjudged and every required check green", workorders.ErrForbidden)
 	}
 	return nil
 }

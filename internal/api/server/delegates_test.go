@@ -951,11 +951,26 @@ func TestAnExemptAcceptNeedsVerifiedWorkAndAnExemptReworkAFailedVerdict(t *testi
 		t.Errorf("the verified work was accepted by %+v, want the delegate", by)
 	}
 
+	unjudged := finishedWork(t, d, w, "wo-unjudged")
+	w.Run(unjudged).Finish(workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{{Criterion: "c1", Verdict: workorders.VerdictCannotJudge, Reasons: "The logs are missing."}}},
+	})
+	forgeCovers(t, d, "wo-unjudged")
+	_, err = delegate.Accept(ctx, "wo-unjudged")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work the review could not judge is a card for %s", detail.Operation)
+	}
+
 	review := finishedWork(t, d, w, "wo-failed")
 	w.Run(review).Finish(workorders.LaneResult{
 		Report:          workorders.Report{Outcome: workorders.OutcomeCompleted, Verdicts: []workorders.CriterionVerdict{{Criterion: "c1", Verdict: workorders.VerdictFail, Reasons: "It never stops."}}},
 		MaxReviewRounds: 1,
 	})
+	forgeCovers(t, d, "wo-failed")
+	_, err = delegate.Accept(ctx, "wo-failed")
+	if detail := cardDetail(t, preparedCard(t, err)); detail.Operation != authority.OpWorkOrderAcceptUnverified {
+		t.Errorf("accepting work whose review failed a criterion is a card for %s", detail.Operation)
+	}
 	reworked, err := delegate.Rework(ctx, "wo-failed", api.ReworkRequest{Reason: "The review found it never stops."})
 	if err != nil {
 		t.Fatalf("an exempt rework after a failed verdict: %v", err)

@@ -108,12 +108,16 @@ func TestAssessFollowsTheAcceptanceTable(t *testing.T) {
 }
 
 // TestVerifiedWorkPassedEveryCriterionWithEveryRequiredCheckGreen holds the only acceptance a delegate policy
-// may leave without a card: every criterion passed on a check the lane did not write, nothing failed, and
-// every check the base requires is green on the pull request the work lands through.
+// may leave without a card: every criterion passed on a check the lane did not write, nothing failed, no
+// verdict that counts failed or left a criterion unjudged, and every check the base requires is green on the
+// pull request the work lands through.
 func TestVerifiedWorkPassedEveryCriterionWithEveryRequiredCheckGreen(t *testing.T) {
 	covered := Assess([]string{"c1", "c2"}, []Evidence{check("c1", SourceForge, CheckPassed), check("c2", SourceForge, CheckPassed)})
 	green := ledger.PullRequestCheck{Name: "CI result", State: ledger.CheckPassed, Required: true}
 	optional := ledger.PullRequestCheck{Name: "lint", State: ledger.CheckFailed}
+	verdict := func(criterion string, kind VerdictKind) Verdict {
+		return Verdict{CriterionVerdict: CriterionVerdict{Criterion: criterion, Verdict: kind}}
+	}
 	tests := []struct {
 		name string
 		view AcceptanceView
@@ -127,6 +131,9 @@ func TestVerifiedWorkPassedEveryCriterionWithEveryRequiredCheckGreen(t *testing.
 		{"a criterion no check maps to", AcceptanceView{Assessment: Assess([]string{"c1", "c2"}, []Evidence{check("c1", SourceForge, CheckPassed)})}, false},
 		{"a failed check", AcceptanceView{Assessment: Assess([]string{"c1"}, []Evidence{check("c1", SourceForge, CheckPassed), {Name: "vet", Status: CheckFailed, Source: SourceForge}})}, false},
 		{"no criteria", AcceptanceView{Assessment: Assess(nil, nil)}, false},
+		{"every criterion covered, every verdict passed", AcceptanceView{Assessment: covered, Verdicts: []Verdict{verdict("c1", VerdictPass), verdict("c2", VerdictPass)}}, true},
+		{"every criterion covered, a verdict failed", AcceptanceView{Assessment: covered, Verdicts: []Verdict{verdict("c1", VerdictPass), verdict("c2", VerdictFail)}}, false},
+		{"every criterion covered, a criterion the review could not judge", AcceptanceView{Assessment: covered, Verdicts: []Verdict{verdict("c1", VerdictCannotJudge), verdict("c2", VerdictPass)}}, false},
 	}
 	for _, tt := range tests {
 		if got := tt.view.Verified(); got != tt.want {

@@ -904,8 +904,9 @@ func retryOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, erro
 }
 
 // acceptOperation reads the class of an acceptance from the work as it stands when the call comes: work whose
-// every criterion passed on a check the lane did not write, with every check its base requires green, is the
-// acceptance a delegate policy may exempt, and any other is one that asks.
+// every criterion passed on a check the lane did not write, with no verdict of its attempt failed or unjudged
+// and every check its base requires green, is the acceptance a delegate policy may exempt, and any other is one
+// that asks.
 func acceptOperation(h *handler, r *http.Request, _ []byte) ([]string, bool, error) {
 	view, err := h.accepting.Standing(r.Context(), h.Scope, r.PathValue("id"))
 	if err != nil {

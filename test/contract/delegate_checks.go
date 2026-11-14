@@ -677,7 +677,25 @@ func checkDelegateAcceptanceBounds(r *Rig) error {
 	if _, err := ops.Rework(r.Ctx, r.Scope, lane, reworkReason, actor); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate sent work to rework that no failed verdict stands behind: %v", err)
 	}
-	failed, _, err := r.judged(s, criterionOne)
+	// Green checks do not outweigh the review: work whose review failed a criterion, or could not judge one,
+	// waits for a member however its checks went.
+	unjudged, head, err := r.judged(s, criterionOne)
+	if err != nil {
+		return err
+	}
+	if err := r.reviewSays(s, unjudged, say(criterionOne, workorders.VerdictCannotJudge)); err != nil {
+		return err
+	}
+	if err := r.forgeVerifies(s, unjudged, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, unjudged, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work the review could not judge: %v", err)
+	}
+	if err := r.stateIs(s, unjudged, workorders.Acceptance); err != nil {
+		return err
+	}
+	failed, head, err := r.judged(s, criterionOne)
 	if err != nil {
 		return err
 	}
@@ -689,6 +707,15 @@ func checkDelegateAcceptanceBounds(r *Rig) error {
 	}
 	if err := r.stateIs(s, failed, workorders.Acceptance); err != nil {
 		return Violatedf("a failed review past its bound should wait: %v", err)
+	}
+	if err := r.forgeVerifies(s, failed, head, ledger.CheckPassed); err != nil {
+		return err
+	}
+	if _, err := ops.Accept(r.Ctx, r.Scope, failed, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate accepted work whose review failed a criterion: %v", err)
+	}
+	if err := r.stateIs(s, failed, workorders.Acceptance); err != nil {
+		return err
 	}
 	if state, err := ops.Rework(r.Ctx, r.Scope, failed, reworkReason, actor); err != nil || state != workorders.Ready {
 		return Violatedf("a delegate's rework after a failed verdict: %v, %v", state, err)

@@ -147,11 +147,15 @@ func strongest(a, b Need) Need {
 	return NeedNothing
 }
 
-// Verified says an attempt's every criterion passed on a check the lane did not write, no check failed, and
-// every check the base branch requires is green on the pull request the work lands through, when it lands
-// through one. It is the only acceptance a delegate policy may leave without a card (ADR-0024).
-func Verified(assessment Assessment, pullRequest []ledger.PullRequestCheck) bool {
+// Verified says an attempt's every criterion passed on a check the lane did not write, no check failed, no
+// verdict that counts for the attempt failed or left a criterion the review could not judge, and every check
+// the base branch requires is green on the pull request the work lands through, when it lands through one.
+// It is the only acceptance a delegate policy may leave without a card (ADR-0024).
+func Verified(assessment Assessment, verdicts []Verdict, pullRequest []ledger.PullRequestCheck) bool {
 	if assessment.Needs != NeedNothing || len(assessment.Failed) != 0 {
+		return false
+	}
+	if outcome := ReviewOutcomeOf(verdicts); outcome != "" && outcome != ReviewPass {
 		return false
 	}
 	for _, check := range pullRequest {
@@ -205,7 +209,7 @@ func (v AcceptanceView) Verified() bool {
 	if v.PullRequest != nil {
 		checks = v.PullRequest.Checks
 	}
-	return Verified(v.Assessment, checks)
+	return Verified(v.Assessment, v.Verdicts, checks)
 }
 
 // FailedVerdict says a verdict that counts for the current attempt failed.

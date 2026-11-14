@@ -226,8 +226,9 @@ var operations = append(onInstallation(
 	operational(OpWorkOrderRetry, "Retry work", ActionRetryWork),
 	consent(OpWorkOrderRetryExtra, "Retry work with an extra attempt", ActionRetryWork),
 	// A delegate policy may exempt an acceptance only of work whose every criterion passed on a check the
-	// lane did not write, with every check its base requires green, and a rework only once a verdict of the
-	// attempt failed. Anything short of that is an operation of its own, which asks.
+	// lane did not write, with no verdict of the attempt failed or unjudged and every check its base requires
+	// green, and a rework only once a verdict of the attempt failed. Anything short of that is an operation of
+	// its own, which asks.
 	exemptable(OpWorkOrderAccept, "Accept work", ActionAccept),
 	consent(OpWorkOrderAcceptUnverified, "Accept unverified work", ActionAcceptLaneChecks, ActionAcceptUnchecked),
 	exemptable(OpWorkOrderRework, "Send work to rework", ActionRework),
