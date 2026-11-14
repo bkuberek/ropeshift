@@ -129,7 +129,7 @@ export function RecordedReader({ item, view, live, params }: { item: TreeItem; v
               {shown.version.source ? (
                 <>
                   {" "}
-                  · <span className="mono" title={shown.version.source}>{shown.version.source}</span>
+                  · <span className="mono doc-source" title={shown.version.source}>{shown.version.source}</span>
                 </>
               ) : null}
             </p>

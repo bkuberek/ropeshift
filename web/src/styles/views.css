@@ -1154,8 +1154,20 @@ details.older[open] > summary {
   text-decoration: underline;
 }
 
+/* A path breaks anywhere rather than run out of the reader, and a source too long for the line ends in an
+   ellipsis, whole in its title. */
 .doc-meta {
   margin-bottom: var(--s-8);
+  overflow-wrap: anywhere;
+}
+
+.doc-meta .doc-source {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .doc-facts {
