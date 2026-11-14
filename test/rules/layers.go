@@ -29,6 +29,7 @@ var domainPackages = map[string]bool{
 	"authority":     true,
 	"contextpacks":  true,
 	"conversations": true,
+	"delivery":      true,
 	"lanes":         true,
 	"ledger":        true,
 	"measures":      true,
