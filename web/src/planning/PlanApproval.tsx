@@ -290,6 +290,58 @@ export function PlanApprovalBody({ subject, live, after, reload }: { subject: Su
   );
 }
 
+// Author says where a version came from: the planning session whose lane's branch held it, or the file intake
+// read it from, at its commit. The ledger records no author of a commit.
+function Author({ approval, source = "" }: { approval: ApprovalRecord; source?: string }) {
+  const onWork = approval.work_order_id ? (
+    <>
+      {" "}
+      on <Link to={addressOf("/work-order", { id: approval.work_order_id })}>{approval.work_order_id}</Link>
+    </>
+  ) : null;
+  if (approval.requested_by.startsWith("lane:")) {
+    return (
+      <>
+        Written by{" "}
+        <TargetChip kind="planning" small>
+          Planning session
+        </TargetChip>
+        {onWork}
+      </>
+    );
+  }
+  if (approval.requested_by !== "system:intake") {
+    return (
+      <span>
+        Requested by {approval.requested_by}
+        {onWork}
+      </span>
+    );
+  }
+  // A source is a file's path and the commit intake read it at.
+  const at = source.lastIndexOf("@");
+  const path = at > 0 ? source.slice(0, at) : source;
+  const commit = at > 0 ? source.slice(at + 1) : "";
+  return (
+    <span>
+      Read by intake
+      {path ? (
+        <>
+          {" "}
+          from <code>{path}</code>
+        </>
+      ) : null}
+      {commit ? (
+        <>
+          {" "}
+          at commit <Digest value={commit} length={8} />
+        </>
+      ) : null}
+      {onWork}
+    </span>
+  );
+}
+
 // PlanApprovalPage reads one version of a plan by its plan's ID, or a branch's first version by its request's.
 export function PlanApprovalPage({ live, id, version, after }: { live: Live; id: string; version: string; after: () => Promise<void> }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -313,18 +365,9 @@ export function PlanApprovalPage({ live, id, version, after }: { live: Live; id:
           <h1 ref={heading} tabIndex={-1}>
             {missing ? "No such plan" : approval?.state === "pending" ? `Approve plan: ${title}, version ${subject?.version}` : subject ? `${title}, version ${subject.version}` : "Plan"}
           </h1>
-          {approval ? (
+          {approval && subject ? (
             <p className="row-tight page-note">
-              Written by{" "}
-              <TargetChip kind="planning" small>
-                Planning session
-              </TargetChip>
-              {approval.work_order_id ? (
-                <>
-                  {" "}
-                  on <Link to={addressOf("/work-order", { id: approval.work_order_id })}>{approval.work_order_id}</Link>
-                </>
-              ) : null}
+              <Author approval={approval} source={subject.detail.source} />
               {approval.raised_at ? <> · submitted {timeOf(approval.raised_at)}</> : null} · digest <Digest value={approval.subject_digest} />
             </p>
           ) : null}
