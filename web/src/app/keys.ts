@@ -11,6 +11,7 @@ export type KeyAction =
   | { type: "go"; view: View }
   | { type: "projects" }
   | { type: "dock" }
+  | { type: "target" }
   | { type: "next" }
   | { type: "previous" }
   | { type: "primary" };
@@ -28,6 +29,7 @@ const single: Record<string, KeyAction> = {
   "?": { type: "sheet" },
   p: { type: "projects" },
   ".": { type: "dock" },
+  t: { type: "target" },
   j: { type: "next" },
   k: { type: "previous" },
   a: { type: "primary" },
@@ -94,7 +96,8 @@ export function shortcutList(mac: boolean): ShortcutGroup[] {
         { keys: ["/"], does: "Open the command palette" },
         { keys: ["?"], does: "Show these shortcuts" },
         { keys: ["P"], does: "Switch project" },
-        { keys: ["."], does: "Open or close the conversation panel" },
+        { keys: ["."], does: "Open or close the conversation panel, with the cursor in its message box" },
+        { keys: ["T"], does: "Switch the conversation target" },
         { keys: ["Esc"], does: "Close the palette, dialog, menu, or drawer" },
       ],
     },

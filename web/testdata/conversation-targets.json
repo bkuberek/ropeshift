@@ -1,0 +1,59 @@
+{
+  "as_of": 1790000010000,
+  "assistant": {
+    "conversation": {
+      "id": "conv-1",
+      "member_id": "member-1",
+      "name": "Cancel the retry work, then plan the harbor work.",
+      "worker_id": "worker-atlas",
+      "desired_state": "running",
+      "actual_state": "running",
+      "run_lane": "generated-1",
+      "current_generation": 1,
+      "created_at": 1790000000000,
+      "last_active_at": 1790000009000,
+      "worker_name": "atlas",
+      "open_cards": 1
+    },
+    "workers": [
+      {
+        "id": "worker-atlas",
+        "name": "atlas",
+        "available": true
+      },
+      {
+        "id": "worker-a",
+        "name": "solo",
+        "available": false,
+        "reason": "runs no headless session"
+      }
+    ],
+    "idle_stop_ms": 900000,
+    "warm_idle_stop_ms": 120000
+  },
+  "orchestrators": [
+    {
+      "worker": "worker-atlas",
+      "name": "atlas",
+      "state": "stopped",
+      "desired_state": "stopped",
+      "generation": 0,
+      "projects": [
+        "default"
+      ]
+    }
+  ],
+  "planning": [],
+  "lanes": [
+    {
+      "lane": "lane-wo-1",
+      "work_order": "wo-1",
+      "title": "Add the retry budget",
+      "kind": "change",
+      "worker": "worker-a",
+      "worker_name": "solo",
+      "generation": 1,
+      "state": "working"
+    }
+  ]
+}

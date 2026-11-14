@@ -41,6 +41,7 @@ describe("the keyboard", () => {
   it.each([
     ["p", "projects"],
     [".", "dock"],
+    ["t", "target"],
     ["j", "next"],
     ["k", "previous"],
     ["a", "primary"],
@@ -54,14 +55,14 @@ describe("the keyboard", () => {
   });
 
   it("takes no single key while a person types in a field", () => {
-    for (const key of ["/", "?", "g", "p", ".", "j", "k", "a"]) {
+    for (const key of ["/", "?", "g", "p", ".", "t", "j", "k", "a"]) {
       expect(readKey(press(key, { inField: true }), idle, on).action, key).toBeNull();
     }
   });
 
   it("takes no single key when a person turned them off, and still opens the palette with Mod+K", () => {
     const off = { singleKeys: false, now: 1000 };
-    for (const key of ["/", "?", "g", "p", ".", "j", "k", "a"]) {
+    for (const key of ["/", "?", "g", "p", ".", "t", "j", "k", "a"]) {
       expect(readKey(press(key), idle, off).action, key).toBeNull();
     }
     expect(readKey(press("k", { metaKey: true }), idle, off).action).toEqual({ type: "palette" });
@@ -78,6 +79,8 @@ describe("the shortcut sheet", () => {
     const mac = shortcutList(true).flatMap((group) => group.rows.map((row) => row.keys.join(" ")));
     expect(mac).toContain("⌘ K");
     expect(mac).toContain("G F");
+    expect(mac).toContain("G C");
+    expect(mac).toContain("T");
     const other = shortcutList(false).flatMap((group) => group.rows.map((row) => row.keys.join(" ")));
     expect(other).toContain("Ctrl K");
   });

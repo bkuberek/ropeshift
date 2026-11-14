@@ -167,6 +167,15 @@ func fillLegacy(ctx context.Context, store *sqlstore.Store) (legacy, error) {
 		if _, err := tx.Policies().Insert(autonomy); err != nil {
 			return err
 		}
+		assistant, err := authority.NewAssistantVersion("assistant-1", "member-1", authority.AssistantDraft{
+			Body: authority.BuiltInAssistantBody, Policy: authority.BuiltInAssistantPolicy(),
+		}, tx.Now())
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Policies().Insert(assistant); err != nil {
+			return err
+		}
 		_, err = tx.Append(ledger.EventDraft{Type: "test.legacy", Actor: member, Subject: ledger.Subject{Kind: "test", ID: "legacy"}})
 		return err
 	})
@@ -269,6 +278,12 @@ func dump(t *testing.T, file string) map[string][]string {
 	return out
 }
 
+// installations says a policy row is one the installation holds for every project: the autonomy policy and the
+// assistant's.
+func installations(cells []string) bool {
+	return slices.Contains(cells, "kind=autonomy") || slices.Contains(cells, "kind=assistant")
+}
+
 // shared lists the rows of the shared tables, and the autonomy policy, with the scope they carry
 // replaced by the one given, so a ledger's rows and the installation's compare.
 func shared(rows map[string][]string, scope ledger.WorkspaceID) map[string][]string {
@@ -277,7 +292,7 @@ func shared(rows map[string][]string, scope ledger.WorkspaceID) map[string][]str
 		out[table] = []string{}
 		for _, row := range rows[table] {
 			cells := strings.Split(row, cellSeparator)
-			if table == "policy_versions" && !slices.Contains(cells, "kind=autonomy") {
+			if table == "policy_versions" && !installations(cells) {
 				continue
 			}
 			for i, cell := range cells {
@@ -330,7 +345,7 @@ func TestTheUpgradeKeepsTheWorkspaceTheFileAndEveryRecord(t *testing.T) {
 			want = []string{}
 		case table == "policy_versions":
 			want = slices.DeleteFunc(slices.Clone(rows), func(row string) bool {
-				return slices.Contains(strings.Split(row, cellSeparator), "kind=autonomy")
+				return installations(strings.Split(row, cellSeparator))
 			})
 		}
 		if !slices.Equal(after[table], want) {

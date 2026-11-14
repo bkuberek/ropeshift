@@ -16,8 +16,10 @@ import (
 	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -150,7 +152,11 @@ type everyState struct {
 	Freshness       []string                  `json:"freshness"`
 	CardStates      []authority.ApprovalState `json:"card_states"`
 	DelegateStates  []authority.DelegateState `json:"delegate_states"`
-	Views           map[string]any            `json:"views"`
+	// ConversationStates are where an assistant's session stands, and MessageStates where a message stands
+	// between the ledger and the session it is for.
+	ConversationStates []conversations.ActualState `json:"conversation_states"`
+	MessageStates      []messages.State            `json:"message_states"`
+	Views              map[string]any              `json:"views"`
 }
 
 func aWorldInEveryState(t *testing.T) *apitest.Daemon {
@@ -175,7 +181,8 @@ func TestFixtureCoversEveryState(t *testing.T) {
 	fixture := everyState{
 		WorkOrderStates: workorders.States(), LaneStates: lanes.ActualStates, Conditions: lanes.EveryCondition, Liveness: apitest.EveryLiveness,
 		Reach: apitest.EveryReach, Freshness: []string{ledger.FreshnessObserved, ledger.FreshnessLastReported},
-		CardStates: authority.CardStates(), DelegateStates: authority.DelegateStates(), Views: map[string]any{},
+		CardStates: authority.CardStates(), DelegateStates: authority.DelegateStates(),
+		ConversationStates: conversations.ActualStates, MessageStates: messages.States, Views: map[string]any{},
 	}
 	for _, name := range api.Views {
 		fixture.Views[name] = readAny(t, d, name)
@@ -401,6 +408,10 @@ func TestGoldenSettingsReads(t *testing.T) {
 	if _, err := project.PublishPolicy(t.Context(), recovery); err != nil {
 		t.Fatal(err)
 	}
+	assistant := "[assistant]\nversion = 2\nidle_stop = \"30m\"\nwarm_idle_stop = \"2m\"\n"
+	if _, err := project.PublishPolicy(t.Context(), assistant); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := project.ChangeRoster(t.Context(), roster.Change{Op: roster.OpSet, Agent: "heavy-implementation", Fields: map[string]string{"effort": "max"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -412,6 +423,11 @@ func TestGoldenSettingsReads(t *testing.T) {
 		"roster-history":     func() (any, error) { return project.RosterHistory(t.Context(), "") },
 		"members":            func() (any, error) { return in.Client.Members(t.Context()) },
 		"audit":              func() (any, error) { return project.Audit(t.Context(), api.AuditQuery{Limit: 8}) },
+		"policies-assistant": func() (any, error) {
+			var out api.PolicyList
+			err := in.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/policies?kind=assistant"), nil, &out)
+			return out, err
+		},
 		"policies-recovery": func() (any, error) {
 			var out api.PolicyList
 			err := in.Client.Do(t.Context(), http.MethodGet, api.InProject(apitest.ProjectName, "/v1/policies?kind=recovery"), nil, &out)

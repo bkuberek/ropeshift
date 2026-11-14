@@ -58,3 +58,29 @@ export function rememberRecord(record: RecentRecord): void {
   const rest = recentRecords().filter((row) => !(row.id === record.id && row.project === record.project));
   write(recentKey, JSON.stringify([record, ...rest].slice(0, recentLimit)));
 }
+
+// The conversation dock's width, which a person drags or steps with the arrow keys. It stays between the
+// bounds the design gives it.
+export const dockWidth = { min: 360, max: 640, step: 20, initial: 420 } as const;
+
+const dockKey = "ropeshift-dock-width";
+
+export function clampDock(width: number): number {
+  return Math.min(dockWidth.max, Math.max(dockWidth.min, Math.round(width)));
+}
+
+function storedDock(): number {
+  const stored = Number(read(dockKey));
+  return Number.isFinite(stored) && stored > 0 ? clampDock(stored) : dockWidth.initial;
+}
+
+// useDockWidth is the dock's width, remembered by this browser.
+export function useDockWidth(): [number, (width: number) => void] {
+  const [width, setWidth] = useState(storedDock);
+  const set = useCallback((next: number) => {
+    const clamped = clampDock(next);
+    setWidth(clamped);
+    write(dockKey, clamped === dockWidth.initial ? null : String(clamped));
+  }, []);
+  return [width, set];
+}

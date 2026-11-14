@@ -1,14 +1,15 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 
 import type { NeedItem, NeedsYou as View } from "../api/types";
-import { addressOf, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
+import { addressOf, CurrentProject, go, ItemProject, Link, useArrivalFocus, useRoute } from "../app/route";
+import { useTalk } from "../talk/state";
 import { useClock, ViewTime } from "../parts/parts";
 import { Icon } from "../ui/Icon";
 import { Button, FilterChip, Tabs, TabPanel } from "../ui/controls";
 import { EmptyState, ProjectTag } from "../ui/display";
 import { Select } from "../ui/forms";
 import { ApprovalCard } from "./ApprovalCard";
-import { ConfirmCard, ResolvedCard } from "./ConfirmCard";
+import { ConfirmCard, ResolvedCard, voidAsk } from "./ConfirmCard";
 import { ContractReviewCard } from "./ContractReviewCard";
 import { EffectCard } from "./EffectCard";
 import type { Frame } from "./frame";
@@ -22,7 +23,23 @@ import { WorkCard } from "./WorkCard";
 
 const hourMs = 3_600_000;
 
+// useAssistantCard is what an assistant's card offers beyond a delegate's: going to the conversation that
+// prepared it, and asking the assistant again for one that went void. Both belong to the project the page shows.
+function useAssistantCard(item: NeedItem | undefined) {
+  const talk = useTalk();
+  const current = useContext(CurrentProject);
+  if (!item || item.kind !== "confirm" || !item.card.conversation || item.card.conversation.deleted || (item.project && item.project.name !== current)) {
+    return {};
+  }
+  const conversation = item.card.conversation.id;
+  return {
+    openConversation: () => talk.select("assistant", conversation, { open: true, focus: true }),
+    askAgain: () => talk.askAgain(conversation, voidAsk(item.card.approval.summary)),
+  };
+}
+
 function Card({ item, after, frame }: { item: NeedItem; after: () => Promise<void>; frame: Frame }) {
+  const assistant = useAssistantCard(item);
   switch (item.kind) {
     case "questions":
       return <QuestionBatch batch={item.batch} after={after} frame={frame} />;
@@ -37,7 +54,7 @@ function Card({ item, after, frame }: { item: NeedItem; after: () => Promise<voi
     case "contract_review":
       return <ContractReviewCard review={item.contract_review} after={after} frame={frame} />;
     case "confirm":
-      return <ConfirmCard need={item.card} after={after} frame={frame} />;
+      return <ConfirmCard need={item.card} after={after} frame={frame} {...assistant} />;
   }
 }
 
@@ -116,6 +133,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
   const selected =
     listed.find((item) => keyOf(item) === chosenKey) ?? (chosenKey ? undefined : (listed.find((item) => keyOf(item) === remembered.current) ?? (narrow ? undefined : listed[0])));
   const selectedKey = selected ? keyOf(selected) : "";
+  const assistantOfSelected = useAssistantCard(selected);
   useEffect(() => {
     lastSelected.current = selectedKey;
   });
@@ -303,7 +321,7 @@ export function NeedsYou({ view, readAt, after, active = true }: Props) {
             </div>
           ) : null}
           {selected && tab === "open" && isGone(selected) && selected.kind === "confirm" ? (
-            <ResolvedCard need={selected.card} project={selected.project?.name ?? ""} after={after} frame={frameOf(selected)} />
+            <ResolvedCard need={selected.card} project={selected.project?.name ?? ""} after={after} frame={frameOf(selected)} askAgain={assistantOfSelected.askAgain} />
           ) : null}
           {/* Every card stays mounted, and only the selected one shows, so an answer in progress survives a look at another item. */}
           {view.items.map((item) => (

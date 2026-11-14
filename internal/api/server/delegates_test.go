@@ -121,6 +121,13 @@ func TestADelegateIsCheckedWhenMade(t *testing.T) {
 		"no expiry":        {Project: apitest.ProjectName, Label: "x"},
 		"no such project":  {Project: "nowhere", Label: "x", ExpiresInMs: day},
 		"another kind":     {Project: apitest.ProjectName, Label: "x", ExpiresInMs: day, Kind: "assistant"},
+		// The label `assistant` is the assistant's alone, so no outside credential can pass for it.
+		"the assistant's label":             {Project: apitest.ProjectName, Label: "assistant", ExpiresInMs: day},
+		"the assistant's label, cased":      {Project: apitest.ProjectName, Label: "Assistant ", ExpiresInMs: day},
+		"the assistant's label, in space":   {Project: apitest.ProjectName, Label: "  ASSISTANT", ExpiresInMs: day},
+		"the assistant's label, full width": {Project: apitest.ProjectName, Label: "ａｓｓｉｓｔａｎｔ", ExpiresInMs: day},
+		"the assistant's label, ligatured":  {Project: apitest.ProjectName, Label: "ａssistant", ExpiresInMs: day},
+		"the assistant's label, hidden":     {Project: apitest.ProjectName, Label: "assistant\u200b", ExpiresInMs: day},
 	} {
 		_, err := d.Client.CreateDelegate(ctx, in)
 		var refused *api.Error
@@ -818,5 +825,47 @@ func TestACardConfirmedOnTheWebSaysSo(t *testing.T) {
 	}
 	if row, err := d.Client.WorkOrder(ctx, "w1"); err != nil || row.State != workorders.Canceled {
 		t.Errorf("the confirmed call left %+v: %v", row, err)
+	}
+}
+
+// An outside delegate's events and cards name its kind, which a surface decides the assistant's form on, never
+// its label: the audit row of an outside delegate reads `external`, whatever it is called.
+func TestAnAuditRowNamesTheKindOfItsDelegate(t *testing.T) {
+	d := startTalk(t)
+	ctx := t.Context()
+	outside := asDelegate(t, d.socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	createReady(t, d.Daemon, "wo-ext")
+	_, err := outside.CancelWork(ctx, "wo-ext", api.CancelWork{Reason: "Not needed."})
+	card := preparedCard(t, err)
+	_, inside, _ := d.assistant(t)
+	createReady(t, d.Daemon, "wo-int")
+	_, err = inside.CancelWork(ctx, "wo-int", api.CancelWork{Reason: "Not needed."})
+	preparedCard(t, err)
+	page, err := d.client.Audit(ctx, api.AuditQuery{Actor: "delegate", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	for _, event := range page.Events {
+		if event.ActorLabel == "planning assistant" && event.DelegateKind != authority.DelegateExternal {
+			t.Errorf("an outside delegate's event reads as kind %q", event.DelegateKind)
+		}
+		kinds[event.DelegateKind] = true
+	}
+	if !kinds[authority.DelegateExternal] || !kinds[authority.DelegateAssistant] {
+		t.Errorf("the audit names kinds %v, want external and assistant", kinds)
+	}
+	var needs api.NeedsYou
+	if err := d.client.ReadView(ctx, api.ViewNeedsYou, "", &needs); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, item := range needs.Items {
+		if item.Card != nil {
+			seen[item.Card.Label] = item.Card.DelegateKind
+		}
+	}
+	if seen["planning assistant"] != authority.DelegateExternal || seen["assistant"] != authority.DelegateAssistant {
+		t.Errorf("the cards name kinds %v (card %s)", seen, card.ID)
 	}
 }

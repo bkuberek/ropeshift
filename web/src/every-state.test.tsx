@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { Lane, ShopFloor, Stuck } from "./api/types";
-import { cardStates, conditionWords, delegateStates, laneStates, workStates } from "./floor/states";
+import { cardStates, conditionWords, conversationStates, deliveryStates, delegateStates, laneStates, workStates } from "./floor/states";
 import { openPage } from "./opening";
 import { golden, serveViews } from "./testing";
 
@@ -18,6 +18,8 @@ type Fixture = {
   freshness: string[];
   card_states: string[];
   delegate_states: string[];
+  conversation_states: string[];
+  message_states: string[];
   views: Record<string, unknown>;
 };
 
@@ -177,5 +179,46 @@ describe("every card and delegate state", () => {
 
   it("has words for each state of a delegate credential, and no other", () => {
     expect(Object.keys(delegateStates).sort()).toEqual([...fixture.delegate_states].sort());
+  });
+});
+
+// An assistant's session states and a message's delivery states, as the API lists them: each has words, a
+// tone, and a glyph here, and none here is a state the API dropped.
+describe("every session and delivery state", () => {
+  it("has words for each state of an assistant's session, and no other", () => {
+    expect(Object.keys(conversationStates).sort()).toEqual([...fixture.conversation_states].sort());
+    for (const state of fixture.conversation_states) {
+      expect(conversationStates[state]?.label, state).toBeTruthy();
+    }
+  });
+
+  it("has the tone and glyph the design gives each session state", () => {
+    const look = (state: string) => `${conversationStates[state]?.tone} ${conversationStates[state]?.glyph}`;
+    expect(look("starting")).toBe("active dot");
+    expect(look("running")).toBe("active dot");
+    expect(look("working")).toBe("active half");
+    expect(look("stopping")).toBe("neutral ring");
+    expect(look("stopped")).toBe("neutral pause");
+    expect(look("failed")).toBe("danger cross");
+    expect(conversationStates.failed?.label).toBe("Could not start");
+  });
+
+  it("has words for each delivery state of a message, and no other", () => {
+    expect(Object.keys(deliveryStates).sort()).toEqual([...fixture.message_states].sort());
+    for (const state of fixture.message_states) {
+      expect(deliveryStates[state]?.label, state).toBeTruthy();
+    }
+  });
+
+  it("has the tone and glyph the design gives each delivery state", () => {
+    const look = (state: string) => `${deliveryStates[state]?.tone} ${deliveryStates[state]?.glyph}`;
+    expect(look("queued")).toBe("neutral ring");
+    expect(look("at_worker")).toBe("neutral ring");
+    expect(look("handed_off")).toBe("active half");
+    expect(look("admitted")).toBe("active dot");
+    expect(look("replied")).toBe("success check");
+    expect(look("refused")).toBe("danger cross");
+    expect(look("expired")).toBe("neutral slash");
+    expect(deliveryStates.at_worker?.label).toBe("At the worker");
   });
 });

@@ -32,7 +32,7 @@ import { lineDiff } from "../ui/lineDiff";
 import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/Icon";
 import { Dialog, useToast } from "../ui/overlays";
-import { newID, nextVersion, policies, policyBody, settingsOf } from "./logic";
+import { isMinutes, minutesBounds, newID, nextVersion, policies, policyBody, policySettings } from "./logic";
 import type { DelegationClass, PolicyKind, PolicyValue, PolicyValues } from "./logic";
 import { dateOf, Reading, SaveBar, saveDownload, useChange, useDraft, useLeaveGuard, useRead } from "./parts";
 
@@ -45,6 +45,7 @@ type Section = { id: string; title: string; scope: "installation" | "worker" | "
 const sections: Section[] = [
   { id: "admission", title: "Admission and lane caps", scope: "installation", note: "Caps count the lanes of every project on a machine. The orchestrator and the assistant never count." },
   { id: "autonomy-policy", title: "Autonomy defaults", scope: "installation", note: "The level a new worker starts at, and what an attended worker may run. Every project shares this policy." },
+  { id: "assistant", title: "Assistant", scope: "installation", note: "When an idle assistant session stops. A stopped conversation stays in the ledger and resumes when you send." },
   { id: "backup", title: "Backup", scope: "installation", note: "A copy of the installation's own records: the projects' registry, the members and the passphrase's hash, and the workers." },
   { id: "autonomy", title: "Autonomy and run windows", scope: "worker", note: "How freely each worker claims work, and the windows an attended worker runs in." },
   { id: "fleet", title: "Fleet", scope: "project", note: "The project's fleet mode and the caps a claim is held to, inside the machines' caps." },
@@ -63,6 +64,7 @@ const groupWords: Record<Section["scope"], string> = { installation: "Installati
 
 const policyOf: Partial<Record<string, PolicyKind>> = {
   "autonomy-policy": "autonomy",
+  assistant: "assistant",
   decision: "decision",
   lane: "lane",
   recovery: "recovery",
@@ -571,11 +573,11 @@ function AppearanceSection({ section, prefs }: { section: Section; prefs: Prefs 
   );
 }
 
-const valueWords = (value: PolicyValue | undefined): string => {
+const valueWords = (value: PolicyValue | undefined, minutes = false): string => {
   if (Array.isArray(value)) {
     return value.length === 0 ? "none" : value.map((item) => (typeof item === "string" ? item : item.tool)).join(", ");
   }
-  return value === undefined || value === "" ? "unset" : String(value);
+  return value === undefined || value === "" ? "unset" : minutes ? `${value} min` : String(value);
 };
 
 const same = (a: PolicyValue | undefined, b: PolicyValue | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -587,7 +589,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
   const [tab, setTab] = useState<"settings" | "history">("settings");
   const versions = read.view?.versions ?? [];
   const current = versions[0];
-  const [values, setValues, saved] = useDraft<PolicyValues>(settingsOf(current?.settings ?? "{}"));
+  const [values, setValues, saved] = useDraft<PolicyValues>(policySettings(kind, current?.settings ?? "{}"));
   const [review, setReview] = useState<{ body: string; version: number; title: string } | null>(null);
   const change = useChange();
   const toast = useToast();
@@ -595,9 +597,9 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
   const fields = policies[kind].fields;
   const changed = fields.filter((field) => !same(values[field.key], saved[field.key]));
   useLeaveGuard(changed.length > 0);
-  const summary = changed.map((field) => `${field.key} ${valueWords(saved[field.key])} → ${valueWords(values[field.key])}`).join(", ");
+  const summary = changed.map((field) => `${field.key} ${valueWords(saved[field.key], field.type === "minutes")} → ${valueWords(values[field.key], field.type === "minutes")}`).join(", ");
   const next = nextVersion(versions);
-  const invalid = fields.some((field) => field.type === "int" && (values[field.key] === "" || Number.isNaN(values[field.key])));
+  const invalid = fields.some((field) => (field.type === "int" && (values[field.key] === "" || Number.isNaN(values[field.key]))) || (field.type === "minutes" && !isMinutes(values[field.key])));
   const save = async () => {
     if (!review) {
       return;
@@ -662,7 +664,7 @@ function PolicySection({ section, kind, live, project, archived }: { section: Se
             <PolicyHistory
               versions={versions}
               archived={archived}
-              onRevert={(version) => setReview({ body: policyBody(kind, next, settingsOf(version.settings)), version: next, title: `Revert to version ${version.version}` })}
+              onRevert={(version) => setReview({ body: policyBody(kind, next, policySettings(kind, version.settings)), version: next, title: `Revert to version ${version.version}` })}
             />
           )}
         </Reading>
@@ -754,6 +756,24 @@ function PolicyField({ kind, spec, value, saved, disabled, failure = "", onChang
           className="input num field-tiny"
           type="number"
           min={0}
+          step={1}
+          inputMode="numeric"
+          autoComplete="off"
+          disabled={disabled}
+          value={String(value ?? "")}
+          onChange={(event) => onChange(event.target.value === "" ? "" : Number(event.target.value))}
+        />
+      </Field>
+    );
+  }
+  if (spec.type === "minutes") {
+    return (
+      <Field label={spec.label} source={source} help={spec.help} error={isMinutes(value) ? undefined : `Enter a whole number of minutes, ${minutesBounds.min} to ${minutesBounds.max.toLocaleString("en-US")}.`}>
+        <input
+          className="input num field-tiny"
+          type="number"
+          min={minutesBounds.min}
+          max={minutesBounds.max}
           step={1}
           inputMode="numeric"
           autoComplete="off"

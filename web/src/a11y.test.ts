@@ -24,6 +24,19 @@ const goldens = Object.fromEntries(
     .map((name) => [name.replace(/\.json$/, ""), readFileSync(join("testdata", name), "utf8")]),
 );
 
+// What the conversation surface reads: what the member can talk to, with a planning session on a pane, a
+// headless lane, and an interactive lane beside the stopped orchestrator the ledger wrote.
+const talkTargets = JSON.stringify({
+  ...JSON.parse(goldens["conversation-targets"] ?? "{}"),
+  planning: [
+    { lane: "lane-wo-running", work_order: "wo-plan", title: "Plan alerts", kind: "plan", worker: "worker-a", worker_name: "solo", generation: 1, run_mode: "tmux", state: "working" },
+  ],
+  lanes: [
+    { lane: "lane-wo-1", work_order: "wo-1", title: "Add the retry budget", kind: "change", worker: "worker-a", worker_name: "solo", generation: 1, run_mode: "headless", state: "working" },
+    { lane: "lane-wo-pane", work_order: "wo-2", title: "Highlight spans", kind: "change", worker: "worker-a", worker_name: "solo", generation: 1, run_mode: "tmux", state: "working" },
+  ],
+});
+
 const projects = JSON.stringify({ projects: [{ id: "default", name: "default", display_name: "Default", state: "active", created_at: 1, repositories: [] }] });
 
 // answer stands where the daemon stands, as `serveViews` does for the other tests.
@@ -96,7 +109,22 @@ async function answer(route: Route): Promise<void> {
   if (path === "/v1/sources") {
     return json(JSON.stringify({ sources: [] }));
   }
-  if (path === "/v1/events") {
+  if (path === "/v1/conversation-targets") {
+    return json(talkTargets);
+  }
+  if (path === "/v1/conversations" && goldens.conversations) {
+    return json(goldens.conversations);
+  }
+  if (/^\/v1\/conversations\/[^/]+\/entries$/.test(path) && goldens["conversation-entries"]) {
+    return json(goldens["conversation-entries"]);
+  }
+  if (/^\/v1\/lanes\/[^/]+\/stream$/.test(path) && goldens["lane-stream"]) {
+    return json(goldens["lane-stream"]);
+  }
+  if (/^\/v1\/orchestrators\/[^/]+\/stream$/.test(path) && goldens["orchestrator-stream"]) {
+    return json(goldens["orchestrator-stream"]);
+  }
+  if (path === "/v1/events" || path.startsWith("/v1/panes/")) {
     return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": open\n\n" });
   }
   return json(JSON.stringify({ error: { code: "not_found", message: "not served in this test" } }), 404);
@@ -131,12 +159,14 @@ const views = [
   "/projects/default/floor",
   "/projects/default/lane?id=lane-wo-running",
   "/projects/default/measures",
+  "/projects/default/conversations",
   "/usage",
   "/workers",
   "/projects",
   "/import",
   "/members",
   "/settings?section=admission",
+  "/settings?section=assistant",
   "/projects/default/settings?section=recovery",
   "/projects/default/settings?section=fleet",
   "/projects/default/settings?section=delegate-policy",
@@ -193,6 +223,15 @@ afterAll(async () => {
   await server?.close();
 }, 60_000);
 
+// Each kind of target, as the switcher names it, and what its surface holds that the audit should see.
+const targetKinds = [
+  { name: /Assistant/, ready: { role: "log", name: "Messages with the assistant" } },
+  { name: /Orchestrator.*solo|Orchestrator.*atlas/, ready: { role: "log", name: /Event stream of the orchestrator/ } },
+  { name: /Planning session.*lane-wo-running/, ready: { role: "region", name: "Pane of lane lane-wo-running" } },
+  { name: /Lane.*lane-wo-1/, ready: { role: "log", name: "Event stream of lane lane-wo-1" } },
+  { name: /Lane.*lane-wo-pane/, ready: { role: "region", name: "Pane of lane lane-wo-pane" } },
+] as const;
+
 describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
   describe.each(themes)("in the %s theme", (theme) => {
     it(
@@ -223,6 +262,52 @@ describe.each(Object.entries(sizes))("at %s width", (size, viewport) => {
         expect(found).toEqual([]);
       },
       300_000,
+    );
+
+    it(
+      "the conversation dock, open on each kind of target and on its menus and dialogs, meets WCAG 2.2 A and AA",
+      async () => {
+        const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: "reduce" });
+        await context.route(/\/v1\//, answer);
+        const page = await context.newPage();
+        await page.goto(`${base}/projects/default/roadmap`);
+        await ready(page);
+        await page.getByRole("button", { name: "Conversation panel" }).click();
+        const dock = page.getByRole("complementary", { name: "Conversation" });
+        await dock.getByRole("log", { name: "Messages with the assistant" }).waitFor();
+        const found: string[] = [];
+        for (const kind of targetKinds) {
+          await dock.getByRole("button", { name: "Switch target" }).click();
+          const menu = page.getByRole("menu", { name: "Switch conversation target" });
+          if (kind.name === targetKinds[0].name) {
+            found.push(...(await audit(page)).map((violation) => `target menu ${violation}`));
+          }
+          await menu.getByRole("menuitemradio", { name: kind.name }).first().click();
+          await dock.getByRole(kind.ready.role, { name: kind.ready.name }).waitFor();
+          await page.waitForTimeout(200);
+          found.push(...(await audit(page)).map((violation) => `${String(kind.name)} ${violation}`));
+        }
+        await dock.getByRole("button", { name: "Switch target" }).click();
+        await page.getByRole("menuitemradio", { name: /Assistant/ }).click();
+        await dock.getByRole("log", { name: "Messages with the assistant" }).waitFor();
+        await dock.getByRole("button", { name: "Conversation actions" }).click();
+        found.push(...(await audit(page)).map((violation) => `conversation menu ${violation}`));
+        // A control that changes state as a dialog opens must not show a color on its way: axe reads whatever
+        // a transition has reached, so the audit runs with transitions held slow.
+        const slow = await page.addStyleTag({ content: "*, *::before, *::after { transition-duration: 5s !important; }" });
+        await page.getByRole("menuitem", { name: "Rename…" }).click();
+        await page.getByRole("dialog", { name: "Rename conversation" }).waitFor();
+        found.push(...(await audit(page)).map((violation) => `rename dialog ${violation}`));
+        await slow.evaluate((style) => (style as HTMLElement).remove());
+        await page.keyboard.press("Escape");
+        await dock.getByRole("button", { name: "Conversation actions" }).click();
+        await page.getByRole("menuitem", { name: "Delete conversation…" }).click();
+        await page.getByRole("dialog", { name: /^Delete/ }).waitFor();
+        found.push(...(await audit(page)).map((violation) => `delete dialog ${violation}`));
+        await context.close();
+        expect(found.map((line) => `${size} ${theme} ${line}`)).toEqual([]);
+      },
+      180_000,
     );
 
     it(

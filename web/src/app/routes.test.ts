@@ -55,6 +55,7 @@ describe("an address", () => {
     ["/projects/harbor/plan", "plan"],
     ["/projects/harbor/planning", "planning"],
     ["/projects/harbor/traceability", "traceability"],
+    ["/projects/harbor/conversations", "conversations"],
   ])("%s is a view of that project", (path, view) => {
     expect(resolve(path, "")).toEqual({ kind: "view", view, project: "harbor" });
   });
@@ -105,6 +106,12 @@ describe("the views", () => {
     expect(goKeys.w).toBe("work");
     expect(goKeys.f).toBe("floor");
     expect(goKeys.u).toBe("usage");
+    expect(goKeys.c).toBe("conversations");
+  });
+
+  it("name the conversations by the view and never by a target", () => {
+    expect(titleOf("conversations")).toBe("Conversations");
+    expect(resolve("/projects/harbor/conversations", "?target=lane-1")).toEqual({ kind: "view", view: "conversations", project: "harbor" });
   });
 });
 

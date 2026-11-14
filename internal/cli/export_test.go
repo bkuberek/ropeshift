@@ -23,3 +23,10 @@ var (
 	WorkDetailText = workDetailText
 	LaneDetail     = laneDetail
 )
+
+// TalkLine is what a stream's entry reads as in a terminal, and Plain a word from an agent or a member made safe
+// to print.
+var (
+	TalkLine = talkLine
+	Plain    = plain
+)

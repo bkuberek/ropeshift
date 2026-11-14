@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"net/http"
 
 	"github.com/BurntSushi/toml"
@@ -110,8 +111,10 @@ func (h *handler) createDelegate(w http.ResponseWriter, r *http.Request, actor l
 		fail(w, err)
 		return
 	}
+	// A label is kept in its compatibility-normalized form, so a full-width or ligatured spelling of a reserved
+	// word reads as the word.
 	grant, err := h.delegates.Create(r.Context(), h.Scope, authority.DelegateRequest{
-		Member: actor.ID, Project: project.ID, Label: in.Label, Kind: in.Kind, ExpiresInMs: in.ExpiresInMs,
+		Member: actor.ID, Project: project.ID, Label: norm.NFKC.String(in.Label), Kind: in.Kind, ExpiresInMs: in.ExpiresInMs,
 	}, actor)
 	if err != nil {
 		fail(w, err)
@@ -223,7 +226,7 @@ func (h *handler) voidCardsOf(ctx context.Context, credentials []authority.Deleg
 // labelsOf reads the label of each delegate a page of events names, by its credential, so the audit names
 // a delegate as its member does. A credential whose record was removed keeps its ID as its label.
 func labelsOf(members ports.MemberReader, events []api.StreamEvent) error {
-	labels := map[string]string{}
+	labels, kinds := map[string]string{}, map[string]string{}
 	for i := range events {
 		_, credential, ok := authority.ActingFor(ledger.Actor{Kind: ledger.ActorKind(events[i].ActorKind), ID: events[i].ActorID})
 		if !ok {
@@ -238,11 +241,11 @@ func labelsOf(members ports.MemberReader, events []api.StreamEvent) error {
 			case err != nil:
 				return err
 			default:
-				label = record.Label
+				label, kinds[credential] = record.Label, record.Kind
 			}
 			labels[credential] = label
 		}
-		events[i].ActorLabel = label
+		events[i].ActorLabel, events[i].DelegateKind = label, kinds[credential]
 	}
 	return nil
 }

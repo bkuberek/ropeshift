@@ -11,6 +11,8 @@ import { addressOf, Link } from "../app/route";
 import { laneLabel } from "../floor/states";
 import { Ago, Page, useClock, ViewTime, words } from "../parts/parts";
 import { Absent, Badge, ConditionChip, EmptyState, Fact, Facts, Freshness, freshnessOf, Id, LaneBadge, Panel, TableRegion, TargetChip } from "../ui/display";
+import { useTalk } from "../talk/state";
+import { Button } from "../ui/controls";
 import { parseScreen, trimScreen } from "./screen";
 
 // retryMs is how long the page waits before it opens a pane's stream again: after the stream closed
@@ -252,6 +254,7 @@ export function LanePane({ lane, live, attached = true, state = "" }: { lane: st
 // LanePage is one lane: its facts, its generations, what it left behind, and its terminal pane, as a
 // terminal attached to it shows it.
 export function LanePage({ id, live }: { id: string; live: Live }) {
+  const talk = useTalk();
   const floor = useView<ShopFloor>(() => readView<ShopFloor>("shop-floor"), "lane:floor", live);
   const now = useClock();
   const crumbs = (
@@ -280,6 +283,11 @@ export function LanePage({ id, live }: { id: string; live: Live }) {
       }
       crumbs={crumbs}
       note={lane ? lane.work_order_title || lane.work_order : undefined}
+      actions={
+        <Button icon="chat" onClick={() => talk.select("lane", id, { open: true, focus: true })}>
+          Talk to the lane
+        </Button>
+      }
     >
       <ViewTime.Provider value={{ asOf: floor.view?.as_of ?? 0, elapsed: Math.max(0, now - floor.readAt) }}>
         <div className="grid grid-main-side lane-page">

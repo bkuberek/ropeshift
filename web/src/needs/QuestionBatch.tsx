@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 
 import { ApiError, answerQuestion } from "../api/client";
+import type { Place } from "../api/client";
 import type { Batch, QuestionItem } from "../api/types";
 import { Button } from "../ui/controls";
 import { DecisionCard } from "../ui/DecisionCard";
@@ -113,7 +114,7 @@ function Question({ item, draft, onChange, disabled }: {
   );
 }
 
-export function QuestionBatch({ batch, after, frame }: { batch: Batch; after: () => Promise<void>; frame: Frame }) {
+export function QuestionBatch({ batch, after, frame, compact = false, place }: { batch: Batch; after: () => Promise<void>; frame: Frame; compact?: boolean; place?: Place }) {
   const form = useId();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [leftover, setLeftover] = useState("");
@@ -129,7 +130,7 @@ export function QuestionBatch({ batch, after, frame }: { batch: Batch; after: ()
       const refused: string[] = [];
       for (const item of ready) {
         try {
-          await answerQuestion(item.id, answerOf(draftOf(item)));
+          await answerQuestion(item.id, answerOf(draftOf(item)), place);
         } catch (error) {
           if (!(error instanceof ApiError) || error.code !== "resolved") {
             refused.push(error instanceof Error ? error.message : String(error));
@@ -142,6 +143,7 @@ export function QuestionBatch({ batch, after, frame }: { batch: Batch; after: ()
   const label = ready.length === count ? (count === 1 ? "Send this answer" : `Send ${count} answers`) : `Send ${ready.length} of ${count} answer${count === 1 ? "" : "s"}`;
   return (
     <DecisionCard
+      compact={compact}
       kind={{ icon: "question", name: "Questions" }}
       project={frame.project}
       title={frame.title}

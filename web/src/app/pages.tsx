@@ -11,6 +11,7 @@ import { UsagePage, WorkersPage } from "../floor/Installation";
 import { Operations } from "../floor/Operations";
 import { WorkOrderPage, WorkOrdersPage } from "../floor/WorkOrders";
 import { LanePage } from "../lanes/LanePane";
+import { ConversationsPage } from "../talk/Conversations";
 import { Page, StampLine, useClock, ViewTime } from "../parts/parts";
 import { Decisions } from "../planning/Decisions";
 import { DocumentsBody, DocumentsTabs } from "../planning/Documents";
@@ -217,6 +218,8 @@ function ViewFor({ view, project, scoped, params, live, after, needs, projects, 
       return <FloorPage live={live} project={project} projects={projects} show={param("show")} after={after} />;
     case "lane":
       return <LanePage key={param("id")} id={param("id")} live={live} />;
+    case "conversations":
+      return <ConversationsPage live={live} project={project} label={label} after={after} archived={archived} />;
     case "measures":
       return <ViewPage<OperationsView> name="operations" live={live} title="Measures" note={() => "The fleet, the counts by state, the sources, and the product measures, from the ledger."} body={(read) => <Operations view={read} />} />;
     case "workers":
