@@ -24,6 +24,7 @@ var ManifestChecks = []Check{
 	{"RM5", "a member registers what a manifest lists by hand, by its names, and a clone whose remote is not the manifest's is not registered", checkManifestRegisteredByHand},
 	{"RM7", "the first registration from a manifest in a project of one repository names that repository the planning repository, in its transaction, so a later registration still reads paths beside its clone", checkManifestRegistrationNamesThePlanningRepository},
 	{"RM8", "approving a plan registers only what its own version's manifest lists, and never brings back a repository a member removed, which only a member's registration by hand does", checkApprovalLeavesRemovedRepositoriesOut},
+	{"RM9", "a manifest name the project holds for another repository, by remote or by the clone at its path, is a name collision and registers nothing; the same repository under its name reads as registered", checkManifestNameCollision},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -614,4 +615,61 @@ func checkApprovalLeavesRemovedRepositoriesOut(r *Rig) error {
 		return Violatedf("billing after a member registered it again: %+v: %v", record, err)
 	}
 	return r.CheckProjection(s)
+}
+
+func checkManifestNameCollision(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-docs", Remote: "git@github.com:acme/docs.git", DefaultBranch: "main", Directory: "docs"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	// The clone at api's path is another repository than the project's api, and web's is the project's web.
+	kept.Place(ports.Clone{Path: "/work/api", ID: "repo-payments", Remote: "git@github.com:acme/payments.git", DefaultBranch: "main"})
+	kept.Place(ports.Clone{Path: "/work/web", ID: "repo-web", DefaultBranch: "main"})
+	planner, err := r.theRepository(s, "memory")
+	if err != nil {
+		return err
+	}
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
+		{Name: "api", Path: "../api"},
+		{Name: "web", Path: "../web"},
+		{Name: "docs", Remote: "git@github.com:acme/handbook.git", Path: "../docs"},
+		{Name: planner.Name, Path: "."},
+	}}
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	added, err := r.repositories(s).RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	for name, identity := range map[string]string{"api": "github.com/acme/payments", "docs": "github.com/acme/handbook"} {
+		collision, ok := outcomeNamed(added, name)
+		if !ok || collision.Outcome != ledger.RegistrationRefused || !strings.Contains(collision.Reason, "held by another repository") || !strings.Contains(collision.Reason, identity) {
+			return Violatedf("%s, whose name the project holds for another repository, reads %+v", name, collision)
+		}
+	}
+	for _, name := range []string{"web", planner.Name} {
+		if same, ok := outcomeNamed(added, name); !ok || same.Outcome != ledger.AlreadyRegistered {
+			return Violatedf("%s, the project's own repository, reads %+v", name, same)
+		}
+	}
+	if found, err := r.theRepository(s, "repo-payments"); err == nil {
+		return Violatedf("a name collision registered %+v", found)
+	}
+	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
+		return Violatedf("a manifest of collisions and held repositories moved the ledger from %d to %d: %v", before, after, err)
+	}
+	return nil
 }

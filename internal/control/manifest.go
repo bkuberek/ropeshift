@@ -160,12 +160,18 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		if dir.root != "" {
 			at = filepath.Join(dir.root, filepath.FromSlash(entry.Path))
 		}
-		if record, ok := held[entry.Name]; ok {
-			out = append(out, Added{Name: entry.Name, Path: at, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: checkouts[record.ID]})
-			continue
-		}
 		refused := func(path, reason string) Added {
 			return Added{Name: entry.Name, Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
+		}
+		if record, ok := held[entry.Name]; ok {
+			path, other := heldAs(ctx, kept, dir, entry, record, checkouts[record.ID], at)
+			if other != "" {
+				out = append(out, refused(path, fmt.Sprintf("its name is held by another repository: the project's %s is %s, and the manifest's is %s",
+					entry.Name, ledger.RepositoryIdentity(record.Remote, record.ID), other)))
+				continue
+			}
+			out = append(out, Added{Name: entry.Name, Path: path, Outcome: ledger.AlreadyRegistered, Repository: record, Checkout: checkouts[record.ID]})
+			continue
 		}
 		if record, ok := removed[entry.Name]; ok && !run.restore {
 			out = append(out, refused(at, staysRemoved(record)))
@@ -277,6 +283,42 @@ func placeOf(ctx context.Context, kept ports.Checkouts, dir planningDirectory, a
 		return real, fmt.Sprintf("%s is outside %s, the directory that holds the planning repository's clone", real, dir.parent)
 	}
 	return real, ""
+}
+
+// heldAs reads whether the repository the project holds under a manifest entry's name is the one the entry
+// names: by remote, when both name one, or else by the clone at the entry's path, where this worker's
+// checkout of the record or the planning repository's clone says so with no git. It returns the path the
+// entry resolves to, and the identity of the repository the entry names when that is another. A path it
+// cannot read, or that leads outside the bound, tells nothing, and the name reads as the record's.
+func heldAs(ctx context.Context, kept ports.Checkouts, dir planningDirectory, entry planning.ManifestRepository, record ledger.Repository, checkout, at string) (string, string) {
+	path := at
+	if dir.root != "" {
+		if real, reserved, err := kept.Resolve(ctx, at); err == nil && !reserved {
+			path = real
+		}
+	}
+	if entry.Remote != "" && record.Remote != "" {
+		if named := ledger.RepositoryIdentity(entry.Remote, ""); named != ledger.RepositoryIdentity(record.Remote, record.ID) {
+			return path, named
+		}
+		return path, ""
+	}
+	switch {
+	case dir.root == "" || path == checkout:
+		return path, ""
+	case path == dir.clone && record.ID != dir.planner.ID:
+		return path, ledger.RepositoryIdentity(dir.planner.Remote, dir.planner.ID) + ", the planning repository"
+	case path == dir.clone || !within(dir.parent, path):
+		return path, ""
+	}
+	found, _, err := kept.Find(ctx, []string{path}, 0)
+	if err != nil {
+		return path, ""
+	}
+	if top := slices.IndexFunc(found, func(clone ports.Clone) bool { return filepath.Clean(clone.Path) == path }); top >= 0 && found[top].ID != record.ID {
+		return path, ledger.RepositoryIdentity(found[top].Remote, found[top].ID)
+	}
+	return path, ""
 }
 
 // within says a path is inside a directory, and is not the directory itself.
