@@ -112,9 +112,23 @@ describe("the plan approval page", () => {
     expect(items).toHaveLength(2);
     expect(items[0]?.textContent).toContain("Which agent CLI runs the first lanes?");
     expect(items[0]?.textContent).toContain("It needs no new sign-in.");
-    expect(items[0]?.textContent).toContain("Proposed by system:intake");
+    expect(items[0]?.textContent).toContain("Proposed by intake, from the plan's file.");
+    expect(drafts.textContent).not.toContain("system:intake");
     expect(items[1]?.textContent).toContain("<img src=x onerror=alert(1)><script>alert(2)</script>");
     expect(document.querySelector("img[src='x']")).toBeNull();
+  });
+
+  it("says a planning session proposed the drafts of a planning lane's version, not the lane's address", async () => {
+    serve((view) => {
+      if (view.approval) {
+        view.approval.approval.requested_by = "lane:lane-plan";
+      }
+    });
+    openPage(page());
+    await heading();
+    const drafts = screen.getByRole("list", { name: "Draft decisions" });
+    expect(within(drafts).getAllByRole("listitem")[0]?.textContent).toContain("Proposed by the planning session.");
+    expect(drafts.textContent).not.toContain("lane:lane-plan");
   });
 
   it("marks a draft that a blocking question stood behind", async () => {
