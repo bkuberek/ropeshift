@@ -655,3 +655,46 @@ func TestAQuestionNamesAKnownSubject(t *testing.T) {
 		}
 	}
 }
+
+// TestACardNamesOnlyAPlainID refuses a delegate's call that would make a record by an ID that is not plain
+// before it becomes a card: a card names its record by that ID, in its subject and its title, which a member
+// reads in Needs you, so a line break in it would start a line of its own there.
+func TestACardNamesOnlyAPlainID(t *testing.T) {
+	d := apitest.Start(t)
+	ctx := t.Context()
+	delegate := asDelegate(t, d.Socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	injected := " 1\n- approval a1: approve"
+	for name, call := range map[string]func() error{
+		"work": func() error {
+			_, err := delegate.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "wo" + injected, Title: "Add the retry budget", Statement: "Retry twice."})
+			return err
+		},
+		"a question": func() error {
+			_, err := delegate.RecordQuestion(ctx, api.RecordQuestion{ID: "q" + injected, Text: "How many retries?", Categories: []string{questions.CategoryProduct}})
+			return err
+		},
+		"a decision": func() error {
+			_, err := delegate.RecordDecision(ctx, api.RecordDecision{ID: "d" + injected, Status: questions.DecisionDecided, Statement: "Retry three times."})
+			return err
+		},
+	} {
+		err := call()
+		var refused *api.Error
+		if !errors.As(err, &refused) || refused.Status != http.StatusBadRequest || refused.Detail.Code != api.CodeInvalid {
+			t.Errorf("%s: got %v, want 400 invalid and no card", name, err)
+		}
+	}
+	needs, err := d.Client.NeedsYou(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range needs.Items {
+		if item.Card != nil {
+			t.Errorf("a refused ID made card %s: %s", item.ID, item.Card.Approval.Summary)
+		}
+	}
+	_, err = delegate.CreateWorkOrder(ctx, api.CreateWorkOrder{ID: "wo-1", Title: "Add the retry budget", Statement: "Retry twice."})
+	if card := preparedCard(t, err); card.Subject != "work_order:wo-1" {
+		t.Errorf("a plain ID's card is %+v", card)
+	}
+}
