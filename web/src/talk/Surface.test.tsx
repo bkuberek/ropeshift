@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionTarget } from "../api/talk";
 import { openPage } from "../opening";
-import { here, refusal } from "../testing";
+import { here, openLedgerStream, refusal } from "../testing";
 import type { Sent } from "../testing";
 import { aConversation, serveTalk, talking } from "./serve";
 import type { Talking } from "./serve";
@@ -423,8 +423,7 @@ describe("switching the target", () => {
     ];
     // The stream follows the ledger: any event it hears is a reason to read again.
     window.dispatchEvent(new Event("online"));
-    const { FakeEvents } = await import("../testing");
-    FakeEvents.opened.at(-1)?.emit();
+    (await openLedgerStream()).emit();
     expect(await within(dock).findByText("This session is interactive: type in the pane.", {}, { timeout: 4000 })).toBeTruthy();
     expect(within(dock).getByText("The assistant started a planning session on WO-233 (lane L-91). You are now talking to it.")).toBeTruthy();
     expect(within(dock).getByText("WO-233 · L-91 · atlas")).toBeTruthy();

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { InProgress, OnHold, PlanOutline } from "../api/types";
 import { openPage } from "../opening";
 import type { Sent } from "../testing";
-import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
+import { FakeEvents, golden, here, openLedgerStream, refusal, serveViews } from "../testing";
 
 const lane = "lane-wo-effect";
 const parkedLane = "lane-wo-parked";
@@ -253,8 +253,8 @@ describe("the plan outline", () => {
     await screen.findByText("docs/requirements.md");
     const reads = () => sent.filter((call) => call.path === `/v1/lanes/${lane}/outline`).length;
     expect(reads()).toBe(1);
-    const events = FakeEvents.opened.find((stream) => stream.path.startsWith("/v1/events"));
-    act(() => events?.emit());
+    const events = await openLedgerStream();
+    act(() => events.emit());
     await waitFor(() => expect(reads()).toBe(2), { timeout: 3000 });
   });
 });

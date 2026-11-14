@@ -1,4 +1,5 @@
-import { vi } from "vitest";
+import { waitFor } from "@testing-library/react";
+import { expect, vi } from "vitest";
 
 import type { NeedsYou } from "./api/types";
 import needsYou from "../testdata/needs-you.json";
@@ -155,6 +156,18 @@ export class FakeEvents {
     this.readyState = FakeEvents.CLOSED;
     this.onerror?.();
   }
+}
+
+// openLedgerStream waits for the stream the page follows the ledger on, and returns it. A page opens that
+// stream in an effect, after the render a test finds its content in, so an event sent before it opens reaches
+// nobody. Waiting here, and sending on what it returns, fails loudly where an optional call would skip the
+// event and leave the test to wait out its timeout.
+export function openLedgerStream(): Promise<FakeEvents> {
+  return waitFor(() => {
+    const open = FakeEvents.opened.filter((stream) => !stream.closed && stream.path.startsWith("/v1/events"));
+    expect(open).toHaveLength(1);
+    return open[0] as FakeEvents;
+  });
 }
 
 export function stubEvents() {

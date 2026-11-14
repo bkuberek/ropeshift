@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Completed, InProgress, Operations, ShopFloor, Stuck } from "../api/types";
 import { openPage } from "../opening";
-import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
+import { golden, here, openLedgerStream, refusal, serveViews } from "../testing";
 
 function serving<T>(name: string, change: (view: T) => void) {
   const view = golden<T>(name);
@@ -700,9 +700,9 @@ describe("a work view on the stream", () => {
     const sent = serveViews();
     openPage("/work?group=stuck");
     await row("Fix the flaky test");
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const stream = await openLedgerStream();
     const reads = sent.filter((call) => call.path === "/v1/views/stuck").length;
-    FakeEvents.opened[0]?.emit();
+    stream.emit();
     await waitFor(() => expect(sent.filter((call) => call.path === "/v1/views/stuck").length).toBe(reads + 1));
   });
 });

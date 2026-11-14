@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Approval, NeedItem, NeedsYou as View } from "../api/types";
 import { openPage } from "../opening";
 import { serveTalk, talking } from "../talk/serve";
-import { FakeEvents, golden } from "../testing";
+import { golden, openLedgerStream } from "../testing";
 
 type CardItem = Extract<NeedItem, { kind: "confirm" }>;
 
@@ -87,11 +87,7 @@ describe("a card the assistant prepared, in Needs you", () => {
     await screen.findByRole("article", { name: card.card.approval.summary });
     // The page hears of a change on its stream, which an effect opens after the render that shows the card, so
     // the change waits for that stream: an event sent before it opens reaches nobody.
-    const stream = await waitFor(() => {
-      const open = FakeEvents.opened.filter((opened) => !opened.closed);
-      expect(open).toHaveLength(1);
-      return open[0] as FakeEvents;
-    });
+    const stream = await openLedgerStream();
     // The server stops listing a card that went void, and the page keeps it where it stood, with how it came out.
     listed = { ...view, items: view.items.filter((item) => item.id !== card.id) };
     stream.emit();

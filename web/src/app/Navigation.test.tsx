@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { openPage } from "../opening";
-import { FakeEvents, golden, here, refusal, serveViews } from "../testing";
+import { golden, here, openLedgerStream, refusal, serveViews } from "../testing";
 
 const views = () => screen.findByRole("navigation", { name: "Views" });
 const go = async (name: string | RegExp) => userEvent.click(within(await views()).getByRole("link", { name }));
@@ -176,9 +176,9 @@ describe("a view on the stream", () => {
     const sent = serveViews();
     openPage("/roadmap");
     await screen.findByRole("region", { name: "Ship solo mode" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const stream = await openLedgerStream();
     const reads = sent.filter((call) => call.path === "/v1/views/roadmap").length;
-    FakeEvents.opened[0]?.emit();
+    stream.emit();
     await waitFor(() => expect(sent.filter((call) => call.path === "/v1/views/roadmap").length).toBe(reads + 1));
   });
 
@@ -191,7 +191,6 @@ describe("a view on the stream", () => {
 
   it("keeps showing a view while it reads again", async () => {
     let held = false;
-    let answer: (() => void) | undefined;
     const body = golden<object>("roadmap");
     serveViews((call) => {
       if (call.path !== "/v1/views/roadmap") {
@@ -204,10 +203,9 @@ describe("a view on the stream", () => {
     });
     openPage("/roadmap");
     await screen.findByRole("region", { name: "Ship solo mode" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const stream = await openLedgerStream();
     held = true;
-    answer = () => FakeEvents.opened[0]?.emit();
-    answer();
+    stream.emit();
     expect((await screen.findByRole("alert")).textContent).toContain("The ledger is busy.");
     expect(screen.getByRole("region", { name: "Ship solo mode" })).toBeTruthy();
   });
@@ -216,11 +214,11 @@ describe("a view on the stream", () => {
     const sent = serveViews();
     openPage("/specs");
     await screen.findByRole("link", { name: "The retry spec" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const stream = await openLedgerStream();
     const reads = () => sent.filter((call) => call.path === "/v1/views/documents").length;
     const first = reads();
     for (let event = 0; event < 3; event += 1) {
-      FakeEvents.opened[0]?.emit();
+      stream.emit();
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(reads()).toBe(first);
@@ -232,8 +230,7 @@ describe("a view on the stream", () => {
     openPage("/document?path=docs%2Fspecs%2Fretry.md");
     await screen.findByRole("heading", { level: 2, name: "The retry spec" });
     await screen.findByRole("combobox", { name: "Version" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
-    FakeEvents.opened[0]?.emit();
+    (await openLedgerStream()).emit();
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(sent.filter((call) => call.path.startsWith("/v1/documents/read"))).toHaveLength(1);
   });
@@ -242,12 +239,12 @@ describe("a view on the stream", () => {
     const sent = serveViews();
     openPage("/roadmap");
     await screen.findByRole("region", { name: "Ship solo mode" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const stream = await openLedgerStream();
     const reads = () => sent.filter((call) => call.path === "/v1/needs-you").length;
     const first = reads();
     vi.useFakeTimers();
     for (let event = 0; event < 45; event += 1) {
-      FakeEvents.opened[0]?.emit();
+      stream.emit();
       vi.advanceTimersByTime(50);
     }
     vi.useRealTimers();
@@ -270,10 +267,8 @@ describe("a view on the stream", () => {
       return ordinary(path, init);
     }) as typeof fetch;
     openPage("/roadmap");
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1)).catch(() => undefined);
     await waitFor(() => expect(answers.length).toBeGreaterThanOrEqual(1));
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
-    FakeEvents.opened[0]?.emit();
+    (await openLedgerStream()).emit();
     await waitFor(() => expect(answers.length).toBeGreaterThanOrEqual(2));
     answers[1]?.(new Response(JSON.stringify(later), { status: 200 }));
     expect(await screen.findByRole("region", { name: "The newer goal" })).toBeTruthy();
@@ -289,9 +284,9 @@ describe("a view and a session", () => {
     serveViews((call) => (live || call.path === "/v1/sessions" ? undefined : refusal(401, "session_required")));
     openPage("/roadmap");
     await screen.findByRole("region", { name: "Ship solo mode" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const stream = await openLedgerStream();
     live = false;
-    FakeEvents.opened[0]?.emit();
+    stream.emit();
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
   });
 
