@@ -521,11 +521,11 @@ VALUES (:workspace_id, :id, :work_order_id, 1, :fence)`)
  WHERE workspace_id = :workspace_id AND id = :id`)
 
 	stmtInsertArtifact = define("artifact.insert",
-		`INSERT INTO artifacts (workspace_id, id, lane_id, kind, uri, digest, fence, created_at)
-VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :fence, :now)`)
+		`INSERT INTO artifacts (workspace_id, id, lane_id, kind, uri, digest, fence, files_changed, lines_added, lines_removed, created_at)
+VALUES (:workspace_id, :id, :lane_id, :kind, :uri, :digest, :fence, :files_changed, :lines_added, :lines_removed, :now)`)
 
 	stmtListArtifacts = define("artifact.list",
-		`SELECT id, lane_id, kind, uri, digest, fence, created_at FROM artifacts
+		`SELECT id, lane_id, kind, uri, digest, fence, files_changed, lines_added, lines_removed, created_at FROM artifacts
  WHERE workspace_id = :workspace_id AND lane_id = :lane_id ORDER BY created_at, kind, uri, id`)
 
 	stmtRequestArchive = define("lane.request_archive",
@@ -668,9 +668,14 @@ func (t laneTx) AddArtifact(artifact ledger.Artifact) error {
 	if err != nil {
 		return err
 	}
+	var files, added, removed sql.NullInt64
+	if c := artifact.Change; c != nil {
+		files, added, removed = sql.NullInt64{Int64: c.Files, Valid: true}, sql.NullInt64{Int64: c.Added, Valid: true}, sql.NullInt64{Int64: c.Removed, Valid: true}
+	}
 	_, err = t.exec(stmtInsertArtifact, params{
 		"workspace_id": string(t.scope), "id": artifact.ID, "lane_id": artifact.Lane, "kind": artifact.Kind,
-		"uri": artifact.URI, "digest": artifact.Digest, "fence": artifact.Fence, "now": now,
+		"uri": artifact.URI, "digest": artifact.Digest, "fence": artifact.Fence,
+		"files_changed": files, "lines_added": added, "lines_removed": removed, "now": now,
 	})
 	return err
 }
@@ -688,8 +693,13 @@ func scanArtifacts(rows *sql.Rows) ([]ledger.Artifact, error) {
 	var out []ledger.Artifact
 	for rows.Next() {
 		var artifact ledger.Artifact
-		if err := rows.Scan(&artifact.ID, &artifact.Lane, &artifact.Kind, &artifact.URI, &artifact.Digest, &artifact.Fence, &artifact.CreatedAt); err != nil {
+		var files, added, removed sql.NullInt64
+		if err := rows.Scan(&artifact.ID, &artifact.Lane, &artifact.Kind, &artifact.URI, &artifact.Digest, &artifact.Fence,
+			&files, &added, &removed, &artifact.CreatedAt); err != nil {
 			return nil, err
+		}
+		if files.Valid {
+			artifact.Change = &ledger.ChangeSize{Files: files.Int64, Added: added.Int64, Removed: removed.Int64}
 		}
 		out = append(out, artifact)
 	}

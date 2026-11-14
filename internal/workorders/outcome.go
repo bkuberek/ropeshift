@@ -3,6 +3,7 @@ package workorders
 import (
 	"fmt"
 
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 )
 
@@ -101,6 +102,9 @@ type LaneResult struct {
 	// Branch and Head are the final artifact (D17): the branch a member merges, and its commit.
 	Branch string `json:"branch,omitempty"`
 	Head   string `json:"head,omitempty"`
+	// Change is what the branch changed since the lane's base commit, which the worker measured. It is
+	// absent when the lane had no base commit or made no commit.
+	Change *ledger.ChangeSize `json:"change,omitempty"`
 	// MaxReviewRounds is the bound on review rounds the profile of the lane that ended named, which a
 	// review's verdicts are settled against. Zero names none, and the default holds.
 	MaxReviewRounds  int64   `json:"max_review_rounds,omitempty"`

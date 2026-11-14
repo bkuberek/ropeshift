@@ -444,7 +444,7 @@ func (w *Worker) endUnattended(ctx context.Context, record lanes.Record) error {
 	if report, ok := decodeReport(record.Report); ok {
 		result.Report = report
 	}
-	return w.endLane(ctx, record, result, w.leaseGone(ctx, record))
+	return w.endLane(ctx, record, w.baseOf(ctx, record), result, w.leaseGone(ctx, record))
 }
 
 func (rt *LaneRuntime) configDir(lane string) string {

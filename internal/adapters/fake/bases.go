@@ -91,6 +91,17 @@ func (w *Worktrees) Diff(_ context.Context, _, base, head string) (ports.Diff, e
 	return ports.Diff{Patch: patch.String(), Files: files}, nil
 }
 
+// ChangeSize counts the files the commits head grew from since base touched. A fake commit holds no text, so
+// each file counts one line added, as one written by Touch would.
+func (w *Worktrees) ChangeSize(ctx context.Context, path, base, head string) (ledger.ChangeSize, error) {
+	diff, err := w.Diff(ctx, path, base, head)
+	if err != nil {
+		return ledger.ChangeSize{}, err
+	}
+	files := int64(len(diff.Files))
+	return ledger.ChangeSize{Files: files, Added: files}, nil
+}
+
 // Add makes a commit that grew from the given commits and sits on no branch, so a test can build the
 // shape of a dependency, a merge, or two lines of work that diverged.
 func (w *Worktrees) Add(parents ...string) string {

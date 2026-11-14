@@ -213,20 +213,60 @@ func (w *Worker) finalGuard(ctx context.Context, record lanes.Record, fenced boo
 // because it is evidence a session must not write. A worktree it cannot read leaves no branch
 // on record, and the lane still ends.
 func (w *Worker) finalBranch(ctx context.Context, record lanes.Record) (string, string) {
+	found := w.finalWorktree(ctx, record)
+	return found.Branch, found.Head
+}
+
+// finalWorktree reads the worktree a lane ended in. One it cannot read, and an orchestrator's, read as none.
+func (w *Worker) finalWorktree(ctx context.Context, record lanes.Record) ports.Worktree {
 	stored, err := w.journal.Lane(ctx, record.ID)
 	if err != nil {
 		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
-		return "", ""
+		return ports.Worktree{}
 	}
 	if stored.Worktree == "" || leaseless(stored.Owner) {
-		return "", ""
+		return ports.Worktree{}
 	}
 	found, err := w.config.Lanes.Provisioner.Worktrees.Inspect(ctx, stored.Worktree)
 	if err != nil {
 		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
-		return "", ""
+		return ports.Worktree{}
 	}
-	return found.Branch, found.Head
+	return found
+}
+
+// changeSize measures what a lane's branch changed since its base commit (FR-OBS-13). A lane with no base
+// commit or no branch, or whose head is still its base, made no change to measure. A store that cannot
+// measure one, or a measure that fails, records none, and the lane still ends.
+func (w *Worker) changeSize(ctx context.Context, worktree ports.Worktree, base string) *ledger.ChangeSize {
+	if base == "" || worktree.Branch == "" || worktree.Head == "" || worktree.Head == base {
+		return nil
+	}
+	sizes, offered := w.config.Lanes.Provisioner.Worktrees.(ports.ChangeSizes)
+	if !offered {
+		return nil
+	}
+	size, err := sizes.ChangeSize(ctx, worktree.Path, base, worktree.Head)
+	if err != nil {
+		w.config.Report(fmt.Errorf("measuring the change of %s: %w", worktree.Path, err))
+		return nil
+	}
+	return &size
+}
+
+// baseOf is the base commit of the lease a lane holds, as desired state names it, and empty when the
+// worker no longer holds it.
+func (w *Worker) baseOf(ctx context.Context, record lanes.Record) string {
+	state, err := w.desired(ctx)
+	if err != nil || leaseless(record.Owner) {
+		return ""
+	}
+	for _, lease := range state.Leases {
+		if lease.ClaimID == record.ClaimID {
+			return lease.BaseCommit
+		}
+	}
+	return ""
 }
 
 // reportGuard journals what the ledger should know. A clean stop says nothing.

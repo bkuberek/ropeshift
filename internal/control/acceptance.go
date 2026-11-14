@@ -580,24 +580,25 @@ func recordForgeChecks(tx ports.WriteTx, w workorders.WorkOrder, branch ledger.A
 
 // recordEvidence keeps what a lane's end says, in the transaction that stores the end, so an
 // outcome can never stand without the artifacts and checks it rests on (FR-LANE-2). Only the
-// branch comes from the worker. A lane's checks hang from it as the artifact they prove.
+// branch, with the size of its change, comes from the worker. A lane's checks hang from it as the artifact
+// they prove.
 func recordEvidence(tx ports.WriteTx, holder workorders.Holder, fence int64, result workorders.LaneResult) error {
-	addArtifact := func(kind, uri, digest string) (string, error) {
+	addArtifact := func(kind, uri, digest string, change *ledger.ChangeSize) (string, error) {
 		id, err := newID(tx.Now())
 		if err != nil {
 			return "", err
 		}
-		return id, tx.Lanes().AddArtifact(ledger.Artifact{ID: id, Lane: holder.Lane, Kind: kind, URI: uri, Digest: digest, Fence: fence})
+		return id, tx.Lanes().AddArtifact(ledger.Artifact{ID: id, Lane: holder.Lane, Kind: kind, URI: uri, Digest: digest, Fence: fence, Change: change})
 	}
 	var branch string
 	if result.Branch != "" {
 		var err error
-		if branch, err = addArtifact(ledger.ArtifactBranch, result.Branch, result.Head); err != nil {
+		if branch, err = addArtifact(ledger.ArtifactBranch, result.Branch, result.Head, result.Change); err != nil {
 			return err
 		}
 	}
 	for _, uri := range result.Artifacts {
-		if _, err := addArtifact(ledger.ArtifactReport, uri, ""); err != nil {
+		if _, err := addArtifact(ledger.ArtifactReport, uri, "", nil); err != nil {
 			return err
 		}
 	}

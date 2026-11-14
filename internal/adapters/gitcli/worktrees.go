@@ -11,6 +11,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/crashpoint"
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -338,9 +339,30 @@ func (w Worktrees) Diff(ctx context.Context, repository, base, head string) (por
 	return ports.Diff{Patch: string(patch), Files: files}, nil
 }
 
+// ChangeSize counts what head changed since base with `git diff --numstat`, detecting renames as Diff does,
+// so a moved file is one file (FR-OBS-13). Like Diff it runs no external diff program and no text
+// conversion a repository's attributes name.
+func (w Worktrees) ChangeSize(ctx context.Context, path, base, head string) (ledger.ChangeSize, error) {
+	git := w.git(path)
+	for _, name := range []string{base, head} {
+		if strings.HasPrefix(name, "-") {
+			return ledger.ChangeSize{}, fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+		if _, err := git.Commit(ctx, name); err != nil {
+			return ledger.ChangeSize{}, fmt.Errorf("%w: %s", ports.ErrNotFound, name)
+		}
+	}
+	numstat, err := git.Output(ctx, "diff", "--numstat", "--no-color", "--no-ext-diff", "--no-textconv", "-M", base, head, "--")
+	if err != nil {
+		return ledger.ChangeSize{}, err
+	}
+	return lanes.ChangeSizeOf(string(numstat))
+}
+
 var (
 	_ ports.Worktrees   = Worktrees{}
 	_ ports.ReviewTrees = Worktrees{}
+	_ ports.ChangeSizes = Worktrees{}
 )
 
 // fetchMissing brings a commit this repository does not hold from its remote, which a review needs when the

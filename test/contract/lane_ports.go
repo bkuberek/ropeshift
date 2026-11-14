@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/lanes"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
@@ -229,6 +230,7 @@ func RunWorktrees(t *testing.T, fresh func(*testing.T) WorktreeRig) {
 		{"a detached worktree is discarded whatever it holds, and the repository keeps its branches", checkDetachedDiscard},
 		{"a diff names the patch and the files a commit changed since its base", checkDiffNamesTheChange},
 		{"a diff of a commit the repository lacks is not found", checkDiffOfNothing},
+		{"a change size counts the files and lines a commit changed since its base", checkChangeSizeCountsTheChange},
 		{"the changes since a base name each file a commit added", checkChangesNameEachFile},
 		{"the changes of a commit the repository lacks are not found", checkChangesOfNothing},
 		{"a context file is left beside the pack and git sees none of it", checkContextFile},
@@ -768,6 +770,29 @@ func checkDiffNamesTheChange(t *testing.T, ctx context.Context, r WorktreeRig) {
 	empty, err := r.Worktrees.Diff(ctx, r.Repository, head, head)
 	if err != nil || empty.Patch != "" || len(empty.Files) != 0 {
 		t.Errorf("a commit against itself: %+v: %v", empty, err)
+	}
+}
+
+// checkChangeSizeCountsTheChange measures a lane's change from history (FR-OBS-13). Touch writes one line.
+func checkChangeSizeCountsTheChange(t *testing.T, ctx context.Context, r WorktreeRig) {
+	sizes, offered := r.Worktrees.(ports.ChangeSizes)
+	if !offered {
+		t.Fatal("the store does not measure a change")
+	}
+	base := r.Grow("main")
+	head := r.Touch("notes.txt")
+	got, err := sizes.ChangeSize(ctx, r.Repository, base, head)
+	if err != nil || got != (ledger.ChangeSize{Files: 1, Added: 1}) {
+		t.Errorf("a change of one line in one file reads %+v: %v", got, err)
+	}
+	if got, err := sizes.ChangeSize(ctx, r.Repository, head, head); err != nil || got != (ledger.ChangeSize{}) {
+		t.Errorf("a commit against itself: %+v: %v", got, err)
+	}
+	missing := strings.Repeat("a", 40)
+	for _, pair := range [][2]string{{missing, head}, {base, missing}, {"--output=x", head}} {
+		if _, err := sizes.ChangeSize(ctx, r.Repository, pair[0], pair[1]); !errors.Is(err, ports.ErrNotFound) {
+			t.Errorf("change size %v: %v", pair, err)
+		}
 	}
 }
 

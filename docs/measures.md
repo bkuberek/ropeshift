@@ -75,6 +75,12 @@ A worker's reports are not kept, so the control plane records from each one when
 
 An interval that stands ends, as far as anyone can read, at the last report that saw it, so a worker that stops reporting ends its intervals at its last heartbeat. Recording takes no revision and appends no event, as keeping the report does, and a report of a session that is no longer current records nothing. The intervals live in the installation database beside the workers they describe.
 
+## Change size
+
+When a lane ends with a commit, its worker records with the lane's result what the lane's branch changed between the base commit its claim named and its final commit: the files changed and the lines added and removed. It reads them from the repository's history with `git diff --numstat`, detecting renames, so a moved file is one changed file, and a binary file counts as a changed file with no lines. Recording them with the result keeps them independent of a checkout and of a branch deleted after a merge.
+
+The control plane keeps the change size on the lane's `branch` artifact. A lane with no base commit, a lane that made no commit, and a worker that could not measure the change record none, which is not a change of nothing. `GET /v1/work-orders/{id}/acceptance` returns it as each artifact's `change`, with `files`, `added`, and `removed`, and `ropeshift work acceptance` prints it after the branch's commit.
+
 ## Experience records
 
 The ledger keeps one experience record per lane and one per decision. Each holds the policy version in force, the settings the action ran on, the options considered, and what was chosen, and its outcome is filled in once, which may be long after the action. Nothing else ever changes a record.
