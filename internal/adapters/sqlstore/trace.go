@@ -44,4 +44,5 @@ const (
 	OpBeat                   = "worker.beat"
 	OpFold                   = "delivery.fold"
 	OpSharePool              = "delivery.share_pool"
+	OpForecast               = "delivery.forecast"
 )

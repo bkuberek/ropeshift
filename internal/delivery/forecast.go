@@ -83,9 +83,14 @@ const (
 // revision. End dates are epoch milliseconds, and costs are estimated at list price. Milestone is empty for the
 // plan's own. LowConfidenceWorkOrders names the unfinished work its labels rest on whose estimate is low or has
 // no history, or that has run longer than most of what it draws on; LeftOut those of them left out of the trials;
-// and Outside the unfinished work outside the plan it waits on. Explanation is the text every surface shows.
+// and Outside the unfinished work outside the plan it waits on. Explanation is the text every surface shows. A
+// kept forecast also has its ID, the plan version and the estimate set it was made from, the digest of what it was
+// made from, which a later tick compares, and when it was kept, with the UTC midnight of that day.
 type Forecast struct {
+	ID                      string         `json:"id,omitempty"`
+	SetID                   string         `json:"estimate_set_id,omitempty"`
 	Plan                    string         `json:"plan_id"`
+	PlanVersion             int64          `json:"plan_version,omitempty"`
 	Milestone               string         `json:"milestone_id,omitempty"`
 	Status                  ForecastStatus `json:"status"`
 	Rev                     int64          `json:"ledger_rev"`
@@ -107,7 +112,13 @@ type Forecast struct {
 	Outside                 []string       `json:"outside"`
 	LowerBound              LowerBound     `json:"lower_bound,omitempty"`
 	Explanation             string         `json:"explanation"`
+	Inputs                  string         `json:"inputs_digest,omitempty"`
+	Day                     int64          `json:"day,omitempty"`
+	CreatedAt               int64          `json:"created_at,omitempty"`
 }
+
+// DayOf is the UTC midnight of a time, in epoch milliseconds: the day a forecast kept then counts toward.
+func DayOf(ms int64) int64 { return ms - ms%dayMs }
 
 // ForecastSeed is the seed of a plan version's forecast at a ledger revision: the digest of the version's digest,
 // the revision, and the estimator version, so the same ledger revision and plan version give the same forecast.
