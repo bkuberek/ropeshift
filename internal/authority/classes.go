@@ -113,6 +113,7 @@ const (
 	OpCardConfirm                       = "card.confirm"
 	OpEffectDecide                      = "effect.decide"
 	OpMessageSend                       = "message.send"
+	OpMessageOrchestrator               = "message.send_orchestrator"
 	OpPaneInput                         = "pane.input"
 	OpConversationCreate                = "conversation.create"
 	OpConversationOpen                  = "conversation.open"
@@ -240,6 +241,9 @@ var operations = append(onInstallation(
 	memberOnly(OpCardConfirm, "Confirm a card", ActionConfirmCard),
 	consent(OpEffectDecide, "Decide an effect", ActionDecideEffect),
 	operational(OpMessageSend, "Send a message", ActionSendMessage),
+	// An orchestrator holds tools such as approval_decide and lane_start, so a message to one is a member's
+	// alone: a delegate, the assistant included, cannot instruct it. Its reply tool is not a message.
+	memberOnly(OpMessageOrchestrator, "Send a message to an orchestrator", ActionMessageOrchestrator),
 	consent(OpPaneInput, "Type into a pane"),
 	memberOnly(OpConversationCreate, "Start a conversation", ActionConverse),
 	memberOnly(OpConversationOpen, "Open a conversation", ActionConverse),

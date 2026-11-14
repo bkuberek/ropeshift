@@ -419,6 +419,12 @@
       "exemptable": false
     },
     {
+      "id": "message.send_orchestrator",
+      "label": "Send a message to an orchestrator",
+      "class": "member_only",
+      "exemptable": false
+    },
+    {
       "id": "pane.input",
       "label": "Type into a pane",
       "class": "consent",

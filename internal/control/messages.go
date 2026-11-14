@@ -21,9 +21,9 @@ const (
 	opMessageExpire = "message.expire"
 )
 
-// Messages holds the use cases of messages to lanes. Orchestrators do not chat and ropeshift has
-// no general peer bus, so this is a narrow path: a message tells a lane to look, and a message
-// never counts as a permission decision or as consent (FR-MSG-6).
+// Messages holds the use cases of messages to lanes and, from a member, to orchestrators. Ropeshift has
+// no general peer bus, so this is a narrow path: a message tells a lane or an orchestrator to look, and a
+// message never counts as a permission decision or as consent (FR-MSG-6).
 type Messages struct {
 	store   ports.Store
 	windows messages.Windows
@@ -50,6 +50,11 @@ func (m *Messages) Send(ctx context.Context, scope ledger.WorkspaceID, draft mes
 	}
 	if draft.To.Of() == messages.TargetAssistant {
 		return messages.Message{}, refuseWith(messages.ErrInvalid, "A message to the assistant goes through its conversation.")
+	}
+	// An orchestrator holds tools such as approval_decide and lane_start, so only a member instructs one,
+	// whatever the route let through.
+	if draft.To.Of() == messages.TargetOrchestrator && !authority.Allowed(actor, authority.ActionMessageOrchestrator) {
+		return messages.Message{}, fmt.Errorf("%w: %w: only a member sends a message to an orchestrator", workorders.ErrForbidden, authority.ErrMemberOnly)
 	}
 	if _, err := messages.New(draft, messages.Sender{}, 0, messages.DefaultWindow); err != nil {
 		return messages.Message{}, err

@@ -18,6 +18,7 @@ import (
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/conversations"
 	"ropeshift.com/ropeshift/internal/ledger"
+	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/roster"
@@ -160,7 +161,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/repositories/{id}/remove":                fixed(authority.OpRepositoryRemove).about(ledger.SubjectRepository).resolving(repositoryID),
 	"POST /v1/approvals/{id}/decide":                   resolved(approvalOperation, authority.OpApprovalDecideDelegated, authority.OpApprovalDecide, authority.OpCardConfirm).about(authority.SubjectApproval),
 	"POST /v1/effects/{id}/decide":                     fixed(authority.OpEffectDecide).about(ledger.SubjectEffect),
-	"POST /v1/messages":                                fixed(authority.OpMessageSend),
+	"POST /v1/messages":                                resolved(messageOperation, authority.OpMessageSend, authority.OpMessageOrchestrator),
 	"POST " + api.PaneInputPath:                        fixed(authority.OpPaneInput).about(subjectLane),
 	"POST /v1/conversations":                           fixed(authority.OpConversationCreate),
 	"POST /v1/conversations/{id}/open":                 fixed(authority.OpConversationOpen),
@@ -906,6 +907,17 @@ func policyOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, 
 		return []string{authority.OpDelegatePolicyPublish}, false, nil
 	}
 	return []string{authority.OpPolicyPublish}, false, nil
+}
+
+// messageOperation reads the class of a message from who it is for: only a member instructs an orchestrator,
+// which holds tools such as approval_decide and lane_start. A body that does not say who it is for takes
+// the stricter class.
+func messageOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {
+	var in messages.Draft
+	if err := json.Unmarshal(body, &in); err != nil || in.To.Of() == messages.TargetOrchestrator {
+		return []string{authority.OpMessageOrchestrator}, false, nil
+	}
+	return []string{authority.OpMessageSend}, false, nil
 }
 
 func repositoryOperation(h *handler, r *http.Request, body []byte) ([]string, bool, error) {
