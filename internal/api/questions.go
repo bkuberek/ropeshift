@@ -87,6 +87,16 @@ type PublishPolicy struct {
 	Body string `json:"body"`
 }
 
+// PublishedPolicy is a policy version as published, and a notice of what is still to follow from it.
+type PublishedPolicy struct {
+	authority.PolicyVersion
+	Notice string `json:"notice,omitempty"`
+}
+
+// NoticeTakeOutPending says an estimate policy that stops sharing history is in force, and the project's records
+// are still in the installation's pool until the next delivery tick takes them out.
+const NoticeTakeOutPending = "The policy is in force, and the project's delivery records are still in the installation's pool: the next delivery tick takes them out."
+
 // AnswerQuestion is a member's answer. ID names the decision it becomes, and the client
 // generates it, so a retry finds what the first attempt wrote.
 type AnswerQuestion struct {
@@ -241,8 +251,8 @@ func (c *ProjectClient) PolicyOf(ctx context.Context, kind authority.PolicyKind,
 }
 
 // PublishPolicy records a new version of the policy its body's table names.
-func (c *ProjectClient) PublishPolicy(ctx context.Context, body string) (authority.PolicyVersion, error) {
-	var out authority.PolicyVersion
+func (c *ProjectClient) PublishPolicy(ctx context.Context, body string) (PublishedPolicy, error) {
+	var out PublishedPolicy
 	err := c.do(ctx, http.MethodPost, "/v1/policies", PublishPolicy{Body: body}, &out)
 	return out, err
 }

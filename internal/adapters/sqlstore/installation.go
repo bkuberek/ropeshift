@@ -363,9 +363,11 @@ func (in *Installation) SetProjectState(ctx context.Context, id ledger.Workspace
 	}
 	return in.changeProject(ctx, opProjectState, id, eventType, func(t *installationTx, _ ledger.Project) (int64, error) {
 		// An archived project runs no tick and is read-only, so it could never take its share out of the pool
-		// later; it leaves the pool here, and a restored one shares again on its next tick if its policy says so.
+		// later; its records leave the pool here, and a restored one shares again on its next tick if its policy
+		// says so. Its share stays, empty, with the policy version that last decided it, so a share read under an
+		// earlier version still changes nothing after a restore.
 		if state == ledger.ProjectArchived {
-			if err := takeOutOfPool(t, id); err != nil {
+			if err := emptyPoolShare(t, id); err != nil {
 				return 0, err
 			}
 		}
@@ -373,9 +375,20 @@ func (in *Installation) SetProjectState(ctx context.Context, id ledger.Workspace
 	}, actor)
 }
 
-// takeOutOfPool drops a project's records and its share from the delivery pool, in a transaction of the registry.
+// takeOutOfPool drops a project's records and its share from the delivery pool, in a transaction of the registry,
+// as a removed project leaves it.
 func takeOutOfPool(t *installationTx, id ledger.WorkspaceID) error {
-	for _, st := range []*statement{stmtPoolDrop, stmtPoolDropShare} {
+	return execPool(t, id, stmtPoolDrop, stmtPoolDropShare)
+}
+
+// emptyPoolShare drops a project's records from the delivery pool and empties its share, which keeps the policy
+// version that last decided it, in a transaction of the registry, as an archived project leaves it.
+func emptyPoolShare(t *installationTx, id ledger.WorkspaceID) error {
+	return execPool(t, id, stmtPoolDrop, stmtPoolEmptyShare)
+}
+
+func execPool(t *installationTx, id ledger.WorkspaceID, statements ...*statement) error {
+	for _, st := range statements {
 		if _, err := t.exec(st, params{"workspace_id": string(ledger.InstallationScope), "project_id": string(id)}); err != nil {
 			return err
 		}

@@ -43,11 +43,22 @@ func currentEstimateVersion(tx ports.WriteTx) (authority.PolicyVersion, error) {
 	return version, insertPolicy(tx, version, policyActor)
 }
 
+// PublishedEstimatePolicy is an estimate policy version as published, and whether taking the project's records
+// out of the installation's pool is still pending, which the next delivery tick retries.
+type PublishedEstimatePolicy struct {
+	Version        authority.PolicyVersion
+	TakeOutPending bool
+}
+
 // PublishEstimatePolicy records a new version of the estimate policy, on the same terms as every other policy:
-// only a member can, each version is newer than the last, and the same body is a retry.
-func (e *EstimatePolicies) PublishEstimatePolicy(ctx context.Context, scope ledger.WorkspaceID, draft delivery.EstimatePolicyDraft, actor ledger.Actor) (authority.PolicyVersion, error) {
+// only a member can, each version is newer than the last, and the same body is a retry. A version that stops
+// sharing history then takes the project's records out of the pool. That runs in the installation's database,
+// after the policy committed, so when it fails the version is still the one in force: the answer says the
+// take-out is pending, and the next delivery tick, which shares only what the policy in force allows, takes them
+// out.
+func (e *EstimatePolicies) PublishEstimatePolicy(ctx context.Context, scope ledger.WorkspaceID, draft delivery.EstimatePolicyDraft, actor ledger.Actor) (PublishedEstimatePolicy, error) {
 	if !authority.Allowed(actor, authority.ActionPublishPolicy) {
-		return authority.PolicyVersion{}, workorders.ErrForbidden
+		return PublishedEstimatePolicy{}, workorders.ErrForbidden
 	}
 	var record authority.PolicyVersion
 	err := e.store.Write(ctx, scope, "policy.publish", func(tx ports.WriteTx) error {
@@ -75,16 +86,15 @@ func (e *EstimatePolicies) PublishEstimatePolicy(ctx context.Context, scope ledg
 		return insertPolicy(tx, record, actor)
 	})
 	if err != nil {
-		return authority.PolicyVersion{}, err
+		return PublishedEstimatePolicy{}, err
 	}
 	// A project that stops sharing takes its records out of the pool now, not at its next tick, which a failing
-	// fold or an archive could hold off. A retry of the same body takes them out again.
+	// fold could hold off. A retry of the same body takes them out again.
+	published := PublishedEstimatePolicy{Version: record}
 	if !draft.Policy.ShareHistory {
-		if err := e.store.Installation(scope).SharePool(ctx, scope, draft.Policy.Version, "", nil); err != nil {
-			return authority.PolicyVersion{}, err
-		}
+		published.TakeOutPending = e.store.Installation(scope).SharePool(ctx, scope, draft.Policy.Version, "", nil) != nil
 	}
-	return record, nil
+	return published, nil
 }
 
 // EstimatePolicyVersions lists the versions of the estimate policy, newest first. A project nobody published one

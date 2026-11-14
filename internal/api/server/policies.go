@@ -246,11 +246,16 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 			fail(w, err)
 			return
 		}
-		if record, err = h.estimates.PublishEstimatePolicy(r.Context(), h.Scope, draft, actor); err != nil {
+		published, err := h.estimates.PublishEstimatePolicy(r.Context(), h.Scope, draft, actor)
+		if err != nil {
 			fail(w, err)
 			return
 		}
-		reply(w, http.StatusCreated, record)
+		answer := api.PublishedPolicy{PolicyVersion: published.Version}
+		if published.TakeOutPending {
+			answer.Notice = api.NoticeTakeOutPending
+		}
+		reply(w, http.StatusCreated, answer)
 		return
 	}
 	if holdsTable(in.Body, recoveryPolicyTable) {

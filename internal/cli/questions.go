@@ -445,7 +445,12 @@ func (c *invocation) policyPublish(args []string) int {
 	}
 	defer client.Close()
 	row, err := client.PublishPolicy(c.ctx, string(body))
-	return c.finish(err, row, func() string { return policyLine(row) })
+	return c.finish(err, row, func() string {
+		if row.Notice != "" {
+			return policyLine(row.PolicyVersion) + "notice\t" + row.Notice + "\n"
+		}
+		return policyLine(row.PolicyVersion)
+	})
 }
 
 func (c *invocation) categoryList(args []string) int {
