@@ -1,6 +1,9 @@
 package contract
 
 import (
+	"errors"
+	"reflect"
+
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
@@ -13,6 +16,7 @@ import (
 var DeliveryChecks = []Check{
 	{"DV1", "a finished change's record sums its lanes and its review's, with its keys and its change", checkDeliveryRecord},
 	{"DV2", "an approval a member decided is the person's time, and work under way has no record", checkDeliveryWaitsForAPerson},
+	{"DV3", "the fold keeps finished work's timeline and record from its cursor, backfills what ended before it ran, and refolds on a new version", checkDeliveryFold},
 }
 
 // deliveryOf reads one work order's timeline and record as the store holds them now.
@@ -131,4 +135,118 @@ func checkDeliveryWaitsForAPerson(r *Rig) error {
 		}
 	}
 	return Violatedf("no wait for a person on %s: %+v", request.ID, timeline.Segments)
+}
+
+// stored reads what the fold keeps of one work order, and its own state.
+func (r *Rig) stored(s ports.Store, id string) (delivery.FoldState, *delivery.Record, bool, error) {
+	var state delivery.FoldState
+	var record *delivery.Record
+	var timeline bool
+	err := s.Fold(r.Ctx, r.Scope, func(tx ports.FoldTx) error {
+		rows := tx.Delivery()
+		var err error
+		if state, err = rows.FoldState(); err != nil {
+			return err
+		}
+		if _, err := rows.Timeline(id); err == nil {
+			timeline = true
+		} else if !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+		found, err := rows.Record(id)
+		switch {
+		case err == nil:
+			record = &found
+		case !errors.Is(err, ports.ErrNotFound):
+			return err
+		}
+		return nil
+	})
+	return state, record, timeline, err
+}
+
+// finished is a change a member accepted, done.
+func (r *Rig) finished(s ports.Store) (string, error) {
+	id, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	if err != nil {
+		return "", err
+	}
+	_, err = r.NewOps(s).Accept(r.Ctx, r.Scope, id, r.Actor)
+	return id, err
+}
+
+func checkDeliveryFold(r *Rig) error {
+	s := r.Store()
+	before, err := r.finished(s)
+	if err != nil {
+		return err
+	}
+	fold := control.NewDeliveryFold(s)
+	if _, err := fold.Fold(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	state, record, timeline, err := r.stored(s, before)
+	if err != nil {
+		return err
+	}
+	head, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	if state.Version != delivery.Version || state.Rev != head || state.FirstRunAt == 0 || record == nil || !timeline {
+		return Violatedf("the first fold kept %+v, record %+v, timeline %v, at revision %d", state, record, timeline, head)
+	}
+	_, read, err := r.deliveryOf(s, before)
+	if err != nil {
+		return err
+	}
+	if record.LaneCapKnown || !reflect.DeepEqual(*record, *read) {
+		return Violatedf("work that ended before the first fold was kept as\n%+v\nand reads as\n%+v", *record, *read)
+	}
+	if again, err := fold.Fold(r.Ctx, r.Scope); err != nil || again != 0 {
+		return Violatedf("a fold with nothing new read %d events: %v", again, err)
+	}
+	r.DB.ShiftClock(1_000)
+	after, err := r.finished(s)
+	if err != nil {
+		return err
+	}
+	running, err := r.Ready(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.Running(s, running, "a"); err != nil {
+		return err
+	}
+	if _, err := fold.Fold(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if _, record, _, err = r.stored(s, after); err != nil || record == nil || !record.LaneCapKnown {
+		return Violatedf("work that ended after the first fold kept %+v: %v", record, err)
+	}
+	if _, record, timeline, err = r.stored(s, running); err != nil || record != nil || timeline {
+		return Violatedf("work under way kept a record %+v and a timeline %v: %v", record, timeline, err)
+	}
+	err = s.Fold(r.Ctx, r.Scope, func(tx ports.FoldTx) error {
+		rows := tx.Delivery()
+		state, err := rows.FoldState()
+		if err != nil {
+			return err
+		}
+		state.Version--
+		return rows.SaveFoldState(state)
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := fold.Fold(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	for _, id := range []string{before, after} {
+		state, record, timeline, err := r.stored(s, id)
+		if err != nil || state.Version != delivery.Version || record == nil || !timeline {
+			return Violatedf("after a new version, %s kept %+v with %+v and timeline %v: %v", id, state, record, timeline, err)
+		}
+	}
+	return nil
 }
