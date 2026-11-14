@@ -29,7 +29,9 @@ type ForecastWork struct {
 }
 
 // ForecastInput is what one plan version's forecast is made from: the plan, its version's digest and the ledger
-// revision, which make the seed; the time it runs from; the lane cap, where zero or less means nothing can run;
+// revision, which make the seed; the time it runs from; the lane cap, which follows the product's rule that zero
+// caps nothing, so the caller passes the effective cap (the work-in-progress cap, or the sum of the serving
+// workers' lane caps, zero when nothing caps them); whether no worker serves the project, when nothing can run;
 // the estimate policy, for its trials, its minimum sample, and its version; the median wait for a person among
 // the project's recent delivery records, for the what-if that cuts waits to it; every milestone of the plan
 // version, so one whose work all ended has a forecast that says so; the unfinished work outside the plan that its
@@ -42,6 +44,7 @@ type ForecastInput struct {
 	Rev            int64
 	Now            int64
 	Cap            int64
+	NoWorker       bool
 	Policy         EstimatePolicy
 	PersonMedianMs int64
 	Milestones     []string
@@ -50,8 +53,8 @@ type ForecastInput struct {
 }
 
 // ForecastStatus says whether a forecast has dates: `forecast`; `no_history`, when no unfinished work order in it
-// has finished history; `no_capacity`, when the project has no lane to run its work; or `finished`, when no work
-// order in it is unfinished.
+// has finished history; `no_capacity`, when no worker serves the project, so nothing can run its work; or
+// `finished`, when no work order in it is unfinished.
 type ForecastStatus string
 
 // The forecast statuses.
@@ -143,10 +146,13 @@ type job struct {
 	leftOut     bool
 }
 
-// forecastGroup is the work one forecast covers: the plan's, or a milestone's, whose end and cost it reads.
+// forecastGroup is the work one forecast covers: the plan's, or a milestone's, whose end and cost it reads. Its
+// scope is the work its dates rest on, whose estimates label it: under a lane cap all of the plan's, because any of
+// it can take a lane first; with no cap, its own work and every work order that work depends on.
 type forecastGroup struct {
 	milestone string
 	own       []int
+	scope     []int
 	ends      [3][]int64
 	costs     []float64
 }
@@ -176,9 +182,9 @@ type footing struct {
 // the work in dependency order, by priority within what is ready, at most the cap at a time: each work order
 // holds a lane for its lane time and then needs the rest of its delivery time without one. The same draws run
 // again with the cap one higher, and with each record's waits for a person cut to the median, for the two
-// what-ifs. The p50 and p85 come from the trials by nearest rank. A work order listed twice counts once, as
-// first listed, and a dependency on itself counts for nothing. It returns the plan's forecast, then each
-// milestone's, by milestone.
+// what-ifs; with no cap, the first rerun is the forecast itself. The p50 and p85 come from the trials by nearest
+// rank. A work order listed twice counts once, as first listed, and a dependency on itself counts for nothing. It
+// returns the plan's forecast, then each milestone's, by milestone.
 func ForecastOf(in ForecastInput) []Forecast {
 	seed := ForecastSeed(in.PlanDigest, in.Rev)
 	trials := min(max(in.Policy.ForecastTrials, 1), MaxForecastTrials)
@@ -204,8 +210,8 @@ func ForecastOf(in ForecastInput) []Forecast {
 		}
 		slices.Sort(deps[i])
 	}
-	groups := forecastGroups(work, in.Milestones)
-	if in.Cap > 0 {
+	groups := forecastGroups(work, in.Milestones, deps, in.Cap)
+	if !in.NoWorker {
 		order := runOrder(work)
 		rng := drawsFrom(seed)
 		asIs, cut := make([]job, len(work)), make([]job, len(work))
@@ -213,7 +219,7 @@ func ForecastOf(in ForecastInput) []Forecast {
 			for i, w := range work {
 				asIs[i], cut[i] = drawJob(w, rng, in.PersonMedianMs)
 			}
-			runs := [3][]int64{simulate(asIs, deps, order, in.Cap), simulate(asIs, deps, order, in.Cap+1), simulate(cut, deps, order, in.Cap)}
+			runs := [3][]int64{simulate(asIs, deps, order, in.Cap), simulate(asIs, deps, order, capPlusOne(in.Cap)), simulate(cut, deps, order, in.Cap)}
 			for g := range groups {
 				for run, ends := range runs {
 					var end int64
@@ -230,17 +236,24 @@ func ForecastOf(in ForecastInput) []Forecast {
 			}
 		}
 	}
-	labels := labelsOf(in, work)
 	out := make([]Forecast, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, forecastOfGroup(in, work, g, labels, seed, trials))
+		out = append(out, forecastOfGroup(in, work, g, labelsOf(in, work, g.scope), seed, trials))
 	}
 	return out
 }
 
+// capPlusOne is the cap one higher, and no cap stays none.
+func capPlusOne(lanes int64) int64 {
+	if lanes <= 0 {
+		return 0
+	}
+	return lanes + 1
+}
+
 // forecastGroups lists the plan's group and then each milestone's, by milestone: every milestone the plan version
 // names, and every one its unfinished work belongs to.
-func forecastGroups(work []ForecastWork, milestones []string) []forecastGroup {
+func forecastGroups(work []ForecastWork, milestones []string, deps [][]int, lanes int64) []forecastGroup {
 	plan := forecastGroup{}
 	byMilestone := map[string][]int{}
 	for _, milestone := range milestones {
@@ -254,6 +267,7 @@ func forecastGroups(work []ForecastWork, milestones []string) []forecastGroup {
 			byMilestone[w.Milestone] = append(byMilestone[w.Milestone], i)
 		}
 	}
+	plan.scope = plan.own
 	groups := []forecastGroup{plan}
 	names := make([]string, 0, len(byMilestone))
 	for milestone := range byMilestone {
@@ -261,9 +275,37 @@ func forecastGroups(work []ForecastWork, milestones []string) []forecastGroup {
 	}
 	slices.Sort(names)
 	for _, milestone := range names {
-		groups = append(groups, forecastGroup{milestone: milestone, own: byMilestone[milestone]})
+		g := forecastGroup{milestone: milestone, own: byMilestone[milestone], scope: plan.own}
+		if lanes <= 0 {
+			g.scope = dependedOn(g.own, deps)
+		}
+		groups = append(groups, g)
 	}
 	return groups
+}
+
+// dependedOn is the work orders given and every work order they depend on, directly or not, by index.
+func dependedOn(own []int, deps [][]int) []int {
+	seen := map[int]bool{}
+	var visit func(i int)
+	visit = func(i int) {
+		if seen[i] {
+			return
+		}
+		seen[i] = true
+		for _, j := range deps[i] {
+			visit(j)
+		}
+	}
+	for _, i := range own {
+		visit(i)
+	}
+	out := make([]int, 0, len(seen))
+	for i := range seen {
+		out = append(out, i)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // runOrder is the order ready work takes a lane: started work first, then by priority, highest first, as dispatch
@@ -341,8 +383,9 @@ func drawJob(w ForecastWork, rng *draws, personMedianMs int64) (job, job) {
 }
 
 // simulate runs one trial's jobs and returns when each ends, from the start of the trial. Work becomes ready when
-// every work order it depends on ended; ready work takes a free lane in run order, and work that needs no lane
-// starts at once. A dependency that can never end, which a cycle would be, ends with the last of the rest.
+// every work order it depends on ended; ready work takes a free lane in run order, where zero lanes caps nothing,
+// and work that needs no lane starts at once. A dependency that can never end, which a cycle would be, ends with
+// the last of the rest.
 func simulate(jobs []job, deps [][]int, order []int, lanes int64) []int64 {
 	n := len(jobs)
 	end := make([]int64, n)
@@ -380,7 +423,7 @@ func simulate(jobs []job, deps [][]int, order []int, lanes int64) []int64 {
 					ended++
 				case jobs[i].lane == 0:
 					state[i], startedAt[i], changed = 2, t, true
-				case int64(len(held)) < lanes:
+				case lanes <= 0 || int64(len(held)) < lanes:
 					held = append(held, t+jobs[i].lane)
 					state[i], startedAt[i], changed = 2, t, true
 				}
@@ -426,10 +469,9 @@ func percentile[T cmp.Ordered](values []T, p float64) T {
 	return values[rank(len(values), p)]
 }
 
-// forecastLabels are the labels every forecast of a plan version shares. Under a lane cap any unfinished work
-// order can take a lane before a milestone's own work, so each milestone's dates rest on all of the plan's work,
-// as the plan's do: the work orders that make them low confidence, those left out, the work outside the plan
-// they wait on, the lower bound, and the sentences that say why.
+// forecastLabels are a forecast's labels, read from the work its dates rest on: the work orders that make them low
+// confidence, those left out, the work outside the plan they wait on, the lower bound, and the sentences that say
+// why.
 type forecastLabels struct {
 	simulated  int
 	lowWork    []string
@@ -442,8 +484,12 @@ type forecastLabels struct {
 	lowerBound LowerBound
 }
 
-// labelsOf reads the plan's labels from its work.
-func labelsOf(in ForecastInput, work []ForecastWork) forecastLabels {
+// labelsOf reads a forecast's labels from the work in its scope.
+func labelsOf(in ForecastInput, all []ForecastWork, scope []int) forecastLabels {
+	work := make([]ForecastWork, 0, len(scope))
+	for _, i := range scope {
+		work = append(work, all[i])
+	}
 	minSamples := in.Policy.effective().MinSamples
 	l := forecastLabels{lowWork: []string{}, leftOut: []string{}, outside: []string{}}
 	waitsOutside := map[string]bool{}
@@ -528,7 +574,7 @@ func forecastOfGroup(in ForecastInput, work []ForecastWork, g forecastGroup, l f
 	case len(g.own) == 0:
 		f.Status, f.Explanation = ForecastFinished, "Nothing is left to forecast: every work order of this "+whose+" has ended."
 		return f
-	case in.Cap <= 0:
+	case in.NoWorker:
 		f.Status, f.Explanation = ForecastNoCapacity, "No forecast: the project has no lane to run its work, because no worker serves it."
 		return f
 	case withHistory == 0:
@@ -545,7 +591,7 @@ func forecastOfGroup(in ForecastInput, work []ForecastWork, g forecastGroup, l f
 	f.EndP85CapPlusOne = in.Now + percentile(g.ends[runCapPlusOne], 0.85)
 	f.EndP85PersonMedian = in.Now + percentile(g.ends[runPersonMedian], 0.85)
 	f.CostP50USD, f.CostP85USD = percentile(g.costs, 0.5), percentile(g.costs, 0.85)
-	basis := fmt.Sprintf("%d trials of %d %s, at most %d at a time", trials, l.simulated, plural(l.simulated, "work order", "work orders"), in.Cap)
+	basis := fmt.Sprintf("%d trials of %d %s, %s", trials, l.simulated, plural(l.simulated, "work order", "work orders"), capWords(in.Cap))
 	sentences := []string{"Based on " + basis + "."}
 	if f.Confidence == Low {
 		sentences = append([]string{"Low confidence, from " + basis + "."}, l.reasons...)
@@ -567,4 +613,12 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// capWords says the lane cap a forecast ran under, where zero caps nothing.
+func capWords(lanes int64) string {
+	if lanes <= 0 {
+		return "with no lane cap"
+	}
+	return "at most " + strconv.FormatInt(lanes, 10) + " at a time"
 }

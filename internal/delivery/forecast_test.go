@@ -267,14 +267,36 @@ func TestAMilestoneWithNoHistoryHasNoForecast(t *testing.T) {
 	}
 }
 
-// TestWithNoLaneThereIsNoDate gives no date when nothing can run the work: no cap means no worker serves the
-// project, not lanes without end.
-func TestWithNoLaneThereIsNoDate(t *testing.T) {
-	b := took("db", 60*minute, 60*minute, 1)
-	plan := forecastOf(0, delivery.ForecastWork{WorkOrder: "b", Estimate: confidentOn(b), Records: []delivery.Record{b}})[0]
-	if plan.Status != delivery.ForecastNoCapacity || plan.EndP50 != 0 || plan.EndP85CapPlusOne != 0 ||
-		plan.Explanation != "No forecast: the project has no lane to run its work, because no worker serves it." {
-		t.Errorf("with no lane, the plan forecast %+v", plan)
+// TestACapOfZeroIsNoCap follows the product's rule that a lane cap of zero caps nothing: the work runs as its
+// dependencies allow, all at once, and a milestone's labels rest only on its own work and what it waits on, which
+// nothing else can delay. Only a project no worker serves has no lane, and no date.
+func TestACapOfZeroIsNoCap(t *testing.T) {
+	a, b, c := took("da", 60*minute, 60*minute, 1), took("db", 120*minute, 120*minute, 2), took("dc", 90*minute, 90*minute, 3)
+	work := []delivery.ForecastWork{
+		{WorkOrder: "a", Milestone: "m1", Priority: 1, Estimate: confidentOn(a), Records: []delivery.Record{a}},
+		{WorkOrder: "b", Milestone: "m1", Priority: 1, DependsOn: []string{"a"}, Estimate: confidentOn(b), Records: []delivery.Record{b}},
+		{WorkOrder: "c", Milestone: "m2", Priority: 9, Estimate: confidentOn(c), Records: []delivery.Record{c}},
+		{WorkOrder: "x", Milestone: "m3", Priority: 9, Estimate: delivery.Estimate{Status: delivery.NoHistory}},
+	}
+	forecasts := forecastOf(0, work...)
+	plan, first, aside := forecastFor(t, forecasts, ""), forecastFor(t, forecasts, "m1"), forecastFor(t, forecasts, "m2")
+	if plan.EndP85 != now+180*minute || first.EndP85 != now+180*minute || aside.EndP85 != now+90*minute || plan.EndP85CapPlusOne != plan.EndP85 || plan.Cap != 0 {
+		t.Errorf("with no cap, the plan ends %d, m1 %d, and m2 %d", plan.EndP85-now, first.EndP85-now, aside.EndP85-now)
+	}
+	if first.Confidence != delivery.Confident || first.LowerBound != delivery.LowerNone || len(first.LeftOut) != 0 {
+		t.Errorf("with no cap, work elsewhere with no history labels m1 %+v", first)
+	}
+	if plan.Confidence != delivery.Low || plan.LowerBound != delivery.LowerAll || !slices.Equal(plan.LeftOut, []string{"x"}) {
+		t.Errorf("with no cap, the plan reads %+v", plan)
+	}
+	if !strings.HasPrefix(plan.Explanation, "Low confidence, from 2000 trials of 3 work orders, with no lane cap.") {
+		t.Errorf("the explanation %q", plan.Explanation)
+	}
+	in := forecastIn(2, work...)
+	in.NoWorker = true
+	if unserved := delivery.ForecastOf(in)[0]; unserved.Status != delivery.ForecastNoCapacity || unserved.EndP50 != 0 ||
+		unserved.Explanation != "No forecast: the project has no lane to run its work, because no worker serves it." {
+		t.Errorf("with no worker, the plan forecast %+v", unserved)
 	}
 }
 

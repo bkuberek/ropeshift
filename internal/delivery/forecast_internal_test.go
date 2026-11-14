@@ -32,7 +32,8 @@ func TestTheDrawsArePinned(t *testing.T) {
 
 // TestEveryTrialKeepsOrderAndTheCap runs generated plans through one trial each and checks the schedule it
 // gives: no work order starts before every work order it depends on ended, each then takes at least its own
-// time, work left out ends just as its dependencies do, and no more lanes are held at once than the cap.
+// time, work left out ends just as its dependencies do, and no more lanes are held at once than the cap, where a
+// cap of zero caps nothing.
 func TestEveryTrialKeepsOrderAndTheCap(t *testing.T) {
 	rng := rand.New(rand.NewPCG(20261114, 9))
 	for run := range 3000 {
@@ -52,8 +53,8 @@ func TestEveryTrialKeepsOrderAndTheCap(t *testing.T) {
 				}
 			}
 		}
-		// A forecast runs only with at least one lane.
-		lanes := int64(1 + rng.IntN(3))
+		// Zero lanes caps nothing.
+		lanes := int64(rng.IntN(4))
 		end := simulate(jobs, deps, rng.Perm(n), lanes)
 		for i, j := range jobs {
 			var ready int64
@@ -63,6 +64,9 @@ func TestEveryTrialKeepsOrderAndTheCap(t *testing.T) {
 			if end[i] < ready+j.total || (j.leftOut && end[i] != ready) {
 				t.Fatalf("run %d: work %d ends at %d, though it is %+v and its dependencies end by %d (%+v, %v)", run, i, end[i], j, ready, jobs, end)
 			}
+		}
+		if lanes == 0 {
+			continue
 		}
 		for i, j := range jobs {
 			if j.leftOut || j.lane == 0 {
