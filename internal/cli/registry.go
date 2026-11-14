@@ -65,6 +65,7 @@ func registry() []section {
 			command("work review", "<id>", "record a passed review", (*invocation).workReview),
 			command("work acceptance", "<id>", "show what a work order's evidence leaves to do", (*invocation).workAcceptance),
 			command("work accept", "<id>", "move completed work to done", (*invocation).workAccept),
+			command("work timeline", "<id>", "show where a work order's time went, and its delivery record once it ended", (*invocation).workTimeline),
 			command("work rework", "<id> --reason R", "send completed work back for another attempt", (*invocation).workRework),
 			command("work claim", "<id> --worker W [--claim-id C]", "claim a work order", (*invocation).workClaim),
 			command("work release", "<id> --claim-id C --fence N", "give a claim back", (*invocation).workRelease),
@@ -167,6 +168,7 @@ func registry() []section {
 			command("telemetry lanes", "", "print each lane's context, tokens, and cost", (*invocation).telemetryLanes),
 		),
 			command("measures", "[--window D]", "print the product measures, the north star first", (*invocation).measuresCommand),
+			command("measures delivery", "[--window D] [--by kind|size|agent|repository]", "print cycle time, throughput, and where the time went", (*invocation).measuresDelivery),
 		)},
 		{"Fleet", []registered{
 			command("fleet show", "", "show the fleet's mode and caps", (*invocation).fleetShow),

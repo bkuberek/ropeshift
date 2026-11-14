@@ -69,22 +69,27 @@ type FoldTx interface {
 	Delivery() DeliveryWriter
 }
 
-// DeliveryWriter reads and writes the delivery read models (ADR-0026): the fold's state, each finished work
-// order's timeline and each finished change's or rework's delivery record, and the spans in which the
-// workspace's work-in-progress cap was full. Every row is derived from the log, and Clear drops them all for
-// a new derivation version.
-type DeliveryWriter interface {
+// DeliveryReader reads the delivery read models (ADR-0026): the fold's state, each finished work order's
+// timeline and each finished change's or rework's delivery record, and the spans in which the workspace's
+// work-in-progress cap was full.
+type DeliveryReader interface {
 	// FoldState returns the fold's state, or ErrNotFound before its first run.
 	FoldState() (delivery.FoldState, error)
-	SaveFoldState(state delivery.FoldState) error
 	// WIPFull returns every span the work-in-progress cap was full, by start.
 	WIPFull() ([]delivery.Span, error)
-	AddWIPFull(span delivery.Span) error
 	// Timeline and Record return one work order's, or ErrNotFound.
 	Timeline(workOrder string) (delivery.Timeline, error)
 	Record(workOrder string) (delivery.Record, error)
 	// Records returns every delivery record, by end.
 	Records() ([]delivery.Record, error)
+}
+
+// DeliveryWriter writes the delivery read models. Every row is derived from the log, and Clear drops them
+// all for a new derivation version.
+type DeliveryWriter interface {
+	DeliveryReader
+	SaveFoldState(state delivery.FoldState) error
+	AddWIPFull(span delivery.Span) error
 	// Save keeps a finished work order's timeline, and its record, or none when record is nil.
 	Save(timeline delivery.Timeline, record *delivery.Record) error
 	// Forget drops a work order's timeline and record, because it left its terminal state.
@@ -146,6 +151,8 @@ type ReadTx interface {
 	Forge() ForgeReader
 	// Search returns lexical candidates, best first.
 	Search(query SearchQuery) ([]SearchHit, error)
+	// Deliveries reads the delivery read models the fold keeps (ADR-0026).
+	Deliveries() DeliveryReader
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
