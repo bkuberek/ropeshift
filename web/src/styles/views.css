@@ -613,8 +613,11 @@ a.list-row-title:hover {
   min-width: 0;
 }
 
-/* An identifier too long for the side column ends in an ellipsis, and its title holds the whole of it. */
+/* An identifier stands as stored, not in the capitals the side column sets its labels in, and one too long for
+   the column ends in an ellipsis, with its title holding the whole of it. */
 .record-kind .id {
+  text-transform: none;
+  letter-spacing: normal;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -268,26 +268,82 @@ func (m Model) header() string {
 	return line
 }
 
-// needLines gives each need a line, with the project it waits in. The project and kind columns are as wide
-// as the widest listed, so every ID starts in one column.
-func (m Model) needLines() []string {
+// needLines gives each need a line, with the project it waits in, and the index of the line the cursor stands
+// on. The project and kind columns are as wide as the widest listed, so every ID starts in one column. What a
+// need says can be longer than the room left on its line, and it wraps onto lines under the need, in the
+// column it started in, so a frame as wide as `width` clips none of it.
+func (m Model) needLines(width int) (lines []string, cursorLine int) {
 	items := m.snapshot.Needs.Items
-	width, projects := 0, 0
+	kinds, projects := 0, 0
 	for _, item := range items {
-		width = max(width, utf8.RuneCountInString(clean(item.Kind)))
+		kinds = max(kinds, utf8.RuneCountInString(clean(item.Kind)))
 		projects = max(projects, utf8.RuneCountInString(projectOf(item)))
 	}
-	lines := make([]string, 0, len(items))
+	lines = make([]string, 0, len(items))
 	for i, item := range items {
 		mark := " "
 		if i == m.cursor {
 			mark = ">"
+			cursorLine = len(lines)
 		}
 		project := ""
 		if projects > 0 {
 			project = fmt.Sprintf("%-*s ", projects, projectOf(item))
 		}
-		lines = append(lines, fmt.Sprintf("%s %5s  %s%-*s %s  %s", mark, age(m.ago(item.Since)), project, width, clean(item.Kind), clean(item.ID), what(item)))
+		head := fmt.Sprintf("%s %5s  %s%-*s %s  ", mark, age(m.ago(item.Since)), project, kinds, clean(item.Kind), clean(item.ID))
+		lines = append(lines, wrapAfter(head, what(item), width)...)
+	}
+	return lines, cursorLine
+}
+
+// minRoom is the least room beside a need's head that its words start in. A head that leaves less gives
+// all of them the lines under it.
+const minRoom = 20
+
+// wrapAfter sets text after a head, and wraps what does not fit within width columns onto lines indented to
+// where the text began, or by four columns when the head leaves too little room to begin beside it. A word
+// longer than a line breaks where the line does. A width of zero or less wraps nothing.
+func wrapAfter(head, text string, width int) []string {
+	runes := utf8.RuneCountInString
+	if width <= 0 || runes(head)+runes(text) <= width {
+		return []string{strings.TrimRight(head+text, " ")}
+	}
+	var lines []string
+	prefix, indent := head, runes(head)
+	if width-indent < minRoom {
+		lines = append(lines, strings.TrimRight(head, " "))
+		indent = min(4, width/2)
+		prefix = strings.Repeat(" ", indent)
+	}
+	pad, room := strings.Repeat(" ", indent), max(1, width-indent)
+	var body string
+	flush := func() {
+		lines = append(lines, strings.TrimRight(prefix+body, " "))
+		prefix, body = pad, ""
+	}
+	for _, word := range strings.Split(text, " ") {
+		if word == "" && body == "" {
+			continue
+		}
+		for runes(word) > room {
+			if body != "" {
+				flush()
+			}
+			cut := []rune(word)
+			body, word = string(cut[:room]), string(cut[room:])
+			flush()
+		}
+		if body != "" && runes(body)+1+runes(word) > room {
+			flush()
+		}
+		if body == "" {
+			body = word
+		} else {
+			body += " " + word
+		}
+	}
+	if body != "" {
+		flush()
 	}
 	return lines
 }
@@ -419,7 +475,7 @@ func (m Model) frame(keys bool) string {
 	if width <= 0 {
 		width = plainWidth
 	}
-	needs := m.needLines()
+	needs, cursorLine := m.needLines(width)
 	if len(needs) == 0 {
 		needs = []string{"  Nothing needs you."}
 	}
@@ -437,7 +493,7 @@ func (m Model) frame(keys bool) string {
 	if m.height > 0 {
 		// A header, a title, the commands, and the help have to fit, so the list gets what is left.
 		room := max(1, m.height-3-len(commands))
-		needs = window(needs, m.cursor, room)
+		needs = window(needs, cursorLine, room)
 		rest = rest[:max(0, min(len(rest), m.height-3-len(commands)-len(needs)))]
 	}
 	frame := append([]string{m.header(), "NEEDS YOU"}, needs...)

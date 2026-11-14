@@ -91,6 +91,15 @@ export function DifferenceBlock({ difference, live }: { difference: Difference; 
   );
 }
 
+// proposerWords names who raised a plan version's approval in words: intake read it from the plan's file, and a
+// lane's request is a planning session's. Any other requester is named as recorded.
+function proposerWords(requestedBy: string) {
+  if (requestedBy === "system:intake") {
+    return "intake, from the plan's file";
+  }
+  return requestedBy.startsWith("lane:") ? "the planning session" : requestedBy;
+}
+
 // DraftDecisions lists the answers a plan version drafts: the question, the answer, the rationale, and
 // whether a blocking question stood behind it. They bind nothing until a member approves the plan, and the
 // ledger records who the session asked, not who answered, so each says who proposed it.
@@ -116,7 +125,7 @@ export function DraftDecisions({ drafts, proposedBy }: { drafts: DraftDecision[]
           <p className="small muted">
             Asked: “{draft.question}”{draft.rationale ? ` Rationale: ${draft.rationale}` : ""}
           </p>
-          <p className="small subtle">Proposed by {proposedBy}. It becomes your decision when you approve.</p>
+          <p className="small subtle">Proposed by {proposerWords(proposedBy)}. It becomes your decision when you approve.</p>
         </li>
       ))}
     </ol>

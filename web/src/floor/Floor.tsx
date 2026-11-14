@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 
 import { actOnWork, inProjectOf, readView, workActions } from "../api/client";
-import type { FloorLane, Project, ShopFloor, Stuck, StuckItem, WorkAction, WorkerLine } from "../api/types";
+import type { FloorLane, Project, ResourceReport, ShopFloor, Stuck, StuckItem, WorkAction, WorkerLine } from "../api/types";
 import type { Live } from "../api/useView";
 import { useView } from "../api/useView";
 import { addressOf, go, Link } from "../app/route";
@@ -15,7 +15,8 @@ import { Field } from "../ui/forms";
 import { Dialog, Menu } from "../ui/overlays";
 import { Talkable, TalkToLane, useTalkable } from "../talk/controls";
 import { useTalk } from "../talk/state";
-import { machineMeasures } from "./resources";
+import { SessionUse } from "./Installation";
+import { machineMeasures, sessionOf } from "./resources";
 import { laneLabel } from "./states";
 
 type Scope = "project" | "all";
@@ -82,7 +83,9 @@ function LaneActions({ row, after }: { row: Row; after: () => Promise<void> }) {
   );
 }
 
-function LaneTable({ rows, label, after }: { rows: Row[]; label: string; after: () => Promise<void> }) {
+// LaneTable lists lanes. A lane's CPU and memory are its session's, as the report of the worker that runs it last
+// measured them, so a table of lanes on no machine has no report to read.
+function LaneTable({ rows, label, report, after }: { rows: Row[]; label: string; report?: ResourceReport; after: () => Promise<void> }) {
   return (
     <TableRegion label={label}>
       <table className="table floor-table stack-on-phone">
@@ -97,7 +100,7 @@ function LaneTable({ rows, label, after }: { rows: Row[]; label: string; after: 
               Gen
             </th>
             <th scope="col" className="r">
-              Context · CPU · Mem
+              CPU · Mem
             </th>
             <th scope="col">Freshness</th>
             <th scope="col" className="actions-cell">
@@ -139,8 +142,8 @@ function LaneTable({ rows, label, after }: { rows: Row[]; label: string; after: 
               <td data-label="Generation" className="r">
                 {row.lane.generation}
               </td>
-              <td data-label="Context · CPU · Mem" className="r">
-                <Absent>unavailable</Absent>
+              <td data-label="CPU · Mem" className="r">
+                <SessionUse report={report} session={sessionOf(report, "lane", row.lane.id)} />
               </td>
               <td data-label="Freshness">
                 <Freshness kind={freshnessOf(row.lane.freshness)} at={row.lane.as_of} source="the lane's worker" />
@@ -220,7 +223,7 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
           ) : null}
         </Freshness>
       </div>
-      {rows.length ? <LaneTable rows={rows} label={`Lanes on ${name}`} after={after} /> : <p className="panel-body muted">No lane runs on {name}.</p>}
+      {rows.length ? <LaneTable rows={rows} label={`Lanes on ${name}`} report={worker.report} after={after} /> : <p className="panel-body muted">No lane runs on {name}.</p>}
     </section>
   );
 }

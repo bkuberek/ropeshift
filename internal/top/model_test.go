@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -424,6 +425,43 @@ func TestAPrintedFrameClipsNoLaneOrWorker(t *testing.T) {
 	}
 }
 
+// A need's free text, such as the detail of blocked work, can be longer than a line is wide. It wraps onto
+// lines under the need, which keep the need's place, so a printed frame clips none of it and loses none.
+func TestAPrintedFrameWrapsALongNeedInsteadOfClippingIt(t *testing.T) {
+	var words []string
+	for i := range 45 {
+		words = append(words, "reason"+strconv.Itoa(i))
+	}
+	detail := strings.Join(words, " ")
+	order := workorders.WorkOrder{ID: "wo-long", Title: "Migrate the ledger"}
+	snapshot := golden(t)
+	snapshot.Needs.Items = []api.NeedItem{
+		{Kind: api.NeedWork, ID: "wo-long", Since: snapshot.Needs.AsOf, Work: &api.WorkNeed{Reason: api.ReasonBlocked, Detail: detail, WorkOrder: &order, Actions: []string{}}},
+		{Kind: api.NeedWork, ID: "wo-short", Since: snapshot.Needs.AsOf, Work: &api.WorkNeed{Reason: api.ReasonBlocked, Actions: []string{}}},
+	}
+	for _, width := range []int{200, 100, 60} {
+		frame := top.Frame(snapshot, time.UnixMilli(snapshot.Needs.AsOf), width)
+		lines := strings.Split(frame, "\n")
+		if shown, clipped := longest(strings.Join(lines[1:slices.Index(lines, "LANES")], "\n")); clipped || shown > width {
+			t.Errorf("at %d columns a need's line of %d was clipped:\n%s", width, shown, frame)
+		}
+		first, next := slices.IndexFunc(lines, func(line string) bool { return strings.Contains(line, "wo-long") }), slices.IndexFunc(lines, func(line string) bool { return strings.Contains(line, "wo-short") })
+		if first < 0 || next < 0 {
+			t.Fatalf("at %d columns the needs are missing:\n%s", width, frame)
+		}
+		held := strings.Fields(strings.Join(lines[first:next], " "))
+		for _, word := range words {
+			if !slices.Contains(held, word) {
+				t.Errorf("at %d columns %s is not under its need:\n%s", width, word, frame)
+				break
+			}
+		}
+		if strings.Count(frame, ">") != 1 {
+			t.Errorf("at %d columns the cursor is marked %d times:\n%s", width, strings.Count(frame, ">"), frame)
+		}
+	}
+}
+
 // A printed frame takes no keys, so it names none; the live view names them at its foot.
 func TestOnlyTheLiveViewNamesItsKeys(t *testing.T) {
 	snapshot := golden(t)
@@ -469,7 +507,7 @@ func longest(frame string) (width int, clipped bool) {
 // A frame printed once takes the width it is given, and the plain width when it is given none.
 func TestAPrintedFrameTakesTheWidthItIsGiven(t *testing.T) {
 	snapshot := golden(t)
-	snapshot.Needs.Items[0].Work.WorkOrder.Title = strings.Repeat("A title longer than any plain frame. ", 5)
+	snapshot.Floor.Lanes[0].WorkOrder = strings.Repeat("A work order longer than any plain frame. ", 5)
 	now := time.UnixMilli(snapshot.Needs.AsOf)
 	if width, clipped := longest(top.Frame(snapshot, now, 60)); width != 60 || !clipped {
 		t.Errorf("at 60 columns the widest line is %d, clipped %v", width, clipped)

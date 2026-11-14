@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -516,6 +516,31 @@ describe("the floor", () => {
     expect(tr.textContent).toContain("wo-running");
     expect(cell(tr, "Freshness")?.textContent).toMatch(/^Last reported.*4m ago/);
     expect(cell(tr, "Generation")?.textContent).toBe("1");
+  });
+
+  it("shows a lane's CPU and memory as its worker's last report measured its session", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      for (const line of view.workers) {
+        line.worker.report = { ...measured(), sessions: [{ kind: "lane", lane: "lane-wo-running", cpu_cores: 1.25, rss_bytes: 300 * 1024 ** 2 }] };
+      }
+    });
+    openPage("/floor");
+    const tr = await row("lane-wo-running");
+    expect(cell(tr, "CPU · Mem")?.textContent).toBe("1.25 cores · 300.0 MiB");
+  });
+
+  it("says a lane its worker's report does not measure is unavailable, and one whose worker has not reported is not reported", async () => {
+    serving<ShopFloor>("shop-floor", (view) => {
+      for (const line of view.workers) {
+        line.worker.report = measured();
+      }
+    });
+    openPage("/floor");
+    expect(cell(await row("lane-wo-running"), "CPU · Mem")?.textContent).toBe("unavailable");
+    cleanup();
+    serveViews();
+    openPage("/floor");
+    expect(cell(await row("lane-wo-running"), "CPU · Mem")?.textContent).toBe("not reported");
   });
 
   it("marks a last reported lane so it cannot pass for a live one", async () => {

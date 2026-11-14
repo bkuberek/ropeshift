@@ -67,6 +67,15 @@ describe("the decisions", () => {
     expect(id.getAttribute("title")).toBe(longId);
   });
 
+  it("shows an ID in the side column as stored, not in capitals", async () => {
+    withStyles();
+    serveByOrchestrator();
+    openPage("/decisions");
+    const card = await decision("Retry once.");
+    const id = within(card.querySelector(".record-kind") as HTMLElement).getByText(longId);
+    expect(getComputedStyle(id).textTransform).toBe("none");
+  });
+
   it("tells an assumption from a decision", async () => {
     serveViews();
     openPage("/decisions");

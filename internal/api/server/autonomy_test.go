@@ -162,6 +162,10 @@ func TestAMemberOpensAWindowAndReadsItBack(t *testing.T) {
 	if !view.MayClaim || view.Window == nil || view.Window.ID != "w1" {
 		t.Fatalf("view %+v", view)
 	}
+	// A countdown to the window's close counts from the server's moment, so the view says what it is.
+	if view.AsOf < window.OpenedAt || view.AsOf >= window.ClosesAt {
+		t.Fatalf("as_of %d, for a window open from %d to %d", view.AsOf, window.OpenedAt, window.ClosesAt)
+	}
 	_, err = d.Client.OpenWindow(t.Context(), aSubscriptionWorker, api.OpenWindow{ID: "w2"})
 	refusedWith(t, err, http.StatusConflict, api.CodeWindowOpen)
 	if err := d.Client.CloseWindow(t.Context(), aSubscriptionWorker); err != nil {

@@ -315,15 +315,24 @@ describe("switching the target", () => {
     expect(within(block("Use three")).getByText("Robin Park")).toBeTruthy();
   });
 
+  // draft puts a whole draft in a box as one input. Every keystroke changes the draft held above the page, which renders
+  // the page and the dock again, so typing a draft key by key costs a render for each key, and a busy machine
+  // took longer than the test's time to type the two drafts. What the test reads is the draft, not the keys.
+  const draft = async (box: HTMLElement, text: string) => {
+    await userEvent.click(box);
+    await userEvent.paste(text);
+    expect((box as HTMLTextAreaElement).value).toBe(text);
+  };
+
   it("keeps one draft for each target", async () => {
     withLanes();
     const { dock } = await open(state);
-    await userEvent.type(await within(dock).findByRole("textbox", { name: "Message to the assistant" }), "Which merges wait?");
+    await draft(await within(dock).findByRole("textbox", { name: "Message to the assistant" }), "Which merges wait?");
     await userEvent.click(within(dock).getByRole("button", { name: "Switch target" }));
     await userEvent.click(await screen.findByRole("menuitemradio", { name: /Lane.*L-88/ }));
     const box = await within(dock).findByRole("textbox", { name: "Message to lane L-88" });
     expect((box as HTMLTextAreaElement).value).toBe("");
-    await userEvent.type(box, "Use two retries");
+    await draft(box, "Use two retries");
     await userEvent.click(within(dock).getByRole("button", { name: "Switch target" }));
     await userEvent.click(await screen.findByRole("menuitemradio", { name: /Assistant/ }));
     expect(((await within(dock).findByRole("textbox", { name: "Message to the assistant" })) as HTMLTextAreaElement).value).toBe("Which merges wait?");

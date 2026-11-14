@@ -126,6 +126,7 @@ export type WorkerList = { workers: WorkerRecord[] };
 export type Level = "manual" | "attended" | "unattended";
 export type RunWindow = { id: string; worker_id: string; opened_by: string; opened_at: number; closes_at: number };
 export type Autonomy = {
+  as_of: number;
   worker_id: string;
   sign_in: string;
   level: Level;

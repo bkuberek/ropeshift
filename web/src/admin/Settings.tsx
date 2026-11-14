@@ -303,7 +303,7 @@ function WorkerAutonomy({ worker, name, live }: { worker: string; name: string; 
     }
   };
   return (
-    <Reading failure={read.failure} ready={view !== null}>
+    <Reading failure={read.failure} ready={view !== null} asOf={view?.as_of} readAt={read.readAt}>
       {view ? (
         <div className="stack">
           <Panel title={`Level on ${name}`}>

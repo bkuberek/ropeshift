@@ -1,4 +1,4 @@
-import type { MachineResources } from "../api/types";
+import type { MachineResources, ResourceReport, SessionResources } from "../api/types";
 
 // bytes says a size in binary units with one decimal, as the worker's own words do.
 export function bytes(value: number): string {
@@ -43,4 +43,9 @@ export function machineMeasures(machine: MachineResources): MachineMeasures {
     disk: machine.volumes.length ? bytes(Math.min(...machine.volumes.map((volume) => volume.free_bytes))) : undefined,
     load: load === undefined || !cores ? undefined : (load / cores).toFixed(2),
   };
+}
+
+// sessionOf finds one session in a worker's last report: a lane by its ID, or the orchestrator.
+export function sessionOf(report: ResourceReport | undefined, kind: SessionResources["kind"], lane?: string): SessionResources | undefined {
+  return report?.sessions.find((row) => row.kind === kind && (lane === undefined || row.lane === lane));
 }
