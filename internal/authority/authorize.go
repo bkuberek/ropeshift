@@ -103,6 +103,11 @@ const (
 	// ActionRegisterRepository registers a repository in its project, or takes one out of it. A project's
 	// repositories bound where its lanes work, so no agent has this, and no row below may ever grant it.
 	ActionRegisterRepository Action = "repository.register"
+	// ActionRegisterManifest registers the repositories a manifest lists, from the clones at the paths it
+	// names beside the planning repository's clone. A manifest is a file an agent can write, and its paths
+	// are read on a member's machine, so only a member, who reads where each one leads, has this, and no row
+	// below may ever grant it.
+	ActionRegisterManifest Action = "repository.register_manifest"
 	// ActionRunOrchestrator starts or stops a worker's orchestrator. No agent may ask for one: the
 	// first passphrase needs no session, which is safe only while no agent runs unasked.
 	ActionRunOrchestrator Action = "orchestrator.run"
@@ -155,7 +160,7 @@ func Actions() []Action {
 		ActionSendMessage, ActionSetPassphrase, ActionTakeQuestion, ActionDecideApproval, ActionRunOrchestrator, ActionRetryWork,
 		ActionRecover, ActionPassRecovery, ActionDecideRecovery,
 		ActionSetAutonomy, ActionOpenWindow, ActionAcknowledgeRisk, ActionPassAutonomy, ActionUnblock, ActionDecideEffect, ActionApprovePlan,
-		ActionSetRepository, ActionRegisterRepository, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
+		ActionSetRepository, ActionRegisterRepository, ActionRegisterManifest, ActionManageProject, ActionRecordMerge, ActionMerge, ActionDecideMerge, ActionChangeRoster,
 		ActionRaiseMergeAuthority, ActionReviewPullRequest, ActionDecideOneWay, ActionManageSessions, ActionBackupInstallation, ActionConfirmCard,
 		ActionConverse, ActionBackupProject, ActionSetLaneCaps, ActionMessageOrchestrator,
 	}

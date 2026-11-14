@@ -181,7 +181,7 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/decisions/{id}/overturn":                 fixed(authority.OpDecisionOverturn).about(subjectDecision),
 	"POST /v1/policies":                                resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
 	"POST /v1/categories":                              fixed(authority.OpCategoryAdd).about(subjectCategory).named(bodyField("name")),
-	"POST /v1/repositories":                            fixed(authority.OpRepositoryRegister),
+	"POST /v1/repositories":                            resolved(repositoryAddOperation, authority.OpRepositoryRegister, authority.OpRepositoryRegisterManifest),
 	"PATCH /v1/repositories/{id}":                      resolved(repositoryOperation, repositoryOperations...).about(ledger.SubjectRepository).showing(repositoryChanges).resolving(repositoryID),
 	"POST /v1/repositories/{id}/remove":                fixed(authority.OpRepositoryRemove).about(ledger.SubjectRepository).resolving(repositoryID),
 	"POST /v1/approvals/{id}/decide":                   resolved(approvalOperation, authority.OpApprovalDecideDelegated, authority.OpApprovalDecide, authority.OpCardConfirm).about(authority.SubjectApproval),
@@ -962,6 +962,19 @@ func byKind(outside, assistant string) resolver {
 		}
 		return []string{outside}, false, nil
 	}
+}
+
+// repositoryAddOperation reads whether a registration names paths, or a manifest, which only a member
+// registers from.
+func repositoryAddOperation(_ *handler, _ *http.Request, body []byte) ([]string, bool, error) {
+	var in api.RepositoryAdd
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, false, fmt.Errorf("%w: %v", ledger.ErrInvalidRepository, err)
+	}
+	if in.Manifest != "" {
+		return []string{authority.OpRepositoryRegisterManifest}, false, nil
+	}
+	return []string{authority.OpRepositoryRegister}, false, nil
 }
 
 func repositoryOperation(h *handler, r *http.Request, body []byte) ([]string, bool, error) {

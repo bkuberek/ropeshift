@@ -272,6 +272,15 @@ func checkApprovalRegistersTheManifest(r *Rig) error {
 	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a tick registering what a manifest adds: %v", err)
 	}
+	// A delegate holds the consent to register a repository by hand, and still registers nothing from a
+	// manifest, approved or given whole.
+	delegate := ledger.Actor{Kind: ledger.ActorDelegate, ID: "member-1/assistant"}
+	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, true, delegate); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate registering what an approved manifest adds: %v", err)
+	}
+	if _, err := repositories.RegisterManifest(r.Ctx, r.Scope, planning.RepositoriesFile{ID: "platform"}, kept, true, delegate); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate registering from a manifest: %v", err)
+	}
 	// Until a member approves the plan, its manifest registers nothing.
 	if added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member()); err != nil || len(added) != 0 {
 		return Violatedf("an unapproved manifest registered %+v: %v", added, err)

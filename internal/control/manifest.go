@@ -22,10 +22,10 @@ import (
 // registered, says why, and a later approval or a member's registration by hand registers it. A repository
 // the project holds is named as held, and nothing changes its settings. A repository a member removed stays
 // removed, said with why, because only a member's own registration brings one back. Registration is a
-// member's act, so no tick runs this: the approval does. Until the version is approved it registers
+// member's act, so only the member who approves a plan runs this, never a tick or a delegate. Until the version is approved it registers
 // nothing, and a dry run, which a member reads before approving, says what approving would register.
 func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
-	if !authority.Allowed(actor, authority.ActionRegisterRepository) {
+	if !authority.Allowed(actor, authority.ActionApprovePlan) || !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
 	}
 	var entries []planning.ManifestRepository
@@ -46,10 +46,11 @@ func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.Worksp
 }
 
 // RegisterManifest registers what one manifest lists, as a member setting a project up by hand does with
-// no plan approval. Its paths are read beside the planning repository's clone on this worker's machine, and
+// no plan approval. Only a member does, because a delegate's card would show a manifest's text and not where
+// each path leads. Its paths are read beside the planning repository's clone on this worker's machine, and
 // it brings back a repository the project removed, as registering its clone by hand does.
 func (r *Repositories) RegisterManifest(ctx context.Context, scope ledger.WorkspaceID, manifest planning.RepositoriesFile, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
-	if !authority.Allowed(actor, authority.ActionRegisterRepository) {
+	if !authority.Allowed(actor, authority.ActionRegisterManifest) {
 		return nil, workorders.ErrForbidden
 	}
 	return r.registerEntries(ctx, scope, manifest.Repositories, kept, manifestRun{dryRun: dryRun, restore: true}, actor)

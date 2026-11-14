@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"ropeshift.com/ropeshift/internal/adapters/fake"
 	"ropeshift.com/ropeshift/internal/api"
+	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/test/apitest"
@@ -251,4 +253,40 @@ func TestADelegatesRegistrationIsACardAndItsBackupIsRefused(t *testing.T) {
 	}
 	err = delegate.Do(ctx, http.MethodPost, api.InProject(apitest.ProjectName, api.BackupDownloadPath), struct{}{}, nil)
 	refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
+}
+
+// manifestText is a repository manifest that lists billing beside the planning repository's clone.
+const manifestText = "+++\nkind = \"repositories\"\nid = \"platform\"\n\n[[repository]]\nname = \"billing\"\npath = \"../billing\"\n+++\n"
+
+// ADR-0022: registering what a manifest lists reads paths a file an agent can write names, so it is a
+// member's alone: an outside delegate's call and the assistant's are refused, not carded, and register
+// nothing.
+func TestOnlyAMemberRegistersFromAManifest(t *testing.T) {
+	t.Parallel()
+	machine := fake.NewCheckouts()
+	machine.Place(ports.Clone{Path: "/work/plan", ID: "id-plan", DefaultBranch: "main"})
+	machine.Place(ports.Clone{Path: "/work/billing", ID: "id-billing", DefaultBranch: "main"})
+	d := startTalkWith(t, apitest.Options{Checkouts: machine})
+	ctx := t.Context()
+	if err := machine.Keep(ctx, apitest.Scope, d.repo, "/work/plan"); err != nil {
+		t.Fatal(err)
+	}
+	created := aDelegate(t, d.Client.Client, apitest.ProjectName)
+	outside := asDelegate(t, d.socket, created.Token, apitest.ProjectName)
+	_, err := outside.AddRepositories(ctx, api.RepositoryAdd{Manifest: manifestText})
+	refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
+	_, assistant, _ := d.assistant(t)
+	_, err = assistant.AddRepositories(ctx, api.RepositoryAdd{Manifest: manifestText, DryRun: true})
+	refusedWith(t, err, http.StatusForbidden, api.CodeMemberOnly)
+	if _, ok := repositoriesOf(t, d.client)["billing"]; ok {
+		t.Fatal("a delegate's call registered billing")
+	}
+	cards, err := d.client.Approvals(ctx, authority.ApprovalPending)
+	if err != nil || len(cards) != 0 {
+		t.Fatalf("a delegate's call left cards %+v: %v", cards, err)
+	}
+	report, err := d.client.AddRepositories(ctx, api.RepositoryAdd{Manifest: manifestText})
+	if err != nil || len(report.Repositories) != 1 || report.Repositories[0].Outcome != ledger.Registered {
+		t.Fatalf("a member's registration from the manifest reads %+v: %v", report, err)
+	}
 }

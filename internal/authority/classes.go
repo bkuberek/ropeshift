@@ -103,6 +103,7 @@ const (
 	OpDelegatePolicyPublish             = "delegate_policy.publish"
 	OpCategoryAdd                       = "category.add"
 	OpRepositoryRegister                = "repository.register"
+	OpRepositoryRegisterManifest        = "repository.register_manifest"
 	OpRepositorySet                     = "repository.set"
 	OpRepositoryLowerMergeAuthority     = "repository.lower_merge_authority"
 	OpRepositoryReviewTargetBranch      = "repository.review_target_branch"
@@ -235,6 +236,9 @@ var operations = append(onInstallation(
 	memberOnly(OpDelegatePolicyPublish, "Publish the delegate policy", ActionPublishPolicy),
 	never(OpCategoryAdd, "Add a category", neverPolicy, ActionAddCategory),
 	consent(OpRepositoryRegister, "Register a repository", ActionRegisterRepository),
+	// A manifest names paths on the machine in a file an agent can write, and its card would show the text
+	// and not where each path leads, so registering from one is a member's alone.
+	memberOnly(OpRepositoryRegisterManifest, "Register from a repository manifest", ActionRegisterRepository, ActionRegisterManifest),
 	operational(OpRepositorySet, "Change a repository's settings", ActionSetRepository),
 	operational(OpRepositoryLowerMergeAuthority, "Lower merge authority", ActionSetRepository),
 	operational(OpRepositoryReviewTargetBranch, "Review on the branch", ActionSetRepository),
