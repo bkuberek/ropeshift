@@ -9,11 +9,14 @@ import (
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/lanes"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
 const workerColumns = `id, name, epoch, protocol, capabilities, proof_digest, last_handshake_at, report, reported_at`
+
+const capacityColumns = `worker_id, cap, cap_value, epoch, started_at, seen_at, ended_at`
 
 var (
 	stmtFindWorker = define("worker.find",
@@ -41,6 +44,31 @@ RETURNING epoch`)
 	stmtSaveReport = define(OpSaveReport,
 		`UPDATE workers SET report = :report, reported_at = :reported_at
  WHERE workspace_id = :workspace_id AND id = :id AND epoch = :epoch`)
+
+	stmtStandingCapacity = define("capacity.standing",
+		`SELECT `+capacityColumns+` FROM capacity_intervals
+ WHERE workspace_id = :workspace_id AND worker_id = :worker AND ended_at = 0
+ ORDER BY started_at, cap`)
+
+	stmtSeeCapacity = define("capacity.see",
+		`UPDATE capacity_intervals SET seen_at = :seen_at
+ WHERE workspace_id = :workspace_id AND worker_id = :worker AND cap = :cap AND started_at = :started_at`)
+
+	stmtEndCapacity = define("capacity.end",
+		`UPDATE capacity_intervals SET ended_at = :ended_at
+ WHERE workspace_id = :workspace_id AND worker_id = :worker AND cap = :cap AND started_at = :started_at`)
+
+	// stmtBeginCapacity takes the place of an interval that ended where this one begins, which held no time.
+	stmtBeginCapacity = define("capacity.begin",
+		`INSERT INTO capacity_intervals (workspace_id, worker_id, cap, cap_value, epoch, started_at, seen_at, ended_at)
+VALUES (:workspace_id, :worker, :cap, :cap_value, :epoch, :started_at, :seen_at, 0)
+ON CONFLICT (workspace_id, worker_id, cap, started_at) DO UPDATE
+   SET cap_value = :cap_value, epoch = :epoch, seen_at = :seen_at, ended_at = 0`)
+
+	stmtCapacitySince = define("capacity.since",
+		`SELECT `+capacityColumns+` FROM capacity_intervals
+ WHERE workspace_id = :workspace_id AND CASE WHEN ended_at = 0 THEN seen_at ELSE ended_at END >= CAST(:since AS BIGINT)
+ ORDER BY started_at, worker_id, cap`)
 
 	stmtInsertJoinGrant = define("join_grant.insert",
 		`INSERT INTO join_grants (workspace_id, id, digest, created_by)
@@ -226,10 +254,11 @@ func scanWorker(row scanner) (ledger.WorkerRecord, error) {
 	return w, nil
 }
 
-// saveReport is the write of a worker's report: one statement on one row, with no revision and no event,
-// because a heartbeat carries one every few seconds and must not wait for the lock every change takes.
-// It dates the report by database time less the age the worker sent, and a stale epoch matches no row.
-func (s *Store) saveReport(ctx context.Context, scope ledger.WorkspaceID, worker string, epoch int64, report ledger.ResourceReport) error {
+// saveReport is the write of a worker's report: one short transaction on the worker's rows, with no
+// revision and no event, because a heartbeat carries one every few seconds and must not wait for the lock
+// every change takes. It dates the report by database time less the age the worker sent, and moves the
+// worker's capacity intervals by it (FR-OBS-14). A stale epoch matches no row and moves no interval.
+func (s *Store) saveReport(ctx context.Context, scope ledger.WorkspaceID, worker string, epoch int64, report ledger.ResourceReport, freshMs int64) error {
 	if err := scope.Validate(); err != nil {
 		return err
 	}
@@ -249,13 +278,76 @@ func (s *Store) saveReport(ctx context.Context, scope ledger.WorkspaceID, worker
 	if err != nil {
 		return err
 	}
-	if _, err := t.exec(stmtSaveReport, t.scoped(params{"id": worker, "epoch": epoch, "report": string(raw), "reported_at": now - age})); err != nil {
+	at := now - age
+	saved, err := t.exec(stmtSaveReport, t.scoped(params{"id": worker, "epoch": epoch, "report": string(raw), "reported_at": at}))
+	if err != nil {
 		return err
+	}
+	if saved > 0 {
+		if err := t.moveCapacity(worker, epoch, report, at, freshMs); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("%s: commit: %w", OpSaveReport, err)
 	}
 	return nil
+}
+
+// moveCapacity ends, extends, and begins a worker's capacity intervals as one report says.
+func (t workerTx) moveCapacity(worker string, epoch int64, report ledger.ResourceReport, at, freshMs int64) error {
+	standing, err := t.capacity(stmtStandingCapacity, params{"worker": worker})
+	if err != nil {
+		return err
+	}
+	step := lanes.StepCapacity(standing, worker, epoch, report, at, freshMs)
+	key := func(c ledger.CapacityInterval) params {
+		return t.scoped(params{"worker": c.Worker, "cap": c.Cap, "started_at": c.StartedAt})
+	}
+	for _, c := range step.Ended {
+		p := key(c)
+		p["ended_at"] = c.EndedAt
+		if _, err := t.exec(stmtEndCapacity, p); err != nil {
+			return err
+		}
+	}
+	for _, c := range step.Seen {
+		p := key(c)
+		p["seen_at"] = c.SeenAt
+		if _, err := t.exec(stmtSeeCapacity, p); err != nil {
+			return err
+		}
+	}
+	for _, c := range step.Begun {
+		p := key(c)
+		p["cap_value"], p["epoch"], p["seen_at"] = c.Value, c.Epoch, c.SeenAt
+		if _, err := t.exec(stmtBeginCapacity, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CapacityIntervals returns every worker's capacity interval that ends at or after a time.
+func (t workerTx) CapacityIntervals(since int64) ([]ledger.CapacityInterval, error) {
+	return t.capacity(stmtCapacitySince, params{"since": since})
+}
+
+func (t workerTx) capacity(st *statement, p params) ([]ledger.CapacityInterval, error) {
+	rows, err := t.rows(st, t.scoped(p))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ledger.CapacityInterval{}
+	for rows.Next() {
+		var c ledger.CapacityInterval
+		if err := rows.Scan(&c.Worker, &c.Cap, &c.Value, &c.Epoch, &c.StartedAt, &c.SeenAt, &c.EndedAt); err != nil {
+			return nil, fmt.Errorf("%s: %w", st.name, err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 func (t workerTx) Find(id string) (ledger.WorkerRecord, error) {

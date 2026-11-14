@@ -160,6 +160,12 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 		settings, _ = lanes.Admission{}.Recommending()
 	}
 	running := w.sessions()
+	// The lanes that hold a place under the caps, as admission counts them, so the control plane sees when
+	// they stand at a cap (FR-OBS-14). A count that cannot be read is left out.
+	held, heldErr := w.runningLanes(ctx)
+	if heldErr != nil {
+		w.config.Report(fmt.Errorf("counting the running lanes: %w", heldErr))
+	}
 	volumes := []lanes.Volume{{Role: lanes.VolumeState, Path: rt.StateDir}}
 	roots := make([]int, 0, len(running))
 	for _, s := range running {
@@ -187,6 +193,9 @@ func (w *Worker) Measure(ctx context.Context) (ledger.ResourceReport, error) {
 		w.resources.ticks = sample.CPU
 	}
 	report.Sessions = w.meterSessions(running, trees, treesErr == nil, now)
+	if heldErr == nil {
+		report.RunningLanes = &held
+	}
 	var keep []lanes.LanePeak
 	if ended := w.endSessions(running, settings.ObservedWindow); ended {
 		keep = slices.Clone(w.resources.peaks)

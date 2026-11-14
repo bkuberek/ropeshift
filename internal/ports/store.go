@@ -1010,6 +1010,9 @@ type WorkerReader interface {
 	Window(id string) (authority.RunWindow, error)
 	// OpenWindow returns the run window that stands for a worker at a time, or ErrNotFound.
 	OpenWindow(worker string, now int64) (authority.RunWindow, error)
+	// CapacityIntervals returns every worker's capacity interval whose end, or last report while it stands,
+	// is at or after a time, by start (FR-OBS-14).
+	CapacityIntervals(since int64) ([]ledger.CapacityInterval, error)
 }
 
 // WorkerWriter writes the worker plane's records.

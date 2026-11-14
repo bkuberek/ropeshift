@@ -139,6 +139,21 @@ func TestTheWorkerReportsItsMachineAndSessions(t *testing.T) {
 	}
 }
 
+// TestAReportCountsTheLanesUnderTheCaps gives the control plane what FR-OBS-14 records from: the lanes that
+// hold a place under the caps, counted as admission counts them.
+func TestAReportCountsTheLanesUnderTheCaps(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	measured(r)
+	if got := r.measure().RunningLanes; got == nil || *got != 0 {
+		t.Errorf("an idle worker counted %v lanes", got)
+	}
+	r.running()
+	if got := r.measure().RunningLanes; got == nil || *got != 1 {
+		t.Errorf("a worker running one lane counted %v", got)
+	}
+}
+
 // TestAMeasureTheMachineCannotProvideIsAbsent never reports an unread measure as zero.
 func TestAMeasureTheMachineCannotProvideIsAbsent(t *testing.T) {
 	t.Parallel()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,7 @@ func RunWorkerLink(t *testing.T, backend LinkBackend) {
 		{"a session opens a new epoch and a stale epoch is refused", checkEpochs},
 		{"a heartbeat returns its nonce and renews", checkHeartbeat},
 		{"a heartbeat's report is kept with no event", checkHeartbeatReport},
+		{"reports record when the lanes stand at a cap", checkCapacityIntervals},
 		{"a wrong nonce fails", checkWrongNonce},
 		{"an empty nonce is refused", checkEmptyNonce},
 		{"a lapsed lease returns through a heartbeat", checkLapsedReturns},
@@ -354,6 +356,119 @@ func checkHeartbeatReport(t *testing.T, ctx context.Context, b LinkBackend) {
 	if worker := r.worker(t, ctx, auth.WorkerID); worker.Report == nil || worker.Report.Caps.MaxLanes != 5 {
 		t.Errorf("a heartbeat with no report dropped the last: %+v", worker.Report)
 	}
+}
+
+// checkCapacityIntervals records, from each report, when a worker's running lanes reach a lane cap and when
+// they fall below it, dated by the control plane's clock less the report's age, with no event. A worker
+// that stops reporting, or opens a new session, ends its intervals at its last report (FR-OBS-14).
+func checkCapacityIntervals(t *testing.T, ctx context.Context, b LinkBackend) {
+	r := b.Fresh(t, 0)
+	auth := r.register(t, ctx, "a")
+	session := r.session(t, ctx, auth)
+	revision := r.events(t, ctx)
+	// beat sends a report of the lanes running under the caps, and answers when the control plane dated it.
+	beat := func(epoch, running, maxLanes, perSignIn, age int64) int64 {
+		t.Helper()
+		report := ledger.ResourceReport{
+			IntervalMs: 15_000, AgeMs: age, Machine: ledger.MachineResources{Volumes: []ledger.VolumeResources{}},
+			Caps: ledger.LaneCaps{MaxLanes: maxLanes, MaxLanesPerSignIn: perSignIn}, RunningLanes: &running, Sessions: []ledger.SessionResources{},
+		}
+		reply, err := r.Link.Heartbeat(ctx, ledger.Heartbeat{Auth: auth, Epoch: epoch, Protocol: ledger.ProtocolVersion, Nonce: "n", Report: &report})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reply.ReportError != "" {
+			t.Fatalf("the report was not kept: %s", reply.ReportError)
+		}
+		return reply.ServerTimeMs - age
+	}
+	near := func(got, want int64) bool { return got >= want-1_000 && got <= want }
+	beat(session.Epoch, 1, 2, 0, 0)
+	if got := r.capacity(t, ctx); len(got) != 0 {
+		t.Fatalf("lanes under the cap recorded %+v", got)
+	}
+	r.ShiftClock(1_000)
+	reached := beat(session.Epoch, 2, 2, 2, 3_000)
+	got := r.capacity(t, ctx)
+	if len(got) != 2 {
+		t.Fatalf("lanes at both caps recorded %+v", got)
+	}
+	for _, interval := range got {
+		if interval.Worker != "a" || interval.Value != 2 || interval.Epoch != session.Epoch || !near(interval.StartedAt, reached) ||
+			interval.SeenAt != interval.StartedAt || interval.EndedAt != 0 {
+			t.Errorf("an interval begun at about %d: %+v", reached, interval)
+		}
+	}
+	if got[0].Cap == got[1].Cap || !slices.ContainsFunc(got, func(c ledger.CapacityInterval) bool { return c.Cap == ledger.CapMaxLanesPerSignIn }) {
+		t.Errorf("the caps %q and %q", got[0].Cap, got[1].Cap)
+	}
+	r.ShiftClock(10_000)
+	seen := beat(session.Epoch, 2, 2, 0, 0)
+	got = r.capacity(t, ctx)
+	if len(got) != 2 {
+		t.Fatalf("intervals %+v", got)
+	}
+	for _, interval := range got {
+		switch interval.Cap {
+		case ledger.CapMaxLanes:
+			if !near(interval.SeenAt, seen) || interval.EndedAt != 0 {
+				t.Errorf("a cap still reached at about %d: %+v", seen, interval)
+			}
+		case ledger.CapMaxLanesPerSignIn:
+			if !near(interval.EndedAt, seen) {
+				t.Errorf("a cap lifted at about %d: %+v", seen, interval)
+			}
+		}
+	}
+	r.ShiftClock(10_000)
+	below := beat(session.Epoch, 1, 2, 0, 0)
+	for _, interval := range r.capacity(t, ctx) {
+		if interval.Cap == ledger.CapMaxLanes && !near(interval.EndedAt, below) {
+			t.Errorf("lanes below the cap at about %d: %+v", below, interval)
+		}
+	}
+	r.ShiftClock(10_000)
+	again := beat(session.Epoch, 2, 2, 0, 0)
+	if got := r.events(t, ctx); len(got) != len(revision) {
+		t.Errorf("reports appended %d events", len(got)-len(revision))
+	}
+	r.ShiftClock(10_000)
+	next := r.session(t, ctx, auth)
+	reopened := beat(next.Epoch, 2, 2, 0, 0)
+	got = r.capacity(t, ctx)
+	if len(got) != 4 {
+		t.Fatalf("intervals after a new session %+v", got)
+	}
+	last, current := got[2], got[3]
+	if last.Epoch != session.Epoch || !near(last.StartedAt, again) || last.EndedAt != last.SeenAt {
+		t.Errorf("a new session ends the last one's interval at its last report: %+v", last)
+	}
+	if current.Epoch != next.Epoch || !near(current.StartedAt, reopened) || current.EndedAt != 0 {
+		t.Errorf("the new session's interval %+v", current)
+	}
+	if later := r.capacity(t, ctx, current.StartedAt); len(later) != 1 || later[0] != current {
+		t.Errorf("intervals that end from %d: %+v", current.StartedAt, later)
+	}
+}
+
+// capacity reads the capacity intervals the installation holds whose known end is at or after a time, from
+// the start of time when none is given.
+func (r *LinkRig) capacity(t *testing.T, ctx context.Context, from ...int64) []ledger.CapacityInterval {
+	t.Helper()
+	var since int64
+	if len(from) > 0 {
+		since = from[0]
+	}
+	var out []ledger.CapacityInterval
+	err := r.Store.Installation(r.Scope).Read(ctx, func(tx ports.SharedReadTx) error {
+		var err error
+		out, err = tx.Workers().CapacityIntervals(since)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // worker reads one worker's record as the ledger keeps it.
