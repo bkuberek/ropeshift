@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/measures"
 	"ropeshift.com/ropeshift/internal/parking"
@@ -420,7 +421,8 @@ func (h *historian) orchestrator(e ledger.Event) {
 }
 
 // Export emits every window's measures as `ropeshift.measure.*` metrics, so a backend charts the north
-// star beside its counterweights (ADR-0004). The measures need no pipeline: this only copies them out.
+// star beside its counterweights (ADR-0004), and the delivery measures beside them from the delivery records
+// the fold keeps (FR-OBS-15). The measures need no pipeline: this only copies them out.
 func (m *Measures) Export(ctx context.Context, scope ledger.WorkspaceID) error {
 	if m.telemetry == nil {
 		return nil
@@ -434,9 +436,14 @@ func (m *Measures) Export(ctx context.Context, scope ledger.WorkspaceID) error {
 		if err != nil {
 			return err
 		}
+		records, err := tx.Deliveries().Records()
+		if err != nil {
+			return err
+		}
 		for _, window := range MeasureWindows {
-			report := measures.Compute(history, measures.Window{Name: window.Name, From: now - window.Length.Milliseconds(), To: now + 1})
-			for _, point := range measures.Points(report) {
+			from := now - window.Length.Milliseconds()
+			report := measures.Compute(history, measures.Window{Name: window.Name, From: from, To: now + 1})
+			for _, point := range slices.Concat(measures.Points(report), delivery.Points(records, from, now+1)) {
 				attributes := []ports.Attribute{{Key: AttrMeasureWindow, Value: window.Name}}
 				for _, key := range slices.Sorted(maps.Keys(point.Labels)) {
 					attributes = append(attributes, ports.Attribute{Key: "ropeshift.measure." + key, Value: point.Labels[key]})

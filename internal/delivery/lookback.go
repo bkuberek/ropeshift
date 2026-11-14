@@ -8,13 +8,15 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
-// The groupings look back reads delivery records by (FR-EST-5). Grouping by project reads every project's
-// look back apart.
+// The groupings look back reads delivery records by (FR-EST-5). ByProject is the one grouping above a
+// project: it reads every active project's look back apart, because percentiles of separate projects do not
+// combine.
 const (
 	ByKind       = "kind"
 	BySize       = "size"
 	ByAgent      = "agent"
 	ByRepository = "repository"
+	ByProject    = "project"
 )
 
 // trendWeeks is how many weeks a look back's trend covers, each ending a week after the one before it.

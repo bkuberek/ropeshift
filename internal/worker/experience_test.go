@@ -89,6 +89,57 @@ func TestMeasuresExportAsMetrics(t *testing.T) {
 	}
 }
 
+// TestDeliveryMeasuresExportAsMetrics copies delivery look back out as `ropeshift.measure.delivery.*` gauges
+// by window, labeled only by window, quantile, kind, size, capability class, repository, and segment kind,
+// never by a work order or a person (FR-OBS-15).
+func TestDeliveryMeasuresExportAsMetrics(t *testing.T) {
+	t.Parallel()
+	r := newLaneRig(t)
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, r.reports(workorders.OutcomeCompleted), completed(0.25)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.NewAcceptances(r.store).Accept(t.Context(), scope, r.id, member); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.NewDeliveryFold(r.store).Fold(t.Context(), scope); err != nil {
+		t.Fatal(err)
+	}
+	telemetry := fake.NewTelemetry()
+	if err := control.NewMeasures(r.store, telemetry).Export(t.Context(), scope); err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{control.AttrMeasureWindow: true}
+	for _, label := range []string{"quantile", "kind", "size", "capability_class", "repository", "segment_kind"} {
+		allowed["ropeshift.measure."+label] = true
+	}
+	for _, name := range []string{"delivery.elapsed", "delivery.time", "delivery.throughput", "delivery.segment_share"} {
+		measured := telemetry.Measurements(control.MetricMeasurePrefix + name)
+		if len(measured) == 0 {
+			t.Errorf("no %s", name)
+		}
+		for _, m := range measured {
+			for _, a := range m.Attributes {
+				if !allowed[a.Key] {
+					t.Errorf("%s carries %s", name, a.Key)
+				}
+			}
+		}
+	}
+	quantiles := map[string]bool{}
+	for _, m := range telemetry.Measurements(control.MetricMeasurePrefix + "delivery.elapsed") {
+		if attribute(m.Attributes, control.AttrMeasureWindow) == "7d" && attribute(m.Attributes, "ropeshift.measure.kind") == "change" {
+			quantiles[attribute(m.Attributes, "ropeshift.measure.quantile").(string)] = true
+			if m.Unit != "ms" || m.Kind != ports.MetricGauge {
+				t.Errorf("elapsed %+v", m)
+			}
+		}
+	}
+	if !quantiles["p50"] || !quantiles["p85"] {
+		t.Errorf("elapsed quantiles %v", quantiles)
+	}
+}
+
 // TestOnlyAPersonsApprovalInterrupts reads approvals from the log: one a member decided reached a
 // person, and one an orchestrator decided under delegation reached nobody.
 func TestOnlyAPersonsApprovalInterrupts(t *testing.T) {
