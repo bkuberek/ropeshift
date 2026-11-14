@@ -558,7 +558,11 @@ func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp)
 			CriticalPath: api.CriticalPath{WorkOrders: []string{}}, Work: []api.PlannedWork{},
 		}
 	}
-	if err := layOutPlans(tx.Planning(), progress, contracts, orders); err != nil {
+	accepted, err := acceptedOnly(tx.Repositories())
+	if err != nil {
+		return api.Roadmap{}, err
+	}
+	if err := layOutPlans(tx.Planning(), accepted, progress, contracts, orders); err != nil {
 		return nil, err
 	}
 	for _, order := range orders {
@@ -595,7 +599,7 @@ func (h *handler) readRoadmap(tx ports.ReadTx, _ *http.Request, stamp api.Stamp)
 // of each, the layers of its work orders, and its critical path. The ledger computes all of it from the
 // dependencies it holds, with no model (FR-MILE-5). A work order counts in a milestone through its
 // contract, at the contract's newest version.
-func layOutPlans(planned ports.PlanningReader, progress map[string]*api.PlanProgress, contracts []planning.Contract, orders []workorders.WorkOrder) error {
+func layOutPlans(planned ports.PlanningReader, accepted map[string]bool, progress map[string]*api.PlanProgress, contracts []planning.Contract, orders []workorders.WorkOrder) error {
 	type place struct{ plan, milestone string }
 	placed := map[string]place{}
 	for _, contract := range contracts {
@@ -613,7 +617,7 @@ func layOutPlans(planned ports.PlanningReader, progress map[string]*api.PlanProg
 	}
 	for id, row := range progress {
 		held := ordersOf[id]
-		row.Milestones, err = milestonesOf(planned, id, held, func(order workorders.WorkOrder) string { return placed[order.ContractID].milestone })
+		row.Milestones, err = milestonesOf(planned, accepted, id, held, func(order workorders.WorkOrder) string { return placed[order.ContractID].milestone })
 		if err != nil {
 			return err
 		}
@@ -699,9 +703,28 @@ func layersOf(held []workorders.WorkOrder, waits map[string][]string) ([][]strin
 	return layers, api.CriticalPath{WorkOrders: path, Weight: weight}
 }
 
+// acceptedOnly names the repositories where a work order's `done` means a member accepted it and not that it
+// merged: those at person_merges with review target branch, where the person merges the branch and
+// ropeshift does not see the merge (ADR-0020, ADR-0022).
+func acceptedOnly(repositories ports.RepositoryReader) (map[string]bool, error) {
+	all, err := repositories.Repositories()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, record := range all {
+		if record.Level() == ledger.PersonMerges && record.Target() == ledger.ReviewOnBranch {
+			out[record.ID] = true
+		}
+	}
+	return out, nil
+}
+
 // milestonesOf lists a plan's milestones by priority, with how far each one's work got. A milestone is
-// a document, so its newest version says what it depends on and how it exits.
-func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.WorkOrder, milestone func(workorders.WorkOrder) string) ([]api.MilestoneProgress, error) {
+// a document, so its newest version says what it depends on and how it exits. A milestone whose done work
+// spans repositories reads as accepted, not merged while any of it is in a repository accepted names,
+// because a milestone across repositories is complete only once its work merged in every one (FR-REPO-4).
+func milestonesOf(planned ports.PlanningReader, accepted map[string]bool, plan string, held []workorders.WorkOrder, milestone func(workorders.WorkOrder) string) ([]api.MilestoneProgress, error) {
 	documents, err := planned.PlanDocuments(plan)
 	if err != nil {
 		return nil, err
@@ -723,7 +746,8 @@ func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.W
 			ID: file.ID, Title: document.Title, Priority: file.Priority, DependsOn: nonNil(file.DependsOn), ExitCriteria: nonNil(file.ExitCriteria),
 			Existing: file.Existing,
 		}
-		started := false
+		started, unmerged := false, false
+		repositories := map[string]bool{}
 		for _, order := range held {
 			if milestone(order) != file.ID {
 				continue
@@ -733,10 +757,14 @@ func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.W
 				row.Done++
 			}
 			started = started || beyondReady(order.State)
+			repositories[order.RepositoryID] = true
+			unmerged = unmerged || accepted[order.RepositoryID]
 		}
 		switch {
 		case file.Existing:
 			row.State = api.MilestoneExisting
+		case row.Total > 0 && row.Done == row.Total && len(repositories) > 1 && unmerged:
+			row.State = api.MilestoneAcceptedNotMerged
 		case row.Total > 0 && row.Done == row.Total:
 			row.State = api.MilestoneDone
 		case started:
@@ -751,7 +779,7 @@ func milestonesOf(planned ports.PlanningReader, plan string, held []workorders.W
 	})
 	finished := map[string]bool{}
 	for _, row := range out {
-		finished[row.ID] = row.State == api.MilestoneDone || row.State == api.MilestoneExisting
+		finished[row.ID] = row.State == api.MilestoneDone || row.State == api.MilestoneExisting || row.State == api.MilestoneAcceptedNotMerged
 	}
 	for i := range out {
 		if out[i].State != api.MilestoneNotStarted {
@@ -861,6 +889,10 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 	for _, contract := range contracts {
 		milestoneOf[contract.ID] = contract.Milestone
 	}
+	accepted, err := acceptedOnly(tx.Repositories())
+	if err != nil {
+		return nil, err
+	}
 	view := api.Plans{Stamp: stamp, Plans: []api.PlanDetail{}, Unplanned: []workorders.WorkOrder{}}
 	held := map[string]bool{}
 	for _, plan := range plans {
@@ -905,7 +937,7 @@ func (h *handler) readPlans(tx ports.ReadTx, _ *http.Request, stamp api.Stamp) (
 				detail.WorkOrders = append(detail.WorkOrders, order)
 			}
 		}
-		detail.Milestones, err = milestonesOf(tx.Planning(), plan.ID, detail.WorkOrders, func(order workorders.WorkOrder) string { return milestoneOf[order.ContractID] })
+		detail.Milestones, err = milestonesOf(tx.Planning(), accepted, plan.ID, detail.WorkOrders, func(order workorders.WorkOrder) string { return milestoneOf[order.ContractID] })
 		if err != nil {
 			return nil, err
 		}

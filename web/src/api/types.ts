@@ -244,7 +244,9 @@ export type Plan = { id: string; goal_id?: string; title: string; status: string
 export type ExitCriterion = { id: string; text: string };
 
 // A milestone's state comes from its work and the milestones it depends on.
-export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done" | "existing";
+// A milestone across repositories whose work a person still merges, in a repository at person_merges with
+// review target branch, is accepted and not merged.
+export type MilestoneState = "not_started" | "waiting" | "in_progress" | "done" | "existing" | "accepted_not_merged";
 
 export type MilestoneProgress = {
   id: string;

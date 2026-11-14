@@ -236,6 +236,11 @@ const (
 	MilestoneDone       = "done"
 	// MilestoneExisting is a milestone the code already delivers (ADR-0023), which nothing waits for.
 	MilestoneExisting = "existing"
+	// MilestoneAcceptedNotMerged is a milestone whose work spans repositories and is all done, where some of
+	// it is in a repository at person_merges with review target branch: there done means a member accepted
+	// the work, and the person merges the branch where ropeshift does not see it (ADR-0022, FR-REPO-4).
+	// Nothing waits for it, as work that depends on work accepted there does not.
+	MilestoneAcceptedNotMerged = "accepted_not_merged"
 )
 
 // MilestoneProgress is one milestone of a plan and how far its work got. DependsOn lists the IDs of the
