@@ -53,13 +53,25 @@ const (
 // Artifact is something a lane left. URI names it, and Digest pins its content. Fence names
 // the attempt that left it, and a stop's salvage names none.
 type Artifact struct {
-	ID        string `json:"id"`
-	Lane      string `json:"lane_id"`
-	Kind      string `json:"kind"`
-	URI       string `json:"uri"`
-	Digest    string `json:"digest,omitempty"`
-	Fence     int64  `json:"fence,omitempty"`
-	CreatedAt int64  `json:"created_at"`
+	ID     string `json:"id"`
+	Lane   string `json:"lane_id"`
+	Kind   string `json:"kind"`
+	URI    string `json:"uri"`
+	Digest string `json:"digest,omitempty"`
+	Fence  int64  `json:"fence,omitempty"`
+	// Change is what a branch changed since its lane's base commit, as the lane's worker measured it, and
+	// absent where nothing was measured.
+	Change    *ChangeSize `json:"change,omitempty"`
+	CreatedAt int64       `json:"created_at"`
+}
+
+// ChangeSize is what a lane's branch changed between its base commit and its final commit (FR-OBS-13): the
+// files it changed and the lines it added and removed, a binary file counting as a changed file with no
+// lines.
+type ChangeSize struct {
+	Files   int64 `json:"files"`
+	Added   int64 `json:"added"`
+	Removed int64 `json:"removed"`
 }
 
 // LaneGuard is what a worker says about how a stop left a worktree.

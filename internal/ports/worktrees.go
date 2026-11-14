@@ -103,6 +103,15 @@ type ReviewTrees interface {
 	WriteContextFile(ctx context.Context, path, name, text string) (string, error)
 }
 
+// ChangeSizes is what a worktrees store offers to measure a lane's change (FR-OBS-13). A worker whose store
+// does not offer it records no change size.
+type ChangeSizes interface {
+	// ChangeSize counts the files changed and the lines added and removed between base and head, from the
+	// history of the repository or worktree at path, a binary file counting as a changed file with no lines.
+	// A commit the repository does not hold is ErrNotFound.
+	ChangeSize(ctx context.Context, path, base, head string) (ledger.ChangeSize, error)
+}
+
 // BranchMerge asks for one reviewed branch merged into its base with git (ADR-0020). The branch must still
 // be at Commit, the reviewed commit, and the merge lands on the base with Method.
 type BranchMerge struct {

@@ -92,6 +92,33 @@ func TestWorkAcceptancePrintsTheVerdicts(t *testing.T) {
 	}
 }
 
+// A person reads how much a lane's branch changed beside the branch (FR-OBS-13).
+func TestWorkAcceptancePrintsWhatTheBranchChanged(t *testing.T) {
+	s := newSession(t)
+	s.daemon.Completed(t, "wo", workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/wo", Head: "abc123",
+		Change: &ledger.ChangeSize{Files: 3, Added: 40, Removed: 12},
+	})
+	s.daemon.Completed(t, "unmeasured", workorders.LaneResult{
+		Report: workorders.Report{Outcome: workorders.OutcomeCompleted}, Branch: "lane/unmeasured", Head: "def456",
+	})
+	if text := s.must("work", "acceptance", "wo"); !strings.Contains(text, "artifact\tbranch\tlane/wo\tabc123\t3 files\t+40\t-12\n") {
+		t.Errorf("acceptance leaves out the change:\n%s", text)
+	}
+	if text := s.must("work", "acceptance", "unmeasured"); !strings.Contains(text, "artifact\tbranch\tlane/unmeasured\tdef456\n") {
+		t.Errorf("a branch with no change size:\n%s", text)
+	}
+	var view struct {
+		Artifacts []ledger.Artifact `json:"artifacts"`
+	}
+	if err := json.Unmarshal([]byte(s.must("work", "acceptance", "wo", "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Artifacts) != 1 || view.Artifacts[0].Change == nil || *view.Artifacts[0].Change != (ledger.ChangeSize{Files: 3, Added: 40, Removed: 12}) {
+		t.Errorf("the artifacts read %+v", view.Artifacts)
+	}
+}
+
 // A planning branch's approval is a member's plan approval, and work show names the plan version it approved.
 func TestWorkShowNamesThePlanVersionThatApprovedAMerge(t *testing.T) {
 	detail := api.WorkDetail{WorkOrder: workorders.WorkOrder{ID: "plan-1", Kind: workorders.KindPlan, State: workorders.Done}, Integrations: []ledger.IntegrationRecord{{

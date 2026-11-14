@@ -74,7 +74,7 @@ ON CONFLICT DO NOTHING`)
  ORDER BY created_at, id`)
 
 	stmtEvidenceArtifacts = define("evidence.artifacts",
-		`SELECT a.id, a.lane_id, a.kind, a.uri, a.digest, a.fence, a.created_at
+		`SELECT a.id, a.lane_id, a.kind, a.uri, a.digest, a.fence, a.files_changed, a.lines_added, a.lines_removed, a.created_at
   FROM artifacts a
   JOIN lanes l ON l.workspace_id = a.workspace_id AND l.id = a.lane_id
  WHERE a.workspace_id = :workspace_id AND l.work_order_id = :work_order_id

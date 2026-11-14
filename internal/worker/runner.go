@@ -410,12 +410,14 @@ func (w *Worker) event(eventType string, record lanes.Record, payload []byte) le
 }
 
 // endLane journals a lane's end and its outcome together, then uploads. A crash after
-// the journal write uploads on the next start.
-func (w *Worker) endLane(ctx context.Context, record lanes.Record, result workorders.LaneResult, fenced bool) error {
+// the journal write uploads on the next start. Base is the commit the lane's claim began its
+// branch at, which the change it made is measured from.
+func (w *Worker) endLane(ctx context.Context, record lanes.Record, base string, result workorders.LaneResult, fenced bool) error {
 	if err := w.finalGuard(ctx, record, fenced); err != nil {
 		w.config.Report(fmt.Errorf("lane %s: %w", record.ID, err))
 	}
-	result.Branch, result.Head = w.finalBranch(ctx, record)
+	worktree := w.finalWorktree(ctx, record)
+	result.Branch, result.Head, result.Change = worktree.Branch, worktree.Head, w.changeSize(ctx, worktree, base)
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return err
@@ -494,7 +496,7 @@ func (r *laneRun) finish(ctx context.Context, report workorders.Report) error {
 		_ = os.RemoveAll(dir)
 	}
 	r.discardReads(context.WithoutCancel(ctx))
-	return r.w.endLane(context.WithoutCancel(ctx), r.record(), workorders.LaneResult{
+	return r.w.endLane(context.WithoutCancel(ctx), r.record(), r.lease.BaseCommit, workorders.LaneResult{
 		Report: report, CostUSD: r.priorUSD + r.cost.CostUSD, SessionTotalUSD: r.cost.SessionTotalUSD,
 		UnknownCostTurns: r.priorUnknown + r.cost.UnknownTurns, InputTokens: r.usage.Context(), OutputTokens: r.usage.OutputTokens,
 		Settings: r.endSettings(), MaxReviewRounds: r.reviewBound(),

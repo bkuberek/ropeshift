@@ -331,6 +331,19 @@ func (c *invocation) workRelease(args []string) int {
 	}{id}, func() string { return id + "\treleased\n" })
 }
 
+// changeColumns says what a branch changed, as columns after its digest, and nothing where nothing was
+// measured.
+func changeColumns(change *ledger.ChangeSize) string {
+	if change == nil {
+		return ""
+	}
+	files := "files"
+	if change.Files == 1 {
+		files = "file"
+	}
+	return fmt.Sprintf("\t%d %s\t+%d\t-%d", change.Files, files, change.Added, change.Removed)
+}
+
 // workAcceptance prints what a work order's evidence leaves to do, then what stays linked to it.
 func (c *invocation) workAcceptance(args []string) int {
 	set := c.flags()
@@ -360,7 +373,7 @@ func (c *invocation) workAcceptance(args []string) int {
 		out.WriteString(reviewLines(view.Reviews))
 		out.WriteString(verdictLines(view.Verdicts))
 		for _, artifact := range view.Artifacts {
-			fmt.Fprintf(&out, "artifact\t%s\t%s\t%s\n", artifact.Kind, artifact.URI, artifact.Digest)
+			fmt.Fprintf(&out, "artifact\t%s\t%s\t%s%s\n", artifact.Kind, artifact.URI, artifact.Digest, changeColumns(artifact.Change))
 		}
 		for _, check := range view.Checks {
 			fmt.Fprintf(&out, "check\t%s\t%s\t%s\t%s\n", check.Name, check.Status, check.Source, check.Criterion)

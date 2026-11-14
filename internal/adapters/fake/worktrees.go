@@ -366,5 +366,6 @@ func (w *Worktrees) Merges() []ports.BranchMerge {
 var (
 	_ ports.Worktrees    = (*Worktrees)(nil)
 	_ ports.ReviewTrees  = (*Worktrees)(nil)
+	_ ports.ChangeSizes  = (*Worktrees)(nil)
 	_ ports.BranchMerger = (*Worktrees)(nil)
 )

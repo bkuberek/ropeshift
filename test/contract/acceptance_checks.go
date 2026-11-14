@@ -35,6 +35,7 @@ var AcceptanceChecks = []Check{
 	{"A14", "accepted and reworked work replays from the log", checkAcceptanceReplays},
 	{"A15", "what a forge said about one attempt does not land on the next", checkForgeKeepsItsAttempt},
 	{"A16", "racing moves out of acceptance leave one on record", checkAcceptanceRace},
+	{"A17", "a branch keeps the size of its change, a change of nothing included, and a lane that measured none has none", checkBranchChangeSize},
 }
 
 const (
@@ -479,6 +480,56 @@ func checkEvidenceLinked(r *Rig) error {
 	row := view.Checks[0]
 	if row.WorkOrder != id || row.ArtifactID != branch.ID || row.Criterion != criterionOne || row.Source != workorders.SourceLane || row.Status != workorders.CheckPassed {
 		return Violatedf("the check on record: %+v", row)
+	}
+	return nil
+}
+
+// checkBranchChangeSize keeps what a lane's worker measured of its change on the branch it ended on, and
+// on nothing else (FR-OBS-13).
+func checkBranchChangeSize(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	branchOf := func(change *ledger.ChangeSize) (ledger.Artifact, ledger.Artifact, error) {
+		result := LaneFinished(r.ID("commit"))
+		result.Change = change
+		id, err := r.Awaiting(s, []string{criterionOne}, result)
+		if err != nil {
+			return ledger.Artifact{}, ledger.Artifact{}, err
+		}
+		view, err := ops.Standing(r.Ctx, r.Scope, id)
+		if err != nil {
+			return ledger.Artifact{}, ledger.Artifact{}, err
+		}
+		var branch, report ledger.Artifact
+		for _, artifact := range view.Artifacts {
+			switch artifact.Kind {
+			case ledger.ArtifactBranch:
+				branch = artifact
+			case ledger.ArtifactReport:
+				report = artifact
+			}
+		}
+		return branch, report, nil
+	}
+	measured := ledger.ChangeSize{Files: 3, Added: 40, Removed: 12}
+	branch, report, err := branchOf(&measured)
+	if err != nil {
+		return err
+	}
+	if branch.Change == nil || *branch.Change != measured || report.Change != nil {
+		return Violatedf("the branch keeps %+v and the report %+v", branch.Change, report.Change)
+	}
+	if branch, _, err = branchOf(&ledger.ChangeSize{}); err != nil {
+		return err
+	}
+	if branch.Change == nil || *branch.Change != (ledger.ChangeSize{}) {
+		return Violatedf("a change of nothing reads %+v", branch.Change)
+	}
+	if branch, _, err = branchOf(nil); err != nil {
+		return err
+	}
+	if branch.Kind != ledger.ArtifactBranch || branch.Change != nil {
+		return Violatedf("a lane that measured nothing left %+v", branch)
 	}
 	return nil
 }

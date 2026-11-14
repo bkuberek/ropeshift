@@ -253,6 +253,36 @@ func TestALanesEndCarriesTheBranchItsWorkerRead(t *testing.T) {
 	if result.Branch != "lane/lane-1" || result.Head != "fake-head" {
 		t.Errorf("the lane's end names %s at %s", result.Branch, result.Head)
 	}
+	if result.Change != nil {
+		t.Errorf("a lane with no base commit measured %+v", result.Change)
+	}
+}
+
+// TestALanesEndCarriesWhatItsBranchChanged holds FR-OBS-13: with a lane's result, its worker records the
+// files and lines its branch changed since the base its claim named.
+func TestALanesEndCarriesWhatItsBranchChanged(t *testing.T) {
+	t.Parallel()
+	base := newRig(t)
+	worktrees := fake.NewWorktrees()
+	tip := worktrees.Grow("/repository", "main")
+	base.worktrees, base.repository = worktrees, "repo-1"
+	base.starts = &control.Starts{Bases: worktrees, Checkout: func(context.Context, ledger.WorkspaceID, string) (string, error) { return "/repository", nil }}
+	r := newLaneRigFor(t, base)
+	commits := fake.DriverStep{Do: func(spec ports.SessionSpec) {
+		worktrees.Touch("/repository", "main", "retry.go")
+		worktrees.MoveHead(spec.Dir, worktrees.Touch("/repository", "main", "retry_test.go"))
+	}}
+	r.driver.Play(script([]fake.DriverStep{{Bound: true}, commits, r.reports(workorders.OutcomeCompleted), completed(0.01)}))
+	if err := r.subject.Converge(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var result workorders.LaneResult
+	if err := json.Unmarshal(r.outcome().Payload, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Head == tip || result.Change == nil || *result.Change != (ledger.ChangeSize{Files: 2, Added: 2}) {
+		t.Errorf("a lane that committed two files from %s ended at %s with %+v", tip, result.Head, result.Change)
+	}
 }
 
 // A worktree starts at the commit the claim named, which the control plane resolved from the base
@@ -281,6 +311,9 @@ func TestALanesWorktreeStartsAtTheBaseItsClaimNamed(t *testing.T) {
 	}
 	if result.Head != tip {
 		t.Errorf("the lane ended at %s, want the base %s it began on", result.Head, tip)
+	}
+	if result.Change != nil {
+		t.Errorf("a lane that made no commit measured %+v", result.Change)
 	}
 }
 
