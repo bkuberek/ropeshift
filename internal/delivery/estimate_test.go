@@ -253,3 +253,43 @@ func TestASizeLeftOutReadsAsUnknown(t *testing.T) {
 		t.Errorf("a work order of no size estimated %+v", e)
 	}
 }
+
+// pooled is a record of another project in the installation's pool, which names no work order.
+func pooled(ended, deliveryMs int64, cost float64) delivery.Record {
+	return delivery.Record{Keys: delivery.Keys{Kind: estimated.Kind, Size: estimated.Size, CapabilityClass: "implement"}, Outcome: workorders.Done, Ended: ended, DeliveryMs: deliveryMs, Usage: delivery.Usage{CostUSD: cost}}
+}
+
+// TestRecordsThatEndTogetherDrawTheSameWhateverTheirOrder breaks ties in recency by the records themselves, so
+// pool records, which name no work order, give one estimate whatever order they come in.
+func TestRecordsThatEndTogetherDrawTheSameWhateverTheirOrder(t *testing.T) {
+	sharing := delivery.DefaultEstimatePolicy()
+	sharing.ShareHistory = true
+	var forward, reversed []delivery.Record
+	for i := range 60 {
+		forward = append(forward, pooled(5, int64(i+1), float64(60-i)))
+	}
+	for i := len(forward) - 1; i >= 0; i-- {
+		reversed = append(reversed, forward[i])
+	}
+	a := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: forward, Policy: sharing})
+	b := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Pool: reversed, Policy: sharing})
+	if !reflect.DeepEqual(a, b) || a.SampleCount != 50 {
+		t.Errorf("the order of the pool changed the estimate:\n%+v\n%+v", a, b)
+	}
+}
+
+// TestAPooledEstimateNamesTheProjectsOwnWork holds FR-EST-6 at tier 6: the pool holds other projects' records,
+// which name nothing, so a pooled estimate names the project's own work orders it drew on and counts the rest.
+func TestAPooledEstimateNamesTheProjectsOwnWork(t *testing.T) {
+	sharing := delivery.DefaultEstimatePolicy()
+	sharing.ShareHistory = true
+	own := []delivery.Record{
+		finished("own-1", 1, 2*hour, 1, func(k *delivery.Keys) { k.CapabilityClass, k.MergeAuthority = "review", "person_merges" }),
+		finished("own-2", 2, 3*hour, 1, func(k *delivery.Keys) { k.CapabilityClass, k.MergeAuthority = "review", "person_merges" }),
+	}
+	pool := []delivery.Record{pooled(3, 4*hour, 2), pooled(4, 5*hour, 2), pooled(5, 6*hour, 2)}
+	e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Pool: pool, Policy: sharing})
+	if e.Tier != 6 || e.SampleCount != 5 || e.PoolSamples != 3 || !reflect.DeepEqual(e.SampleIDs, []string{"own-2", "own-1"}) {
+		t.Errorf("a pooled estimate drew %d, %d from the pool, naming %v, at tier %d", e.SampleCount, e.PoolSamples, e.SampleIDs, e.Tier)
+	}
+}

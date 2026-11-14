@@ -165,8 +165,11 @@ func (e Estimate) Time() Band { return Band{P50: e.DeliveryP50Ms, P85: e.Deliver
 func (e Estimate) Cost() CostBand { return CostBand{P50: e.CostP50USD, P85: e.CostP85USD} }
 
 // EstimateInput is what one estimate is made from: the keys of the work order being estimated, which are known
-// before it starts; the project's delivery records; the installation's pool, read only when the policy shares
-// history; the policy and its version; and the revision of the ledger the records were read at.
+// before it starts; the project's delivery records; the records of the installation's pool from other
+// projects, read with the project's own at tier 6 only when the policy shares history; the policy and its
+// version; and the revision of the ledger the records were read at. A pool record holds kind, size, capability
+// class, the durations, the cost and whether it was a lower bound, the outcome, and when it ended, and names no
+// work order, repository, or title.
 type EstimateInput struct {
 	WorkOrder     string
 	Keys          Keys
@@ -199,7 +202,7 @@ func EstimateOf(in EstimateInput) Estimate {
 		candidates = append(candidates, comparable(in.Records, in.Keys, keys, in.Policy.RecentSamples))
 	}
 	if in.Policy.ShareHistory {
-		candidates = append(candidates, comparable(in.Pool, in.Keys, nil, in.Policy.RecentSamples))
+		candidates = append(candidates, comparable(slices.Concat(in.Records, in.Pool), in.Keys, nil, in.Policy.RecentSamples))
 	}
 	chosen := -1
 	for i, records := range candidates {
@@ -235,7 +238,7 @@ func EstimateOf(in EstimateInput) Estimate {
 	times := make([]int64, 0, len(records))
 	costs := make([]float64, 0, len(records))
 	for _, r := range records {
-		if pooled {
+		if r.WorkOrder == "" {
 			out.PoolSamples++
 		} else {
 			out.SampleIDs = append(out.SampleIDs, r.WorkOrder)
@@ -260,7 +263,8 @@ func EstimateOf(in EstimateInput) Estimate {
 }
 
 // comparable is the most recent records that ended `done` with the same kind and size and the same values of
-// some more keys, newest by end first.
+// some more keys, newest by end first. Records that ended together order by everything else they hold, so the
+// draw never depends on the order the records came in, though a pool record names no work order.
 func comparable(records []Record, want Keys, keys []string, recent int64) []Record {
 	var out []Record
 	for _, r := range records {
@@ -271,10 +275,23 @@ func comparable(records []Record, want Keys, keys []string, recent int64) []Reco
 			out = append(out, r)
 		}
 	}
-	slices.SortStableFunc(out, func(a, b Record) int {
-		return cmp.Or(cmp.Compare(b.Ended, a.Ended), cmp.Compare(a.WorkOrder, b.WorkOrder))
+	slices.SortFunc(out, func(a, b Record) int {
+		return cmp.Or(cmp.Compare(b.Ended, a.Ended), cmp.Compare(a.WorkOrder, b.WorkOrder), cmp.Compare(a.DeliveryMs, b.DeliveryMs),
+			cmp.Compare(a.Usage.CostUSD, b.Usage.CostUSD), compareBool(a.Usage.CostLowerBound, b.Usage.CostLowerBound),
+			cmp.Compare(a.CapabilityClass, b.CapabilityClass), cmp.Compare(a.Repository, b.Repository), cmp.Compare(a.MergeAuthority, b.MergeAuthority),
+			cmp.Compare(a.Criteria, b.Criteria), cmp.Compare(a.ElapsedMs, b.ElapsedMs), cmp.Compare(a.LaneMs, b.LaneMs), cmp.Compare(a.PersonMs, b.PersonMs))
 	})
 	return out[:min(len(out), int(max(recent, 0)))]
+}
+
+func compareBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
 }
 
 // valueOf is one key's value of a work order, with the number of criteria read as its bucket.
