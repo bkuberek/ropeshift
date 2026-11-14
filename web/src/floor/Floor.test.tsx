@@ -115,6 +115,29 @@ describe("the work orders", () => {
     expect(within(ran).getByText("for 10 minutes")).toBeTruthy();
   });
 
+  it("names each work order's repository by the name the project calls it, with its ID in the title", async () => {
+    serveNamedRepository();
+    openPage("/work?group=in-progress");
+    const tr = await row("Write the docs");
+    const repository = within(cell(tr, "Repository") as HTMLElement).getByText("orders-api");
+    expect(repository.getAttribute("title")).toBe("repository-1");
+    expect(cell(tr, "Repository")?.textContent).toBe("orders-api");
+  });
+
+  it("names a work order's repository in its header", async () => {
+    serveNamedRepository();
+    openPage("/work-order?id=wo-running");
+    await screen.findByRole("heading", { level: 1, name: /Write the docs/ });
+    await waitFor(() => expect(screen.getByText("orders-api").getAttribute("title")).toBe("repository-1"));
+  });
+
+  it("shows a repository's ID where the project names no such repository", async () => {
+    serveViews((call) => (call.method === "GET" && call.path === "/v1/repositories" ? { status: 200, body: { repositories: [] } } : undefined));
+    openPage("/work?group=in-progress");
+    const tr = await row("Write the docs");
+    heldWhole(cell(tr, "Repository") as HTMLElement, "repository-1");
+  });
+
   it("names claimed work that has no lane yet", async () => {
     serving<InProgress>("in-progress", (view) => {
       const first = view.items[0];
@@ -403,6 +426,13 @@ describe("what stuck work waits on", () => {
     expect(within(decision).getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 });
+
+// serveNamedRepository answers the project's repositories with a name for the one the work orders are in.
+function serveNamedRepository() {
+  const list = golden<{ repositories: { id: string; name?: string }[] }>("repositories");
+  list.repositories.push({ ...list.repositories[0], id: "repository-1", name: "orders-api" });
+  return serveViews((call) => (call.method === "GET" && call.path === "/v1/repositories" ? { status: 200, body: list } : undefined));
+}
 
 // statusOf finds a machine's segment of the status bar, which stands once the member is signed in.
 const statusOf = (name: string) => waitFor(() => within(screen.getByRole("contentinfo", { name: "Status" })).getByRole("link", { name: new RegExp(`^${name}`) }));

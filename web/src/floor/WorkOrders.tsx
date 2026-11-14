@@ -72,9 +72,16 @@ function attempts(row: WorkRow) {
   return max ? `${Math.min(used + 1, max)} of ${max}` : <Absent>none set</Absent>;
 }
 
+// Repository names the repository a work order is in, by the name the project calls it, with its ID in the
+// title. A repository the project does not name shows its ID.
+function Repository({ id, names }: { id: string; names: Map<string, string> }) {
+  const name = names.get(id);
+  return name ? <span title={id}>{name}</span> : <Id value={id} />;
+}
+
 // WorkTable lists work orders: ID, title, state, repository, lane, attempts, and time in state. A title
 // links to its work order.
-function WorkTable({ rows, label }: { rows: WorkRow[]; label: string }) {
+function WorkTable({ rows, label, repositories }: { rows: WorkRow[]; label: string; repositories: Map<string, string> }) {
   return (
     <TableRegion label={label}>
       <table className="table stack-on-phone">
@@ -111,7 +118,7 @@ function WorkTable({ rows, label }: { rows: WorkRow[]; label: string }) {
                   {row.stuck && row.stuck.reason !== row.order.state ? <span className="cond warn">{words(row.stuck.reason)}</span> : null}
                 </span>
               </td>
-              <td data-label="Repository">{row.order.repository_id ? <Id value={row.order.repository_id} /> : <Absent>none</Absent>}</td>
+              <td data-label="Repository">{row.order.repository_id ? <Repository id={row.order.repository_id} names={repositories} /> : <Absent>none</Absent>}</td>
               <td data-label="Lane">
                 {row.lane ? (
                   <Link to={addressOf("/lane", { id: row.lane.id })} className="id-link">
@@ -156,7 +163,7 @@ export function WorkOrdersPage({ live, group }: { live: Live; group: string }) {
             <div aria-busy={busy}>
               {inGroup(chosen).length ? (
                 <div className="panel">
-                  <WorkTable rows={inGroup(chosen)} label={`${spec?.label ?? "Work"} work orders`} />
+                  <WorkTable rows={inGroup(chosen)} label={`${spec?.label ?? "Work"} work orders`} repositories={index.repositories} />
                 </div>
               ) : (
                 <div className="panel">
@@ -374,7 +381,7 @@ export function WorkOrderPage({ live, id, tab, needs, after }: { live: Live; id:
           {order.repository_id ? (
             <span className="row-tight">
               <Icon name="repo" size="sm" />
-              <Id value={order.repository_id} />
+              <Repository id={order.repository_id} names={index.repositories} />
             </span>
           ) : null}
           {order.branch ? (
