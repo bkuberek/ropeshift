@@ -149,6 +149,12 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 	}
 	out := make([]Added, 0, len(entries))
 	claimed := map[string]bool{}
+	// The project's one repository plans in it until a member names one, so the first registration that
+	// adds a second one names it, or the next registration would find no planning repository.
+	var planning string
+	if dir.root != "" && !dir.planner.Planning {
+		planning = dir.planner.ID
+	}
 	for _, entry := range entries {
 		at := entry.Path
 		if dir.root != "" {
@@ -175,11 +181,14 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 			out = append(out, refused(real, reason))
 			continue
 		}
-		added, err := r.register(ctx, scope, clone, claimed, dryRun, actor)
+		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: dryRun, restore: true, planning: planning}, actor)
 		if err != nil {
 			return out, err
 		}
 		added.Name, added.Path = entry.Name, real
+		if added.Outcome == ledger.Registered && !dryRun {
+			planning = ""
+		}
 		if added.Outcome != ledger.RegistrationRefused {
 			if added.Checkout, err = keepCheckout(ctx, kept, scope, checkouts, clone, dryRun); err != nil {
 				return out, err
@@ -195,6 +204,7 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 // paths are relative to: the checkout as the worker keeps it, the path that resolves to, and the directory
 // that holds the checkout, resolved, which every path a manifest names must stay inside (ADR-0022).
 type planningDirectory struct {
+	planner             ledger.Repository
 	root, clone, parent string
 }
 
@@ -217,7 +227,7 @@ func (r *Repositories) planningClone(ctx context.Context, scope ledger.Workspace
 		return planningDirectory{}, fmt.Sprintf("this worker keeps no checkout of the planning repository %s, whose clone a manifest's paths are relative to",
 			cmp.Or(planner.Name, planner.ID)), nil
 	}
-	dir := planningDirectory{root: root}
+	dir := planningDirectory{planner: planner, root: root}
 	if dir.clone, _, err = kept.Resolve(ctx, root); err != nil {
 		return planningDirectory{}, fmt.Sprintf("the planning repository's clone at %s cannot be read: %v", root, err), nil
 	}

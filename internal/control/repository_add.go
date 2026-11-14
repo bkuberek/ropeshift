@@ -80,7 +80,7 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 			})
 			continue
 		}
-		added, err := r.register(ctx, scope, clone, claimed, in.DryRun, actor)
+		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: in.DryRun, restore: true}, actor)
 		if err != nil {
 			return out, err
 		}
@@ -99,14 +99,27 @@ func (r *Repositories) Add(ctx context.Context, scope ledger.WorkspaceID, in Rep
 	return out, nil
 }
 
+// registration is how one clone is registered.
+type registration struct {
+	// claimed are the names a run that registers several clones has taken so far.
+	claimed map[string]bool
+	dryRun  bool
+	// restore brings a repository the project removed back into it.
+	restore bool
+	// planning names a repository the project's planning repository when this registration makes a record,
+	// unless a member named one already (ADR-0022): the project's one repository planned until now, and a
+	// second one would leave it none.
+	planning string
+}
+
 // register makes or refreshes one clone's record in its own transaction, so a refusal undoes only that
 // clone's.
-func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, clone ports.Clone, claimed map[string]bool, dryRun bool, actor ledger.Actor) (Added, error) {
+func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, clone ports.Clone, how registration, actor ledger.Actor) (Added, error) {
 	added := Added{Path: clone.Path}
 	found := DetectedRepository{ID: clone.ID, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, Directory: clone.Directory}
 	err := r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
-		look, err := detectIn(tx.Repositories(), found, claimed)
-		if look.record.Removed() {
+		look, err := detectIn(tx.Repositories(), found, how.claimed)
+		if look.record.Removed() && how.restore {
 			// The project removed it, and a member registering it again brings it back.
 			if look, err = restoreIn(tx.Repositories(), found); err != nil {
 				return err
@@ -122,6 +135,11 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		if err := appendUnshadowed(tx, look, actor); err != nil {
 			return err
 		}
+		if look.made && how.planning != "" {
+			if err := namePlanning(tx, how.planning, actor); err != nil {
+				return err
+			}
+		}
 		if look.moved {
 			kind := ledger.EventRepositoryDetected
 			if look.made {
@@ -135,7 +153,7 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 				return err
 			}
 		}
-		if dryRun {
+		if how.dryRun {
 			return errDryRun
 		}
 		return nil
@@ -149,6 +167,22 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 		}, nil
 	}
 	return added, err
+}
+
+// namePlanning names a repository the project's planning repository, as a member's change to its record,
+// when no repository is named yet.
+func namePlanning(tx ports.WriteTx, id string, actor ledger.Actor) error {
+	all, err := tx.Repositories().Repositories()
+	if err != nil || slices.ContainsFunc(all, func(record ledger.Repository) bool { return record.Planning && !record.Removed() }) {
+		return err
+	}
+	before, err := tx.Repositories().Repository(id)
+	if err != nil || before.Removed() {
+		return err
+	}
+	after := before
+	after.Planning = true
+	return saveSettings(tx, before, after, actor)
 }
 
 // restoreIn brings a removed record back into its project, refreshed with what git says of it now, as a

@@ -22,6 +22,7 @@ var ManifestChecks = []Check{
 	{"RM3", "a repository of the project the manifest does not list is reported and kept", checkManifestReportsUnlistedRepositories},
 	{"RM4", "approving a plan registers, as its approver, each repository its manifest adds from the clone at its path beside the planning repository, with the safe settings; one with no clone is not registered and a later approval registers it", checkApprovalRegistersTheManifest},
 	{"RM5", "a member registers what a manifest lists by hand, by its names, and a clone whose remote is not the manifest's is not registered", checkManifestRegisteredByHand},
+	{"RM7", "the first registration from a manifest in a project of one repository names that repository the planning repository, in its transaction, so a later registration still reads paths beside its clone", checkManifestRegistrationNamesThePlanningRepository},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -468,6 +469,56 @@ func checkManifestPathsStayBesideThePlanningClone(r *Rig) error {
 		if !strings.HasPrefix(path, "/work/") || strings.HasPrefix(path, "/work/state/") {
 			return Violatedf("the worker keeps a checkout outside the bound: %v", held)
 		}
+	}
+	return r.CheckProjection(s)
+}
+
+func checkManifestRegistrationNamesThePlanningRepository(r *Rig) error {
+	s := r.Store()
+	// The project's one repository plans in it with no member naming it (ADR-0022).
+	if _, err := r.repositories(s).Detect(r.Ctx, r.Scope, control.DetectedRepository{ID: "repo-plan", DefaultBranch: "main", Directory: "plan"}, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake"}); err != nil {
+		return err
+	}
+	kept := fake.NewCheckouts()
+	if err := kept.Keep(r.Ctx, r.Scope, "repo-plan", "/work/plan"); err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
+		{Name: "billing", Path: "../billing"}, {Name: "search", Path: "../search"},
+	}}
+	repositories := r.repositories(s)
+	if _, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, true, r.member()); err != nil {
+		return err
+	}
+	if record, err := r.theRepository(s, "repo-plan"); err != nil || record.Planning {
+		return Violatedf("a dry run named the planning repository: %+v: %v", record, err)
+	}
+	added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if billing, ok := outcomeNamed(added, "billing"); !ok || billing.Outcome != ledger.Registered {
+		return Violatedf("billing reads %+v", billing)
+	}
+	planner, err := r.theRepository(s, "repo-plan")
+	if err != nil || !planner.Planning {
+		return Violatedf("after a second repository joined, the one that planned reads %+v: %v", planner, err)
+	}
+	events, err := r.repositoryEvents(s, "repo-plan")
+	if err != nil {
+		return err
+	}
+	if last := events[len(events)-1]; last.Type != ledger.EventRepositoryChanged || last.Actor != r.member() {
+		return Violatedf("naming the planning repository is recorded as %+v", last)
+	}
+	kept.Place(cloneOf("search", "search"))
+	added, err = repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if search, ok := outcomeNamed(added, "search"); !ok || search.Outcome != ledger.Registered || search.Repository.Name != "search" {
+		return Violatedf("a second registration reads %+v", added)
 	}
 	return r.CheckProjection(s)
 }
