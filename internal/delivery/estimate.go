@@ -32,6 +32,9 @@ type EstimatePolicy struct {
 // MinSamplesFloor is the least min_samples a policy may set.
 const MinSamplesFloor = 5
 
+// MaxForecastTrials is the most trials a forecast runs, which keeps one forecast's work bounded.
+const MaxForecastTrials = 20000
+
 // ErrBadEstimatePolicy refuses an estimate policy that does not read.
 var ErrBadEstimatePolicy = errors.New("invalid estimate policy")
 
@@ -41,7 +44,7 @@ func DefaultEstimatePolicy() EstimatePolicy {
 }
 
 // Check refuses a version below 1, a confident estimate on fewer than MinSamplesFloor records, a read of fewer
-// recent records than a confident estimate needs, and a forecast of no trials.
+// recent records than a confident estimate needs, and a forecast of no trials or of more than MaxForecastTrials.
 func (p EstimatePolicy) Check() error {
 	switch {
 	case p.Version < 1:
@@ -50,8 +53,8 @@ func (p EstimatePolicy) Check() error {
 		return fmt.Errorf("%w: min_samples is at least %d", ErrBadEstimatePolicy, MinSamplesFloor)
 	case p.RecentSamples < p.MinSamples:
 		return fmt.Errorf("%w: recent_samples is at least min_samples", ErrBadEstimatePolicy)
-	case p.ForecastTrials < 1:
-		return fmt.Errorf("%w: forecast_trials is at least 1", ErrBadEstimatePolicy)
+	case p.ForecastTrials < 1 || p.ForecastTrials > MaxForecastTrials:
+		return fmt.Errorf("%w: forecast_trials is from 1 to %d", ErrBadEstimatePolicy, MaxForecastTrials)
 	}
 	return nil
 }
@@ -197,40 +200,16 @@ type EstimateInput struct {
 // the band open above the longest record. With no record at any tier there is no number. The estimate
 // explains itself in plain words from its own fields.
 func EstimateOf(in EstimateInput) Estimate {
-	in.Policy = in.Policy.effective()
-	if in.Keys.Size == "" {
-		in.Keys.Size = measures.SizeUnknown
-	}
+	in, chosen, records, confidence := choose(in)
 	out := Estimate{
 		WorkOrder: in.WorkOrder, Status: NoHistory, Keys: []string{}, DroppedKeys: []string{}, SampleIDs: []string{}, MinSamples: in.Policy.MinSamples,
 		Rev: in.Rev, EstimatorVersion: EstimatorVersion, PolicyVersion: in.Policy.Version,
-	}
-	candidates := make([][]Record, 0, len(tiers)+1)
-	for _, keys := range tiers {
-		candidates = append(candidates, comparable(in.Records, in.Keys, keys, in.Policy.RecentSamples))
-	}
-	if in.Policy.ShareHistory && !in.NoPool {
-		candidates = append(candidates, comparable(slices.Concat(in.Records, in.Pool), in.Keys, nil, in.Policy.RecentSamples))
-	}
-	chosen := -1
-	for i, records := range candidates {
-		if int64(len(records)) >= in.Policy.MinSamples {
-			chosen, out.Status, out.Confidence = i, Estimated, Confident
-			break
-		}
-	}
-	if chosen < 0 {
-		for i, records := range candidates {
-			if len(records) > 0 && (chosen < 0 || len(records) > len(candidates[chosen])) {
-				chosen, out.Status, out.Confidence = i, Estimated, Low
-			}
-		}
 	}
 	if chosen < 0 {
 		out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool)
 		return out
 	}
-	records := candidates[chosen]
+	out.Status, out.Confidence = Estimated, confidence
 	out.Tier, out.SampleCount = chosen+1, len(records)
 	pooled := out.Tier == poolTier
 	matched := []string{}
@@ -268,6 +247,46 @@ func EstimateOf(in EstimateInput) Estimate {
 	out.CostP50USD, out.CostP85USD = costs[p50], costs[p85]
 	out.Explanation = explain(out, in.Keys, in.Policy, in.NoPool)
 	return out
+}
+
+// Drawn returns the records an estimate of this input rests on, newest first: those of the tier it chooses, and
+// none with no history. A forecast draws each trial's time and cost from them (FR-EST-8).
+func Drawn(in EstimateInput) []Record {
+	_, _, records, _ := choose(in)
+	return records
+}
+
+// choose applies the policy as the estimator applies it, reads a size left out as unknown, and chooses the tier
+// an estimate draws on: the first with at least min_samples records, which is confident, or else the one with the
+// most records, the narrowest among equals, which is low. It returns the input as applied, the tier's index, or
+// -1 when no tier holds a record, its records, and the confidence they give.
+func choose(in EstimateInput) (EstimateInput, int, []Record, Confidence) {
+	in.Policy = in.Policy.effective()
+	if in.Keys.Size == "" {
+		in.Keys.Size = measures.SizeUnknown
+	}
+	candidates := make([][]Record, 0, len(tiers)+1)
+	for _, keys := range tiers {
+		candidates = append(candidates, comparable(in.Records, in.Keys, keys, in.Policy.RecentSamples))
+	}
+	if in.Policy.ShareHistory && !in.NoPool {
+		candidates = append(candidates, comparable(slices.Concat(in.Records, in.Pool), in.Keys, nil, in.Policy.RecentSamples))
+	}
+	for i, records := range candidates {
+		if int64(len(records)) >= in.Policy.MinSamples {
+			return in, i, records, Confident
+		}
+	}
+	chosen := -1
+	for i, records := range candidates {
+		if len(records) > 0 && (chosen < 0 || len(records) > len(candidates[chosen])) {
+			chosen = i
+		}
+	}
+	if chosen < 0 {
+		return in, -1, nil, ""
+	}
+	return in, chosen, candidates[chosen], Low
 }
 
 // comparable is the most recent records that ended `done` with the same kind and size and the same values of

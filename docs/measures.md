@@ -144,7 +144,7 @@ share_history = false
 | --- | --- |
 | `min_samples` | The comparable delivery records a confident estimate rests on, never fewer than 5. An estimate on fewer is low confidence and says why |
 | `recent_samples` | How many of the most recent comparable records an estimate reads, never fewer than `min_samples` |
-| `forecast_trials` | The trials a forecast runs, at least 1 |
+| `forecast_trials` | The trials a forecast runs, from 1 to 20,000 |
 | `share_history` | Whether the project adds its delivery records to the installation's pool and draws on the pool for its broadest comparison. Off unless a member turns it on. See [the installation pool](#the-installation-pool) |
 
 ### The installation pool
@@ -154,6 +154,12 @@ The installation's pool holds the delivery records of every project whose estima
 Every `--delivery-tick`, a project that shares history replaces its share whenever its records changed, even when its fold failed. A project takes its share out as soon as a member publishes an estimate policy with `share_history = false`, and when it is archived or removed; a restored project shares again on its next tick while its policy still shares history. A share read under an earlier policy version than the one in force changes nothing, so a tick that ran as a member stopped sharing cannot put the records back.
 
 A project that shares history estimates at its broadest match, kind and size alone, from its own records and the pool's records of other projects: such an estimate counts the pool's records in `pool_samples`, names only the project's own work orders in `sample_ids`, and says it drew on the installation pool. An estimate with no history says whether the pool was searched. Estimates already kept stay as they were made after a project stops sharing; the next tick estimates the work again without its records. A store with no installation database holds one project, so it has no pool, and no estimate speaks of one.
+
+## Forecasts
+
+A forecast gives a plan's and each milestone's completion date and remaining estimated cost at p50 and p85, from a seeded simulation over the plan's unfinished work. Each trial draws one record for each work order from the records its estimate rests on, runs the work in dependency order, by priority within what is ready, at most the lane cap at a time, and holds a lane for each record's lane time and then waits out the rest of its delivery time. The lane cap follows the product's rule: zero caps nothing. Started work draws only from records that ran longer than it has so far and keeps the remainder. Work with no history is left out and listed, and the dates and costs are then lower bounds; so they are when the plan's work waits on unfinished work outside the plan, or when started work has run longer than every comparable record.
+
+The seed is the digest of the plan version's digest, the ledger revision, and the estimator version, and a forecast records it with its trials, the cap, the time it ran from, the median wait for a person, and the estimate policy version, so the same revision and plan version give the same forecast. A forecast is low confidence when the work its dates rest on includes an estimate that is low or has no history, and its explanation names that work. Under a lane cap that is all of the plan's unfinished work, because any of it can take a lane first; with no cap, a milestone's dates rest only on its own work and the work it waits on. Two reruns of the same draws give the p85 date with one more lane and with every wait for a person cut to the project's median wait; the second leaves started work as it is. A milestone none of whose unfinished work has history gets no dates, nor does a plan whose project no worker serves. No command shows a forecast yet.
 
 ## Experience records
 
