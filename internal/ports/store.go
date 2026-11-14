@@ -146,6 +146,8 @@ type EstimateReader interface {
 	Set(id string) (delivery.EstimateSet, error)
 	// Current returns a work order's current estimate, the one its newest set holds, or ErrNotFound.
 	Current(workOrder string) (delivery.Estimate, error)
+	// NewestOf returns the newest set of a plan version with its estimates, or ErrNotFound.
+	NewestOf(plan string, version int64) (delivery.EstimateSet, error)
 }
 
 // EstimateWriter keeps estimate sets, which never change once kept.

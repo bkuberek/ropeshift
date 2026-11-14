@@ -1,6 +1,8 @@
 package delivery_test
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"slices"
 	"strings"
@@ -327,5 +329,38 @@ func TestRepeatsAndSelfDependenciesChangeNothing(t *testing.T) {
 	}
 	if self := forecastOf(1, looped); !reflect.DeepEqual(self, alone) {
 		t.Errorf("a self-dependent work order forecast %+v, alone %+v", self, alone)
+	}
+}
+
+// BenchmarkForecastOfALargePlan measures one forecast of a generated plan of 400 unfinished work orders in 20
+// milestones, each depending on up to two earlier ones and drawing from 30 records, at the default 2,000 trials
+// under a cap of 4 lanes, which is what the forecast tick runs off the request path.
+func BenchmarkForecastOfALargePlan(b *testing.B) {
+	rng := rand.New(rand.NewPCG(20261114, 400))
+	records := make([]delivery.Record, 30)
+	for i := range records {
+		lane := int64(10+rng.IntN(240)) * minute
+		records[i] = took(fmt.Sprintf("d%d", i), lane+int64(rng.IntN(600))*minute, lane, float64(1+rng.IntN(20)))
+	}
+	work := make([]delivery.ForecastWork, 400)
+	milestones := make([]string, 20)
+	for i := range milestones {
+		milestones[i] = fmt.Sprintf("m%02d", i)
+	}
+	for i := range work {
+		w := delivery.ForecastWork{WorkOrder: fmt.Sprintf("wo%03d", i), Milestone: milestones[i/20], Priority: int64(rng.IntN(5)), Estimate: confidentOn(records...), Records: records}
+		for range rng.IntN(3) {
+			if i > 0 {
+				w.DependsOn = append(w.DependsOn, fmt.Sprintf("wo%03d", rng.IntN(i)))
+			}
+		}
+		work[i] = w
+	}
+	in := forecastIn(4, work...)
+	in.Milestones, in.Policy.ForecastTrials = milestones, 2000
+	for b.Loop() {
+		if forecasts := delivery.ForecastOf(in); len(forecasts) != 21 || forecasts[0].Status != delivery.Forecasted {
+			b.Fatalf("the plan's forecasts are %+v", forecasts[0])
+		}
 	}
 }

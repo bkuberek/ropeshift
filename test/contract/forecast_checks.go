@@ -3,8 +3,11 @@ package contract
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
+	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/delivery"
+	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -12,6 +15,7 @@ import (
 // last of each day, kept with no revision.
 var ForecastChecks = []Check{
 	{"FC1", "a plan version keeps the latest forecast of the plan and of each milestone, and the last of each day, with no revision", checkForecastsKept},
+	{"FC2", "the forecast tick forecasts each plan's newest version from its own estimate set when what it rests on changed, a worker came, work ended, or the version was approved, and keeps nothing otherwise", checkForecastTick},
 }
 
 // dayOne is a UTC midnight, in epoch milliseconds, that the kept forecasts here date from.
@@ -85,6 +89,156 @@ func checkForecastsKept(r *Rig) error {
 		if latest, own, _, err := r.forecastsOf(s, other.plan, other.version, "m1"); err != nil || len(latest) != 0 || len(own) != 0 {
 			return Violatedf("plan %s version %d, which kept none, reads %+v and %+v: %v", other.plan, other.version, latest, own, err)
 		}
+	}
+	return nil
+}
+
+// registerWorker registers a worker with the installation, which then serves its projects.
+func (r *Rig) registerWorker(s ports.Store) error {
+	plane := control.NewWorkers(s, r.Scope, control.WorkerOptions{HeartbeatMs: statusHeartbeatMs, LeaseTTLMs: TTLMs})
+	token, err := plane.CreateJoinToken(r.Ctx, ledger.Actor{Kind: ledger.ActorMember, ID: "member"})
+	if err != nil {
+		return err
+	}
+	_, err = plane.Register(r.Ctx, ledger.Registration{JoinToken: token, WorkerID: r.ID("worker"), Name: "w"})
+	return err
+}
+
+// forecastRuns runs the forecast tick once and says how many plan versions it forecast.
+func (r *Rig) forecastRuns(s ports.Store, want int, after string) error {
+	if kept, err := control.NewForecasts(s).Refresh(r.Ctx, r.Scope); err != nil || kept != want {
+		return Violatedf("%s, the forecast tick forecast %d plan versions, not %d: %v", after, kept, want, err)
+	}
+	return nil
+}
+
+func checkForecastTick(r *Rig) error {
+	s := r.Store()
+	files := newApprovalSource()
+	files.source.Write("m1.md", []byte(milestoneOf("m1", approvalPlan, 1)))
+	files.source.Write("budget.md", []byte(placedContract{ID: "budget", Plan: approvalPlan, Milestone: "m1"}.text()))
+	if report, err := r.intake(s, files.source); err != nil || len(report.Problems) != 0 {
+		return Violatedf("intake read %+v: %v", report, err)
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	versions, err := r.planVersionsOf(s, plan)
+	if err != nil || len(versions) != 1 {
+		return Violatedf("versions %+v: %v", versions, err)
+	}
+	budget, held, err := r.contractTitled(s, "budget")
+	if err != nil || !held {
+		return Violatedf("the contract: %v", err)
+	}
+	planned, err := r.ordersOfContract(s, budget.ID)
+	if err != nil || len(planned) != 1 {
+		return Violatedf("the plan's work %v: %v", planned, err)
+	}
+	_, intakeSet, err := r.currentOf(s, planned[0])
+	if err != nil {
+		return err
+	}
+
+	// With no worker, nothing can run the plan's work.
+	before, err := r.workspaceRev(s)
+	if err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after intake"); err != nil {
+		return err
+	}
+	if after, err := r.workspaceRev(s); err != nil || after != before {
+		return Violatedf("the forecast tick moved the revision from %d to %d: %v", before, after, err)
+	}
+	latest, _, _, err := r.forecastsOf(s, plan, 1, "m1")
+	if err != nil {
+		return err
+	}
+	if len(latest) != 2 || latest[0].Milestone != "" || latest[1].Milestone != "m1" || latest[0].Status != delivery.ForecastNoCapacity ||
+		latest[0].SetID != intakeSet.ID || latest[1].SetID != intakeSet.ID || latest[0].PlanVersion != 1 || latest[0].Rev != before ||
+		latest[0].Inputs == "" || latest[0].ID == "" || latest[0].Day != delivery.DayOf(latest[0].CreatedAt) || latest[0].Explanation == "" {
+		return Violatedf("with no worker, the plan's forecasts are %+v", latest)
+	}
+	if err := r.forecastRuns(s, 0, "with nothing new"); err != nil {
+		return err
+	}
+
+	// A worker serves the project, and no work like the plan's has finished.
+	if err := r.registerWorker(s); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "once a worker serves the project"); err != nil {
+		return err
+	}
+	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m1"); err != nil || latest[0].Status != delivery.ForecastNoHistory || latest[1].Status != delivery.ForecastNoHistory {
+		return Violatedf("with no history, the plan's forecasts are %+v: %v", latest, err)
+	}
+
+	// Work like the plan's finishes, and once the fold keeps its record, the forecast has dates, from a set of the
+	// version the tick keeps itself.
+	finished, err := r.Awaiting(s, []string{criterionOne}, LaneFinished(r.ID("commit"), LaneCheck(criterionOne, true)))
+	if err != nil {
+		return err
+	}
+	if _, err := r.NewOps(s).Accept(r.Ctx, r.Scope, finished, r.Actor); err != nil {
+		return err
+	}
+	if _, err := control.NewDeliveryFold(s).Fold(r.Ctx, r.Scope); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after work finished"); err != nil {
+		return err
+	}
+	rev, err := r.workspaceRev(s)
+	if err != nil {
+		return err
+	}
+	latest, own, _, err := r.forecastsOf(s, plan, 1, "m1")
+	if err != nil {
+		return err
+	}
+	made, set, err := r.currentOf(s, planned[0])
+	if err != nil {
+		return err
+	}
+	f := latest[0]
+	if f.Status != delivery.Forecasted || f.Confidence != delivery.Low || len(f.LowConfidenceWorkOrders) != 1 || f.LowConfidenceWorkOrders[0] != planned[0] ||
+		f.Seed != delivery.ForecastSeed(versions[0].Digest, rev) || f.Rev != rev || f.EndP50 < f.AsOf || f.EndP85 < f.EndP50 || f.Trials != 2000 {
+		return Violatedf("after work finished, the plan's forecast is %+v", f)
+	}
+	if set.ID != f.SetID || set.ID == intakeSet.ID || set.Plan != plan || set.PlanVersion != 1 || made.Status != delivery.Estimated || latest[1].SetID != f.SetID {
+		return Violatedf("the forecast names set %s, and the plan's work is estimated %+v in %+v", f.SetID, made, set)
+	}
+	if len(own) != 1 || own[0].ID != f.ID {
+		return Violatedf("a day keeps %+v of the plan's forecasts", own)
+	}
+	if err := r.forecastRuns(s, 0, "a second time with nothing new"); err != nil {
+		return err
+	}
+
+	// Approving the version forecasts it again.
+	pending, err := r.theOpenPlanApprovalFor(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, r.Actor); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after the version was approved"); err != nil {
+		return err
+	}
+
+	// Once the plan's work starts, the forecast keeps what remains of it.
+	if _, err := r.Running(s, planned[0], "a"); err != nil {
+		return err
+	}
+	if err := r.forecastRuns(s, 1, "after the plan's work started"); err != nil {
+		return err
+	}
+	if latest, _, _, err = r.forecastsOf(s, plan, 1, "m1"); err != nil || !strings.Contains(latest[0].Explanation, "leaves started work as it is") {
+		return Violatedf("with its work started, the plan's forecast is %+v: %v", latest, err)
 	}
 	return nil
 }

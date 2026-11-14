@@ -222,6 +222,7 @@ These commands are for ropeshift or an agent CLI to run, and a person does not n
 | `--forge-tick <duration>` | `1m` | How often the worker reads `gh`'s sign-in for each repository that reviews through pull requests, and each pull request it watches, and how long a failed push or pull request waits before its next attempt. See [onboarding](onboarding.md#review-through-pull-requests) |
 | `--telemetry-tick <duration>` | `5s` | How often the ledger is read into spans and metrics |
 | `--delivery-tick <duration>` | `30s` | How often each project's timelines and delivery records are folded from what its log added, and its open work estimated again. See [delivery records](measures.md#delivery-records) and [estimates](measures.md#estimates) |
+| `--forecast-tick <duration>` | `1m` | How often each plan's forecast is checked, and made again when what it rests on changed, and at least hourly. See [forecasts](measures.md#forecasts) |
 | `--lease-tick`, `--batch-tick`, `--wake-tick` | `5s`, `5s`, `1s` | How often lapsed leases end, closed question batches reach members, and due wakes fire |
 | `--lease-ttl`, `--heartbeat` | `60s`, `15s` | How long a lease lasts, and how often the worker beats |
 
