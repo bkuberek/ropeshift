@@ -22,6 +22,7 @@ var ManifestChecks = []Check{
 	{"RM3", "a repository of the project the manifest does not list is reported and kept", checkManifestReportsUnlistedRepositories},
 	{"RM4", "approving a plan registers, as its approver, each repository its manifest adds from the clone at its path beside the planning repository, with the safe settings; one with no clone is not registered and a later approval registers it", checkApprovalRegistersTheManifest},
 	{"RM5", "a member registers what a manifest lists by hand, by its names, and a clone whose remote is not the manifest's is not registered", checkManifestRegisteredByHand},
+	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
 const manifestPlan = "platform-v1"
@@ -379,4 +380,94 @@ func checkManifestRegisteredByHand(r *Rig) error {
 		return Violatedf("a clone of another remote was registered as %+v", found)
 	}
 	return nil
+}
+
+// outcomeNamed finds what became of the repository a manifest names.
+func outcomeNamed(added []control.Added, name string) (control.Added, bool) {
+	at := slices.IndexFunc(added, func(a control.Added) bool { return a.Name == name })
+	if at < 0 {
+		return control.Added{}, false
+	}
+	return added[at], true
+}
+
+func checkManifestPathsStayBesideThePlanningClone(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	// A manifest whose path climbs out of the directory that holds the planning clone is no document.
+	files.Write("repositories.md", []byte(strings.Replace(manifestText("", "api", "web"), `path = "../web"`, `path = "../../home/user/web"`, 1)))
+	report, err := r.intake(s, files)
+	if err != nil {
+		return err
+	}
+	if problem, found := problemOf(report, "repositories.md"); !found || !strings.Contains(problem.Detail, "inside the directory that holds that clone") {
+		return Violatedf("a manifest path that climbs out of the planning clone's directory reads %+v", report.Problems)
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	kept.Place(ports.Clone{Path: "/home/user/secret", ID: "repo-secret", DefaultBranch: "main"})
+	kept.Place(ports.Clone{Path: "/other/api", ID: "repo-theirs", DefaultBranch: "main"})
+	kept.Place(ports.Clone{Path: "/data/elsewhere", ID: "repo-escape", DefaultBranch: "main"})
+	kept.Link("/work/escape", "/data/elsewhere")
+	kept.Place(ports.Clone{Path: "/work/real-search", ID: "repo-search", DefaultBranch: "main"})
+	kept.Link("/work/search", "/work/real-search")
+	kept.Reserve("/work/state")
+	kept.Place(ports.Clone{Path: "/work/state/lanes/one", ID: "repo-lane", DefaultBranch: "main"})
+	// A manifest given whole skips intake's check, so registration holds every path to the same bound.
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
+		{Name: "secret", Path: "../../home/user/secret"},
+		{Name: "theirs", Path: "../../other/api"},
+		{Name: "escape", Path: "../escape"},
+		{Name: "search", Path: "../search"},
+		{Name: "itself", Path: "../plan"},
+		{Name: "lane", Path: "../state/lanes/one"},
+		{Name: "billing", Remote: "git@github.com:acme/billing.git", Path: "../billing"},
+	}}
+	added, err := r.repositories(s).RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	for name, why := range map[string]string{
+		"secret": "/home/user/secret, outside /work",
+		"theirs": "/other/api, outside /work",
+		"escape": "resolves to /data/elsewhere, outside /work",
+		"itself": "the planning repository's own clone",
+		"lane":   "this installation keeps for itself",
+	} {
+		refused, ok := outcomeNamed(added, name)
+		if !ok || refused.Outcome != ledger.RegistrationRefused || !strings.Contains(refused.Reason, why) {
+			return Violatedf("%s reads %+v, want a refusal saying %q", name, refused, why)
+		}
+	}
+	search, ok := outcomeNamed(added, "search")
+	if !ok || search.Outcome != ledger.Registered || search.Repository.Name != "search" || search.Path != "/work/real-search" || search.Checkout != "/work/real-search" {
+		return Violatedf("a link inside the directory reads %+v, want the clone it leads to registered", search)
+	}
+	if billing, ok := outcomeNamed(added, "billing"); !ok || billing.Outcome != ledger.Registered {
+		return Violatedf("billing reads %+v", billing)
+	}
+	for _, id := range []string{"repo-secret", "repo-theirs", "repo-escape", "repo-lane"} {
+		if record, err := r.theRepository(s, id); err == nil {
+			return Violatedf("a path outside the bound registered %+v", record)
+		}
+	}
+	held, err := kept.Of(r.Ctx, r.Scope)
+	if err != nil {
+		return err
+	}
+	for _, path := range held {
+		if !strings.HasPrefix(path, "/work/") || strings.HasPrefix(path, "/work/state/") {
+			return Violatedf("the worker keeps a checkout outside the bound: %v", held)
+		}
+	}
+	return r.CheckProjection(s)
 }

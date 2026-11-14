@@ -19,11 +19,52 @@ type Checkouts struct {
 	mu     sync.Mutex
 	clones map[string]ports.Clone
 	kept   map[ledger.WorkspaceID]map[string]string
+	// links are the symbolic links on the machine, each path to the path it leads to.
+	links map[string]string
+	// reserved are the directories the installation keeps for itself.
+	reserved []string
 }
 
 // NewCheckouts returns a machine with no clone on it.
 func NewCheckouts() *Checkouts {
-	return &Checkouts{clones: map[string]ports.Clone{}, kept: map[ledger.WorkspaceID]map[string]string{}}
+	return &Checkouts{clones: map[string]ports.Clone{}, kept: map[ledger.WorkspaceID]map[string]string{}, links: map[string]string{}}
+}
+
+// Link puts a symbolic link on the machine at a path, leading to an absolute path.
+func (f *Checkouts) Link(at, target string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.links[path.Clean(at)] = path.Clean(target)
+}
+
+// Reserve names a directory the installation keeps for itself, as its state directory.
+func (f *Checkouts) Reserve(dir string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reserved = append(f.reserved, path.Clean(dir))
+}
+
+// Resolve follows the links in a path, the first component that is a link first, as a machine does. Every
+// path is there, because the machine holds no directories, only clones and links.
+func (f *Checkouts) Resolve(_ context.Context, at string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	at = path.Clean(at)
+	for range 40 {
+		moved := false
+		parts := strings.Split(at, "/")
+		for i := 1; i <= len(parts) && !moved; i++ {
+			prefix := strings.Join(parts[:i], "/")
+			if target, ok := f.links[prefix]; ok {
+				at, moved = path.Join(append([]string{target}, parts[i:]...)...), true
+			}
+		}
+		if !moved {
+			break
+		}
+	}
+	reserved := slices.ContainsFunc(f.reserved, func(dir string) bool { return at == dir || strings.HasPrefix(at, dir+"/") })
+	return at, reserved, nil
 }
 
 // Place puts a clone on the machine at its path, and names its directory after the path when it names none.

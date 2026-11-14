@@ -509,9 +509,26 @@ func insideRepository(name string) bool {
 	return !slices.Contains(strings.Split(path.Clean(name), "/"), "..") && path.Clean(name) != "."
 }
 
+// inPlanningDirectory says a manifest path, relative to the planning repository's clone, stays inside the
+// directory that holds that clone: the clone or a path in it, or a path beside it, such as `../api`. It
+// never climbs above that directory. Where it resolves once symbolic links are followed is read again on
+// the machine that registers it.
+func inPlanningDirectory(name string) bool {
+	if name == "" || strings.ContainsAny(name, "\\\x00") || path.IsAbs(name) {
+		return false
+	}
+	parts := strings.Split(path.Clean(name), "/")
+	climbs := 0
+	for climbs < len(parts) && parts[climbs] == ".." {
+		climbs++
+	}
+	return climbs == 0 || (climbs == 1 && len(parts) > 1)
+}
+
 // Normalize refuses a manifest that cannot become a document. Each repository has a name a repository can
 // have, once, and a path relative to the planning repository's clone, because a path from the root of one
-// machine means nothing on another. A path may lead out of that clone, as to a clone beside it.
+// machine means nothing on another. A path may lead out of that clone, as to a clone beside it, and never
+// out of the directory that holds it.
 func (f RepositoriesFile) Normalize() (RepositoriesFile, error) {
 	if f.ID == "" {
 		return f, fmt.Errorf("%w: no id", ErrBadFile)
@@ -525,8 +542,9 @@ func (f RepositoriesFile) Normalize() (RepositoriesFile, error) {
 			return f, fmt.Errorf("%w: manifest %s names repository %s twice", ErrBadFile, f.ID, repository.Name)
 		}
 		seen[repository.Name] = true
-		if repository.Path == "" || strings.ContainsAny(repository.Path, "\\\x00") || path.IsAbs(repository.Path) {
-			return f, fmt.Errorf("%w: manifest %s: repository %s needs a path relative to the planning repository's clone, not %q", ErrBadFile, f.ID, repository.Name, repository.Path)
+		if !inPlanningDirectory(repository.Path) {
+			return f, fmt.Errorf("%w: manifest %s: repository %s needs a path relative to the planning repository's clone, inside the directory that holds that clone, not %q",
+				ErrBadFile, f.ID, repository.Name, repository.Path)
 		}
 	}
 	f.Ignored = cleanList(f.Ignored)

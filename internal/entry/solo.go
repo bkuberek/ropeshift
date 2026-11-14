@@ -560,9 +560,10 @@ func soloTerminal(runner ports.ProcessRunner, paths api.Paths, env []string) (po
 	return terminal, nil
 }
 
-// soloCheckouts is the checkouts this machine's worker keeps, in its state directory.
+// soloCheckouts is the checkouts this machine's worker keeps, in its state directory. The state and run
+// directories are the installation's own, with its lanes' worktrees, so no manifest registers a clone there.
 func soloCheckouts(paths api.Paths) *checkouts.File {
-	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName)}
+	return &checkouts.File{Path: filepath.Join(paths.StateDir, checkouts.FileName), Reserved: []string{paths.StateDir, paths.RunDir}}
 }
 
 // checkoutOf finds this machine's checkout of a project's repository: the one the worker keeps for the

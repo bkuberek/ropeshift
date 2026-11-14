@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"ropeshift.com/ropeshift/internal/adapters/gitcli"
 	"ropeshift.com/ropeshift/internal/adapters/repofiles"
@@ -29,6 +31,9 @@ type File struct {
 	Path string
 	// Env replaces the environment of git commands. Nil runs them in the process's.
 	Env []string
+	// Reserved are the directories the installation keeps for itself, such as its state and run
+	// directories, which hold no clone to register.
+	Reserved []string
 
 	mu sync.Mutex
 }
@@ -236,6 +241,30 @@ func (f *File) cloneAt(ctx context.Context, dir string) (ports.Clone, string, bo
 		Path: real, ID: description.Instance, Remote: description.Remote, DefaultBranch: description.DefaultBranch,
 		Directory: filepath.Base(real),
 	}, "", true
+}
+
+// Resolve follows every symbolic link in a path, and says whether the path it comes to is inside a
+// directory the installation keeps for itself. A path nothing is at is ErrNotFound.
+func (f *File) Resolve(_ context.Context, path string) (string, bool, error) {
+	real, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return "", false, fmt.Errorf("nothing is at %s: %w", path, ports.ErrNotFound)
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if real, err = filepath.Abs(real); err != nil {
+		return "", false, err
+	}
+	for _, dir := range f.Reserved {
+		if held, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = held
+		}
+		if rel, err := filepath.Rel(filepath.Clean(dir), real); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return real, true, nil
+		}
+	}
+	return real, false, nil
 }
 
 var _ ports.Checkouts = (*File)(nil)

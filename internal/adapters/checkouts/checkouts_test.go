@@ -1,6 +1,7 @@
 package checkouts
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -140,5 +141,47 @@ func TestTheFileKeepsACheckoutPerProjectRepository(t *testing.T) {
 	}
 	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
 		t.Errorf("the file: %v, %v", info, err)
+	}
+}
+
+// Resolving a path follows every symbolic link in it, says when the path it comes to is inside a directory
+// the installation keeps for itself, and says nothing is there when nothing is.
+func TestResolveFollowsLinksAndNamesTheInstallationsDirectories(t *testing.T) {
+	root := real(t, t.TempDir())
+	state := filepath.Join(root, "state")
+	for _, dir := range []string{filepath.Join(root, "work", "api"), filepath.Join(state, "lanes", "one"), filepath.Join(root, "outside")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{
+		filepath.Join(root, "work", "alias"): filepath.Join(root, "work", "api"),
+		filepath.Join(root, "work", "away"):  filepath.Join(root, "outside"),
+		filepath.Join(root, "work", "lane"):  filepath.Join(state, "lanes", "one"),
+		filepath.Join(root, "state-link"):    state,
+	} {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &File{Path: filepath.Join(state, FileName), Reserved: []string{filepath.Join(root, "state-link"), filepath.Join(root, "run")}}
+	for at, want := range map[string]struct {
+		real     string
+		reserved bool
+	}{
+		filepath.Join(root, "work", "api"):                {filepath.Join(root, "work", "api"), false},
+		filepath.Join(root, "work", "alias"):              {filepath.Join(root, "work", "api"), false},
+		filepath.Join(root, "work", "away"):               {filepath.Join(root, "outside"), false},
+		filepath.Join(root, "work", "lane"):               {filepath.Join(state, "lanes", "one"), true},
+		filepath.Join(state, "lanes"):                     {filepath.Join(state, "lanes"), true},
+		filepath.Join(root, "work", "alias", "..", "api"): {filepath.Join(root, "work", "api"), false},
+	} {
+		real, reserved, err := f.Resolve(t.Context(), at)
+		if err != nil || real != want.real || reserved != want.reserved {
+			t.Errorf("%s resolves to %q, reserved %v: %v; want %q, reserved %v", at, real, reserved, err, want.real, want.reserved)
+		}
+	}
+	if _, _, err := f.Resolve(t.Context(), filepath.Join(root, "work", "ghost")); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("a path nothing is at: %v", err)
 	}
 }
