@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FakeEvents, goldenNeedsYou, refusal, serveApi, stubEvents } from "../testing";
+import { FakeEvents, goldenNeedsYou, openLedgerStream, refusal, serveApi, stubEvents } from "../testing";
 import { App } from "./App";
 
 const needsYou = "/v1/needs-you";
@@ -91,7 +91,7 @@ describe("signing in", () => {
     await userEvent.click(somethingElse);
     await userEvent.type(screen.getByRole("textbox", { name: "Your answer" }), "Half of a thought");
     live = false;
-    FakeEvents.opened[0]?.emit();
+    (await openLedgerStream()).emit();
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
     await userEvent.type(screen.getByLabelText("Passphrase"), "a passphrase");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -148,15 +148,14 @@ describe("the stream", () => {
     const sent = live();
     render(<App />);
     await screen.findByRole("heading", { name: "Needs you" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
+    const stream = await openLedgerStream();
     const needsReads = () => sent.filter((call) => call.url === needsYou).length;
     await waitFor(() => expect(sent.some((call) => call.path === "/v1/views/shop-floor")).toBe(true));
     const reads = needsReads();
     const views = sent.length - reads;
-    const stream = FakeEvents.opened[0];
-    stream?.emit();
-    stream?.emit();
-    stream?.emit();
+    stream.emit();
+    stream.emit();
+    stream.emit();
     await waitFor(() => expect(needsReads()).toBe(reads + 1));
     // The status bar's floor reads once for the burst too, and nothing reads twice.
     await waitFor(() => expect(sent.length - needsReads()).toBe(views + 1));
@@ -166,11 +165,10 @@ describe("the stream", () => {
     live();
     render(<App />);
     await screen.findByRole("heading", { name: "Needs you" });
-    await waitFor(() => expect(FakeEvents.opened).toHaveLength(1));
-    const stream = FakeEvents.opened[0];
-    stream?.onopen?.();
+    const stream = await openLedgerStream();
+    stream.onopen?.();
     expect((await screen.findByRole("status")).textContent).toBe("Live");
-    stream?.onerror?.();
+    stream.onerror?.();
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Reconnecting"));
   });
 });
