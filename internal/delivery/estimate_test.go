@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"reflect"
+	"strings"
 	"testing"
 
 	"ropeshift.com/ropeshift/internal/delivery"
@@ -112,7 +113,7 @@ func TestALowEstimateGoesBroaderOnlyWhenThatAddsRecords(t *testing.T) {
 	if one.Time() != (delivery.Band{P50: 4 * hour, P85: 4 * hour}) || !one.P85Open {
 		t.Errorf("one record reads %+v open %v", one.Time(), one.P85Open)
 	}
-	if want := "Low confidence. Based on 1 finished medium change; a confident estimate needs 10. It took 4h. With fewer than 6, the 85th percentile cannot be read from them, so the band is open above 4h."; one.Explanation != want {
+	if want := "Low confidence. Based on 1 finished medium change; a confident estimate needs 10. It took 4h. With one outcome, the 85th percentile cannot be read from it, so the band is open above 4h."; one.Explanation != want {
 		t.Errorf("explanation %q", one.Explanation)
 	}
 }
@@ -291,5 +292,24 @@ func TestAPooledEstimateNamesTheProjectsOwnWork(t *testing.T) {
 	e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: own, Pool: pool, Policy: sharing})
 	if e.Tier != 6 || e.SampleCount != 5 || e.PoolSamples != 3 || !reflect.DeepEqual(e.SampleIDs, []string{"own-2", "own-1"}) {
 		t.Errorf("a pooled estimate drew %d, %d from the pool, naming %v, at tier %d", e.SampleCount, e.PoolSamples, e.SampleIDs, e.Tier)
+	}
+}
+
+// TestDurationsReadDistinctlyAndCarry says neighbouring durations apart and carries a rounded unit into the next.
+func TestDurationsReadDistinctlyAndCarry(t *testing.T) {
+	const minute, second = 60_000, 1_000
+	for ms, want := range map[int64]string{
+		3*hour + 59*minute:    "3h59m",
+		4*hour + 1*minute:     "4h1m",
+		4 * hour:              "4h",
+		hour - 1:              "1h",
+		minute - 1:            "1m",
+		59*minute + 30*second: "59m30s",
+		45 * second:           "45s",
+	} {
+		e := estimateOf([]delivery.Record{finished("a", 1, ms, 1, nil)}, delivery.DefaultEstimatePolicy())
+		if !strings.Contains(e.Explanation, "It took "+want+".") {
+			t.Errorf("%d ms reads %q, want %q", ms, e.Explanation, want)
+		}
 	}
 }

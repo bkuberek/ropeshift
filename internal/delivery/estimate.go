@@ -386,7 +386,10 @@ func explain(e Estimate, keys Keys, policy EstimatePolicy) string {
 	default:
 		fmt.Fprintf(&out, " They took from %s to %s.", durationWords(e.DeliveryMinMs), durationWords(e.DeliveryMaxMs))
 	}
-	if e.P85Open {
+	switch {
+	case e.P85Open && e.SampleCount == 1:
+		fmt.Fprintf(&out, " With one outcome, the 85th percentile cannot be read from it, so the band is open above %s.", durationWords(e.DeliveryMaxMs))
+	case e.P85Open:
 		fmt.Fprintf(&out, " With fewer than %d, the 85th percentile cannot be read from them, so the band is open above %s.", openBelow, durationWords(e.DeliveryMaxMs))
 	}
 	return out.String()
@@ -417,14 +420,23 @@ func list(words []string) string {
 	return strings.Join(words[:len(words)-1], ", ") + ", and " + words[len(words)-1]
 }
 
-// durationWords says a duration as a person reads it: hours, minutes, or seconds.
+// durationWords says a duration as a person reads it: hours and minutes from an hour on, minutes and seconds
+// from a minute on, and seconds below. It rounds to the second, and from an hour on to the minute, before it
+// splits into units, so a rounded unit carries into the next, and durations a minute apart read apart.
 func durationWords(ms int64) string {
-	const minute, hour = 60_000, 3_600_000
+	seconds := (ms + 500) / 1000
 	switch {
-	case ms >= hour:
-		return strings.TrimSuffix(strconv.FormatFloat(math.Round(float64(ms)/hour*10)/10, 'f', 1, 64), ".0") + "h"
-	case ms >= minute:
-		return strconv.FormatInt((ms+minute/2)/minute, 10) + "m"
+	case seconds >= 3600:
+		minutes := (seconds + 30) / 60
+		if minutes%60 == 0 {
+			return strconv.FormatInt(minutes/60, 10) + "h"
+		}
+		return strconv.FormatInt(minutes/60, 10) + "h" + strconv.FormatInt(minutes%60, 10) + "m"
+	case seconds >= 60:
+		if seconds%60 == 0 {
+			return strconv.FormatInt(seconds/60, 10) + "m"
+		}
+		return strconv.FormatInt(seconds/60, 10) + "m" + strconv.FormatInt(seconds%60, 10) + "s"
 	}
-	return strconv.FormatInt((ms+500)/1000, 10) + "s"
+	return strconv.FormatInt(seconds, 10) + "s"
 }
