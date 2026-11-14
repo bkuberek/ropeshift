@@ -243,7 +243,22 @@ func TestEveryEstimateTracesToTheRecordsItNames(t *testing.T) {
 		if policy.RecentSamples == 0 {
 			window = 50
 		}
-		e := delivery.EstimateOf(delivery.EstimateInput{Keys: estimated, Records: records, Pool: pool, Policy: policy})
+		in := delivery.EstimateInput{Keys: estimated, Records: records, Pool: pool, Policy: policy}
+		e := delivery.EstimateOf(in)
+		// A forecast draws on the records the estimate rests on, and on no others.
+		drawn := delivery.Drawn(in)
+		var drawnIDs []string
+		pooled := 0
+		for _, r := range drawn {
+			if r.WorkOrder == "" {
+				pooled++
+			} else {
+				drawnIDs = append(drawnIDs, r.WorkOrder)
+			}
+		}
+		if len(drawn) != e.SampleCount || pooled != e.PoolSamples || !slices.Equal(drawnIDs, nonNil(e.SampleIDs)) {
+			t.Fatalf("run %d: the estimate %+v rests on records other than those drawn: %+v", run, e, drawn)
+		}
 		counts := []int{}
 		for _, same := range tierKeys {
 			n := 0
@@ -485,4 +500,12 @@ func TestAnEstimatePolicyVersionKeepsWhatAMemberWrote(t *testing.T) {
 	if (delivery.EstimatePolicy{MinSamples: 10, RecentSamples: 50, ForecastTrials: 1}).Check() == nil {
 		t.Error("a policy with no version passed")
 	}
+}
+
+// nonNil reads an empty list as none, as a list built by appending does.
+func nonNil(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
 }
