@@ -23,6 +23,7 @@ var ManifestChecks = []Check{
 	{"RM4", "approving a plan registers, as its approver, each repository its manifest adds from the clone at its path beside the planning repository, with the safe settings; one with no clone is not registered and a later approval registers it", checkApprovalRegistersTheManifest},
 	{"RM5", "a member registers what a manifest lists by hand, by its names, and a clone whose remote is not the manifest's is not registered", checkManifestRegisteredByHand},
 	{"RM7", "the first registration from a manifest in a project of one repository names that repository the planning repository, in its transaction, so a later registration still reads paths beside its clone", checkManifestRegistrationNamesThePlanningRepository},
+	{"RM8", "approving a plan registers only what its own version's manifest lists, and never brings back a repository a member removed, which only a member's registration by hand does", checkApprovalLeavesRemovedRepositoriesOut},
 	{"RM6", "a manifest registers only a clone inside the directory that holds the planning repository's clone, symbolic links followed: a path or a link that leads out of it, the planning clone itself, and the installation's own directories register nothing, each refused naming where it leads", checkManifestPathsStayBesideThePlanningClone},
 }
 
@@ -263,21 +264,21 @@ func checkApprovalRegistersTheManifest(r *Rig) error {
 	// The clone's directory is not the manifest's name, which names the repository.
 	kept.Place(cloneOf("billing", "billing"))
 	repositories := r.repositories(s)
-	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); !errors.Is(err, workorders.ErrForbidden) {
-		return Violatedf("a tick registering what a manifest adds: %v", err)
-	}
-	// Until a member approves the plan, its manifest registers nothing.
-	if added, err := repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, r.member()); err != nil || len(added) != 0 {
-		return Violatedf("an unapproved manifest registered %+v: %v", added, err)
-	}
 	request, err := r.theOpenPlanApproval(s)
 	if err != nil {
 		return err
 	}
+	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a tick registering what a manifest adds: %v", err)
+	}
+	// Until a member approves the plan, its manifest registers nothing.
+	if added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member()); err != nil || len(added) != 0 {
+		return Violatedf("an unapproved manifest registered %+v: %v", added, err)
+	}
 	if _, err := r.approve(s, request, true, r.member()); err != nil {
 		return err
 	}
-	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, r.member())
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
 	if err != nil {
 		return err
 	}
@@ -312,7 +313,7 @@ func checkApprovalRegistersTheManifest(r *Rig) error {
 	}
 	// Once its clone is there, a later approval registers it, and what is registered stays as it is.
 	kept.Place(cloneOf("search", "search"))
-	added, err = repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, r.member())
+	added, err = repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
 	if err != nil {
 		return err
 	}
@@ -519,6 +520,98 @@ func checkManifestRegistrationNamesThePlanningRepository(r *Rig) error {
 	}
 	if search, ok := outcomeNamed(added, "search"); !ok || search.Outcome != ledger.Registered || search.Repository.Name != "search" {
 		return Violatedf("a second registration reads %+v", added)
+	}
+	return r.CheckProjection(s)
+}
+
+// otherPlan is a second plan of the project, whose manifest lists the repositories named.
+func otherPlan(files *fake.WorkSource, names ...string) {
+	files.Write("other.md", []byte("+++\nkind = \"plan\"\nid = \"other-v1\"\ntitle = \"The other work\"\ndocuments = [\"repositories:other\"]\n+++\n\nAnother plan.\n"))
+	text := "+++\nkind = \"repositories\"\nid = \"other\"\ntitle = \"The other repositories\"\nplan = \"other-v1\"\n"
+	for _, name := range names {
+		text += "\n[[repository]]\nname = \"" + name + "\"\npath = \"../" + name + "\"\n"
+	}
+	files.Write("other-repositories.md", []byte(text+"+++\n\nWhat the other plan uses.\n"))
+}
+
+func checkApprovalLeavesRemovedRepositoriesOut(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	files.Write("repositories.md", []byte(manifestText("", "api", "web", "billing")))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	kept.Place(cloneOf("search", "search"))
+	repositories := r.repositories(s)
+	approved := func(title string) ([]control.Added, error) {
+		request, err := r.theOpenPlanApprovalFor(s, title)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := r.approve(s, request, true, r.member()); err != nil {
+			return nil, err
+		}
+		return repositories.RegisterApproved(r.Ctx, r.Scope, request.ID, kept, false, r.member())
+	}
+	if added, err := approved("The platform"); err != nil {
+		return err
+	} else if billing, ok := outcomeNamed(added, "billing"); !ok || billing.Outcome != ledger.Registered {
+		return Violatedf("billing reads %+v", billing)
+	}
+	if _, err := repositories.Remove(r.Ctx, r.Scope, "repo-billing", kept, r.member()); err != nil {
+		return err
+	}
+	// Another plan's approval registers what its own manifest lists, and reads no other plan's.
+	otherPlan(files, "search")
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	added, err := approved("The other work")
+	if err != nil {
+		return err
+	}
+	if search, ok := outcomeNamed(added, "search"); !ok || search.Outcome != ledger.Registered || len(added) != 1 {
+		return Violatedf("the other plan's approval reads %+v, want search alone registered", added)
+	}
+	if billing, err := r.theRepository(s, "repo-billing"); err != nil || !billing.Removed() {
+		return Violatedf("another plan's approval brought billing back: %+v: %v", billing, err)
+	}
+	// A new version of the plan that lists it still leaves it removed, and says why.
+	files.Write("repositories.md", []byte(manifestText("", "api", "web", "billing", "search")))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	if added, err = approved("The platform"); err != nil {
+		return err
+	}
+	billing, ok := outcomeNamed(added, "billing")
+	if !ok || billing.Outcome != ledger.RegistrationRefused || !strings.Contains(billing.Reason, "removed") {
+		return Violatedf("a removed repository the approved manifest lists reads %+v", billing)
+	}
+	if record, err := r.theRepository(s, "repo-billing"); err != nil || !record.Removed() {
+		return Violatedf("approval brought billing back: %+v: %v", record, err)
+	}
+	// A member's registration by hand brings it back.
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{{Name: "billing", Path: "../billing"}}}
+	if added, err = repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member()); err != nil {
+		return err
+	}
+	if back, ok := outcomeNamed(added, "billing"); !ok || back.Outcome != ledger.Registered {
+		return Violatedf("registering billing by hand reads %+v", back)
+	}
+	if record, err := r.theRepository(s, "repo-billing"); err != nil || record.Removed() {
+		return Violatedf("billing after a member registered it again: %+v: %v", record, err)
 	}
 	return r.CheckProjection(s)
 }

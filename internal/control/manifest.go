@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,77 +16,73 @@ import (
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
-// RegisterApproved registers, for the member who approved a plan, each repository the manifest of an
-// approved plan version lists and the project lacks (ADR-0022, FR-REPO-8). The worker whose machine keeps
-// the planning repository's clone reads each path beside it; a repository with no clone at its path is not
-// registered, says why, and a later approval or a member's registration by hand registers it. A
-// repository the project holds is named as held, and nothing changes its settings. Registration is a
-// member's act, so no tick runs this: the approval does.
-func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
+// RegisterApproved registers, for the member who approved a plan version, each repository the manifest of
+// that version lists and the project lacks (ADR-0022, FR-REPO-8). The worker whose machine keeps the
+// planning repository's clone reads each path beside it; a repository with no clone at its path is not
+// registered, says why, and a later approval or a member's registration by hand registers it. A repository
+// the project holds is named as held, and nothing changes its settings. A repository a member removed stays
+// removed, said with why, because only a member's own registration brings one back. Registration is a
+// member's act, so no tick runs this: the approval does. Until the version is approved it registers
+// nothing, and a dry run, which a member reads before approving, says what approving would register.
+func (r *Repositories) RegisterApproved(ctx context.Context, scope ledger.WorkspaceID, approval string, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionRegisterRepository) {
 		return nil, workorders.ErrForbidden
 	}
 	var entries []planning.ManifestRepository
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
-		var err error
-		entries, err = approvedManifests(tx)
+		row, err := tx.Approvals().Approval(approval)
+		if err != nil || row.Kind != authority.KindPlan {
+			return err
+		}
+		if row.State == authority.ApprovalApproved || (dryRun && row.Open()) {
+			entries, err = versionManifest(tx, row)
+		}
 		return err
 	})
 	if err != nil || len(entries) == 0 {
 		return nil, err
 	}
-	return r.registerEntries(ctx, scope, entries, kept, dryRun, actor)
+	return r.registerEntries(ctx, scope, entries, kept, manifestRun{dryRun: dryRun}, actor)
 }
 
 // RegisterManifest registers what one manifest lists, as a member setting a project up by hand does with
-// no plan approval. Its paths are read beside the planning repository's clone on this worker's machine.
+// no plan approval. Its paths are read beside the planning repository's clone on this worker's machine, and
+// it brings back a repository the project removed, as registering its clone by hand does.
 func (r *Repositories) RegisterManifest(ctx context.Context, scope ledger.WorkspaceID, manifest planning.RepositoriesFile, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
 	if !authority.Allowed(actor, authority.ActionRegisterRepository) {
 		return nil, workorders.ErrForbidden
 	}
-	return r.registerEntries(ctx, scope, manifest.Repositories, kept, dryRun, actor)
+	return r.registerEntries(ctx, scope, manifest.Repositories, kept, manifestRun{dryRun: dryRun, restore: true}, actor)
 }
 
-// approvedManifests lists the repositories the manifest of each plan's newest approved version names, at
-// the version of the manifest that approval covered. A name two manifests list is read once.
-func approvedManifests(tx ports.ReadTx) ([]planning.ManifestRepository, error) {
-	rows, err := tx.Approvals().All()
-	if err != nil {
-		return nil, err
+// versionManifest lists the repositories the manifests of one plan version name, at the version of each
+// manifest that plan version covers. A version the ledger does not hold yet, as a branch nothing has read,
+// names none, and a name two manifests list is read once.
+func versionManifest(tx ports.ReadTx, row authority.Approval) ([]planning.ManifestRepository, error) {
+	if row.Plan == "" {
+		return nil, nil
 	}
-	newest := map[string]authority.Approval{}
-	for _, row := range rows {
-		if row.Kind == authority.KindPlan && row.State == authority.ApprovalApproved && row.Plan != "" && row.PlanVersion > newest[row.Plan].PlanVersion {
-			newest[row.Plan] = row
-		}
+	version, err := tx.Planning().PlanVersion(row.Plan, row.PlanVersion)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil || version.Digest != row.SubjectDigest {
+		return nil, err
 	}
 	var out []planning.ManifestRepository
 	seen := map[string]bool{}
-	for _, plan := range slices.Sorted(maps.Keys(newest)) {
-		row := newest[plan]
-		version, err := tx.Planning().PlanVersion(plan, row.PlanVersion)
-		if errors.Is(err, ports.ErrNotFound) {
+	for _, entry := range version.Records {
+		if planning.EntryKind(entry.Ref) != string(planning.FileRepositories) {
 			continue
 		}
+		manifest, found, err := manifestAt(tx.Planning(), entry)
 		if err != nil {
 			return nil, err
 		}
-		if version.Digest != row.SubjectDigest {
-			continue
-		}
-		for _, entry := range version.Records {
-			if planning.EntryKind(entry.Ref) != string(planning.FileRepositories) {
-				continue
-			}
-			manifest, found, err := manifestAt(tx.Planning(), entry)
-			if err != nil {
-				return nil, err
-			}
-			for _, repository := range manifest.Repositories {
-				if found && !seen[repository.Name] {
-					seen[repository.Name] = true
-					out = append(out, repository)
-				}
+		for _, repository := range manifest.Repositories {
+			if found && !seen[repository.Name] {
+				seen[repository.Name] = true
+				out = append(out, repository)
 			}
 		}
 	}
@@ -122,12 +117,17 @@ func manifestAt(planned ports.PlanningReader, entry planning.Entry) (planning.Re
 // registerEntries registers each repository a manifest lists that the project lacks, from the clone at its
 // path beside the planning repository's clone, under the manifest's name for it. Each is one transaction and
 // one audited event with the settings a person who chose nothing gets, as registering a clone by hand.
-func (r *Repositories) registerEntries(ctx context.Context, scope ledger.WorkspaceID, entries []planning.ManifestRepository, kept ports.Checkouts, dryRun bool, actor ledger.Actor) ([]Added, error) {
-	held := map[string]ledger.Repository{}
+func (r *Repositories) registerEntries(ctx context.Context, scope ledger.WorkspaceID, entries []planning.ManifestRepository, kept ports.Checkouts, run manifestRun, actor ledger.Actor) ([]Added, error) {
+	dryRun := run.dryRun
+	held, removed := map[string]ledger.Repository{}, map[string]ledger.Repository{}
 	err := r.store.Read(ctx, scope, func(tx ports.ReadTx) error {
 		all, err := tx.Repositories().Repositories()
 		for _, record := range all {
-			if !record.Removed() && record.Name != "" {
+			switch {
+			case record.Name == "":
+			case record.Removed():
+				removed[record.Name] = record
+			default:
 				held[record.Name] = record
 			}
 		}
@@ -167,6 +167,10 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		refused := func(path, reason string) Added {
 			return Added{Name: entry.Name, Path: path, Outcome: ledger.RegistrationRefused, Reason: fmt.Sprintf("%s is not registered: %s", entry.Name, reason)}
 		}
+		if record, ok := removed[entry.Name]; ok && !run.restore {
+			out = append(out, refused(at, staysRemoved(record)))
+			continue
+		}
 		if dir.root == "" {
 			out = append(out, refused(at, why))
 			continue
@@ -181,7 +185,7 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 			out = append(out, refused(real, reason))
 			continue
 		}
-		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: dryRun, restore: true, planning: planning}, actor)
+		added, err := r.register(ctx, scope, clone, registration{claimed: claimed, dryRun: dryRun, restore: run.restore, planning: planning}, actor)
 		if err != nil {
 			return out, err
 		}
@@ -198,6 +202,19 @@ func (r *Repositories) registerEntries(ctx context.Context, scope ledger.Workspa
 		out = append(out, added)
 	}
 	return out, nil
+}
+
+// manifestRun is how a run registers what a manifest lists.
+type manifestRun struct {
+	dryRun bool
+	// restore brings back a repository the project removed, which a member's registration by hand does and
+	// a plan approval never does.
+	restore bool
+}
+
+// staysRemoved says why a repository a member removed is not registered again.
+func staysRemoved(record ledger.Repository) string {
+	return fmt.Sprintf("repository %s was removed from this project, and only a member's repository add brings it back", cmp.Or(record.Name, record.ID))
 }
 
 // planningDirectory is where this worker's machine keeps the planning repository's clone, which a manifest's

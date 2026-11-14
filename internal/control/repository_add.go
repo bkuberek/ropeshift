@@ -41,6 +41,9 @@ type Added struct {
 // errDryRun undoes a dry run's transaction, which wrote what the registration would have.
 var errDryRun = errors.New("a dry run records nothing")
 
+// errStaysRemoved ends a registration that may not bring back the repository the project removed.
+var errStaysRemoved = errors.New("the repository stays removed")
+
 // Add registers, in a project, the repositories of the clones at paths on this worker's machine
 // (ADR-0022). Each registration reads git through the worker's checkouts, is one transaction with one
 // audited event, and records the clone as this worker's checkout of it. A repository another project holds
@@ -117,9 +120,14 @@ type registration struct {
 func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, clone ports.Clone, how registration, actor ledger.Actor) (Added, error) {
 	added := Added{Path: clone.Path}
 	found := DetectedRepository{ID: clone.ID, Remote: clone.Remote, DefaultBranch: clone.DefaultBranch, Directory: clone.Directory}
+	var gone ledger.Repository
 	err := r.store.Write(ctx, scope, "repository.register", func(tx ports.WriteTx) error {
 		look, err := detectIn(tx.Repositories(), found, how.claimed)
-		if look.record.Removed() && how.restore {
+		switch {
+		case look.record.Removed() && !how.restore:
+			gone = look.record
+			return errStaysRemoved
+		case look.record.Removed():
 			// The project removed it, and a member registering it again brings it back.
 			if look, err = restoreIn(tx.Repositories(), found); err != nil {
 				return err
@@ -161,6 +169,10 @@ func (r *Repositories) register(ctx context.Context, scope ledger.WorkspaceID, c
 	switch {
 	case errors.Is(err, errDryRun):
 		return added, nil
+	case errors.Is(err, errStaysRemoved):
+		return Added{
+			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: clone.ID, Remote: clone.Remote}, Reason: staysRemoved(gone),
+		}, nil
 	case errors.Is(err, ledger.ErrRepositoryHeld):
 		return Added{
 			Path: clone.Path, Outcome: ledger.RegistrationRefused, Repository: ledger.Repository{ID: clone.ID, Remote: clone.Remote}, Reason: err.Error(),

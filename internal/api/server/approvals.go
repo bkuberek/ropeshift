@@ -75,8 +75,8 @@ func (h *handler) decideApproval(w http.ResponseWriter, r *http.Request, actor l
 	reply(w, http.StatusOK, h.registerApproved(r.Context(), record, actor))
 }
 
-// registerApproved registers, as the member who approved a plan, the repositories the approved manifests
-// add, from the clones the worker this daemon runs keeps beside the planning repository's clone (ADR-0022).
+// registerApproved registers, as the member who approved a plan version, the repositories its manifest adds,
+// from the clones the worker this daemon runs keeps beside the planning repository's clone (ADR-0022).
 // A plan approval is a member's act, and registration is one too, so it runs here and in no tick. The
 // approval stands whatever registration comes to, so a failure is told beside it.
 func (h *handler) registerApproved(ctx context.Context, record authority.Approval, actor ledger.Actor) api.ApprovalDecided {
@@ -84,7 +84,7 @@ func (h *handler) registerApproved(ctx context.Context, record authority.Approva
 	if record.Kind != authority.KindPlan || record.State != authority.ApprovalApproved || h.Checkouts == nil {
 		return decided
 	}
-	added, err := h.repositories.RegisterApproved(ctx, h.Scope, h.Checkouts, false, actor)
+	added, err := h.repositories.RegisterApproved(ctx, h.Scope, record.ID, h.Checkouts, false, actor)
 	if err != nil {
 		decided.RepositoriesProblem = "registering the repositories the manifest adds failed: " + err.Error()
 	}
