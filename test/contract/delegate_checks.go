@@ -29,7 +29,7 @@ var DelegateChecks = []Check{
 	{"DL6", "a card whose subject moved goes void when a member confirms it, and its outcome is kept", checkCardBinding},
 	{"DL7", "a delegate decides a request only within the delegation policy, and the record names it", checkDelegateDecides},
 	{"DL8", "past every gate, a delegate still cannot raise merge authority or move review to a pull request", checkDelegateRepositoryBounds},
-	{"DL9", "past every gate, a delegate still cannot decide or answer in a one-way category", checkDelegateOneWayBounds},
+	{"DL9", "past every gate, a delegate still records no decision, within the decision policy or outside it, and answers no question in a one-way category", checkDelegateOneWayBounds},
 	{"DL10", "a card a crash left running past its bound fails, naming why, and a younger one keeps running", checkInterruptedCards},
 	{"DL11", "a delegate holds at most a bounded number of open cards in a project", checkOpenCardLimit},
 	{"DL12", "past every gate, a delegate never adds an attempt to failed work, and no delegate policy lets it", checkDelegateRetryBounds},
@@ -466,24 +466,25 @@ func checkDelegateOneWayBounds(r *Rig) error {
 		}
 	}
 	oneWay := bound("Keep audit data in the region.", questions.CategorySecurity)
-	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, oneWay, actor); !errors.Is(err, questions.ErrOneWay) {
+	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, oneWay, actor); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate decided in a one-way category: %v", err)
 	}
 	standing, err := questionsOps.Weigh(r.Ctx, r.Scope, oneWay)
 	if err != nil || !standing.OneWay || standing.WithinPolicy {
 		return Violatedf("a one-way decision weighs %+v, %v", standing, err)
 	}
-	// No delegate policy exempts a decision outside the decision policy, so a delegate records none.
+	// No delegate policy exempts a decision, within the decision policy or outside it, so a delegate holds
+	// nothing recording one needs.
 	unbound := questions.Decision{ID: r.ID("d"), Status: questions.DecisionDecided, Statement: "Retry three times.", Categories: []string{questions.CategoryProduct}}
-	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, unbound, actor); !errors.Is(err, questions.ErrInvalid) {
+	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, unbound, actor); !errors.Is(err, workorders.ErrForbidden) {
 		return Violatedf("a delegate recorded a decision outside the decision policy: %v", err)
 	}
 	reversible := bound("Retry twice.", questions.CategoryProduct)
 	if standing, err := questionsOps.Weigh(r.Ctx, r.Scope, reversible); err != nil || standing.OneWay || !standing.WithinPolicy {
 		return Violatedf("a reversible decision weighs %+v, %v", standing, err)
 	}
-	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, reversible, actor); err != nil {
-		return Violatedf("a delegate's decision within the decision policy: %v", err)
+	if _, err := questionsOps.RecordDecision(r.Ctx, r.Scope, reversible, actor); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a delegate recorded a decision within the decision policy: %v", err)
 	}
 	asked, err := r.ask(s, "May audit data leave the region?", "lane-a", func(a *questions.Ask) { a.Categories = []string{questions.CategorySecurity} })
 	if err != nil {

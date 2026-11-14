@@ -199,6 +199,24 @@ func TestPassingAReviewIsAMembersWord(t *testing.T) {
 	}
 }
 
+// TestADelegatesDecisionIsAMembersWord holds every decision a delegate records to a member's consent
+// (ADR-0024): one within the decision policy is a card no policy exempts, for an outside delegate and the
+// assistant alike, and no delegate holds what recording a decision needs. An orchestrator still decides within
+// policy, through its own acts, which no class reads.
+func TestADelegatesDecisionIsAMembersWord(t *testing.T) {
+	for _, id := range []string{authority.OpDecisionAssume, authority.OpDecisionRecord} {
+		if op, ok := authority.OperationOf(id); !ok || op.Class != authority.ClassConsent || op.Exemptable {
+			t.Errorf("%s is %+v, want consent no policy exempts", id, op)
+		}
+	}
+	if authority.Allowed(delegate, authority.ActionRecordDecision) {
+		t.Error("a delegate holds what recording a decision needs")
+	}
+	if !authority.Allowed(ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "o1"}, authority.ActionRecordDecision) {
+		t.Error("an orchestrator lacks what deciding within policy needs")
+	}
+}
+
 func TestStrictestClassWins(t *testing.T) {
 	ops := func(ids ...string) []authority.Operation {
 		var out []authority.Operation

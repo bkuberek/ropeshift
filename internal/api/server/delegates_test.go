@@ -592,14 +592,13 @@ func TestTheClassOfACallTurnsOnTheCall(t *testing.T) {
 		t.Errorf("a covered request: %+v %v", decided, err)
 	}
 
-	// A decision: one an orchestrator could record is operational, and any other is consent.
+	// A decision: one an orchestrator could record is a card of its own, and any other is a card for a decision.
 	within := api.RecordDecision{
 		ID: "d1", Status: questions.DecisionDecided, Statement: "Retry twice.", Rationale: "The budget allows it.", Scope: "retries",
 		Reversibility: questions.Reversible, Citations: []string{"docs/retries.md"}, Categories: []string{questions.CategoryProduct},
 	}
-	if _, err := delegate.RecordDecision(ctx, within); err != nil {
-		t.Errorf("a decision within policy: %v", err)
-	}
+	_, err = delegate.RecordDecision(ctx, within)
+	cardFor("a decision within policy", err, authority.OpDecisionAssume)
 	unbound := api.RecordDecision{ID: "d2", Status: questions.DecisionDecided, Statement: "Retry three times."}
 	_, err = delegate.RecordDecision(ctx, unbound)
 	cardFor("a decision outside policy", err, authority.OpDecisionRecord)

@@ -346,8 +346,9 @@
     {
       "id": "decision.assume",
       "label": "Record a decision within policy",
-      "class": "operational",
-      "exemptable": false
+      "class": "consent",
+      "exemptable": false,
+      "never_reason": "A delegate policy exempts only accepting verified work, rework after a failed verdict, creating work, and starting a contract review."
     },
     {
       "id": "decision.record",

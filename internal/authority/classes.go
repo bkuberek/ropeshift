@@ -248,7 +248,9 @@ var operations = append(onInstallation(
 	consent(OpQuestionRecord, "Record a question"),
 	consent(OpQuestionDismiss, "Dismiss a question", ActionDismissQuestion),
 	oneWay(consent(OpQuestionAnswer, "Answer a question", ActionAnswerQuestion)),
-	operational(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),
+	// Recording a decision is a member's consent whoever drafts it, the assistant included (ADR-0024). An
+	// orchestrator's decisions within policy reach the ledger through its own acts, which no class reads.
+	consent(OpDecisionAssume, "Record a decision within policy", ActionRecordDecision),
 	oneWay(consent(OpDecisionRecord, "Record a decision", ActionRecordDecision, ActionDecideUnbound)),
 	consent(OpDecisionOverturn, "Overturn a decision", ActionOverturn),
 	never(OpPolicyPublish, "Publish a policy", neverPolicy, ActionPublishPolicy),
