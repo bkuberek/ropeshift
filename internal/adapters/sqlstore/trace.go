@@ -43,4 +43,5 @@ const (
 	OpSaveReport             = "worker.save_report"
 	OpBeat                   = "worker.beat"
 	OpFold                   = "delivery.fold"
+	OpSharePool              = "delivery.share_pool"
 )

@@ -812,14 +812,11 @@ func soloTicks(projects ports.Projects, home ledger.WorkspaceID, opts soloOption
 			_, err := control.NewMessages(store, windows).ExpireMessages(ctx, p.ID, tickActor("message-tick"))
 			return err
 		}),
-		// Each finished work order's timeline and delivery record, folded from the log past its cursor, and then
+		// Each finished work order's timeline and delivery record, folded from the log past its cursor; the
+		// project's share of the installation's delivery pool, while its estimate policy shares history; and then
 		// each open work order's current estimate, drawn on the records the fold kept.
 		tick("delivery", opts.deliveryTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {
-			if _, err := control.NewDeliveryFold(store).Fold(ctx, p.ID); err != nil {
-				return err
-			}
-			_, err := control.NewEstimates(store).Refresh(ctx, p.ID)
-			return err
+			return control.DeliveryTick(ctx, store, p.ID)
 		}),
 		// An assistant's session idle past the assistant policy stops; closing a view stops nothing.
 		tick("conversations", opts.wakeTick, func(ctx context.Context, p ledger.Project, store ports.Store) error {

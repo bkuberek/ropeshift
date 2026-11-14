@@ -122,9 +122,12 @@ func checkSchemaShape(t *testing.T, db *sql.DB) {
 	}
 }
 
-// installationOnlyTables are the installation database's own: the registry, its log, and the
-// repository index (ADR-0021). Every other table there is one a ledger has too.
-var installationOnlyTables = []string{"installation", "projects", "installation_events", "repository_index", "schema_migrations"}
+// installationOnlyTables are the installation database's own: the registry, its log, the repository index
+// (ADR-0021), and the delivery pool with each project's share of it (ADR-0026), which only projects of one
+// installation share. Every other table there is one a ledger has too.
+var installationOnlyTables = []string{
+	"installation", "projects", "installation_events", "repository_index", "delivery_pool", "delivery_pool_shares", "schema_migrations",
+}
 
 // TestInstallationSchemaShape reads the migrated installation database: no column can hold a secret
 // value (NFR-SEC-4), and each table it shares with a ledger keeps the ledger's columns and its

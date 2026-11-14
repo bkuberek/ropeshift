@@ -100,6 +100,20 @@ type DeliveryWriter interface {
 	Clear() error
 }
 
+// PoolReader reads the installation's delivery pool from one project (ADR-0026, FR-EST-13). A project reads what
+// other projects share, never its own records, which stay in its own database, and never which project a
+// record came from.
+type PoolReader interface {
+	// Records returns every record other projects share, by end, each holding only what delivery.Pooled keeps.
+	// A store with no installation has no other project, and returns none.
+	Records() ([]delivery.Record, error)
+	// Shared returns the digest of what this project shares, or "" while it shares nothing.
+	Shared() (string, error)
+	// Kept says the store keeps a pool at all: a store with no installation database holds one project, and
+	// keeps none.
+	Kept() bool
+}
+
 // EstimateReader reads estimate sets and their estimates (ADR-0026).
 type EstimateReader interface {
 	// Set returns one set with its estimates, by work order, each saying whether it is still current, or
@@ -175,6 +189,8 @@ type ReadTx interface {
 	Deliveries() DeliveryReader
 	// Estimates reads estimate sets and each work order's current estimate.
 	Estimates() EstimateReader
+	// Pool reads what other projects share in the installation's delivery pool.
+	Pool() PoolReader
 }
 
 // WriteTx is one write transaction, which holds the workspace revision.
@@ -250,6 +266,8 @@ type WriteTx interface {
 	Deliveries() DeliveryReader
 	// Estimates reads and keeps estimate sets.
 	Estimates() EstimateWriter
+	// Pool reads what other projects share in the installation's delivery pool, which an estimate draws on.
+	Pool() PoolReader
 }
 
 // ForgeReader reads what the control plane asked workers to do on a forge, the pull request each work order

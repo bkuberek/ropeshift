@@ -64,7 +64,7 @@ func staleSetsIn(tx ports.ReadTx) ([]delivery.EstimateSet, error) {
 	}
 	r := estimateReads{
 		orders: tx.WorkOrders(), roster: tx.Roster(), repositories: tx.Repositories(), planning: tx.Planning(),
-		policies: tx.Policies(), deliveries: tx.Deliveries(),
+		policies: tx.Policies(), deliveries: tx.Deliveries(), pool: tx.Pool(),
 	}
 	return r.staleSets(tx.Estimates(), workspace.Rev, now)
 }
