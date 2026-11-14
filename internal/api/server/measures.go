@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/measures"
+	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
 )
 
@@ -20,6 +22,59 @@ func (h *handler) measureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/measures/delivery", h.readDelivery)
 	mux.HandleFunc("GET /v1/work-orders/{id}/timeline", h.readTimeline)
 	mux.HandleFunc("GET /v1/work-orders/{id}/estimate", h.readEstimate)
+	mux.HandleFunc("GET /v1/plans/{id}/forecast", h.readForecast)
+}
+
+// readForecast reads the latest forecasts the forecast tick kept for a plan's newest version, or for the version
+// asked for, with the estimate set they were made from (FR-EST-8, FR-EST-14). It never forecasts: a large plan's
+// simulation takes seconds, so only the tick runs it.
+func (h *handler) readForecast(w http.ResponseWriter, r *http.Request) {
+	var wanted int64
+	if raw := r.URL.Query().Get("version"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 1 {
+			invalid(w, "a version is a whole number from 1")
+			return
+		}
+		wanted = parsed
+	}
+	view := api.PlanForecast{Forecasts: []delivery.Forecast{}}
+	err := h.Store.Read(r.Context(), h.Scope, func(tx ports.ReadTx) error {
+		plan, err := tx.Planning().Plan(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		var version planning.PlanVersion
+		if wanted == 0 {
+			version, err = tx.Planning().LatestPlanVersion(plan.ID)
+		} else {
+			version, err = tx.Planning().PlanVersion(plan.ID, wanted)
+		}
+		switch {
+		case errors.Is(err, ports.ErrNotFound) && wanted == 0:
+			return fmt.Errorf("plan %s has no version yet: %w", plan.ID, ports.ErrNotFound)
+		case errors.Is(err, ports.ErrNotFound):
+			return fmt.Errorf("plan %s has no version %d: %w", plan.ID, wanted, ports.ErrNotFound)
+		}
+		if err != nil {
+			return err
+		}
+		view.Plan, view.Version = plan.ID, version.Version
+		if view.Forecasts, err = tx.Forecasts().Latest(plan.ID, version.Version); err != nil || len(view.Forecasts) == 0 || view.Forecasts[0].SetID == "" {
+			return err
+		}
+		set, err := tx.Estimates().Set(view.Forecasts[0].SetID)
+		if err != nil {
+			return err
+		}
+		view.Set = &set
+		return nil
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, view)
 }
 
 // readEstimate reads one work order's current estimate as it was made, with the explanation it showed, or none

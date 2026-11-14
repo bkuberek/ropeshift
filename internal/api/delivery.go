@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"ropeshift.com/ropeshift/internal/delivery"
 )
@@ -63,5 +64,32 @@ func (c *ProjectClient) Delivery(ctx context.Context, window, by string) (delive
 		path += "?" + query.Encode()
 	}
 	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}
+
+// PlanForecast is the latest forecasts the forecast tick kept for one plan version, the plan's own first and then
+// each milestone's by ID, with the estimate set they were made from. Forecasts is empty, and Set absent, until the
+// tick has forecast the version.
+type PlanForecast struct {
+	Plan      string                `json:"plan_id"`
+	Version   int64                 `json:"plan_version"`
+	Set       *delivery.EstimateSet `json:"estimate_set"`
+	Forecasts []delivery.Forecast   `json:"forecasts"`
+}
+
+// PlanForecastPath is one plan version's forecast, the newest version's when version is zero.
+func PlanForecastPath(plan string, version int64) string {
+	path := "/v1/plans/" + url.PathEscape(plan) + "/forecast"
+	if version != 0 {
+		path += "?version=" + strconv.FormatInt(version, 10)
+	}
+	return path
+}
+
+// PlanForecast reads one plan version's latest forecasts, the newest version's when version is zero (FR-EST-8,
+// FR-EST-14).
+func (c *ProjectClient) PlanForecast(ctx context.Context, plan string, version int64) (PlanForecast, error) {
+	var out PlanForecast
+	err := c.do(ctx, http.MethodGet, PlanForecastPath(plan, version), nil, &out)
 	return out, err
 }
