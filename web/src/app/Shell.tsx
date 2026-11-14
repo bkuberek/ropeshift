@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode, RefObject } from "react";
 
 import type { NeedsProject, Project, ProjectLabel, ShopFloor } from "../api/types";
 import type { Connection } from "../api/useNeedsYou";
+import { machineMeasures } from "../floor/resources";
 import type { IconName } from "../ui/Icon";
 import { Icon } from "../ui/Icon";
 import { IconButton, Kbd } from "../ui/controls";
@@ -440,18 +441,35 @@ export function StatusBar({ connection, floor, floorAgeMs, project }: StatusProp
           {cap === null ? null : <span>/ {cap}</span>}
         </Link>
       ) : null}
-      {workers.map((line) => (
-        <Link
-          key={line.worker.id}
-          to={`/workers?worker=${encodeURIComponent(line.worker.id)}`}
-          className="sb-item"
-          title={`${line.worker.name || line.worker.id}: ${line.freshness === "observed" ? "observed" : "last reported"}, ${Math.round(floorAgeMs / 1000)}s since this page read it. No source reports its CPU, memory, or disk to this page yet.`}
-        >
-          <span className={line.freshness === "observed" ? "fresh-dot" : "fresh-dot reported"} aria-hidden="true" />
-          <span>{line.worker.name || line.worker.id}</span>
-          <Absent>resources unavailable</Absent>
-        </Link>
-      ))}
+      {workers.map((line) => {
+        const machine = line.worker.report?.machine;
+        const measures = machine ? machineMeasures(machine) : undefined;
+        return (
+          <Link
+            key={line.worker.id}
+            to={`/workers?worker=${encodeURIComponent(line.worker.id)}`}
+            className="sb-item"
+            title={`${line.worker.name || line.worker.id}: ${line.freshness === "observed" ? "observed" : "last reported"}, ${Math.round(floorAgeMs / 1000)}s since this page read it. ${measures ? "CPU, memory in use, and the free space of its fullest volume, as its worker last measured them." : "Its worker has not reported its CPU, memory, or disk yet."}`}
+          >
+            <span className={line.freshness === "observed" ? "fresh-dot" : "fresh-dot reported"} aria-hidden="true" />
+            <span>{line.worker.name || line.worker.id}</span>
+            {measures ? (
+              ([
+                ["CPU", measures.cpu],
+                ["Mem", measures.memoryShare],
+                ["Disk", measures.disk],
+              ] as const).map(([label, value]) => (
+                <span key={label} className="sb-measure">
+                  <span className="sb-label">{label}</span>
+                  {value === undefined ? <Absent>unavailable</Absent> : <strong>{value}</strong>}
+                </span>
+              ))
+            ) : (
+              <Absent>not reported</Absent>
+            )}
+          </Link>
+        );
+      })}
       <Link to="/usage" className="sb-item sb-right" title="No source has reported a sign-in's windows or cost yet">
         <span className="sb-label">Est. cost</span>
         <Absent>unavailable</Absent>

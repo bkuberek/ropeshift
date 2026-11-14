@@ -15,6 +15,7 @@ import { Field } from "../ui/forms";
 import { Dialog, Menu } from "../ui/overlays";
 import { Talkable, TalkToLane, useTalkable } from "../talk/controls";
 import { useTalk } from "../talk/state";
+import { machineMeasures } from "./resources";
 import { laneLabel } from "./states";
 
 type Scope = "project" | "all";
@@ -155,8 +156,8 @@ function LaneTable({ rows, label, after }: { rows: Row[]; label: string; after: 
 
 const counting = new Set(["provisioning", "starting", "briefing", "working", "needs_decision", "compacting", "handing_off", "idle", "backoff", "parking"]);
 
-// Machine is one worker's panel: its name, its orchestrator, its lanes against its cap, the measures no
-// source reports to this page yet, how fresh its word is, and its lanes.
+// Machine is one worker's panel: its name, its orchestrator, its lanes against its cap, what its worker last
+// measured of the machine, how fresh its word is, and its lanes.
 function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: () => Promise<void> }) {
   const heading = useId();
   const talk = useTalk();
@@ -164,6 +165,8 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
   const name = worker.name || worker.id;
   const cap = worker.manifest?.capacity?.max_lanes;
   const running = rows.filter((row) => counting.has(row.lane.actual_state)).length;
+  const machine = worker.report?.machine;
+  const measures = machine ? machineMeasures(machine) : undefined;
   return (
     <section className="panel machine" aria-labelledby={heading}>
       <div className="worker-head">
@@ -194,10 +197,18 @@ function Machine({ line, rows, after }: { line: WorkerLine; rows: Row[]; after: 
             {cap ? ` / ${cap}` : ""}
           </strong>
         </span>
-        {["CPU", "Memory", "Memory pressure", "Disk free", "Load per core"].map((measure) => (
+        {(
+          [
+            ["CPU", measures?.cpu],
+            ["Memory", measures?.memory],
+            ["Memory pressure", measures?.pressure],
+            ["Disk free", measures?.disk],
+            ["Load per core", measures?.load],
+          ] as const
+        ).map(([measure, value]) => (
           <span className="res" key={measure}>
             <span>{measure}</span>
-            <Absent>unavailable</Absent>
+            {!measures ? <Absent>not reported</Absent> : value === undefined ? <Absent>unavailable</Absent> : <strong>{value}</strong>}
           </span>
         ))}
         <span className="spacer" />

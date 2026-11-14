@@ -367,6 +367,11 @@ a.sb-item:hover {
   color: var(--text-3);
 }
 
+.sb-measure {
+  display: inline-flex;
+  gap: 3px;
+}
+
 .sb-right {
   margin-left: auto;
   border-right: 0;

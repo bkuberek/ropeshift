@@ -12,6 +12,7 @@ import { Button, LinkTabs } from "../ui/controls";
 import { Absent, Banner, EmptyState, Freshness, freshnessOf, Id, LaneBadge, Panel, ProjectTag, Refusal, SkeletonRows, StateBadge, TableRegion, TargetChip } from "../ui/display";
 import { Dialog, useToast } from "../ui/overlays";
 import { Icon } from "../ui/Icon";
+import { bytes } from "./resources";
 import { laneLabel, workerStates } from "./states";
 
 type FloorRead = { project: string; view: ShopFloor };
@@ -25,24 +26,6 @@ export function useEveryFloor(live: Live, projects: Project[]) {
     `floors:${names.join(",")}`,
     live,
   );
-}
-
-// bytes says a size in binary units with one decimal, as the worker's own words do.
-export function bytes(value: number): string {
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  if (value < 1024) {
-    return `${value} B`;
-  }
-  let scaled = value / 1024;
-  let unit = units[0];
-  for (const next of units.slice(1)) {
-    if (scaled < 1024) {
-      break;
-    }
-    scaled /= 1024;
-    unit = next;
-  }
-  return `${scaled.toFixed(1)} ${unit}`;
 }
 
 // measured shows a reported value, or says the machine could not provide it, and never draws it as zero.
