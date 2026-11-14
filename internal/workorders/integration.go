@@ -43,6 +43,38 @@ type GateInput struct {
 	// Plan is set for a planning branch, which no review judges: a member's plan approval bound to Commit is
 	// its approval, and nothing else is (ADR-0018, ADR-0020).
 	Plan *PlanStanding
+	// Unmerged are the blocking dependencies that are not done yet. Work merges after the work it depends on,
+	// in its own repository or another (ADR-0020, FR-REPO-3).
+	Unmerged []Unmerged
+}
+
+// Unmerged is a blocking dependency of work in `integrating` that is not done: its work order, its
+// repository's name when that is another repository, and its state, which is empty for a dependency that
+// names no work order the ledger holds.
+type Unmerged struct {
+	WorkOrder  string `json:"work_order_id"`
+	Repository string `json:"repository,omitempty"`
+	State      State  `json:"state,omitempty"`
+}
+
+func (u Unmerged) String() string {
+	out := u.WorkOrder
+	if u.Repository != "" {
+		out += " in " + u.Repository
+	}
+	if u.State == "" {
+		return out + " is not known"
+	}
+	return out + " is " + string(u.State)
+}
+
+// unmergedText lists unmerged dependencies as a person reads them.
+func unmergedText(unmerged []Unmerged) string {
+	names := make([]string, len(unmerged))
+	for i, u := range unmerged {
+		names[i] = u.String()
+	}
+	return strings.Join(names, ", ")
 }
 
 // PlanStanding is what plan approval says of a planning branch's commit.
@@ -59,6 +91,8 @@ type Gate struct {
 	Failed []string
 	// Head is the pull request's new head, which StepReview reviews.
 	Head string
+	// Unmerged are the dependencies a wait is for, when it waits for work it depends on to merge.
+	Unmerged []Unmerged
 }
 
 // MergeGate decides one merge, as a pure function of what the ledger holds: ropeshift merges only the
@@ -69,7 +103,9 @@ type Gate struct {
 // the forge, which ends it. With review target `branch` no forge runs checks, so the verdicts, and any check
 // result on record for the attempt, are the gate; a failed one never reaches here, because acceptance sends it
 // back. A planning branch merges only once a member's plan approval binds to its commit, and while no plan on
-// it waits for one.
+// it waits for one. Approved work merges only once every work order it depends on is done, so merges follow
+// dependency order within and across repositories, and a person who merges a pull request is told which
+// dependencies to merge first.
 func MergeGate(in GateInput) Gate {
 	if in.Target == ledger.ReviewOnPullRequest {
 		if gate, decided := pullRequestGate(in); decided {
@@ -83,6 +119,9 @@ func MergeGate(in GateInput) Gate {
 	}
 	if !in.Approved {
 		return Gate{Step: StepWait, Why: fmt.Sprintf("a member has to approve the merge of %s at %s", short(in.Commit), in.Authority)}
+	}
+	if len(in.Unmerged) != 0 {
+		return Gate{Step: StepWait, Unmerged: in.Unmerged, Why: fmt.Sprintf("%s merges after the work it depends on, which has not merged: %s", short(in.Commit), unmergedText(in.Unmerged))}
 	}
 	return Gate{Step: StepMerge}
 }
@@ -117,6 +156,8 @@ func pullRequestGate(in GateInput) (Gate, bool) {
 		return Gate{Step: StepRework, Failed: failed, Why: fmt.Sprintf("required checks failed on %s: %s", short(in.Commit), strings.Join(failed, ", "))}, true
 	case len(pending) != 0:
 		return Gate{Step: StepWait, Why: fmt.Sprintf("required checks are still running on %s: %s", short(in.Commit), strings.Join(pending, ", "))}, true
+	case in.Authority == ledger.PersonMerges && len(in.Unmerged) != 0:
+		return Gate{Step: StepWait, Unmerged: in.Unmerged, Why: fmt.Sprintf("at person_merges you merge pull request #%d yourself, after the work it depends on, which has not merged: %s", pr.Number, unmergedText(in.Unmerged))}, true
 	case in.Authority == ledger.PersonMerges:
 		return Gate{Step: StepWait, Why: fmt.Sprintf("at person_merges you merge pull request #%d yourself, and the work ends when ropeshift reads your merge", pr.Number)}, true
 	}

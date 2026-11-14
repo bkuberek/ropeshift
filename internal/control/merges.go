@@ -70,6 +70,8 @@ type integrationFacts struct {
 	// plan is what plan approval says of a planning branch, which merges on a member's plan approval and on
 	// nothing else (ADR-0018). It is nil for any other work.
 	plan *workorders.PlanStanding
+	// unmerged are its blocking dependencies that are not done, which it merges after (ADR-0020, FR-REPO-3).
+	unmerged []workorders.Unmerged
 }
 
 func (f integrationFacts) commit() string { return f.branch.Digest }
@@ -86,14 +88,16 @@ type integrationReaders struct {
 	approvals    ports.ApprovalReader
 	claims       ports.ClaimReader
 	lanes        ports.LaneReader
+	planning     ports.PlanningReader
+	orders       ports.WorkOrderReader
 }
 
 func readersIn(tx ports.ReadTx) integrationReaders {
-	return integrationReaders{tx.Repositories(), tx.Evidence(), tx.Forge(), tx.Approvals(), tx.Claims(), tx.Lanes()}
+	return integrationReaders{tx.Repositories(), tx.Evidence(), tx.Forge(), tx.Approvals(), tx.Claims(), tx.Lanes(), tx.Planning(), tx.WorkOrders()}
 }
 
 func readersOf(tx ports.WriteTx) integrationReaders {
-	return integrationReaders{tx.Repositories(), tx.Evidence(), tx.Forge(), tx.Approvals(), tx.Claims(), tx.Lanes()}
+	return integrationReaders{tx.Repositories(), tx.Evidence(), tx.Forge(), tx.Approvals(), tx.Claims(), tx.Lanes(), tx.Planning(), tx.WorkOrders()}
 }
 
 // laneWorker is the worker that ran a lane, which holds its branch: the claim's, or the lane's status.
@@ -169,13 +173,63 @@ func readIntegration(tx integrationReaders, order workorders.WorkOrder) (integra
 			f.plan.Waiting = append(f.plan.Waiting, "plan "+request.Subject)
 		}
 	}
+	if f.unmerged, err = unmergedOf(tx, order); err != nil {
+		return f, err
+	}
 	f.worker, err = laneWorker(tx, f.branch.Lane)
 	return f, err
 }
 
+// unmergedOf names the blocking dependencies of a work order that are not done, each once and by its ID, with
+// the name of its repository when that is another one. A dependency a plan version added after the work
+// was ready counts as much as one it always had, and one that names no work order the ledger holds waits
+// as it does for readiness.
+func unmergedOf(tx integrationReaders, order workorders.WorkOrder) ([]workorders.Unmerged, error) {
+	edges, err := tx.planning.Dependencies(order.ID)
+	if err != nil {
+		return nil, err
+	}
+	var out []workorders.Unmerged
+	seen := map[string]bool{}
+	for _, edge := range edges {
+		if !edge.Kind.Blocks() {
+			continue
+		}
+		dependency, found, err := dependencyOrder(tx.planning, tx.orders, edge)
+		if err != nil {
+			return nil, err
+		}
+		unmerged := workorders.Unmerged{WorkOrder: edge.DependsOn}
+		if found {
+			if dependency.State == workorders.Done {
+				continue
+			}
+			unmerged.WorkOrder, unmerged.State = dependency.ID, dependency.State
+			if dependency.RepositoryID != "" && dependency.RepositoryID != order.RepositoryID {
+				unmerged.Repository = dependency.RepositoryID
+				record, err := tx.repositories.Repository(dependency.RepositoryID)
+				switch {
+				case err == nil:
+					unmerged.Repository = cmp.Or(record.Name, record.ID)
+				case !errors.Is(err, ports.ErrNotFound):
+					return nil, err
+				}
+			}
+		}
+		if !seen[unmerged.WorkOrder] {
+			seen[unmerged.WorkOrder] = true
+			out = append(out, unmerged)
+		}
+	}
+	slices.SortFunc(out, func(a, b workorders.Unmerged) int { return strings.Compare(a.WorkOrder, b.WorkOrder) })
+	return out, nil
+}
+
 // gateInput is what the integration rule reads of the facts.
 func (f integrationFacts) gateInput() workorders.GateInput {
-	in := workorders.GateInput{Authority: f.record.Level(), Target: f.record.Target(), Commit: f.commit(), Approved: f.approval != nil, Plan: f.plan}
+	in := workorders.GateInput{
+		Authority: f.record.Level(), Target: f.record.Target(), Commit: f.commit(), Approved: f.approval != nil, Plan: f.plan, Unmerged: f.unmerged,
+	}
 	if f.pr != nil {
 		in.PullRequest = &f.pr.PullRequest
 	}
@@ -252,6 +306,9 @@ func integrate(tx ports.WriteTx, id string) error {
 	gate, request := f.waiting()
 	switch gate.Step {
 	case workorders.StepWait:
+		if err := noteUnmerged(tx, f, gate); err != nil {
+			return err
+		}
 		// At person_merges the person merges on the forge, so nobody is asked to approve a merge, and the plan
 		// approval a planning branch waits for is the request a member already has.
 		if f.record.Level() != ledger.PersonMerges && f.plan == nil && f.approval == nil && f.openRequest(authority.MergeApprove) == nil && request == nil {
@@ -280,6 +337,40 @@ func integrate(tx ports.WriteTx, id string) error {
 		return mergedOnForge(tx, f)
 	}
 	return requestMerge(tx, f)
+}
+
+// waitedFor is what a recorded wait for unmerged work says.
+type waitedFor struct {
+	Commit   string                `json:"commit"`
+	Reason   string                `json:"reason"`
+	Unmerged []workorders.Unmerged `json:"unmerged"`
+}
+
+// noteUnmerged records that the merge of the reviewed commit waits for work it depends on, once for each set
+// of dependencies: the tick runs the step again and again while they stay unmerged, and records nothing more
+// until one of them merges or a new one is added.
+func noteUnmerged(tx ports.WriteTx, f integrationFacts, gate workorders.Gate) error {
+	if len(gate.Unmerged) == 0 {
+		return nil
+	}
+	events, err := tx.EventsAbout(ledger.Subject{Kind: ledger.SubjectIntegration, ID: f.order.ID})
+	if err != nil {
+		return err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type != ledger.EventIntegrationWaiting {
+			continue
+		}
+		var last waitedFor
+		if err := json.Unmarshal(events[i].Data, &last); err != nil {
+			return err
+		}
+		if last.Commit == f.commit() && slices.EqualFunc(last.Unmerged, gate.Unmerged, func(a, b workorders.Unmerged) bool { return a.WorkOrder == b.WorkOrder }) {
+			return nil
+		}
+		break
+	}
+	return appendIntegration(tx, ledger.EventIntegrationWaiting, f.order.ID, waitedFor{Commit: f.commit(), Reason: gate.Why, Unmerged: gate.Unmerged}, mergeActor)
 }
 
 // requestMerge asks a worker to merge the reviewed commit with the repository's merge method: the worker that

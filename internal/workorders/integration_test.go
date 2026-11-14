@@ -161,3 +161,43 @@ func TestAPlanningPullRequestFollowsItsPullRequest(t *testing.T) {
 		t.Errorf("at person_merges: %+v", gate)
 	}
 }
+
+// TestApprovedWorkMergesAfterItsDependencies holds the merge of approved work while any work it depends on has
+// not merged, in its own repository or another, naming each one (ADR-0020, FR-REPO-3). At person_merges the
+// person merges the pull request, so the wait only tells them to merge the dependencies first.
+func TestApprovedWorkMergesAfterItsDependencies(t *testing.T) {
+	unmerged := []Unmerged{{WorkOrder: "wo-api", Repository: "api", State: Integrating}, {WorkOrder: "wo-lib", State: Acceptance}, {WorkOrder: "missing"}}
+	for _, in := range []GateInput{
+		{Authority: ledger.ReviewApproves, Target: ledger.ReviewOnBranch, Commit: reviewedCommit, Approved: true, Unmerged: unmerged},
+		{Authority: ledger.PersonApproves, Target: ledger.ReviewOnPullRequest, Commit: reviewedCommit, Approved: true, PullRequest: openAt(reviewedCommit), Unmerged: unmerged},
+		{Authority: ledger.PersonMerges, Target: ledger.ReviewOnPullRequest, Commit: reviewedCommit, PullRequest: openAt(reviewedCommit), Unmerged: unmerged},
+	} {
+		gate := MergeGate(in)
+		if gate.Step != StepWait || len(gate.Unmerged) != 3 {
+			t.Errorf("at %s on %s with work it depends on unmerged the gate says %+v", in.Authority, in.Target, gate)
+		}
+		for _, want := range []string{"wo-api in api is integrating", "wo-lib is acceptance", "missing is not known"} {
+			if !strings.Contains(gate.Why, want) {
+				t.Errorf("at %s on %s the wait lacks %q: %s", in.Authority, in.Target, want, gate.Why)
+			}
+		}
+	}
+	// Approval comes first: a member is asked to approve before the merge waits for the dependencies.
+	if gate := MergeGate(GateInput{Authority: ledger.PersonApproves, Target: ledger.ReviewOnBranch, Commit: reviewedCommit, Unmerged: unmerged}); gate.Step != StepWait || !strings.Contains(gate.Why, "approve") || len(gate.Unmerged) != 0 {
+		t.Errorf("unapproved work with unmerged dependencies: %+v", gate)
+	}
+	// What decides the work before any merge still decides it: a merge on the forge, a failed check, a moved head.
+	for _, pr := range []*ledger.PullRequest{
+		{Number: 7, State: ledger.PullRequestMerged, HeadCommit: reviewedCommit},
+		openAt(reviewedCommit, required("ci", ledger.CheckFailed)),
+		openAt("2222222222222222222222222222222222222222"),
+	} {
+		gate := MergeGate(GateInput{Authority: ledger.ReviewApproves, Target: ledger.ReviewOnPullRequest, Commit: reviewedCommit, Approved: true, PullRequest: pr, Unmerged: unmerged})
+		if gate.Step == StepWait || gate.Step == StepMerge {
+			t.Errorf("a pull request %+v with unmerged dependencies: %+v", pr, gate)
+		}
+	}
+	if gate := MergeGate(GateInput{Authority: ledger.ReviewApproves, Target: ledger.ReviewOnBranch, Commit: reviewedCommit, Approved: true}); gate.Step != StepMerge {
+		t.Errorf("approved work with every dependency merged: %+v", gate)
+	}
+}

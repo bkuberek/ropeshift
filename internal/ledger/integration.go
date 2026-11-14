@@ -51,6 +51,9 @@ const (
 	EventIntegrationMerged = "integration.merged"
 	// EventIntegrationHeld records a merge that cannot go on without a member, with why.
 	EventIntegrationHeld = "integration.held"
+	// EventIntegrationWaiting records approved work whose merge waits for work it depends on to merge, with
+	// each dependency, once for each set of them (ADR-0020, FR-REPO-3).
+	EventIntegrationWaiting = "integration.waiting"
 	// EventIntegrationReported records what a worker's merge came to, whatever it was.
 	EventIntegrationReported = "integration.reported"
 )

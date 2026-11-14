@@ -56,6 +56,8 @@ type orderIn struct {
 	ID        string
 	Size      string
 	DependsOn []string
+	// Repo names the repository the work order changes, and the one holding the file when empty.
+	Repo string
 }
 
 // placedContract is a contract file that sits among others.
@@ -96,6 +98,9 @@ func (c placedContract) text() string {
 		out += "\n[[work_orders]]\nid = \"" + order.ID + "\"\ntitle = \"The work order " + order.ID + "\"\n"
 		if order.Size != "" {
 			out += "size = \"" + order.Size + "\"\n"
+		}
+		if order.Repo != "" {
+			out += "repo = \"" + order.Repo + "\"\n"
 		}
 		if len(order.DependsOn) != 0 {
 			out += "depends_on = " + quoted(order.DependsOn) + "\n"
