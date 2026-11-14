@@ -32,8 +32,11 @@ var dialectFiles embed.FS
 //go:embed installation_migrations/*.sql
 var installationFiles embed.FS
 
-// busyMillis is how long a writer queues for the write lock. A transaction stays
-// short (R17), so a wait this long means something stopped inside one.
+// busyMillis is how long a writer waits for the write lock. SQLite's busy handler
+// polls with a growing sleep and does not queue, so a writer can be passed over
+// by every other commit that lands between its polls. Transactions stay short
+// (R17), yet under sustained contention a wait this long can still happen, and
+// the longer a commit takes, the fewer writers one wait can cover.
 const busyMillis = 30000
 
 // poolSize bounds the connections of one process on a file. SQLite has one
