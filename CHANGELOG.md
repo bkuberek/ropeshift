@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.1.0-alpha.14](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.13...v0.1.0-alpha.14) (2026-11-14)
+
+
+### Features
+
+* derive where a work order's time went from its events ([d8234bb](https://github.com/bkuberek/ropeshift/commit/d8234bb4917c8dba84a45c0416f40eb97c644214))
+* keep each finished work order's timeline and delivery record ([1d39333](https://github.com/bkuberek/ropeshift/commit/1d39333a0f6977f4de10d24e4db4fee0859b7252))
+* let a contract list the repositories its lanes read ([a67986d](https://github.com/bkuberek/ropeshift/commit/a67986d545456cbbfcb76f14789b1a92df67b2dd))
+* let writer and review lanes read the repositories they build on ([9de8c2b](https://github.com/bkuberek/ropeshift/commit/9de8c2b5cb18894eb0c527eb09e85d0f288e3610))
+* merge work after the work it depends on, across repositories ([d029b9d](https://github.com/bkuberek/ropeshift/commit/d029b9dc4e52bb0457af57400f7e97a04fb81951))
+* read a repository manifest from the planning repository ([534c6ad](https://github.com/bkuberek/ropeshift/commit/534c6ade61fe737818869e2f705a56ac437e24e5))
+* read a work order's timeline and delivery record from its records ([b907f54](https://github.com/bkuberek/ropeshift/commit/b907f542073d67f7f3ac0f16781ccb200ce92979))
+* record the size of each lane's change with its result ([62cf3ac](https://github.com/bkuberek/ropeshift/commit/62cf3ac8ab71d920f7b1cb28593fdd64836c9e42))
+* record when a worker's lanes stand at a lane cap ([fbebfff](https://github.com/bkuberek/ropeshift/commit/fbebfff1b2f6e3745b2c250f1385504b1f43f33b))
+
+
+### Bug Fixes
+
+* count a run window's close from the server's clock ([5cd76a1](https://github.com/bkuberek/ropeshift/commit/5cd76a10dd788094f67afa6bdbdc6a238ddb0ba8))
+* count member and delegate expiries from the server's clock ([567dd2c](https://github.com/bkuberek/ropeshift/commit/567dd2cbd48770426dd0436ccc767d44bdaac8a8))
+* escape every look-alike angle bracket in a delegate's text ([eebfcd5](https://github.com/bkuberek/ropeshift/commit/eebfcd5f180fc67d81606d325806a2e9a6db690f))
+* give confirmation cards words in top, keep lanes whole, and print no keys once ([d906aa7](https://github.com/bkuberek/ropeshift/commit/d906aa7c53590081c8eb2ac04afef077f4e12792))
+* hold an ID a caller names to letters, digits, '-', and '_' ([3d6d5b4](https://github.com/bkuberek/ropeshift/commit/3d6d5b4d891d40aaac8d23ea84af07ffb8e43fcd))
+* hold new work's requirement keys and repository to plain names ([b539d51](https://github.com/bkuberek/ropeshift/commit/b539d51f9cd6fa6e1df4c6eed31bdc8afb882e80))
+* hold what a question is about to a known kind and a plain ID ([3ad3836](https://github.com/bkuberek/ropeshift/commit/3ad38368c1a4c9f95a34d3cd950bfbd14ee8d6bc))
+* keep a document's path and source inside the reader on a phone ([a0d1192](https://github.com/bkuberek/ropeshift/commit/a0d1192008e8e5e7722f17b1c02a32d02e1e0fe5))
+* keep a worker that beats connected for the assistant ([41c40e9](https://github.com/bkuberek/ropeshift/commit/41c40e9202f8402d32f7a4d2f86364eb5379510c))
+* let the dock talk to an orchestrator whose session is idle ([27f82d2](https://github.com/bkuberek/ropeshift/commit/27f82d260aa7b62b8f704e79ac58457effc79120))
+* make an outside delegate's new work a card a member confirms ([4f5cc95](https://github.com/bkuberek/ropeshift/commit/4f5cc95babb05479f2e4f5eec122309172c37003))
+* name an answer's decision with an ID the ledger takes ([98d0679](https://github.com/bkuberek/ropeshift/commit/98d06796c5beedc0f10b2742bf970451eb98ae3f))
+* name each work order's repository instead of its record ID ([a24111f](https://github.com/bkuberek/ropeshift/commit/a24111f37b8ec6a4a58cffdd36baa10a22c3c7f2))
+* name the worker that decided, and keep a long decision ID in its column ([db04387](https://github.com/bkuberek/ropeshift/commit/db043879baa0b553b53e4b422536ea382bec1843))
+* name who proposed a draft decision in words ([648e86e](https://github.com/bkuberek/ropeshift/commit/648e86e470cd6be05c9d16ada29c7dc100b94dd0))
+* refuse an ID that is not plain before a delegate's call becomes a card ([2ab1faf](https://github.com/bkuberek/ropeshift/commit/2ab1faf46f0c8616b04a408ff85fc4e48136399c))
+* say intake read a plan version from its file, not a planning session ([8749ecd](https://github.com/bkuberek/ropeshift/commit/8749ecdef166a80e0c678798721614ecc22a3680))
+* serve conversations in every project, not only the first ([6ba7eea](https://github.com/bkuberek/ropeshift/commit/6ba7eea152cf863e9f0716922acf4b777d223261))
+* show a decision's ID in the side column as stored ([79d974f](https://github.com/bkuberek/ropeshift/commit/79d974f12c4ba2b6a1aba576c9fc41bf7b15e8b9))
+* show each lane's CPU and memory on the Floor from its worker's report ([dc595b9](https://github.com/bkuberek/ropeshift/commit/dc595b9dc7829388e0d10b0957c70e4fb4b2e246))
+* show each machine's measures on the Floor and in the status bar ([9712bc2](https://github.com/bkuberek/ropeshift/commit/9712bc2c565065e615931ec09e8593634f66443b))
+* state a delegate's text in an orchestrator's tool replies as data ([d051f96](https://github.com/bkuberek/ropeshift/commit/d051f96f178b1e47e7f6974e95d872580203de87))
+* state a delegate's text in an orchestrator's wake as data, never an instruction ([f616099](https://github.com/bkuberek/ropeshift/commit/f616099bbec12d7b4efee662bf958d189c62b364))
+* wrap a long need in top instead of clipping it ([aca2cfa](https://github.com/bkuberek/ropeshift/commit/aca2cfa05cc33aad696e29a91b9e04b075526062))
+* write each @ in a delegate's text as the full-width form ([3f802e8](https://github.com/bkuberek/ropeshift/commit/3f802e8229e91152f1debfb7eb575e3bfdde5203))
+
+### Notes
+
+* **Behavior change:** for an agent outside ropeshift with a delegate credential, creating a work order and starting a contract review are consent operations: each records a confirmation card, and nothing is created until a member confirms it in Needs you. The delegate policy in Settings can exempt either one. The assistant still creates work and starts reviews at once.
+* Text a delegate wrote, the assistant's included, reaches an orchestrator's wake and tool replies marked as data, which the orchestrator never follows as an instruction.
+* **Behavior change:** an ID a caller names for a work order, contract review, question, decision, or lane must be 1 to 64 ASCII letters, digits, `-`, and `_`. New work's requirement keys may also hold `.`, and its repository ID must be plain. The API refuses any other ID as `invalid` before recording anything. Every ID ropeshift generates already fits.
+* Conversations work in every project; before, creating, listing, or showing one failed in any project but the first. A worker that keeps sending heartbeats stays connected for the assistant; before, it read as disconnected about 45 seconds after its session opened, and `ropeshift chat new` and the dock refused.
+* Web UI fixes: expiries and run windows count from the server's clock, repositories and the workers and sessions behind decisions are named in words, the Floor and the status bar show each machine's and lane's CPU and memory, the dock can message an idle orchestrator, and long IDs and paths stay in their columns. `ropeshift top` gives confirmation cards their words, puts a lane's figures on a line of their own, wraps long Needs you rows, and a printed frame names no keys.
+* ropeshift now records each span in which a worker's lanes stand at a lane cap, the size of each lane's change, which `ropeshift work acceptance` prints after the branch's commit, and a timeline and delivery record for each finished work order. The daemon keeps them current every `--delivery-tick`, 30 seconds by default, and its first run backfills work that ended before it from the log. No command shows timelines or delivery records yet.
+* A contract's `reads` lists repositories of its project that its lanes read, read-only. A change lane also reads the repositories of the work it depends on, at the commit that work's merge made, and its review reads the same commits.
+* **Behavior change:** approved work waits in `integrating` until every work order it depends on is `done`, in its own repository or another, and the wait names each one. This covers a dependency a later plan version adds to work already under way. At `person_merges`, the wait tells the member which dependencies to merge first.
+* A planning repository can hold a manifest of kind `repositories` that lists the project's repositories, as a document of its plan. Intake records it and reports the keys that have no effect and the repositories it leaves out; it registers and removes none.
+* This release adds database migrations `0083`, `0084`, `0085`, `0090`, and `0091`, and the installation database's migrations `0022` and `0023`. They run on the first start. Back up each project with `ropeshift backup` and the installation with `ropeshift backup --installation` before you upgrade.
+
 ## [0.1.0-alpha.13](https://github.com/bkuberek/ropeshift/compare/v0.1.0-alpha.12...v0.1.0-alpha.13) (2026-11-14)
 
 
