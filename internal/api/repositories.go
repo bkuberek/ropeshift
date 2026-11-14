@@ -70,6 +70,9 @@ type RepositoryAdd struct {
 	Depth int `json:"depth,omitempty"`
 	// DryRun says what would be registered and refused, and records nothing.
 	DryRun bool `json:"dry_run,omitempty"`
+	// Manifest is the text of a repository manifest, in place of Paths: each repository it lists is
+	// registered from the clone at its path beside the planning repository's clone (ADR-0022).
+	Manifest string `json:"manifest,omitempty"`
 }
 
 // RepositoryAdded is what became of one clone, or of a path that holds none.

@@ -87,6 +87,9 @@ type Config struct {
 	// which registering repositories reads and records (ADR-0022). Nil has no worker's machine, and a
 	// registration refuses.
 	Checkouts ports.Checkouts
+	// ParseManifest reads the text of a repository manifest (ADR-0022). Nil reads none, and a registration
+	// from a manifest refuses.
+	ParseManifest func([]byte) (planning.RepositoriesFile, error)
 	// ModelClasses reads the model each driver's profile on the worker this daemon runs maps every
 	// capability class to, by driver and then class (ADR-0025). Nil shows no rendered model.
 	ModelClasses func(context.Context) (map[string]map[string]string, error)

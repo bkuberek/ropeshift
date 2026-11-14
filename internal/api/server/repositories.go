@@ -79,21 +79,45 @@ func (h *handler) addRepositories(w http.ResponseWriter, r *http.Request, actor 
 		refuse(w, http.StatusNotImplemented, api.ErrorDetail{Code: api.CodeUnavailable, Message: "this daemon runs no worker whose clones it can read"})
 		return
 	}
-	added, err := h.repositories.Add(r.Context(), h.Scope, control.RepositoryAdd{Paths: in.Paths, Depth: in.Depth, DryRun: in.DryRun}, h.Checkouts, actor)
+	var added []control.Added
+	var err error
+	switch {
+	case in.Manifest != "" && len(in.Paths) != 0:
+		invalid(w, "name paths or a manifest, not both")
+		return
+	case in.Manifest != "":
+		if h.ParseManifest == nil {
+			refuse(w, http.StatusNotImplemented, api.ErrorDetail{Code: api.CodeUnavailable, Message: "this daemon reads no repository manifest"})
+			return
+		}
+		manifest, parseErr := h.ParseManifest([]byte(in.Manifest))
+		if parseErr != nil {
+			invalid(w, "%v", parseErr)
+			return
+		}
+		added, err = h.repositories.RegisterManifest(r.Context(), h.Scope, manifest, h.Checkouts, in.DryRun, actor)
+	default:
+		added, err = h.repositories.Add(r.Context(), h.Scope, control.RepositoryAdd{Paths: in.Paths, Depth: in.Depth, DryRun: in.DryRun}, h.Checkouts, actor)
+	}
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	report := api.RepositoryAddReport{DryRun: in.DryRun, Repositories: make([]api.RepositoryAdded, 0, len(added))}
+	reply(w, http.StatusOK, api.RepositoryAddReport{DryRun: in.DryRun, Repositories: addedViews(added)})
+}
+
+// addedViews is what a client reads of each registration's outcome.
+func addedViews(added []control.Added) []api.RepositoryAdded {
+	out := make([]api.RepositoryAdded, 0, len(added))
 	for _, one := range added {
 		view := api.RepositoryAdded{Path: one.Path, Outcome: one.Outcome, Checkout: one.Checkout, Reason: one.Reason}
 		if one.Repository.ID != "" {
 			record := one.Repository
 			view.Repository = &record
 		}
-		report.Repositories = append(report.Repositories, view)
+		out = append(out, view)
 	}
-	reply(w, http.StatusOK, report)
+	return out
 }
 
 func (h *handler) listRepositories(w http.ResponseWriter, r *http.Request) {

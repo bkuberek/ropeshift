@@ -83,3 +83,15 @@ func decodeManifest(header []byte) (*planning.RepositoriesFile, error) {
 	}
 	return &normal, nil
 }
+
+// ParseManifest reads a repository manifest file (ADR-0022). A file of any other kind is a bad file.
+func ParseManifest(raw []byte) (planning.RepositoriesFile, error) {
+	doc, err := ParseFile(raw)
+	if err != nil {
+		return planning.RepositoriesFile{}, err
+	}
+	if doc.Repositories == nil {
+		return planning.RepositoriesFile{}, fmt.Errorf("%w: the file is of kind %q, not %q", planning.ErrBadFile, doc.Kind, planning.FileRepositories)
+	}
+	return *doc.Repositories, nil
+}

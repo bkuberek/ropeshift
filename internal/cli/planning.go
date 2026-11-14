@@ -146,6 +146,14 @@ func (c *invocation) planApprove(args []string) int {
 		var out strings.Builder
 		fmt.Fprintf(&out, "approved %s version %d\n", waiting.Detail.Title, asked.PlanVersion)
 		fmt.Fprintf(&out, "  %s\n", waiting.Detail.Difference.Summary())
+		// The approval registers what the plan's manifest adds, from the clones beside the planning
+		// repository's, and says what it could not.
+		if len(decided.Repositories) != 0 {
+			out.WriteString(addedText(api.RepositoryAddReport{Repositories: decided.Repositories}))
+		}
+		if decided.RepositoriesProblem != "" {
+			fmt.Fprintf(&out, "%s\n", decided.RepositoriesProblem)
+		}
 		return out.String()
 	})
 }

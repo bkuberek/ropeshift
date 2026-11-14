@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"errors"
 	"slices"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/workorders"
 )
 
 // ManifestChecks hold what intake reads of a repository manifest (ADR-0022, FR-REPO-8): a document of its
@@ -18,6 +20,8 @@ var ManifestChecks = []Check{
 	{"RM1", "a manifest is read only from the planning repository, as a document of its plan with versions", checkManifestIsAPlanDocument},
 	{"RM2", "a manifest that tries to set a member's settings changes none, and intake reports each key it ignored", checkManifestSetsNoSetting},
 	{"RM3", "a repository of the project the manifest does not list is reported and kept", checkManifestReportsUnlistedRepositories},
+	{"RM4", "approving a plan registers, as its approver, each repository its manifest adds from the clone at its path beside the planning repository, with the safe settings; one with no clone is not registered and a later approval registers it", checkApprovalRegistersTheManifest},
+	{"RM5", "a member registers what a manifest lists by hand, by its names, and a clone whose remote is not the manifest's is not registered", checkManifestRegisteredByHand},
 }
 
 const manifestPlan = "platform-v1"
@@ -212,6 +216,167 @@ func checkManifestReportsUnlistedRepositories(r *Rig) error {
 	}
 	if web, err := r.theRepository(s, "repo-web"); err != nil || web.Removed() {
 		return Violatedf("the repository the manifest leaves out reads %+v: %v", web, err)
+	}
+	return nil
+}
+
+// planningMachine is a worker's machine that keeps the planning repository's clone at /work/plan, so the
+// manifest's paths beside it are /work/<name>.
+func (r *Rig) planningMachine() (*fake.Checkouts, error) {
+	kept := fake.NewCheckouts()
+	return kept, kept.Keep(r.Ctx, r.Scope, "memory", "/work/plan")
+}
+
+// cloneOf is a clone on the machine at /work/<directory>, whose remote is the platform's repository named.
+func cloneOf(directory, name string) ports.Clone {
+	return ports.Clone{Path: "/work/" + directory, ID: "repo-" + name, Remote: "git@github.com:acme/" + name + ".git", DefaultBranch: "main", Directory: directory}
+}
+
+// outcomeOf finds what became of one repository a manifest names.
+func outcomeOf(added []control.Added, path string) (control.Added, bool) {
+	at := slices.IndexFunc(added, func(a control.Added) bool { return a.Path == path })
+	if at < 0 {
+		return control.Added{}, false
+	}
+	return added[at], true
+}
+
+func checkApprovalRegistersTheManifest(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	files.Write("repositories.md", []byte(manifestText("", "api", "web", "billing", "search")))
+	if _, err := r.intake(s, files); err != nil {
+		return err
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	// The clone's directory is not the manifest's name, which names the repository.
+	kept.Place(cloneOf("billing", "billing"))
+	repositories := r.repositories(s)
+	if _, err := repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, ledger.Actor{Kind: ledger.ActorSystem, ID: "intake-tick"}); !errors.Is(err, workorders.ErrForbidden) {
+		return Violatedf("a tick registering what a manifest adds: %v", err)
+	}
+	// Until a member approves the plan, its manifest registers nothing.
+	if added, err := repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, r.member()); err != nil || len(added) != 0 {
+		return Violatedf("an unapproved manifest registered %+v: %v", added, err)
+	}
+	request, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, request, true, r.member()); err != nil {
+		return err
+	}
+	added, err := repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if len(added) != 4 {
+		return Violatedf("approval registered %+v, want an outcome for each of four repositories", added)
+	}
+	for _, name := range []string{"api", "web"} {
+		if held, ok := outcomeOf(added, "/work/"+name); !ok || held.Outcome != ledger.AlreadyRegistered || held.Repository.Name != name {
+			return Violatedf("%s, which the project holds, reads %+v", name, held)
+		}
+	}
+	billing, ok := outcomeOf(added, "/work/billing")
+	if !ok || billing.Outcome != ledger.Registered || billing.Checkout != "/work/billing" {
+		return Violatedf("billing reads %+v", billing)
+	}
+	record, err := r.theRepository(s, "repo-billing")
+	if err != nil {
+		return err
+	}
+	if record.Name != "billing" || record.Target() != ledger.ReviewOnBranch || record.Level() != ledger.PersonMerges || record.StartFrom != ledger.StartFromMerged || record.MergeMethod != ledger.MergeCommit {
+		return Violatedf("billing is registered as %+v", record)
+	}
+	events, err := r.repositoryEvents(s, "repo-billing")
+	if err != nil || len(events) == 0 || events[0].Type != ledger.EventRepositoryRegistered || events[0].Actor != r.member() {
+		return Violatedf("billing's registration is recorded as %+v: %v", events, err)
+	}
+	if search, ok := outcomeOf(added, "/work/search"); !ok || search.Outcome != ledger.RegistrationRefused || !strings.Contains(search.Reason, "/work/search") {
+		return Violatedf("search, with no clone, reads %+v", search)
+	}
+	if held, err := kept.Of(r.Ctx, r.Scope); err != nil || held["repo-billing"] != "/work/billing" {
+		return Violatedf("the worker keeps %v: %v", held, err)
+	}
+	// Once its clone is there, a later approval registers it, and what is registered stays as it is.
+	kept.Place(cloneOf("search", "search"))
+	added, err = repositories.RegisterApproved(r.Ctx, r.Scope, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if search, ok := outcomeOf(added, "/work/search"); !ok || search.Outcome != ledger.Registered || search.Repository.Name != "search" {
+		return Violatedf("search, once cloned, reads %+v", search)
+	}
+	if again, ok := outcomeOf(added, "/work/billing"); !ok || again.Outcome != ledger.AlreadyRegistered {
+		return Violatedf("billing, registered before, reads %+v", again)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkManifestRegisteredByHand(r *Rig) error {
+	s := r.Store()
+	files, err := r.manifestProject(s)
+	if err != nil {
+		return err
+	}
+	if err := r.readsAsPlanning(s, files); err != nil {
+		return err
+	}
+	manifest := planning.RepositoriesFile{ID: "platform", Repositories: []planning.ManifestRepository{
+		{Name: "billing", Remote: "git@github.com:acme/billing.git", Path: "../billing"},
+		{Name: "ledger", Remote: "git@github.com:acme/ledger.git", Path: "../ledger"},
+	}}
+	repositories := r.repositories(s)
+	// A machine that keeps no clone of the planning repository has nothing to read the paths from.
+	if added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, fake.NewCheckouts(), false, r.member()); err != nil || len(added) != 2 ||
+		added[0].Outcome != ledger.RegistrationRefused || !strings.Contains(added[0].Reason, "planning repository") {
+		return Violatedf("a manifest on a machine with no planning clone reads %+v: %v", added, err)
+	}
+	kept, err := r.planningMachine()
+	if err != nil {
+		return err
+	}
+	kept.Place(cloneOf("billing", "billing"))
+	ledgerClone := cloneOf("ledger", "ledger")
+	ledgerClone.Remote = "git@github.com:someone-else/ledger.git"
+	kept.Place(ledgerClone)
+	before, err := r.Revision(s, r.Scope)
+	if err != nil {
+		return err
+	}
+	dry, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, true, r.member())
+	if err != nil {
+		return err
+	}
+	if billing, ok := outcomeOf(dry, "/work/billing"); !ok || billing.Outcome != ledger.Registered {
+		return Violatedf("a dry run says billing would be %+v", billing)
+	}
+	if after, err := r.Revision(s, r.Scope); err != nil || after != before {
+		return Violatedf("a dry run moved the ledger from %d to %d: %v", before, after, err)
+	}
+	added, err := repositories.RegisterManifest(r.Ctx, r.Scope, manifest, kept, false, r.member())
+	if err != nil {
+		return err
+	}
+	if billing, ok := outcomeOf(added, "/work/billing"); !ok || billing.Outcome != ledger.Registered || billing.Repository.Name != "billing" {
+		return Violatedf("billing reads %+v", billing)
+	}
+	foreign, ok := outcomeOf(added, "/work/ledger")
+	if !ok || foreign.Outcome != ledger.RegistrationRefused || !strings.Contains(foreign.Reason, "someone-else") {
+		return Violatedf("a clone of another remote reads %+v", foreign)
+	}
+	if found, err := repositories.Resolve(r.Ctx, r.Scope, "ledger"); err == nil {
+		return Violatedf("a clone of another remote was registered as %+v", found)
 	}
 	return nil
 }

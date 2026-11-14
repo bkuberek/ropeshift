@@ -272,9 +272,16 @@ func (c *invocation) repositoryAdd(args []string) int {
 	set := c.flags()
 	depth := set.Int("depth", 1, "how many levels below a path that is not a clone to look for clones")
 	dryRun := set.Bool("dry-run", false, "say what would be registered and refused, and record nothing")
+	manifest := set.String("manifest", "", "register what a repository manifest lists, from the clones beside the planning repository's")
 	positional, ok := c.parse(set, args)
 	if !ok {
 		return ExitUsage
+	}
+	if *manifest != "" {
+		if len(positional) != 0 {
+			return c.usageError("name paths or --manifest, not both")
+		}
+		return c.addFromManifest(*manifest, *dryRun)
 	}
 	if len(positional) == 0 {
 		return c.usageError("name a path to register: a clone, or a folder of clones")
@@ -296,6 +303,30 @@ func (c *invocation) repositoryAdd(args []string) int {
 	}
 	defer client.Close()
 	report, err := client.AddRepositories(c.ctx, api.RepositoryAdd{Paths: paths, Depth: *depth, DryRun: *dryRun})
+	if report.Repositories == nil {
+		report.Repositories = []api.RepositoryAdded{}
+	}
+	code := c.finish(err, report, func() string { return addedText(report) })
+	if code == ExitOK && report.Refused() > 0 {
+		return ExitConflict
+	}
+	return code
+}
+
+// addFromManifest registers what a repository manifest on this machine lists, as plan approval does for an
+// approved one (ADR-0022): each repository from the clone at its path beside the planning repository's
+// clone on this worker's machine. A repository with no clone there is refused with why, and exits 4.
+func (c *invocation) addFromManifest(path string, dryRun bool) int {
+	text, err := c.readLocal(path)
+	if err != nil {
+		return c.failure(err)
+	}
+	client, exit := c.projectClient()
+	if client == nil {
+		return exit
+	}
+	defer client.Close()
+	report, err := client.AddRepositories(c.ctx, api.RepositoryAdd{Manifest: string(text), DryRun: dryRun})
 	if report.Repositories == nil {
 		report.Repositories = []api.RepositoryAdded{}
 	}

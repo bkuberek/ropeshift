@@ -50,9 +50,18 @@ func (c *ProjectClient) Approval(ctx context.Context, id string) (authority.Appr
 	return out, err
 }
 
+// ApprovalDecided is a decided request, with what approving a plan registered of the repositories its
+// manifest adds (ADR-0022): an outcome for each, and the reason registration could not run at all, when it
+// could not. The approval stands either way.
+type ApprovalDecided struct {
+	authority.Approval
+	Repositories        []RepositoryAdded `json:"repositories,omitempty"`
+	RepositoriesProblem string            `json:"repositories_problem,omitempty"`
+}
+
 // DecideApproval carries a member's word on a request.
-func (c *ProjectClient) DecideApproval(ctx context.Context, id string, in DecideApproval) (authority.Approval, error) {
-	var out authority.Approval
+func (c *ProjectClient) DecideApproval(ctx context.Context, id string, in DecideApproval) (ApprovalDecided, error) {
+	var out ApprovalDecided
 	err := c.do(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(id)+"/decide", in, &out)
 	return out, err
 }

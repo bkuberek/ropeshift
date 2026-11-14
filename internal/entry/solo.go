@@ -259,7 +259,7 @@ func serveSolo(ctx context.Context, paths api.Paths, opts soloOptions, stdout, s
 		Telemetry: telemetry.store,
 		Panes:     soloPanes(terminal), Starts: soloStarts(opts, kept), WebAddress: webAddressOf(webListener),
 		Branches: branchSource(opts, kept), LaneBranchPrefix: soloLaneBranchPrefix(paths),
-		Checkouts: kept, ModelClasses: soloModelClasses(paths),
+		Checkouts: kept, ParseManifest: repofiles.ParseManifest, ModelClasses: soloModelClasses(paths),
 		Profile: profiles.Filesystem{User: filepath.Join(paths.StateDir, profiles.UserFile)}, LocalWorker: local.id,
 	}
 	hosts := &soloHosts{kept: kept, runtime: laneRuntime}
