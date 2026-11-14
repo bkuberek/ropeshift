@@ -435,17 +435,39 @@ func checkPackReadsEveryPage(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	last := ""
-	for i := range ports.MaxRecords + 3 {
-		decided, err := r.decision(p.s, fmt.Sprintf("Decision %d", i), func(d *questions.Decision) {
-			d.Scope = p.order.RepositoryID + "/" + fmt.Sprint(i)
-			d.Reversibility, d.NoConflict = questions.Reversible, nil
-		})
-		if err != nil {
-			return err
+	const made = ports.MaxRecords + 3
+	// One transaction seeds all but the last, so the setup costs one commit however slow a commit is;
+	// the last goes through RecordDecision, which stamps it against the decisions already there.
+	if err := p.s.Write(r.Ctx, r.Scope, "note", func(tx ports.WriteTx) error {
+		for i := range made - 1 {
+			record := questions.Decision{
+				ID: r.ID("d"), Status: questions.DecisionDecided, Statement: fmt.Sprintf("Decision %d", i), Rationale: "It follows.",
+				Citations: []string{"PAY-12"}, Scope: p.order.RepositoryID + "/" + fmt.Sprint(i), Reversibility: questions.Reversible,
+				Categories: []string{questions.CategoryProduct}, DecidedBy: r.Actor.ID,
+			}
+			if err := tx.Questions().InsertDecision(record); err != nil {
+				return err
+			}
+			event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, record.ID, record, r.Actor)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Append(event); err != nil {
+				return err
+			}
 		}
-		last = decided.ID
+		return nil
+	}); err != nil {
+		return err
 	}
+	decided, err := r.decision(p.s, fmt.Sprintf("Decision %d", made-1), func(d *questions.Decision) {
+		d.Scope = p.order.RepositoryID + "/" + fmt.Sprint(made-1)
+		d.Reversibility, d.NoConflict = questions.Reversible, nil
+	})
+	if err != nil {
+		return err
+	}
+	last := decided.ID
 	var overlapping []questions.Decision
 	err = p.s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
 		var err error
@@ -455,8 +477,8 @@ func checkPackReadsEveryPage(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	if len(overlapping) != ports.MaxRecords+3 {
-		return Violatedf("%d decisions overlap, and %d were made", len(overlapping), ports.MaxRecords+3)
+	if len(overlapping) != made {
+		return Violatedf("%d decisions overlap, and %d were made", len(overlapping), made)
 	}
 	grant, err := p.claim()
 	if err != nil {

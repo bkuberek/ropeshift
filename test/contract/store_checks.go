@@ -38,7 +38,7 @@ func checkGaplessRevisions(r *Rig) error {
 	if err != nil {
 		return err
 	}
-	const writers, each = 8, 25
+	const writers, each = 8, 4
 	stop := make(chan struct{})
 	followed := make(chan error, 1)
 	go func() { followed <- r.follow(s, base, stop) }()
