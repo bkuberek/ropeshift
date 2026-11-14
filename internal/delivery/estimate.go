@@ -22,6 +22,7 @@ const EstimatorVersion = 1
 // how many trials a forecast runs; and whether the project shares its delivery history with the
 // installation's pool. Only a member changes it, and no calibration process writes it.
 type EstimatePolicy struct {
+	Version        int64 `toml:"version" json:"version"`
 	MinSamples     int64 `toml:"min_samples" json:"min_samples"`
 	RecentSamples  int64 `toml:"recent_samples" json:"recent_samples"`
 	ForecastTrials int64 `toml:"forecast_trials" json:"forecast_trials"`
@@ -36,13 +37,15 @@ var ErrBadEstimatePolicy = errors.New("invalid estimate policy")
 
 // DefaultEstimatePolicy is the policy of a project that sets none.
 func DefaultEstimatePolicy() EstimatePolicy {
-	return EstimatePolicy{MinSamples: 10, RecentSamples: 50, ForecastTrials: 2000}
+	return EstimatePolicy{Version: 1, MinSamples: 10, RecentSamples: 50, ForecastTrials: 2000}
 }
 
-// Check refuses a confident estimate on fewer than MinSamplesFloor records, a read of fewer recent records
-// than a confident estimate needs, and a forecast of no trials.
+// Check refuses a version below 1, a confident estimate on fewer than MinSamplesFloor records, a read of fewer
+// recent records than a confident estimate needs, and a forecast of no trials.
 func (p EstimatePolicy) Check() error {
 	switch {
+	case p.Version < 1:
+		return fmt.Errorf("%w: version %d", ErrBadEstimatePolicy, p.Version)
 	case p.MinSamples < MinSamplesFloor:
 		return fmt.Errorf("%w: min_samples is at least %d", ErrBadEstimatePolicy, MinSamplesFloor)
 	case p.RecentSamples < p.MinSamples:
@@ -166,18 +169,17 @@ func (e Estimate) Cost() CostBand { return CostBand{P50: e.CostP50USD, P85: e.Co
 
 // EstimateInput is what one estimate is made from: the keys of the work order being estimated, which are known
 // before it starts; the project's delivery records; the records of the installation's pool from other
-// projects, read with the project's own at tier 6 only when the policy shares history; the policy and its
-// version; and the revision of the ledger the records were read at. A pool record holds kind, size, capability
-// class, the durations, the cost and whether it was a lower bound, the outcome, and when it ended, and names no
-// work order, repository, or title.
+// projects, read with the project's own at tier 6 only when the policy shares history; the policy, which names
+// its version; and the revision of the ledger the records were read at. A pool record holds kind, size,
+// capability class, the durations, the cost and whether it was a lower bound, the outcome, and when it ended, and
+// names no work order, repository, or title.
 type EstimateInput struct {
-	WorkOrder     string
-	Keys          Keys
-	Records       []Record
-	Pool          []Record
-	Policy        EstimatePolicy
-	PolicyVersion int64
-	Rev           int64
+	WorkOrder string
+	Keys      Keys
+	Records   []Record
+	Pool      []Record
+	Policy    EstimatePolicy
+	Rev       int64
 }
 
 // EstimateOf estimates one `change` or `rework` work order from comparable finished work (ADR-0026), under the
@@ -195,7 +197,7 @@ func EstimateOf(in EstimateInput) Estimate {
 	}
 	out := Estimate{
 		WorkOrder: in.WorkOrder, Status: NoHistory, Keys: []string{}, DroppedKeys: []string{}, SampleIDs: []string{}, MinSamples: in.Policy.MinSamples,
-		Rev: in.Rev, EstimatorVersion: EstimatorVersion, PolicyVersion: in.PolicyVersion,
+		Rev: in.Rev, EstimatorVersion: EstimatorVersion, PolicyVersion: in.Policy.Version,
 	}
 	candidates := make([][]Record, 0, len(tiers)+1)
 	for _, keys := range tiers {

@@ -34,7 +34,8 @@ func otherRepository(k *delivery.Keys) { k.Repository = "repo-2" }
 func manyCriteria(k *delivery.Keys)    { k.Criteria = 9 }
 
 func estimateOf(records []delivery.Record, policy delivery.EstimatePolicy) delivery.Estimate {
-	return delivery.EstimateOf(delivery.EstimateInput{WorkOrder: "new", Keys: estimated, Records: records, Policy: policy, PolicyVersion: 3, Rev: 77})
+	policy.Version = 3
+	return delivery.EstimateOf(delivery.EstimateInput{WorkOrder: "new", Keys: estimated, Records: records, Policy: policy, Rev: 77})
 }
 
 // TestTheFirstTierWithEnoughRecordsGivesAConfidentEstimate holds FR-EST-6: the narrowest tier holding at least
@@ -163,9 +164,9 @@ func TestTheEstimatePolicyHoldsItsFloor(t *testing.T) {
 		t.Errorf("defaults %+v: %v", p, p.Check())
 	}
 	for name, bad := range map[string]delivery.EstimatePolicy{
-		"below the floor":         {MinSamples: 4, RecentSamples: 50, ForecastTrials: 2000},
-		"fewer recent than needs": {MinSamples: 10, RecentSamples: 9, ForecastTrials: 2000},
-		"no trials":               {MinSamples: 10, RecentSamples: 50},
+		"below the floor":         {Version: 1, MinSamples: 4, RecentSamples: 50, ForecastTrials: 2000},
+		"fewer recent than needs": {Version: 1, MinSamples: 10, RecentSamples: 9, ForecastTrials: 2000},
+		"no trials":               {Version: 1, MinSamples: 10, RecentSamples: 50},
 	} {
 		if bad.Check() == nil {
 			t.Errorf("%s: %+v passed", name, bad)
@@ -453,5 +454,26 @@ func TestDurationsReadDistinctlyAndCarry(t *testing.T) {
 		if !strings.Contains(e.Explanation, "It took "+want+".") {
 			t.Errorf("%d ms reads %q, want %q", ms, e.Explanation, want)
 		}
+	}
+}
+
+// TestAnEstimatePolicyVersionKeepsWhatAMemberWrote stores a policy version whose settings are what its body says,
+// and refuses to read one whose body changed after its digest was taken.
+func TestAnEstimatePolicyVersionKeepsWhatAMemberWrote(t *testing.T) {
+	policy := delivery.EstimatePolicy{Version: 2, MinSamples: 12, RecentSamples: 60, ForecastTrials: 1000, ShareHistory: true}
+	body := "[estimate_policy]\nversion = 2\n"
+	version, err := delivery.NewEstimatePolicyVersion("id-1", "member-1", delivery.EstimatePolicyDraft{Body: body, Policy: policy}, 42)
+	if err != nil || version.Kind != delivery.PolicyEstimate || version.Version != 2 || version.AuthoredBy != "member-1" || version.CreatedAt != 42 {
+		t.Fatalf("version %+v: %v", version, err)
+	}
+	if read, err := delivery.ReadEstimatePolicy(version); err != nil || read != policy {
+		t.Errorf("read %+v: %v", read, err)
+	}
+	version.Body += "share_history = false\n"
+	if _, err := delivery.ReadEstimatePolicy(version); err == nil {
+		t.Error("a body that changed after its digest read")
+	}
+	if (delivery.EstimatePolicy{MinSamples: 10, RecentSamples: 50, ForecastTrials: 1}).Check() == nil {
+		t.Error("a policy with no version passed")
 	}
 }

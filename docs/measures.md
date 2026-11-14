@@ -119,6 +119,26 @@ A group with no work in the window has no point, and elapsed and delivery time h
 
 Capacity intervals and change sizes are recorded only from the release that added them. A record whose work began before the fold's first run says so with `lane_cap_known` false, and a record without a change size has none, which is not a change of nothing. The capability class and merge authority level are read when the record is made. A new version of the derivation drops every timeline and record and folds the log again.
 
+## Estimate policy
+
+A project's `[estimate_policy]` sets how its estimates read its delivery records. It is a versioned policy of kind `estimate`, which only a member publishes, with `ropeshift policy publish` or `POST /v1/projects/{project}/policies`, and which `ropeshift policy list --kind estimate` lists. No calibration changes it on its own. A version states every setting, and each version is newer than the one in force. The built-in version is this one:
+
+```toml
+[estimate_policy]
+version = 1
+min_samples = 10
+recent_samples = 50
+forecast_trials = 2000
+share_history = false
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `min_samples` | The comparable delivery records a confident estimate rests on, never fewer than 5. An estimate on fewer is low confidence and says why |
+| `recent_samples` | How many of the most recent comparable records an estimate reads, never fewer than `min_samples` |
+| `forecast_trials` | The trials a forecast runs, at least 1 |
+| `share_history` | Whether the project adds its delivery records to the installation's pool and draws on the pool for its broadest comparison. The pool holds kind, size, capability class, the durations, and the cost, with no ID, title, repository, or content. Off unless a member turns it on |
+
 ## Experience records
 
 The ledger keeps one experience record per lane and one per decision. Each holds the policy version in force, the settings the action ran on, the options considered, and what was chosen, and its outcome is filled in once, which may be long after the action. Nothing else ever changes a record.

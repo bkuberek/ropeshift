@@ -9,6 +9,7 @@ import (
 
 	"ropeshift.com/ropeshift/internal/api"
 	"ropeshift.com/ropeshift/internal/authority"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/ports"
 	"ropeshift.com/ropeshift/internal/questions"
@@ -87,6 +88,31 @@ func readRecoveryPolicy(body string) (authority.RecoveryPolicyDraft, error) {
 		}
 	}
 	return authority.RecoveryPolicyDraft{Body: body, Policy: file.RecoveryPolicy}, nil
+}
+
+// estimatePolicyTable is the table an estimate policy's body holds.
+const estimatePolicyTable = "estimate_policy"
+
+// estimatePolicyKeys are the settings an estimate policy must state, so no estimate rests on a setting nobody
+// chose.
+var estimatePolicyKeys = []string{"version", "min_samples", "recent_samples", "forecast_trials", "share_history"}
+
+// readEstimatePolicy reads a body whose table is `estimate_policy`, on the same terms as a recovery policy.
+func readEstimatePolicy(body string) (delivery.EstimatePolicyDraft, error) {
+	var file delivery.EstimatePolicyFile
+	meta, err := toml.Decode(body, &file)
+	if err != nil {
+		return delivery.EstimatePolicyDraft{}, fmt.Errorf("%w: %v", delivery.ErrBadEstimatePolicy, err)
+	}
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		return delivery.EstimatePolicyDraft{}, fmt.Errorf("%w: unknown setting %s", delivery.ErrBadEstimatePolicy, unknown[0])
+	}
+	for _, key := range estimatePolicyKeys {
+		if !meta.IsDefined(estimatePolicyTable, key) {
+			return delivery.EstimatePolicyDraft{}, fmt.Errorf("%w: an estimate policy states %s", delivery.ErrBadEstimatePolicy, key)
+		}
+	}
+	return delivery.EstimatePolicyDraft{Body: body, Policy: file.EstimatePolicy}, nil
 }
 
 // holdsLanePolicy says a body is a lane policy, which the table it names decides.
@@ -214,6 +240,19 @@ func (h *handler) publishPolicy(w http.ResponseWriter, r *http.Request, actor le
 		reply(w, http.StatusCreated, record)
 		return
 	}
+	if holdsTable(in.Body, estimatePolicyTable) {
+		draft, err := readEstimatePolicy(in.Body)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if record, err = h.estimates.PublishEstimatePolicy(r.Context(), h.Scope, draft, actor); err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, http.StatusCreated, record)
+		return
+	}
 	if holdsTable(in.Body, recoveryPolicyTable) {
 		draft, err := readRecoveryPolicy(in.Body)
 		if err != nil {
@@ -276,6 +315,9 @@ func (h *handler) policyVersions(r *http.Request) ([]authority.PolicyVersion, er
 	}
 	if r.URL.Query().Get("kind") == string(authority.PolicyRecovery) {
 		return h.recoveries.RecoveryPolicyVersions(r.Context(), h.Scope)
+	}
+	if r.URL.Query().Get("kind") == string(delivery.PolicyEstimate) {
+		return h.estimates.EstimatePolicyVersions(r.Context(), h.Scope)
 	}
 	return h.questions.PolicyVersions(r.Context(), h.Scope)
 }

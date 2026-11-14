@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/authority"
 	"ropeshift.com/ropeshift/internal/control"
 	"ropeshift.com/ropeshift/internal/conversations"
+	"ropeshift.com/ropeshift/internal/delivery"
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/messages"
 	"ropeshift.com/ropeshift/internal/planning"
@@ -121,6 +122,7 @@ type handler struct {
 	notices      *control.Notices
 	repositories *control.Repositories
 	recoveries   *control.Recoveries
+	estimates    *control.EstimatePolicies
 	delegates    *control.Delegates
 	// conversations are the member's conversations with the assistant.
 	conversations *control.Conversations
@@ -236,6 +238,7 @@ func newHandler(config Config) *handler {
 		leases:        control.NewLeases(config.Store).Budgeted(config.PackTokens).Starting(config.Starts),
 		reviews:       control.NewReviews(config.Store),
 		recoveries:    control.NewRecoveries(config.Store),
+		estimates:     control.NewEstimatePolicies(config.Store),
 		accepting:     control.NewAcceptances(config.Store),
 		questions:     control.NewQuestions(config.Store, config.Batches).Telling(config.Windows).Budgeted(config.PackTokens),
 		fleet:         control.NewFleet(config.Store),
@@ -332,7 +335,7 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeTargetNotRunning, Message: err.Error()})
 	case errors.Is(err, conversations.ErrInvalid):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
-	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadRecoveryPolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository), errors.Is(err, ledger.ErrInvalidProject):
+	case errors.Is(err, workorders.ErrInvalid), errors.Is(err, questions.ErrInvalid), errors.Is(err, authority.ErrInvalid), errors.Is(err, authority.ErrBadLanePolicy), errors.Is(err, authority.ErrBadRecoveryPolicy), errors.Is(err, delivery.ErrBadEstimatePolicy), errors.Is(err, authority.ErrBadNotifyPolicy), errors.Is(err, messages.ErrInvalid), errors.Is(err, authority.ErrBadWindow), errors.Is(err, ledger.ErrInvalidRepository), errors.Is(err, ledger.ErrInvalidProject):
 		refuse(w, http.StatusBadRequest, api.ErrorDetail{Code: api.CodeInvalid, Message: err.Error()})
 	case errors.Is(err, authority.ErrRiskNotAcknowledged):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeRiskNotAcknowledged, Message: err.Error()})
