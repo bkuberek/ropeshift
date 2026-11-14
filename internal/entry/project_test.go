@@ -2,6 +2,8 @@ package entry
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -159,5 +161,28 @@ func TestIntakeReadsEachProjectsOwnCheckouts(t *testing.T) {
 	}
 	if _, err := find(t.Context(), soloScope, id); err == nil {
 		t.Error("the first project found beta's checkout")
+	}
+}
+
+// A checkout the worker keeps whose directory a person deleted or moved is no checkout: the lookup says the
+// worker keeps none, which holds the work as no_checkout and not as base_unavailable.
+func TestACheckoutWhoseDirectoryIsGoneIsNone(t *testing.T) {
+	kept := &checkouts.File{Path: filepath.Join(t.TempDir(), checkouts.FileName)}
+	gone := filepath.Join(t.TempDir(), "billing")
+	if err := os.MkdirAll(gone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := kept.Keep(t.Context(), "beta-id", "repo-billing", gone); err != nil {
+		t.Fatal(err)
+	}
+	find := checkoutOf(soloOptions{}, kept)
+	if path, err := find(t.Context(), "beta-id", "repo-billing"); err != nil || path != gone {
+		t.Fatalf("a kept checkout reads %q: %v", path, err)
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := find(t.Context(), "beta-id", "repo-billing"); !errors.Is(err, ports.ErrNotFound) || !strings.Contains(fmt.Sprint(err), gone) {
+		t.Errorf("a checkout whose directory is gone reads %q: %v", path, err)
 	}
 }

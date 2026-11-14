@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"net"
 	"net/http"
@@ -568,7 +569,8 @@ func soloCheckouts(paths api.Paths) *checkouts.File {
 
 // checkoutOf finds this machine's checkout of a project's repository: the one the worker keeps for the
 // project, or else, in the first project, the daemon's source with that history. A repository is known
-// by its history, so a moved source still matches. An empty project is the first.
+// by its history, so a moved source still matches. An empty project is the first. A kept checkout whose
+// directory is gone, deleted or moved, is none, so work there holds as no_checkout.
 func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, ledger.WorkspaceID, string) (string, error) {
 	return func(ctx context.Context, project ledger.WorkspaceID, id string) (string, error) {
 		project = cmp.Or(project, soloScope)
@@ -577,6 +579,9 @@ func checkoutOf(opts soloOptions, kept ports.Checkouts) func(context.Context, le
 			return "", err
 		}
 		if path, ok := held[id]; ok {
+			if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+				return "", fmt.Errorf("%w: this worker keeps a checkout of repository %q in project %s at %s, and nothing is there", ports.ErrNotFound, id, project, path)
+			}
 			return path, nil
 		}
 		if project == soloScope {
