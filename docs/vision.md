@@ -80,7 +80,7 @@ The core knows work orders, lanes, generations, questions, and decisions, not ve
 
 ### Local-first in solo mode
 
-Solo mode runs on one machine as one binary, with no network, no account, and no Docker. Every other mode adds infrastructure only because the user chose it. Telemetry is stored locally first and exported only when the user configures an exporter.
+Solo mode runs on one machine as one binary, with no account, no Docker, and no network connection of its own (the agent CLI reaches its provider). Every other mode adds infrastructure only because the user chose it. Telemetry is stored locally first and exported only when the user configures an exporter.
 
 ### Reliability as a feature
 

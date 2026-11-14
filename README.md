@@ -108,7 +108,7 @@ Team size changes configuration, not concepts, and every mode is designed to use
 
 | Mode | How it runs | Store | Status |
 |------|-------------|-------|--------|
-| Solo | One binary on one machine, with no Docker, no account, and no network requirement | SQLite | Built |
+| Solo | One binary on one machine, with no Docker, no account, and no network connection of its own (the agent CLI reaches its provider) | SQLite | Built |
 | Self-hosted group | Docker Compose on a LAN or tailnet, with workers that dial out, so laptops open no inbound ports | Postgres | Design, not built yet |
 | Cluster | A Helm chart and Terraform modules in your own cloud | Postgres | Design, not built yet |
 
