@@ -60,6 +60,11 @@ func (in *Installation) SaveReport(ctx context.Context, worker string, epoch int
 	return in.core.saveReport(ctx, ledger.InstallationScope, worker, epoch, report, freshMs)
 }
 
+// Beat records that a worker's session beat, in the installation's database.
+func (in *Installation) Beat(ctx context.Context, worker string, epoch int64) error {
+	return in.core.beat(ctx, ledger.InstallationScope, worker, epoch)
+}
+
 // installationReadTx is one view of the installation's shared records.
 type installationReadTx struct {
 	*session
@@ -177,6 +182,10 @@ func (o ownShared) Write(ctx context.Context, op string, fn func(ports.SharedTx)
 
 func (o ownShared) SaveReport(ctx context.Context, worker string, epoch int64, report ledger.ResourceReport, freshMs int64) error {
 	return o.store.saveReport(ctx, o.scope, worker, epoch, report, freshMs)
+}
+
+func (o ownShared) Beat(ctx context.Context, worker string, epoch int64) error {
+	return o.store.beat(ctx, o.scope, worker, epoch)
 }
 
 type ownSharedRead struct {

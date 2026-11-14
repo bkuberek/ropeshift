@@ -162,7 +162,7 @@ func (c *Conversations) Workers(ctx context.Context, scope ledger.WorkspaceID) (
 		choice := AssistantWorker{ID: worker.ID, Name: worker.Name}
 		host, known := hosts[worker.ID]
 		switch {
-		case worker.LastHandshakeAt == 0 || now-min(worker.LastHandshakeAt, now) > freshnessBeats*c.heartbeatMs:
+		case !connected(worker, now, c.heartbeatMs):
 			choice.Reason = "is disconnected"
 		case !known || !host.Headless:
 			choice.Reason = "runs no headless session"
@@ -178,6 +178,13 @@ func (c *Conversations) Workers(ctx context.Context, scope ledger.WorkspaceID) (
 		out = append(out, choice)
 	}
 	return out, nil
+}
+
+// connected says whether a worker's session reached the control plane within a few heartbeats: by the
+// handshake that opened it, or by its last beat.
+func connected(worker ledger.Worker, now, heartbeatMs int64) bool {
+	seen := max(worker.LastHandshakeAt, worker.LastBeatAt)
+	return seen != 0 && now-min(seen, now) <= freshnessBeats*heartbeatMs
 }
 
 // joined names things the way a sentence lists them.

@@ -29,6 +29,11 @@ type Installation interface {
 	// heartbeat never waits for the shared records' lock. A report of an epoch that is no longer current
 	// changes nothing.
 	SaveReport(ctx context.Context, worker string, epoch int64, report ledger.ResourceReport, freshMs int64) error
+	// Beat records that a worker's session beat, dated by database time, which is how the control plane
+	// tells a connected worker from one that stopped. Like a lease renewal it takes no revision and appends
+	// no event: one short transaction on one worker's row, guarded by its epoch. A beat of an epoch that is
+	// no longer current changes nothing.
+	Beat(ctx context.Context, worker string, epoch int64) error
 }
 
 // SharedReadTx is one consistent view of the shared records.

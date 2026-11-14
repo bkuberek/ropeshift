@@ -221,6 +221,34 @@ func TestNoWorkerThatCanRunTheAssistantIsAConflict(t *testing.T) {
 	}
 }
 
+// TestAWorkerThatBeatsCanRunTheAssistant holds the assistant's placement to the worker's heartbeat: a
+// worker that keeps beating stays connected long after its session opened, and one that stops beating reads
+// as disconnected three heartbeats after its last beat.
+func TestAWorkerThatBeatsCanRunTheAssistant(t *testing.T) {
+	clock := apitest.NewClock()
+	d := startTalkWith(t, apitest.Options{Clock: clock.Dialect})
+	ctx := t.Context()
+	worker := api.NewUnixClient(d.socket).Project(apitest.ProjectName).WithCredential(d.auth.Credential)
+	t.Cleanup(worker.Close)
+	heartbeat := time.Duration(apitest.HeartbeatMs) * time.Millisecond
+	for range 4 {
+		clock.Advance(heartbeat)
+		if _, err := worker.Heartbeat(ctx, d.auth.WorkerID, ledger.Heartbeat{Epoch: d.epoch, Protocol: ledger.ProtocolVersion, Nonce: "n"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.client.CreateConversation(ctx, api.CreateConversation{ID: "conv-1"}); err != nil {
+		t.Fatalf("a worker that beats, four heartbeats after its session opened: %v", err)
+	}
+	clock.Advance(3*heartbeat + time.Millisecond)
+	_, err := d.client.CreateConversation(ctx, api.CreateConversation{ID: "conv-2"})
+	refusedWith(t, err, http.StatusConflict, api.CodeNoAssistantWorker)
+	var refused *api.Error
+	if errors.As(err, &refused) && refused.Detail.Message != "No worker can run the assistant: atlas is disconnected." {
+		t.Errorf("the refusal says %q", refused.Detail.Message)
+	}
+}
+
 // TestEveryProjectServesItsConversations holds the conversation surface on a project other than the first:
 // one the installation held when the daemon started, and one a member created after. Each names the
 // installation's workers and their orchestrators, which every project shares.

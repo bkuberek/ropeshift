@@ -297,6 +297,7 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 	if err != nil {
 		return ledger.HeartbeatReply{}, err
 	}
+	recordBeat(ctx, w.store.Installation(w.scope), beat)
 	actor := ledger.Actor{Kind: ledger.ActorWorker, ID: beat.Auth.WorkerID}
 	for _, held := range beat.Leases {
 		lease := workorders.Lease{WorkOrder: held.WorkOrder, ClaimID: held.Claim, Fence: held.Fence}
@@ -332,6 +333,13 @@ func (w *Workers) Heartbeat(ctx context.Context, beat ledger.Heartbeat) (ledger.
 		return ledger.HeartbeatReply{}, err
 	}
 	return reply, nil
+}
+
+// recordBeat records that a heartbeat's worker beat, after its session was checked, which keeps the worker
+// connected. A beat it could not record fails nothing else, as a report it could not keep does: the leases
+// still reach the worker, which reads as connected again at its next beat.
+func recordBeat(ctx context.Context, installation ports.Installation, beat ledger.Heartbeat) {
+	_ = installation.Beat(ctx, beat.Auth.WorkerID, beat.Epoch)
 }
 
 // saveReport keeps what a heartbeat's worker measured, after its session was checked, and says why it
@@ -1051,9 +1059,9 @@ func (w *Workers) LanesIn(tx ports.ReadTx) ([]ledger.LaneView, error) {
 	return out, nil
 }
 
-// WorkerFreshness labels what the ledger holds of a worker by the same rule as a lane's. A heartbeat
-// writes nothing about a worker, so what confirms one is a session it opened or a lease it renews, and
-// a worker that holds no lease reads as last reported once its session is old.
+// WorkerFreshness labels what the ledger holds of a worker by the same rule as a lane's. What confirms
+// it is a session the worker opened or a lease it renews, so a worker that holds no lease reads as last
+// reported once its session is old.
 func (w *Workers) WorkerFreshness(tx ports.ReadTx, worker ledger.Worker) (string, error) {
 	now, err := tx.Now()
 	if err != nil {
