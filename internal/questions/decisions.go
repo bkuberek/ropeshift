@@ -123,6 +123,9 @@ func (o Overturn) Check() error {
 	if o.DecisionID == "" {
 		return fmt.Errorf("%w: an overturn names no new decision", ErrInvalid)
 	}
+	if err := CheckDecisionID(o.DecisionID); err != nil {
+		return err
+	}
 	if Normalize(o.Statement) == "" {
 		return fmt.Errorf("%w: an overturn states nothing", ErrInvalid)
 	}

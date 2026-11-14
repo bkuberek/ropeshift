@@ -74,6 +74,19 @@ func plainID(errInvalid error) func(body []byte) error {
 	}
 }
 
+// decisionID refuses a body whose id is not one a caller may name a new decision by: plain, and outside the
+// prefix only plan approval names decisions under. A recorded decision, an answer, and an overturn each name the
+// decision they make by that ID.
+func decisionID(body []byte) error {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return fmt.Errorf("%w: %v", questions.ErrInvalid, err)
+	}
+	return questions.CheckDecisionID(in.ID)
+}
+
 // canonicalizer reads the identity of the record a name, a prefix, or an identity names.
 type canonicalizer func(h *handler, ctx context.Context, named string) (string, error)
 
@@ -176,9 +189,9 @@ var routeOperations = map[string]routeOperation{
 	"POST /v1/plans/{id}/reviews":                      resolved(byKind(authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant), authority.OpPlanStartReview, authority.OpPlanStartReviewByAssistant).about(subjectPlan),
 	"POST /v1/questions":                               fixed(authority.OpQuestionRecord).about(subjectQuestion).named(bodyField("id")).checked(plainID(questions.ErrInvalid)),
 	"POST /v1/questions/{id}/dismiss":                  fixed(authority.OpQuestionDismiss).about(subjectQuestion),
-	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion),
-	"POST /v1/decisions":                               resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")).checked(plainID(questions.ErrInvalid)),
-	"POST /v1/decisions/{id}/overturn":                 fixed(authority.OpDecisionOverturn).about(subjectDecision),
+	"POST /v1/questions/{id}/answer":                   resolved(answerOperation, authority.OpQuestionAnswer).about(subjectQuestion).checked(decisionID),
+	"POST /v1/decisions":                               resolved(decisionOperation, authority.OpDecisionAssume, authority.OpDecisionRecord).about(subjectDecision).named(bodyField("id")).checked(decisionID),
+	"POST /v1/decisions/{id}/overturn":                 fixed(authority.OpDecisionOverturn).about(subjectDecision).checked(decisionID),
 	"POST /v1/policies":                                resolved(policyOperation, authority.OpDelegatePolicyPublish, authority.OpPolicyPublish).about(subjectPolicy).named(policyKindOf).showing(policyChanges),
 	"POST /v1/categories":                              fixed(authority.OpCategoryAdd).about(subjectCategory).named(bodyField("name")),
 	"POST /v1/repositories":                            resolved(repositoryAddOperation, authority.OpRepositoryRegister, authority.OpRepositoryRegisterManifest),

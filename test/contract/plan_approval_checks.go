@@ -39,8 +39,9 @@ var PlanApprovalChecks = []Check{
 	{"PA13", "approving a lane's plan accepts its work order, and intake then records the commit, decides the drafts, and passes the review", checkApprovalAcceptsTheLanesPlan},
 	{"PA14", "a plan accepted by hand first is approved as the version intake recorded", checkAcceptedFirstIsApprovedAfterwards},
 	{"PA15", "an approval of a branch that intake reads differently is void, and the version asks again", checkChangedBranchVoidsTheApproval},
-	{"PA16", "approving a version whose draft derives the ID of a decision with other content refuses, naming it, and changes nothing", checkApprovalRefusesAClashingDecision},
+	{"PA16", "approving a version whose drafts derive the IDs of decisions with other content refuses, naming each, and changes nothing", checkApprovalRefusesAClashingDecision},
 	{"PA17", "a branch approved before intake read it, whose draft would clash, asks for approval again instead of deciding", checkBranchApprovalAsksAgainOnAClash},
+	{"PA18", "no writer but plan approval names a decision under the prefix of the IDs it derives, so no decision stands in for a draft of a later version", checkOnlyPlanApprovalNamesItsDecisions},
 }
 
 const approvalPlan = "retry"
@@ -938,19 +939,61 @@ func derivedDecisionID(plan string, version int64, draft string) string {
 	return "pd-" + hex.EncodeToString(sum[:])[:26]
 }
 
-// plantDecision records, as a delegate within the decision policy, a decision under an ID a plan's draft derives,
-// answering the draft's question otherwise.
+// plantDecision writes a decision straight into the ledger under the ID a plan's draft derives, answering the
+// draft's question otherwise, as a ledger written before only plan approval could name a decision under the
+// prefix of the IDs it derives may hold one. A delegate recorded it.
 func (r *Rig) plantDecision(s ports.Store, plan string, version int64) (questions.Decision, error) {
-	return control.NewQuestions(s, questions.BatchPolicy{}).RecordDecision(r.Ctx, r.Scope, questions.Decision{
-		ID: derivedDecisionID(plan, version, "d1"), Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen",
-		Rationale: "It is cheaper.", Scope: "payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"},
-		Categories: []string{questions.CategoryProduct},
-	}, authority.DelegateActor(theMember.ID, "dlg_1"))
+	return r.plantDraft(s, plan, version, "d1")
 }
+
+func (r *Rig) plantDraft(s ports.Store, plan string, version int64, draft string) (questions.Decision, error) {
+	decision := questions.Decision{
+		ID: derivedDecisionID(plan, version, draft), Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen",
+		Rationale: "It is cheaper.", Scope: "payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"},
+		Categories: []string{questions.CategoryProduct}, DecidedBy: "dlg_1",
+	}
+	err := s.Write(r.Ctx, r.Scope, "decision.record", func(tx ports.WriteTx) error {
+		if err := tx.Questions().InsertDecision(decision); err != nil {
+			return err
+		}
+		event, err := questions.RecordEvent(questions.EventDecisionRecorded, questions.SubjectDecision, decision.ID, decision, authority.DelegateActor(theMember.ID, "dlg_1"))
+		if err != nil {
+			return err
+		}
+		_, err = tx.Append(event)
+		return err
+	})
+	return decision, err
+}
+
+// twoDrafts is the approval plan with two drafts.
+const twoDrafts = `+++
+kind = "plan"
+id = "` + approvalPlan + `"
+title = "Retry budget"
+
+[[decision]]
+id = "d1"
+question = "Which provider first?"
+answer = "Stripe"
+rationale = "It is the one with an account."
+blocking = true
+
+[[decision]]
+id = "d2"
+question = "How many retries?"
+answer = "Three"
+rationale = "It is what the spec says."
++++
+
+How.
+`
 
 func checkApprovalRefusesAClashingDecision(r *Rig) error {
 	s := r.Store()
-	if _, err := r.intake(s, newApprovalSource().source); err != nil {
+	files := newApprovalSource()
+	files.source.Write("plan.md", []byte(twoDrafts))
+	if _, err := r.intake(s, files.source); err != nil {
 		return err
 	}
 	plan, err := r.planID(s, "Retry budget")
@@ -959,14 +1002,27 @@ func checkApprovalRefusesAClashingDecision(r *Rig) error {
 	}
 	planted, err := r.plantDecision(s, plan, 1)
 	if err != nil {
-		return Violatedf("a delegate's decision within the decision policy: %v", err)
+		return err
+	}
+	other, err := r.plantDraft(s, plan, 1, "d2")
+	if err != nil {
+		return err
 	}
 	pending, err := r.theOpenPlanApproval(s)
 	if err != nil {
 		return err
 	}
-	if _, err := r.approve(s, pending, true, theMember); !errors.Is(err, questions.ErrDecisionClash) || !strings.Contains(err.Error(), planted.ID) {
-		return Violatedf("approving over a clashing decision: %v", err)
+	_, err = r.approve(s, pending, true, theMember)
+	if !errors.Is(err, questions.ErrDecisionClash) {
+		return Violatedf("approving over clashing decisions: %v", err)
+	}
+	for _, named := range []string{planted.ID, other.ID, `"d1"`, `"d2"`} {
+		if !strings.Contains(err.Error(), named) {
+			return Violatedf("the refusal does not name %s: %v", named, err)
+		}
+	}
+	if strings.Contains(err.Error(), "overturn") {
+		return Violatedf("the refusal offers an overturn, which changes the decision's status and leaves the clash: %v", err)
 	}
 	if still, err := r.theOpenPlanApproval(s); err != nil || still.ID != pending.ID {
 		return Violatedf("the refused approval left %+v: %v", still, err)
@@ -1001,7 +1057,7 @@ func checkBranchApprovalAsksAgainOnAClash(r *Rig) error {
 	}
 	planted, err := r.plantDecision(s, plan, 2)
 	if err != nil {
-		return Violatedf("a delegate's decision within the decision policy: %v", err)
+		return err
 	}
 	files := laneFiles("The second draft.")
 	id, branch, err := r.aLanePlanAsksForApproval(s, files)
@@ -1040,4 +1096,69 @@ func (r *Rig) decisionOf(s ports.Store, id string) (questions.Decision, error) {
 		return err
 	})
 	return out, err
+}
+
+func checkOnlyPlanApprovalNamesItsDecisions(r *Rig) error {
+	s := r.Store()
+	ops := r.NewOps(s)
+	files := newApprovalSource()
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	files.source.Write("plan.md", []byte(planWith(approvalPlan, "Retry budget", nil, "Adyen")))
+	if _, err := r.intake(s, files.source); err != nil {
+		return err
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if pending.PlanVersion != 2 {
+		return Violatedf("the plan asks for version %d, want 2", pending.PlanVersion)
+	}
+	// Version 1 was never approved, so a decision under its draft's ID would read as the answer version 2
+	// carries forward. Nobody may record one, nor one under version 2's ID, by any route.
+	earlier, later := derivedDecisionID(plan, 1, "d1"), derivedDecisionID(plan, 2, "d1")
+	spoof := questions.Decision{
+		ID: earlier, Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen", Rationale: "It is the one with an account.",
+		Scope: "payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
+	}
+	if _, err := ops.RecordDecision(r.Ctx, r.Scope, spoof, theMember); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("a member recorded a decision under a draft's derived ID: %v", err)
+	}
+	asked, err := r.ask(s, "Which provider first?", "lane-a", nil)
+	if err != nil {
+		return err
+	}
+	if _, err := ops.Answer(r.Ctx, r.Scope, asked.QuestionID, questions.Answer{DecisionID: later, Statement: "Adyen."}, theMember); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("a member answered under a draft's derived ID: %v", err)
+	}
+	standing := r.ID("d")
+	if _, err := ops.RecordDecision(r.Ctx, r.Scope, questions.Decision{ID: standing, Status: questions.DecisionDecided, Statement: "Retry twice."}, theMember); err != nil {
+		return err
+	}
+	if _, err := ops.Overturn(r.Ctx, r.Scope, standing, questions.Overturn{DecisionID: earlier, Statement: "Retry three times."}, theMember); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("an overturn named its new decision under a draft's derived ID: %v", err)
+	}
+	if _, err := control.NewQuestions(s, questions.BatchPolicy{}).Rule(r.Ctx, r.Scope, asked.QuestionID, questions.Ruling{
+		ID: earlier, Status: questions.DecisionAssumed, Statement: "Adyen.", Rationale: "It is cheaper.", Scope: "payments",
+		Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
+	}, ledger.Actor{Kind: ledger.ActorOrchestrator, ID: "orchestrator-1"}); !errors.Is(err, questions.ErrInvalid) {
+		return Violatedf("a ruling named its decision under a draft's derived ID: %v", err)
+	}
+	if _, err := r.decisionOf(s, earlier); !errors.Is(err, ports.ErrNotFound) {
+		return Violatedf("a decision stands under version 1's derived ID: %v", err)
+	}
+	if _, err := r.approve(s, pending, true, theMember); err != nil {
+		return err
+	}
+	decided, err := r.decisionOf(s, later)
+	if err != nil || decided.DecidedBy != theMember.ID || decided.Statement != "Q: Which provider first? A: Adyen" || decided.Supersedes != "" {
+		return Violatedf("approving version 2 decided %+v: %v", decided, err)
+	}
+	return r.CheckProjection(s)
 }

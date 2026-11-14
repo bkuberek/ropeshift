@@ -289,6 +289,8 @@ func TestEveryRouteTakesItsClassForADelegate(t *testing.T) {
 		"POST /v1/roster/revert":  api.RosterRevert{Scope: roster.ScopeProject, Version: 1},
 		// A card names a question by its ID, which the route checks before it makes one.
 		"POST /v1/questions": api.RecordQuestion{ID: "q-1", Text: "How many retries?"},
+		// An overturn names the decision it makes by its ID, which the route checks before it makes a card.
+		"POST /v1/decisions/{id}/overturn": api.OverturnDecision{ID: "d-2", Statement: "Retry three times."},
 	}
 	checked := 0
 	for pattern, route := range server.RouteOperations() {

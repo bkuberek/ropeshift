@@ -93,3 +93,26 @@ func TestPolicyCheck(t *testing.T) {
 		})
 	}
 }
+
+// TestOnlyPlanApprovalNamesADecisionUnderItsPrefix holds the prefix of the IDs plan approval derives for the
+// drafts of a plan to plan approval: no writer names a new decision under it, so nobody records one under an
+// ID a draft will derive.
+func TestOnlyPlanApprovalNamesADecisionUnderItsPrefix(t *testing.T) {
+	draft := Decision{Status: DecisionDecided, Statement: "Retry twice."}
+	for _, tt := range []struct {
+		id   string
+		want error
+	}{
+		{"pd-0123456789abcdef0123456789", ErrInvalid},
+		{"pd-", ErrInvalid},
+		{"pd-anything", ErrInvalid},
+		{"d1", nil},
+		{"pdq-1", nil},
+		{"d-pd-1", nil},
+	} {
+		draft.ID = tt.id
+		if _, err := NewDecision(draft); !errors.Is(err, tt.want) {
+			t.Errorf("a new decision %q: %v, want %v", tt.id, err, tt.want)
+		}
+	}
+}

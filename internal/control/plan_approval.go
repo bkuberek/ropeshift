@@ -58,10 +58,11 @@ func approvePlan(tx ports.WriteTx, approval authority.Approval, member ledger.Ac
 }
 
 // planDecisionID names the decision a draft becomes in one version of one plan. It is derived, so the
-// same approval decided twice makes one decision.
+// same approval decided twice makes one decision, and it carries the prefix no other writer may name a
+// decision under.
 func planDecisionID(plan string, version int64, draft string) string {
 	sum := sha256.Sum256([]byte(plan + "\x00" + strconv.FormatInt(version, 10) + "\x00" + draft))
-	return "pd-" + hex.EncodeToString(sum[:])[:26]
+	return questions.PlanDecisionPrefix + hex.EncodeToString(sum[:])[:26]
 }
 
 // draftDecision is the decision a draft of one version of a plan becomes, as the member who approved it.
@@ -80,11 +81,13 @@ func draftDecision(version planning.PlanVersion, draft planning.DraftDecision, m
 }
 
 // draftClash refuses to decide a version's drafts while a decision with other content holds an ID one of them
-// derives. The ID is derived, so anyone who reads the plan can record a decision under it first, and deciding
-// over it would leave that decision standing as the member's answer. The refusal names the decision, who
-// recorded it, and the draft, so the member can clear it. The same content is the same decision, which a
-// retry of the approval finds.
+// derives. Only plan approval names a decision under the prefix those IDs carry, but a ledger may hold one
+// another writer recorded before that held, and deciding over it would leave that decision standing as the
+// member's answer. The refusal names each such decision, who recorded it, and its draft. An overturn changes
+// the decision's status, so it never makes the decision the draft's; a new version of the plan derives new
+// IDs for its drafts. The same content is the same decision, which a retry of the approval finds.
 func draftClash(tx ports.WriteTx, version planning.PlanVersion) error {
+	var clashes []string
 	for _, draft := range version.Decisions {
 		want := draftDecision(version, draft, ledger.Actor{})
 		held, err := tx.Questions().Decision(want.ID)
@@ -101,11 +104,15 @@ func draftClash(tx ports.WriteTx, version planning.PlanVersion) error {
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf("%w: decision %s, recorded by %s, says %q, and version %d of plan %s derives that ID for its draft decision %q, "+
-			"which says %q; overturn %s if it should not stand, and approve a new version of the plan, whose drafts derive new IDs",
-			questions.ErrDecisionClash, held.ID, by, held.Statement, version.Version, version.PlanID, draft.ID, want.Statement, held.ID)
+		clashes = append(clashes, fmt.Sprintf("decision %s, recorded by %s, says %q, where its draft decision %q says %q",
+			held.ID, by, held.Statement, draft.ID, want.Statement))
 	}
-	return nil
+	if len(clashes) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: version %d of plan %s derives the IDs of decisions that say something else: %s; "+
+		"no approval of this version decides its drafts while those decisions hold their IDs, and a new version of the plan derives new IDs",
+		questions.ErrDecisionClash, version.Version, version.PlanID, strings.Join(clashes, "; "))
 }
 
 // decisionAuthor names who recorded a decision, from the event that recorded it.
@@ -150,7 +157,8 @@ func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.
 	return nil
 }
 
-// earlierPlanDecision finds the decision in force that an earlier version of the plan made of a draft.
+// earlierPlanDecision finds the decision in force that an earlier version of the plan made of a draft. Only plan
+// approval names a decision under the IDs it derives, so what it finds is an approval's own decision.
 func earlierPlanDecision(tx ports.WriteTx, version planning.PlanVersion, draft string) (questions.Decision, bool, error) {
 	for earlier := version.Version - 1; earlier >= 1; earlier-- {
 		decision, err := tx.Questions().Decision(planDecisionID(version.PlanID, earlier, draft))

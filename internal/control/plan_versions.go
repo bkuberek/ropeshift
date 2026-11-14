@@ -229,9 +229,9 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 		return false, err
 	}
 	if found {
-		// A decision recorded since the member approved the branch may hold an ID a draft of this version
-		// derives, with other content. Finishing would refuse, and intake with it, so the version asks for
-		// approval instead, and that approval names the clash.
+		// A decision the ledger holds may hold an ID a draft of this version derives, with other content.
+		// Finishing would refuse, and intake with it, so the version asks for approval instead, and that
+		// approval names the clash.
 		clash := draftClash(tx, next)
 		if clash == nil {
 			return true, finishApproved(tx, next, approved, origin.commit)

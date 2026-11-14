@@ -239,14 +239,29 @@ func CheckSubject(kind, id string) error {
 	return nil
 }
 
+// PlanDecisionPrefix begins the ID plan approval derives for the decision each draft of a plan version becomes.
+// Anyone who reads the plan can work such an ID out, so no other writer may name a decision under it.
+const PlanDecisionPrefix = "pd-"
+
+// CheckDecisionID refuses an ID a caller names for a new decision unless it is plain and outside the prefix
+// only plan approval names decisions under.
+func CheckDecisionID(id string) error {
+	switch {
+	case id == "":
+		return fmt.Errorf("%w: a decision has no id", ErrInvalid)
+	case !ledger.PlainID(id):
+		return fmt.Errorf("%w: a decision's id is 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
+	case strings.HasPrefix(id, PlanDecisionPrefix):
+		return fmt.Errorf("%w: a decision's id may not start with %q, which only plan approval names decisions under", ErrInvalid, PlanDecisionPrefix)
+	}
+	return nil
+}
+
 // NewDecision validates a draft. A new decision is `decided` or `assumed`, because the other
 // two statuses only ever follow one of those.
 func NewDecision(draft Decision) (Decision, error) {
-	if draft.ID == "" {
-		return Decision{}, fmt.Errorf("%w: a decision has no id", ErrInvalid)
-	}
-	if !ledger.PlainID(draft.ID) {
-		return Decision{}, fmt.Errorf("%w: a decision's id is 1 to %d letters, digits, '-', and '_'", ErrInvalid, ledger.MaxRecordID)
+	if err := CheckDecisionID(draft.ID); err != nil {
+		return Decision{}, err
 	}
 	if draft.Statement == "" {
 		return Decision{}, fmt.Errorf("%w: a decision states nothing", ErrInvalid)
