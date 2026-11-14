@@ -364,6 +364,8 @@ func fail(w http.ResponseWriter, err error) {
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeAssumptionLimit, Message: err.Error()})
 	case errors.Is(err, questions.ErrDecisionEnded):
 		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeDecisionEnded, Message: err.Error()})
+	case errors.Is(err, questions.ErrDecisionClash):
+		refuse(w, http.StatusConflict, api.ErrorDetail{Code: api.CodeDecisionClash, Message: err.Error()})
 	case errors.Is(err, authority.ErrSelfApproval):
 		refuse(w, http.StatusForbidden, api.ErrorDetail{Code: api.CodeSelfApproval, Message: err.Error()})
 	case errors.Is(err, authority.ErrDeciderKind):

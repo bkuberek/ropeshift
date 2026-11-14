@@ -64,22 +64,75 @@ func planDecisionID(plan string, version int64, draft string) string {
 	return "pd-" + hex.EncodeToString(sum[:])[:26]
 }
 
+// draftDecision is the decision a draft of one version of a plan becomes, as the member who approved it.
+func draftDecision(version planning.PlanVersion, draft planning.DraftDecision, member ledger.Actor) questions.Decision {
+	decision := questions.Decision{
+		ID: planDecisionID(version.PlanID, version.Version, draft.ID), Status: questions.DecisionDecided,
+		Statement: "Q: " + strings.TrimSpace(draft.Question) + " A: " + strings.TrimSpace(draft.Answer),
+		Rationale: draft.Rationale, Citations: []string{"plan_version:" + planning.ContractKey(version.PlanID, version.Version)},
+		Scope: "plan:" + version.PlanID, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
+		DecidedBy: member.ID,
+	}
+	if decision.Rationale == "" {
+		decision.Rationale = "Drafted in the plan, and approved with it."
+	}
+	return decision
+}
+
+// draftClash refuses to decide a version's drafts while a decision with other content holds an ID one of them
+// derives. The ID is derived, so anyone who reads the plan can record a decision under it first, and deciding
+// over it would leave that decision standing as the member's answer. The refusal names the decision, who
+// recorded it, and the draft, so the member can clear it. The same content is the same decision, which a
+// retry of the approval finds.
+func draftClash(tx ports.WriteTx, version planning.PlanVersion) error {
+	for _, draft := range version.Decisions {
+		want := draftDecision(version, draft, ledger.Actor{})
+		held, err := tx.Questions().Decision(want.ID)
+		if errors.Is(err, ports.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if held.SameContent(want) {
+			continue
+		}
+		by, err := decisionAuthor(tx, held.ID)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: decision %s, recorded by %s, says %q, and version %d of plan %s derives that ID for its draft decision %q, "+
+			"which says %q; overturn %s if it should not stand, and approve a new version of the plan, whose drafts derive new IDs",
+			questions.ErrDecisionClash, held.ID, by, held.Statement, version.Version, version.PlanID, draft.ID, want.Statement, held.ID)
+	}
+	return nil
+}
+
+// decisionAuthor names who recorded a decision, from the event that recorded it.
+func decisionAuthor(tx ports.WriteTx, id string) (string, error) {
+	events, err := tx.EventsAbout(ledger.Subject{Kind: questions.SubjectDecision, ID: id})
+	if err != nil {
+		return "", err
+	}
+	for _, event := range events {
+		if event.Type == questions.EventDecisionRecorded {
+			return authority.Principal(event.Actor), nil
+		}
+	}
+	return "an unknown actor", nil
+}
+
 // decideDrafts makes each answer a plan drafted a decision of the member who approved it, with a
-// citation to the plan version. A draft the plan already decided the same way in an earlier version stays
-// as it is, and one that changed replaces the earlier answer, so one answer to a question is in force.
+// citation to the plan version, once no decision with other content holds an ID a draft derives. A draft the
+// plan already decided the same way in an earlier version stays as it is, and one that changed replaces the
+// earlier answer, so one answer to a question is in force.
 func decideDrafts(tx ports.WriteTx, version planning.PlanVersion, member ledger.Actor) error {
+	if err := draftClash(tx, version); err != nil {
+		return err
+	}
 	asked := &Questions{}
 	for _, draft := range version.Decisions {
-		decision := questions.Decision{
-			ID: planDecisionID(version.PlanID, version.Version, draft.ID), Status: questions.DecisionDecided,
-			Statement: "Q: " + strings.TrimSpace(draft.Question) + " A: " + strings.TrimSpace(draft.Answer),
-			Rationale: draft.Rationale, Citations: []string{"plan_version:" + planning.ContractKey(version.PlanID, version.Version)},
-			Scope: "plan:" + version.PlanID, Reversibility: questions.Reversible, Categories: []string{questions.CategoryProduct},
-			DecidedBy: member.ID,
-		}
-		if decision.Rationale == "" {
-			decision.Rationale = "Drafted in the plan, and approved with it."
-		}
+		decision := draftDecision(version, draft, member)
 		earlier, found, err := earlierPlanDecision(tx, version, draft.ID)
 		if err != nil {
 			return err

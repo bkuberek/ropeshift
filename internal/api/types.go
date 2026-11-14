@@ -45,6 +45,9 @@ const (
 	CodeOverlap = "overlap"
 	// CodeDecisionEnded means a decision was already overturned or replaced.
 	CodeDecisionEnded = "decision_ended"
+	// CodeDecisionClash means a plan approval would decide a draft under an ID a decision with other content
+	// already holds.
+	CodeDecisionClash = "decision_clash"
 	// CodeRiskNotAcknowledged means a subscription worker stays below unattended until a member
 	// acknowledges the stated risk for it.
 	CodeRiskNotAcknowledged = "risk_not_acknowledged"

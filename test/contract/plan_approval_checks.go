@@ -1,10 +1,13 @@
 package contract
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ropeshift.com/ropeshift/internal/adapters/fake"
@@ -36,6 +39,8 @@ var PlanApprovalChecks = []Check{
 	{"PA13", "approving a lane's plan accepts its work order, and intake then records the commit, decides the drafts, and passes the review", checkApprovalAcceptsTheLanesPlan},
 	{"PA14", "a plan accepted by hand first is approved as the version intake recorded", checkAcceptedFirstIsApprovedAfterwards},
 	{"PA15", "an approval of a branch that intake reads differently is void, and the version asks again", checkChangedBranchVoidsTheApproval},
+	{"PA16", "approving a version whose draft derives the ID of a decision with other content refuses, naming it, and changes nothing", checkApprovalRefusesAClashingDecision},
+	{"PA17", "a branch approved before intake read it, whose draft would clash, asks for approval again instead of deciding", checkBranchApprovalAsksAgainOnAClash},
 }
 
 const approvalPlan = "retry"
@@ -924,4 +929,115 @@ func checkChangedBranchVoidsTheApproval(r *Rig) error {
 		return Violatedf("the work of the contract is %+v: %v", order, err)
 	}
 	return r.planApprovalsReplay(s)
+}
+
+// derivedDecisionID is the ID approving a version gives the decision one of its drafts becomes, which anyone
+// who reads the plan can work out.
+func derivedDecisionID(plan string, version int64, draft string) string {
+	sum := sha256.Sum256([]byte(plan + "\x00" + strconv.FormatInt(version, 10) + "\x00" + draft))
+	return "pd-" + hex.EncodeToString(sum[:])[:26]
+}
+
+// plantDecision records, as a delegate within the decision policy, a decision under an ID a plan's draft derives,
+// answering the draft's question otherwise.
+func (r *Rig) plantDecision(s ports.Store, plan string, version int64) (questions.Decision, error) {
+	return control.NewQuestions(s, questions.BatchPolicy{}).RecordDecision(r.Ctx, r.Scope, questions.Decision{
+		ID: derivedDecisionID(plan, version, "d1"), Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen",
+		Rationale: "It is cheaper.", Scope: "payments", Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"},
+		Categories: []string{questions.CategoryProduct},
+	}, authority.DelegateActor(theMember.ID, "dlg_1"))
+}
+
+func checkApprovalRefusesAClashingDecision(r *Rig) error {
+	s := r.Store()
+	if _, err := r.intake(s, newApprovalSource().source); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	planted, err := r.plantDecision(s, plan, 1)
+	if err != nil {
+		return Violatedf("a delegate's decision within the decision policy: %v", err)
+	}
+	pending, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, pending, true, theMember); !errors.Is(err, questions.ErrDecisionClash) || !strings.Contains(err.Error(), planted.ID) {
+		return Violatedf("approving over a clashing decision: %v", err)
+	}
+	if still, err := r.theOpenPlanApproval(s); err != nil || still.ID != pending.ID {
+		return Violatedf("the refused approval left %+v: %v", still, err)
+	}
+	if decisions, err := r.planDecisions(s, plan); err != nil || len(decisions) != 0 {
+		return Violatedf("a refused approval decided %+v: %v", decisions, err)
+	}
+	if decision, err := r.decisionOf(s, planted.ID); err != nil || decision.Statement != planted.Statement {
+		return Violatedf("the clashing decision is %+v: %v", decision, err)
+	}
+	if order, err := r.orderOfContract(s, "budget"); err != nil || order.State != workorders.ContractReview || order.ReviewedBy != "" {
+		return Violatedf("the work of the contract is %+v: %v", order, err)
+	}
+	return r.CheckProjection(s)
+}
+
+func checkBranchApprovalAsksAgainOnAClash(r *Rig) error {
+	s := r.Store()
+	if _, err := r.intake(s, newApprovalSource().source); err != nil {
+		return err
+	}
+	first, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, first, true, theMember); err != nil {
+		return err
+	}
+	plan, err := r.planID(s, "Retry budget")
+	if err != nil {
+		return err
+	}
+	planted, err := r.plantDecision(s, plan, 2)
+	if err != nil {
+		return Violatedf("a delegate's decision within the decision policy: %v", err)
+	}
+	files := laneFiles("The second draft.")
+	id, branch, err := r.aLanePlanAsksForApproval(s, files)
+	if err != nil {
+		return err
+	}
+	if _, err := r.approve(s, branch, true, theMember); err != nil {
+		return err
+	}
+	var asked []string
+	taken, err := control.NewIntake(s).TakeInPlans(r.Ctx, r.Scope, openFrom(acceptedSource(files), &asked))
+	if err != nil || !slices.Equal(taken, []string{id}) {
+		return Violatedf("intake of the approved branch over a clash: taken %v: %v", taken, err)
+	}
+	again, err := r.theOpenPlanApproval(s)
+	if err != nil {
+		return err
+	}
+	if again.Plan != plan || again.PlanVersion != 2 {
+		return Violatedf("the version asks with %+v", again)
+	}
+	if decision, err := r.decisionOf(s, planted.ID); err != nil || decision.Statement != planted.Statement {
+		return Violatedf("the clashing decision is %+v: %v", decision, err)
+	}
+	if _, err := r.approve(s, again, true, theMember); !errors.Is(err, questions.ErrDecisionClash) {
+		return Violatedf("approving the version over the clash: %v", err)
+	}
+	return r.CheckProjection(s)
+}
+
+func (r *Rig) decisionOf(s ports.Store, id string) (questions.Decision, error) {
+	var out questions.Decision
+	err := s.Read(r.Ctx, r.Scope, func(tx ports.ReadTx) error {
+		var err error
+		out, err = tx.Questions().Decision(id)
+		return err
+	})
+	return out, err
 }

@@ -14,6 +14,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 )
 
@@ -228,7 +229,16 @@ func recordPlanVersion(tx ports.WriteTx, plan string, files map[string]planFileR
 		return false, err
 	}
 	if found {
-		return true, finishApproved(tx, next, approved, origin.commit)
+		// A decision recorded since the member approved the branch may hold an ID a draft of this version
+		// derives, with other content. Finishing would refuse, and intake with it, so the version asks for
+		// approval instead, and that approval names the clash.
+		clash := draftClash(tx, next)
+		if clash == nil {
+			return true, finishApproved(tx, next, approved, origin.commit)
+		}
+		if !errors.Is(clash, questions.ErrDecisionClash) {
+			return false, clash
+		}
 	}
 	return true, askForPlanApproval(tx, planAsk{
 		plan: plan, ref: ref, title: record.Title, version: next.Version, digest: next.Digest, entries: entries,

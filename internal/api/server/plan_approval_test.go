@@ -1,10 +1,14 @@
 package server_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,6 +18,7 @@ import (
 	"ropeshift.com/ropeshift/internal/ledger"
 	"ropeshift.com/ropeshift/internal/planning"
 	"ropeshift.com/ropeshift/internal/ports"
+	"ropeshift.com/ropeshift/internal/questions"
 	"ropeshift.com/ropeshift/internal/workorders"
 	"ropeshift.com/ropeshift/test/apitest"
 )
@@ -360,4 +365,87 @@ func TestShowingAPlanVersionItNeverHadIsRefused(t *testing.T) {
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
 	err = d.Client.Do(t.Context(), http.MethodGet, d.Client.Route("/v1/plans/"+plan+"?version=0"), nil, &out)
 	refusedWith(t, err, http.StatusBadRequest, api.CodeInvalid)
+}
+
+// derivedDecisionID is the ID plan approval gives the decision a draft becomes, which anyone who reads the plan
+// can work out: from the plan, its version, and the draft's ID.
+func derivedDecisionID(plan string, version int64, draft string) string {
+	sum := sha256.Sum256([]byte(plan + "\x00" + strconv.FormatInt(version, 10) + "\x00" + draft))
+	return "pd-" + hex.EncodeToString(sum[:])[:26]
+}
+
+// TestAPlanApprovalRefusesADecisionRecordedUnderADraftsID holds plan approval to what the plan drafted: a
+// delegate records a decision within the decision policy under the ID approval derives for one of the plan's
+// drafts, before a member approves. Approval refuses, naming the decision and the draft, so the member's
+// approval never stands for an answer the plan did not hold, and nothing of the approval happens.
+func TestAPlanApprovalRefusesADecisionRecordedUnderADraftsID(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	ctx := t.Context()
+	w.Planned(retrySource("The first draft."))
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	plan := need.Approval.Plan
+	id := derivedDecisionID(plan, need.Version, "d1")
+	delegate := asDelegate(t, d.Socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	if _, err := delegate.RecordDecision(ctx, api.RecordDecision{
+		ID: id, Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Adyen", Rationale: "It is cheaper.",
+		Scope: "plan:" + plan, Reversibility: questions.Reversible, Citations: []string{"docs/payments.md"}, Categories: []string{questions.CategoryProduct},
+	}); err != nil {
+		t.Fatalf("a delegate's decision within the decision policy: %v", err)
+	}
+
+	_, err := d.Client.DecideApproval(ctx, need.Approval.ID, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: true})
+	var refused *api.Error
+	if !errors.As(err, &refused) || refused.Status != http.StatusConflict || refused.Detail.Code != api.CodeDecisionClash ||
+		!strings.Contains(refused.Detail.Message, id) || !strings.Contains(refused.Detail.Message, `"d1"`) {
+		t.Fatalf("approving over a clashing decision: got %v, want 409 %s naming %s and its draft", err, api.CodeDecisionClash, id)
+	}
+	if approval, err := d.Client.Approval(ctx, need.Approval.ID); err != nil || approval.State != authority.ApprovalPending {
+		t.Errorf("the refused approval is %+v: %v", approval, err)
+	}
+	if decision, err := d.Client.Decision(ctx, id); err != nil || decision.Statement != "Q: Which provider first? A: Adyen" {
+		t.Errorf("the clashing decision is %+v: %v", decision, err)
+	}
+	orders, err := d.Client.WorkOrders(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, order := range orders {
+		if order.Title == "Add the budget" && (order.State != workorders.ContractReview || order.ReviewedBy != "") {
+			t.Errorf("the plan's work is %s, reviewed by %q, after a refused approval", order.State, order.ReviewedBy)
+		}
+	}
+}
+
+// TestAPlanApprovalKeepsADecisionThatSaysWhatItsDraftSays holds the other side: a decision under a draft's ID
+// with the content approval would record is the same decision, which a retry finds, so approval goes on.
+func TestAPlanApprovalKeepsADecisionThatSaysWhatItsDraftSays(t *testing.T) {
+	t.Parallel()
+	d, w, _ := aWorld(t)
+	ctx := t.Context()
+	w.Planned(retrySource("The first draft."))
+	need := planApprovalNeed(t, readView[api.NeedsYou](t, d, api.ViewNeedsYou, ""))
+	plan := need.Approval.Plan
+	id := derivedDecisionID(plan, need.Version, "d1")
+	delegate := asDelegate(t, d.Socket, aDelegate(t, d.Client.Client, apitest.ProjectName).Token, apitest.ProjectName)
+	if _, err := delegate.RecordDecision(ctx, api.RecordDecision{
+		ID: id, Status: questions.DecisionDecided, Statement: "Q: Which provider first? A: Stripe", Rationale: "It is the one with an account.",
+		Scope: "plan:" + plan, Reversibility: questions.Reversible, Citations: []string{"plan_version:" + planning.ContractKey(plan, need.Version)},
+		Categories: []string{questions.CategoryProduct},
+	}); err != nil {
+		t.Fatalf("a delegate's decision within the decision policy: %v", err)
+	}
+	approved, err := d.Client.DecideApproval(ctx, need.Approval.ID, api.DecideApproval{Digest: need.Approval.SubjectDigest, Allow: true})
+	if err != nil || approved.State != authority.ApprovalApproved {
+		t.Fatalf("approving over the same decision: %+v %v", approved, err)
+	}
+	orders, err := d.Client.WorkOrders(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, order := range orders {
+		if order.Title == "Add the budget" && order.State != workorders.Ready {
+			t.Errorf("the plan's work is %s", order.State)
+		}
+	}
 }
