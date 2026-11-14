@@ -52,8 +52,10 @@ func (w *WorkOrders) Create(ctx context.Context, scope ledger.WorkspaceID, draft
 		if err != nil {
 			return err
 		}
-		_, err = tx.Append(event)
-		return err
+		if _, err := tx.Append(event); err != nil {
+			return err
+		}
+		return estimateMade(tx, record)
 	})
 	if err != nil {
 		return workorders.WorkOrder{}, err
@@ -172,6 +174,9 @@ func recordLedgerWork(tx ports.WriteTx, record workorders.WorkOrder, work Ledger
 		return record, err
 	}
 	if _, err := tx.Append(event); err != nil {
+		return record, err
+	}
+	if err := estimateMade(tx, record); err != nil {
 		return record, err
 	}
 	for _, dependsOn := range work.DependsOn {
