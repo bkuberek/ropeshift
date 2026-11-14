@@ -19,6 +19,7 @@ func TestParseDocumentRef(t *testing.T) {
 		{"experience-design:checkout-flow", planning.FileExperienceDesign, "checkout-flow", true},
 		{"requirements:payments", planning.FileRequirements, "payments", true},
 		{"milestone:m1", planning.FileMilestone, "m1", true},
+		{"repositories:platform", planning.FileRepositories, "platform", true},
 		// An ID may hold a colon, and only the first one separates the kind.
 		{"spec:a:b", planning.FileSpec, "a:b", true},
 		{"checkout-api", "", "", false},
@@ -47,6 +48,7 @@ func TestEveryDocumentKindHasAHead(t *testing.T) {
 		planning.FileArchitecture:     {Architecture: &planning.ArchitectureFile{ID: "x", Title: "T", Plan: "p"}},
 		planning.FileExperienceDesign: {Experience: &planning.ExperienceDesignFile{ID: "x", Title: "T", Plan: "p"}},
 		planning.FileMilestone:        {Milestone: &planning.MilestoneFile{ID: "x", Title: "T", Plan: "p", Priority: 3}},
+		planning.FileRepositories:     {Repositories: &planning.RepositoriesFile{ID: "x", Plan: "p", Ignored: []string{"merge_authority"}}},
 	}
 	for kind, doc := range cases {
 		t.Run(string(kind), func(t *testing.T) {

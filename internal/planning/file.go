@@ -25,11 +25,14 @@ const (
 	FileArchitecture     FileKind = "architecture"
 	FileExperienceDesign FileKind = "experience-design"
 	FileMilestone        FileKind = "milestone"
+	// FileRepositories is the manifest of a project's repositories, which lives in its planning repository
+	// (ADR-0022).
+	FileRepositories FileKind = "repositories"
 )
 
 // documentKinds are the kinds of file that are documents: each has a stable ID, a version the ledger
 // numbers for every committed change, and a reference a contract or a plan can cite (ADR-0013).
-var documentKinds = []FileKind{FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone}
+var documentKinds = []FileKind{FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone, FileRepositories}
 
 // IsDocumentKind says a file of this kind is a document.
 func IsDocumentKind(kind FileKind) bool { return slices.Contains(documentKinds, kind) }
@@ -274,6 +277,27 @@ type MilestoneFile struct {
 	ExitCriteria []ExitCriterion `toml:"exit_criteria" json:"exit_criteria,omitempty"`
 }
 
+// RepositoriesFile is the front matter of a repository manifest: each repository of the project, by its
+// name, with its remote, the path of its clone relative to the planning repository's clone, and what it
+// is for (ADR-0022). A manifest names repositories and sets nothing else: Ignored lists every key it holds
+// that the format does not have, such as a merge setting, which has no effect and which intake reports.
+type RepositoriesFile struct {
+	Kind         FileKind             `toml:"kind" json:"kind"`
+	ID           string               `toml:"id" json:"id"`
+	Title        string               `toml:"title" json:"title,omitempty"`
+	Plan         string               `toml:"plan" json:"plan,omitempty"`
+	Repositories []ManifestRepository `toml:"repository" json:"repository,omitempty"`
+	Ignored      []string             `toml:"-" json:"-"`
+}
+
+// ManifestRepository is one `[[repository]]` table of a manifest.
+type ManifestRepository struct {
+	Name        string `toml:"name" json:"name"`
+	Remote      string `toml:"remote" json:"remote,omitempty"`
+	Path        string `toml:"path" json:"path"`
+	Description string `toml:"description" json:"description,omitempty"`
+}
+
 // Document is one decoded repository file. The field of its kind is set.
 type Document struct {
 	Kind         FileKind
@@ -285,6 +309,7 @@ type Document struct {
 	Architecture *ArchitectureFile
 	Experience   *ExperienceDesignFile
 	Milestone    *MilestoneFile
+	Repositories *RepositoriesFile
 	Statement    string
 }
 
@@ -331,6 +356,9 @@ func (d Document) Head() (DocumentHead, bool) {
 	case d.Milestone != nil:
 		f := d.Milestone
 		head, file = DocumentHead{Kind: FileMilestone, ID: f.ID, Title: f.Title, Plan: f.Plan}, f
+	case d.Repositories != nil:
+		f := d.Repositories
+		head, file = DocumentHead{Kind: FileRepositories, ID: f.ID, Title: f.Title, Plan: f.Plan}, f
 	default:
 		return DocumentHead{}, false
 	}
@@ -368,7 +396,7 @@ func SplitFrontMatter(raw []byte) (header, body []byte, err error) {
 // CheckKind accepts the kinds of the format.
 func CheckKind(kind FileKind) error {
 	switch kind {
-	case FileGoal, FilePlan, FileContract, FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone:
+	case FileGoal, FilePlan, FileContract, FileRequirements, FileSpec, FileArchitecture, FileExperienceDesign, FileMilestone, FileRepositories:
 		return nil
 	}
 	return fmt.Errorf("%w: %q", ErrUnknownKind, kind)
@@ -479,6 +507,31 @@ func insideRepository(name string) bool {
 		return false
 	}
 	return !slices.Contains(strings.Split(path.Clean(name), "/"), "..") && path.Clean(name) != "."
+}
+
+// Normalize refuses a manifest that cannot become a document. Each repository has a name a repository can
+// have, once, and a path relative to the planning repository's clone, because a path from the root of one
+// machine means nothing on another. A path may lead out of that clone, as to a clone beside it.
+func (f RepositoriesFile) Normalize() (RepositoriesFile, error) {
+	if f.ID == "" {
+		return f, fmt.Errorf("%w: no id", ErrBadFile)
+	}
+	seen := map[string]bool{}
+	for _, repository := range f.Repositories {
+		if err := ledger.CheckRepositoryName(repository.Name); err != nil {
+			return f, fmt.Errorf("%w: manifest %s: %v", ErrBadFile, f.ID, err)
+		}
+		if seen[repository.Name] {
+			return f, fmt.Errorf("%w: manifest %s names repository %s twice", ErrBadFile, f.ID, repository.Name)
+		}
+		seen[repository.Name] = true
+		if repository.Path == "" || strings.ContainsAny(repository.Path, "\\\x00") || path.IsAbs(repository.Path) {
+			return f, fmt.Errorf("%w: manifest %s: repository %s needs a path relative to the planning repository's clone, not %q", ErrBadFile, f.ID, repository.Name, repository.Path)
+		}
+	}
+	f.Ignored = cleanList(f.Ignored)
+	slices.Sort(f.Ignored)
+	return f, nil
 }
 
 // documentIdentity checks what every document that addresses requirements shares.
